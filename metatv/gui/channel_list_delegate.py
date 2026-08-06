@@ -38,20 +38,37 @@ Two responsibilities:
    ``PLAYBACK_GLYPH_ROLE``/``PLAYBACK_GLYPH_COLOR_ROLE``/``MATCH_MARKER_ROLE``
    roles populated by the model.
 
-   Chips are painted as rounded rects, one hue per facet (#257 — the ONE chip
-   system, adopting ``theme.LANG_CHIP``'s "hue-tinted background + same-hue
-   bright foreground" idiom instead of a neutral white-alpha background; hues
-   come from ``filter_group_row._accent_colors()``, never invented locally):
-   language (own/secondary language + subtitle marker) = blue, region = green,
-   genre = teal, collection = muted grey (``OVERLAY_08`` + ``COLOR_MUTED``,
-   unchanged). Two facets are deliberately styled DIFFERENTLY from that tinted-
-   fill idiom: platform (Netflix/Disney+/Apple+/…, a ``PLATFORM_CODES`` member
-   sharing the region chip's role/field) is a SOLID purple fill, and quality is
-   OUTLINE ONLY (border + text in the tier's ``_quality_outline_colors()`` hue
-   — a dedicated per-palette family, contrast-tuned so it clears 4.5:1 against
-   the list's own background in every palette — a subtle ``OVERLAY_08`` tint
-   instead of literally transparent; see ``_quality_cell``'s docstring). All
-   colours are theme tokens, never literals. The title is elided
+   **Three emphasis tiers (#298).** The row used to carry SEVEN boxed
+   treatments — blue language, green region, teal genre, grey collection,
+   purple platform, outlined quality, muted year — plus a poster tile, while
+   the TITLE, the thing anyone is actually scanning for, had no treatment at
+   all. Nothing receded, so nothing led. Now:
+
+   - **Tier 1, FILL** — language only (own language, the category's
+     disagreeing language, and any sub/dub marker: one hue, one treatment),
+     plus genuine row STATE (selection). Nothing else in the row gets a fill.
+   - **Tier 2, TINTED TEXT, no box** — region, genre, platform, collection.
+     The hue stays, because the hue is what was carrying the facet encoding;
+     the box was not. Collection is the one neutral member, deliberately: the
+     palette publishes one hue per facet and no two may share one, so a fifth
+     hue would have to be borrowed from a facet that already means something
+     else. Platform in particular used to be the LOUDEST thing in the row (a
+     solid purple fill) for a fact almost nobody scans by.
+   - **Tier 3, OUTLINE** — quality and the year. Quality is the row's one
+     CLAIM rather than a category, so it earns a border, and it paints
+     IMMEDIATELY AFTER THE TITLE (it qualifies this copy) rather than in the
+     right-hand rail.
+
+   The title itself paints in ``COLOR_ROW_TITLE`` (``on-surface.strong``) at
+   DemiBold, so it is unambiguously the loudest thing in its own row.
+
+   Hues come from the palette's ``facet.*`` block via the ``COLOR_ROW_*``
+   tokens — never invented locally, and never a literal. No tier ever uses an
+   alpha wash as a resting fill; the overlay ramp is for hover.
+
+   Chip ORDER is declared once, in :data:`ROW_CHIP_ORDER`, and every density
+   asks that constant for the subset it shows — the two densities previously
+   built their own tuples and had already drifted apart. The title is elided
    (``Qt.TextElideMode.ElideRight``) against a *fixed* box computed from the
    other cells' measured widths, so a long title can never push a chip out of
    the row.
@@ -92,6 +109,7 @@ from PyQt6.QtGui import (
     QAbstractTextDocumentLayout,
     QBrush,
     QColor,
+    QFont,
     QFontMetrics,
     QPalette,
     QTextDocument,
@@ -119,6 +137,7 @@ from metatv.gui.channel_list_model import (
     COLLECTION_ROLE,
     FAV_GLYPH_ROLE,
     GENRE_ROLE,
+    GENRES_ROLE,
     LANGUAGE_ROLE,
     MATCH_MARKER_ROLE,
     MEDIA_ICON_ROLE,
@@ -168,6 +187,16 @@ _CHIP_H_PAD = 7       # chip internal horizontal padding — matches theme.LANG_
 _THUMB_RADIUS = 4     # poster-placeholder tile corner radius. Its own constant:
                       # it borrowed _CHIP_RADIUS, so rounding the chips into pills
                       # would otherwise have rounded a 90px-tall poster tile too.
+_OUTLINE_RADIUS = 3   # TIER 3 corner radius. Deliberately NOT the pill radius
+                      # below: a filled pill and an outlined pill of the same
+                      # shape read as two colours of one thing, when the whole
+                      # point of the tiers is that they are different KINDS of
+                      # thing. A tight rounded rect also stops a short outlined
+                      # chip ("2024") from rendering as a squashed lozenge.
+_OUTLINE_V_INSET = 1  # px inset top+bottom on a tier-3 box. The stroke is drawn
+                      # ON the rect's edge, and the row's clip rect cuts the
+                      # line rect exactly — so a box at full line height loses
+                      # its top and bottom edges to clipping.
 _CHIP_RADIUS = 8      # chip corner radius — matches LANG_CHIP's "border-radius: 8px".
                       # Was 3, which read as a squared-off box next to the sidebar's
                       # rounded pills. Clamped to half the chip height at paint time
@@ -247,22 +276,29 @@ def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
 
 
 class _Cell(NamedTuple):
-    """One paintable unit: either a plain text run or a coloured chip.
+    """One paintable unit, in one of the row's THREE emphasis tiers (#298).
 
-    A chip (``is_chip=True``) is a SOLID fill by default — ``bg`` painted
-    behind ``fg``-coloured text (the LANG_CHIP idiom: hue-tinted background +
-    same-hue bright foreground, or platform's solid accent fill). Setting
-    ``outline=True`` instead draws ``bg`` (if any — a subtle tint, never
-    literally required) as a BORDER stroke around a chip whose interior is
-    otherwise unfilled, with the text in ``fg`` — the quality chip's own
-    treatment (#257), distinct from every other facet chip.
+    - **Tier 1, fill** — ``is_chip=True``, ``bg`` set: a solid fill with
+      ``fg``-coloured text on it. Language only, plus genuine row state.
+    - **Tier 2, tinted text** — ``is_chip=False``: a bare text run in the
+      facet's hue, no box at all. Region, genre, platform, collection.
+    - **Tier 3, outline** — ``is_chip=True, outline=True``: a border stroke
+      (``border``, defaulting to ``fg``) around an UNFILLED interior, text in
+      ``fg``. Quality and year.
+
+    ``border`` exists because tier 3 has two members with different needs:
+    quality's stroke is its tier hue (same as its text), while the year's text
+    is neutral metadata but its box must be quieter still than that text.
     """
 
     text: str
     is_chip: bool
     fg: str        # QColor-constructible token/hex (theme.* or a QColor.name())
-    bg: Optional[str] = None   # chip background/border token (chip only)
-    outline: bool = False      # True => border-only chip (quality), never filled
+    bg: Optional[str] = None   # fill token — tier 1 only; None on an outline chip
+                               # (an alpha wash as a RESTING fill is a hover
+                               # effect in the wrong place — owner directive)
+    outline: bool = False      # True => border-only chip (tier 3), never filled
+    border: Optional[str] = None  # outline stroke token; falls back to ``fg``
     # Facet identity + hover copy (#24). A delegate-painted chip has no widget,
     # so it cannot carry setToolTip() — the view hit-tests the painted rect and
     # renders `tip` itself. `facet`/`value` are what a click filters on; both
@@ -270,6 +306,87 @@ class _Cell(NamedTuple):
     facet: str = ""
     value: str = ""
     tip: str = ""
+
+
+def _on_selection(cell: _Cell, color: str) -> _Cell:
+    """Re-render *cell* for a SELECTED row, flattened to *color*.
+
+    A selected row IS the tier-1 fill (``COLOR_ACCENT``), so every cell on it is
+    now sitting on a saturated accent rather than on the list surface — and a
+    facet hue chosen for legibility on the list surface has no reason to clear
+    4.5:1 on the accent. Before this, a selected row painted green ``KR`` and a
+    blue-filled ``EN`` box directly onto the blue highlight, which is where the
+    old row's worst contrast in the app actually was.
+
+    Fills and hues are dropped; the outline tier keeps its box (the shape is
+    still carrying "this is a claim, not a category") with the stroke in the
+    on-accent colour. Hue-as-encoding is lost for exactly one row — the one
+    whose state is already unambiguous from the fill under it.
+    """
+    if cell.outline:
+        return cell._replace(fg=color, bg=None, border=color)
+    return cell._replace(is_chip=False, fg=color, bg=None, border=None)
+
+
+# ---------------------------------------------------------------------------
+# Chip order — ONE definition, deliberately not emergent from the paint code.
+# ---------------------------------------------------------------------------
+
+CHIP_SLOT_QUALITY = "quality"
+CHIP_SLOT_VARIANTS = "variants"
+CHIP_SLOT_RATING = "rating"
+CHIP_SLOT_GENRE = "genre"
+CHIP_SLOT_COLLECTION = "collection"
+CHIP_SLOT_YEAR = "year"
+CHIP_SLOT_REGION = "region"          # region OR platform — one field, two hues
+CHIP_SLOT_SUBTITLE = "subtitle"
+CHIP_SLOT_LANGUAGE_2 = "language_secondary"
+CHIP_SLOT_LANGUAGE = "language"
+
+#: Left-to-right precedence for every chip the row can paint, in ONE place.
+#:
+#: Each line asks for the subset it owns (see ``_ordered``) and gets them back
+#: in this order, so the order is a single readable declaration rather than
+#: something you have to reconstruct by reading three paint methods and
+#: diffing their tuple literals — which is what it was, and why the two
+#: densities had silently drifted apart. A future Settings → Interface control
+#: reorders this tuple and every density follows.
+#:
+#: Position notes: quality leads because it is painted in the LEFT group,
+#: hugging the title — it qualifies this copy of the title, so it belongs next
+#: to it, not in the right rail. State (variants, rating) precedes taxonomy on
+#: its line. The channel's own honest language sits furthest right of the
+#: right-aligned group, which is the anchor the eye returns to (owner spec).
+ROW_CHIP_ORDER: tuple[str, ...] = (
+    CHIP_SLOT_QUALITY,
+    CHIP_SLOT_VARIANTS,
+    CHIP_SLOT_RATING,
+    CHIP_SLOT_GENRE,
+    CHIP_SLOT_COLLECTION,
+    CHIP_SLOT_YEAR,
+    CHIP_SLOT_REGION,
+    CHIP_SLOT_SUBTITLE,
+    CHIP_SLOT_LANGUAGE_2,
+    CHIP_SLOT_LANGUAGE,
+)
+
+#: How many genres a row will show before it stops (#298 — "show multiple
+#: genres when present"). ``detected_genres`` regularly holds 4+ segments;
+#: past three they stop being scannable and start eating the title's box.
+_MAX_GENRES = 3
+
+
+def _ordered(by_slot: dict[str, list[_Cell]], slots: tuple[str, ...]) -> list[_Cell]:
+    """Cells for *slots*, sorted by :data:`ROW_CHIP_ORDER` and flattened.
+
+    A slot may hold several cells (genre, which paints one per genre); they keep
+    their own relative order inside the slot.
+    """
+    out: list[_Cell] = []
+    for slot in ROW_CHIP_ORDER:
+        if slot in slots:
+            out.extend(by_slot.get(slot, ()))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +463,12 @@ def _region_label(code: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _year_cell(year) -> Optional[_Cell]:
+    """Year — TIER 3, outline (owner call: "put an outline on the year").
+
+    Neutral text (``COLOR_ROW_META``) inside a quieter neutral box
+    (``COLOR_BORDER``): the year is the one metadata field that is a plain
+    number, so without a box it reads as part of whatever text abuts it.
+    """
     # Coerce: the year reaches us as a str from ChannelListDTO but as an int
     # from some model stubs/roles, and a non-str text reaches QFontMetrics
     # .horizontalAdvance() and raises.
@@ -355,14 +478,22 @@ def _year_cell(year) -> Optional[_Cell]:
     # collection / genre / language / quality / region), so there is nothing
     # to filter on. Tooltip only — a chip that looks clickable and does
     # nothing is worse than one that plainly just labels itself.
-    return _Cell(str(year), False, _theme.COLOR_MUTED, tip=f"Released {year}")
+    return _Cell(str(year), True, _theme.COLOR_ROW_META, outline=True,
+                 border=_theme.COLOR_BORDER, tip=f"Released {year}")
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:
-    """Quality chip — OUTLINE ONLY (What's New 257, Part A): border + text in the tier's
-    colour from ``_quality_outline_colors()``, not a solid fill — the one
-    facet chip styled differently from the rest of the row's new
-    hue-tinted-fill family.
+    """Quality chip — TIER 3, OUTLINE ONLY: border + text in the tier's colour
+    from ``_quality_outline_colors()``, over an interior that is not filled at
+    all (#298 dropped the ``OVERLAY_08`` tint the chip used to carry — an
+    alpha wash is a hover effect, and using one as a resting fill is what put
+    an un-authored, un-themeable grey into the row).
+
+    Quality is the row's one CLAIM rather than a category — "this copy is 4K" —
+    which is why it gets a border when no other facet does, and why it paints
+    immediately after the title instead of in the right-hand rail: it qualifies
+    the title, and a claim separated from what it qualifies reads as a
+    different fact.
 
     Deliberately reads ``_quality_outline_colors()``, NOT ``_quality_colors()``
     (still used unchanged by ``badge_utils.make_quality_chip``'s solid-fill
@@ -380,53 +511,57 @@ def _quality_cell(token: str) -> Optional[_Cell]:
     ``tests/test_palette_completeness.py``'s
     ``test_quality_outline_chip_contrast_at_least_4_5_every_palette``.
 
-    Background stays ``OVERLAY_08`` (a subtle, existing neutral tint) rather
-    than literally transparent, per the original owner instruction — this
-    softens the chip's visual boundary; it isn't what makes the text/border
-    contrast pass (a same/darker-neutral background tint alone cannot raise
-    contrast when the tier text is the darker of the pair — verified by
-    direct computation), the per-palette hue-preserving lightness tuning does.
     """
     if not token:
         return None
     upper = token.upper()
     color = _quality_outline_colors().get(upper, _theme.COLOR_FAINT)
-    return _Cell(quality_display(upper), True, color, _theme.OVERLAY_08, outline=True,
+    return _Cell(quality_display(upper), True, color, None, outline=True,
                  facet="quality", value=upper,
                  tip=f"Picture quality: {quality_display(upper)} — click to show "
                      f"only {quality_display(upper)} versions")
 
 
 def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
-    """Region-or-platform chip for ``LANGUAGE_ROLE`` (``detected_region`` —
-    the field doubles as BOTH a geographic region code and a streaming-
-    platform code, e.g. ``"US"`` vs ``"NF"``/``"A+"``).
+    """Region-or-platform — TIER 2, tinted text, for ``LANGUAGE_ROLE``
+    (``detected_region`` — the field doubles as BOTH a geographic region code
+    and a streaming-platform code, e.g. ``"US"`` vs ``"NF"``/``"A+"``).
 
-    Two distinct hues (#257 Part A): a recognized :data:`PLATFORM_CODES`
-    member renders as a SOLID purple fill (``platform_display`` resolves the
-    brand name per *platform_style*); anything else renders as the
-    LANG_CHIP-idiom green-tinted region chip, unchanged code text.
+    Two distinct hues, no box on either: a recognized :data:`PLATFORM_CODES`
+    member paints in ``COLOR_ROW_PLATFORM`` (``platform_display`` resolves the
+    brand name per *platform_style*), anything else in ``COLOR_ROW_REGION``.
+
+    Platform used to be the single LOUDEST treatment in the row — a solid
+    purple fill — for a fact almost nobody scans by. It now sits in the same
+    tier as its neighbours and keeps its hue, which is the part that was
+    carrying the meaning.
     """
     if not code:
         return None
     if code in PLATFORM_CODES:
         brand = platform_display(code, platform_style)
         return _Cell(
-            brand, True,
-            _theme.COLOR_TEXT_HI, _theme.COLOR_ACCENT_PURPLE,
+            brand, False, _theme.COLOR_ROW_PLATFORM,
             facet="region", value=code,
             tip=f"Streaming platform: {brand} — click to show only {brand}",
         )
-    return _Cell(code, True, _theme.COLOR_ACCENT_GREEN, _theme.OVERLAY_GREEN_15,
+    return _Cell(code, False, _theme.COLOR_ROW_REGION,
                  facet="region", value=code,
                  tip=f"Region: {_region_label(code)} — click to show only this region")
 
 
 def _language_cell(text: str, *, filterable: bool = True) -> Optional[_Cell]:
-    """Language-family chip (LANG_CHIP idiom, blue) — the channel's own/
+    """Language family — TIER 1, the row's ONLY facet fill: the channel's own/
     secondary language and any sub/dub marker (``PRIMARY_LANGUAGE_ROLE``,
-    ``SECONDARY_LANGUAGE_ROLE``, ``SUBTITLE_MARKER_ROLE``): all
-    language-adjacent facets, sharing one hue."""
+    ``SECONDARY_LANGUAGE_ROLE``, ``SUBTITLE_MARKER_ROLE``) all share one hue
+    and one treatment.
+
+    Language keeps the fill on the owner's call — it is the highest-value facet
+    after the title itself, and a tier system with nothing in its top tier
+    would just be a flatter version of the same problem. ``COLOR_ROW_LANGUAGE``
+    on ``COLOR_ROW_LANGUAGE_FILL`` is a same-hue pair (Radix step 11 text on
+    step 4 fill), so the chip clears 4.5:1 without a neutral in sight.
+    """
     if not text:
         return None
     if not filterable:
@@ -435,29 +570,64 @@ def _language_cell(text: str, *, filterable: bool = True) -> Optional[_Cell]:
         # chip explains itself and stops there. Giving it facet="language"
         # rendered a pointing-hand cursor over a click that silently did
         # nothing, which is worse than no affordance.
-        return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15,
+        return _Cell(text, True, _theme.COLOR_ROW_LANGUAGE,
+                     _theme.COLOR_ROW_LANGUAGE_FILL,
                      tip=f"Subtitles/dub: {text}")
-    return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15,
+    return _Cell(text, True, _theme.COLOR_ROW_LANGUAGE,
+                 _theme.COLOR_ROW_LANGUAGE_FILL,
                  facet="language", value=text,
                  tip=f"Language: {_region_label(text)} — click to show only this language")
 
 
 def _genre_cell(genre: str) -> Optional[_Cell]:
-    """Genre chip (LANG_CHIP idiom, teal) — comfy line 2's taxonomy group
-    (#257 Part C; state stays left — rating glyph + variant badge — taxonomy
-    right: genre, then the collection chip)."""
+    """One genre — TIER 2, tinted text in ``COLOR_ROW_GENRE``."""
     if not genre:
         return None
-    return _Cell(genre, True, _theme.COLOR_ACCENT_TEAL, _theme.OVERLAY_TEAL_15,
+    return _Cell(genre, False, _theme.COLOR_ROW_GENRE,
                  facet="genre", value=genre,
                  tip=f"Genre: {genre} — click to show only {genre}")
 
 
+def _genre_cells(genres, fallback: str = "") -> list[_Cell]:
+    """Up to :data:`_MAX_GENRES` genre cells (#298 — "show multiple genres
+    when present").
+
+    Reads the ingestion-computed ``detected_genres`` list; *fallback* is the
+    single ``detected_genre`` for rows ingested before that column existed and
+    not yet re-swept, so a pre-migration library still shows its one genre
+    rather than none. Neither is ever re-derived at render — both are stored
+    fields (``update_detected_prefixes``).
+    """
+    values = [g for g in (genres or ()) if g]
+    if not values and fallback:
+        values = [fallback]
+    seen: set[str] = set()
+    cells: list[_Cell] = []
+    for genre in values:
+        if genre in seen:
+            continue
+        seen.add(genre)
+        cell = _genre_cell(genre)
+        if cell is not None:
+            cells.append(cell)
+        if len(cells) >= _MAX_GENRES:
+            break
+    return cells
+
+
 def _category_cell(category: str, platform_code: str = "",
                    filter_category: str = "") -> Optional[_Cell]:
-    """Collection chip — MUTED GREY, unchanged (owner call #257):
-    ``OVERLAY_08`` + ``COLOR_MUTED``. The TEXT is a render-layer transform
-    via :func:`~metatv.core.channel_name_utils.collection_display` (trailing
+    """Collection — TIER 2, but NEUTRAL text (``COLOR_ROW_COLLECTION``), not a
+    hue.
+
+    Every other tier-2 member carries a facet hue. Collection deliberately does
+    not: the palette publishes one hue per facet and no two may share one, so a
+    fifth hue here would either be invented or borrowed from a facet that
+    already means something else — and a borrowed hue is a false statement
+    about the data. Dropping the box is the change; the grey was already right.
+
+    The TEXT is a render-layer transform via
+    :func:`~metatv.core.channel_name_utils.collection_display` (trailing
     media-type token stripped + a leading platform-duplicate token stripped
     when *platform_code* is this row's own recognized platform code) — never
     touches the stored ``detected_collection`` (Discover reads that verbatim
@@ -470,37 +640,37 @@ def _category_cell(category: str, platform_code: str = "",
     # collection filter matches, and filtering on the displayed string returns
     # nothing. Falls back to the display value only when no curated category
     # exists, which the applier treats as "nothing to filter on".
-    return _Cell(display, True, _theme.COLOR_MUTED, _theme.OVERLAY_08,
+    return _Cell(display, False, _theme.COLOR_ROW_COLLECTION,
                  facet="collection", value=(filter_category or ""),
                  tip=f"Collection: {display} — click to show only this collection")
 
 
-def _rating_chip_cell(rating: int) -> Optional[_Cell]:
-    """Compact-mode rating: a coloured chip (like=green, dislike=red)."""
-    if not rating:
-        return None
-    glyph = _icons.like_icon if rating > 0 else _icons.dislike_icon
-    bg = _rating_chip_bg()[1 if rating > 0 else -1]
-    return _Cell(glyph, True, _theme.COLOR_TEXT_HI, bg)
-
-
 def _rating_glyph_cell(rating: int) -> Optional[_Cell]:
-    """Comfy line-2 rating: a plain glyph in the muted/secondary token."""
+    """Rating — a bare 👍/👎 glyph, in EVERY density.
+
+    Compact used to paint this as a green/red filled chip. The glyph is an
+    emoji: it carries its own colour, so the fill behind it was adding a
+    coloured box that said nothing the glyph did not already say — and under
+    the tier rules a fill has to mean state the row cannot otherwise show.
+    ``fg`` is still set for the fallback case where a font renders the glyph
+    monochrome.
+    """
     if not rating:
         return None
     glyph = _icons.like_icon if rating > 0 else _icons.dislike_icon
-    return _Cell(glyph, False, _theme.COLOR_MUTED)
+    return _Cell(glyph, False, _theme.COLOR_ROW_META)
 
 
 def _variant_badge_cell(count: int) -> Optional[_Cell]:
     """Collapsed-variant "×N" badge (Settings → Interface → "Collapse quality/
-    language versions"). Omitted (None) for singleton/uncollapsed rows —
-    ``ChannelListDTO.variant_count`` defaults to 1 whenever collapsing is off,
-    so this is a no-op everywhere the setting is unused (same informational-chip
-    styling as :func:`_category_cell` — muted, not a strong categorical color)."""
+    language versions") — plain neutral text.
+
+    Omitted (None) for singleton/uncollapsed rows — ``ChannelListDTO.
+    variant_count`` defaults to 1 whenever collapsing is off, so this is a
+    no-op everywhere the setting is unused."""
     if not count or count <= 1:
         return None
-    return _Cell(f"×{count}", True, _theme.COLOR_MUTED, _theme.OVERLAY_08,
+    return _Cell(f"×{count}", False, _theme.COLOR_ROW_META,
                  tip=f"{count} versions of this title were collapsed into one row "
                      f"(Settings → Interface → Collapse quality/language versions)")
 
@@ -638,12 +808,20 @@ class ChannelRowDelegate(QStyledItemDelegate):
                 max(0, text_rect.width() - (_THUMB_W + _THUMB_GAP)),
                 text_rect.height(),
             )
+        # A selected row is a solid accent FILL, so every cell on it is now on
+        # the accent rather than on the list surface — the tier colours are
+        # flattened onto the highlight foreground rather than painted as-is.
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        title_color = self._title_color(opt, index)
         if self._density == DENSITY_COMPACT:
-            self._paint_compact(painter, content_rect, index, default_color, opt.font)
+            self._paint_compact(painter, content_rect, index, default_color, opt.font,
+                                title_color=title_color, selected=selected)
         elif self._density == DENSITY_COMFY_PLUS:
-            self._paint_comfy_plus(painter, content_rect, index, default_color, opt.font)
+            self._paint_comfy_plus(painter, content_rect, index, default_color, opt.font,
+                                   title_color=title_color, selected=selected)
         else:
-            self._paint_comfy(painter, content_rect, index, default_color, opt.font)
+            self._paint_comfy(painter, content_rect, index, default_color, opt.font,
+                              title_color=title_color, selected=selected)
         painter.restore()
         self._painting_row = None
 
@@ -682,12 +860,13 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         letter = title.strip()[:1].upper() if title.strip() else "?"
         painter.setPen(Qt.PenStyle.NoPen)
-        # A SUNK surface, not a light slab. COLOR_FAINT made the placeholder the LOUDEST object in a row with no poster —
-        # a missing image shouting over the title that is actually there — and
-        # its letter sat on it at 2.10:1, half the floor for UI chrome.
-        # Absence should read as absence: a recessed tile, with the letter in
-        # body text so it stays legible on it.
-        painter.setBrush(_to_qcolor(_theme.COLOR_BG_CARD))
+        # A SUNK surface, not a light slab. COLOR_FAINT made the placeholder the
+        # LOUDEST object in a row with no poster — a missing image shouting over
+        # the title that is actually there — and its letter sat on it at 2.10:1,
+        # half the floor for UI chrome. COLOR_BG_CARD then fixed the contrast but
+        # kept the tile a step ABOVE the list surface, so it still led the row.
+        # ``surface.sunk`` is the role named for this: absence reads as absence.
+        painter.setBrush(_to_qcolor(_theme.COLOR_ROW_THUMB_PLACEHOLDER))
         painter.drawRoundedRect(rect, _THUMB_RADIUS, _THUMB_RADIUS)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(_to_qcolor(_theme.COLOR_TEXT))
@@ -743,6 +922,40 @@ class ChannelRowDelegate(QStyledItemDelegate):
             return fg.color()
         return opt.palette.color(QPalette.ColorRole.Text)
 
+    def _title_color(self, opt: QStyleOptionViewItem, index) -> object:
+        """Colour for the TITLE specifically — the loudest thing in its row.
+
+        The title is the one thing the eye is actually scanning for, and it was
+        painting in the same body-text token as the metadata around it, so
+        nothing in the row led. ``COLOR_ROW_TITLE`` is ``on-surface.strong``
+        (Radix step 12) against the metadata's step 11.
+
+        The two overrides both still win, because both are saying something
+        about the row that outranks emphasis: a SELECTED row's title takes the
+        highlight foreground, and a row carrying an explicit ``ForegroundRole``
+        (watched-dim, degraded-grey) keeps that dimming — brightening the title
+        of a row the model just dimmed would undo the signal.
+        """
+        if opt.state & QStyle.StateFlag.State_Selected:
+            return opt.palette.color(QPalette.ColorRole.HighlightedText)
+        fg = index.data(Qt.ItemDataRole.ForegroundRole)
+        if isinstance(fg, QBrush):
+            return fg.color()
+        return _theme.COLOR_ROW_TITLE
+
+    @staticmethod
+    def _title_font(font):
+        """The row font at DemiBold — weight is the other half of "the title
+        leads". Colour alone moves it one Radix step; weight is what makes it
+        read as the row's subject at a glance.
+
+        Returns a COPY: the passed font is the shared style option's, and
+        mutating it in place would bold every cell painted after the title.
+        """
+        title_font = QFont(font)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        return title_font
+
     def _draw_text(self, painter, rect: QRect, text: str, color, font) -> None:
         painter.setFont(font)
         painter.setPen(_to_qcolor(color))
@@ -785,17 +998,23 @@ class ChannelRowDelegate(QStyledItemDelegate):
                 self._hit_regions.setdefault(row, []).append((QRect(rect), cell))
         painter.setFont(font)
         if cell.is_chip and cell.outline:
-            # Border-only chip (quality, #257) — never a solid fill. ``bg``
-            # (a subtle tint, e.g. OVERLAY_08) paints as the interior when
-            # present, then the border + text are ``fg`` (the tier colour).
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(_to_qcolor(cell.bg) if cell.bg else Qt.BrushStyle.NoBrush)
-            _r = self._chip_radius(rect)
-            painter.drawRoundedRect(rect, _r, _r)
+            # TIER 3 — border-only. The interior is painted only if ``bg`` is
+            # set, which for the row's own outline cells it never is: a resting
+            # alpha tint is a hover effect in the wrong place. The stroke is
+            # ``border`` when the cell wants a box quieter than its text (the
+            # year), else ``fg`` (quality, whose box IS its tier hue).
+            box = rect.adjusted(0, _OUTLINE_V_INSET, 0, -_OUTLINE_V_INSET)
+            if cell.bg:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(_to_qcolor(cell.bg))
+                painter.drawRoundedRect(box, _OUTLINE_RADIUS, _OUTLINE_RADIUS)
             painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(_to_qcolor(cell.border or cell.fg))
+            painter.drawRoundedRect(box, _OUTLINE_RADIUS, _OUTLINE_RADIUS)
             painter.setPen(_to_qcolor(cell.fg))
-            _r = self._chip_radius(rect)
-            painter.drawRoundedRect(rect, _r, _r)
+            # Text centres on the FULL rect, not the inset box: the inset is a
+            # stroke-clipping fix, and shifting the baseline with it would take
+            # the year off the line its neighbours sit on.
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
         elif cell.is_chip:
             painter.setPen(Qt.PenStyle.NoPen)
@@ -809,70 +1028,162 @@ class ChannelRowDelegate(QStyledItemDelegate):
             painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, cell.text)
 
-    # ── Compact (one line) ───────────────────────────────────────────────────
+    # ── Shared row-building seam ─────────────────────────────────────────────
 
-    def _paint_compact(self, painter, rect: QRect, index, default_color, font) -> None:
+    def _cells_by_slot(
+        self, index, *, selected_color: Optional[object] = None
+    ) -> dict[str, list[_Cell]]:
+        """Build EVERY chip this row can paint, keyed by its slot id.
+
+        The one place a role is turned into a ``_Cell``. Each density then asks
+        :func:`_ordered` for the subset it shows, which is what keeps compact
+        and comfy from drifting apart — they used to build their own tuples,
+        and had already ended up with the same chips in different orders.
+
+        Args:
+            index: the row's model index.
+            selected_color: when set, the row is SELECTED and every cell is
+                flattened onto it — see :func:`_on_selection`.
+        """
+        region_code = index.data(LANGUAGE_ROLE) or ""
+        platform_code = region_code if region_code in PLATFORM_CODES else ""
+
+        def one(cell: Optional[_Cell]) -> list[_Cell]:
+            return [cell] if cell is not None else []
+
+        by_slot = {
+            CHIP_SLOT_QUALITY: one(_quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")),
+            CHIP_SLOT_VARIANTS: one(_variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1)),
+            CHIP_SLOT_RATING: one(_rating_glyph_cell(index.data(RATING_ROLE) or 0)),
+            CHIP_SLOT_GENRE: _genre_cells(
+                index.data(GENRES_ROLE), index.data(GENRE_ROLE) or ""
+            ),
+            CHIP_SLOT_COLLECTION: one(_category_cell(
+                index.data(COLLECTION_ROLE) or "", platform_code,
+                filter_category=index.data(CATEGORY_ROLE) or "",
+            )),
+            CHIP_SLOT_YEAR: one(_year_cell(index.data(YEAR_ROLE) or "")),
+            CHIP_SLOT_REGION: one(_region_or_platform_cell(
+                region_code, self._effective_platform_style()
+            )),
+            # Sub/dub marker ("AR-SUB"), the category's disagreeing language,
+            # and the channel's OWN honest language — one hue, one tier.
+            CHIP_SLOT_SUBTITLE: one(_language_cell(
+                index.data(SUBTITLE_MARKER_ROLE) or "", filterable=False
+            )),
+            CHIP_SLOT_LANGUAGE_2: one(_language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or "")),
+            CHIP_SLOT_LANGUAGE: one(_language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or "")),
+        }
+        if selected_color is not None:
+            color = (
+                selected_color.name() if isinstance(selected_color, QColor)
+                else selected_color
+            )
+            return {slot: [_on_selection(c, color) for c in cells]
+                    for slot, cells in by_slot.items()}
+        return by_slot
+
+    def _paint_right_group(
+        self, painter, line: QRect, by_slot, slots: tuple[str, ...], font
+    ) -> int:
+        """Paint *slots* right-aligned flush to ``line``'s right edge, in
+        :data:`ROW_CHIP_ORDER`. Returns the x the group starts at (minus one
+        gap) so the caller can bound the title against it."""
         fm = QFontMetrics(font)
-        media_icon = index.data(MEDIA_ICON_ROLE) or ""
-        fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
-        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
-        playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
-        match_marker = index.data(MATCH_MARKER_ROLE) or ""
-        title = index.data(TITLE_ROLE) or ""
-        quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
+        cells = _ordered(by_slot, slots)
+        rects = right_aligned_rects(line, [self._cell_width(fm, c) for c in cells], _CELL_GAP)
+        for cell, rect in zip(cells, rects):
+            self._paint_cell(painter, rect, cell, font)
+        return rects[0].left() - _CELL_GAP if rects else line.left() + line.width()
 
-        right_cells = [c for c in (
-            _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
-            _year_cell(index.data(YEAR_ROLE) or ""),
-            _region_or_platform_cell(index.data(LANGUAGE_ROLE) or "", self._effective_platform_style()),
-            _rating_chip_cell(index.data(RATING_ROLE) or 0),
-        ) if c is not None]
-        right_widths = [self._cell_width(fm, c) for c in right_cells]
-        right_rects = right_aligned_rects(rect, right_widths, _CELL_GAP)
-        right_group_left = (
-            right_rects[0].left() - _CELL_GAP if right_rects
-            else rect.left() + rect.width()
-        )
+    def _paint_leading_glyphs(self, painter, line: QRect, index, default_color, font) -> int:
+        """Media icon, favourite star, playback glyph (·/▶/✓) and the unviewed
+        watch-for marker (🚨), left to right. Returns the x the title starts at.
 
-        x = rect.left()
-        for glyph in (media_icon, fav_glyph):
+        Shared by every density — compact and comfy carried byte-identical
+        copies of this run.
+        """
+        fm = QFontMetrics(font)
+        x = line.left()
+        for glyph in (index.data(MEDIA_ICON_ROLE) or "", index.data(FAV_GLYPH_ROLE) or ""):
             if not glyph:
                 continue
             w = fm.horizontalAdvance(glyph)
-            self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), glyph, default_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), glyph,
+                            default_color, font)
             x += w + _CELL_GAP
 
-        # Paint playback-state glyph (·/▶/✓) with optional color
+        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
         if playback_glyph:
+            playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
             w = fm.horizontalAdvance(playback_glyph)
-            glyph_color = playback_color if playback_color else default_color
-            self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), playback_glyph, glyph_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), playback_glyph,
+                            playback_color if playback_color else default_color, font)
             x += w + _CELL_GAP
 
-        # Paint unviewed match marker (🚨)
+        match_marker = index.data(MATCH_MARKER_ROLE) or ""
         if match_marker:
             w = fm.horizontalAdvance(match_marker)
-            self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), match_marker, default_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), match_marker,
+                            default_color, font)
             x += w
+        return x
 
-        quality_w = self._cell_width(fm, quality_cell) if quality_cell else 0
-        title_box_w = max(
-            0, right_group_left - x - (quality_w + _CELL_GAP if quality_cell else 0)
-        )
-        title_box = QRect(x, rect.top(), title_box_w, rect.height())
-        elided = fm.elidedText(title, Qt.TextElideMode.ElideRight, title_box_w)
-        self._draw_text(painter, title_box, elided, default_color, font)
+    def _paint_title_run(self, painter, line: QRect, index, *, x: int, right_limit: int,
+                         title_color, by_slot, font) -> None:
+        """The title (elided, ``_title_font``/``_title_color``) followed
+        IMMEDIATELY by the quality outline chip.
+
+        Quality hugs the title TEXT, not the title BOX: the box runs all the way
+        to the right group, so offsetting by its width parked the chip against
+        that group instead, where it read as one more right-rail fact rather
+        than as a qualifier on this copy (owner UX report, 0.21.0).
+
+        The title is measured with its OWN (heavier, therefore wider) metrics —
+        eliding a DemiBold string against regular-weight measurements overflows
+        the box and pushes the chip out of the row.
+        """
+        title = index.data(TITLE_ROLE) or ""
+        title_font = self._title_font(font)
+        title_fm = QFontMetrics(title_font)
+        quality_cells = by_slot.get(CHIP_SLOT_QUALITY) or []
+        quality_cell = quality_cells[0] if quality_cells else None
+        quality_w = self._cell_width(QFontMetrics(font), quality_cell) if quality_cell else 0
+
+        title_box_w = max(0, right_limit - x - (quality_w + _CELL_GAP if quality_cell else 0))
+        title_box = QRect(x, line.top(), title_box_w, line.height())
+        elided = title_fm.elidedText(title, Qt.TextElideMode.ElideRight, title_box_w)
+        self._draw_text(painter, title_box, elided, title_color, title_font)
 
         if quality_cell:
-            # The chip hugs the TITLE TEXT, not the title box. ``title_box_w`` is
-            # the full space up to the right group, so offsetting by it parked the
-            # chip against the right group instead (owner UX report, 0.21.0).
-            title_w = min(fm.horizontalAdvance(elided), title_box_w)
-            q_rect = QRect(x + title_w + _CELL_GAP, rect.top(), quality_w, rect.height())
+            title_w = min(title_fm.horizontalAdvance(elided), title_box_w)
+            q_rect = QRect(x + title_w + _CELL_GAP, line.top(), quality_w, line.height())
             self._paint_cell(painter, q_rect, quality_cell, font)
 
-        for cell, r in zip(right_cells, right_rects):
-            self._paint_cell(painter, r, cell, font)
+    # ── Compact (one line) ───────────────────────────────────────────────────
+
+    #: Compact's right-hand group. A deliberate SUBSET of the slots comfy shows
+    #: — compact exists to fit more rows on screen, so the language family and
+    #: the taxonomy pair stay off it; adding them back would squeeze the title
+    #: box, which is the one thing this redesign is protecting.
+    _COMPACT_RIGHT_SLOTS = (
+        CHIP_SLOT_VARIANTS, CHIP_SLOT_RATING, CHIP_SLOT_YEAR, CHIP_SLOT_REGION,
+    )
+
+    def _paint_compact(self, painter, rect: QRect, index, default_color, font,
+                       *, title_color=None, selected: bool = False) -> None:
+        by_slot = self._cells_by_slot(
+            index, selected_color=default_color if selected else None
+        )
+        right_limit = self._paint_right_group(
+            painter, rect, by_slot, self._COMPACT_RIGHT_SLOTS, font
+        )
+        x = self._paint_leading_glyphs(painter, rect, index, default_color, font)
+        self._paint_title_run(
+            painter, rect, index, x=x, right_limit=right_limit,
+            title_color=title_color if title_color is not None else _theme.COLOR_ROW_TITLE,
+            by_slot=by_slot, font=font,
+        )
 
     # ── Shared comfy/comfy_plus line painters ───────────────────────────────
     #
@@ -881,148 +1192,97 @@ class ChannelRowDelegate(QStyledItemDelegate):
     # identical to comfy — see _comfy_plus_line_count). Both densities share
     # these per-line painters so the layout logic lives in exactly one place.
 
-    def _paint_title_year_line(self, painter, line: QRect, index, default_color, font) -> None:
-        """Line 1: media icon + fav + playback glyph + 🚨 + title (elided) +
-        quality chip — left, with the quality chip hugging the title (no
-        stretch between them, same idiom as the compact density: measure the
-        chip's width and subtract it from the title's box BEFORE eliding, so
-        it sits immediately after the title rather than floating).
+    #: Comfy line 1's right-hand group. Order comes from :data:`ROW_CHIP_ORDER`,
+    #: not from this tuple — membership is all that is declared here.
+    _LINE1_RIGHT_SLOTS = (
+        CHIP_SLOT_YEAR, CHIP_SLOT_REGION, CHIP_SLOT_SUBTITLE,
+        CHIP_SLOT_LANGUAGE_2, CHIP_SLOT_LANGUAGE,
+    )
 
-        Right-aligned flush to ``line``'s right edge, left-to-right:
-        ``[year][region/platform chip][subtitle marker chip][secondary
-        language chip][primary language chip]`` — the channel's OWN (honest)
-        language (``detected_prefix``) always sits furthest right (owner
-        spec); the region/platform chip (``detected_region``) sits leftmost
-        of the group since it answers a different question (where/which
-        service, not what language).
+    def _paint_title_year_line(self, painter, line: QRect, index, default_color, font,
+                               *, title_color=None, selected: bool = False) -> None:
+        """Line 1: media icon + fav + playback glyph + 🚨 + title (elided,
+        strong) + the quality outline chip hugging the title.
+
+        Right-aligned flush to ``line``'s right edge, in ``ROW_CHIP_ORDER``:
+        ``[year][region/platform][subtitle marker][secondary language]
+        [primary language]`` — the channel's OWN (honest) language
+        (``detected_prefix``) always sits furthest right (owner spec); the
+        region/platform slot sits leftmost of the group since it answers a
+        different question (where/which service, not what language).
         """
-        fm = QFontMetrics(font)
-        media_icon = index.data(MEDIA_ICON_ROLE) or ""
-        fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
-        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
-        playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
-        match_marker = index.data(MATCH_MARKER_ROLE) or ""
-        title = index.data(TITLE_ROLE) or ""
-        quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
-
-        # _language_cell is the language-family chip builder (own/secondary
-        # language or a compound sub/dub marker like "AR-SUB" are all
-        # language-adjacent, short code-shaped tokens — blue). The region/
-        # platform slot uses the DIFFERENT-hue _region_or_platform_cell
-        # builder (green region vs solid-purple platform, #257 Part A).
-        right_cells = [c for c in (
-            _year_cell(index.data(YEAR_ROLE) or ""),
-            _region_or_platform_cell(
-                index.data(LANGUAGE_ROLE) or "", self._effective_platform_style()
-            ),                                                           # region/platform
-            _language_cell(index.data(SUBTITLE_MARKER_ROLE) or "",
-                           filterable=False),                               # e.g. "AR-SUB"
-            _language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or ""),  # category's disagreeing language
-            _language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or ""),    # channel's own — furthest right
-        ) if c is not None]
-        right_widths = [self._cell_width(fm, c) for c in right_cells]
-        right_rects = right_aligned_rects(line, right_widths, _CELL_GAP)
-        right_group_left = (
-            right_rects[0].left() - _CELL_GAP if right_rects
-            else line.left() + line.width()
+        by_slot = self._cells_by_slot(
+            index, selected_color=default_color if selected else None
+        )
+        right_limit = self._paint_right_group(
+            painter, line, by_slot, self._LINE1_RIGHT_SLOTS, font
+        )
+        x = self._paint_leading_glyphs(painter, line, index, default_color, font)
+        self._paint_title_run(
+            painter, line, index, x=x, right_limit=right_limit,
+            title_color=title_color if title_color is not None else _theme.COLOR_ROW_TITLE,
+            by_slot=by_slot, font=font,
         )
 
-        x = line.left()
-        for glyph in (media_icon, fav_glyph):
-            if not glyph:
-                continue
-            w = fm.horizontalAdvance(glyph)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), glyph, default_color, font)
-            x += w + _CELL_GAP
+    #: Comfy line 2 — state left, taxonomy right (#257 Part C). Genre may
+    #: expand to several cells (``_MAX_GENRES``); collection stays flush right.
+    _BADGE_LEFT_SLOTS = (CHIP_SLOT_VARIANTS, CHIP_SLOT_RATING)
+    _BADGE_RIGHT_SLOTS = (CHIP_SLOT_GENRE, CHIP_SLOT_COLLECTION)
 
-        # Paint playback-state glyph (·/▶/✓) with optional color
-        if playback_glyph:
-            w = fm.horizontalAdvance(playback_glyph)
-            glyph_color = playback_color if playback_color else default_color
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), playback_glyph, glyph_color, font)
-            x += w + _CELL_GAP
-
-        # Paint unviewed match marker (🚨)
-        if match_marker:
-            w = fm.horizontalAdvance(match_marker)
-            self._draw_text(painter, QRect(x, line.top(), w, line.height()), match_marker, default_color, font)
-            x += w
-
-        quality_w = self._cell_width(fm, quality_cell) if quality_cell else 0
-        title_right = right_group_left - (quality_w + _CELL_GAP if quality_cell else 0)
-        title_box_w = max(0, title_right - x)
-        title_box = QRect(x, line.top(), title_box_w, line.height())
-        elided = fm.elidedText(title, Qt.TextElideMode.ElideRight, title_box_w)
-        self._draw_text(painter, title_box, elided, default_color, font)
-
-        if quality_cell:
-            # Hug the title TEXT — see the note in _paint_compact.
-            title_w = min(fm.horizontalAdvance(elided), title_box_w)
-            q_rect = QRect(x + title_w + _CELL_GAP, line.top(), quality_w, line.height())
-            self._paint_cell(painter, q_rect, quality_cell, font)
-
-        for cell, r in zip(right_cells, right_rects):
-            self._paint_cell(painter, r, cell, font)
-
-    def _paint_badge_line(self, painter, line: QRect, index, font) -> None:
+    def _paint_badge_line(self, painter, line: QRect, index, font,
+                          *, selected_color=None) -> None:
         """Badge row — grammar is STATE on the left, TAXONOMY on the right
-        (#257 Part C): a rating glyph + the ``×N`` variant badge left, a
-        genre chip (teal) then the clean collection chip (``detected_collection``,
+        (#257 Part C): the ``×N`` variant badge + a rating glyph left, then the
+        genres and the clean collection (``detected_collection``,
         render-time-transformed via ``_category_cell``/``collection_display``)
-        right-aligned, genre before collection. Used as comfy's line 2 and
-        comfy_plus's final line. Region/subtitle/language chips and the
-        quality chip live on line 1 (owner spec) — this line never carries
-        them."""
+        right-aligned. Used as comfy's line 2 and comfy_plus's final line.
+        Region/subtitle/language and the quality chip live on line 1 (owner
+        spec) — this line never carries them."""
         fm = QFontMetrics(font)
-        region_code = index.data(LANGUAGE_ROLE) or ""
-        platform_code = region_code if region_code in PLATFORM_CODES else ""
-        genre_cell = _genre_cell(index.data(GENRE_ROLE) or "")
-        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "", platform_code,
-                                        filter_category=index.data(CATEGORY_ROLE) or "")
+        by_slot = self._cells_by_slot(index, selected_color=selected_color)
 
-        right_cells = [c for c in (genre_cell, collection_cell) if c is not None]
-        right_widths = [self._cell_width(fm, c) for c in right_cells]
-        right_rects = right_aligned_rects(line, right_widths, _CELL_GAP)
+        self._paint_right_group(painter, line, by_slot, self._BADGE_RIGHT_SLOTS, font)
 
-        left_cells = [c for c in (
-            # variant-count badge (#387) keeps its place on the badge row;
-            # the chips it used to sit beside moved to line 1 (owner spec).
-            _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
-            _rating_glyph_cell(index.data(RATING_ROLE) or 0),
-        ) if c is not None]
         lx = line.left()
-        for cell in left_cells:
+        for cell in _ordered(by_slot, self._BADGE_LEFT_SLOTS):
             w = self._cell_width(fm, cell)
-            c_rect = QRect(lx, line.top(), w, line.height())
-            self._paint_cell(painter, c_rect, cell, font)
+            self._paint_cell(painter, QRect(lx, line.top(), w, line.height()), cell, font)
             lx += w + _CELL_GAP
 
-        for cell, r in zip(right_cells, right_rects):
-            self._paint_cell(painter, r, cell, font)
-
-    def _paint_plot_line(self, painter, line: QRect, plot: str, font) -> None:
-        """comfy_plus's middle line — the plot, elided to fit, muted token."""
+    def _paint_plot_line(self, painter, line: QRect, plot: str, font, *, color=None) -> None:
+        """comfy_plus's middle line — the plot, elided to fit, muted token (or
+        the highlight foreground on a selected row, where a muted grey would be
+        sitting on the accent fill)."""
         fm = QFontMetrics(font)
         elided = fm.elidedText(plot, Qt.TextElideMode.ElideRight, line.width())
-        self._draw_text(painter, line, elided, _theme.COLOR_MUTED, font)
+        self._draw_text(painter, line, elided, color or _theme.COLOR_MUTED, font)
 
     # ── Comfy (two lines) ────────────────────────────────────────────────────
 
-    def _paint_comfy(self, painter, rect: QRect, index, default_color, font) -> None:
+    def _paint_comfy(self, painter, rect: QRect, index, default_color, font,
+                     *, title_color=None, selected: bool = False) -> None:
         fm = QFontMetrics(font)
         line1, line2 = stacked_line_rects(rect, fm.height(), _LINE_GAP)
-        self._paint_title_year_line(painter, line1, index, default_color, font)
-        self._paint_badge_line(painter, line2, index, font)
+        self._paint_title_year_line(painter, line1, index, default_color, font,
+                                    title_color=title_color, selected=selected)
+        self._paint_badge_line(painter, line2, index, font,
+                               selected_color=default_color if selected else None)
 
     # ── Comfy+ (two or three lines — plot line collapses when absent) ───────
 
-    def _paint_comfy_plus(self, painter, rect: QRect, index, default_color, font) -> None:
+    def _paint_comfy_plus(self, painter, rect: QRect, index, default_color, font,
+                          *, title_color=None, selected: bool = False) -> None:
         fm = QFontMetrics(font)
         plot = index.data(PLOT_ROLE) or ""
         lines = stacked_line_rects_n(rect, fm.height(), _LINE_GAP, 3 if plot else 2)
-        self._paint_title_year_line(painter, lines[0], index, default_color, font)
+        selected_color = default_color if selected else None
+        self._paint_title_year_line(painter, lines[0], index, default_color, font,
+                                    title_color=title_color, selected=selected)
         if plot:
-            self._paint_plot_line(painter, lines[1], plot, font)
-            self._paint_badge_line(painter, lines[2], index, font)
+            self._paint_plot_line(painter, lines[1], plot, font,
+                                  color=selected_color or _theme.COLOR_MUTED)
+            self._paint_badge_line(painter, lines[2], index, font,
+                                   selected_color=selected_color)
         else:
-            self._paint_badge_line(painter, lines[1], index, font)
+            self._paint_badge_line(painter, lines[1], index, font,
+                                   selected_color=selected_color)

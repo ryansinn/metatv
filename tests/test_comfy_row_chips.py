@@ -62,7 +62,6 @@ from metatv.gui.channel_list_delegate import (
     _genre_cell,
     _language_cell,
     _quality_cell,
-    _rating_chip_cell,
     _rating_glyph_cell,
     _region_or_platform_cell,
     _to_qcolor,
@@ -232,26 +231,40 @@ class TestChipPaintBehavior:
             "quality chip's border/text pen must use the outline tier colour"
         )
 
-    def test_platform_chip_paints_a_solid_purple_fill(self, qapp):
+    def test_platform_paints_no_fill_at_all(self, qapp):
+        """Platform is TIER 2 (#298): hue-tinted text, no box.
+
+        It used to be a solid purple fill — the single loudest treatment in the
+        row, for a fact almost nobody scans by. Asserted on what the painter
+        actually does, not on the cell's fields: a cell can claim
+        ``is_chip=False`` and still get a fill painted if the paint branch
+        disagrees with it.
+        """
         delegate = ChannelRowDelegate()
         painter = _RecordingPainter()
         cell = _region_or_platform_cell("A+", "full")
         assert cell is not None
-        assert cell.outline is False
+        assert cell.is_chip is False
+        assert cell.bg is None
+        assert cell.fg == _theme.COLOR_ROW_PLATFORM
 
         delegate._paint_cell(painter, QRect(0, 0, 60, 20), cell, QFont())
 
-        purple = QColor(_theme.COLOR_ACCENT_PURPLE).name()
-        assert purple in _brush_color_names(painter), (
-            "platform chip must paint a SOLID purple fill (#257 Part A)"
+        assert not _brush_color_names(painter), (
+            "platform must paint NO fill — tier 2 is tinted text with no box"
         )
 
-    def test_region_chip_uses_green_tint_not_platform_purple(self, qapp):
+    def test_region_is_tinted_text_in_its_own_hue(self, qapp):
         cell = _region_or_platform_cell("US", "full")
         assert cell is not None
-        assert cell.bg == _theme.OVERLAY_GREEN_15
-        assert cell.fg == _theme.COLOR_ACCENT_GREEN
+        assert cell.is_chip is False
+        assert cell.bg is None
+        assert cell.fg == _theme.COLOR_ROW_REGION
         assert cell.outline is False
+        # The hue is the only thing still carrying the facet encoding once the
+        # box is gone, so region and platform sharing one would erase the
+        # distinction entirely rather than merely weaken it.
+        assert QColor(_theme.COLOR_ROW_REGION).name() != QColor(_theme.COLOR_ROW_PLATFORM).name()
 
 
 # ---------------------------------------------------------------------------
@@ -260,30 +273,58 @@ class TestChipPaintBehavior:
 
 class TestFacetHueCellBuilders:
 
-    def test_language_cell_is_blue_tint(self, qapp):
-        cell = _language_cell("DE")
-        assert cell.fg == _theme.COLOR_ACCENT_BLUE
-        assert cell.bg == _theme.OVERLAY_BLUE_15
-        assert cell.outline is False
+    def test_language_is_the_only_facet_carrying_a_fill(self, qapp):
+        """TIER 1 is language and row state, nothing else (#298 owner call:
+        language is the highest-value facet after the title).
 
-    def test_genre_cell_is_teal_tint(self, qapp):
+        The "only" half is what makes this worth asserting — a test that just
+        checked language's own two tokens would still pass on the seven-fill
+        row this redesign exists to replace.
+        """
+        language = _language_cell("DE")
+        assert language.is_chip is True
+        assert language.bg == _theme.COLOR_ROW_LANGUAGE_FILL
+        assert language.fg == _theme.COLOR_ROW_LANGUAGE
+        assert language.outline is False
+
+        for other in (_region_or_platform_cell("US", "full"),
+                      _region_or_platform_cell("A+", "full"),
+                      _genre_cell("Action"),
+                      _category_cell("Some Collection"),
+                      _year_cell("2024"),
+                      _quality_cell("4K"),
+                      _variant_badge_cell(3),
+                      _rating_glyph_cell(1)):
+            assert other is not None
+            assert other.bg is None, (
+                f"{other.text!r} carries a fill — tier 1 is language and state only"
+            )
+
+    def test_genre_is_tinted_text_in_its_own_hue(self, qapp):
         cell = _genre_cell("Action")
-        assert cell.fg == _theme.COLOR_ACCENT_TEAL
-        assert cell.bg == _theme.OVERLAY_TEAL_15
+        assert cell.is_chip is False
+        assert cell.bg is None
+        assert cell.fg == _theme.COLOR_ROW_GENRE
         assert cell.outline is False
 
     def test_genre_cell_none_for_empty(self, qapp):
         assert _genre_cell("") is None
         assert _genre_cell(None) is None
 
-    def test_collection_chip_colour_unchanged_muted_grey(self, qapp):
-        """Owner call: collection stays EXACTLY as today — OVERLAY_08 +
-        COLOR_MUTED — while its TEXT is transformed by collection_display."""
+    def test_collection_is_neutral_text_not_a_borrowed_facet_hue(self, qapp):
+        """Collection is tier 2 but NEUTRAL — the palette publishes one hue per
+        facet and no two may share one, so a hue here would have to be borrowed
+        from a facet that already means something else. Its TEXT is still
+        transformed by collection_display."""
         cell = _category_cell("APPLE+ KIDS", "A+")
         assert cell.text == "KIDS"
-        assert cell.fg == _theme.COLOR_MUTED
-        assert cell.bg == _theme.OVERLAY_08
+        assert cell.is_chip is False
+        assert cell.bg is None
+        assert cell.fg == _theme.COLOR_ROW_COLLECTION
         assert cell.outline is False
+        for facet_token in (_theme.COLOR_ROW_LANGUAGE, _theme.COLOR_ROW_REGION,
+                            _theme.COLOR_ROW_GENRE, _theme.COLOR_ROW_PLATFORM):
+            assert QColor(cell.fg).name() != QColor(facet_token).name()
 
     def test_collection_chip_omitted_when_fully_redundant(self, qapp):
         assert _category_cell("APPLE+ SERIES", "A+") is None
@@ -579,8 +620,7 @@ class TestColorConversionChokepoint:
                 _language_cell("DE"),
                 _genre_cell("Action"),
                 _category_cell("Some Collection"),
-                _rating_chip_cell(1), _rating_chip_cell(-1),
-                _rating_glyph_cell(1),
+                _rating_glyph_cell(1), _rating_glyph_cell(-1),
                 _variant_badge_cell(3),
             ]
             tokens: dict[str, object] = {}

@@ -143,6 +143,12 @@ class ChannelListDTO:
     # segment, computed once at ingestion). Powers the comfy-row genre chip
     # (channel_list_delegate.py, #257 Part C); read directly, never re-derived.
     detected_genre: str | None = None
+    # EVERY canonical genre segment (ChannelDB.detected_genres), same ingestion
+    # pass as detected_genre above. The row shows up to _MAX_GENRES of them
+    # (#298 — a title that is both Drama and Thriller was claiming to be only
+    # Drama). A TUPLE, not the stored list: this DTO is frozen and crosses a
+    # thread boundary, so it must not hand out a mutable alias of ORM state.
+    detected_genres: tuple[str, ...] = ()
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -183,6 +189,9 @@ class ChannelListDTO:
             detected_collection_language=ch.detected_collection_language,
             detected_collection_subdub=ch.detected_collection_subdub,
             detected_genre=getattr(ch, "detected_genre", None),
+            detected_genres=tuple(
+                g for g in (getattr(ch, "detected_genres", None) or ()) if g
+            ),
         )
 
 

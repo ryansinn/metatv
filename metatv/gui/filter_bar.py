@@ -37,16 +37,39 @@ class ToggleChip(QPushButton):
         self.update_appearance()
 
     def update_appearance(self):
+        """Repaint the chip for its current state.
+
+        Both states used to be measurably unreadable, in every dark palette
+        (#298 owner report — "the primary views chip colour for search, epg,
+        etc are wrong when selected"):
+
+        - SELECTED filled with ``COLOR_ACCENT_BLUE`` and wrote ``color: white``
+          on it. That token is ``indigo.12`` — a NEAR-WHITE lavender in the dark
+          palettes — so white-on-it measured **1.31:1**. The literal is also the
+          bug's cause: a hardcoded colour cannot track a palette, which is
+          exactly what the no-literals rule exists to prevent. The fill is now
+          ``COLOR_ACCENT`` with ``COLOR_ON_ACCENT``, the token whose entire job
+          is "legible on a solid accent" (6.75:1 in Midnight).
+        - UNSELECTED filled with ``COLOR_SURFACE_LIGHT_2``, one of the
+          deliberately-fixed-LIGHT "highlight chip" surfaces that stay light in
+          every palette by design, and wrote ``COLOR_MUTED_2`` on it — 2.30:1,
+          a pale slab in a dark app. An unselected view chip is a control at
+          rest, so it gets the surface token named for that.
+
+        Registered via ``theme.style_fn`` rather than ``setStyleSheet`` so a
+        live theme switch re-reads the tokens instead of keeping Qt's cached
+        render of the old ones.
+        """
         label_text = self.label
         if self._count is not None:
             label_text = f"{self.label} ({self._count})"
 
         if self._enabled:
             self.setText(f"{label_text} ●")
-            self.setStyleSheet(f"""
+            _theme.style_fn(self, lambda: f"""
                 QPushButton {{
-                    background-color: {_theme.COLOR_ACCENT_BLUE};
-                    color: white;
+                    background-color: {_theme.COLOR_ACCENT};
+                    color: {_theme.COLOR_ON_ACCENT};
                     border: none;
                     border-radius: 12px;
                     padding: 6px 14px;
@@ -56,15 +79,15 @@ class ToggleChip(QPushButton):
             """)
         else:
             self.setText(f"{label_text} ○")
-            self.setStyleSheet(f"""
+            _theme.style_fn(self, lambda: f"""
                 QPushButton {{
-                    background-color: {_theme.COLOR_SURFACE_LIGHT_2};
-                    color: {_theme.COLOR_MUTED_2};
-                    border: 1px solid {_theme.COLOR_TEXT};
+                    background-color: {_theme.COLOR_BG_CARD};
+                    color: {_theme.COLOR_TEXT};
+                    border: 1px solid {_theme.COLOR_BORDER};
                     border-radius: 12px;
                     padding: 6px 14px;
                 }}
-                QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT_3}; }}
+                QPushButton:hover {{ background-color: {_theme.COLOR_BG_BAR}; }}
             """)
 
     def is_enabled(self) -> bool:

@@ -112,7 +112,7 @@ class TestRowEdgePadding:
 
         captured: list[QRect] = []
 
-        def _capture(painter, rect, index, color, font):
+        def _capture(painter, rect, index, color, font, **kwargs):
             captured.append(QRect(rect))
 
         opt = QStyleOptionViewItem()

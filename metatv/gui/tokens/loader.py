@@ -135,7 +135,11 @@ def palette_mode(path: str | Path) -> str:
 
 
 def build_legacy_palette(path: str | Path) -> dict[str, str]:
-    """Resolve a DTCG palette into the legacy ``COLOR_*``/``OVERLAY_*`` dict.
+    """Resolve a DTCG palette into the flat ``COLOR_*``/``OVERLAY_*`` dict.
+
+    Covers both name tables in ``legacy_map``: ``LEGACY_TOKEN_MAP`` (the ~140
+    pre-restructure names, which shrink as they are converted) and
+    ``ROLE_TOKENS`` (new names, each backed by a semantic role).
 
     This is the bridge that lets ~1800 lines of role constants and every widget
     keep working untouched while their values come from the scale. Entries
@@ -148,7 +152,7 @@ def build_legacy_palette(path: str | Path) -> dict[str, str]:
             in a widget far away, and a *silently wrong* one is worse — it
             paints, just incorrectly.
     """
-    from metatv.gui.tokens.legacy_map import LEGACY_TOKEN_MAP
+    from metatv.gui.tokens.legacy_map import LEGACY_TOKEN_MAP, ROLE_TOKENS
 
     doc: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
     scales: dict[str, str] = doc.get("$scales", {})
@@ -157,7 +161,9 @@ def build_legacy_palette(path: str | Path) -> dict[str, str]:
 
     out: dict[str, str] = {}
     unresolved: list[str] = []
-    for legacy, ref in LEGACY_TOKEN_MAP.items():
+    # ROLE_TOKENS resolves by exactly the same rules; the two tables are kept
+    # apart only so the legacy one's shrinking count stays meaningful.
+    for legacy, ref in {**LEGACY_TOKEN_MAP, **ROLE_TOKENS}.items():
         if ref.startswith("{"):
             try:
                 out[legacy] = _resolve_value(ref, scales, mode)

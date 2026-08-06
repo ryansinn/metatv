@@ -420,8 +420,12 @@ class TestComfyLine1Layout:
         # stretched to every pixel up to the right group — so it locked in the very
         # regression its name describes (chip painted flush against the right group,
         # owner UX report vs 0.21.0). Measure the drawn text instead.
+        #
+        # Measured with the TITLE's own font, not the row font: the title paints
+        # DemiBold (#298), so regular-weight metrics under-measure it and the
+        # chip would appear to overlap text that is actually wider.
         from PyQt6.QtGui import QFontMetrics
-        fm = QFontMetrics(QFont())
+        fm = QFontMetrics(delegate._title_font(QFont()))
         title_text_end = title_rect.left() + min(
             fm.horizontalAdvance("My Great Show"), title_rect.width()
         )
@@ -629,8 +633,15 @@ class TestQualityChipHugsTitle:
     def test_compact_quality_chip_hugs_title(self, qapp):
         self._assert_hugs(DENSITY_COMPACT)
 
-    def test_year_stays_plain_text_right_aligned(self, qapp):
-        """Year stays unboxed plain text in the right group (owner call, 0.22.0)."""
+    def test_year_is_an_outline_chip_right_aligned(self, qapp):
+        """Year is TIER 3 — an OUTLINE box, right-aligned (owner call, #298:
+        "put an outline on the year").
+
+        It was unboxed plain text through 0.22.0. The box is what stops a bare
+        number from reading as part of whatever text abuts it; the outline
+        (rather than a fill) is what keeps it in the recede-tier with quality
+        instead of competing with the language chip beside it.
+        """
         from PyQt6.QtGui import QFontMetrics  # noqa: F401
 
         delegate = ChannelRowDelegate()
@@ -655,5 +666,6 @@ class TestQualityChipHugsTitle:
         )
         year = next(((r, c) for r, c in cells if c.text == "2024"), None)
         assert year is not None, "year was never painted"
-        assert year[1].is_chip is False, "year must stay plain text, not a chip"
+        assert year[1].outline is True, "year must be an OUTLINE chip"
+        assert year[1].bg is None, "the year's box must not be filled"
         assert year[0].left() > self.ROW_W // 2, "year must be right-aligned"

@@ -95,7 +95,12 @@ def _reset_active_theme():
 _ROLE_TOKEN: dict[QPalette.ColorRole, str] = {
     QPalette.ColorRole.Window: "COLOR_BG_SECTION",
     QPalette.ColorRole.WindowText: "COLOR_TEXT",
-    QPalette.ColorRole.Base: "COLOR_LINE",
+    # COLOR_BG_DEEP, not COLOR_LINE (#298): Base is the background of every
+    # item view and text field — the results list above all — and it was
+    # reading a SEPARATOR-hairline token, which painted the channel list on a
+    # mid-grey slab lighter than the app around it. A resting surface must be
+    # a surface token.
+    QPalette.ColorRole.Base: "COLOR_BG_DEEP",
     QPalette.ColorRole.AlternateBase: "COLOR_BG_BAR",
     QPalette.ColorRole.Text: "COLOR_TEXT",
     QPalette.ColorRole.Button: "COLOR_LINE",

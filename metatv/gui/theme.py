@@ -269,27 +269,39 @@ def _build_semantic_constants() -> dict[str, object]:
     # ── 2. Semantic constants (composed from tokens, named by role) ──────────────────
 
     # Play / action buttons
+    # COLOR_ACCENT is the accent as a FILL; as TEXT on the app surface it is a
+    # midtone (2.61:1 in Graphite, 4.19 in Daylight). COLOR_ACCENT_BLUE is the
+    # accent-as-text member of the family and clears 11:1 in every palette.
     PLAY_BTN = (
-        "QPushButton { background: transparent; border: none; color: " + COLOR_ACCENT +
+        "QPushButton { background: transparent; border: none; color: " + COLOR_ACCENT_BLUE +
         "; font-size: " + FONT_XL + "; padding: 0 2px; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_HOVER + "; }"
     )
     PLAY_BTN_SMALL = (
-        "QPushButton { background: transparent; border: none; color: " + COLOR_ACCENT +
+        "QPushButton { background: transparent; border: none; color: " + COLOR_ACCENT_BLUE +
         "; font-size: " + FONT_LG + "; padding: 0; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_HOVER + "; }"
     )
     CLEAR_BTN = "border: none; color: " + COLOR_DISABLED + "; font-size: " + FONT_SM + ";"
-    CLOSE_BTN = "color: " + COLOR_MUTED_2 + "; border: none; background: transparent; font-size: " + FONT_2XL + ";"
+    # COLOR_TEXT, not COLOR_MUTED_2 ({neutral.8}): a dismiss control has to be
+    # findable. On the app surface the old pairing measured 2.81 / 2.53 / 1.68
+    # across the palettes — in Daylight the × was very nearly invisible.
+    CLOSE_BTN = "color: " + COLOR_TEXT + "; border: none; background: transparent; font-size: " + FONT_2XL + ";"
     EYE_BTN = "border: none; padding: 0; color: " + COLOR_DIM + ";"
+    # A control at rest gets the CONTAINER surface, not COLOR_LINE — that is a
+    # separator hairline, and pairing it with COLOR_DIM measured 2.70:1 in every
+    # palette. Same mistake, same family, as the results list reading COLOR_LINE
+    # for its background.
     PANEL_BTN = (
-        "QPushButton { background:" + COLOR_LINE + "; color:" + COLOR_DIM + "; border:1px solid " + COLOR_BORDER + ";"
+        "QPushButton { background:" + COLOR_BG_CARD + "; color:" + COLOR_TEXT + "; border:1px solid " + COLOR_BORDER + ";"
         " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
-        "QPushButton:hover { background:" + COLOR_BORDER + "; color:" + COLOR_TEXT_2 + "; }"
+        "QPushButton:hover { background:" + COLOR_SURFACE_LIGHT_2 + "; color:" + COLOR_TEXT_HI + "; }"
     )
     # Compact inline "Only" link-button for filter group rows
+    # Same COLOR_MUTED_2-on-app-surface problem as CLOSE_BTN (2.81/2.53/1.68):
+    # this is a link the user is meant to notice and click, not decoration.
     FILTER_ONLY_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED_2 + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_SM + "; padding: 0 2px; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
@@ -353,19 +365,32 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-color: " + COLOR_ACCENT + "; }"
         "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_DIM + "; }"
-        "QPushButton:checked:hover { background: " + OVERLAY_ACCENT_50 + "; color: " + COLOR_TEXT_HI + ";"
+        # Hovering an ALREADY-ACTIVE button used to raise the accent wash to 50%
+        # while keeping near-white text on it — which LOWERS contrast (4.24:1 in
+        # Midnight), so the one interaction that should confirm "yes, this is
+        # on" degraded it. It now goes to a SOLID accent with the on-accent
+        # foreground: the same "state is a fill" rule the results row follows,
+        # and a clearer progression than tint -> slightly-more-tint.
+        "QPushButton:checked:hover { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + ";"
         " border-color: " + COLOR_ACCENT_HOVER + "; }"
     )
 
     # Alert/monitor rail button — inactive reads like a normal rail button; active
     # (:checked, "alerting") glows red so the siren clearly turns on.
+    # Resting/hover fills MIRROR DETAIL_RAIL_BTN above — this variant differs
+    # only in what its CHECKED state means, and it had been left behind when
+    # its sibling was given real surfaces (#297). It was filling with OVERLAY_40
+    # and OVERLAY_55: white-alpha washes at 43%/48%, measuring 1.13:1 and
+    # 1.92:1 against their own label. Those two tokens are documented as the
+    # "frosted-light" pair that sits over POSTER IMAGES — photographic, never
+    # reskinned — so they were never a candidate for a button fill at all.
     DETAIL_RAIL_BTN_ALERT = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_40 + ";"
-        " color: " + COLOR_DIM + "; }"
+        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
+        " color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ERR + "; }"
-        "QPushButton:hover { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT + ";"
+        "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_DIM + "; }"
     )
 
@@ -377,12 +402,18 @@ def _build_semantic_constants() -> dict[str, object]:
     # (favorite = gold star) and unmistakable.  The favorite button is NOT :checkable
     # (state is icon-swap ☆→★), so the accent :checked fix couldn't reach it — this whole
     # style is swapped in via update_favorite() rather than a :checked rule.
+    # FAVOURITED is a STATE, so it gets a solid fill (the same rule the results
+    # row follows) with COLOR_ON_BRIGHT on it. It used to paint gold text on an
+    # 18% gold TINT — the same hue at two lightnesses. That reads acceptably on
+    # a dark app and collapses to 1.32:1 on Daylight, where the tint composites
+    # to pale yellow and the gold sits almost invisibly on it. Solid gold also
+    # says "on" far more clearly than a wash of the same colour.
     DETAIL_RAIL_BTN_FAV = (
         "QPushButton { border: 1px solid " + COLOR_GOLD + "; border-radius: 4px;"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_GOLD_18 + ";"
-        " color: " + COLOR_GOLD + "; }"
-        "QPushButton:hover { background: " + OVERLAY_GOLD_28 + "; color: " + COLOR_GOLD + ";"
-        " border-color: " + COLOR_GOLD + "; }"
+        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_GOLD + ";"
+        " color: " + COLOR_ON_BRIGHT + "; }"
+        "QPushButton:hover { background: " + COLOR_GOLD_LIGHT + "; color: " + COLOR_ON_BRIGHT + ";"
+        " border-color: " + COLOR_GOLD_LIGHT + "; }"
     )
 
     # Alert/monitor rail button in the "new matched content" state — the reserved
@@ -551,7 +582,13 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 4px;"
         " padding: 8px 12px; font-size: " + FONT_XL + "; font-weight: bold;"
         " background: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
-        "QPushButton:hover { background: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_TEXT_HI + ";"
+        # Hover keeps the ON-FILL text colour and moves the BORDER instead.
+        # It used to switch the label to COLOR_TEXT_HI while leaving the light
+        # amber fill in place — near-white on near-white, 1.04:1 — so hovering
+        # the app's most-used button made its label disappear. The fill is
+        # light in the dark palettes and dark in Daylight, and COLOR_BG_SECTION
+        # inverts with it, which is why the resting pair was always fine.
+        "QPushButton:hover { background: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + ";"
         " border-color: " + COLOR_TEXT_HI + "; }"
     )
 
@@ -872,10 +909,13 @@ def _build_semantic_constants() -> dict[str, object]:
         " padding: 1px 4px; background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + OVERLAY_BLUE_15 + "; }"
     )
+    # Third site of the same COLOR_MUTED_2-as-body-text pattern (2.81/2.53/1.68)
+    # — see CLOSE_BTN. {neutral.8} is a BORDER step; it is not a text colour on
+    # any surface, in any palette.
     DISCOVER_REC_SKIP_BTN = (
-        "QPushButton { color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + ";"
+        "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
         " border: none; background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_DIM + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
     )
     DISCOVER_REC_COUNT = (
         "color: " + COLOR_ACCENT + "; font-size: " + FONT_MD + "; text-decoration: underline;"
@@ -1686,7 +1726,16 @@ def qt_palette() -> QPalette:
     # COLOR_BG_SECTION) and this slice's own qt_palette floor tests.
     palette.setColor(QPalette.ColorRole.Window, QColor(COLOR_BG_SECTION))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(COLOR_TEXT))
-    palette.setColor(QPalette.ColorRole.Base, QColor(COLOR_LINE))
+    # Base is the background of every item view and text field — the results
+    # list above all. It read COLOR_LINE, which is a HAIRLINE token
+    # (outline.subtle): in Midnight that is #363a3f, so the channel list sat on
+    # a mid-grey slab noticeably LIGHTER than the app around it, and the
+    # separator colour was doing a job no separator colour can do. A resting
+    # surface must be a surface token. surface.dim (COLOR_BG_DEEP) puts the list
+    # a step BELOW the surrounding chrome — content recessed into the shell
+    # rather than floating on top of it — and stays distinct from
+    # COLOR_BG_SECTION so the panel edge is still readable without a border.
+    palette.setColor(QPalette.ColorRole.Base, QColor(COLOR_BG_DEEP))
     palette.setColor(QPalette.ColorRole.AlternateBase, QColor(COLOR_BG_BAR))
     palette.setColor(QPalette.ColorRole.Text, QColor(COLOR_TEXT))
     palette.setColor(QPalette.ColorRole.Button, QColor(COLOR_LINE))

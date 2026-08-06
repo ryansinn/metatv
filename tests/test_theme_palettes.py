@@ -226,13 +226,19 @@ def test_apply_theme_rebinds_composed_semantic_constants():
     a themed one (built from a token whose VALUE differs across palettes)
     actually changes confirms _build_semantic_constants() really re-runs,
     not just the raw token layer."""
+    # The witness token is COLOR_BG_CARD, the surface PANEL_BTN rests on. It
+    # used to be COLOR_LINE, until #298 — a button filling with the SEPARATOR
+    # HAIRLINE token measured 2.70:1 against its own label in every palette,
+    # so the role now uses the container surface. What this test is actually
+    # pinning (that a composed constant is rebuilt, not just the raw token
+    # layer) is unchanged; only the token it watches moved.
     midnight_panel_btn = theme.PANEL_BTN
-    assert theme_palettes.MIDNIGHT["COLOR_LINE"] != theme_palettes.DAYLIGHT["COLOR_LINE"]
+    assert theme_palettes.MIDNIGHT["COLOR_BG_CARD"] != theme_palettes.DAYLIGHT["COLOR_BG_CARD"]
 
     theme.apply_theme("Daylight")
 
     assert theme.PANEL_BTN != midnight_panel_btn
-    assert theme_palettes.DAYLIGHT["COLOR_LINE"] in theme.PANEL_BTN
+    assert theme_palettes.DAYLIGHT["COLOR_BG_CARD"] in theme.PANEL_BTN
 
 
 def test_apply_theme_swap_back_restores_exact_original_values():

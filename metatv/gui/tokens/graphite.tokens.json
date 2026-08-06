@@ -1,5 +1,5 @@
 {
-  "$description": "MetaTV 'Graphite' palette \u2014 the NEUTRAL dark theme. Identical role structure to Midnight; it differs only in its scale choices, which is the entire point of the restructure: a theme is a handful of hue picks, not 140 hand-authored values. Its decorative hues are a PAIRWISE SWAP of Midnight's, declared in $scales \u2014 which doubles as a hue substitution table, so re-hueing a whole theme is eight lines rather than 40 edited values.",
+  "$description": "MetaTV 'Graphite' palette — the NEUTRAL dark theme. Identical role structure to Midnight; it differs only in its scale choices, which is the entire point of the restructure: a theme is a handful of hue picks, not 140 hand-authored values. Its decorative hues are a PAIRWISE SWAP of Midnight's, declared in $scales — which doubles as a hue substitution table, so re-hueing a whole theme is eight lines rather than 40 edited values.",
   "$extends": "radix",
   "$mode": "dark",
   "$scales": {
@@ -21,36 +21,36 @@
   "surface": {
     "$type": "color",
     "dim": {
-      "$value": "{neutral.1}",
-      "$description": "app ground, behind everything"
+      "$value": "{neutral.2}",
+      "$description": "app ground, behind everything. A step ABOVE Midnight's: Graphite is the lighter neutral dark theme, and at {neutral.1} the two palettes' surfaces were within two points of each other (#111111 vs #111113) — a theme that differs only in its accents is not a second theme."
     },
     "base": {
-      "$value": "{neutral.2}",
+      "$value": "{neutral.3}",
       "$description": "panels, lists, the details pane"
     },
     "container": {
-      "$value": "{neutral.3}",
+      "$value": "{neutral.4}",
       "$description": "controls at rest, chips with a fill"
     },
     "container-high": {
-      "$value": "{neutral.4}",
+      "$value": "{neutral.5}",
       "$description": "hover over a container"
     },
     "container-max": {
-      "$value": "{neutral.5}",
+      "$value": "{neutral.6}",
       "$description": "pressed / active container"
     },
     "sunk": {
-      "$value": "{neutral.2}",
-      "$description": "placeholder tiles \u2014 absence, not content"
+      "$value": "{neutral.3}",
+      "$description": "placeholder tiles — absence, not content"
     }
   },
   "on-surface": {
     "$type": "color",
-    "$description": "TWO text roles, not five. The old palette had 15 neutrals named dim/muted/faint/disabled/low \u2014 named by APPEARANCE, which gives no rule for which to use, so every new widget picked a new one. Radix publishes exactly two text steps (11 low-contrast, 12 high-contrast) and Material 3 names exactly two roles, because that is how many text roles actually exist. The rest below are non-text states and are exempt from the 4.5:1 floor by definition, not by exception.",
+    "$description": "TWO text roles, not five. The old palette had 15 neutrals named dim/muted/faint/disabled/low — named by APPEARANCE, which gives no rule for which to use, so every new widget picked a new one. Radix publishes exactly two text steps (11 low-contrast, 12 high-contrast) and Material 3 names exactly two roles, because that is how many text roles actually exist. The rest below are non-text states and are exempt from the 4.5:1 floor by definition, not by exception.",
     "strong": {
       "$value": "{neutral.12}",
-      "$description": "titles \u2014 the loudest text in a row"
+      "$description": "titles — the loudest text in a row"
     },
     "default": {
       "$value": "{neutral.11}",
@@ -58,11 +58,11 @@
     },
     "disabled": {
       "$value": "{neutral.10}",
-      "$description": "NOT text \u2014 a disabled control (WCAG exempts these)"
+      "$description": "NOT text — a disabled control (WCAG exempts these)"
     },
     "placeholder": {
       "$value": "{neutral.9}",
-      "$description": "NOT text \u2014 empty-field hint / absent-image glyph"
+      "$description": "NOT text — empty-field hint / absent-image glyph"
     }
   },
   "meta": {
@@ -94,7 +94,7 @@
     "$type": "color",
     "default": {
       "$value": "{primary.8}",
-      "$description": "Step 8, not 9: indigo.9 against this palette's light ink measures 4.49:1 \u2014 under the floor by 0.01, which the selection-readability guard catches. A near miss is still a miss."
+      "$description": "Step 8, not 9: indigo.9 against this palette's light ink measures 4.49:1 — under the floor by 0.01, which the selection-readability guard catches. A near miss is still a miss."
     },
     "hover": {
       "$value": "{primary.10}"
@@ -109,7 +109,7 @@
     },
     "on": {
       "$value": "{neutral.12}",
-      "$description": "foreground ON a solid primary fill. NEAR-BLACK, not white: blue.9 is a light blue, so white on it measures 2.81:1 \u2014 the conventional dark-theme look and genuinely hard to read. This repeats a lesson already learned once at COLOR_ON_ACCENT, and the conformance test is what caught me repeating it."
+      "$description": "foreground ON a solid primary fill. NEAR-BLACK, not white: blue.9 is a light blue, so white on it measures 2.81:1 — the conventional dark-theme look and genuinely hard to read. This repeats a lesson already learned once at COLOR_ON_ACCENT, and the conformance test is what caught me repeating it."
     }
   },
   "state": {
@@ -138,7 +138,7 @@
   },
   "scrim": {
     "$type": "color",
-    "$description": "Alpha overlays. These are Radix ALPHA steps, not hand-mixed rgba() \u2014 the old OVERLAY_* family was 39 tokens over 16 base colours with hand-picked alphas.",
+    "$description": "Alpha overlays. These are Radix ALPHA steps, not hand-mixed rgba() — the old OVERLAY_* family was 39 tokens over 16 base colours with hand-picked alphas.",
     "subtle": {
       "$value": "{neutralA.3}"
     },
@@ -154,7 +154,7 @@
   },
   "facet": {
     "$type": "color",
-    "$description": "Data-category hues. One hue per facet, and NO TWO FACETS SHARE A HUE \u2014 the mockup review caught language and platform reading as the same thing. Step 11 keeps every one of them >=4.5:1 as text on surface.base.",
+    "$description": "Data-category hues. One hue per facet, and NO TWO FACETS SHARE A HUE — the mockup review caught language and platform reading as the same thing. Step 11 keeps every one of them >=4.5:1 as text on surface.base.",
     "language": {
       "$value": "{blue.11}"
     },
@@ -169,12 +169,12 @@
     },
     "language-fill": {
       "$value": "{blue.4}",
-      "$description": "language keeps a FILL \u2014 owner's call: it is the highest-value facet after the title"
+      "$description": "language keeps a FILL — owner's call: it is the highest-value facet after the title"
     }
   },
   "quality": {
     "$type": "color",
-    "$description": "One DISTINCT hue per tier, which is what the hand-tuned palette already did (purple UHD / blue FHD / teal HD / yellow LIVE). A first draft here ramped them within one hue instead \u2014 and the palette conformance suite immediately failed it, because tiers a user must tell apart at a glance cannot differ only in lightness. Step 11 keeps every one of them >=4.5:1 as outline text. Quality is a claim about THIS copy, so it renders by the title, not in the right rail.",
+    "$description": "One DISTINCT hue per tier, which is what the hand-tuned palette already did (purple UHD / blue FHD / teal HD / yellow LIVE). A first draft here ramped them within one hue instead — and the palette conformance suite immediately failed it, because tiers a user must tell apart at a glance cannot differ only in lightness. Step 11 keeps every one of them >=4.5:1 as outline text. Quality is a claim about THIS copy, so it renders by the title, not in the right rail.",
     "uhd": {
       "$value": "{purple.11}"
     },
@@ -195,6 +195,13 @@
     },
     "live": {
       "$value": "{orange.11}"
+    }
+  },
+  "on-fill": {
+    "$type": "color",
+    "$description": "Foreground on a fixed-BRIGHT fill — a gold favourite, a coloured badge, anything whose fill is chosen for brand/state rather than by the palette. Near-black in EVERY theme, which is why it cannot be surface.dim: that token is near-black in the dark palettes and near-WHITE in Daylight, and several badges were reading it as 'dark text' and getting white.",
+    "bright": {
+      "$value": "{neutral.1}"
     }
   }
 }

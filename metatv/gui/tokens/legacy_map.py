@@ -167,3 +167,43 @@ LEGACY_TOKEN_MAP: dict[str, str] = {
     "OVERLAY_TEAL_15": "{greenA.4}",
     "OVERLAY_WARN_06": "{amberA.2}",
 }
+
+
+ROLE_TOKENS: dict[str, str] = {
+    # NOT migration debt — the opposite. These names are NEW, and every one
+    # resolves through a semantic role, which is why they live here instead of
+    # in ``LEGACY_TOKEN_MAP``: that table shrinks as names are converted, this
+    # one is where converted/new names arrive. A ``COLOR_*`` global is still the
+    # delivery mechanism (``theme.py`` rebinds every palette key as a module
+    # global, and ~1800 lines of role constants read them that way), so a role
+    # needs an entry here to be reachable as ``theme.COLOR_X`` at all.
+    #
+    # The results row's three-tier treatment (#298). Tier 1 FILL is language
+    # only; tier 2 is hue-tinted TEXT with no box; tier 3 is an outline. The
+    # hues come from the palette's ``facet.*`` block, which guarantees no two
+    # facets share one — that constraint is the whole reason the hue can carry
+    # the encoding once the box is gone.
+    "COLOR_ROW_TITLE": "on-surface.strong",
+    "COLOR_ROW_LANGUAGE": "facet.language",
+    "COLOR_ROW_LANGUAGE_FILL": "facet.language-fill",
+    "COLOR_ROW_REGION": "facet.region",
+    "COLOR_ROW_GENRE": "facet.genre",
+    "COLOR_ROW_PLATFORM": "facet.platform",
+    # Neutral by design, not by omission: collection and year carry no hue
+    # encoding, and giving them one would either invent a facet colour or reuse
+    # another facet's — a false statement about the data either way. See the
+    # ``meta`` block's own $description in the palette files.
+    "COLOR_ROW_META": "meta.year",
+    "COLOR_ROW_COLLECTION": "meta.collection",
+    # The poster placeholder tile. ``surface.sunk`` exists for exactly this and
+    # its $description says so: "absence, not content". The tile read
+    # COLOR_BG_CARD, a step ABOVE the list surface, which made a MISSING image
+    # the brightest object in its row — a hole in the data shouting over the
+    # title that is actually there.
+    "COLOR_ROW_THUMB_PLACEHOLDER": "surface.sunk",
+    # Text on a fixed-BRIGHT fill (gold favourite, coloured badge). Near-black
+    # in every palette. Several badges were using COLOR_BG_DEEP for this, which
+    # WAS near-black everywhere before the restructure and is now near-WHITE in
+    # Daylight — so they render white-on-gold there.
+    "COLOR_ON_BRIGHT": "on-fill.bright",
+}

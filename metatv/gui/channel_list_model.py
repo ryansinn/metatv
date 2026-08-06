@@ -98,6 +98,11 @@ COLLECTION_ROLE = Qt.ItemDataRole.UserRole + 25          # detected_collection o
 # the FIRST canonical genre segment, computed once at ingestion (see database.py);
 # read directly here, never re-derived at render.
 GENRE_ROLE = Qt.ItemDataRole.UserRole + 26                # detected_genre or ""
+# EVERY canonical genre segment — ChannelDB.detected_genres, computed in the same
+# ingestion pass as detected_genre. The row paints up to _MAX_GENRES of them
+# (#298); GENRE_ROLE above stays the single-genre fallback for rows ingested
+# before the column existed and not yet re-swept.
+GENRES_ROLE = Qt.ItemDataRole.UserRole + 27               # tuple[str, ...] (possibly empty)
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -279,6 +284,8 @@ class ChannelListModel(QAbstractListModel):
             return channel.detected_collection or ""
         if role == GENRE_ROLE:
             return channel.detected_genre or ""
+        if role == GENRES_ROLE:
+            return tuple(channel.detected_genres or ())
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]
