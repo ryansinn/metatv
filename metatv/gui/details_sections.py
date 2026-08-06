@@ -82,25 +82,47 @@ class _PosterLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._has_pixmap: bool = False
+        self._apply_content_state()
 
     def setPixmap(self, pixmap: QPixmap) -> None:  # type: ignore[override]
         super().setPixmap(pixmap)
         self._has_pixmap = not (pixmap is None or pixmap.isNull())
-        self._update_cursor()
+        self._apply_content_state()
 
     def clear(self) -> None:
         super().clear()
         self._has_pixmap = False
-        self._update_cursor()
+        self._apply_content_state()
 
     def setText(self, text: str) -> None:  # type: ignore[override]
         super().setText(text)
         # Clearing the image via text also clears the pixmap state
         self._has_pixmap = False
-        self._update_cursor()
+        self._apply_content_state()
 
-    def _update_cursor(self) -> None:
+    def _apply_content_state(self) -> None:
+        """Re-derive everything that depends on "is there an image here?".
+
+        Both properties below are content-dependent, and both used to be set
+        once at construction or per call site, which is how the alignment got
+        stuck. Deriving them in one place means a caller cannot set a pixmap
+        and forget the pair.
+        """
         cursor_affordance.set_clickable(self, self._has_pixmap)
+        # Poster ART hugs the LEFT edge, so the slim action rail floating over
+        # that edge always overlays the poster rather than the card margin, and
+        # the pillarbox padding falls entirely on the right.
+        #
+        # Placeholder TEXT gets no such treatment: it is a message about an
+        # empty card, not an image being positioned within one, so it centres.
+        # It inherited the pixmap's left-alignment and sat against the left
+        # border of a large empty frame for as long as the card has existed
+        # (owner: "it's always bothered me").
+        self.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            if self._has_pixmap
+            else Qt.AlignmentFlag.AlignCenter
+        )
 
     def mousePressEvent(self, event) -> None:
         if self._has_pixmap and event.button() == Qt.MouseButton.LeftButton:
@@ -254,12 +276,11 @@ class _PosterSection(QWidget):
         pf_layout.setContentsMargins(self._RAIL_W, 0, 0, 0)
 
         self.poster_label = _PosterLabel()
-        # Left-aligned (not centered): a pillarboxed portrait poster hugs the box's LEFT
-        # edge so the action rail floating over that edge always overlays the poster itself,
-        # never the gray card margin; the side padding falls entirely on the RIGHT.
-        self.poster_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
+        # Alignment is NOT set here — _PosterLabel derives it from whether it is
+        # currently holding an image (left-aligned art so the floating action
+        # rail overlays the poster, centred text for the empty-card message).
+        # Setting it once here is what pinned "No poster available" to the left
+        # border of an otherwise empty frame.
         self.poster_label.setFixedHeight(self._POSTER_FIXED_H)  # hard height — buttons never move
         # The poster must SUBORDINATE to the pane width, never drive it.  A QLabel
         # holding a pixmap reports minimumSizeHint().width() == pixmap width with a

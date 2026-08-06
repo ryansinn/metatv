@@ -225,3 +225,88 @@ def test_content_reserves_right_gutter_for_scrollbar(qapp, tmp_path):
     assert m.right() > m.left(), (
         f"right margin {m.right()} must exceed left {m.left()} to clear the scrollbar"
     )
+
+
+# ---------------------------------------------------------------------------
+# Placeholder alignment — measured from PAINTED PIXELS, not the alignment flag
+# ---------------------------------------------------------------------------
+
+class TestPosterPlaceholderIsCentred:
+    """"No poster available" sat against the LEFT border of a large empty card
+    for as long as the card has existed (owner: "it's always bothered me").
+
+    The poster label is left-aligned on purpose — a pillarboxed portrait poster
+    has to hug the left edge so the floating action rail overlays the art
+    rather than the card margin — but that alignment also landed on the
+    placeholder TEXT, which is a message about an empty card rather than an
+    image being positioned inside one.
+
+    Both tests below measure the ink actually painted. An assertion on
+    ``alignment()`` would pass for a label whose text is centred in a box that
+    is itself off to one side, which is a different rendering entirely.
+    """
+
+    WIDTH = 240
+    HEIGHT = 80
+
+    @classmethod
+    def _render(cls, label):
+        from PyQt6.QtGui import QColor, QImage
+
+        label.resize(cls.WIDTH, cls.HEIGHT)
+        image = QImage(label.size(), QImage.Format.Format_ARGB32)
+        image.fill(QColor(0, 0, 0, 0))
+        label.render(image)
+        return image
+
+    @classmethod
+    def _content_bounds(cls, label):
+        """(left, right) x-bounds of the ink this label's CONTENT paints.
+
+        Measured as the difference between the label rendered with its content
+        and the same label rendered empty, so the widget's own background —
+        which covers every pixel and would otherwise read as ink from edge to
+        edge — cancels out.
+        """
+        with_content = cls._render(label)
+        label.clear()
+        empty = cls._render(label)
+        xs = [x for x in range(with_content.width())
+              for y in range(with_content.height())
+              if with_content.pixelColor(x, y) != empty.pixelColor(x, y)]
+        assert xs, "the label's content painted nothing at all"
+        return min(xs), max(xs)
+
+    def test_placeholder_text_is_horizontally_centred(self, qapp):
+        """PRE-FIX THIS FAILED: the text started ~4px from the left border of a
+        360px-wide card, leaving a ~230px gap on the right."""
+        from metatv.gui.details_sections import _PosterLabel
+
+        label = _PosterLabel()
+        label.setText("No poster available")
+        left, right = self._content_bounds(label)
+        left_margin, right_margin = left, self.WIDTH - 1 - right
+        assert abs(left_margin - right_margin) <= 2, (
+            f"placeholder is not centred: {left_margin}px of space on the left, "
+            f"{right_margin}px on the right"
+        )
+        # Non-zero on BOTH sides: a "margins are equal" check alone is satisfied
+        # by text that fills the card edge to edge, and by 0 == 0.
+        assert left_margin > 0 and right_margin > 0
+
+    def test_poster_art_still_hugs_the_left_edge(self, qapp):
+        """The other half of the rule, which the fix must not break: real art
+        stays left-aligned so the action rail overlays the poster."""
+        from PyQt6.QtGui import QColor, QPixmap
+
+        from metatv.gui.details_sections import _PosterLabel
+
+        art = QPixmap(60, 40)
+        art.fill(QColor("#ff00ff"))
+        label = _PosterLabel()
+        label.setPixmap(art)
+        left, right = self._content_bounds(label)
+        assert left == 0, f"poster art starts {left}px in — it must hug the left edge"
+        assert right < self.WIDTH - 1, (
+            "art should leave its pillarbox padding on the RIGHT"
+        )
