@@ -66,6 +66,30 @@ datas.append(
     )
 )
 
+# ── Non-.py files the app READS AT RUNTIME ───────────────────────────────────
+#
+# PyInstaller follows imports, so a .py file comes along automatically and a
+# data file does NOT. Every entry below is read with an open()/read_text() at
+# runtime, which means omitting one is not a degraded feature — it is a
+# FileNotFoundError, and if the read happens at import time it is a crash
+# before any window appears.
+#
+# That is exactly what shipped: the DTCG palette files landed with the theme
+# rewrite and were never added here, so `theme.py` -> `theme_palettes.py` ->
+# `loader.build_legacy_palette()` raised FileNotFoundError on every macOS build
+# from that release onward. Nothing caught it, because the suite runs from a
+# source checkout where the files are simply present, and CI built the .dmg
+# without ever launching it.
+#
+# tests/test_packaging_data_files.py asserts this list covers every non-.py
+# file under metatv/ — add a data file, and the suite tells you to add it here.
+datas += [
+    (os.path.join(REPO_ROOT, "metatv", "gui", "tokens"),
+     os.path.join("metatv", "gui", "tokens")),          # *.tokens.json palettes
+    (os.path.join(REPO_ROOT, "metatv", "data"),
+     os.path.join("metatv", "data")),                   # sports_definitions.yaml
+]
+
 block_cipher = None
 
 a = Analysis(

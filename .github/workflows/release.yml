@@ -197,6 +197,62 @@ jobs:
           codesign --verify --deep --strict dist/MetaTV.app \
             || echo "codesign verify reported issues (non-fatal)"
 
+      - name: Smoke test — the built app must actually launch
+        # Every packaging bug found so far has been a MISSING FILE, not bad code,
+        # and the suite cannot see any of them: tests run from a source checkout
+        # where every file is present by definition. CI built the .dmg and never
+        # once started it, so the first thing to run each release was the
+        # tester's Mac.
+        #
+        # Two shipped that way:
+        #   - vendored mpv could not resolve its dylibs (v0.23.0) — now caught by
+        #     the `mpv --version` check above.
+        #   - metatv/gui/tokens/*.tokens.json were never added to the spec, so
+        #     theme.py raised FileNotFoundError at IMPORT, before any window.
+        #     The app died instantly on launch for every user.
+        #
+        # QT_QPA_PLATFORM=offscreen so this works on a headless runner while
+        # still exercising the real bundle: the same binary, the same imports,
+        # the same data-file lookups. A fresh HOME keeps it off the runner's
+        # state and proves first-run works.
+        run: |
+          set -uo pipefail
+          APP="dist/MetaTV.app/Contents/MacOS/MetaTV"
+          LOG="$RUNNER_TEMP/metatv-smoke.log"
+          export HOME="$RUNNER_TEMP/smoke-home"
+          mkdir -p "$HOME"
+
+          QT_QPA_PLATFORM=offscreen "$APP" >"$LOG" 2>&1 &
+          APP_PID=$!
+
+          # Give it time to boot, import every module and build the main window.
+          for _ in $(seq 1 20); do
+            sleep 1
+            kill -0 "$APP_PID" 2>/dev/null || break
+          done
+
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            kill "$APP_PID" 2>/dev/null || true
+            wait "$APP_PID" 2>/dev/null || true
+            echo "App stayed up — launch OK."
+          else
+            wait "$APP_PID" 2>/dev/null
+            echo "::error::MetaTV.app exited during launch — the bundle is broken."
+            echo "----- launch log -----"
+            cat "$LOG" || true
+            exit 1
+          fi
+
+          # Alive is necessary but not sufficient: a swallowed exception can
+          # leave a running process with a broken feature.
+          if grep -qE "Traceback \(most recent call last\)|ModuleNotFoundError|FileNotFoundError" "$LOG"; then
+            echo "::error::Exception during launch — see the log below."
+            cat "$LOG"
+            exit 1
+          fi
+          echo "----- launch log (tail) -----"
+          tail -30 "$LOG" || true
+
       - name: Create DMG
         id: dmg
         run: |
