@@ -93,6 +93,7 @@ class StreamDiagnosticsDialog(QDialog):
         config,
         executor,
         player_active: bool = False,
+        episode_label: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -101,6 +102,7 @@ class StreamDiagnosticsDialog(QDialog):
         self._config = config
         self._executor = executor
         self._player_active = player_active
+        self._episode_label = episode_label
         self._result: DiagnosticResult | None = None
 
         self.setWindowTitle("Stream diagnostics")
@@ -120,6 +122,15 @@ class StreamDiagnosticsDialog(QDialog):
         _theme.style(title, "DETAIL_TITLE")
         title.setWordWrap(True)
         layout.addWidget(title)
+
+        # Always-visible URL line (redacted for security).
+        url_display = f"Testing {_diag._redact(self._stream_url)}"
+        if self._episode_label:
+            url_display = f"Testing {self._episode_label}: {_diag._redact(self._stream_url)}"
+        self._url_line = QLabel(url_display)
+        _theme.style(self._url_line, "DIAG_URL")
+        self._url_line.setWordWrap(True)
+        layout.addWidget(self._url_line)
 
         if self._player_active:
             warn = QLabel(
@@ -170,7 +181,7 @@ class StreamDiagnosticsDialog(QDialog):
 
         # Footer buttons.
         footer = QHBoxLayout()
-        self._apply_button = QPushButton("Apply tuning & Save")
+        self._apply_button = QPushButton("Apply tuning && Save")
         self._apply_button.setToolTip(
             "Save the recommended mpv cache settings — takes effect on the next stream you play"
         )
