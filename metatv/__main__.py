@@ -10,6 +10,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.main_window import MainWindow
 from metatv.core.config import Config
+from metatv.core.url_policy import UrlRankingPolicy, set_url_ranking_policy
 
 
 def setup_logging():
@@ -38,6 +39,14 @@ def main():
         config.save()
     except Exception as e:
         logger.error(f"Failed to save config on startup: {e}")
+
+    # Resolve the provider-URL ranking knobs ONCE, here, from the loaded config.
+    # Provider.ordered_urls() reads the resolved policy rather than a Config —
+    # the six busiest cycling call sites live in providers/xtream.py, which has
+    # no Config access by design. Without this line the three url_* settings are
+    # decorative: everything falls back to defaults and editing config.yaml does
+    # nothing.
+    set_url_ranking_policy(UrlRankingPolicy.from_config(config))
 
     # Create Qt application
     app = QApplication(sys.argv)
