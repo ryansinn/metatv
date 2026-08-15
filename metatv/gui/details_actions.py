@@ -312,8 +312,11 @@ class _ActionBar(QWidget):
         """Configure the action bar for an episode selected in the series tree.
 
         The primary button becomes ``▶ Play Episode: S##E##`` (or plain
-        ``▶ Play Episode`` when no coordinate is known); Resume is hidden (movie-only
-        affordance — doesn't apply to a single episode).  Watch Later STAYS VISIBLE
+        ``▶ Play Episode`` when no coordinate is known); Resume is hidden HERE only
+        so the series' position never leaks onto an episode — ``show_episode`` calls
+        ``set_resume`` immediately after this, from the EPISODE's own stored
+        ``watch_progress``, so an episode with a saved position does show Resume
+        (#304).  Do not "restore" this to a movie-only affordance.  Watch Later STAYS VISIBLE
         and the favorite star stays clickable (Wave 2 Slice 2B) but both now target
         the EPISODE, not the series — reset to un-queued/un-favorited here so neither
         flashes the series' stale state (nor an un-suffixed tooltip); the caller's
