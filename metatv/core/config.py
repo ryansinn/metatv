@@ -723,6 +723,14 @@ class Config(BaseModel):
     deep_cache_max_gb: int = 20  # soft cap; oldest files purged before it's exceeded
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
+    # ── URL ranking tunables (Provider.ordered_urls(), core/models.py) ───────
+    # A provider's alternate host URLs are ranked on recency-weighted health +
+    # latency, not a lifetime success/failure ratio (a chronically slow-but-
+    # working host could sit at the top forever otherwise). These three knobs
+    # are the ONLY place these numbers live — never hardcode them elsewhere.
+    url_health_decay: float = 0.85  # EWMA decay per recent_attempts step, newest-first (0-1)
+    url_cooldown_minutes: int = 10  # demote a URL whose most-recent attempt failed within this window
+    url_recent_attempts_kept: int = 20  # cap on ProviderURL.recent_attempts persisted per URL
     autoplay_season_episodes: bool = True  # Auto-queue subsequent episodes when playing from season
     # After a queued auto-advance run ends, ask "Still here? Did you watch them all?"
     # so the user can promote queue-watched episodes to fully-engaged (solid icon, advance resume anchor).

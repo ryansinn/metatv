@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 import json
+from metatv.core.config import Config
 from metatv.core.database import Database, ProviderDB, ChannelDB
-from metatv.core.models import Provider, ProviderURL
+from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 
 
 def parse_provider_urls(raw: "str | list | None") -> list[dict]:
@@ -43,7 +44,43 @@ def _parse_iso(value: object) -> Optional[datetime]:
         return None
 
 
-def persist_url_stats(db: Database, provider: Provider) -> None:
+def _serialize_attempt(attempt: ConnectionAttempt) -> dict:
+    """Serialize one in-memory ``ConnectionAttempt`` for the urls JSON blob.
+
+    ``timestamp`` uses ``.isoformat()``, matching every other datetime already
+    stored in this blob (``last_success``/``last_failure``); parsed back via
+    the shared ``_parse_iso`` helper, never a second date parser.
+    """
+    return {
+        "timestamp": attempt.timestamp.isoformat() if attempt.timestamp else None,
+        "success": attempt.success,
+        "client_ip": attempt.client_ip,
+        "error_message": attempt.error_message,
+        "response_time_ms": attempt.response_time_ms,
+    }
+
+
+def _parse_attempt(raw: object) -> Optional[ConnectionAttempt]:
+    """Parse one stored ``recent_attempts`` entry, or ``None`` if malformed.
+
+    A malformed/legacy entry is dropped rather than raising — mirrors
+    ``_parse_iso``'s "corrupt data must not break provider loading" contract.
+    """
+    if not isinstance(raw, dict):
+        return None
+    timestamp = _parse_iso(raw.get("timestamp"))
+    if timestamp is None:
+        return None
+    return ConnectionAttempt(
+        timestamp=timestamp,
+        success=bool(raw.get("success", False)),
+        client_ip=raw.get("client_ip"),
+        error_message=raw.get("error_message"),
+        response_time_ms=raw.get("response_time_ms"),
+    )
+
+
+def persist_url_stats(db: Database, provider: Provider, config: Optional[Config] = None) -> None:
     """Write *provider*'s in-memory per-URL connection stats back to the DB.
 
     :class:`~metatv.core.url_cycle.UrlCycler` records success/failure
@@ -70,13 +107,23 @@ def persist_url_stats(db: Database, provider: Provider) -> None:
     silently skips the UPDATE. Copying first keeps the old value's dicts
     untouched so the reassignment is a real, detectable change.
 
+    ``recent_attempts`` round-trips too, capped at ``config.url_recent_attempts_kept``
+    (newest kept — ``recent_attempts`` is stored oldest-first, so a plain
+    ``[-n:]`` slice keeps the tail) so the JSON blob never grows unbounded.
+
     Args:
         db: Database handle providing ``session_scope()``.
         provider: The in-memory Provider whose ``urls`` counters/timestamps
             should be persisted.
+        config: Supplies ``url_recent_attempts_kept``. Defaults to a fresh
+            ``Config()`` (field defaults only, no disk I/O) when omitted, so
+            existing two-arg call sites keep working unchanged.
     """
     if not provider.urls:
         return
+    if config is None:
+        config = Config()
+    keep_n = max(config.url_recent_attempts_kept, 0)
     try:
         with db.session_scope() as session:
             db_prov = session.query(ProviderDB).filter_by(id=provider.id).first()
@@ -94,6 +141,8 @@ def persist_url_stats(db: Database, provider: Provider) -> None:
                 entry['last_success'] = pu.last_success.isoformat() if pu.last_success else None
                 entry['last_failure'] = pu.last_failure.isoformat() if pu.last_failure else None
                 entry['last_error'] = pu.last_error
+                kept = pu.recent_attempts[-keep_n:] if keep_n else []
+                entry['recent_attempts'] = [_serialize_attempt(a) for a in kept]
             db_prov.urls = raw
     except Exception as e:
         logger.warning(f"Failed to persist URL stats for provider {provider.id!r}: {e}")
@@ -326,12 +375,22 @@ class ProviderRepository:
         here too (parsed via ``_parse_iso``) — without this, every
         ``ProviderURL`` built from the DB would start with those fields blank,
         and ``persist_url_stats`` would then wipe genuinely-stored history for
-        any URL not touched during the current cycle.
+        any URL not touched during the current cycle. ``recent_attempts``
+        round-trips the same way via ``_parse_attempt`` — a row with counts
+        but no ``recent_attempts`` key (every pre-upgrade provider) simply
+        yields an empty list, which ``ProviderURL.health_score()`` treats as
+        "fall back to the lifetime ratio", not "untested".
         """
         urls: List[ProviderURL] = []
         for u in parse_provider_urls(db_provider.urls):
             if not u.get('url'):
                 continue
+            recent_attempts = [
+                a for a in (
+                    _parse_attempt(raw) for raw in (u.get('recent_attempts') or [])
+                )
+                if a is not None
+            ]
             urls.append(ProviderURL(
                 url=u['url'],
                 priority=u.get('priority', 999),
@@ -341,6 +400,7 @@ class ProviderRepository:
                 last_success=_parse_iso(u.get('last_success')),
                 last_failure=_parse_iso(u.get('last_failure')),
                 last_error=u.get('last_error'),
+                recent_attempts=recent_attempts,
             ))
 
         return Provider(

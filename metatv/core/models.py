@@ -1,9 +1,12 @@
 """Core data models"""
 
+import statistics
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from enum import Enum
+
+from metatv.core.config import Config
 
 
 # Common media type constants (not exhaustive - providers can use any string)
@@ -172,6 +175,52 @@ class ProviderURL:
         if total == 0:
             return 100.0  # Untested, assume good
         return (self.success_count / total) * 100
+
+    def health_score(self, decay: float) -> float:
+        """Recency-weighted (EWMA) success ratio over ``recent_attempts``.
+
+        ``recent_attempts`` is stored oldest-first (``add_attempt`` appends);
+        this walks it newest-first and weights attempt ``i`` (0 = newest) by
+        ``decay ** i``, so a recent run of failures drags the score down fast
+        while an old failure fades out — unlike ``reliability_score``, a
+        lifetime ratio that a single stale outage can never meaningfully move.
+
+        Falls back to the legacy lifetime ratio (``reliability_score``, as a
+        0-1 fraction) when ``recent_attempts`` is empty — every existing
+        user's pre-upgrade data — so upgrading does not reset a host with a
+        long track record back to "untested". With no data at all, returns
+        ``1.0`` (untested = optimistic), matching today's behaviour.
+        """
+        if self.recent_attempts:
+            weighted_success = 0.0
+            weight_total = 0.0
+            weight = 1.0
+            for attempt in reversed(self.recent_attempts):
+                weighted_success += weight * (1.0 if attempt.success else 0.0)
+                weight_total += weight
+                weight *= decay
+            return weighted_success / weight_total if weight_total else 1.0
+
+        total = self.success_count + self.failure_count
+        if total == 0:
+            return 1.0
+        return self.success_count / total
+
+    def median_latency_ms(self) -> int:
+        """Median ``response_time_ms`` over the successful ``recent_attempts``.
+
+        Returns ``0`` when no successful attempt recorded a latency, so an
+        untested/unmeasured URL stays cheap to try rather than being sorted
+        behind every measured host.
+        """
+        latencies = [
+            a.response_time_ms
+            for a in self.recent_attempts
+            if a.success and a.response_time_ms is not None
+        ]
+        if not latencies:
+            return 0
+        return int(statistics.median(latencies))
     
     @property
     def status(self) -> str:
@@ -219,24 +268,50 @@ class Provider:
     added_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
-    def ordered_urls(self) -> List[str]:
-        """Return base URLs in reliability-first order.
+    def ordered_urls(self, config: Optional[Config] = None) -> List[str]:
+        """Return base URLs ranked by what's happening NOW, not a lifetime average.
 
-        Tier 0 — Has at least one success: sorted by reliability (successes/total) descending.
-        Tier 1 — Untested (zero attempts): sorted by stored priority ascending.
-        Tier 2 — Never succeeded (only failures): sorted by failure count ascending.
+        Sort key: ``(cooldown_tier, -health, median_latency_ms, priority)``.
 
-        The legacy ``self.url`` is always the final fallback if not already present.
-        The first element is always the statistically best bet, so URL cycling
-        becomes a rare safety net rather than routine overhead.
+        - ``cooldown_tier``: ``1`` if the URL's most recent attempt failed
+          within the last ``config.url_cooldown_minutes``, else ``0``. This
+          only DEMOTES — it never removes a URL from the list, so a total
+          outage across every host still returns all of them (there must
+          always be something left to try).
+        - ``health``: recency-weighted (EWMA) success ratio via
+          :meth:`ProviderURL.health_score` — falls back to the lifetime ratio
+          for pre-upgrade data with no ``recent_attempts``, and to ``1.0``
+          (optimistic) for a never-tried URL.
+        - ``median_latency_ms``: via :meth:`ProviderURL.median_latency_ms` —
+          ``0`` (cheapest) when unmeasured, so untested URLs still get a
+          chance rather than being buried behind measured-but-slow ones.
+        - ``priority``: the existing manual field, final tiebreak.
+
+        A chronically slow-but-successful host (e.g. one that answers in
+        10-12s every time) no longer sits at the top forever just because it
+        never technically fails — the fast, healthy host now sorts first.
+
+        The legacy ``self.url`` is always the final fallback if not already
+        present. ``config`` defaults to a fresh ``Config()`` (no disk I/O —
+        field defaults only) when the caller doesn't have one to hand, so
+        every existing call site keeps working unchanged.
         """
+        if config is None:
+            config = Config()
+
+        decay = config.url_health_decay
+        cooldown = timedelta(minutes=config.url_cooldown_minutes)
+        now = datetime.now()
+
         def _key(pu: ProviderURL):
-            total = pu.success_count + pu.failure_count
-            if total == 0:
-                return (1, 0.0, pu.priority)                           # untested — middle tier
-            if pu.success_count > 0:
-                return (0, -(pu.success_count / total), pu.priority)   # working — best reliability first
-            return (2, float(pu.failure_count), pu.priority)           # never worked — least failures first
+            cooldown_tier = 0
+            if pu.recent_attempts:
+                newest = pu.recent_attempts[-1]
+                if not newest.success and (now - newest.timestamp) <= cooldown:
+                    cooldown_tier = 1
+            health = pu.health_score(decay)
+            latency = pu.median_latency_ms()
+            return (cooldown_tier, -health, latency, pu.priority)
 
         seen: set = set()
         ordered: List[str] = []
