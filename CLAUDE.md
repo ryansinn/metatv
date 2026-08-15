@@ -91,6 +91,9 @@ Every channel menu is built by the registry in `metatv/gui/channel_menu.py` (`AC
 ### Player instance keying — thread `provider_id`, never bypass `PlayerManager`
 Every play path threads the channel's `provider_id` through to `player_manager.play(provider_id=…)` (resolves the per-source mpv instance key for Split Streams); `is_running`/`stop`/`get_properties` go through `PlayerManager(..., key=…)`, never `MPVPlayer` directly. Detail: docs/CRITICAL_RULES.md#player-instance-keying.
 
+### Provider URL cycling — always `UrlCycler`, and always record the outcome
+Trying a provider's alternate hosts has one path: `UrlCycler(provider, operation).candidates()` (`core/url_cycle.py`), with `record_success`/`record_failure` (latency included) after every attempt and `persist_url_stats()` to flush — never a bare `for base in provider.ordered_urls()`, which a drift-guard test (AST-based, so comments are fine) fails the suite on. Cycling without recording is the bug that shipped: five of seven paths cycled silently, so a 10-12s host stayed top-ranked forever. Ranking knobs come from the frozen `UrlRankingPolicy` (`core/url_policy.py`) resolved once at startup — low-level code holds no `Config`, same as `VisibilityScope`. Don't route through `ConnectionTracker` (async + a network call per attempt).
+
 ### View lifecycle & modal hiding — symmetric activate/deactivate
 A view with `on_activate()` (timers/loads) must have a matching `on_deactivate()` (stop/cancel); the host calls them on switch, safest from `_hide_all_content_views()`. A sidebar-triggered modal in `_list_layout` must *also* register in `_hide_all_content_views()`, guard existence via `"view_name" in self.__dict__`, and pair enter/exit with activate/deactivate — else it lingers and keeps consuming async loads. Sibling: dialogs/editors emit a signal so the host refreshes dependent views. Detail: docs/CRITICAL_RULES.md#view-lifecycle · docs/CRITICAL_RULES.md#modal-and-overlay-views.
 

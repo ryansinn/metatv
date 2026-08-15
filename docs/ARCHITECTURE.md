@@ -13,6 +13,8 @@ metatv/
 │   ├── content_identity.py  # content_key_for() — tmdb-first cross-source identity, computed at ingestion
 │   ├── epg_utils.py         # All EPG time/timezone helpers (UTC-naive storage, local display)
 │   ├── filter_utils.py      # Exclusion-criterion builders shared by channel_visibility
+│   ├── url_cycle.py         # THE way to try a provider's alternate URLs + record the outcome (UrlCycler)
+│   ├── url_policy.py        # Resolved host-ranking knobs (UrlRankingPolicy); holds no Config
 │   ├── tag_decomposer.py    # Facet/tag decomposition chokepoint (curated data lives in channel_name_utils)
 │   ├── build_info.py        # Version resolution for the packaged app
 │   ├── series_monitor.py    # Monitored-series episode-count polling + new-episode alerts
