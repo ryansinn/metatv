@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 import json
-from metatv.core.database import ProviderDB, ChannelDB
+from metatv.core.database import Database, ProviderDB, ChannelDB
 from metatv.core.models import Provider, ProviderURL
 
 
@@ -27,6 +27,76 @@ def parse_provider_urls(raw: "str | list | None") -> list[dict]:
         except Exception:
             return []
     return [u for u in (raw or []) if isinstance(u, dict)]
+
+
+def _parse_iso(value: object) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp string stored in a urls JSON blob entry.
+
+    Returns ``None`` for a missing/blank/malformed value rather than raising —
+    a corrupt or legacy row must not break provider loading.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def persist_url_stats(db: Database, provider: Provider) -> None:
+    """Write *provider*'s in-memory per-URL connection stats back to the DB.
+
+    :class:`~metatv.core.url_cycle.UrlCycler` records success/failure
+    counters and timestamps onto the in-memory ``Provider.urls`` list only —
+    it has no ``Database`` handle (``providers/`` must not gain one, per the
+    engine/control/view layering rule). This is the control-layer
+    counterpart: whichever caller owns both the mutated ``Provider`` and a
+    ``Database`` calls this once after cycling to make the stats durable.
+
+    Merges by matching ``pu.url.rstrip('/')`` against each stored raw URL
+    entry's ``url`` (mirrors ``UrlCycler``'s own matching), preserving every
+    other key already in the JSON blob (priority, is_active, etc.) — the same
+    merge semantics as the inline block this replaces
+    (``provider_loader.py``'s old write-back). Datetimes serialize as
+    ``.isoformat()`` strings, matching the format ``main_window_streaming.py``
+    already wrote. No-op when *provider* has no URLs to merge.
+
+    Copies each entry dict before mutating it (``dict(entry)``, not the alias
+    ``parse_provider_urls`` returns): the raw list it returns holds the SAME
+    dict objects already living on ``db_prov.urls``, so mutating those
+    in place and then reassigning ``db_prov.urls = raw`` would compare the
+    "old" and "new" value as equal (they're literally the same, already-
+    mutated dicts) — SQLAlchemy's attribute-history check sees no change and
+    silently skips the UPDATE. Copying first keeps the old value's dicts
+    untouched so the reassignment is a real, detectable change.
+
+    Args:
+        db: Database handle providing ``session_scope()``.
+        provider: The in-memory Provider whose ``urls`` counters/timestamps
+            should be persisted.
+    """
+    if not provider.urls:
+        return
+    try:
+        with db.session_scope() as session:
+            db_prov = session.query(ProviderDB).filter_by(id=provider.id).first()
+            if not db_prov:
+                return
+            raw = [dict(entry) for entry in parse_provider_urls(db_prov.urls)]
+            url_map = {pu.url.rstrip('/'): pu for pu in provider.urls}
+            for entry in raw:
+                key = entry.get('url', '').rstrip('/')
+                pu = url_map.get(key)
+                if pu is None:
+                    continue
+                entry['success_count'] = pu.success_count
+                entry['failure_count'] = pu.failure_count
+                entry['last_success'] = pu.last_success.isoformat() if pu.last_success else None
+                entry['last_failure'] = pu.last_failure.isoformat() if pu.last_failure else None
+                entry['last_error'] = pu.last_error
+            db_prov.urls = raw
+    except Exception as e:
+        logger.warning(f"Failed to persist URL stats for provider {provider.id!r}: {e}")
 
 
 class ProviderRepository:
@@ -250,7 +320,14 @@ class ProviderRepository:
         return [r.icon for r in rows if r.icon]
 
     def to_model(self, db_provider: ProviderDB) -> Provider:
-        """Convert database model to domain model, including alternate URLs."""
+        """Convert database model to domain model, including alternate URLs.
+
+        ``last_success``/``last_failure``/``last_error`` round-trip through
+        here too (parsed via ``_parse_iso``) — without this, every
+        ``ProviderURL`` built from the DB would start with those fields blank,
+        and ``persist_url_stats`` would then wipe genuinely-stored history for
+        any URL not touched during the current cycle.
+        """
         urls: List[ProviderURL] = []
         for u in parse_provider_urls(db_provider.urls):
             if not u.get('url'):
@@ -261,6 +338,9 @@ class ProviderRepository:
                 is_active=u.get('is_active', True),
                 success_count=u.get('success_count', 0),
                 failure_count=u.get('failure_count', 0),
+                last_success=_parse_iso(u.get('last_success')),
+                last_failure=_parse_iso(u.get('last_failure')),
+                last_error=u.get('last_error'),
             ))
 
         return Provider(
