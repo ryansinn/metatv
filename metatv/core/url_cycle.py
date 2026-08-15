@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from loguru import logger
 
-from metatv.core.config import Config
+from metatv.core.url_policy import UrlRankingPolicy, get_url_ranking_policy
 from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 
 
@@ -62,12 +62,12 @@ class UrlCycler:
         self.operation = operation
         self._dirty = False
 
-    def candidates(self, config: Config | None = None) -> list[str]:
+    def candidates(self, policy: UrlRankingPolicy | None = None) -> list[str]:
         """Return the provider's base URLs in reliability-first order.
 
         Delegates to :meth:`Provider.ordered_urls` — this is the one place
         (besides ``core/models.py`` itself) that call is allowed to appear.
-        *config* defaults to a fresh :class:`~metatv.core.config.Config` (no
+        *policy* defaults to the process-wide ranking policy (resolved once
         disk I/O — field defaults only) so existing no-arg callers are
         unaffected.
 
@@ -75,20 +75,20 @@ class UrlCycler:
         median latency, and cooldown state — how the owner validates the
         decay/cooldown constants against real traffic instead of guessing.
         """
-        if config is None:
-            config = Config()
+        if policy is None:
+            policy = get_url_ranking_policy()
 
-        ordered = self.provider.ordered_urls(config)
+        ordered = self.provider.ordered_urls(policy)
 
         now = datetime.now()
-        cooldown = timedelta(minutes=config.url_cooldown_minutes)
+        cooldown = timedelta(minutes=policy.cooldown_minutes)
         parts = []
         for base_url in ordered:
             pu = self._find(base_url)
             if pu is None:
                 parts.append(f"{base_url} [untracked]")
                 continue
-            health = pu.health_score(config.url_health_decay)
+            health = pu.health_score(policy.health_decay)
             latency = pu.median_latency_ms()
             in_cooldown = bool(pu.recent_attempts) and not pu.recent_attempts[-1].success \
                 and (now - pu.recent_attempts[-1].timestamp) <= cooldown

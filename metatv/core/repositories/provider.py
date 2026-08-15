@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 import json
-from metatv.core.config import Config
+from metatv.core.url_policy import UrlRankingPolicy, get_url_ranking_policy
 from metatv.core.database import Database, ProviderDB, ChannelDB
 from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 
@@ -80,7 +80,7 @@ def _parse_attempt(raw: object) -> Optional[ConnectionAttempt]:
     )
 
 
-def persist_url_stats(db: Database, provider: Provider, config: Optional[Config] = None) -> None:
+def persist_url_stats(db: Database, provider: Provider, policy: Optional[UrlRankingPolicy] = None) -> None:
     """Write *provider*'s in-memory per-URL connection stats back to the DB.
 
     :class:`~metatv.core.url_cycle.UrlCycler` records success/failure
@@ -107,7 +107,7 @@ def persist_url_stats(db: Database, provider: Provider, config: Optional[Config]
     silently skips the UPDATE. Copying first keeps the old value's dicts
     untouched so the reassignment is a real, detectable change.
 
-    ``recent_attempts`` round-trips too, capped at ``config.url_recent_attempts_kept``
+    ``recent_attempts`` round-trips too, capped at ``policy.recent_attempts_kept``
     (newest kept — ``recent_attempts`` is stored oldest-first, so a plain
     ``[-n:]`` slice keeps the tail) so the JSON blob never grows unbounded.
 
@@ -115,15 +115,15 @@ def persist_url_stats(db: Database, provider: Provider, config: Optional[Config]
         db: Database handle providing ``session_scope()``.
         provider: The in-memory Provider whose ``urls`` counters/timestamps
             should be persisted.
-        config: Supplies ``url_recent_attempts_kept``. Defaults to a fresh
-            ``Config()`` (field defaults only, no disk I/O) when omitted, so
-            existing two-arg call sites keep working unchanged.
+        policy: Supplies ``recent_attempts_kept``. Defaults to the process-wide
+            ranking policy (resolved from ``Config`` once at startup), so
+            existing two-arg call sites pick up the user's real setting.
     """
     if not provider.urls:
         return
-    if config is None:
-        config = Config()
-    keep_n = max(config.url_recent_attempts_kept, 0)
+    if policy is None:
+        policy = get_url_ranking_policy()
+    keep_n = max(policy.recent_attempts_kept, 0)
     try:
         with db.session_scope() as session:
             db_prov = session.query(ProviderDB).filter_by(id=provider.id).first()

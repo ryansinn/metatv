@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from metatv.core.config import Config
+from metatv.core.url_policy import UrlRankingPolicy
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 from metatv.core.repositories import RepositoryFactory
@@ -102,8 +102,8 @@ def test_five_recent_failures_demote_a_1000_success_host_below_a_healthy_peer():
     assert ordered[0].rstrip('/') == "http://healthy.example"
     assert ordered.index("http://healthy.example") < ordered.index("http://was-great.example")
 
-    good_health = chronically_good.health_score(Config().url_health_decay)
-    peer_health = healthy_peer.health_score(Config().url_health_decay)
+    good_health = chronically_good.health_score(UrlRankingPolicy().health_decay)
+    peer_health = healthy_peer.health_score(UrlRankingPolicy().health_decay)
     assert good_health < peer_health
 
 
@@ -181,7 +181,7 @@ def test_legacy_counts_with_no_recent_attempts_use_lifetime_ratio_not_untested()
     pu = ProviderURL(url="http://legacy.example", success_count=3, failure_count=1)
 
     assert pu.recent_attempts == []
-    health = pu.health_score(Config().url_health_decay)
+    health = pu.health_score(UrlRankingPolicy().health_decay)
 
     assert health == 0.75  # 3 / (3 + 1) — the pre-existing lifetime ratio
     assert health != 1.0   # must NOT be treated as untested
@@ -195,7 +195,7 @@ def test_legacy_counts_with_no_recent_attempts_use_lifetime_ratio_not_untested()
 def test_untested_url_is_optimistic_and_tried_before_a_proven_bad_host():
     untested = ProviderURL(url="http://never-tried.example", priority=5)
 
-    assert untested.health_score(Config().url_health_decay) == 1.0
+    assert untested.health_score(UrlRankingPolicy().health_decay) == 1.0
     assert untested.median_latency_ms() == 0
 
     proven_bad = ProviderURL(
@@ -210,7 +210,7 @@ def test_untested_url_is_optimistic_and_tried_before_a_proven_bad_host():
 
 # ---------------------------------------------------------------------------
 # 7: persist_url_stats() / to_model() round-trip recent_attempts through a
-#    REAL file-backed Database, capped at config.url_recent_attempts_kept,
+#    REAL file-backed Database, capped at policy.recent_attempts_kept,
 #    keeping the NEWEST entries.
 # ---------------------------------------------------------------------------
 
@@ -236,7 +236,7 @@ def test_persist_and_reload_caps_recent_attempts_to_newest_n(tmp_path):
         for rt in (100, 200, 300, 400, 500):
             pu.add_attempt(ConnectionAttempt(success=True, response_time_ms=rt))
 
-        persist_url_stats(db, provider, config=Config(url_recent_attempts_kept=3))
+        persist_url_stats(db, provider, policy=UrlRankingPolicy(recent_attempts_kept=3))
 
         with db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
@@ -258,7 +258,7 @@ def test_persist_and_reload_caps_recent_attempts_to_newest_n(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_ewma_weighting_makes_newest_outcome_dominate():
-    decay = Config().url_health_decay
+    decay = UrlRankingPolicy().health_decay
 
     # Oldest -> newest: two failures, then three successes (recovering host).
     recovering = ProviderURL(url="http://recovering.example")
@@ -278,3 +278,72 @@ def test_ewma_weighting_makes_newest_outcome_dominate():
     # Same 3 successes / 2 failures either way — only the order differs.
     assert health_recovering != health_degrading
     assert health_recovering > health_degrading
+
+
+# ---------------------------------------------------------------------------
+# The user's configured values must actually reach the ranker.
+#
+# Regression guard: #305 shipped three Config fields but every call site fell
+# back to a default Config(), so editing config.yaml changed nothing -- the
+# settings were decorative. These tests fail if that wiring is ever undone.
+# ---------------------------------------------------------------------------
+
+def test_policy_resolves_every_field_from_config():
+    """from_config() must read the real values, not silently keep defaults."""
+    class _Cfg:
+        url_health_decay = 0.5
+        url_cooldown_minutes = 45
+        url_recent_attempts_kept = 7
+
+    policy = UrlRankingPolicy.from_config(_Cfg())
+    assert policy.health_decay == 0.5
+    assert policy.cooldown_minutes == 45
+    assert policy.recent_attempts_kept == 7
+    # ...and it must differ from the built-in defaults, or this proves nothing.
+    assert policy != UrlRankingPolicy()
+
+
+def test_installed_policy_changes_ranking_without_being_passed_in():
+    """ordered_urls() with NO explicit policy must honour the installed one.
+
+    This is the exact gap the fix closes: every production call site calls
+    ordered_urls() bare, so if the global is ignored the user's cooldown
+    setting has no effect anywhere.
+    """
+    from metatv.core.url_policy import set_url_ranking_policy, reset_url_ranking_policy
+
+    now = datetime.now()
+
+    # Strong history, then ONE failure 30 minutes ago. Health stays well above
+    # the peer's, so ONLY the cooldown tier can dislodge it -- which is the
+    # point: cooldown_tier is the first sort key, ahead of health.
+    flaky = ProviderURL(url="http://flaky.example", priority=0)
+    for _ in range(5):
+        flaky.add_attempt(ConnectionAttempt(
+            timestamp=now - timedelta(hours=3), success=True, response_time_ms=200,
+        ))
+    flaky.add_attempt(ConnectionAttempt(timestamp=now - timedelta(minutes=30), success=False))
+
+    # Mediocre but STALE history: nothing recent, so it is never in cooldown.
+    peer = ProviderURL(url="http://peer.example", priority=1)
+    peer.add_attempt(ConnectionAttempt(
+        timestamp=now - timedelta(hours=3), success=True, response_time_ms=200,
+    ))
+    peer.add_attempt(ConnectionAttempt(timestamp=now - timedelta(hours=3), success=False))
+
+    provider = _provider([flaky, peer])
+    assert flaky.health_score(0.85) > peer.health_score(0.85), "premise: flaky wins on health"
+
+    try:
+        # 10-minute cooldown: the 30-minute-old failure is OUTSIDE the window,
+        # so flaky is not demoted and its stronger health puts it first.
+        set_url_ranking_policy(UrlRankingPolicy(cooldown_minutes=10))
+        assert provider.ordered_urls()[0].rstrip('/') == "http://flaky.example"
+
+        # 60-minute cooldown: the same failure is now INSIDE the window, so
+        # flaky drops a tier and the peer overtakes it despite worse health.
+        # Same data, same bare call -- only the installed policy changed.
+        set_url_ranking_policy(UrlRankingPolicy(cooldown_minutes=60))
+        assert provider.ordered_urls()[0].rstrip('/') == "http://peer.example"
+    finally:
+        reset_url_ranking_policy()

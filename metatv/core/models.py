@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from enum import Enum
 
-from metatv.core.config import Config
+from metatv.core.url_policy import UrlRankingPolicy, get_url_ranking_policy
 
 
 # Common media type constants (not exhaustive - providers can use any string)
@@ -268,7 +268,7 @@ class Provider:
     added_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
-    def ordered_urls(self, config: Optional[Config] = None) -> List[str]:
+    def ordered_urls(self, policy: Optional[UrlRankingPolicy] = None) -> List[str]:
         """Return base URLs ranked by what's happening NOW, not a lifetime average.
 
         Sort key: ``(cooldown_tier, -health, median_latency_ms, priority)``.
@@ -292,15 +292,16 @@ class Provider:
         never technically fails — the fast, healthy host now sorts first.
 
         The legacy ``self.url`` is always the final fallback if not already
-        present. ``config`` defaults to a fresh ``Config()`` (no disk I/O —
-        field defaults only) when the caller doesn't have one to hand, so
-        every existing call site keeps working unchanged.
+        present. ``policy`` defaults to the process-wide
+        :func:`~metatv.core.url_policy.get_url_ranking_policy` — resolved once
+        from ``Config`` at startup, so editing the config actually changes the
+        ranking.  Tests pass one explicitly rather than touching the global.
         """
-        if config is None:
-            config = Config()
+        if policy is None:
+            policy = get_url_ranking_policy()
 
-        decay = config.url_health_decay
-        cooldown = timedelta(minutes=config.url_cooldown_minutes)
+        decay = policy.health_decay
+        cooldown = timedelta(minutes=policy.cooldown_minutes)
         now = datetime.now()
 
         def _key(pu: ProviderURL):

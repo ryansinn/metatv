@@ -16,7 +16,7 @@ nothing else).
 
 from __future__ import annotations
 
-import re
+import ast
 from datetime import datetime
 from pathlib import Path
 
@@ -227,7 +227,6 @@ def test_persist_url_stats_round_trips_counts_and_timestamps(tmp_path):
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _METATV_ROOT = _REPO_ROOT / "metatv"
 _ALLOWED_REL = {"metatv/core/url_cycle.py", "metatv/core/models.py"}
-_CALL_RE = re.compile(r"\.ordered_urls\(")
 
 
 def test_ordered_urls_call_sites_confined_to_chokepoint() -> None:
@@ -235,16 +234,32 @@ def test_ordered_urls_call_sites_confined_to_chokepoint() -> None:
     ``core/url_cycle.py`` (the ``UrlCycler`` chokepoint) or ``core/models.py``
     (its own definition). If this test fires: replace the direct call with
     ``UrlCycler(provider, operation).candidates()``.
+
+    Matching is done over the parsed AST, not line text. A regex over source
+    lines also fires on every *mention* in a comment or docstring — which it
+    did, on three explanatory comments that describe the chokepoint rather
+    than bypass it. A drift guard that cries wolf on prose is one somebody
+    eventually deletes, so it must only see real call nodes.
     """
     violations: list[tuple[str, int, str]] = []
     for path in _METATV_ROOT.rglob("*.py"):
         rel = str(path.relative_to(_REPO_ROOT))
         if rel in _ALLOWED_REL:
             continue
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for lineno, line in enumerate(lines, start=1):
-            if _CALL_RE.search(line):
-                violations.append((rel, lineno, line.strip()))
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:  # pragma: no cover - not our concern here
+            continue
+        lines = source.splitlines()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "ordered_urls"
+            ):
+                snippet = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
+                violations.append((rel, node.lineno, snippet))
 
     if not violations:
         return
