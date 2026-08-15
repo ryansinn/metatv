@@ -150,7 +150,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     _episode_action_state_loaded = pyqtSignal(str, bool, bool)
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
-    _episode_ready  = pyqtSignal(str, str, str, object, str)  # notif_id, url, title, queue_episodes, provider_id
+    # notif_id, url, title, queue_episodes, provider_id, start_seconds
+    _episode_ready  = pyqtSignal(str, str, str, object, str, int)
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
     # Context menu async fetch: (ChannelMenuContext, gx, gy)
     _ctx_data_ready = pyqtSignal(object, int, int)
@@ -723,6 +724,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # from-beginning path decouples the button from that setting.
         self.details_pane.play_requested.connect(self.play_channel_from_beginning_by_id)
         self.details_pane.play_episode_requested.connect(self._on_details_play_episode)
+        self.details_pane.resume_episode_requested.connect(self._on_details_resume_episode)
         self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)

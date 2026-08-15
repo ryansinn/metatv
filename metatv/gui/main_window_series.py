@@ -507,6 +507,20 @@ class _SeriesMixin:
         if episode is not None:
             self.play_episode(episode)
 
+    def _on_details_resume_episode(self) -> None:
+        """Resume the episode currently shown in the details pane (its Resume button).
+
+        Mirrors :meth:`_on_details_play_episode` but threads the episode's own
+        stored ``watch_progress`` through as the launch start position, so
+        playback picks up where the user left off instead of from the
+        beginning.  No-op when nothing is stored (defensive — the button only
+        shows in episode mode with a saved position).
+        """
+        episode = getattr(self.details_pane, "current_episode", None)
+        if episode is not None:
+            start_seconds = int(getattr(episode, "watch_progress", 0) or 0)
+            self.play_episode(episode, start_seconds=start_seconds)
+
     def play_episode_by_id(self, episode_id: str) -> None:
         """Resolve an episode_id to a PlayableEpisodeDTO and route through play_episode().
 
@@ -523,7 +537,7 @@ class _SeriesMixin:
             return
         self.play_episode(episode)
 
-    def play_episode(self, episode, queue_season: bool | None = None):
+    def play_episode(self, episode, queue_season: bool | None = None, start_seconds: int = 0):
         """Play an episode and optionally queue subsequent episodes.
 
         Args:
@@ -532,6 +546,11 @@ class _SeriesMixin:
                 ``None`` (default) → respect ``config.autoplay_season_episodes``.
                 ``False`` → play this episode only, no queue regardless of config.
                 ``True`` → always queue subsequent episodes regardless of config.
+            start_seconds: Position (seconds) to start playback from. ``0``
+                (default) plays from the beginning — every existing call site
+                keeps its current behaviour unchanged. Threaded through to
+                ``launch_player_for_episode`` → ``_play_checked`` so a Resume
+                click on an episode picks up where it left off.
         """
         logger.info(f"Playing episode: {episode.title}")
 
@@ -620,7 +639,7 @@ class _SeriesMixin:
         # Launch player with first episode
         self.launch_player_for_episode(
             episode.stream_url, episode.title, episodes_to_queue,
-            provider_id=episode.provider_id,
+            provider_id=episode.provider_id, start_seconds=start_seconds,
         )
 
     def _play_all_items(self, items: "list[_PlayAllItem]") -> None:
@@ -696,7 +715,10 @@ class _SeriesMixin:
             provider_id=first.provider_id,
         )
 
-    def launch_player_for_episode(self, stream_url, title, queue_episodes=None, provider_id: str = ""):
+    def launch_player_for_episode(
+        self, stream_url, title, queue_episodes=None, provider_id: str = "",
+        start_seconds: int = 0,
+    ):
         """Launch media player for an episode and queue subsequent episodes.
 
         Pre-flight validates the stream URL in a background thread before handing
@@ -709,6 +731,10 @@ class _SeriesMixin:
             queue_episodes: Optional list of subsequent EpisodeDTOs to append-play.
             provider_id: The episode's source provider id — threaded to
                 player_manager.play() to honour Split-Streams keying.
+            start_seconds: Position (seconds) to start playback from. ``0``
+                (default) — every existing call site keeps its current
+                behaviour unchanged. Carried through the ``_episode_ready``
+                signal payload to ``_do_launch_episode`` → ``_play_checked``.
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
@@ -741,10 +767,13 @@ class _SeriesMixin:
                 self._episode_failed.emit(notif_id, title, detail, stream_url)
                 return
 
-            # Carry provider_id in the signal payload so each launch threads its
-            # own source key — a shared attr would be clobbered by an overlapping
-            # launch and play/track the episode under the wrong mpv key.
-            self._episode_ready.emit(notif_id, stream_url, title, queue_episodes, provider_id)
+            # Carry provider_id (and start_seconds) in the signal payload so each
+            # launch threads its own source key — a shared attr would be clobbered
+            # by an overlapping launch and play/track the episode under the wrong
+            # mpv key (or the wrong resume position).
+            self._episode_ready.emit(
+                notif_id, stream_url, title, queue_episodes, provider_id, start_seconds
+            )
 
         future = self.executor.submit(_preflight)
         future.add_done_callback(_on_preflight_done)
@@ -774,18 +803,23 @@ class _SeriesMixin:
             # Use stream_url as a stable ID for the retry entry
             self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
-    def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes, provider_id="") -> None:
+    def _do_launch_episode(
+        self, notif_id, stream_url, title, queue_episodes, provider_id="",
+        start_seconds: int = 0,
+    ) -> None:
         """Actually launch mpv after a successful preflight check (called on main thread).
 
         Threads the provider_id carried in the _episode_ready signal payload to
         player_manager.play() so Split-Streams keying works correctly — each
         launch carries its own value, so an overlapping launch can't clobber it.
         Also passes per-item titles to the queue so the mpv window title updates
-        as each episode starts — not just for the first one.
+        as each episode starts — not just for the first one. start_seconds (also
+        carried in the signal payload, default 0) threads through to
+        _play_checked so a Resume click starts from the saved position.
         """
         self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
-        if self._play_checked(stream_url, title, provider_id=provider_id):
+        if self._play_checked(stream_url, title, provider_id=provider_id, start_seconds=start_seconds):
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
             self._start_playback_health()

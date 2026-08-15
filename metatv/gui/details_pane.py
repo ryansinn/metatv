@@ -66,6 +66,7 @@ class DetailsPaneWidget(QWidget):
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
     play_episode_requested     = pyqtSignal()           # play the episode shown in the pane (read current_episode)
+    resume_episode_requested   = pyqtSignal()           # resume the episode shown in the pane (read current_episode)
 
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
@@ -371,6 +372,14 @@ class DetailsPaneWidget(QWidget):
         # series-level action_state_requested fired by show_channel above).
         self.episode_action_state_requested.emit(episode.id)
 
+        # Resume button — from the EPISODE's own saved position, not the series'.
+        # MUST come after both show_channel() (above, which hides Resume via its
+        # movie-only gate) and enter_episode_mode() (which also hides it) — either
+        # would otherwise clobber this back to hidden.
+        _ep_progress = int(getattr(episode, "watch_progress", 0) or 0)
+        _ep_completed = bool(getattr(episode, "watch_completed", False))
+        self._action_bar.set_resume(_ep_progress > 0 and not _ep_completed, _ep_progress)
+
     # ------------------------------------------------------------------ #
     # Internal                                                             #
     # ------------------------------------------------------------------ #
@@ -651,6 +660,13 @@ class DetailsPaneWidget(QWidget):
             self.play_requested.emit(self.current_channel.id)
 
     def _on_resume(self) -> None:
+        # Mirrors _on_play's episode-mode branch above: in episode mode Resume
+        # must target the EPISODE shown, not the series channel — emitting the
+        # channel-grain resume_requested here would resume the wrong item.
+        if self._in_episode_mode:
+            if self.current_episode is not None:
+                self.resume_episode_requested.emit()
+            return
         if self.current_channel:
             self.resume_requested.emit(self.current_channel.id)
 
