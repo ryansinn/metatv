@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QVB
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
+from metatv.core.stream_diagnostics import _redact
 from metatv.core.url_cycle import UrlCycler
 from metatv.gui import icons as _icons
 from metatv.providers.xtream import _DEFAULT_HEADERS
@@ -437,6 +438,25 @@ class _StreamingMixin:
             final_url, stream_err = "", str(e)
 
         if final_url:
+            # A failover that switched hosts must stick to this item — otherwise
+            # every future play of this same channel re-starts from the dead
+            # host and re-pays the validation stall. Only the played item's own
+            # row is touched (never a provider-wide rewrite; see UrlCycler for
+            # the general "stop trying the bad host" ranking fix).
+            if final_url != stream_url:
+                try:
+                    with self.db.session_scope() as session:
+                        RepositoryFactory(session).channels.update_stream_url(
+                            channel_id, final_url
+                        )
+                    logger.info(
+                        f"Failover stuck for channel {channel_id}: "
+                        f"{_redact(final_url)}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to persist failover URL for channel {channel_id}: {e}"
+                    )
             self._stream_ready.emit({
                 "ok": True,
                 "channel_id": channel_id,
