@@ -5,6 +5,8 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=303,
+    version="0.27.1",
+    date="2026-08-15",
     title="Stream diagnostics targets the right URL for series",
     items=(
         "Running Diagnose on a series channel used to test a synthetic URL "
