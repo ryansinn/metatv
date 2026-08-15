@@ -883,6 +883,8 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     # Verdict headline base — color is interpolated at runtime per verdict (see dialog).
     DIAG_VERDICT_HEADLINE = "font-size: " + FONT_2XL + "; font-weight: bold;"
+    # Always-visible URL line — redacted stream URL with optional episode code.
+    DIAG_URL = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
     # Plain-language summary paragraph under the headline.
     DIAG_SUMMARY = "color: " + COLOR_LIGHTGRAY + "; font-size: " + FONT_LG + ";"
     # Metrics block (throughput / bitrate / headroom / ttfb / codec / resolution).
