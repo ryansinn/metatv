@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch, call
 import pytest
 
+from metatv.core.models import ProviderURL
 from metatv.gui.main_window_streaming import _StreamingMixin
 
 
@@ -34,9 +35,14 @@ def _make_mixin() -> _StreamingMixin:
 # ── validate_and_failover_stream_url: failover ordering ──────────────────────
 
 def _make_session_scope(session: MagicMock):
-    """Return a session_scope contextmanager that yields the given mock session."""
+    """Return a session_scope contextmanager that yields the given mock session.
+
+    Accepts and ignores keyword args so the double tracks the real
+    ``Database.session_scope(commit=...)`` signature — the failover path passes
+    ``commit=False`` since #302 moved the stat write into persist_url_stats().
+    """
     @contextmanager
-    def _scope():
+    def _scope(**_kwargs):
         yield session
     return _scope
 
@@ -55,6 +61,9 @@ def test_failover_uses_alternate_url_on_primary_fail():
     provider_db.urls = []
     provider_model = MagicMock()
     provider_model.ordered_urls.return_value = [alt1]
+    # Candidate order now comes from UrlCycler.candidates() (#302), which reads
+    # ordered_urls(); .urls is what record_success/record_failure walk.
+    provider_model.urls = []
 
     repos = MagicMock()
     repos.providers.get_by_id.return_value = provider_db
@@ -64,7 +73,6 @@ def test_failover_uses_alternate_url_on_primary_fail():
     obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
-         patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=[{"url": alt1}]), \
          patch.object(obj, "reconstruct_stream_url", return_value=alt1_url), \
          patch.object(obj, "validate_stream_url", side_effect=[
              (False, None),   # primary fails, no text error
@@ -95,18 +103,25 @@ def test_failover_stops_on_text_error():
 
 
 def test_failover_success_stat_commit():
-    """On alternate URL success, the URL entry gets a success_count increment and a commit."""
+    """On alternate-URL success the outcome is recorded on the ProviderURL and persisted.
+
+    Post-#302 the stat write goes through UrlCycler.record_success() (which sets
+    the timestamp too — the old inline path bumped counts only) and is flushed by
+    persist_url_stats(). Asserting last_success is the point: a count-only
+    assertion is exactly the gap #302 closed.
+    """
     obj = _make_mixin()
 
     primary = "http://primary.example.com/live/u/p/1234.ts"
     alt_base = "http://alt.example.com"
     alt_url = "http://alt.example.com/live/u/p/1234.ts"
-    raw_urls = [{"url": alt_base, "success_count": 0}]
+    alt_entry = ProviderURL(url=alt_base)
 
     provider_db = MagicMock()
     provider_db.name = "TestProvider"
     provider_model = MagicMock()
     provider_model.ordered_urls.return_value = [alt_base]
+    provider_model.urls = [alt_entry]
 
     repos = MagicMock()
     repos.providers.get_by_id.return_value = provider_db
@@ -116,7 +131,7 @@ def test_failover_success_stat_commit():
     obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
-         patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=raw_urls), \
+         patch("metatv.gui.main_window_streaming.persist_url_stats") as persist, \
          patch.object(obj, "reconstruct_stream_url", return_value=alt_url), \
          patch.object(obj, "validate_stream_url", side_effect=[
              (False, None),   # primary fails
@@ -124,10 +139,10 @@ def test_failover_success_stat_commit():
          ]):
         obj.validate_and_failover_stream_url(primary, "prov-1")
 
-    # success_count should be 1
-    assert raw_urls[0].get("success_count") == 1
-    # commit should have been called (per-attempt explicit commit)
-    session.commit.assert_called()
+    assert alt_entry.success_count == 1
+    assert alt_entry.failure_count == 0
+    assert alt_entry.last_success is not None
+    persist.assert_called()
 
 
 def test_failover_failure_stat_commit():
@@ -137,12 +152,13 @@ def test_failover_failure_stat_commit():
     primary = "http://primary.example.com/live/u/p/1234.ts"
     alt_base = "http://alt.example.com"
     alt_url = "http://alt.example.com/live/u/p/1234.ts"
-    raw_urls = [{"url": alt_base, "failure_count": 0}]
+    alt_entry = ProviderURL(url=alt_base)
 
     provider_db = MagicMock()
     provider_db.name = "TestProvider"
     provider_model = MagicMock()
     provider_model.ordered_urls.return_value = [alt_base]
+    provider_model.urls = [alt_entry]
 
     repos = MagicMock()
     repos.providers.get_by_id.return_value = provider_db
@@ -152,7 +168,7 @@ def test_failover_failure_stat_commit():
     obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
-         patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=raw_urls), \
+         patch("metatv.gui.main_window_streaming.persist_url_stats") as persist, \
          patch.object(obj, "reconstruct_stream_url", return_value=alt_url), \
          patch.object(obj, "validate_stream_url", side_effect=[
              (False, None),   # primary fails
@@ -161,8 +177,10 @@ def test_failover_failure_stat_commit():
         result_url, _ = obj.validate_and_failover_stream_url(primary, "prov-1")
 
     assert result_url == ""
-    assert raw_urls[0].get("failure_count") == 1
-    session.commit.assert_called()
+    assert alt_entry.failure_count == 1
+    assert alt_entry.success_count == 0
+    assert alt_entry.last_failure is not None
+    persist.assert_called()
 
 
 # ── play_media returns immediately (non-blocking) ─────────────────────────────

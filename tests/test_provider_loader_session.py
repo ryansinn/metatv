@@ -62,6 +62,10 @@ def fake_provider():
     p.url = "http://example.com"
     p.username = "user"
     p.password = "pass"
+    # Provider.__new__ skips __init__, so dataclass field defaults never run.
+    # load_series() persists URL stats (#302) and reads .urls — without this the
+    # stub raises AttributeError. Repair the factory, never guard in production.
+    p.urls = []
     return p
 
 

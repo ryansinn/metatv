@@ -505,6 +505,7 @@ class SeriesMonitorManager(QObject):
         attribution).
         """
         from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories.provider import persist_url_stats
         from metatv.providers.factory import get_provider
 
         for raw_entry in entries:
@@ -568,6 +569,11 @@ class SeriesMonitorManager(QObject):
                         continue
 
                     data = asyncio.run(plugin.fetch_series_info(provider, source_id))
+                    # Make the URL success/failure stats UrlCycler recorded on
+                    # `provider.urls` during the cycling above durable — this
+                    # is the only place that sees this in-memory Provider.
+                    persist_url_stats(self.db, provider)
+
                     if not isinstance(data, dict):
                         logger.warning(
                             f"series_monitor: unexpected response for {title} on "
@@ -657,6 +663,7 @@ class SeriesMonitorManager(QObject):
         """Compute and persist the current baseline for a series' PRIMARY provider."""
         from metatv.core.database import EpisodeDB, SeasonDB
         from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories.provider import persist_url_stats
         from metatv.providers.factory import get_provider
 
         entry = next(
@@ -726,6 +733,10 @@ class SeriesMonitorManager(QObject):
                 return
 
             data = asyncio.run(plugin.fetch_series_info(provider, source_id))
+            # Make the URL success/failure stats UrlCycler recorded on
+            # `provider.urls` during the cycling above durable.
+            persist_url_stats(self.db, provider)
+
             if not isinstance(data, dict):
                 logger.warning(
                     f"series_monitor: unexpected response for baseline of {title}"

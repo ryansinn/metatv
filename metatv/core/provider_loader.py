@@ -11,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 from metatv.core.models import Provider, MediaType
 from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
-from metatv.core.repositories.provider import parse_provider_urls
+from metatv.core.repositories.provider import persist_url_stats
 from metatv.providers.factory import get_provider
 
 # Columns written by the catalog loader on every channel upsert.
@@ -175,27 +175,10 @@ class ProviderLoadThread(QThread):
         # Refresh account info in the background while channels are being stored
         await self._refresh_account_info(provider_plugin)
 
-        # Persist updated URL success/failure counts back to the DB
-        if self.provider.urls:
-            url_session = self.db.get_session()
-            try:
-                db_prov = url_session.query(ProviderDB).filter_by(id=self.provider.id).first()
-                if db_prov:
-                    raw = parse_provider_urls(db_prov.urls)
-                    # Merge updated counts from the in-memory ProviderURL objects
-                    url_map = {pu.url.rstrip('/'): pu for pu in self.provider.urls}
-                    for entry in raw:
-                        key = entry.get('url', '').rstrip('/')
-                        if key in url_map:
-                            pu = url_map[key]
-                            entry['success_count'] = pu.success_count
-                            entry['failure_count'] = pu.failure_count
-                    db_prov.urls = raw
-                    url_session.commit()
-            except Exception as e:
-                logger.warning(f"Failed to persist URL stats: {e}")
-            finally:
-                url_session.close()
+        # Persist updated URL success/failure counts (+ timestamps) back to the
+        # DB — the in-memory ProviderURL objects were updated by UrlCycler
+        # during fetch_channels()/_refresh_account_info() above.
+        persist_url_stats(self.db, self.provider)
         
         # Store in database
         session = self.db.get_session()
@@ -908,7 +891,13 @@ class SeriesLoadThread(QThread):
         
         # Fetch series information
         series_data = await provider_plugin.fetch_series_info(self.provider, self.series_id)
-        
+
+        # Persist the URL success/failure stats UrlCycler recorded on
+        # self.provider.urls during the cycling above — this thread has its
+        # own Database handle and never goes through ProviderLoadThread's
+        # write-back, so nothing else would ever make these durable.
+        persist_url_stats(self.db, self.provider)
+
         if not series_data:
             self.finished.emit(False, "Could not fetch series information", None)
             return

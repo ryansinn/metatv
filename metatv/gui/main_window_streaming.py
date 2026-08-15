@@ -8,7 +8,6 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
-from datetime import datetime
 from urllib.parse import urlparse
 
 import requests
@@ -18,7 +17,8 @@ from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QVB
 
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.provider import parse_provider_urls
+from metatv.core.repositories.provider import persist_url_stats
+from metatv.core.url_cycle import UrlCycler
 from metatv.gui import icons as _icons
 from metatv.providers.xtream import _DEFAULT_HEADERS
 
@@ -196,13 +196,7 @@ class _StreamingMixin:
         parsed = urlparse(stream_url)
         original_base = f"{parsed.scheme}://{parsed.netloc}"
 
-        # Try alternate provider domains.
-        # Per-attempt session.commit() calls are intentional: each stat write
-        # (success_count / failure_count) must persist even if a later attempt
-        # raises an exception.  session_scope() commits on clean exit and rolls
-        # back only the post-last-commit transaction on exception, so earlier
-        # explicit commits remain durable.
-        with self.db.session_scope() as session:
+        with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(provider_id)
 
@@ -211,44 +205,43 @@ class _StreamingMixin:
                 return "", None
 
             provider_model = repos.providers.to_model(provider_db)
-            candidate_bases = [u for u in provider_model.ordered_urls() if u.rstrip('/') != original_base]
 
-            if not candidate_bases:
-                logger.warning(f"Provider {provider_db.name} has no alternate URLs configured")
-                logger.error("No working alternate URLs found")
-                return "", None
+        # Try alternate provider domains via the shared UrlCycler, persisting after
+        # EVERY attempt (not once at the end): each stat write (success_count /
+        # failure_count / timestamps) must survive even if a later attempt raises.
+        # persist_url_stats() opens and commits its own short session per call, so
+        # an earlier attempt's outcome is already durable before the next attempt's
+        # network call even starts.
+        cycler = UrlCycler(provider_model, "resolve_playable_url")
+        candidate_bases = [u for u in cycler.candidates() if u.rstrip('/') != original_base]
 
-            logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_db.name} (reliability order)")
-
-            raw_urls = parse_provider_urls(provider_db.urls)
-
-            for alt_base in candidate_bases:
-                new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
-                logger.info(f"Trying: {new_stream_url}")
-
-                url_entry = next((u for u in raw_urls if u.get('url', '').rstrip('/') == alt_base), None)
-                alt_ok, alt_err = self.validate_stream_url(new_stream_url)
-                if alt_ok:
-                    logger.info("Alternate URL validated successfully")
-                    if url_entry:
-                        url_entry['success_count'] = url_entry.get('success_count', 0) + 1
-                        url_entry['last_success'] = datetime.now().isoformat()
-                        provider_db.urls = raw_urls
-                        repos.providers.update(provider_db)
-                        session.commit()
-                    return new_stream_url, None
-                else:
-                    if url_entry:
-                        url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
-                        url_entry['last_failure'] = datetime.now().isoformat()
-                        provider_db.urls = raw_urls
-                        repos.providers.update(provider_db)
-                        session.commit()
-                    if alt_err:
-                        return "", alt_err   # content-level error; stop trying
-
+        if not candidate_bases:
+            logger.warning(f"Provider {provider_model.name} has no alternate URLs configured")
             logger.error("No working alternate URLs found")
             return "", None
+
+        logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_model.name} (reliability order)")
+
+        for alt_base in candidate_bases:
+            new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
+            logger.info(f"Trying: {new_stream_url}")
+
+            alt_ok, alt_err = self.validate_stream_url(new_stream_url)
+            if alt_ok:
+                logger.info("Alternate URL validated successfully")
+                cycler.record_success(alt_base)
+                if cycler.dirty:
+                    persist_url_stats(self.db, provider_model)
+                return new_stream_url, None
+            else:
+                cycler.record_failure(alt_base, alt_err or "validation failed")
+                if cycler.dirty:
+                    persist_url_stats(self.db, provider_model)
+                if alt_err:
+                    return "", alt_err   # content-level error; stop trying
+
+        logger.error("No working alternate URLs found")
+        return "", None
 
     def reconstruct_stream_url(self, original_url: str, old_base: str, new_base: str) -> str:
         """Reconstruct stream URL with new base domain

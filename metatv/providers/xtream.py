@@ -9,6 +9,7 @@ from loguru import logger
 from metatv.core.models import Channel, Provider, MediaType, StreamQuality, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
 from metatv.core.content_identity import valid_tmdb_id
+from metatv.core.url_cycle import UrlCycler
 from metatv.providers.base import ProviderPlugin
 
 
@@ -380,7 +381,8 @@ class XtreamProvider(ProviderPlugin):
     async def fetch_channels(self, provider: Provider,
                            progress_callback: Optional[callable] = None) -> List[Channel]:
         """Fetch all channels, cycling through alternate URLs on connection failure."""
-        urls_to_try = provider.ordered_urls()
+        cycler = UrlCycler(provider, "fetch_channels")
+        urls_to_try = cycler.candidates()
         last_error: Optional[str] = None
 
         for idx, base_url in enumerate(urls_to_try):
@@ -393,21 +395,13 @@ class XtreamProvider(ProviderPlugin):
                 channels = await self._fetch_from_base(
                     base_url, provider, progress_callback
                 )
-                # Record success on the matching ProviderURL object
-                for pu in provider.urls:
-                    if pu.url.rstrip('/') == base_url.rstrip('/'):
-                        pu.success_count += 1
-                        break
+                cycler.record_success(base_url)
                 return channels
 
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last_error = str(e)
                 logger.warning(f"Connection failed for {base_url}: {e}")
-                # Record failure on the matching ProviderURL object
-                for pu in provider.urls:
-                    if pu.url.rstrip('/') == base_url.rstrip('/'):
-                        pu.failure_count += 1
-                        break
+                cycler.record_failure(base_url, last_error)
                 if idx < len(urls_to_try) - 1:
                     logger.info("Trying next URL…")
                 continue
@@ -461,67 +455,86 @@ class XtreamProvider(ProviderPlugin):
     
     async def get_categories(self, provider: Provider) -> List[Dict[str, Any]]:
         """Get all categories, cycling through URLs on connection failure."""
-        for base_url in provider.ordered_urls():
+        cycler = UrlCycler(provider, "get_categories")
+        for base_url in cycler.candidates():
             try:
                 async with XtreamAPI(base_url, provider.username, provider.password) as api:
                     categories: List[Dict[str, Any]] = []
                     categories.extend(await api.get_live_categories())
                     categories.extend(await api.get_vod_categories())
                     categories.extend(await api.get_series_categories())
+                    cycler.record_success(base_url)
                     return categories
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"get_categories: {base_url} failed: {e}, trying next…")
+                cycler.record_failure(base_url, str(e))
         logger.error(f"get_categories: all URLs failed for provider '{provider.name}'")
         return []
 
     async def fetch_series_info(self, provider: Provider, series_id: str) -> Optional[Dict[str, Any]]:
         """Fetch series info, cycling through URLs on connection failure."""
-        for base_url in provider.ordered_urls():
+        cycler = UrlCycler(provider, "fetch_series_info")
+        for base_url in cycler.candidates():
             try:
                 async with XtreamAPI(base_url, provider.username, provider.password) as api:
                     result = await api.get_series_info(series_id)
                     if result is not None:
+                        cycler.record_success(base_url)
                         return result
+                    cycler.record_failure(base_url, "empty response")
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_series_info: {base_url} failed: {e}, trying next…")
+                cycler.record_failure(base_url, str(e))
         logger.error(f"fetch_series_info: all URLs failed for provider '{provider.name}'")
         return None
 
     async def fetch_vod_info(self, provider: Provider, vod_id: str) -> Optional[Dict[str, Any]]:
         """Fetch movie/VOD info, cycling through URLs on connection failure."""
-        for base_url in provider.ordered_urls():
+        cycler = UrlCycler(provider, "fetch_vod_info")
+        for base_url in cycler.candidates():
             try:
                 async with XtreamAPI(base_url, provider.username, provider.password) as api:
                     result = await api.get_vod_info(vod_id)
                     if result is not None:
+                        cycler.record_success(base_url)
                         return result
+                    cycler.record_failure(base_url, "empty response")
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_vod_info: {base_url} failed: {e}, trying next…")
+                cycler.record_failure(base_url, str(e))
         logger.error(f"fetch_vod_info: all URLs failed for provider '{provider.name}'")
         return None
 
     async def get_server_info(self, provider: Provider) -> Optional[Dict[str, Any]]:
         """Get server info, cycling through URLs on connection failure."""
-        for base_url in provider.ordered_urls():
+        cycler = UrlCycler(provider, "get_server_info")
+        for base_url in cycler.candidates():
             try:
                 async with XtreamAPI(base_url, provider.username, provider.password) as api:
                     result = await api.get_server_info()
                     if result is not None:
+                        cycler.record_success(base_url)
                         return result
+                    cycler.record_failure(base_url, "empty response")
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"get_server_info: {base_url} failed: {e}, trying next…")
+                cycler.record_failure(base_url, str(e))
         logger.error(f"get_server_info: all URLs failed for provider '{provider.name}'")
         return None
 
     async def fetch_account_info(self, provider: Provider) -> Optional[Dict[str, Any]]:
         """Fetch parsed account/subscription info, cycling through URLs on failure."""
-        for base_url in provider.ordered_urls():
+        cycler = UrlCycler(provider, "fetch_account_info")
+        for base_url in cycler.candidates():
             try:
                 async with XtreamAPI(base_url, provider.username, provider.password) as api:
                     result = await api.get_account_info()
                     if result is not None:
+                        cycler.record_success(base_url)
                         return result
+                    cycler.record_failure(base_url, "empty response")
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_account_info: {base_url} failed: {e}, trying next…")
+                cycler.record_failure(base_url, str(e))
         logger.error(f"fetch_account_info: all URLs failed for provider '{provider.name}'")
         return None

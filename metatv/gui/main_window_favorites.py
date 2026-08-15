@@ -964,22 +964,66 @@ class _FavoritesMixin:
             watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
             self.play_media(channel, start_override=watch_progress)
 
+    def _resolve_diagnostic_target(self, session, channel_id: str) -> tuple[str, str, str]:
+        """Resolve (stream_url, channel_name, episode_label) for the diagnostics dialog.
+
+        For a SERIES channel this returns a representative EPISODE's stream_url —
+        the series' own stored URL is synthetic and never streamed. Picks the
+        last-played episode if one exists, else the first by season/episode order.
+        Falls back to the channel URL if no episodes exist.
+
+        Args:
+            session: An active database session (from session_scope).
+            channel_id: The channel ID to resolve.
+
+        Returns:
+            A tuple (stream_url, channel_name, episode_label) as plain strings.
+            If the channel is not found, returns ("", "", "").
+        """
+        from metatv.core.models import MediaType
+
+        channel = RepositoryFactory(session).channels.get_by_id(channel_id)
+        if not channel:
+            return "", "", ""
+
+        name = channel.name
+        stream_url = channel.stream_url
+        episode_label = ""
+
+        # For series channels, resolve a representative episode's stream URL
+        if channel.media_type == MediaType.SERIES:
+            repos = RepositoryFactory(session)
+
+            # Try last-played episode first
+            ep = repos.episodes.get_last_played(channel.source_id, channel.provider_id)
+
+            # Fall back to first episode if no last-played
+            if ep is None:
+                episodes = repos.episodes.get_by_series(channel.source_id, channel.provider_id)
+                ep = episodes[0] if episodes else None
+
+            # Use episode's stream URL and extract SxxExx code if found
+            if ep:
+                stream_url = ep.stream_url
+                episode_label = f"S{ep.season_num:02d}E{ep.episode_num:02d}"
+
+        return stream_url, name, episode_label
+
     def diagnose_channel_by_id(self, channel_id: str) -> None:
         """Open the stream-diagnostics dialog for a channel (bottom-nav Diagnose button).
 
-        Extracts primitives inside the session block (no ORM object crosses the
-        boundary), then hands the URL/name to a modal dialog that runs the headless
-        diagnostic off the main thread on the shared executor.
+        Resolves the diagnostic target via the shared helper and hands the URL/name
+        to a modal dialog that runs the headless diagnostic off the main thread on
+        the shared executor.
         """
         from metatv.gui.diagnostics_dialog import StreamDiagnosticsDialog
 
         stream_url = None
         name = ""
+        episode_label = ""
         with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
-            if channel:
-                stream_url = channel.stream_url
-                name = channel.name
+            stream_url, name, episode_label = self._resolve_diagnostic_target(session, channel_id)
+
         if not stream_url:
             return
 
@@ -990,6 +1034,7 @@ class _FavoritesMixin:
             config=self.config,
             executor=self.executor,
             player_active=player_active,
+            episode_label=episode_label,
             parent=self,
         )
         dialog.exec()

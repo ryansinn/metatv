@@ -546,9 +546,15 @@ class TmdbEnrichmentManager(QObject):
         throttle: float,
     ) -> tuple[dict[str, str], list[str], dict[str, dict], int]:
         """Fetch one provider's candidate rows through a single reused session."""
+        from metatv.core.url_cycle import UrlCycler
         from metatv.providers.xtream import XtreamAPI
 
-        base_urls = provider.ordered_urls() if provider.type == "xtream" else []
+        # Routed through UrlCycler.candidates() — not a direct read of the
+        # provider's reliability-ordered URL list — so core/url_cycle.py stays
+        # the one place that reads it. This call only takes the top candidate
+        # and never falls back to the next URL on failure (rows are just
+        # deferred to the next pass instead), so it does not record outcomes.
+        base_urls = UrlCycler(provider, "tmdb_enrich_fetch").candidates() if provider.type == "xtream" else []
         if not base_urls:
             logger.warning(
                 "tmdb_enrich: provider {} has no usable URL (type={}), deferring",
