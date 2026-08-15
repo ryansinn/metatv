@@ -1216,6 +1216,28 @@ class ChannelRepository(_ChannelStatsMixin):
             self.session.commit()
             logger.info(f"Channel {channel.name} rec_suppressed={suppressed}")
 
+    def update_stream_url(self, channel_id: str, stream_url: str) -> None:
+        """Persist a URL that a play-time failover proved works, so it sticks.
+
+        Called once, by the play-time failover path (``_bg_validate_and_play``
+        in ``main_window_streaming.py``) after
+        ``validate_and_failover_stream_url`` finds a working alternate host —
+        otherwise every subsequent play of this item re-starts from the dead
+        host and re-pays the failover stall. Scoped to this one channel row
+        only (never a provider-wide rewrite). A no-op, not an error, if the
+        channel no longer exists (e.g. deleted mid-flight).
+
+        Args:
+            channel_id: The channel row to update.
+            stream_url: The new, already-validated stream URL to store.
+        """
+        channel = self.get_by_id(channel_id)
+        if not channel:
+            return
+        channel.stream_url = stream_url
+        channel.updated_at = datetime.now()
+        self.session.commit()
+
     def get_rec_suppressed(self) -> List[ChannelDB]:
         """Return all channels suppressed from recommendations, ordered by name."""
         return (
