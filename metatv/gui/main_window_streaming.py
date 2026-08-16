@@ -8,6 +8,7 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
+from time import monotonic
 from urllib.parse import urlparse
 
 import requests
@@ -227,15 +228,17 @@ class _StreamingMixin:
             new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
             logger.info(f"Trying: {new_stream_url}")
 
+            t0 = monotonic()
             alt_ok, alt_err = self.validate_stream_url(new_stream_url)
+            elapsed_ms = int((monotonic() - t0) * 1000)
             if alt_ok:
                 logger.info("Alternate URL validated successfully")
-                cycler.record_success(alt_base)
+                cycler.record_success(alt_base, response_time_ms=elapsed_ms)
                 if cycler.dirty:
                     persist_url_stats(self.db, provider_model)
                 return new_stream_url, None
             else:
-                cycler.record_failure(alt_base, alt_err or "validation failed")
+                cycler.record_failure(alt_base, alt_err or "validation failed", response_time_ms=elapsed_ms)
                 if cycler.dirty:
                     persist_url_stats(self.db, provider_model)
                 if alt_err:
