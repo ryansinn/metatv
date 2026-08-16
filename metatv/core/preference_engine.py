@@ -275,6 +275,17 @@ def build_idf(all_plots: list[str]) -> dict[str, float]:
     }
 
 
+def _title_key(channel) -> str:
+    """Collapse key for one channel's title identity (CLAUDE.md 'Content identity').
+
+    Mirrors the canonical ``COALESCE(content_key, 'id:' || id)`` grouping used by
+    Browse/Discover/Other-Versions: variants that share a stored ``content_key``
+    are one title; a row without one stands alone.
+    """
+    ck = getattr(channel, "content_key", None) or None
+    return ck if ck else f"id:{channel.id}"
+
+
 def compute_weights(session, settings: RecScoringSettings | None = None) -> AttributeWeights:
     """Load all ratings, join to MetadataDB, and accumulate attribute weights.
 
@@ -311,10 +322,50 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     if not ratings and not favorites:
         return AttributeWeights()
 
+    # Collapse to one signal per TITLE (CLAUDE.md "Content identity" — group on the
+    # stored content_key, computed at ingestion, never re-keyed here). Rating or
+    # favoriting the same film in three language variants is one act of taste, not
+    # three: letting every variant through used to triple the genre weight and
+    # triple-fire the actor-corroboration counter. Precedence within a title group:
+    # an explicit rating always beats an implicit favorite (0.5); among explicit
+    # ratings the most recently rated one wins (tie-break on channel.id); among
+    # favorites-only groups the lowest channel.id wins (same determinism goal).
+    from datetime import datetime
+
+    _title_signals: dict[str, tuple] = {}  # title_key -> (channel, sig, rated_at, is_explicit)
+    for r in ratings:
+        ch = rated_channel_map.get(r.channel_id)
+        if not ch:
+            continue
+        key = _title_key(ch)
+        existing = _title_signals.get(key)
+        if existing is None:
+            _title_signals[key] = (ch, float(r.rating), r.rated_at, True)
+            continue
+        cur = (r.rated_at or datetime.min, ch.id)
+        prev = (existing[2] or datetime.min, existing[0].id)
+        if cur > prev:
+            _title_signals[key] = (ch, float(r.rating), r.rated_at, True)
+    for ch in favorites:
+        key = _title_key(ch)
+        existing = _title_signals.get(key)
+        if existing is None:
+            _title_signals[key] = (ch, 0.5, None, False)
+        elif not existing[3] and ch.id < existing[0].id:
+            _title_signals[key] = (ch, 0.5, None, False)
+        # else: an explicit rating already claims this title — it always wins.
+
+    signal_pairs: list[tuple] = [
+        (ch, sig) for ch, sig, _rated_at, _explicit in _title_signals.values()
+    ]
+    # Counts describe TITLES the user judged, not provider rows — derived from the
+    # collapsed explicit-rating entries only (favorites never count as "rated").
+    _explicit_signals = [v for v in _title_signals.values() if v[3]]
+
     weights = AttributeWeights(
-        rated_count=len(ratings),
-        liked_count=sum(1 for r in ratings if r.rating > 0),
-        disliked_count=sum(1 for r in ratings if r.rating < 0),
+        rated_count=len(_explicit_signals),
+        liked_count=sum(1 for _, sig, _, _ in _explicit_signals if sig > 0),
+        disliked_count=sum(1 for _, sig, _, _ in _explicit_signals if sig < 0),
     )
     # How many distinct rated/favorited items each actor appears in — used to prune
     # single-appearance performers below (corroboration gate).
@@ -327,15 +378,6 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     ]
     idf = build_idf(all_plots)
     logger.debug(f"Preference engine: IDF corpus = {len(all_plots)} plots, {len(idf)} unique terms")
-
-    # Build a combined signal list: (channel, sig) pairs
-    signal_pairs: list[tuple] = []
-    for r in ratings:
-        ch = rated_channel_map.get(r.channel_id)
-        if ch:
-            signal_pairs.append((ch, float(r.rating)))
-    for ch in favorites:
-        signal_pairs.append((ch, 0.5))  # implicit moderate positive signal
 
     # Batch-fetch all needed MetadataDB rows in one IN query instead of per-channel session.get()
     all_metadata_ids = [ch.metadata_id for ch, _ in signal_pairs if ch and ch.metadata_id]
@@ -443,6 +485,15 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         r.channel_id for r in session.query(UserRatingDB)
         .filter(UserRatingDB.rating < 0).all()
     }
+    # NOTE: disliked_ids stays channel_id-keyed on purpose. A dislike already
+    # suppresses the whole title: disliked_ids feeds all_engaged_ids below, and
+    # build_engaged_normalized() records (_CK_TAG, content_key) for every engaged
+    # channel that has one, so the fingerprint check further down drops the
+    # siblings. Widening this set to those siblings would ALSO make them
+    # unrecommendable through dedupe_overrides -- and that override exists so a
+    # caller (e.g. "Other Versions") can deliberately surface the other copies.
+    # The direct check below is intentionally not override-gated; the fingerprint
+    # one is. Do not "fix" the asymmetry: it is the feature.
     # Explicitly liked items (sort newer first)
     liked_map: dict[str, datetime] = {
         r.channel_id: r.rated_at for r in session.query(UserRatingDB)
