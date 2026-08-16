@@ -888,6 +888,37 @@ def wire_watch_queue_filter(sec) -> None:
 # ChannelStateBus test host
 # ---------------------------------------------------------------------------
 
+def attach_channel_state_bus(host, reread=None):
+    """Give a ``MainWindow`` test double the ``ChannelStateBus`` its mutations publish to.
+
+    Every per-channel mutation handler (``_toggle_rating``,
+    ``_toggle_favorite_by_id``, ``_not_interested``) now ends in
+    ``self.channel_state_bus.publish(...)``, so ANY test double that drives one
+    of those real methods needs the attribute or dies with ``AttributeError`` --
+    which is what happened to ``test_details_rating_row.py``'s ``SimpleNamespace``
+    host. Guarding the production call with ``hasattr`` would hide a genuinely
+    missing bus at runtime, so the repair lives here in the shared factory
+    instead (CLAUDE.md: "repair at the shared factory, never with defensive
+    getattr/hasattr in production").
+
+    Safe on a ``SimpleNamespace`` host: only ``subscribe()`` needs a weakly
+    referenceable owner, and this wires a bus with no subscribers.
+
+    Args:
+        host: The test double to wire.
+        reread: Optional tier-2 authoritative re-read, invoked with a
+            ``channel_id``. Defaults to a no-op, which is what a test that only
+            asserts the mutation's own DB effect wants.
+
+    Returns:
+        The same host, so callers can chain.
+    """
+    from metatv.gui.channel_state_bus import ChannelStateBus
+
+    host.channel_state_bus = ChannelStateBus(reread=reread or (lambda channel_id: None))
+    return host
+
+
 def make_channel_state_bus_host(db_obj):
     """Build a MainWindow stand-in wired for ChannelStateBus tests.
 
