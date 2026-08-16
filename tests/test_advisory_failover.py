@@ -373,9 +373,14 @@ def _shown_action_labels(obj) -> list[str]:
     return [label for (label, _fn) in kwargs["actions"]]
 
 
-def test_episode_advisory_offers_play_anyway_and_skips_add_failure():
-    """Case 9 — advisory episode error: Play Anyway IS offered, and
-    add_failure is NOT called (mirrors the channel path's advisory contract).
+def test_episode_advisory_offers_play_anyway_and_records_failure():
+    """Case 9 — advisory episode error (HTTP 403): Play Anyway is offered
+    FIRST, and the failure still reaches the retry ledger.
+
+    Recording advisory codes is deliberate, not an oversight: the channel path
+    removed exactly this gate in #227 because streams that return 511 forever
+    never graduated to "dead" while advisory errors were skipped, so the ledger
+    never learned about the streams it exists to surface.
     """
     obj = _make_episode_host()
 
@@ -384,13 +389,22 @@ def test_episode_advisory_offers_play_anyway_and_skips_add_failure():
         queue_episodes=None, provider_id="prov-1", start_seconds=42,
     )
 
-    assert "Play Anyway" in _shown_action_labels(obj)
-    obj.stream_retry_manager.add_failure.assert_not_called()
+    labels = _shown_action_labels(obj)
+    assert labels[0] == "Play Anyway"   # first, not merely present
+    obj.stream_retry_manager.add_failure.assert_called_once_with(
+        "http://host/ep.mp4", "Ep Title", "http://host/ep.mp4", "HTTP 403",
+    )
 
 
-def test_episode_non_advisory_no_play_anyway_and_calls_add_failure():
-    """Case 10 — genuine content-level episode error: NO Play Anyway, and
-    add_failure IS called."""
+def test_episode_non_advisory_also_offers_play_anyway_and_records_failure():
+    """Case 10 — a genuine content-level error behaves IDENTICALLY.
+
+    This is the regression guard for re-gating the escape hatch. Play Anyway is
+    an override of the pre-flight check, not a reward for a particular status
+    code: mpv routinely plays what ``requests`` rejected, so withholding the
+    override on a content-level guess is precisely the failure the owner hit —
+    an episode that would not play and no way to insist.
+    """
     obj = _make_episode_host()
 
     obj._on_episode_stream_unavailable(
@@ -399,7 +413,9 @@ def test_episode_non_advisory_no_play_anyway_and_calls_add_failure():
         start_seconds=0,
     )
 
-    assert "Play Anyway" not in _shown_action_labels(obj)
+    labels = _shown_action_labels(obj)
+    assert labels[0] == "Play Anyway"
+    assert "Copy Error" in labels
     obj.stream_retry_manager.add_failure.assert_called_once_with(
         "http://host/ep.mp4", "Ep Title", "http://host/ep.mp4",
         "This channel is not available",

@@ -820,12 +820,18 @@ class _SeriesMixin:
         """Main-thread slot: show the episode failure toast.
 
         Mirrors the channel path's failure toast (``main_window_streaming.py``
-        ``_on_stream_ready``): an advisory auth/gating error (401/403/511 —
-        see ``_is_advisory_error``) offers "Play Anyway" ahead of "Copy Error",
-        since mpv negotiates differently from ``requests`` and may still play
-        a stream that failed pre-flight. Advisory failures are also NOT fed to
-        ``stream_retry_manager`` as confirmed dead streams, for the same
-        reason the channel path's docstring gives.
+        ``_on_stream_ready``) as it actually behaves today, on both counts:
+
+        * **"Play Anyway" is offered unconditionally**, not just for advisory
+          auth/gating codes — it is a general escape hatch over the pre-flight
+          check. mpv negotiates differently from ``requests`` and routinely
+          plays a stream the pre-flight rejected, so the user always gets the
+          override.
+        * **Every failure is recorded** with ``stream_retry_manager``, advisory
+          codes included. That gate was deliberately removed on the channel
+          path (roadmap S3, #227): channels that return 511 forever never
+          graduated to "dead" while advisory errors were skipped, so the
+          ledger never learned about the very streams it existed to track.
         """
         from PyQt6.QtWidgets import QApplication
         from metatv.core.channel_name_utils import parse_channel_name
@@ -838,16 +844,16 @@ class _SeriesMixin:
             safe_title = ""
         _msg = f"{safe_title}\n{detail}".strip() if safe_title else detail
 
-        # Build actions: always Copy Error; advisory → Play Anyway too.
-        is_advisory = self._is_advisory_error(detail)
+        # Play Anyway first, always — the pre-flight check is advisory in
+        # practice (mpv often plays what it rejects), so the override is never
+        # withheld. Same ordering and rationale as the channel path.
         actions = []
-        if is_advisory:
-            actions.append((
-                "Play Anyway",
-                lambda _nid=notif_id, _u=stream_url, _t=title, _q=queue_episodes,
-                       _p=provider_id, _s=start_seconds:
-                    self._do_launch_episode(_nid, _u, _t, _q, _p, _s)
-            ))
+        actions.append((
+            "Play Anyway",
+            lambda _nid=notif_id, _u=stream_url, _t=title, _q=queue_episodes,
+                   _p=provider_id, _s=start_seconds:
+                self._do_launch_episode(_nid, _u, _t, _q, _p, _s)
+        ))
         actions.append(
             ("Copy Error", lambda t=title, u=stream_url, d=detail:
                 QApplication.clipboard().setText(f"{t}\nURL: {u}\nError: {d}"))
@@ -863,9 +869,11 @@ class _SeriesMixin:
         )
         self.status_bar.showMessage(f"Stream unavailable: {title}")
 
-        # Advisory auth/gating errors are NOT fed to stream_retry_manager as
-        # confirmed dead streams — see _is_advisory_error's docstring.
-        if stream_url and not is_advisory and hasattr(self, "stream_retry_manager"):
+        # Record EVERY failure — advisory (401/403/511) included — matching the
+        # channel path (roadmap S3, #227). Skipping advisory codes here is what
+        # kept permanently-gated streams out of the ledger that exists to
+        # surface them.
+        if stream_url and hasattr(self, "stream_retry_manager"):
             # Use stream_url as a stable ID for the retry entry
             self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
