@@ -889,6 +889,8 @@ def _build_semantic_constants() -> dict[str, object]:
     DIAG_SUMMARY = "color: " + COLOR_LIGHTGRAY + "; font-size: " + FONT_LG + ";"
     # Metrics block (throughput / bitrate / headroom / ttfb / codec / resolution).
     DIAG_METRICS = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+    # Key column in the diagnostics technical-details grid (dim label, value beside it).
+    DIAG_METRIC_KEY = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-weight: 600;"
     # Recommended-args / placeholder line.
     DIAG_RECOMMEND = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-style: italic;"
     # Saved-confirmation line after applying tuning.

@@ -41,7 +41,8 @@ def _bare_dialog(qapp):
     dlg._run_button = QPushButton()
     dlg._headline = QLabel()
     dlg._summary = QLabel()
-    dlg._metrics = QLabel()
+    dlg._details_button = QPushButton()
+    dlg._details_button.hide()
     dlg._recommend = QLabel()
     dlg._saved = QLabel()
     dlg._apply_button = QPushButton()
@@ -85,9 +86,8 @@ def test_render_provider_limited_headline_and_apply_enabled(qapp):
     assert dlg._summary.text() == "Provider can't deliver this bitrate."
     assert dlg._apply_button.isEnabled() is True
     assert dlg._run_button.isEnabled() is True
-    # Metrics render the populated fields.
-    assert "6.0 Mbps" in dlg._metrics.text()
-    assert "50.0 Mbps" in dlg._metrics.text()
+    # The technical-details trigger is revealed for a real result.
+    assert dlg._details_button.isVisible() is True
     # Recommendation text shows a profile label, not raw mpv flags.
     rec = dlg._recommend.text()
     assert "Large" in rec
@@ -162,20 +162,6 @@ def test_render_none_result_shows_failure_and_disables_apply(qapp):
     assert dlg._result is None
     assert dlg._apply_button.isEnabled() is False
     assert "failed" in dlg._summary.text().lower()
-
-
-def test_render_metrics_show_dash_for_none_fields(qapp):
-    dlg = _bare_dialog(qapp)
-    result = DiagnosticResult(
-        reachable=True,
-        verdict=_diag.JITTER,
-        summary="Barely keeping up.",
-        recommended_args=("--cache=yes",),
-    )
-    dlg._on_result_ready(result)
-    # None numeric fields render as the em-dash placeholder, not "None".
-    assert "—" in dlg._metrics.text()
-    assert "None" not in dlg._metrics.text()
 
 
 # --------------------------------------------------------------------------- #
