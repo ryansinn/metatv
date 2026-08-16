@@ -79,39 +79,53 @@ what is happening now. Shipped:
   stored `stream_url` is synthetic (`series_id` + a default `.ts`) and is never streamed, so Diagnose
   reported HTTP 405 on titles that play fine. It now resolves a representative episode.
 
+- [x] **Attempt latency is actually recorded** — SHIPPED (#307). `UrlCycler.record_success`/
+  `record_failure` accepted a `response_time_ms` argument that **no call site passed**, so every
+  attempt stored `None`, `median_latency_ms()` returned `0`, and `0` sorts cheapest — the latency
+  term of #305's ranker was inert in the shipped app and its stated purpose (demoting the host that
+  answers in 10-12s but never technically fails) never happened. Now timed at the six small,
+  size-comparable request paths (`get_categories`, `fetch_series_info`, `fetch_vod_info`,
+  `get_server_info`, `fetch_account_info`, and the stream-validation failover loop). `fetch_channels`
+  is deliberately excluded and carries a comment saying why: it downloads the entire catalog, so its
+  elapsed time is payload-dominated, and `median_latency_ms()` pools every attempt on a `ProviderURL`
+  — mixing a multi-minute bulk fetch with ~300ms info calls would make the median meaningless.
+- [x] **Episodes fail over like channels do** — SHIPPED (#308). `launch_player_for_episode`
+  (`gui/main_window_series.py`) called plain `validate_stream_url` and never
+  `validate_and_failover_stream_url`, so episode playback could not recover from a dead host at all.
+  It now routes through the same chokepoint, and a successful failover sticks via the episode-grain
+  sibling of #306's write-back (`EpisodeRepository.update_stream_url`), scoped to the played row and
+  skipped when the call site has no episode id. The write-back is placed *after* the failure return,
+  so a total failover failure can never persist an empty URL.
+
+- [x] **Diagnostics dialog: the raw metrics block is unreadable — demoted to an on-demand popup** —
+  SHIPPED (#309) *(owner UX pass 2026-08-15, spec revised the same day after code review)*. The
+  always-on block carrying Throughput / Bitrate / Baseline / Headroom / Time-to-first-byte / Codec /
+  Resolution rendered clipped mid-line. **Two corrections to the original report, both found by
+  reading the code before building:** there was no scroll area anywhere in `diagnostics_dialog.py` —
+  the clipping came from a word-wrapped `QLabel` shown *after* the dialog had already been sized, and
+  the dialog never re-sized to fit it. And the block was largely redundant: `_build_summary`
+  (`core/stream_diagnostics.py`) already states throughput, bitrate, headroom and baseline inline in
+  the verdict sentence directly above it, leaving only time-to-first-byte, codec and resolution
+  unique to it (plus `connect_ms`, which the UI surfaced nowhere). So the fix was **not** a nicer
+  inline grid: the always-on block is gone, replaced by a "Technical details…" trigger that opens the
+  full raw set in a popup which sizes to its own content — which sidesteps the late-shown-content
+  clipping outright rather than working around it. `None`-valued rows are omitted, not dashed.
+
 Remaining:
 
-- [ ] **Episodes never fail over at all** — `launch_player_for_episode` (`gui/main_window_series.py:699`)
-  calls plain `validate_stream_url` and never `validate_and_failover_stream_url`, so episode playback
-  cannot recover from a dead host the way channel playback can. This is the highest-value remaining
-  item in this area: the series/episode case is what surfaced the whole cluster. Route it through the
-  same chokepoint (and then through #306's write-back, which keys on `channel_id` and will need an
-  episode-grain sibling for `EpisodeDB.stream_url`).
-- [ ] **Diagnostics dialog: the raw metrics block is unreadable — demote it to an on-demand popup**
-  *(owner UX pass 2026-08-15, spec revised 2026-08-15 after code review)* — the middle section
-  carrying Throughput / Bitrate / Baseline / Headroom / Time-to-first-byte / Codec / Resolution
-  renders clipped mid-line and is effectively unreadable. **Two corrections to the original note:**
-  there is no scroll area anywhere in `diagnostics_dialog.py` — the clipping comes from a word-wrapped
-  `QLabel` shown *after* the dialog is already sized, and the dialog never re-sizes to fit it. And the
-  block is largely redundant: `_build_summary` (`core/stream_diagnostics.py:504`) already states
-  throughput, bitrate, headroom and baseline inline in the verdict sentence directly above it, so only
-  time-to-first-byte, codec and resolution are unique to the block (plus `connect_ms`, which the UI
-  surfaces nowhere). So the fix is **not** a nicer inline grid: drop the always-on block, add a
-  "Technical details…" trigger under the summary, and open the full raw set in a small popup that
-  sizes to its own content (which also sidesteps the late-shown-content clipping outright). Confirmed
-  working otherwise: the redacted "Testing S03E03: …" URL line and the healthy verdict both render
-  correctly.
-- [ ] **Validate the ranking constants against real traffic** — *investigated 2026-08-15: the
-  constants are not the problem; the latency term is inert.* `url_health_decay` 0.85 /
-  `url_cooldown_minutes` 10 / `url_recent_attempts_kept` 20 are chosen defaults. Reading real logs
-  showed health decay and cooldown working correctly (values spread 1.00 → 0.00), but **every** host
-  reports `latency=0ms`: none of the 15 `UrlCycler.record_success`/`record_failure` call sites passes
-  `response_time_ms`, so `median_latency_ms()` returns `0`, and `0` sorts cheapest — collapsing the
-  sort key to `(cooldown_tier, -health, 0, priority)`. #305's stated purpose (demoting the host that
-  answers in 10-12s but never technically fails) therefore does not happen in the shipped app.
-  Latency recording is the prerequisite; only after it lands is there anything real to tune. (Guard
-  against the recurring trap: measure the proposed remedy before building more on top of it — this
-  item is exactly that guard paying off.)
+- [ ] **Validate the ranking constants against real traffic** — **blocked on fresh data, not on
+  code.** The 2026-08-15 investigation found the constants were never the problem: health decay and
+  cooldown were working (log values spread 1.00 → 0.00), but every host reported `latency=0ms`
+  because no call site recorded it. That prerequisite shipped as #307, so the ranker now has real
+  latency to sort on **for the first time** — which means every log line written before #307 is
+  useless for tuning, and the numbers must be re-read after a stretch of ordinary playback.
+  Only then is there anything real to say about `url_health_decay` 0.85 / `url_cooldown_minutes` 10 /
+  `url_recent_attempts_kept` 20. What to look for: hosts whose `latency=` values are now non-zero and
+  spread apart, and whether a slow-but-healthy host actually sinks below a fast one in the
+  `candidates —` ordering. (This item is the "measure the proposed remedy before building more on top
+  of it" guard paying for itself — it was filed as *tune the constants* and turned out to be *the
+  thing the constants act on was never wired up*. Do not skip the re-read and assume #307 settled it:
+  that would repeat the original mistake one layer up.)
 
 ## Series & Episodes
 
