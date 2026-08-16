@@ -87,18 +87,31 @@ Remaining:
   item in this area: the series/episode case is what surfaced the whole cluster. Route it through the
   same chokepoint (and then through #306's write-back, which keys on `channel_id` and will need an
   episode-grain sibling for `EpisodeDB.stream_url`).
-- [ ] **Diagnostics dialog: the metrics block is trapped in a tiny scroll area** *(owner UX pass
-  2026-08-15)* — the middle section carrying the numbers that matter (Throughput / Bitrate / Baseline /
-  Headroom / Time-to-first-byte / Codec / Resolution) renders clipped mid-line inside a few-pixel
-  scrolling strip, so it is effectively unreadable — the verdict sentence above it gets the room while
-  the evidence is squeezed. Give the metrics a real, non-scrolling block (a two-column key/value grid
-  reads better than the current run-on lines), let the dialog size to its content, and drop the inner
-  scroll entirely for this section. Confirmed working otherwise: the redacted "Testing S03E03: …" URL
-  line and the healthy verdict both render correctly.
-- [ ] **Validate the ranking constants against real traffic** — `url_health_decay` 0.85 /
-  `url_cooldown_minutes` 10 / `url_recent_attempts_kept` 20 are chosen defaults, now genuinely tunable
-  and logged per decision. Read the logs after real playback before treating them as settled. (Guard
-  against the recurring trap: measure the proposed remedy before building more on top of it.)
+- [ ] **Diagnostics dialog: the raw metrics block is unreadable — demote it to an on-demand popup**
+  *(owner UX pass 2026-08-15, spec revised 2026-08-15 after code review)* — the middle section
+  carrying Throughput / Bitrate / Baseline / Headroom / Time-to-first-byte / Codec / Resolution
+  renders clipped mid-line and is effectively unreadable. **Two corrections to the original note:**
+  there is no scroll area anywhere in `diagnostics_dialog.py` — the clipping comes from a word-wrapped
+  `QLabel` shown *after* the dialog is already sized, and the dialog never re-sizes to fit it. And the
+  block is largely redundant: `_build_summary` (`core/stream_diagnostics.py:504`) already states
+  throughput, bitrate, headroom and baseline inline in the verdict sentence directly above it, so only
+  time-to-first-byte, codec and resolution are unique to the block (plus `connect_ms`, which the UI
+  surfaces nowhere). So the fix is **not** a nicer inline grid: drop the always-on block, add a
+  "Technical details…" trigger under the summary, and open the full raw set in a small popup that
+  sizes to its own content (which also sidesteps the late-shown-content clipping outright). Confirmed
+  working otherwise: the redacted "Testing S03E03: …" URL line and the healthy verdict both render
+  correctly.
+- [ ] **Validate the ranking constants against real traffic** — *investigated 2026-08-15: the
+  constants are not the problem; the latency term is inert.* `url_health_decay` 0.85 /
+  `url_cooldown_minutes` 10 / `url_recent_attempts_kept` 20 are chosen defaults. Reading real logs
+  showed health decay and cooldown working correctly (values spread 1.00 → 0.00), but **every** host
+  reports `latency=0ms`: none of the 15 `UrlCycler.record_success`/`record_failure` call sites passes
+  `response_time_ms`, so `median_latency_ms()` returns `0`, and `0` sorts cheapest — collapsing the
+  sort key to `(cooldown_tier, -health, 0, priority)`. #305's stated purpose (demoting the host that
+  answers in 10-12s but never technically fails) therefore does not happen in the shipped app.
+  Latency recording is the prerequisite; only after it lands is there anything real to tune. (Guard
+  against the recurring trap: measure the proposed remedy before building more on top of it — this
+  item is exactly that guard paying off.)
 
 ## Series & Episodes
 

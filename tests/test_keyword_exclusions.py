@@ -394,9 +394,10 @@ def test_keyword_exclusion_query_shape_and_benchmark(tmp_path: Path):
        ``lower(coalesce(...)) LIKE lower(?)``) — the match runs IN the query,
        not via a Python loop over fetched rows.
     2. A get_all() call with the axis active returns the correct subset from
-       that few-thousand-row table in well under a second — proof the
+       that few-thousand-row table without a pathological blow-up — proof the
        substring match is pushed to SQL (a Python per-row scan of this size
-       from the UI thread is exactly what CLAUDE.md's rule forbids).
+       from the UI thread is exactly what CLAUDE.md's rule forbids). The time
+       ceiling is deliberately loose; see the comment on the assertion.
     """
     from metatv.core.filter_utils import keyword_exclusion_criterion
 
@@ -436,7 +437,14 @@ def test_keyword_exclusion_query_shape_and_benchmark(tmp_path: Path):
             elapsed = time.perf_counter() - t0
 
         assert len(channels) == N - expected_hidden
-        assert elapsed < 2.0, f"keyword exclusion over {N} rows took {elapsed:.3f}s — expected SQL-side speed"
+        # Catastrophic-regression guard, NOT a benchmark. Wall-clock is not a stable
+        # signal: this assertion is what turned a full-suite wrap run red at 643s
+        # (4x the usual 161s) purely because the machine was loaded — the query was
+        # never at fault. The teeth that actually catch "the substring match left
+        # SQL" are the LIKE-shape assertion above and the row-count assertion here;
+        # this ceiling only has to be tight enough to catch a pathological blow-up,
+        # so keep it generous rather than re-tuning it toward the observed runtime.
+        assert elapsed < 10.0, f"keyword exclusion over {N} rows took {elapsed:.3f}s — expected SQL-side speed"
     finally:
         db.close()
 
