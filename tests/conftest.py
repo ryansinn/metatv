@@ -882,4 +882,87 @@ def wire_watch_queue_filter(sec) -> None:
     """
     sec._filter = SimpleNamespace(text=lambda: "")
     sec._groups = []
+
+
+# ---------------------------------------------------------------------------
+# ChannelStateBus test host
+# ---------------------------------------------------------------------------
+
+def make_channel_state_bus_host(db_obj):
+    """Build a MainWindow stand-in wired for ChannelStateBus tests.
+
+    Binds the REAL ``_FavoritesMixin``/``_MetadataMixin`` mutation and
+    action-state methods to a bare host object instead of a
+    ``MainWindow.__new__()`` skeleton — no QObject is involved, so there is
+    nothing for a future ``MainWindow.__init__`` addition to leave stranded
+    (the ``RuntimeError``-not-``AttributeError`` trap ``wire_channel_banner_widgets``
+    above describes). Mirrors the ``SimpleNamespace`` + unbound-mixin-method
+    pattern ``test_provider_delete_offthread.py``'s ``_seam_self`` uses to drive
+    the real off-thread seam deterministically — except the host is a plain
+    class instance, not a ``SimpleNamespace``: ``ChannelStateBus.subscribe``
+    holds callbacks via ``weakref.WeakMethod``, and ``types.SimpleNamespace``
+    does not support being weakly referenced (``TypeError: cannot create weak
+    reference to 'types.SimpleNamespace' object``), so a real subscription
+    would fail before the seam even runs.
+
+    The fake executor runs submitted work inline, so ``ChannelStateBus``'s
+    tier-2 authoritative reread (which submits to ``self.executor``, exactly as
+    production does) resolves synchronously; the fake ``_action_state_loaded``
+    "signal" calls the slot directly in place of the real cross-thread Qt
+    signal emit.
+
+    Args:
+        db_obj: A real ``Database`` (CLAUDE.md: tests use a real ``Database``
+            on a ``tmp_path`` file, never ``:memory:``).
+
+    Returns:
+        A host object with a real ``channel_state_bus``, the real mutation
+        handlers bound, and ``details_pane`` as a recording double exposing
+        ``applied_states`` (the ``ChannelActionState`` objects
+        ``apply_action_state`` received, in call order).
+    """
+    from metatv.gui.channel_state_bus import ChannelStateBus
+    from metatv.gui.main_window_favorites import _FavoritesMixin
+    from metatv.gui.main_window_metadata import _MetadataMixin
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return None
+
+    class _DetailsPaneDouble:
+        def __init__(self):
+            self.applied_states = []
+
+        def apply_action_state(self, state):
+            self.applied_states.append(state)
+
+    class _Host:
+        """Plain class (not SimpleNamespace) so it supports weakref.WeakMethod."""
+
+    host = _Host()
+    host.db = db_obj
+    host.executor = _InlineExecutor()
+    host.view_mode = "channels"
+    host.config = SimpleNamespace(epg_link_blocklist=[])
+    host.preferences_view = SimpleNamespace(refresh=lambda: None)
+    host._refresh_recommended_section = lambda: None
+    host.details_pane = _DetailsPaneDouble()
+
+    host._toggle_rating = _FavoritesMixin._toggle_rating.__get__(host)
+    host._toggle_favorite_by_id = _FavoritesMixin._toggle_favorite_by_id.__get__(host)
+    host._not_interested = _FavoritesMixin._not_interested.__get__(host)
+    host._on_channel_state_echo = _FavoritesMixin._on_channel_state_echo.__get__(host)
+    host._on_action_state_requested = _MetadataMixin._on_action_state_requested.__get__(host)
+    host._bg_fetch_action_state = _MetadataMixin._bg_fetch_action_state.__get__(host)
+    host._on_action_state_loaded = _MetadataMixin._on_action_state_loaded.__get__(host)
+
+    host._action_state_loaded = SimpleNamespace(
+        emit=lambda state: host._on_action_state_loaded(state)
+    )
+
+    host.channel_state_bus = ChannelStateBus(reread=host._on_action_state_requested)
+    host.channel_state_bus.subscribe(host._on_channel_state_echo)
+
+    return host
     sec._no_match_item = None

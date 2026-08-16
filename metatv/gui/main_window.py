@@ -57,6 +57,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_bar import ToggleChip, FilterChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
+from metatv.gui.channel_state_bus import ChannelStateBus
 from metatv.gui.details_pane import DetailsPaneWidget
 from metatv.gui.details_actions import ChannelActionState
 from metatv.gui.details_versions import ChannelVersion
@@ -757,6 +758,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._similar_titles_loaded.connect(self._on_similar_titles_loaded)
         self._action_state_loaded.connect(self._on_action_state_loaded)
         self._episode_action_state_loaded.connect(self._on_episode_action_state_loaded)
+
+        # One publish point for "this channel's user-state changed" (rating,
+        # favorite, suppressed, ...) — see channel_state_bus.py's module
+        # docstring for why this replaces per-mutation-handler refresh lists.
+        # reread=self._on_action_state_requested reuses the existing off-thread
+        # action-state fetch (details_pane.action_state_requested's handler)
+        # as the bus's tier-2 authoritative re-read.
+        self.channel_state_bus = ChannelStateBus(reread=self._on_action_state_requested)
+        self.channel_state_bus.subscribe(self._on_channel_state_echo)
+
         self.main_splitter.addWidget(self.details_pane)
 
         # Similar titles lightbox — overlay child widget, hidden by default
