@@ -22,7 +22,7 @@ ENTRY = WhatsNewEntry(
         "there is, not by how responsive the host is, so mixing it in "
         "would make the median meaningless.",
     ),
-    version="0.27.1",
+    version="0.28.0",
     date="2026-08-15",
     test_steps=(
         "Configure a source with two alternate hosts, one noticeably "

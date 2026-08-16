@@ -18,7 +18,7 @@ ENTRY = WhatsNewEntry(
         "laid out as a readable key/value grid — including connect time, "
         "which was never surfaced anywhere before.",
     ),
-    version="0.27.1",
+    version="0.28.0",
     date="2026-08-15",
     test_steps=(
         "Open Stream diagnostics on a channel and click Run diagnostic — no "

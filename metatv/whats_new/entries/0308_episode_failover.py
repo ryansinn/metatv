@@ -19,7 +19,7 @@ ENTRY = WhatsNewEntry(
         "starts from the host that's known to work instead of re-waiting "
         "on the dead primary host's validation timeout every time.",
     ),
-    version="0.27.1",
+    version="0.28.0",
     date="2026-08-15",
     test_steps=(
         "Play an episode whose primary host is unreachable but whose "

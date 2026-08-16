@@ -17,7 +17,7 @@ ENTRY = WhatsNewEntry(
         "rating three language copies of one movie counts as one act of taste — "
         "not three.",
     ),
-    version="0.27.1",
+    version="0.28.0",
     date="2026-08-15",
     test_steps=(
         "Rate the same title +1 from two different source/language variants (if "

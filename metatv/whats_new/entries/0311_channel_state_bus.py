@@ -18,7 +18,7 @@ ENTRY = WhatsNewEntry(
         "the buttons update immediately no matter which view the change came "
         "from.",
     ),
-    version="0.27.1",
+    version="0.28.0",
     date="2026-08-15",
     test_steps=(
         "Open a movie's details pane (so its Like/Dislike/Favorite buttons are "
