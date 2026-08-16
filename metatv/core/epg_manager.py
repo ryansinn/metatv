@@ -23,9 +23,16 @@ from metatv.core.epg_utils import (
     now_utc,
     to_local,
 )
+from metatv.core.models import Provider
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.provider import parse_provider_urls
-from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
+from metatv.core.repositories.provider import parse_provider_urls, persist_url_stats
+from metatv.core.url_cycle import UrlCycler
+from metatv.core.xmltv_parser import (
+    XmltvChannel,
+    XmltvProgramme,
+    normalize_channel_name,
+    parse_xmltv_url,
+)
 
 
 # Matches the trailing dot-suffix of an XMLTV epg_id used as a language/region
@@ -164,13 +171,30 @@ class EpgManager(QObject):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def build_epg_url(provider: ProviderDB) -> str | None:
-        """Construct the standard Xtream XMLTV URL from provider credentials + primary server."""
-        raw_urls = parse_provider_urls(provider.urls)
-        if not raw_urls:
-            return None
-        first = raw_urls[0]
-        base = first.get("url", "").rstrip("/")
+    def build_epg_url(provider: ProviderDB | Provider, base_url: str | None = None) -> str | None:
+        """Construct the standard Xtream XMLTV URL from provider credentials + a host.
+
+        Args:
+            provider: Provider row/model supplying ``username``/``password`` — a
+                ``ProviderDB`` row or the in-memory ``Provider`` domain model both
+                expose the same attributes.
+            base_url: The host to build the URL against. Defaults to ``None``,
+                which reproduces the original behaviour — the first entry in the
+                provider's ``urls`` JSON list. That default only works against a
+                ``ProviderDB`` row, whose ``urls`` column carries the raw list;
+                pass an explicit *base_url* (e.g. one candidate from
+                ``UrlCycler.candidates()``) when cycling through multiple hosts or
+                working from the in-memory ``Provider`` model.
+
+        Returns:
+            The constructed XMLTV URL, or ``None`` if no host is available.
+        """
+        if base_url is None:
+            raw_urls = parse_provider_urls(provider.urls)
+            if not raw_urls:
+                return None
+            base_url = raw_urls[0].get("url", "")
+        base = base_url.rstrip("/") if base_url else ""
         if not base:
             return None
         username = provider.username or ""
@@ -179,29 +203,22 @@ class EpgManager(QObject):
             return f"{base}/xmltv.php?username={username}&password={password}"
         return f"{base}/xmltv.php"
 
-    def _ensure_epg_url(self, provider: ProviderDB, session) -> bool:
-        """Auto-populate epg_url from credentials if it is empty. Returns True if URL is set."""
-        if getattr(provider, "epg_url", ""):
-            return True
-        url = self.build_epg_url(provider)
-        if not url:
-            return False
-        provider.epg_url = url
-        try:
-            session.commit()
-            logger.info(f"EPG: auto-detected URL for {provider.name}: {url}")
-        except Exception:
-            session.rollback()
-        return True
-
     @staticmethod
     def effective_epg_url(provider: ProviderDB) -> str:
-        """Return the URL to use for fetching: override wins over auto-built URL.
+        """Return the URL to fetch: a user override wins, else derive from live credentials.
 
-        ``epg_url_override`` (user-supplied) takes precedence; falls back to the
-        auto-built ``epg_url`` populated by ``_ensure_epg_url``.
+        Deliberately NOT read from the stored ``epg_url`` column. That column was a
+        cached derivation of *mutable* inputs (username/password/host) with no
+        invalidation, so a re-subscription on the same provider row left it holding
+        the previous account's credentials forever — the owner's guide silently died
+        for 11 days behind a green "AUTODETECTED" badge. Deriving here means a
+        credential change is picked up on the very next fetch, with nothing to
+        invalidate.
         """
-        return getattr(provider, "epg_url_override", None) or getattr(provider, "epg_url", "") or ""
+        override = (getattr(provider, "epg_url_override", None) or "").strip()
+        if override:
+            return override
+        return EpgManager.build_epg_url(provider) or ""
 
     def needs_refresh(self, provider: ProviderDB) -> bool:
         """Return True if this provider's EPG data should be re-fetched.
@@ -337,12 +354,11 @@ class EpgManager(QObject):
             for provider in providers:
                 if not getattr(provider, "epg_enabled", True):
                     continue  # user disabled EPG for this provider
-                self._ensure_epg_url(provider, session)
                 eff_url = self.effective_epg_url(provider)
                 if not eff_url or provider.id in self._active_refreshes:
                     continue
                 if self.needs_refresh(provider):
-                    self._start_refresh(provider.id, eff_url, provider.name, force=False)
+                    self._start_refresh(provider.id, provider.name, force=False)
                 elif (
                     provider.id not in self._unmatched_refresh_attempted
                     and not getattr(provider, "epg_unnamed_refetch_attempted", False)
@@ -376,7 +392,7 @@ class EpgManager(QObject):
                     self._unmatched_refresh_attempted.add(provider.id)
                     provider.epg_unnamed_refetch_attempted = True
                     session.commit()  # persist so the next launch does NOT re-fetch again
-                    self._start_refresh(provider.id, eff_url, provider.name, force=False)
+                    self._start_refresh(provider.id, provider.name, force=False)
         finally:
             session.close()
 
@@ -395,12 +411,11 @@ class EpgManager(QObject):
             if not provider:
                 logger.warning(f"EPG: provider {provider_id} not found")
                 return
-            self._ensure_epg_url(provider, session)
             eff_url = self.effective_epg_url(provider)
             if not eff_url:
                 logger.warning(f"EPG: no URL available for provider {provider_id}")
                 return
-            self._start_refresh(provider.id, eff_url, provider.name, force=True)
+            self._start_refresh(provider.id, provider.name, force=True)
         finally:
             session.close()
 
@@ -502,8 +517,7 @@ class EpgManager(QObject):
             if own_session:
                 session.close()
 
-    def _start_refresh(self, provider_id: str, epg_url: str,
-                       provider_name: str, force: bool) -> None:
+    def _start_refresh(self, provider_id: str, provider_name: str, force: bool) -> None:
         self._active_refreshes.add(provider_id)
         self.refresh_started.emit(provider_id)
 
@@ -517,30 +531,143 @@ class EpgManager(QObject):
             self.notifications.update(notif_id, message="Connecting…")
 
         self._executor.submit(
-            self._fetch_worker, provider_id, epg_url, provider_name, notif_id
+            self._fetch_worker, provider_id, provider_name, notif_id
         )
 
-    def _fetch_worker(self, provider_id: str, epg_url: str,
-                      provider_name: str, notif_id: str | None = None) -> None:
-        """Background worker: download, parse, and store XMLTV data."""
+    def _resolve_and_fetch_guide(
+        self, provider_id: str, provider_name: str,
+        on_parse_progress: Callable[[int], None],
+    ) -> tuple[list[XmltvChannel], list[XmltvProgramme]]:
+        """Resolve the fetch URL(s) for *provider_id* and return the first working guide.
+
+        A non-empty ``epg_url_override`` is fetched once, verbatim, with no
+        cycling — it is an explicit instruction to use exactly one URL, and
+        trying other hosts against a hand-written URL would be wrong. With no
+        override, the provider's hosts are tried in reliability order via
+        ``UrlCycler`` (CLAUDE.md: URL cycling has exactly one path, never a
+        bare loop over ``ordered_urls()``) until a host returns a parseable,
+        non-empty guide. ``record_success``/``record_failure`` follow EVERY
+        attempt and are flushed with ``persist_url_stats`` before the next
+        attempt starts, so a dead host stops ranking first — cycling without
+        recording is the bug that already shipped once (CLAUDE.md). No
+        response-time is recorded: mirrors the ``fetch_channels`` latency
+        exclusion, since a full XMLTV download is the same bulk-download shape,
+        not a comparably-sized request, and mixing it into
+        ``median_latency_ms()`` would make the median meaningless.
+
+        A guide that parses but is already expired (its date range is in the
+        past) is NOT a failure and does NOT advance to the next host — every
+        host on a panel serves the same guide, and an XMLTV payload is a bulk
+        download (hundreds of thousands of programmes), so re-downloading it
+        from every other host to receive identical stale content would be a
+        serious harm, not a fix. Staleness is handled later, by
+        ``needs_refresh()``'s interval throttle — never here.
+
+        Returns:
+            ``(channels, programmes)`` from whichever host succeeded first.
+
+        Raises:
+            Exception: whatever the last attempt raised, or a ``RuntimeError``
+                if there were no hosts to try or every host returned an empty
+                guide.
+        """
+        with self.db.session_scope(commit=False) as session:
+            provider_db = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if provider_db is None:
+                raise RuntimeError(f"Provider {provider_id} not found")
+            override = (getattr(provider_db, "epg_url_override", None) or "").strip()
+            provider_model = (
+                None if override
+                else RepositoryFactory(session).providers.to_model(provider_db)
+            )
+
+        if override:
+            return parse_xmltv_url(
+                override, timeout=180, on_progress=on_parse_progress,
+            )
+
+        cycler = UrlCycler(provider_model, "fetch_epg")
+        candidates = cycler.candidates()
+        if not candidates:
+            raise RuntimeError(f"No configured hosts for provider {provider_name!r}")
+
+        last_error: Exception | None = None
+        for base_url in candidates:
+            url = self.build_epg_url(provider_model, base_url=base_url)
+            if not url:
+                continue
+            try:
+                channels, programmes = parse_xmltv_url(
+                    url, timeout=180, on_progress=on_parse_progress,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"EPG fetch failed for {provider_name} @ {base_url}: {e}"
+                )
+                cycler.record_failure(base_url, str(e))
+                if cycler.dirty:
+                    persist_url_stats(self.db, provider_model)
+                last_error = e
+                continue
+
+            if not programmes:
+                logger.warning(
+                    f"EPG fetch from {base_url} returned an empty guide (0 "
+                    f"programmes) for {provider_name} — trying next host"
+                )
+                cycler.record_failure(base_url, "empty guide (0 programmes)")
+                if cycler.dirty:
+                    persist_url_stats(self.db, provider_model)
+                last_error = RuntimeError(f"{base_url}: empty guide (0 programmes)")
+                continue
+
+            # A non-empty, parseable guide — even one whose date range is
+            # already in the past — is a SUCCESS for cycling purposes. See
+            # docstring: re-fetching an identical stale guide from every
+            # other host is a harm, not a fix.
+            cycler.record_success(base_url)
+            if cycler.dirty:
+                persist_url_stats(self.db, provider_model)
+            return channels, programmes
+
+        raise last_error or RuntimeError(
+            f"All EPG hosts failed for provider {provider_name!r}"
+        )
+
+    def _fetch_worker(self, provider_id: str, provider_name: str,
+                      notif_id: str | None = None) -> None:
+        """Background worker: resolve the fetch URL(s), download, parse, and store
+        XMLTV data (see ``_resolve_and_fetch_guide`` for the URL resolution +
+        host-cycling policy)."""
+        def on_parse_progress(count: int) -> None:
+            self._progress_update.emit(
+                notif_id or "", count, -1,
+                f"Parsing… {count:,} programmes",
+            )
+
+        # Phase 1: download — indeterminate (no Content-Length on most XMLTV feeds)
+        self._progress_update.emit(
+            notif_id or "", 0, -1, "Downloading guide…"
+        )
+
+        try:
+            channels, programmes = self._resolve_and_fetch_guide(
+                provider_id, provider_name,
+                on_parse_progress if notif_id else None,
+            )
+        except Exception as e:
+            logger.error(f"EPG refresh failed for {provider_name}: {e}")
+            self.refresh_error.emit(provider_id, str(e))
+            self._progress_error.emit(notif_id or "")
+            self._show_notification(
+                "EPG Error", f"{provider_name}: {e}",
+                type_="error", auto_dismiss_ms=6000,
+            )
+            self._active_refreshes.discard(provider_id)
+            return
+
         session = self.db.get_session()
         try:
-            def on_parse_progress(count: int) -> None:
-                self._progress_update.emit(
-                    notif_id or "", count, -1,
-                    f"Parsing… {count:,} programmes",
-                )
-
-            # Phase 1: download — indeterminate (no Content-Length on most XMLTV feeds)
-            self._progress_update.emit(
-                notif_id or "", 0, -1, "Downloading guide…"
-            )
-
-            # Parse the XMLTV feed
-            channels, programmes = parse_xmltv_url(
-                epg_url, timeout=180,
-                on_progress=on_parse_progress if notif_id else None,
-            )
             total_progs = len(programmes)
 
             # Phase 2: channel matching — indeterminate (fast, no useful fraction)

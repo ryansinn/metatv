@@ -42,10 +42,18 @@ def _manager(db, *, default_interval="auto"):
 
 
 def _provider(*, last_fetched, data_start, data_end, interval="auto"):
-    """A plain (unpersisted) ProviderDB — needs_refresh reads attributes only."""
+    """A plain (unpersisted) ProviderDB — needs_refresh reads attributes only.
+
+    ``urls`` is populated so ``effective_epg_url`` (which derives from
+    credentials + urls, never the cached ``epg_url`` column) resolves to a
+    non-empty URL — otherwise ``needs_refresh``'s first check ("no effective
+    URL → False") would short-circuit before ever reaching the staleness
+    logic under test here.
+    """
     return ProviderDB(
         id="p", name="p", type="xtream", url="http://e.com",
         username="u", password="p", is_active=True,
+        urls=[{"url": "http://e.com", "priority": 0}],
         epg_url="http://e/xmltv.php", epg_enabled=True,
         epg_last_fetched=last_fetched,
         epg_data_start=data_start, epg_data_end=data_end,
@@ -138,6 +146,7 @@ def test_stale_at_source_end_to_end_no_refetch_every_launch(db):
         s.add(ProviderDB(
             id="biggy", name="ProSat (BiggyJuke)", type="xtream", url="http://e.com",
             username="u", password="p", is_active=True,
+            urls=[{"url": "http://e.com", "priority": 0}],
             epg_url="http://e/xmltv.php", epg_enabled=True,
             epg_last_fetched=now,
             epg_data_start=now - timedelta(days=2),
@@ -145,8 +154,7 @@ def test_stale_at_source_end_to_end_no_refetch_every_launch(db):
             epg_refresh_interval="auto",
         ))
     mgr = _manager(db)
-    with patch.object(mgr, "_start_refresh") as mock_refresh, \
-         patch.object(mgr, "_ensure_epg_url"):
+    with patch.object(mgr, "_start_refresh") as mock_refresh:
         mgr.refresh_all_if_needed()
         mock_refresh.assert_not_called()
     mgr._executor.shutdown(wait=False)

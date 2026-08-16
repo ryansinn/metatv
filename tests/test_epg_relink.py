@@ -46,7 +46,11 @@ def db(tmp_path):
 
 def _add_provider(session, pid: str, *, epg_url: str = "http://e/xmltv.php",
                   epg_last_fetched=None, epg_data_end=None) -> ProviderDB:
-    """Seed an active, EPG-enabled ProviderDB row that is time-fresh (won't need_refresh)."""
+    """Seed an active, EPG-enabled ProviderDB row that is time-fresh (won't need_refresh).
+
+    ``urls`` is populated so ``effective_epg_url`` (derives from credentials +
+    urls, never the cached ``epg_url`` column) resolves non-empty.
+    """
     if epg_last_fetched is None:
         # Fetched 1 hour ago; interval default 3d → time-fresh
         epg_last_fetched = now_utc() - timedelta(hours=1)
@@ -56,6 +60,7 @@ def _add_provider(session, pid: str, *, epg_url: str = "http://e/xmltv.php",
     p = ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
         username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}],
         is_active=True,
         epg_url=epg_url,
         epg_enabled=True,
@@ -288,6 +293,7 @@ def test_unmatched_guard_does_not_suppress_needs_refresh_on_second_call(db):
         p = ProviderDB(
             id="stale-between", name="stale-between", type="xtream",
             url="http://e.com", username="u", password="p",
+            urls=[{"url": "http://e.com", "priority": 0}],
             is_active=True, epg_url="http://e/xmltv.php", epg_enabled=True,
             epg_last_fetched=now - timedelta(hours=1),
             epg_data_end=now + timedelta(hours=2),   # still valid initially

@@ -38,10 +38,19 @@ def session():
 
 
 def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php", exp=None):
-    """Seed a ProviderDB row; exp=datetime in the past → expired subscription."""
+    """Seed a ProviderDB row; exp=datetime in the past → expired subscription.
+
+    ``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager). ``epg_url``'s
+    truthiness controls whether a derivable host is seeded into ``urls``
+    (JSON), so a truthy value still yields a non-empty auto URL and epg_url=""
+    still yields "no URL derivable", matching every call site's intent.
+    """
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
-        username="u", password="p", is_active=is_active,
+        username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
+        is_active=is_active,
         epg_url=epg_url, account_exp_date=exp,
     ))
     session.flush()

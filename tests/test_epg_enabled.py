@@ -44,10 +44,19 @@ def session(db):
 def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php",
                   epg_enabled=True, exp=None, epg_data_end=None,
                   epg_last_fetched=None, epg_data_start=None):
-    """Seed a ProviderDB row."""
+    """Seed a ProviderDB row.
+
+    ``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager). ``epg_url`` is kept
+    as a parameter (still written to the now-inert column) and its truthiness
+    also controls whether a derivable host is seeded into ``urls`` (JSON), so
+    every existing call site still gets a non-empty auto URL by default. Pass
+    epg_url="" for the "no URL derivable" case.
+    """
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
         username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
         is_active=is_active,
         epg_url=epg_url,
         epg_enabled=epg_enabled,
@@ -90,13 +99,15 @@ def test_epg_disabled_provider_excluded_from_active_ids(session):
 
 def test_epg_null_enabled_treated_as_enabled(session):
     """Legacy NULL epg_enabled rows are treated as enabled (backwards compat)."""
-    # Insert a row with NULL epg_enabled by bypassing the column default
+    # Insert a row with NULL epg_enabled by bypassing the column default.
+    # ``urls`` must carry a derivable host — effective_epg_url no longer reads
+    # the (here-vestigial) epg_url column.
     from sqlalchemy import text as _text
     session.execute(_text(
         "INSERT INTO providers (id, name, type, url, username, password, "
-        "is_active, epg_url, epg_enabled) "
+        "is_active, epg_url, epg_enabled, urls) "
         "VALUES ('null-p', 'null-p', 'xtream', 'http://e.com', 'u', 'p', "
-        "1, 'http://e/xmltv.php', NULL)"
+        "1, 'http://e/xmltv.php', NULL, '[{\"url\": \"http://e.com\"}]')"
     ))
     session.flush()
 
@@ -137,9 +148,10 @@ def test_stale_epg_null_enabled_is_included(session):
     past_str = past.strftime("%Y-%m-%d %H:%M:%S")
     session.execute(_text(
         f"INSERT INTO providers (id, name, type, url, username, password, "
-        f"is_active, epg_url, epg_enabled, epg_data_end) "
+        f"is_active, epg_url, epg_enabled, epg_data_end, urls) "
         f"VALUES ('null-stale', 'null-stale', 'xtream', 'http://e.com', 'u', 'p', "
-        f"1, 'http://e/xmltv.php', NULL, '{past_str}')"
+        f"1, 'http://e/xmltv.php', NULL, '{past_str}', "
+        f"'[{{\"url\": \"http://e.com\"}}]')"
     ))
     session.flush()
 
@@ -159,6 +171,7 @@ def test_refresh_all_skips_epg_disabled_provider(db):
         session.add(ProviderDB(
             id="disabled-refresh", name="disabled-refresh", type="xtream",
             url="http://e.com", username="u", password="p",
+            urls=[{"url": "http://e.com", "priority": 0}],
             is_active=True,
             epg_url="http://e/xmltv.php",
             epg_enabled=False,
@@ -187,6 +200,7 @@ def test_refresh_all_includes_enabled_provider(db):
         session.add(ProviderDB(
             id="enabled-refresh", name="enabled-refresh", type="xtream",
             url="http://e.com", username="u", password="p",
+            urls=[{"url": "http://e.com", "priority": 0}],
             is_active=True,
             epg_url="http://e/xmltv.php",
             epg_enabled=True,
@@ -341,7 +355,7 @@ def test_fetch_worker_persists_timestamps_and_engages_throttle(db, monkeypatch):
     manager = EpgManager(db, config, notifications=None)
 
     # Runs synchronously here; this raised NameError('_now_utc') before the fix.
-    manager._fetch_worker("fetch-p", "http://e/xmltv.php", "Fetch P", None)
+    manager._fetch_worker("fetch-p", "Fetch P", None)
 
     with db.session_scope(commit=False) as session:
         prov = session.query(ProviderDB).filter_by(id="fetch-p").first()

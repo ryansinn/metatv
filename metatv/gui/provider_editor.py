@@ -718,12 +718,14 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._epg_url_override = epg_url_override  # capture loaded value for change detection in _save
             self._epg_url_override_input.setText(epg_url_override)
             self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
-            # Resolve the auto-detected URL: prefer the stored epg_url, else derive it
-            # from credentials so the badge/refresh reflect reality before the first fetch.
-            stored_epg_url = db_prov.epg_url or ""
-            if not stored_epg_url and self._epg_manager:
-                stored_epg_url = self._epg_manager.build_epg_url(db_prov) or ""
-            self._loaded_epg_url = stored_epg_url
+            # Resolve the auto-detected URL fresh from CURRENT credentials — never
+            # read the stored epg_url column. That column was a write-once cache: a
+            # re-subscription changes username/password but the cached column keeps
+            # the OLD account's URL forever, so a green AUTODETECTED badge could show
+            # a URL built from credentials that no longer exist.
+            self._loaded_epg_url = (
+                self._epg_manager.build_epg_url(db_prov) or "" if self._epg_manager else ""
+            )
 
             # Refresh interval
             epg_interval = getattr(db_prov, "epg_refresh_interval", None) or "default"
@@ -744,8 +746,13 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
                 "active_cons": db_prov.account_active_cons or 0,
                 "max_connections": db_prov.max_connections or 1,
             }, from_cache=True)
+            # Effective URL (override-aware) — never the stale cached epg_url column;
+            # see the auto-detected-URL comment above for why.
+            effective_epg_url = (
+                self._epg_manager.effective_epg_url(db_prov) if self._epg_manager else ""
+            )
             self._set_epg_status_label(
-                db_prov.epg_url, db_prov.epg_data_end,
+                effective_epg_url, db_prov.epg_data_end,
                 epg_data_start=getattr(db_prov, "epg_data_start", None),
             )
 
