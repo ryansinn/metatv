@@ -167,9 +167,43 @@ This section lists only what is still open.
 
 **Next.**
 
-- [ ] **"Reconnect content seems to mangle a bunch of the content"** — owner-reported,
-  UNEXAMINED. No detail captured yet; ask what looked wrong before digging. Blocked on the
-  owner, not on the code.
+- [~] **"Reconnect content mangles the content" — DIAGNOSED 2026-08-16; detection shipped (#313),
+  remedy still open.** Owner's report: a source expired, they renewed it (new user/pass, **same
+  source row**) and refreshed; afterwards Favorites and the Watch Queue held titles they never
+  added, greyed out, and some saved titles were gone.
+
+  **Mechanism (confirmed by code, not caught in the act).** `ChannelDB.id = f"{provider_id}_{stream_id}"`
+  (`providers/xtream.py:345`), and editing credentials keeps the same `provider_id`
+  (`gui/provider_editor.py:776` mutates the row in place). A different account on the same panel
+  reuses those `stream_id`s for different titles, and the refresh upsert
+  (`provider_loader.py:370-392`) replaces the catalog columns while **deliberately preserving**
+  `is_favorite`/`is_hidden`/`play_count`/`user_category`. So the user's flag stays and the title
+  under it becomes someone else's. The loader already carried a "**Stream-ID reuse guard**" that
+  nulls `metadata_id` on a name change — the hazard was known, the guard just never covered user
+  state. **Ruled out:** cross-provider contamination is impossible (`provider_id` is inside the PK).
+
+  - [x] **Detection (#313)** — `_snapshot_engaged_names` / `_report_recycled_ids` log a greppable
+    `STREAM-ID REUSE` warning naming the old and new title whenever a refresh re-points a row the
+    user favorited/queued/rated/played. Bounded by engaged count, not catalog size. Diagnostic only.
+  - [ ] **Skip expired sources in Refresh All (bulk only).** `refresh_all_providers`
+    (`main_window_providers.py:915-923`) filters on `is_active` alone; expiry is never consulted,
+    and expired ≠ inactive. **Do NOT block per-source refresh on expiry** — the refresh is what
+    fetches account info and rewrites `account_exp_date` (`provider_loader.py:788-805`), so
+    "expired blocks refresh" is self-locking: renew, and nothing can ever clear the flag. Mirrors
+    the existing `is_active` split (bulk skips; a deliberate per-source refresh always runs).
+  - [ ] **Detach-on-recycle + a "lost its source" review surface (the actual fix).** When a refresh
+    changes the name of a row carrying user state, the **new occupant must not inherit** the
+    favorite/queue/rating, and the old engagement is preserved as a record of the old title +
+    identity rather than deleted (user data is sacrosanct). Do **not** "freeze" the stored name —
+    that leaves a row labelled with the old title while streaming the new content, which is worse
+    than the visible bug. Do **not** silently auto-rematch by `content_key`: cross-account matching
+    is a guess, and silently re-pointing a favorite at a guess repeats this bug's error class.
+    Surface the list, let the user confirm. Folds into "re-map engaged content" / the Hidden
+    Management view.
+  - [ ] **Sibling defects found alongside:** `repositories/queue.py:105-112` relocates an orphaned
+    queue row by `source_id` **unscoped by `provider_id`**, so it can bind to a different source's
+    channel; and `sidebar/queue.py:521` prefers the live `search_title` over the deliberately
+    orphan-safe stored `channel_name`, defeating that denormalization.
 - [ ] **Which reload changes a title under you?** Unconfirmed leftover from the scroll report:
   whether the TMDb-match / title-update refresh the owner saw comes from a third path (not the
   sidebar sections, which are now covered). Needs a reproduction before it is worth chasing.
