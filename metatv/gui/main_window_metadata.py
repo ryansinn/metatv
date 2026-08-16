@@ -513,6 +513,9 @@ class _MetadataMixin:
                 return None
 
         def on_metadata_loaded(future):
+            if self._shutting_down:
+                logger.debug("Metadata fetch completed after shutdown — discarding result")
+                return
             try:
                 metadata = future.result()
                 logger.debug(f"on_metadata_loaded called, metadata={metadata is not None}")

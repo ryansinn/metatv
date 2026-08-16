@@ -179,6 +179,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
+        # Set True by closeEvent before any teardown runs. Background callbacks
+        # read this (a plain Python attribute — safe on a wrapper whose C++ object
+        # is already gone; only Qt calls raise) to abandon work instead of
+        # emitting into a destroyed window or querying a closed database.
+        self._shutting_down = False
         self.config = config
         self.notification_manager = NotificationManager(
             max_visible=config.max_stacked_notifications
@@ -3132,6 +3137,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
     def closeEvent(self, event):
         """Handle window close"""
+        # FIRST — before any teardown. In-flight background work polls this and
+        # abandons rather than emitting into a dying window or hitting the
+        # database this method is about to close.
+        self._shutting_down = True
+
         # Save window geometry so it restores on next launch
         try:
             self.config.window_geometry = base64.b64encode(

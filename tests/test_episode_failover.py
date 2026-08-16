@@ -63,8 +63,9 @@ def _make_mixin(db=None, failover_return=None):
     ``_StreamingMixin`` composed in, as ``MainWindow`` does for real) doesn't
     define that method itself.
     """
+    from tests.conftest import wire_shutdown_flag
     from metatv.gui.main_window_series import _SeriesMixin
-    obj = _SeriesMixin.__new__(_SeriesMixin)
+    obj = wire_shutdown_flag(_SeriesMixin.__new__(_SeriesMixin))
     obj.db = db
     obj.executor = _ImmediateExecutor()
     obj.player_manager = MagicMock()

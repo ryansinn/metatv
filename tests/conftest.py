@@ -796,6 +796,33 @@ def wire_hide_channel_banners(host) -> None:
     host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)
 
 
+def wire_shutdown_flag(host):
+    """Set the shutdown flag ``MainWindow.__init__`` sets, on a bare skeleton.
+
+    ``validate_and_failover_stream_url`` (main_window_streaming.py),
+    ``_on_preflight_done`` (main_window_series.py), and ``on_metadata_loaded``
+    (main_window_metadata.py) all read ``self._shutting_down`` — set ``False``
+    in ``MainWindow.__init__``, ``True`` by ``closeEvent`` — to abandon
+    in-flight background work rather than emit a Qt signal into a destroyed
+    window or query a closed database. A skeleton built via
+    ``Mixin.__new__(Mixin)`` never runs ``__init__`` and therefore lacks the
+    attribute, so any test that drives one of those three real methods needs
+    it wired in first — here, once, rather than duplicated across every test
+    module's local ``_make_mixin``/``_build_launch_host`` helper (mirrors
+    ``wire_channel_banner_widgets`` above).
+
+    Args:
+        host: Any skeleton test double standing in for ``MainWindow`` or one
+            of its mixins (``_StreamingMixin``, ``_SeriesMixin``, ...).
+
+    Returns:
+        The same host, so callers can chain
+        (``obj = wire_shutdown_flag(Cls.__new__(Cls))``).
+    """
+    host._shutting_down = False
+    return host
+
+
 def wire_watch_queue_section(sec, rendered: list) -> None:
     """Attach what ``WatchQueueSection._populate_rows`` touches to a skeleton section.
 

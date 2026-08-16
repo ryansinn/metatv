@@ -206,8 +206,9 @@ def _insert_provider(session, provider_id: str, name: str, url: str, urls=None):
 def _make_mixin(db):
     """A bare ``_StreamingMixin`` instance wired with a real Database
     (mirrors tests/test_failover_sticks.py's ``_make_mixin``)."""
+    from tests.conftest import wire_shutdown_flag
     from metatv.gui.main_window_streaming import _StreamingMixin
-    obj = _StreamingMixin.__new__(_StreamingMixin)
+    obj = wire_shutdown_flag(_StreamingMixin.__new__(_StreamingMixin))
     obj.loading_channels = set()
     obj.db = db
     obj.executor = MagicMock()

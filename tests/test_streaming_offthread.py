@@ -20,7 +20,8 @@ from metatv.gui.main_window_streaming import _StreamingMixin
 
 def _make_mixin() -> _StreamingMixin:
     """Return a bare _StreamingMixin instance with enough state for unit tests."""
-    obj = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_shutdown_flag
+    obj = wire_shutdown_flag(_StreamingMixin.__new__(_StreamingMixin))
     obj.loading_channels = set()
     obj.db = MagicMock()
     obj.executor = MagicMock()

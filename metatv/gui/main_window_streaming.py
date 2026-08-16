@@ -225,6 +225,10 @@ class _StreamingMixin:
         logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_model.name} (reliability order)")
 
         for alt_base in candidate_bases:
+            if self._shutting_down:
+                logger.info("Abandoning URL failover — application is shutting down")
+                return "", None
+
             new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
             logger.info(f"Trying: {new_stream_url}")
 

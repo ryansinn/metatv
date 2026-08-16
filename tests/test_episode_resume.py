@@ -245,8 +245,9 @@ class _ImmediateExecutor:
 
 
 def _build_launch_host():
+    from tests.conftest import wire_shutdown_flag
     from metatv.gui.main_window_series import _SeriesMixin
-    host = _SeriesMixin.__new__(_SeriesMixin)
+    host = wire_shutdown_flag(_SeriesMixin.__new__(_SeriesMixin))
     host.player_manager = MagicMock()
     host.player_manager.is_available.return_value = True
     host.status_bar = MagicMock()
