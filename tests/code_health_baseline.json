@@ -4,7 +4,7 @@
     "metatv/core/channel_name_utils.py": 2573,
     "metatv/core/config.py": 1913,
     "metatv/core/database.py": 1117,
-    "metatv/core/epg_manager.py": 1142,
+    "metatv/core/epg_manager.py": 1269,
     "metatv/core/filter_utils.py": 1336,
     "metatv/core/players/mpv.py": 1350,
     "metatv/core/provider_loader.py": 1264,
@@ -22,6 +22,7 @@
     "metatv/gui/main_window_providers.py": 1060,
     "metatv/gui/main_window_series.py": 1256,
     "metatv/gui/main_window_streaming.py": 1535,
+    "metatv/gui/provider_editor.py": 1004,
     "metatv/gui/qa_checklist_window.py": 2456,
     "metatv/gui/sidebar/alerts.py": 1364,
     "metatv/gui/theme.py": 2190

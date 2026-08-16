@@ -313,6 +313,7 @@ class SourcesSection(CollapsibleSection):
         session = self.db.get_session()
         try:
             from datetime import datetime
+            from metatv.core.epg_manager import EpgManager
             from metatv.gui.provider_editor import subscription_color
             repos = RepositoryFactory(session)
             providers = repos.providers.get_all()
@@ -339,7 +340,7 @@ class SourcesSection(CollapsibleSection):
                 icon = getattr(provider, "icon", "") or ""
 
                 epg_state = _epg_status(
-                    getattr(provider, "epg_url", None), getattr(provider, "epg_data_end", None)
+                    EpgManager.effective_epg_url(provider), getattr(provider, "epg_data_end", None)
                 )
                 epg_tooltip = _epg_tooltip(
                     epg_state, getattr(provider, "epg_data_start", None),

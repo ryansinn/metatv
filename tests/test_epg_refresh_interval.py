@@ -47,10 +47,20 @@ def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php",
                   epg_enabled=True, exp=None, epg_data_end=None,
                   epg_last_fetched=None, epg_data_start=None,
                   epg_refresh_interval="default", epg_url_override=None):
-    """Seed a ProviderDB row with all EPG columns."""
+    """Seed a ProviderDB row with all EPG columns.
+
+    ``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager). ``epg_url`` is kept
+    as a parameter (still written to the now-inert column, for round-trip
+    coverage) and its truthiness also controls whether a derivable host is
+    seeded into ``urls`` (JSON), so every existing call site still gets a
+    non-empty auto URL by default. Pass epg_url="" for the "no URL derivable"
+    case.
+    """
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
         username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
         is_active=is_active,
         epg_url=epg_url,
         epg_enabled=epg_enabled,
@@ -318,30 +328,30 @@ def test_effective_url_prefers_override_over_auto(db):
 
 
 def test_effective_url_falls_back_to_auto_when_no_override(db):
-    """effective_epg_url returns epg_url when override is None/empty."""
+    """effective_epg_url derives from credentials + urls when override is None/empty."""
     with db.session_scope() as session:
-        _add_provider(session, "auto-url",
-                      epg_url="http://auto/xmltv.php",
-                      epg_url_override=None)
+        _add_provider(session, "auto-url", epg_url_override=None)
 
     manager = _make_manager(db)
     with db.session_scope(commit=False) as s:
         p = s.query(ProviderDB).filter_by(id="auto-url").first()
-        assert manager.effective_epg_url(p) == "http://auto/xmltv.php"
+        assert manager.effective_epg_url(p) == (
+            "http://e.com/xmltv.php?username=u&password=p"
+        )
     manager._executor.shutdown(wait=False)
 
 
 def test_effective_url_empty_override_falls_back(db):
-    """An empty-string override is treated the same as None (falls back to auto)."""
+    """An empty-string override is treated the same as None (falls back to derivation)."""
     with db.session_scope() as session:
-        _add_provider(session, "empty-override",
-                      epg_url="http://auto/xmltv.php",
-                      epg_url_override="")
+        _add_provider(session, "empty-override", epg_url_override="")
 
     manager = _make_manager(db)
     with db.session_scope(commit=False) as s:
         p = s.query(ProviderDB).filter_by(id="empty-override").first()
-        assert manager.effective_epg_url(p) == "http://auto/xmltv.php"
+        assert manager.effective_epg_url(p) == (
+            "http://e.com/xmltv.php?username=u&password=p"
+        )
     manager._executor.shutdown(wait=False)
 
 

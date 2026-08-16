@@ -209,7 +209,7 @@ def test_fetch_worker_prunes_expired_rows_across_all_providers(db, monkeypatch):
     config.epg_retention_hours = 24
     manager = EpgManager(db, config, notifications=None)
 
-    manager._fetch_worker("fetch-p", "http://e/xmltv.php", "Fetch P", None)
+    manager._fetch_worker("fetch-p", "Fetch P", None)
 
     with db.session_scope(commit=False) as session:
         stale_p_count = session.query(EpgProgramDB).filter_by(provider_id="stale-p").count()

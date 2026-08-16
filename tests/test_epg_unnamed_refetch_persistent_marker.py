@@ -51,10 +51,14 @@ def _add_provider(session, pid, *, last_fetched_offset=timedelta(0),
     ``last_fetched_offset`` far enough back to elapse the auto delta.
 
     Guide depth is 2 days (start = -1d, end = +1d) → auto delta = 1 day.
+
+    ``urls`` is populated so ``effective_epg_url`` (derives from credentials +
+    urls, never the cached ``epg_url`` column) resolves non-empty.
     """
     now = now_utc()
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com", username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}],
         is_active=True, epg_url="http://e/xmltv.php", epg_enabled=True,
         epg_last_fetched=now - last_fetched_offset,
         epg_data_start=now - timedelta(days=1),
@@ -94,8 +98,7 @@ def test_persistent_marker_blocks_refetch_across_launch(db):
         _add_epg_row(s, "trex", channel_name="")       # unnamed + unmatched, forever
 
     manager = _make_manager(db)                          # fresh in-memory set == new launch
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         mock_refresh.assert_not_called()
     manager._executor.shutdown(wait=False)
@@ -111,8 +114,7 @@ def test_first_attempt_refetches_once_and_persists_marker(db):
     assert _read_marker(db, "trex") is False, "precondition: marker starts unset"
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         assert mock_refresh.call_count == 1, "unnamed guide should re-fetch once"
     manager._executor.shutdown(wait=False)
@@ -128,13 +130,13 @@ def test_marker_persists_stops_next_launch_end_to_end(db):
         _add_epg_row(s, "trex", channel_name="")
 
     m1 = _make_manager(db)
-    with patch.object(m1, "_start_refresh") as r1, patch.object(m1, "_ensure_epg_url"):
+    with patch.object(m1, "_start_refresh") as r1:
         m1.refresh_all_if_needed()
         assert r1.call_count == 1
     m1._executor.shutdown(wait=False)
 
     m2 = _make_manager(db)  # simulates the next app launch
-    with patch.object(m2, "_start_refresh") as r2, patch.object(m2, "_ensure_epg_url"):
+    with patch.object(m2, "_start_refresh") as r2:
         m2.refresh_all_if_needed()
         r2.assert_not_called()
     m2._executor.shutdown(wait=False)
@@ -171,8 +173,7 @@ def test_content_refresh_reenables_exactly_one_reattempt(db):
         loader._reset_epg_unnamed_refetch_marker(s)
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         assert mock_refresh.call_count == 1, "reset marker → one re-attempt"
     manager._executor.shutdown(wait=False)
@@ -199,8 +200,7 @@ def test_populated_names_converge_and_stop(db):
         loader._reset_epg_unnamed_refetch_marker(s)
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         mock_refresh.assert_not_called()
     manager._executor.shutdown(wait=False)
@@ -219,8 +219,7 @@ def test_interval_elapsed_still_refreshes_despite_marker(db):
         _add_epg_row(s, "trex", channel_name="")
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         assert mock_refresh.call_count == 1, "interval elapsed → normal refresh still fires"
     manager._executor.shutdown(wait=False)
@@ -234,8 +233,7 @@ def test_interval_not_elapsed_and_no_unnamed_rows_no_refresh(db):
         _add_epg_row(s, "trex", channel_name="Named", channel_db_id="c1")  # matched
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         mock_refresh.assert_not_called()
     manager._executor.shutdown(wait=False)

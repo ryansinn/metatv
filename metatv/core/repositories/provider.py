@@ -274,17 +274,25 @@ class ProviderRepository:
 
     def get_epg_active_provider_ids(self) -> List[str]:
         """Providers eligible for EPG/watchlist surfacing: is_active, not expired,
-        with a non-empty epg_url, and epg_enabled is not False (NULL treated as
+        with an effective EPG URL, and epg_enabled is not False (NULL treated as
         enabled for backwards compatibility with rows predating the column).
 
         The include-list counterpart of get_hidden_provider_ids() for EPG queries.
+
+        "Has a URL" is decided by ``EpgManager.effective_epg_url()`` — the one
+        chokepoint for that resolution (CLAUDE.md) — never the stale ``epg_url``
+        column, which is only ever a write-once cache of credentials that were
+        current at the time it was populated. Filtered in Python rather than SQL
+        because the derivation depends on live credentials, not a persisted
+        column; the ``providers`` table is small (tens of rows), so this is not
+        the kind of large-table scan the async-background-reads rule guards.
         """
+        from metatv.core.epg_manager import EpgManager
         from sqlalchemy import or_
         expired = set(self.get_expired_provider_ids())
         rows = (
-            self.session.query(ProviderDB.id)
+            self.session.query(ProviderDB)
             .filter(ProviderDB.is_active == True)  # noqa: E712
-            .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
             .filter(
                 or_(  # NULL → treat as enabled (legacy rows)
                     ProviderDB.epg_enabled.is_(None),
@@ -293,7 +301,10 @@ class ProviderRepository:
             )
             .all()
         )
-        return [r.id for r in rows if r.id not in expired]
+        return [
+            r.id for r in rows
+            if r.id not in expired and EpgManager.effective_epg_url(r)
+        ]
 
     def get_epg_readiness(self) -> dict:
         """Counts that explain WHY the EPG view is empty, not just that it is.
@@ -311,46 +322,42 @@ class ProviderRepository:
             regardless of state, so "you have no sources" stays distinguishable
             from "your sources can't do EPG".
         """
-        from sqlalchemy import or_
+        from metatv.core.epg_manager import EpgManager
 
         expired = set(self.get_expired_provider_ids())
 
-        def _count(query) -> int:
-            return len([r.id for r in query.all() if r.id not in expired])
-
-        base = self.session.query(ProviderDB.id).filter(
-            ProviderDB.is_active == True  # noqa: E712
+        active_rows = (
+            self.session.query(ProviderDB)
+            .filter(ProviderDB.is_active == True)  # noqa: E712
+            .all()
         )
-        with_url = base.filter(
-            ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != ""
-        )
-        enabled = base.filter(
-            or_(
-                ProviderDB.epg_enabled.is_(None),
-                ProviderDB.epg_enabled == True,  # noqa: E712
-            )
-        )
+        non_expired = [r for r in active_rows if r.id not in expired]
+        with_url = [r for r in non_expired if EpgManager.effective_epg_url(r)]
+        enabled = [r for r in non_expired if r.epg_enabled is not False]
         return {
             "total": self.session.query(ProviderDB.id).count(),
-            "with_url": _count(with_url),
-            "enabled": _count(enabled),
+            "with_url": len(with_url),
+            "enabled": len(enabled),
             "eligible": len(self.get_epg_active_provider_ids()),
         }
 
     def get_stale_epg_providers(self) -> List[tuple]:
         """Return ``(id, name, epg_data_end)`` for active providers whose fetched EPG
-        guide has already ended — they have an ``epg_url`` but no current programmes.
+        guide has already ended — they have an effective EPG URL but no current
+        programmes.
 
         Staleness uses the canonical :func:`metatv.core.epg_utils.epg_is_stale`
         boundary (UTC-naive vs now_utc). Inactive sources and providers with
         epg_enabled=False are excluded — no point warning about EPG data the user
-        has intentionally disabled."""
+        has intentionally disabled. "Has a URL" is decided by
+        ``EpgManager.effective_epg_url()`` (see ``get_epg_active_provider_ids``'s
+        docstring), never the stale ``epg_url`` column."""
+        from metatv.core.epg_manager import EpgManager
         from metatv.core.epg_utils import now_utc
         from sqlalchemy import or_
         rows = (
-            self.session.query(ProviderDB.id, ProviderDB.name, ProviderDB.epg_data_end)
+            self.session.query(ProviderDB)
             .filter(ProviderDB.is_active == True)  # noqa: E712
-            .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
             .filter(ProviderDB.epg_data_end.isnot(None))
             .filter(ProviderDB.epg_data_end < now_utc())
             .filter(
@@ -361,6 +368,7 @@ class ProviderRepository:
             )
             .all()
         )
+        rows = [r for r in rows if EpgManager.effective_epg_url(r)]
         return [(r.id, r.name, r.epg_data_end) for r in rows]
 
     def get_used_icons(self) -> List[str]:

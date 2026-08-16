@@ -41,10 +41,17 @@ def _make_manager(db):
 
 
 def _add_fresh_provider(session, pid):
-    """A time-FRESH provider (so needs_refresh is False — isolates the unmatched path)."""
+    """A time-FRESH provider (so needs_refresh is False — isolates the unmatched path).
+
+    ``urls`` is populated so ``effective_epg_url`` (derives from credentials +
+    urls, never the cached ``epg_url`` column) resolves non-empty — otherwise
+    the provider would be skipped entirely before the unmatched-refetch logic
+    under test here ever runs.
+    """
     now = now_utc()
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com", username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}],
         is_active=True, epg_url="http://e/xmltv.php", epg_enabled=True,
         epg_last_fetched=now, epg_data_start=now - timedelta(days=1),
         epg_data_end=now + timedelta(days=1), epg_refresh_interval="auto",
@@ -69,8 +76,7 @@ def test_named_unmatched_does_not_refetch(db):
         _add_epg_row(s, "trex", channel_name="TREX Sports 1")  # named, unmatched
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         mock_refresh.assert_not_called()
     manager._executor.shutdown(wait=False)
@@ -84,8 +90,7 @@ def test_unnamed_unmatched_refetches_once_then_converges(db):
         _add_epg_row(s, "legacy", channel_name="")  # unnamed, unmatched
 
     manager = _make_manager(db)
-    with patch.object(manager, "_start_refresh") as mock_refresh, \
-         patch.object(manager, "_ensure_epg_url"):
+    with patch.object(manager, "_start_refresh") as mock_refresh:
         manager.refresh_all_if_needed()
         assert mock_refresh.call_count == 1, "unnamed legacy guide should re-fetch once"
         manager.refresh_all_if_needed()

@@ -62,9 +62,15 @@ def _make_db(tmp_path: Path) -> Database:
 
 
 def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php", exp=None):
+    """``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager), and
+    ``get_epg_active_provider_ids()`` (which the alerts refresh scopes by)
+    filters on that. ``urls`` is seeded whenever ``epg_url`` is truthy."""
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
-        username="u", password="p", is_active=is_active,
+        username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
+        is_active=is_active,
         epg_url=epg_url, account_exp_date=exp,
     ))
     session.flush()

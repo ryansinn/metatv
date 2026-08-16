@@ -49,9 +49,15 @@ def session():
 
 
 def _add(session, pid, *, is_active=True, epg_url="http://e/xmltv.php", data_end=None):
+    """``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager), so ``urls`` is
+    seeded here whenever ``epg_url`` is truthy (matching each call site's
+    "has an EPG URL" intent); ``epg_url=""`` means no derivable host."""
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
-        username="u", password="p", is_active=is_active,
+        username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
+        is_active=is_active,
         epg_url=epg_url, epg_data_end=data_end,
     ))
     session.flush()

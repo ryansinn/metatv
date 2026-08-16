@@ -111,9 +111,14 @@ class TestReadinessCounts:
     def _add(self, session, pid, *, epg_url, epg_enabled, is_active=True):
         from metatv.core.database import ProviderDB
 
+        # effective_epg_url derives from credentials + urls, never the cached
+        # epg_url column — so ``urls`` (the actual derivation input) must track
+        # epg_url's truthiness ("has a URL" vs "no URL derivable") for these
+        # with_url/eligible counts to mean what the test names say.
+        urls = '[{"url": "http://x", "primary": true}]' if epg_url else '[]'
         session.add(ProviderDB(
             id=pid, name=pid, type="xtream", url="http://x",
-            urls='[{"url": "http://x", "primary": true}]',
+            urls=urls,
             username="u", password="p", is_active=is_active,
             epg_url=epg_url, epg_enabled=epg_enabled,
         ))

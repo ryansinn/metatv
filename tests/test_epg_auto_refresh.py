@@ -51,10 +51,17 @@ def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php",
                   epg_enabled=True, epg_data_end=None, epg_last_fetched=None,
                   epg_data_start=None, epg_refresh_interval="default",
                   epg_url_override=None):
-    """Seed a ProviderDB row with EPG columns."""
+    """Seed a ProviderDB row with EPG columns.
+
+    ``effective_epg_url`` no longer reads the cached ``epg_url`` column — it
+    derives from credentials + ``urls`` (see EpgManager); ``urls`` is seeded
+    whenever ``epg_url`` is truthy so ``needs_refresh`` still sees a
+    resolvable URL by default (pass epg_url="" for "no URL derivable").
+    """
     session.add(ProviderDB(
         id=pid, name=pid, type="xtream", url="http://e.com",
         username="u", password="p",
+        urls=[{"url": "http://e.com", "priority": 0}] if epg_url else [],
         is_active=is_active,
         epg_url=epg_url,
         epg_enabled=epg_enabled,
