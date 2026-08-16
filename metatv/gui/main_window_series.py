@@ -764,6 +764,9 @@ class _SeriesMixin:
             return self.validate_and_failover_stream_url(stream_url, provider_id)
 
         def _on_preflight_done(future):
+            if self._shutting_down:
+                logger.debug("Episode preflight completed after shutdown — discarding result")
+                return
             try:
                 final_url, err = future.result()
             except Exception as exc:

@@ -73,8 +73,9 @@ def _make_mixin(db):
     slice adds the DB write-back, so ``obj.db`` must be a real
     file-backed ``Database``, not a MagicMock, for these tests.
     """
+    from tests.conftest import wire_shutdown_flag
     from metatv.gui.main_window_streaming import _StreamingMixin
-    obj = _StreamingMixin.__new__(_StreamingMixin)
+    obj = wire_shutdown_flag(_StreamingMixin.__new__(_StreamingMixin))
     obj.loading_channels = set()
     obj.db = db
     obj.executor = MagicMock()
