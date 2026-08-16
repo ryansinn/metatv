@@ -42,6 +42,7 @@ metatv/
 │   ├── icons.py              # Every icon/emoji/symbol in the app
 │   ├── cursor_affordance.py  # set_clickable() — the only place PointingHandCursor is set
 │   ├── channel_menu.py       # Channel context-menu registry (ACTIONS + SURFACE_LAYOUTS)
+│   ├── channel_state_bus.py  # The one publish point for per-channel user-state changes
 │   ├── main_window.py        # Three-panel main window + chip nav
 │   ├── details_pane.py       # Right panel — metadata, play, favorite, hide/unhide
 │   ├── discover_view.py      # Discovery view orchestration (glue layer, ~290 lines)
