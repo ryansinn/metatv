@@ -6,10 +6,13 @@ import time
 from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
+from sqlalchemy import or_
 from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
 from metatv.core.models import Provider, MediaType
-from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB
+from metatv.core.database import (
+    Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB, UserRatingDB, WatchQueueDB,
+)
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.providers.factory import get_provider
@@ -265,6 +268,13 @@ class ProviderLoadThread(QThread):
         current_source_category: str | None = None
         current_source_quality: str | None = None
 
+        # Snapshot BEFORE any upsert runs in this refresh. _flush_batch below
+        # overwrites `name` (and every other catalog column) in place via
+        # ON CONFLICT DO UPDATE, so the pre-refresh title only exists here —
+        # taken after this point it would already read the NEW name and the
+        # reuse comparison would always see "unchanged".
+        engaged_before = self._snapshot_engaged_names(session)
+
         # Disable autoflush so writes only happen at each explicit commit().
         # Without this, ORM operations would trigger an autoflush before internal
         # SELECTs, holding the SQLite write lock across up to 100 items.  With
@@ -332,6 +342,93 @@ class ProviderLoadThread(QThread):
             if batch:
                 self._flush_batch(session, batch)
                 batch.clear()
+
+        # Report after the last flush so the comparison sees committed
+        # post-upsert names.
+        self._report_recycled_ids(session, engaged_before)
+
+    def _snapshot_engaged_names(self, session) -> dict[str, str]:
+        """Return ``{channel_id: name}`` for this provider's engaged channels.
+
+        "Engaged" = the user has done something to it: favorited, hidden,
+        suppressed, played, completed, rated, or queued it. Bounded by how much
+        the user has touched (hundreds), never by catalog size — this runs on
+        every refresh of a 240k-row catalog.
+
+        Args:
+            session: An active database session.
+
+        Returns:
+            Mapping of channel id to the name stored BEFORE this refresh's upsert.
+        """
+        rated = session.query(UserRatingDB.channel_id)
+        queued = session.query(WatchQueueDB.channel_id)
+        rows = (
+            session.query(ChannelDB.id, ChannelDB.name)
+            .filter(
+                ChannelDB.provider_id == self.provider.id,
+                or_(
+                    ChannelDB.is_favorite.is_(True),
+                    ChannelDB.is_hidden.is_(True),
+                    ChannelDB.is_rec_suppressed.is_(True),
+                    ChannelDB.play_count > 0,
+                    ChannelDB.last_played.isnot(None),
+                    ChannelDB.watch_completed.is_(True),
+                    ChannelDB.id.in_(rated),
+                    ChannelDB.id.in_(queued),
+                ),
+            )
+            .all()
+        )
+        return {cid: name for cid, name in rows}
+
+    def _report_recycled_ids(self, session, before: dict[str, str]) -> None:
+        """Warn for every engaged channel whose title changed during this refresh.
+
+        A changed name on a preserved id means the provider recycled that
+        ``stream_id`` for different content, so the user's favorite / queue entry
+        / rating now points at something they never chose. This only reports —
+        deciding what to DO about it is a separate, deliberate change.
+
+        Args:
+            session: An active database session.
+            before: The pre-refresh snapshot from :meth:`_snapshot_engaged_names`.
+        """
+        if not before:
+            return
+
+        ids = list(before.keys())
+        after: dict[str, str] = {}
+        _CHUNK = 500
+        for i in range(0, len(ids), _CHUNK):
+            chunk = ids[i : i + _CHUNK]
+            rows = (
+                session.query(ChannelDB.id, ChannelDB.name)
+                .filter(ChannelDB.id.in_(chunk))
+                .all()
+            )
+            after.update({cid: name for cid, name in rows})
+
+        changed: list[tuple[str, str, str]] = []
+        for cid, old in before.items():
+            new = after.get(cid)
+            if new is not None and new != old:
+                changed.append((cid, old, new))
+
+        for cid, old, new in changed:
+            logger.warning(
+                "STREAM-ID REUSE: provider={!r} channel_id={!r} kept its user state "
+                "(favorite/queue/rating/history) but its title CHANGED on this "
+                "refresh: {!r} -> {!r}",
+                self.provider.name, cid, old, new,
+            )
+
+        if changed:
+            logger.warning(
+                "STREAM-ID REUSE: {} engaged channel(s) on provider={!r} now point at "
+                "different content after this refresh.",
+                len(changed), self.provider.name,
+            )
 
     def _reset_epg_unnamed_refetch_marker(self, session) -> None:
         """Clear this provider's persistent EPG "unnamed re-fetch attempted" marker.
