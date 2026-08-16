@@ -60,6 +60,22 @@ up temp worktrees. No What's New entry for this tooling change itself. `--dry-ru
 stops after step 4 (gate + conflict detection) and prints `WOULD-SHIP` on GREEN
 (safe to verify the final gate before committing to the merge).
 
+## `rebaseline_code_health.py`
+
+Regenerates `tests/code_health_baseline.json`, the debt-ratchet baseline
+enforced by `tests/test_code_health_ratchet.py` (see docs/AUDIT_2026-08-16.md
+for why it exists: every audit finding shipped with a mechanical guard stayed
+at zero two months later; every finding left to discipline alone regressed).
+For every `*.py` under `metatv/`, the allowed size is `max(1000,
+baseline.get(path, 0))` — a file may shrink freely but never grow past its
+recorded baseline (or the flat 1000-line floor for a file not yet in the
+baseline); a single `get_session()` call count is ratcheted the same way.
+Run as `venv/bin/python scripts/rebaseline_code_health.py`; it recomputes both
+numbers, rewrites the baseline, and prints a diff of what changed. Run it
+**only** for a deliberate, reviewed increase (e.g. a split that leaves a file
+still over 1000 but smaller) — never to silence a red guard for an accidental
+regression.
+
 ## Configuration — `.devscripts.conf`
 
 Resolution order for anything project-specific: **(a)** a repo-root
