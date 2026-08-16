@@ -151,6 +151,26 @@ Remaining:
 
 ## Discovery & Recommendations
 
+- [x] **Taste is judged per title, not per provider row** — SHIPPED (#310). The same film usually
+  exists as several channel rows (one per provider/language), and `compute_weights`
+  (`core/preference_engine.py`) accumulated `sig * weight` once **per row**: rating three variants of
+  one film tripled its genre weights, inflated `disliked_count`, and fired `actor_support[name] += 1`
+  three times — defeating the corroboration gate that exists to prune performers seen in only one
+  rated title. Rating and favorite signals now collapse to **one per title** before weights are
+  computed, keyed on the stored `content_key` (falling back to `id:<channel_id>`, so unenriched rows
+  stay distinct rather than over-merging). Within a title an explicit rating beats an implicit
+  favorite, and the most recent rating wins. `UserRatingDB` is **not** re-keyed — the key is mutable
+  (it flips to the `tmdb:` form when enrichment lands) so a rating stored against it could orphan;
+  collapse happens at read, and no user rating row is touched.
+  **Correction worth keeping:** this slice was briefed with a second change — widening `disliked_ids`
+  to every `content_key` sibling — on the premise that disliking one variant left the others
+  recommendable. **That premise was false and the change was removed before merge.** `disliked_ids`
+  already feeds `all_engaged_ids`, and `build_engaged_normalized()` records `(_CK_TAG, content_key)`
+  for every engaged channel, so the fingerprint check already drops siblings. Worse, the fingerprint
+  check is gated on `dedupe_overrides` while the direct `channel.id in disliked_ids` check is not —
+  that asymmetry is deliberate, so a caller like "Other Versions" can surface sibling copies while a
+  row the user disliked outright stays hidden. Widening would have made sibling suppression
+  bypass-proof and hidden the very versions the override exists to reveal. Do not re-add it.
 - [x] **Channel-level deduplication** — SHIPPED v0.21.0 (#240) as an opt-in "collapse quality/language versions in the channel list".
 - [ ] **Related content suggestions** — in details pane, beyond current Similar Titles lightbox
 - [ ] **Finish the Similar Titles lightbox — surface "why similar" per title.** The #327 redesign delivered the see-and-pick core: the lightbox now shows a **scrollable contextual strip of the similar set** (poster + rating/runtime/type + source) with a ⤢ dive-in on every row, so you no longer cycle blindly through prev/next arrows (`similar_lightbox.py`, `similar_lightbox_card.py`). **Remaining:** surface **why each is similar** — the link reason (a shared *title token* for Similar Titles, or shared genre/cast/director for the metadata "Similar Content" sibling), tying to the "why was this recommended?" explainer. Broader vector: surface "more like this" in more places (inline details, **post-playback "similar next"**, History/Recent, "because you watched X"). It renders the same `discover_card` + adjacency plumbing as Discover (DR-0002). **Cleanup when touched:** audit the redesigned `similar_lightbox.py` for any remaining inline color literals (tokenize to `theme.COLOR_*`, CLAUDE.md no-inline-color rule).
@@ -180,6 +200,26 @@ Remaining:
 
 ## UI / UX
 
+- [x] **Per-channel state changes have one publish point (Bus + DTO, phase 1)** — SHIPPED (#311).
+  Owner report: dislike something from the Watch Queue while it is open in the details pane and the
+  pane's buttons don't change. Root cause was structural, not a one-off — **writes were chokepointed,
+  reads were never invalidated.** Each mutation handler (`_toggle_rating`, `_toggle_favorite_by_id`,
+  `_not_interested` in `main_window_favorites.py`) ended with its own hand-picked list of views to
+  refresh, and the details pane's action state — written in exactly one place, `show_channel` →
+  `action_state_requested` → `apply_action_state` — was on none of those lists.
+  New `gui/channel_state_bus.py`: mutations call `publish(channel_id, **delta)` once; subscribers get
+  a synchronous zero-DB echo, then the authoritative off-thread re-read always runs and overwrites it.
+  Subscribers **self-register weakly** rather than being enumerated — the `theme.style()` lesson, where
+  a hand-maintained sweep was "completed" twice (#253/#261) and shipped broken both times, because an
+  enumeration is only as complete as the last person to remember it.
+  Most of the machinery already existed and was simply never called: `_bg_fetch_action_state` was
+  already an off-thread authoritative read ending in `apply_action_state`, which already guards on a
+  mismatched `channel_id`. `ChannelActionState` also gained `is_favorite`, folding in a value that
+  previously arrived only through its own separate setter.
+  **Remaining (phase 2):** migrate the other mutation handlers, and fold in the aggregate-view
+  refreshes still done by hand (`preferences_view.refresh()`, `_refresh_recommended_section()`,
+  `load_favorites()`/`_remove_sidebar_row`) — those are list-membership concerns rather than
+  per-channel state, and need their own grain rather than being forced through `publish(channel_id)`.
 - [ ] **Sidebar register split + History/Recent + Sources status strip** — the left rail is over-saturated because it stacks three *registers* of information in one column (see DESIGN_RATIONALE DR-0001): **live/prospective** (Alerts, Watch Queue, Recommended — change on their own), **curated/retrospective** (Favorites, the History *archive* — change only when the user acts), and **system status** (Sources — online/active + the global show/hide filter). Reorganize by that axis: the **rail is a launcher/index into deeper views, not a content container** (root thesis — depth lives in the windshield views; only in-the-moment/forward items keep a rail face). Forward-instruments stay as the default rail; **split History** into a lightweight **Recent/resume strip** that stays in the rail (forward) and a **deep History archive** that graduates to a main-area view (see "History as a context engine"); **Favorites graduates to a windshield view** (Discovery-shelf collection) rather than a privileged rail section — real use: sidebar Favorites goes unused; **Sources** becomes an always-visible **collapsed status strip** above Settings (one-line summary → expand for per-source toggles + filter), never a tab. **Every new sidebar section must declare its register.** A recurring **live-vs-VOD** distinction runs through this (Recent re-tunes live vs. resumes VOD; the queue is a VOD construct). Open: live-follow as its own surface vs. the Recent strip; sequencing vs. the series-monitor feature.
 - [ ] **Reusable Discovery-shelf collection views (full Queue / History / Favorites views)** — generalize the `discover_shelf` / `discover_card` / flow-layout widgets into a **reusable collection-browse surface** (not Discovery-specific; reuse-before-reinvent). Concretely: a **full Watch Queue view** in the Discovery shelf style (posters organized by category/tag) reached by a new **Queue chip** on the bottom row — the windshield "face" of the rail's compact queue (see DESIGN_RATIONALE DR-0001 "Emerging pattern"). The same surface backs the History archive view and possibly Favorites. **Preserve order where it matters:** the VOD queue needs an **Up-Next** ordered lane alongside the category shelves so grouping doesn't bury "what's next"; live-follow content isn't queued (live-vs-VOD). One shelf presentation layer, many collections.
 - [ ] **UI vocabulary standard** — note the settled term is **"Global Exclusions"**, never "Global Filter(s)". Define one canonical term per action across all surfaces: "Exclude" for filter/suppression (panel or global), "Hide" for per-channel hiding, retire "Block" as a synonym; document in UI_UX_GUIDELINES.md and enforce in new UI code
