@@ -35,6 +35,30 @@ What's left to build. Completed features live in git history.
 - [ ] **Live stream recording / DVR (the live sibling of download) — EPG-scheduled, connection-aware** — **NOT BUILT** (verified 2026-08-02: no recording manager / scheduled-recording code). Named in the Wave 5 plan; never written. Record a **live** channel for a time window (you'll miss the game → leave the app up, it records the chosen channel for the chosen window). **EPG-integrated:** schedule a recording straight from an EPG programme — reuse `EpgProgramDB` start/stop times + the watchlist/notification timer infra in `EpgManager` (a "Record" action alongside the watchlist "+"), with **pre/post padding** (start early / end late — live events run over). Manual time-window recording too. Mechanism: mpv `--stream-record=<file>` or a headless ffmpeg capture of the live TS for the window; same downloads/library dir + offline badge. **Connection-aware — third consumer of the one per-source arbiter:** a recording holds a source connection for its whole window, competing with playback + downloads via the **same** `provider_max_connections` accountant (don't build a third counter). **New priority insight — the axis is content *ephemerality/recoverability*, not foreground-vs-background:** a *download* yields freely (VOD is recoverable later), but a *live recording is time-critical — the moment is gone forever* — so a scheduled recording should **reserve** its slot and **warn/block** a conflicting play (*"playing source X now exceeds its connection limit and will kill the scheduled recording"*) rather than silently yielding. So: playback > download (download yields), but a scheduled live recording is **protected** even against playback (or makes the user choose with eyes open). **Limitation:** "leave the app up" needs the GUI process running — a true unattended PVR is the **headless-backend** stretch (PRODUCT_VISION), the eventual upgrade that records without the head up.
 ### Source reliability & stream diagnostics
 
+- [ ] **Stream diagnostics probes ONE arbitrary host and reports it as a verdict about the
+  content.** `run_stream_diagnostic()` (`core/stream_diagnostics.py:367`) takes a bare URL string
+  and has **zero** references to `UrlCycler`, `ordered_urls`, or even `provider_id` — it cannot
+  cycle, because it does not know the provider has other hosts. Owner hit this 2026-08-16: the
+  dialog tested `vpn.trxdnscloud.ru` (a host the ranker had already demoted to 8th on
+  `health=0.40`), failed, and said **"Couldn't reach the stream"** — while the player was
+  concurrently probing all 19 hosts. Two independent probing systems, sharing nothing, and the one
+  showing the user a verdict was the less informed. The wording is the harm: *"reached 0 of 20
+  hosts"* and *"18 hosts fine, this one is slow"* are completely different answers and the dialog
+  can express neither. **Note the drift-guard gap this exposes:** the AST test fails the suite on a
+  hand-rolled `for base in provider.ordered_urls()`, but diagnostics doesn't cycle *wrongly* — it
+  doesn't cycle *at all*, and an enumeration cannot detect an absence (same shape as the
+  `refresh_theme()` sweep and the dropped `is_favorite` field). Fix: thread provider context, run
+  through `UrlCycler`, report per-host.
+
+- [ ] **`_is_advisory_error` now has exactly one real consumer — tidy the residue.** After #315 it
+  decides whether the failover sweep keeps going, which is the right home for it. But
+  `main_window_streaming.py:569` still assigns an `is_advisory` local in `_on_stream_ready` that
+  nothing reads (dead since #227 made Play Anyway and `add_failure` unconditional), and the
+  helper's docstring still advertises the "advisory failures are NOT fed to stream_retry_manager"
+  contract that #227 deleted. That stale docstring is what misled a brief into re-introducing the
+  gate on the episode path; it was caught in review, but fix the docstring so it can't mislead
+  again.
+
 Host selection is no longer a lifetime batting average — it reacts to what is happening now
 (recency-weighted health, a cooldown on the freshly-failed, and real measured latency), and both
 channels and episodes fail over to an alternate host and remember the one that worked. Delivered
