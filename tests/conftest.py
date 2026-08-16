@@ -936,6 +936,19 @@ def make_channel_state_bus_host(db_obj):
     reference to 'types.SimpleNamespace' object``), so a real subscription
     would fail before the seam even runs.
 
+    Covers every per-channel mutation handler that publishes to the bus as of
+    phase 2 (#312): rating (``_toggle_rating``), favorite (``_toggle_favorite_by_id``,
+    ``_apply_favorite_toggle`` + ``toggle_favorite_by_id``), suppression
+    (``_not_interested``), hidden (``_hide_channel_from_history``,
+    ``_hide_channel_from_alerts``, ``_hide_channel_from_recommendations``,
+    ``_unhide_channel``), and queue (``_add_to_queue``, ``_remove_from_queue``,
+    ``_on_details_queue_toggle``).
+    List-membership refreshes those handlers call (``load_favorites``,
+    ``load_history``, ``load_channels``, ``_refresh_watch_alerts``,
+    ``_refresh_queue_section``, ``_remove_sidebar_row``) are wired as inert
+    no-op doubles here — they're a different grain than the bus and this host
+    only needs them to exist, not to do anything.
+
     The fake executor runs submitted work inline, so ``ChannelStateBus``'s
     tier-2 authoritative reread (which submits to ``self.executor``, exactly as
     production does) resolves synchronously; the fake ``_action_state_loaded``
@@ -980,13 +993,35 @@ def make_channel_state_bus_host(db_obj):
     host._refresh_recommended_section = lambda: None
     host.details_pane = _DetailsPaneDouble()
 
+    # Inert list-membership-refresh doubles — a different grain than the bus;
+    # these handlers call them alongside (never instead of) publish(), and this
+    # host only needs them to exist, not to render anything.
+    host.load_favorites = lambda: None
+    host.load_history = lambda: None
+    host.load_channels = lambda: None
+    host._refresh_watch_alerts = lambda: None
+    host._refresh_queue_section = lambda: None
+    host._remove_sidebar_row = lambda section_key, key: None
+    host.status_bar = SimpleNamespace(showMessage=lambda *a, **k: None)
+
     host._toggle_rating = _FavoritesMixin._toggle_rating.__get__(host)
     host._toggle_favorite_by_id = _FavoritesMixin._toggle_favorite_by_id.__get__(host)
     host._not_interested = _FavoritesMixin._not_interested.__get__(host)
     host._on_channel_state_echo = _FavoritesMixin._on_channel_state_echo.__get__(host)
+    host._apply_favorite_toggle = _FavoritesMixin._apply_favorite_toggle.__get__(host)
+    host.toggle_favorite_by_id = _FavoritesMixin.toggle_favorite_by_id.__get__(host)
+    host._hide_channel_from_history = _FavoritesMixin._hide_channel_from_history.__get__(host)
+    host._hide_channel_from_alerts = _FavoritesMixin._hide_channel_from_alerts.__get__(host)
+    host._add_to_queue = _FavoritesMixin._add_to_queue.__get__(host)
+    host._remove_from_queue = _FavoritesMixin._remove_from_queue.__get__(host)
+    host._on_details_queue_toggle = _FavoritesMixin._on_details_queue_toggle.__get__(host)
     host._on_action_state_requested = _MetadataMixin._on_action_state_requested.__get__(host)
     host._bg_fetch_action_state = _MetadataMixin._bg_fetch_action_state.__get__(host)
     host._on_action_state_loaded = _MetadataMixin._on_action_state_loaded.__get__(host)
+    host._hide_channel_from_recommendations = (
+        _MetadataMixin._hide_channel_from_recommendations.__get__(host)
+    )
+    host._unhide_channel = _MetadataMixin._unhide_channel.__get__(host)
 
     host._action_state_loaded = SimpleNamespace(
         emit=lambda state: host._on_action_state_loaded(state)
@@ -996,4 +1031,3 @@ def make_channel_state_bus_host(db_obj):
     host.channel_state_bus.subscribe(host._on_channel_state_echo)
 
     return host
-    sec._no_match_item = None

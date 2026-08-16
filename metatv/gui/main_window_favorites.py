@@ -75,6 +75,7 @@ class _FavoritesMixin:
         self._refresh_watch_alerts()
         self.load_history()
         self.load_channels()
+        self.channel_state_bus.publish(channel_id, is_hidden=True)
 
     def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
         """Suppress (or un-suppress) channel from recommendations only.
@@ -252,6 +253,7 @@ class _FavoritesMixin:
             )
         self._refresh_queue_section()
         self._refresh_recommended_section()
+        self.channel_state_bus.publish(channel_id, in_queue=True)
 
     def _remove_from_queue(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
@@ -259,6 +261,7 @@ class _FavoritesMixin:
         # One row left the queue — take that row out, don't rebuild 600.
         self._remove_sidebar_row("queue", channel_id)
         self._refresh_recommended_section()
+        self.channel_state_bus.publish(channel_id, in_queue=False)
 
     def _refresh_queue_section(self) -> None:
         section = self.sidebar_sections.get("queue")
@@ -476,6 +479,7 @@ class _FavoritesMixin:
             self._remove_sidebar_row("queue", channel_id)
         else:
             self._refresh_queue_section()
+        self.channel_state_bus.publish(channel_id, in_queue=not removed)
 
     def _on_details_episode_queue_toggle(self, episode_id: str) -> None:
         """Handle queue toggle from the details pane button in EPISODE mode (Slice 2B).
@@ -591,6 +595,7 @@ class _FavoritesMixin:
             RepositoryFactory(session).channels.set_hidden(channel_id, True)
         self.load_history()
         self.load_channels()
+        self.channel_state_bus.publish(channel_id, is_hidden=True)
 
     def play_from_history(self, item):
         """Play a channel from history"""
@@ -814,6 +819,7 @@ class _FavoritesMixin:
         self.status_bar.showMessage(f"{channel.name} {status} favorites")
         logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
         self.load_favorites()
+        self.channel_state_bus.publish(channel_id, is_favorite=channel.is_favorite)
         return channel, new_status
 
     def toggle_favorite(self, item):
@@ -1053,17 +1059,14 @@ class _FavoritesMixin:
         dialog.exec()
 
     def toggle_favorite_by_id(self, channel_id: str):
-        """Toggle favorite by ID (for details pane Favorite button)"""
+        """Toggle favorite by ID (for details pane Favorite button).
+
+        The channel-list row and the details pane's favorite star both refresh
+        via ``ChannelStateBus`` — ``_apply_favorite_toggle`` publishes the new
+        state, tier 1 echoes the channel-list row in place, and tier 2's
+        authoritative re-read repaints the details pane's star even while the
+        lightbox has focus. No hand-rolled refresh here.
+        """
         result = self._apply_favorite_toggle(channel_id)
         if not result:
             return
-        channel, _ = result
-
-        # Update details pane — but not while the lightbox has focus (D6)
-        if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
-            self.update_details_pane_for_channel(channel)
-
-        # Update channel list model in-place — the model emits dataChanged so
-        # only that one row re-renders (no full reload needed).
-        if hasattr(self, 'channel_model'):
-            self.channel_model.update_favorite(channel_id, channel.is_favorite)

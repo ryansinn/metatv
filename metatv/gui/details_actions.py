@@ -212,15 +212,16 @@ class _ActionBar(QWidget):
         """Apply a fetched action state to all button checked states/tooltips.
 
         ``state`` is always SERIES-level (ChannelActionState). In episode mode
-        (Slice 2B) queue state is per-EPISODE instead — set via
-        ``set_episode_queue_favorite`` — so a late-arriving series-level fetch
-        (the two async requests race; either can resolve last) must not clobber it.
-        Rating/suppressed/hidden stay series-scoped even in episode mode by design
-        (see enter_episode_mode / _refresh_series_scope_tooltips), so those always
-        apply.
+        (Slice 2B) queue state AND the favorite star are per-EPISODE instead —
+        set via ``set_episode_queue_favorite`` — so a late-arriving series-level
+        fetch (the two async requests race; either can resolve last) must not
+        clobber either one. Rating/suppressed/hidden stay series-scoped even in
+        episode mode by design (see enter_episode_mode /
+        _refresh_series_scope_tooltips), so those always apply.
         """
         if self._primary_mode != "episode":
             self._in_queue = state.in_queue
+            self.update_favorite(state.is_favorite)
         self._rating = state.rating
         self._suppressed = state.is_suppressed
         self._is_hidden = state.is_hidden

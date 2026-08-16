@@ -392,6 +392,7 @@ class _MetadataMixin:
         self.preferences_view.refresh()
         self._refresh_recommended_section()
         self.load_channels()
+        self.channel_state_bus.publish(channel_id, is_hidden=True)
 
     def _bulk_hide_channels(self, channel_ids: list[str]) -> None:
         """Hide multiple channels from the channel list in one pass then refresh.
@@ -412,7 +413,12 @@ class _MetadataMixin:
             with self.db.session_scope() as session:
                 RepositoryFactory(session).channels.set_hidden(channel_id, False)
         self.executor.submit(_bg)
-        QTimer.singleShot(150, self.load_channels)
+
+        def _after() -> None:
+            self.load_channels()
+            self.channel_state_bus.publish(channel_id, is_hidden=False)
+
+        QTimer.singleShot(150, _after)
 
     def _on_rec_sidebar_selected(self, channel_id: str, reason: str) -> None:
         self.show_channel_details_by_id(channel_id)
