@@ -181,17 +181,23 @@ class _StreamingMixin:
 
         Returns ``(working_url, error_message)``.
         ``working_url`` is empty when all URLs fail; ``error_message`` is the
-        server-provided text (e.g. "This channel is not available") or None.
+        server-provided text (e.g. "This channel is not available"), the last
+        advisory error seen (e.g. "HTTP 403") so the failure toast can still
+        offer "Play Anyway", or None.
         """
+        t0 = monotonic()
         ok, err_msg = self.validate_stream_url(stream_url)
+        primary_ms = int((monotonic() - t0) * 1000)
         if ok:
             return stream_url, None
 
         logger.warning(f"Primary URL failed validation: {stream_url}")
 
-        # If the primary URL returned a clear text error (e.g. "not available"),
-        # skip alternate-URL probing — the error is content-level, not URL-level.
-        if err_msg:
+        # A genuine server text error ("This channel is not available") is
+        # content-level — no other host will have it either, so stop. Advisory
+        # auth/gating codes (401/403/511) and timeouts are HOST-level: this host
+        # said no, which says nothing about the next one.
+        if err_msg and not self._is_advisory_error(err_msg):
             return "", err_msg
 
         # Extract base URL from stream URL
@@ -215,6 +221,18 @@ class _StreamingMixin:
         # an earlier attempt's outcome is already durable before the next attempt's
         # network call even starts.
         cycler = UrlCycler(provider_model, "resolve_playable_url")
+
+        # The primary attempt happens on EVERY play and was never recorded, so a
+        # host that times out every time kept health=1.00 and stayed ranked first
+        # forever (owner log, 2026-08-16). A content-level text error returns
+        # above and is deliberately NOT recorded — that would punish a host for
+        # content it never carried.
+        cycler.record_failure(
+            original_base, err_msg or "validation failed", response_time_ms=primary_ms
+        )
+        if cycler.dirty:
+            persist_url_stats(self.db, provider_model)
+
         candidate_bases = [u for u in cycler.candidates() if u.rstrip('/') != original_base]
 
         if not candidate_bases:
@@ -224,6 +242,7 @@ class _StreamingMixin:
 
         logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_model.name} (reliability order)")
 
+        last_advisory_err: str | None = None
         for alt_base in candidate_bases:
             if self._shutting_down:
                 logger.info("Abandoning URL failover — application is shutting down")
@@ -245,11 +264,16 @@ class _StreamingMixin:
                 cycler.record_failure(alt_base, alt_err or "validation failed", response_time_ms=elapsed_ms)
                 if cycler.dirty:
                     persist_url_stats(self.db, provider_model)
+                # Only a genuine server text error stops the sweep. An advisory
+                # auth/gating code means "this host said no", not "this content
+                # is gone" — the next host frequently serves it.
+                if alt_err and not self._is_advisory_error(alt_err):
+                    return "", alt_err
                 if alt_err:
-                    return "", alt_err   # content-level error; stop trying
+                    last_advisory_err = alt_err
 
         logger.error("No working alternate URLs found")
-        return "", None
+        return "", last_advisory_err
 
     def reconstruct_stream_url(self, original_url: str, old_base: str, new_base: str) -> str:
         """Reconstruct stream URL with new base domain

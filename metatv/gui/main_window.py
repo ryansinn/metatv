@@ -153,7 +153,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     # notif_id, url, title, queue_episodes, provider_id, start_seconds
     _episode_ready  = pyqtSignal(str, str, str, object, str, int)
-    _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
+    # notif_id, title, detail, stream_url, queue_episodes, provider_id, start_seconds
+    _episode_failed = pyqtSignal(str, str, str, str, object, str, int)
     # Context menu async fetch: (ChannelMenuContext, gx, gy)
     _ctx_data_ready = pyqtSignal(object, int, int)
     # Stream validation result: emitted from background thread after validate_and_failover

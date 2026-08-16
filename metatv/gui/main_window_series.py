@@ -777,7 +777,10 @@ class _SeriesMixin:
             if not ok:
                 detail = err if err else "Stream did not respond"
                 logger.warning(f"Episode stream unavailable: {title!r} — {detail}")
-                self._episode_failed.emit(notif_id, title, detail, stream_url)
+                self._episode_failed.emit(
+                    notif_id, title, detail, stream_url,
+                    queue_episodes, provider_id, start_seconds,
+                )
                 return
 
             # A failover that switched hosts must stick to this episode —
@@ -804,7 +807,26 @@ class _SeriesMixin:
         future = self.executor.submit(_preflight)
         future.add_done_callback(_on_preflight_done)
 
-    def _on_episode_stream_unavailable(self, notif_id: str, title: str, detail: str, stream_url: str = "") -> None:
+    def _on_episode_stream_unavailable(
+        self,
+        notif_id: str,
+        title: str,
+        detail: str,
+        stream_url: str = "",
+        queue_episodes=None,
+        provider_id: str = "",
+        start_seconds: int = 0,
+    ) -> None:
+        """Main-thread slot: show the episode failure toast.
+
+        Mirrors the channel path's failure toast (``main_window_streaming.py``
+        ``_on_stream_ready``): an advisory auth/gating error (401/403/511 —
+        see ``_is_advisory_error``) offers "Play Anyway" ahead of "Copy Error",
+        since mpv negotiates differently from ``requests`` and may still play
+        a stream that failed pre-flight. Advisory failures are also NOT fed to
+        ``stream_retry_manager`` as confirmed dead streams, for the same
+        reason the channel path's docstring gives.
+        """
         from PyQt6.QtWidgets import QApplication
         from metatv.core.channel_name_utils import parse_channel_name
         # Dismiss the old "Checking stream" notif — safe even if it already auto-dismissed
@@ -815,17 +837,35 @@ class _SeriesMixin:
         else:
             safe_title = ""
         _msg = f"{safe_title}\n{detail}".strip() if safe_title else detail
+
+        # Build actions: always Copy Error; advisory → Play Anyway too.
+        is_advisory = self._is_advisory_error(detail)
+        actions = []
+        if is_advisory:
+            actions.append((
+                "Play Anyway",
+                lambda _nid=notif_id, _u=stream_url, _t=title, _q=queue_episodes,
+                       _p=provider_id, _s=start_seconds:
+                    self._do_launch_episode(_nid, _u, _t, _q, _p, _s)
+            ))
+        actions.append(
+            ("Copy Error", lambda t=title, u=stream_url, d=detail:
+                QApplication.clipboard().setText(f"{t}\nURL: {u}\nError: {d}"))
+        )
+
         self.notification_manager.show(
             title="Stream Unavailable",
             message=_msg,
             type="error",
             dismissible=True,
             auto_dismiss_seconds=None,
-            actions=[("Copy Error", lambda t=title, u=stream_url, d=detail:
-                QApplication.clipboard().setText(f"{t}\nURL: {u}\nError: {d}"))],
+            actions=actions,
         )
         self.status_bar.showMessage(f"Stream unavailable: {title}")
-        if stream_url and hasattr(self, "stream_retry_manager"):
+
+        # Advisory auth/gating errors are NOT fed to stream_retry_manager as
+        # confirmed dead streams — see _is_advisory_error's docstring.
+        if stream_url and not is_advisory and hasattr(self, "stream_retry_manager"):
             # Use stream_url as a stable ID for the retry entry
             self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
