@@ -35,6 +35,17 @@ What's left to build. Completed features live in git history.
 - [ ] **Live stream recording / DVR (the live sibling of download) — EPG-scheduled, connection-aware** — **NOT BUILT** (verified 2026-08-02: no recording manager / scheduled-recording code). Named in the Wave 5 plan; never written. Record a **live** channel for a time window (you'll miss the game → leave the app up, it records the chosen channel for the chosen window). **EPG-integrated:** schedule a recording straight from an EPG programme — reuse `EpgProgramDB` start/stop times + the watchlist/notification timer infra in `EpgManager` (a "Record" action alongside the watchlist "+"), with **pre/post padding** (start early / end late — live events run over). Manual time-window recording too. Mechanism: mpv `--stream-record=<file>` or a headless ffmpeg capture of the live TS for the window; same downloads/library dir + offline badge. **Connection-aware — third consumer of the one per-source arbiter:** a recording holds a source connection for its whole window, competing with playback + downloads via the **same** `provider_max_connections` accountant (don't build a third counter). **New priority insight — the axis is content *ephemerality/recoverability*, not foreground-vs-background:** a *download* yields freely (VOD is recoverable later), but a *live recording is time-critical — the moment is gone forever* — so a scheduled recording should **reserve** its slot and **warn/block** a conflicting play (*"playing source X now exceeds its connection limit and will kill the scheduled recording"*) rather than silently yielding. So: playback > download (download yields), but a scheduled live recording is **protected** even against playback (or makes the user choose with eyes open). **Limitation:** "leave the app up" needs the GUI process running — a true unattended PVR is the **headless-backend** stretch (PRODUCT_VISION), the eventual upgrade that records without the head up.
 ### Source reliability & stream diagnostics
 
+- [ ] **EPG freshness must distinguish "our fetch failed" from "the source is out of date".** The
+  source editor's freshness line reads *"⚠ Stale — guide ends 4 Aug 2026 (source out of date)"* —
+  it blames the provider, and in the owner's 2026-08-16 case that was flatly wrong: the guide was
+  dead because the app's own cached `epg_url` carried a **previous subscription's credentials**
+  (fixed in #316 by deriving the URL instead of caching it). The label has no way to say "we could
+  not fetch", so a broken **user override** — which #316 deliberately does not cycle, because it is
+  an explicit instruction — still fails silently forever. Needs a stored last-fetch-error (schema
+  addition, hence its own slice) so the three states read differently: fetched fine but the source
+  lags · fetch failed on every host · your override is broken. Owner asked for this while the
+  EPG-URL bug was being diagnosed; it is the honest-empty-state half that #316 did not cover.
+
 - [ ] **Stream diagnostics probes ONE arbitrary host and reports it as a verdict about the
   content.** `run_stream_diagnostic()` (`core/stream_diagnostics.py:367`) takes a bare URL string
   and has **zero** references to `UrlCycler`, `ordered_urls`, or even `provider_id` — it cannot
