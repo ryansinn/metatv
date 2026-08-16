@@ -265,10 +265,20 @@ def _qt_teardown_sweep(
         from PyQt6.QtCore import QCoreApplication, QEvent
 
         leaked = []
+        # Identity + visibility are read HERE, while every wrapper is still
+        # known-live, and never again afterwards.  Step 2's DeferredDelete drain
+        # can destroy the C++ object underneath a wrapper, and probing a survivor
+        # after the drain is unsafe at any level: sip.isdeleted is a
+        # time-of-check/time-of-use test that answers False on reused memory, and
+        # the segfault that follows it cannot be caught by `except`.  Full-suite
+        # runs died on exactly that post-drain isVisible() call twice on
+        # 2026-08-01 and again on 2026-08-15.  Read before the drain, report after.
+        pre_drain: list[tuple[object, str, bool]] = []
         for w in qtwidgets.QApplication.topLevelWidgets():
             addr = _widget_addr(w)
             if addr is not None and addr not in pre_widget_ids:
                 leaked.append(w)
+                pre_drain.append((w, type(w).__name__, w.isVisible()))
 
         # 1) Wait out any still-running QThread owned by a widget this test
         #    created, so the thread cannot be destroyed-while-running when the
@@ -285,22 +295,20 @@ def _qt_teardown_sweep(
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
         # 3) Record the top-levels this test left alive (informational only).
-        # Step 2's DeferredDelete drain may have just destroyed some of these
-        # C++ objects while `leaked` still holds their wrappers — touching such
-        # a corpse USUALLY raises RuntimeError but can segfault on reused
-        # memory (two full-suite runs died here, 2026-08-01). sip.isdeleted is
-        # the only safe probe; count corpses instead of poking them.
+        # Everything reported here comes from the pre-drain snapshot above — no
+        # attribute of a possibly-destroyed wrapper is touched.  sip.isdeleted is
+        # used ONLY to label a corpse, never as a licence to probe a survivor.
+        # "Visible" therefore means "visible when the test handed back control",
+        # which is the signal this guard actually wants: a test that left a window
+        # on screen, not one whose widget outlived the harness's own cleanup.
         from PyQt6 import sip as _sip
-        for w in leaked:
+        for w, type_name, was_visible in pre_drain:
             if _sip.isdeleted(w):
-                report.widgets.append(type(w).__name__ + " (deferred-deleted)")
+                report.widgets.append(type_name + " (deferred-deleted)")
                 continue
-            try:
-                report.widgets.append(type(w).__name__)
-                if w.isVisible():
-                    report.visible.append(type(w).__name__)
-            except Exception:  # a wrapper whose C++ object is already gone
-                pass
+            report.widgets.append(type_name)
+            if was_visible:
+                report.visible.append(type_name)
 
     # 4) Report stray Python threads still alive (executor workers that outlived
     #    the test).  Owned QThreads waited out in step 1 have already ended here.
