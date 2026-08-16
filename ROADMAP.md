@@ -40,19 +40,24 @@ Host selection is no longer a lifetime batting average — it reacts to what is 
 channels and episodes fail over to an alternate host and remember the one that worked. Delivered
 across v0.27.1 and 0.28.0; see git history for the per-item detail.
 
-- [ ] **Validate the ranking constants against real traffic** — **blocked on fresh data, not on
-  code.** The 2026-08-15 investigation found the constants were never the problem: health decay and
-  cooldown were working (log values spread 1.00 → 0.00), but every host reported `latency=0ms`
-  because no call site recorded it. That prerequisite shipped as #307, so the ranker now has real
-  latency to sort on **for the first time** — which means every log line written before #307 is
-  useless for tuning, and the numbers must be re-read after a stretch of ordinary playback.
-  Only then is there anything real to say about `url_health_decay` 0.85 / `url_cooldown_minutes` 10 /
-  `url_recent_attempts_kept` 20. What to look for: hosts whose `latency=` values are now non-zero and
-  spread apart, and whether a slow-but-healthy host actually sinks below a fast one in the
-  `candidates —` ordering. (This item is the "measure the proposed remedy before building more on top
-  of it" guard paying for itself — it was filed as *tune the constants* and turned out to be *the
-  thing the constants act on was never wired up*. Do not skip the re-read and assume #307 settled it:
-  that would repeat the original mistake one layer up.)
+- [x] **Validate the ranking constants against real traffic — DONE 2026-08-16, no change needed.**
+  Re-read against post-#307 logs (the first with real latency). The ranker behaves as designed:
+  among health=1.00 peers on a multi-host provider the order was strictly latency-ascending
+  (808 → 1381 → 1426 → 1641 → 1683 → 2506 ms), health still dominates latency
+  (`(cooldown_tier, -health, median_latency_ms, priority)`, `core/models.py:274`), and decay/cooldown
+  spread cleanly 1.00 → 0.54 → 0.40 → 0.20 → 0.00. Unmeasured hosts reporting `latency=0ms` sort
+  cheapest **by design** (`models.py:286` — so an untried URL still gets a turn); in this data every
+  such host also had health < 1.00, so none floated above a measured one. No evidence
+  `url_health_decay` 0.85 / `url_cooldown_minutes` 10 / `url_recent_attempts_kept` 20 need moving.
+
+- [ ] **The 10-12s host is a single-URL provider — ranking was never going to fix it.** The finding
+  that came out of the validation above, and the third time this thread's premise has turned out to
+  be something other than what was filed. `line.ottcst.com` — now measured at ~10.7s — appears in
+  **335 `candidates —` lines and never once alongside a peer.** There is no alternate host to
+  demote it in favour of, so #305→#307's ranker (which works) cannot improve that source by
+  construction. Open question for the owner: does that provider actually publish alternate hosts
+  that simply aren't configured in MetaTV? If it genuinely has one line, record the latency as
+  inherent to the source and stop filing it as a ranking defect.
 
 ## Series & Episodes
 
@@ -83,16 +88,23 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 - [ ] **Watch Queue aging / organization** — the queue gets unruly: items added on different days get "lost in the middle," so users fall back on History as a loose-capture net (see History split, above). Needs recency/date-added grouping, reordering, and an age-out/archive affordance for stale entries — and consider whether a lighter "interesting, maybe later" capture is missing between the *committed* queue and the *ephemeral* History recency strip (don't add a third bucket reflexively — the Recent strip may already cover the "I saw it, let me get back to it" case). **Live ≠ VOD in the queue:** adding a live channel sends it to the *bottom* of a positional list (scroll all the way down) — wrong affordance, because live is *now/recency*-oriented, not a planned position. The queue reads as a movies/series construct; live "get back to it" belongs in the **Recent strip** and/or a dedicated **live-follow pin** ("channels I keep returning to"), not the VOD queue. (Connects to the media-type split surfacing across History/Queue/Recent — see DESIGN_RATIONALE DR-0001 Refined note.)
 ## UI / UX
 
-- [ ] **Cross-view state sync phase 2 — the rest of the mutations, and the aggregate grain.**
-  Phase 1 shipped (#311): `gui/channel_state_bus.py` gives per-channel state one publish point, with
-  weakly self-registering subscribers and an echo-then-authoritative-reread delivery, and
-  `_toggle_rating` / `_toggle_favorite_by_id` / `_not_interested` publish to it. **Remaining:**
-  migrate the other mutation handlers, and decide the grain for the aggregate refreshes those three
-  still do by hand — `preferences_view.refresh()`, `_refresh_recommended_section()`,
-  `load_favorites()` / `_remove_sidebar_row(...)`. Those are **list-membership** concerns (does this
-  row belong in this list at all), not per-channel state, so forcing them through
-  `publish(channel_id)` would be the wrong grain; they need a sibling seam. Do not "finish" phase 1
-  by hand-listing views in a mutation handler — that is the enumeration the bus exists to replace.
+- [ ] **Cross-view state sync phase 3 — the bulk grain, and the list-membership sibling seam.**
+  Phases 1 (#311) and 2 (#312) are done: every **single-channel** user-state mutation now ends in
+  `channel_state_bus.publish(...)` across all five axes (rating, favorite, suppressed, hidden,
+  queued), and `_ActionBar.load()` applies each one. #312 also had to repair a #311 claim that never
+  worked — the authoritative re-read was fetching `is_favorite` and the action bar was dropping it
+  on the floor, so the star never repainted. **Remaining, two different grains:**
+  - **Bulk.** `_bulk_add_to_favorites` / `_bulk_add_to_queue` / `_bulk_hide_channels` /
+    `_bulk_mark_watched` deliberately do NOT publish: `publish()` costs one off-thread
+    authoritative re-read per call, so a 500-item bulk action would submit 500 executor jobs to
+    repaint a details pane showing one channel. Needs a bulk-aware seam (publish once for the set,
+    or let the pane ask whether its channel is in it) — not N calls to the per-channel one.
+  - **List-membership.** `preferences_view.refresh()`, `_refresh_recommended_section()`,
+    `load_favorites()` / `_remove_sidebar_row(...)` are still hand-listed in mutation handlers.
+    These answer "does this row belong in this list at all", not "what is this channel's state", so
+    forcing them through `publish(channel_id)` would be the wrong grain — they need their own seam.
+    Do not "finish" this by hand-listing views in a mutation handler; that is the enumeration the
+    bus exists to replace.
 
 - [ ] **Sidebar register split + History/Recent + Sources status strip** — the left rail is over-saturated because it stacks three *registers* of information in one column (see DESIGN_RATIONALE DR-0001): **live/prospective** (Alerts, Watch Queue, Recommended — change on their own), **curated/retrospective** (Favorites, the History *archive* — change only when the user acts), and **system status** (Sources — online/active + the global show/hide filter). Reorganize by that axis: the **rail is a launcher/index into deeper views, not a content container** (root thesis — depth lives in the windshield views; only in-the-moment/forward items keep a rail face). Forward-instruments stay as the default rail; **split History** into a lightweight **Recent/resume strip** that stays in the rail (forward) and a **deep History archive** that graduates to a main-area view (see "History as a context engine"); **Favorites graduates to a windshield view** (Discovery-shelf collection) rather than a privileged rail section — real use: sidebar Favorites goes unused; **Sources** becomes an always-visible **collapsed status strip** above Settings (one-line summary → expand for per-source toggles + filter), never a tab. **Every new sidebar section must declare its register.** A recurring **live-vs-VOD** distinction runs through this (Recent re-tunes live vs. resumes VOD; the queue is a VOD construct). Open: live-follow as its own surface vs. the Recent strip; sequencing vs. the series-monitor feature.
 - [ ] **Reusable Discovery-shelf collection views (full Queue / History / Favorites views)** — generalize the `discover_shelf` / `discover_card` / flow-layout widgets into a **reusable collection-browse surface** (not Discovery-specific; reuse-before-reinvent). Concretely: a **full Watch Queue view** in the Discovery shelf style (posters organized by category/tag) reached by a new **Queue chip** on the bottom row — the windshield "face" of the rail's compact queue (see DESIGN_RATIONALE DR-0001 "Emerging pattern"). The same surface backs the History archive view and possibly Favorites. **Preserve order where it matters:** the VOD queue needs an **Up-Next** ordered lane alongside the category shelves so grouping doesn't bury "what's next"; live-follow content isn't queued (live-vs-VOD). One shelf presentation layer, many collections.
