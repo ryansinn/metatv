@@ -485,19 +485,15 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         r.channel_id for r in session.query(UserRatingDB)
         .filter(UserRatingDB.rating < 0).all()
     }
-    # A dislike is a judgment about the TITLE, not about the one provider row the
-    # user happened to be looking at. Widen to every sibling sharing a stored
-    # content_key so the app stops re-offering the same film from another source.
-    if disliked_ids:
-        _disliked_cks = {
-            ck for (ck,) in session.query(ChannelDB.content_key)
-            .filter(ChannelDB.id.in_(list(disliked_ids)), ChannelDB.content_key.isnot(None)).all()
-        }
-        if _disliked_cks:
-            disliked_ids |= {
-                cid for (cid,) in session.query(ChannelDB.id)
-                .filter(ChannelDB.content_key.in_(list(_disliked_cks))).all()
-            }
+    # NOTE: disliked_ids stays channel_id-keyed on purpose. A dislike already
+    # suppresses the whole title: disliked_ids feeds all_engaged_ids below, and
+    # build_engaged_normalized() records (_CK_TAG, content_key) for every engaged
+    # channel that has one, so the fingerprint check further down drops the
+    # siblings. Widening this set to those siblings would ALSO make them
+    # unrecommendable through dedupe_overrides -- and that override exists so a
+    # caller (e.g. "Other Versions") can deliberately surface the other copies.
+    # The direct check below is intentionally not override-gated; the fingerprint
+    # one is. Do not "fix" the asymmetry: it is the feature.
     # Explicitly liked items (sort newer first)
     liked_map: dict[str, datetime] = {
         r.channel_id: r.rated_at for r in session.query(UserRatingDB)

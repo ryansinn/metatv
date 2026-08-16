@@ -16,8 +16,6 @@ ENTRY = WhatsNewEntry(
         "identity Browse/Discover already use) before weights are computed, so "
         "rating three language copies of one movie counts as one act of taste — "
         "not three.",
-        "Disliking one variant now suppresses every sibling copy of that title from "
-        "recommendations, not just the one row you happened to be looking at.",
     ),
     version="0.27.1",
     date="2026-08-15",
@@ -27,8 +25,8 @@ ENTRY = WhatsNewEntry(
         "one rated title, not two stacked signals (no directly-visible number, but "
         "recommendations should not feel skewed toward that title's attributes "
         "twice as strongly as a single rating would produce).",
-        "Dislike (thumbs-down) one variant of a title that has multiple source "
-        "copies — none of that title's other copies should appear in "
-        "Recommendations afterward, while unrelated titles keep appearing normally.",
+        "Favorite one variant of a title and rate a different variant of the SAME "
+        "title — the rating wins; the favorite does not add a second, separate "
+        "signal on top of it.",
     ),
 )
