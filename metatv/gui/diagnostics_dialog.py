@@ -18,7 +18,7 @@ from loguru import logger
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
 )
 
 from metatv.core import stream_diagnostics as _diag
@@ -159,12 +159,18 @@ class StreamDiagnosticsDialog(QDialog):
         _theme.style(self._summary, "DIAG_SUMMARY")
         layout.addWidget(self._summary)
 
-        # Key metrics block.
-        self._metrics = QLabel("")
-        self._metrics.setWordWrap(True)
-        _theme.style(self._metrics, "DIAG_METRICS")
-        self._metrics.hide()
-        layout.addWidget(self._metrics)
+        # On-demand trigger for the raw-measurements popup (throughput / bitrate /
+        # baseline / headroom / ttfb / codec / resolution) — the summary sentence
+        # above already states throughput, bitrate, headroom and baseline in
+        # plain language, so these are a detail-on-demand, not an always-on block.
+        self._details_button = QPushButton("Technical details…")
+        self._details_button.setFlat(True)
+        self._details_button.setToolTip(
+            "Show the raw measurements behind this verdict"
+        )
+        self._details_button.clicked.connect(self._on_show_details)
+        self._details_button.hide()
+        layout.addWidget(self._details_button)
 
         # Recommended args / saved confirmation.
         self._recommend = QLabel("")
@@ -238,6 +244,7 @@ class StreamDiagnosticsDialog(QDialog):
             self._result = None
             self._summary.setText("The diagnostic failed unexpectedly. Please try again.")
             self._apply_button.setEnabled(False)
+            self._details_button.hide()
             return
 
         self._result = result
@@ -252,20 +259,7 @@ class StreamDiagnosticsDialog(QDialog):
 
         self._summary.setText(result.summary)
 
-        metrics = (
-            f"Throughput: {_fmt_mbps(result.throughput_mbps)}   "
-            f"Bitrate: {_fmt_mbps(result.bitrate_mbps)}"
-        )
-        if result.baseline_mbps is not None:
-            metrics += f"   Baseline: {_fmt_mbps(result.baseline_mbps)}"
-        metrics += (
-            f"\nHeadroom: {_fmt_ratio(result.headroom_ratio)}   "
-            f"Time-to-first-byte: {_fmt_ms(result.ttfb_ms)}"
-            f"\nCodec: {_fmt_str(result.codec)}   "
-            f"Resolution: {_fmt_str(result.resolution)}"
-        )
-        self._metrics.setText(metrics)
-        self._metrics.show()
+        self._details_button.show()
 
         profile, prebuffer = recommend_buffer_profile(result.verdict)
         if profile is not None:
@@ -280,6 +274,17 @@ class StreamDiagnosticsDialog(QDialog):
             self._recommend.setText("No buffering change recommended.")
             self._recommend.show()
             self._apply_button.setEnabled(False)
+
+    # ------------------------------------------------------------------ #
+    # Technical details popup                                              #
+    # ------------------------------------------------------------------ #
+
+    def _on_show_details(self) -> None:
+        """Open the on-demand technical-details popup for the last result."""
+        if self._result is None:
+            return
+        dialog = _TechnicalDetailsDialog(self._result, parent=self)
+        dialog.exec()
 
     # ------------------------------------------------------------------ #
     # Apply tuning                                                         #
@@ -313,3 +318,72 @@ class StreamDiagnosticsDialog(QDialog):
         self._saved.setText(saved_msg)
         self._saved.show()
         self._apply_button.setEnabled(False)
+
+
+class _TechnicalDetailsDialog(QDialog):
+    """On-demand popup showing the raw measurements behind a diagnostic verdict.
+
+    The main dialog's summary sentence already states throughput, bitrate,
+    headroom and baseline in plain language — this popup is the detail-on-demand
+    view for the reader who wants the raw numbers, laid out as a key/value grid.
+    A row whose underlying :class:`~metatv.core.stream_diagnostics.DiagnosticResult`
+    field is ``None`` is omitted entirely, never rendered as a dash placeholder.
+    Never renders the raw (unredacted) stream URL — the result carries no
+    credentials, but this stays deliberate.
+    """
+
+    def __init__(self, result: DiagnosticResult, parent: QDialog | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Technical details")
+        self.setMinimumWidth(360)
+
+        rows: list[tuple[str, str]] = []
+        if result.connect_ms is not None:
+            rows.append(("Connect time", _fmt_ms(result.connect_ms)))
+        if result.ttfb_ms is not None:
+            rows.append(("Time to first byte", _fmt_ms(result.ttfb_ms)))
+        if result.throughput_mbps is not None:
+            rows.append(("Throughput", _fmt_mbps(result.throughput_mbps)))
+        if result.bitrate_mbps is not None:
+            rows.append(("Bitrate", _fmt_mbps(result.bitrate_mbps)))
+        if result.baseline_mbps is not None:
+            rows.append(("Baseline", _fmt_mbps(result.baseline_mbps)))
+        if result.headroom_ratio is not None:
+            rows.append(("Headroom", _fmt_ratio(result.headroom_ratio)))
+        if result.codec is not None:
+            rows.append(("Codec", _fmt_str(result.codec)))
+        if result.resolution is not None:
+            rows.append(("Resolution", _fmt_str(result.resolution)))
+
+        layout = QVBoxLayout(self)
+
+        # Exposed for tests: the (key label, value label) pair for every rendered
+        # row, in display order. Not consulted by any production code.
+        self._rows: list[tuple[QLabel, QLabel]] = []
+
+        grid = QGridLayout()
+        grid.setColumnStretch(1, 1)
+        for row_index, (key_text, value_text) in enumerate(rows):
+            key_label = QLabel(key_text)
+            key_label.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            _theme.style(key_label, "DIAG_METRIC_KEY")
+            grid.addWidget(key_label, row_index, 0)
+
+            value_label = QLabel(value_text)
+            value_label.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            _theme.style(value_label, "DIAG_METRICS")
+            grid.addWidget(value_label, row_index, 1)
+
+            self._rows.append((key_label, value_label))
+        layout.addLayout(grid)
+
+        close_button = QPushButton("Close")
+        close_button.setToolTip("Close technical details")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button)
+
+        self.adjustSize()
