@@ -640,6 +640,7 @@ class _SeriesMixin:
         self.launch_player_for_episode(
             episode.stream_url, episode.title, episodes_to_queue,
             provider_id=episode.provider_id, start_seconds=start_seconds,
+            episode_id=episode.id,
         )
 
     def _play_all_items(self, items: "list[_PlayAllItem]") -> None:
@@ -712,17 +713,20 @@ class _SeriesMixin:
         # .stream_url and .title — any object with those attributes works.
         self.launch_player_for_episode(
             first.stream_url, first.title, rest,
-            provider_id=first.provider_id,
+            provider_id=first.provider_id, episode_id=first.content_id,
         )
 
     def launch_player_for_episode(
         self, stream_url, title, queue_episodes=None, provider_id: str = "",
-        start_seconds: int = 0,
+        start_seconds: int = 0, episode_id: str = "",
     ):
         """Launch media player for an episode and queue subsequent episodes.
 
-        Pre-flight validates the stream URL in a background thread before handing
-        off to mpv, so text error responses (e.g. "not available") surface as an
+        Pre-flight validates the stream URL in a background thread — routed
+        through the shared :meth:`validate_and_failover_stream_url` chokepoint
+        (same as the channel play path) so episodes get the same alternate-host
+        failover, not just a validate-or-fail check — before handing off to
+        mpv, so text error responses (e.g. "not available") surface as an
         in-app notification rather than a black mpv window.
 
         Args:
@@ -730,11 +734,17 @@ class _SeriesMixin:
             title: Episode title used for the mpv window title and notification.
             queue_episodes: Optional list of subsequent EpisodeDTOs to append-play.
             provider_id: The episode's source provider id — threaded to
-                player_manager.play() to honour Split-Streams keying.
+                player_manager.play() to honour Split-Streams keying, and used
+                to resolve the provider's alternate URLs for failover.
             start_seconds: Position (seconds) to start playback from. ``0``
                 (default) — every existing call site keeps its current
                 behaviour unchanged. Carried through the ``_episode_ready``
                 signal payload to ``_do_launch_episode`` → ``_play_checked``.
+            episode_id: The episode's DB id. When supplied and failover
+                switches to a different host than ``stream_url``, the working
+                URL is written back to this episode's row so future plays
+                don't retry the dead host. Empty (default) at call sites that
+                don't have an episode id — write-back is skipped there.
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
@@ -751,28 +761,41 @@ class _SeriesMixin:
         )
 
         def _preflight():
-            ok, err = self.validate_stream_url(stream_url, timeout=6)
-            return ok, err
+            return self.validate_and_failover_stream_url(stream_url, provider_id)
 
         def _on_preflight_done(future):
             try:
-                ok, err = future.result()
+                final_url, err = future.result()
             except Exception as exc:
                 logger.warning(f"Episode preflight check failed: {exc}")
-                ok, err = True, None   # assume valid on unexpected errors
+                final_url, err = stream_url, None   # assume valid on unexpected errors
 
+            ok = bool(final_url)
             if not ok:
                 detail = err if err else "Stream did not respond"
                 logger.warning(f"Episode stream unavailable: {title!r} — {detail}")
                 self._episode_failed.emit(notif_id, title, detail, stream_url)
                 return
 
+            # A failover that switched hosts must stick to this episode —
+            # otherwise every future play of this same episode re-starts from
+            # the dead host and re-pays the validation stall. Only this
+            # episode's own row is touched. Runs here (off the UI thread) —
+            # correct, this is a DB write, not a widget access.
+            if final_url != stream_url and episode_id:
+                try:
+                    with self.db.session_scope() as session:
+                        RepositoryFactory(session).episodes.update_stream_url(episode_id, final_url)
+                    logger.info(f"Failover stuck for episode {episode_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to persist failover URL for episode {episode_id}: {e}")
+
             # Carry provider_id (and start_seconds) in the signal payload so each
             # launch threads its own source key — a shared attr would be clobbered
             # by an overlapping launch and play/track the episode under the wrong
             # mpv key (or the wrong resume position).
             self._episode_ready.emit(
-                notif_id, stream_url, title, queue_episodes, provider_id, start_seconds
+                notif_id, final_url, title, queue_episodes, provider_id, start_seconds
             )
 
         future = self.executor.submit(_preflight)
