@@ -1,13 +1,16 @@
 """One publish point for "this channel's user-state changed".
 
-Writes to a channel's rating/favorite/suppressed/hidden state are already
-chokepointed (``_toggle_rating`` / ``_toggle_favorite_by_id`` / ``_not_interested``
-in ``main_window_favorites.py``), but reads were never invalidated: each mutation
-handler ended with a hand-picked list of the views it happened to remember to
-refresh, and the details pane's action-bar buttons — written in exactly one
-place, ``show_channel`` → ``action_state_requested`` → ``apply_action_state`` —
-were never on any of those lists. Select a channel, dislike it from the Watch
-Queue, and the pane's buttons stayed frozen.
+Writes to a channel's rating/favorite/suppressed/hidden/queued state are
+already chokepointed (``_toggle_rating`` / ``_toggle_favorite_by_id`` /
+``_apply_favorite_toggle`` / ``_not_interested`` / ``_add_to_queue`` /
+``_remove_from_queue`` / ``_hide_channel_from_*`` / ``_unhide_channel`` in
+``main_window_favorites.py`` and ``main_window_metadata.py``), but reads were
+never invalidated: each mutation handler ended with a hand-picked list of the
+views it happened to remember to refresh, and the details pane's action-bar
+buttons — written in exactly one place, ``show_channel`` →
+``action_state_requested`` → ``apply_action_state`` — were never on any of
+those lists. Select a channel, dislike it from the Watch Queue, and the
+pane's buttons stayed frozen.
 
 This is the ``theme.style()`` lesson applied to per-channel state: a
 hand-maintained enumeration of "views to refresh" can never see what nobody
@@ -21,6 +24,15 @@ inversion here: a view that cares about a channel's state subscribes itself
 handler trying to know every view that might care.
 
 Every mutation publishes to the bus instead of hand-refreshing views itself.
+
+Known gap — bulk mutations do NOT publish. ``_bulk_add_to_favorites``,
+``_bulk_add_to_queue``, ``_bulk_hide_channels``, and ``_bulk_mark_watched``
+(``main_window_favorites.py`` / ``main_window_metadata.py``) deliberately skip
+the bus: :meth:`ChannelStateBus.publish` triggers one off-thread authoritative
+re-read per call, so a 500-item bulk action would submit 500 executor jobs to
+repaint a details pane showing at most one of them. Those handlers keep their
+existing list-membership refreshes instead. A bulk-aware seam (publish once,
+re-read only if the shown channel is in the batch) is a separate slice.
 """
 
 from __future__ import annotations

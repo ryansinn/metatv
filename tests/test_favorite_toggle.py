@@ -80,6 +80,7 @@ def _build_mock_window(engine):
     """Thin MainWindow shell with a real DB backed by the test engine."""
     from metatv.core.database import Database
     from metatv.gui import main_window as mw_module
+    from tests.conftest import attach_channel_state_bus
 
     db = MagicMock(spec=Database)
 
@@ -108,6 +109,13 @@ def _build_mock_window(engine):
 
     # get_media_type_icon not exercised here
     win.get_media_type_icon = MagicMock(return_value="")
+
+    # _apply_favorite_toggle publishes to ChannelStateBus (phase 2, #312) — the
+    # details pane's refresh is now the bus's tier-2 reread, not a hand-rolled
+    # update_details_pane_for_channel() call. Record the reread calls so tests
+    # can assert the bus is what drives the refresh.
+    win._reread_calls = []
+    attach_channel_state_bus(win, reread=win._reread_calls.append)
 
     return win
 
@@ -150,10 +158,19 @@ def test_toggle_favorite_by_id_posts_added_status(engine, channel):
     assert channel.name in call_args
 
 
-def test_toggle_favorite_by_id_updates_details_pane(engine, channel):
+def test_toggle_favorite_by_id_refreshes_via_channel_state_bus(engine, channel):
+    """As of ChannelStateBus phase 2 (#312), toggle_favorite_by_id no longer
+    hand-refreshes the details pane directly — _apply_favorite_toggle publishes
+    to the bus, whose authoritative reread is what repaints the pane. This
+    replaces the old test_toggle_favorite_by_id_updates_details_pane, which
+    pinned the hand-rolled update_details_pane_for_channel() call that #312
+    deleted (that call was also skipped whenever the lightbox had focus — the
+    bus's reread has no such gap).
+    """
     win = _build_mock_window(engine)
     win.toggle_favorite_by_id(channel.id)
-    win.update_details_pane_for_channel.assert_called_once()
+    win.update_details_pane_for_channel.assert_not_called()
+    assert win._reread_calls == [channel.id]
 
 
 def test_toggle_favorite_sidebar_refreshed(engine, channel):
