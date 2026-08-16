@@ -28,6 +28,7 @@ class ChannelActionState:
     is_suppressed: bool = False
     is_hidden: bool = False
     epg_link_blocked: bool = False  # channel_id in config.epg_link_blocklist
+    is_favorite: bool = False
 
 
 class _ActionBar(QWidget):

@@ -20,6 +20,19 @@ from metatv.core.repositories import RepositoryFactory
 class _FavoritesMixin:
     """Mixin: favorites, queue, history, ratings, and sidebar alert helpers."""
 
+    def _on_channel_state_echo(self, channel_id: str, delta: dict) -> None:
+        """ChannelStateBus tier-1 subscriber: instant optimistic channel-list echo.
+
+        Applies only the per-channel-row fields the model already knows how to
+        update in place; the bus's tier-2 authoritative re-read (already wired
+        by the constructor) corrects anything this echo gets wrong. Both model
+        setters no-op on an id that isn't in the current list.
+        """
+        if "rating" in delta and hasattr(self, "channel_model"):
+            self.channel_model.update_rating(channel_id, delta["rating"])
+        if "is_favorite" in delta and hasattr(self, "channel_model"):
+            self.channel_model.update_favorite(channel_id, delta["is_favorite"])
+
     def _toggle_rating(self, channel_id: str, rating: int) -> None:
         """Toggle a like (+1) or dislike (-1) rating; clicking the active rating clears it."""
         from datetime import datetime
@@ -36,13 +49,11 @@ class _FavoritesMixin:
                 # A like/dislike is mutually exclusive with "not interested" —
                 # clear any suppression so the sentiment buttons stay consistent.
                 RepositoryFactory(session).channels.set_rec_suppressed(channel_id, False)
-        # Update the channel-list row glyph in place — mirrors update_favorite wiring.
         new_rating = 0 if cleared else rating
-        if hasattr(self, 'channel_model'):
-            self.channel_model.update_rating(channel_id, new_rating)
         if self.view_mode == "preferences":
             self.preferences_view.refresh()
         self._refresh_recommended_section()
+        self.channel_state_bus.publish(channel_id, rating=new_rating)
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
         with self.db.session_scope() as session:
@@ -56,6 +67,7 @@ class _FavoritesMixin:
             self.load_favorites()
         else:
             self._remove_sidebar_row("favorites", channel_id)
+        self.channel_state_bus.publish(channel_id, is_favorite=make_favorite)
 
     def _hide_channel_from_alerts(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
@@ -87,6 +99,7 @@ class _FavoritesMixin:
             self._remove_sidebar_row("recommended", channel_id)
         else:
             self._refresh_recommended_section()
+        self.channel_state_bus.publish(channel_id, is_suppressed=suppressed)
 
     def _on_suppression_requested(self, channel_id: str, suppressed: bool) -> None:
         self._not_interested(channel_id, suppressed)

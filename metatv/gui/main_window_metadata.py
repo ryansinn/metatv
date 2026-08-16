@@ -54,6 +54,7 @@ class _MetadataMixin:
                 if ch:
                     state.is_suppressed = bool(ch.is_rec_suppressed)
                     state.is_hidden = bool(ch.is_hidden)
+                    state.is_favorite = bool(ch.is_favorite)
                 state.epg_link_blocked = channel_id in (self.config.epg_link_blocklist or [])
         except Exception:
             logger.exception("Failed to fetch action state for %s", channel_id)
