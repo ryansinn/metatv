@@ -18,6 +18,28 @@ class EpisodeRepository:
     def get_by_id(self, episode_id: str) -> Optional[EpisodeDB]:
         """Get episode by ID"""
         return self.session.query(EpisodeDB).filter_by(id=episode_id).first()
+
+    def update_stream_url(self, episode_id: str, stream_url: str) -> None:
+        """Persist a URL that a play-time failover proved works, so it sticks.
+
+        Mirrors :meth:`ChannelRepository.update_stream_url` for episodes:
+        called by the episode play-time failover path
+        (``launch_player_for_episode`` in ``main_window_series.py``) after
+        ``validate_and_failover_stream_url`` finds a working alternate host —
+        otherwise every subsequent play of this episode re-starts from the
+        dead host and re-pays the failover stall. Scoped to this one episode
+        row only. A no-op, not an error, if the episode no longer exists
+        (e.g. deleted mid-flight).
+
+        Args:
+            episode_id: The episode row to update.
+            stream_url: The new, already-validated stream URL to store.
+        """
+        episode = self.get_by_id(episode_id)
+        if not episode:
+            return
+        episode.stream_url = stream_url
+        self.session.commit()
     
     def get_by_series(self, series_id: str, provider_id: str) -> List[EpisodeDB]:
         """Get all episodes for a series"""
