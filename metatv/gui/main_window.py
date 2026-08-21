@@ -788,6 +788,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._lightbox.rating_requested.connect(self._toggle_rating)
         self._lightbox.suppression_requested.connect(self._on_suppression_requested)
         self._lightbox.explore_requested.connect(self._show_trail_map)
+        # The lens strip's "See all in Search" — the only way a metadata click
+        # inside the overlay reaches the channel list, and it goes through the
+        # same strict context-filter chokepoint a details-pane click uses.
+        self._lightbox.lens_search_requested.connect(self._on_lightbox_lens_search)
 
         # Poster lightbox is constructed earlier (before create_content_area, so the
         # Full-History view can wire to it); connect its feeders now that details_pane

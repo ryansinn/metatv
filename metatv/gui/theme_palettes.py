@@ -296,6 +296,7 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    'COLOR_LIGHTBOX_LINK': '#aad4ff',
 }
 
 
@@ -461,6 +462,7 @@ _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    'COLOR_LIGHTBOX_LINK': '#aad4ff',
 }
 
 
@@ -672,6 +674,7 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    'COLOR_LIGHTBOX_LINK': '#aad4ff',
 }
 
 

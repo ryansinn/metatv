@@ -1439,6 +1439,34 @@ def _build_semantic_constants() -> dict[str, object]:
     LIGHTBOX_PLOT = "color: " + COLOR_LIGHTBOX_TEXT + "; font-size: " + FONT_XL + ";"
     LIGHTBOX_CAST = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
 
+    # ── Facet-lens strip ──────────────────────────────────────────────────────
+    # Shown under the header when the overlay is showing a FACET set (a cast name
+    # or genre chip was clicked) rather than a title's own neighbours. It names
+    # the lens and offers the one way out to the channel list — the list is
+    # invisible behind the overlay, so that hand-off has to be explicit rather
+    # than something a click silently does.
+    # All three palettes give the lightbox the same fixed-dark cinema surface, so
+    # these compose against COLOR_LIGHTBOX_HEADER in every theme.
+    LIGHTBOX_LENS_BAR = (
+        "background: " + COLOR_LIGHTBOX_HEADER + ";"
+        " border-bottom: 1px solid " + COLOR_LINE + ";"
+    )
+    LIGHTBOX_LENS_LABEL = (
+        "background: " + COLOR_LIGHTBOX_HEADER + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
+        " font-size: " + FONT_MD + ";"
+    )
+    # COLOR_LIGHTBOX_LINK is the cinema family's own accent — fixed across
+    # palettes, like the surface it sits on. A palette-tuned accent cannot be
+    # used here: Daylight's is a dark navy chosen for a LIGHT app surface and
+    # reads at 1.2:1 on this deliberately dark card.
+    LIGHTBOX_LENS_LINK = (
+        "QPushButton { background: " + COLOR_LIGHTBOX_HEADER + ";"
+        " color: " + COLOR_LIGHTBOX_LINK + "; border: none; padding: 2px 4px;"
+        " font-size: " + FONT_MD + "; text-decoration: underline; }"
+        "QPushButton:hover { background: " + COLOR_LIGHTBOX_HEADER + ";"
+        " color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
+    )
+
     # Other Versions row (used N×) — a full-width entry in the hero's vertical, scrollable
     # list showing the friendly "<source> · <quality/region>" label plus an optional
     # source-icon glyph; the full "<name> · <source>" lives in the tooltip. Click dives to

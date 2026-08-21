@@ -638,6 +638,19 @@ class _NavMixin:
         """Strict SQL cast/crew filter from details-pane chip click."""
         self._activate_context_filter(f"Cast/Crew: {name}", _details_person_filter=name)
 
+    def _on_lightbox_lens_search(self, lens: str, value: str) -> None:
+        """The lightbox lens strip's "See all in Search" — commit to the list.
+
+        A cast/genre click INSIDE the lightbox re-seeds the overlay rather than
+        filtering the list behind it; this is the explicit opt-in to the list,
+        and it routes into the same strict handlers a details-pane click uses so
+        the user lands on the set the lens was paging — not a second answer.
+        """
+        if lens == "person":
+            self._on_person_filter_requested(value)
+        elif lens == "genre":
+            self._on_genre_filter_requested(value)
+
     def _on_category_filter_requested(self, category: str) -> None:
         """Strict SQL filter on the curated provider ``ChannelDB.category``.
 
