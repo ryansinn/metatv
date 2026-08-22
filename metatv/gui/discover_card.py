@@ -172,20 +172,16 @@ class _ContentCard(QWidget):
             badge_w = round(60 * z)
             rating_lbl.setGeometry(round(4 * z), badge_y, badge_w, badge_h)
             rating_lbl.setFont(_theme.zoomed_font(_theme.FONT_SM, z))
-            rating_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD};"
-                " border-radius: 3px; padding: 1px 4px;"
-            )
+            _theme.style_fn(rating_lbl, lambda: f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD};"
+                " border-radius: 3px; padding: 1px 4px;")
 
         # Category badge (bottom-right overlay) — provider's prefix label.
         if card.detected_prefix:
             cat_lbl = QLabel(card.detected_prefix, self._poster_frame)
             cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cat_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
-            cat_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ON_FILL_LIGHT};"
-                " border-radius: 3px; padding: 1px 3px;"
-            )
+            _theme.style_fn(cat_lbl, lambda: f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ON_FILL_LIGHT};"
+                " border-radius: 3px; padding: 1px 3px;")
             cat_lbl.adjustSize()
             cat_lbl.move(cw - cat_lbl.width() - round(4 * z), ph - round(22 * z))
 
@@ -198,10 +194,8 @@ class _ContentCard(QWidget):
         if badges:
             status_lbl = QLabel(" ".join(badges), self._poster_frame)
             status_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
-            status_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
-                f" padding: 1px 3px; color: {_theme.COLOR_ON_FILL_LIGHT};"
-            )
+            _theme.style_fn(status_lbl, lambda: f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
+                f" padding: 1px 3px; color: {_theme.COLOR_ON_FILL_LIGHT};")
             status_lbl.adjustSize()
             status_lbl.move(cw - status_lbl.width() - round(4 * z), round(4 * z))
             status_lbl.raise_()
@@ -218,12 +212,10 @@ class _ContentCard(QWidget):
             progress_bar.setTextVisible(False)
             progress_bar.setGeometry(0, ph - bar_h, cw, bar_h)
             progress_bar.setToolTip(f"Resume at {round(card.progress_fraction * 100)}% watched")
-            progress_bar.setStyleSheet(
-                f"QProgressBar {{ background: {_theme.OVERLAY_BLACK_60}; border: none;"
+            _theme.style_fn(progress_bar, lambda: f"QProgressBar {{ background: {_theme.OVERLAY_BLACK_60}; border: none;"
                 f" border-radius: 0px; }}"
                 f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_ORANGE};"
-                f" border-radius: 0px; }}"
-            )
+                f" border-radius: 0px; }}")
             progress_bar.raise_()
 
         # Variant-count badge (bottom-left overlay) — shown only when variant_count > 1.
@@ -259,7 +251,7 @@ class _ContentCard(QWidget):
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._title_lbl.setFont(_theme.zoomed_font(_theme.FONT_MD, z))
-        self._title_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(self._title_lbl, lambda: f"color: {_theme.COLOR_TEXT_2};")
         self._title_lbl.setToolTip(card.title)
         vl.addWidget(self._title_lbl)
 

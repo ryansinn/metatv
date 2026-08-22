@@ -119,7 +119,7 @@ class _EpgWatchlistMixin:
         layout.addLayout(add_row)
 
         self._watchlist_ci_note_lbl = QLabel("Patterns are not case-sensitive")
-        self._watchlist_ci_note_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
         layout.addWidget(self._watchlist_ci_note_lbl)
 
         # Pattern cards — responsive FlowLayout
@@ -177,9 +177,7 @@ class _EpgWatchlistMixin:
         rec_header.addWidget(self._rec_title_lbl)
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
-        self.manage_dismissed_btn.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;"
-        )
+        _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")
         self.manage_dismissed_btn.clicked.connect(self._manage_dismissed)
         rec_header.addWidget(self.manage_dismissed_btn)
         layout.addLayout(rec_header)
@@ -372,7 +370,7 @@ class _EpgWatchlistMixin:
         if not patterns:
             empty = QLabel("No watchlist items yet.\nAdd a show or keyword above to get started.")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
+            _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
             wl_outer.addWidget(empty)
             wl_outer.addStretch()
         else:
@@ -554,7 +552,7 @@ class _EpgWatchlistMixin:
         if is_live:
             n = len(live)
             live_lbl = QLabel(f"ON NOW ({n})" if n > 1 else "ON NOW")
-            live_lbl.setStyleSheet(f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
+            _theme.style_fn(live_lbl, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
             header.addWidget(live_lbl)
 
         remove_btn = QPushButton(self.config.close_icon)
@@ -629,10 +627,8 @@ class _EpgWatchlistMixin:
                 title_lbl.setSizePolicy(
                     QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
                 )
-                title_lbl.setStyleSheet(
-                    f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2}; font-weight: bold;"
-                    " padding-left: 8px; padding-top: 4px;"
-                )
+                _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2}; font-weight: bold;"
+                    " padding-left: 8px; padding-top: 4px;")
                 target_layout.addWidget(title_lbl)
 
             for prog in progs[:_MAX_VISIBLE]:
@@ -652,11 +648,9 @@ class _EpgWatchlistMixin:
 
                 expand_btn = QPushButton(f"{self.config.move_down_icon}  {n_more} more channels")
                 expand_btn.setFlat(True)
-                expand_btn.setStyleSheet(
-                    f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM}; border: none;"
+                _theme.style_fn(expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM}; border: none;"
                     " text-align: left; padding-left: 16px; }"
-                    f"QPushButton:hover {{ color: {_theme.COLOR_DIM_2}; }}"
-                )
+                    f"QPushButton:hover {{ color: {_theme.COLOR_DIM_2}; }}")
 
                 def _toggle(checked=False, btn=expand_btn, cont=extra_container, n=n_more):
                     if cont.isHidden():
@@ -691,11 +685,9 @@ class _EpgWatchlistMixin:
                 f"{self.config.move_down_icon}  {n_extra_grps} more programs"
             )
             more_grps_btn.setFlat(True)
-            more_grps_btn.setStyleSheet(
-                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; border: none;"
+            _theme.style_fn(more_grps_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; border: none;"
                 " text-align: left; padding: 2px 8px; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}")
 
             def _toggle_groups(_, btn=more_grps_btn, cont=extra_grp_container, n=n_extra_grps):
                 if cont.isHidden():
@@ -792,9 +784,7 @@ class _EpgWatchlistMixin:
                 title_lbl.setSizePolicy(
                     QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
                 )
-                title_lbl.setStyleSheet(
-                    f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW}; font-style: italic; padding-left: 8px;"
-                )
+                _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW}; font-style: italic; padding-left: 8px;")
                 layout.addWidget(title_lbl)
             for prog in progs[:2]:
                 layout.addWidget(_up_row(prog))
@@ -813,11 +803,9 @@ class _EpgWatchlistMixin:
 
         toggle_btn = QPushButton()
         toggle_btn.setFlat(True)
-        toggle_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; border: none;"
+        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; border: none;"
             " text-align: left; padding: 2px 4px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}")
 
         cards_container = QWidget()
         cards_layout = QVBoxLayout(cards_container)
@@ -876,7 +864,7 @@ class _EpgWatchlistMixin:
 
         header = QHBoxLayout()
         icon_lbl = QLabel(f"{self.config.series_icon} ")
-        icon_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL};")
+        _theme.style_fn(icon_lbl, lambda: f"font-size: {_theme.FONT_XL};")
         header.addWidget(icon_lbl)
         if region:
             header.addWidget(make_region_chip(region, w))
@@ -917,11 +905,11 @@ class _EpgWatchlistMixin:
             remain = _remaining_str(prog.stop_time) if prog.stop_time > now else ""
             suffix = f"  ·  {remain}" if remain else ""
             prog_lbl = QLabel(f"  {prog.title}{suffix}")
-            prog_lbl.setStyleSheet(f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
+            _theme.style_fn(prog_lbl, lambda: f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
             layout.addWidget(prog_lbl)
         else:
             no_epg = QLabel("  No EPG data")
-            no_epg.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
+            _theme.style_fn(no_epg, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
             layout.addWidget(no_epg)
 
         return w

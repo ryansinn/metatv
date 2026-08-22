@@ -227,10 +227,19 @@ class TestDriftGuard:
         """Tier A only — kept as the name the rest of the suite refers to."""
         return cls._drift_sites()[0]
 
-    # Measured on the tree that introduced the AST walk. It may only go DOWN:
-    # a drop means someone migrated sites and should lower this; a rise means
-    # new inline-composed styling was added instead of theme.style_fn().
-    COMPOSED_BUDGET = 285
+    # It may only go DOWN: a drop means someone migrated sites and should lower
+    # this; a rise means new inline-composed styling was added instead of
+    # theme.style_fn().
+    #
+    # 285 -> 17 when the theme-only sheets were migrated mechanically. What is
+    # left is the residue that could NOT be rewritten safely: each of these
+    # interpolates a runtime value as well as a token — a provider colour, a
+    # per-row accent, a mood pair, a computed step. Wrapping those in a lambda
+    # changes their meaning, because the lambda re-evaluates on every theme
+    # switch and would capture whatever the variable holds THEN, not now. They
+    # need a per-site decision (bind the value as a default argument, or hoist
+    # it into a builder that takes it as a parameter) rather than a sweep.
+    COMPOSED_BUDGET = 17
 
     def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
         tier_a, _ = self._drift_sites()

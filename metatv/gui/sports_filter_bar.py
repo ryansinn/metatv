@@ -140,7 +140,7 @@ class HierarchicalFilterDropdown(QPushButton):
 
         if not hierarchy:
             placeholder = QLabel("No items available")
-            placeholder.setStyleSheet(f"color: {_theme.COLOR_MUTED}; padding: 4px;")
+            _theme.style_fn(placeholder, lambda: f"color: {_theme.COLOR_MUTED}; padding: 4px;")
             layout.addWidget(placeholder)
         elif is_two_level:
             self._build_two_level(layout, hierarchy)
@@ -202,7 +202,7 @@ class HierarchicalFilterDropdown(QPushButton):
         font = QFont()
         font.setBold(True)
         label.setFont(font)
-        label.setStyleSheet(f"color: {_theme.COLOR_LINE}; padding: 4px 0 2px 0;")
+        _theme.style_fn(label, lambda: f"color: {_theme.COLOR_LINE}; padding: 4px 0 2px 0;")
         return label
 
     def _make_subsection_label(self, text: str) -> QLabel:
@@ -210,7 +210,7 @@ class HierarchicalFilterDropdown(QPushButton):
         font = QFont()
         font.setItalic(True)
         label.setFont(font)
-        label.setStyleSheet(f"color: {_theme.COLOR_FAINT}; padding: 1px 0 1px 20px;")
+        _theme.style_fn(label, lambda: f"color: {_theme.COLOR_FAINT}; padding: 1px 0 1px 20px;")
         return label
 
     def _make_checkbox(self, item: str, indent: int) -> QCheckBox:

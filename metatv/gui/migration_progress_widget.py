@@ -49,11 +49,11 @@ class _TaskRow(QWidget):
         self._glyph.setFixedWidth(14)
         self._glyph.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._glyph.setToolTip("Migration in progress")
-        self._glyph.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._glyph, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
         top.addWidget(self._glyph)
 
         self._label = QLabel(label)
-        self._label.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         self._label.setWordWrap(True)            # wrap rather than clip long labels
         self._label.setToolTip(label)
         self._label.setSizePolicy(
@@ -76,17 +76,15 @@ class _TaskRow(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._bar.setToolTip("Migration progress")
-        self._bar.setStyleSheet(
-            f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px;"
+        _theme.style_fn(self._bar, lambda: f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px;"
             f" background: {_theme.COLOR_LINE}; }}"
-            f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_BLUE}; border-radius: 2px; }}"
-        )
+            f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_BLUE}; border-radius: 2px; }}")
         bottom.addWidget(self._bar, 1)
 
         self._pct = QLabel("")
         self._pct.setFixedWidth(36)
         self._pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._pct.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};")
+        _theme.style_fn(self._pct, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};")
         bottom.addWidget(self._pct)
         outer.addLayout(bottom)
 
@@ -111,7 +109,7 @@ class _TaskRow(QWidget):
         """Flip to the done glyph and fill the bar to 100%."""
         self._done = True
         self._glyph.setText(_icons.migration_done_icon)
-        self._glyph.setStyleSheet(f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._glyph, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_MD};")
         self._glyph.setToolTip("Migration complete")
         if self._bar.maximum() > 0:
             self._bar.setValue(self._bar.maximum())
@@ -157,14 +155,12 @@ class MigrationProgressWidget(QFrame):
         self.setMinimumWidth(340)
         self.setMaximumWidth(420)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        self.setStyleSheet(
-            f"MigrationProgressWidget {{"
+        _theme.style_fn(self, lambda: f"MigrationProgressWidget {{"
             f" background-color: {_theme.COLOR_NOTIFY_INFO_BG};"
             f" border: 2px solid {_theme.COLOR_ACCENT_BLUE};"
             f" border-radius: 6px;"
             f"}}"
-            f"QLabel {{ color: {_theme.COLOR_TEXT_HI}; }}"
-        )
+            f"QLabel {{ color: {_theme.COLOR_TEXT_HI}; }}")
 
         self._outer = QVBoxLayout(self)
         self._outer.setContentsMargins(10, 8, 10, 8)
@@ -175,9 +171,7 @@ class MigrationProgressWidget(QFrame):
         _font = self._header.font()
         _font.setBold(True)
         self._header.setFont(_font)
-        self._header.setStyleSheet(
-            f"color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_MD};"
-        )
+        _theme.style_fn(self._header, lambda: f"color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_MD};")
         self._header.setToolTip("Background data migration running — please do not quit")
         self._outer.addWidget(self._header)
 

@@ -178,14 +178,14 @@ class ProviderIconPicker(QWidget):
 
         custom_row = QHBoxLayout()
         self._custom_label = QLabel("Custom:")
-        self._custom_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         custom_row.addWidget(self._custom_label)
         self._custom_input = QLineEdit()
         self._custom_input.setClearButtonEnabled(True)
         self._custom_input.setPlaceholderText("emoji…")
         self._custom_input.setFixedWidth(80)
         self._custom_input.setMaxLength(8)
-        self._custom_input.setStyleSheet(f"font-size: {_theme.FONT_INPUT};")
+        _theme.style_fn(self._custom_input, lambda: f"font-size: {_theme.FONT_INPUT};")
         custom_row.addWidget(self._custom_input)
         apply_btn = QPushButton("Apply")
         apply_btn.setFixedWidth(54)
@@ -239,8 +239,8 @@ class ProviderIconPicker(QWidget):
         """
         _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
         _theme.style(self._palette, "ICON_PICK_POPUP")
-        self._custom_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
-        self._custom_input.setStyleSheet(f"font-size: {_theme.FONT_INPUT};")
+        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self._custom_input, lambda: f"font-size: {_theme.FONT_INPUT};")
         self._update_selection(self._icon)
 
 
@@ -281,7 +281,7 @@ class _CopyableLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._full_text = ""
-        self.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
         cursor_affordance.set_clickable(self)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
 
@@ -424,7 +424,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         name_row.addWidget(self._status_dot_lbl)
         self._name_input = QLineEdit()
         self._name_input.setClearButtonEnabled(True)
-        self._name_input.setStyleSheet(f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
+        _theme.style_fn(self._name_input, lambda: f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
         self._name_input.setPlaceholderText("My Source")
         name_row.addWidget(self._name_input, 1)
         name_col.addLayout(name_row)
@@ -446,15 +446,15 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         fully available in Account Info's "Status:" line."""
         if is_expired:
             self._status_dot_lbl.setText(_icons.status_dot_icon)
-            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR};")
+            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_ERR};")
             self._status_dot_lbl.setToolTip("Subscription expired")
         elif is_active:
             self._status_dot_lbl.setText(_icons.status_dot_icon)
-            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
+            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_OK};")
             self._status_dot_lbl.setToolTip("Active")
         else:
             self._status_dot_lbl.setText(_icons.inactive_dot_icon)
-            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2};")
+            _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_MUTED_2};")
             self._status_dot_lbl.setToolTip("Disabled")
 
     # ── Action bar (Summary tab) ─────────────────────────────────────────────

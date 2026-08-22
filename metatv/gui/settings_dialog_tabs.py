@@ -483,10 +483,8 @@ class SettingsTabsMixin:
         tmdb_key_row.addWidget(self._tmdb_key_input, 1)
         tmdb_link_btn = QPushButton("Get key →")
         tmdb_link_btn.setFixedWidth(80)
-        tmdb_link_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
-            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
-        )
+        _theme.style_fn(tmdb_link_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}")
         tmdb_link_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api"))
         )
@@ -527,10 +525,8 @@ class SettingsTabsMixin:
         omdb_key_row.addWidget(self._omdb_key_input, 1)
         omdb_link_btn = QPushButton("Get key →")
         omdb_link_btn.setFixedWidth(80)
-        omdb_link_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
-            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
-        )
+        _theme.style_fn(omdb_link_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}")
         omdb_link_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://www.omdbapi.com/apikey.aspx"))
         )
@@ -851,7 +847,7 @@ class SettingsTabsMixin:
             "All changes apply immediately when you click OK or Apply."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         sidebar_layout.addWidget(hint)
 
         self._sidebar_list = QListWidget()

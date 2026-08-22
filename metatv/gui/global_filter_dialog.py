@@ -282,7 +282,7 @@ class _GroupSection(QWidget):
         hl.addWidget(self._expand_lbl)
 
         name_lbl = QLabel(group_name)
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: bold;")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold;")
         hl.addWidget(name_lbl)
         hl.addStretch()
 
@@ -299,7 +299,7 @@ class _GroupSection(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         layout.addWidget(sep)
 
         self._group_cb.clicked.connect(self._on_group_clicked)
@@ -326,7 +326,7 @@ class _GroupSection(QWidget):
             label = f"[{prefix}] {full_name}" if full_name else prefix
             cb = QCheckBox(label)
             cb.setChecked(prefix.upper() in self._initial_checked)
-            cb.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-family: monospace;")
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; font-family: monospace;")
             cb.stateChanged.connect(self._on_prefix_changed)
             rl.addWidget(cb)
 
@@ -521,7 +521,7 @@ class _ContentTypeSection(QWidget):
         hl.addWidget(self._expand_lbl)
 
         name_lbl = QLabel("Other (unmapped types)")
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM};")
         name_lbl.setToolTip(
             "Live channels whose source_category header from the source\n"
             "didn't match any configured Content Type group.\n"
@@ -558,7 +558,7 @@ class _ContentTypeSection(QWidget):
 
             cb = QCheckBox(label)
             cb.setChecked(label in self._initial_checked)
-            cb.setStyleSheet(f"font-size: {_theme.FONT_MD}; font-family: monospace;")
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_MD}; font-family: monospace;")
             cb.stateChanged.connect(self._on_item_changed)
             rl.addWidget(cb)
 
@@ -788,11 +788,11 @@ class GlobalFilterDialog(QDialog):
         # ── Header ────────────────────────────────────────────────────────────
         header_row = QHBoxLayout()
         header_lbl = QLabel("Global Exclusions")
-        header_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
+        _theme.style_fn(header_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         header_row.addWidget(header_lbl)
 
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_LG}; padding-left: 4px;")
+        _theme.style_fn(info_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_LG}; padding-left: 4px;")
         info_lbl.setToolTip(
             "Categories are detected from the prefix in each title\n"
             "(e.g. 'AR Drama', 'DE Movies'). Group headings are\n"
@@ -808,7 +808,7 @@ class GlobalFilterDialog(QDialog):
             "Nothing checked = show all content. Expand a group to control individual prefixes."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         vl.addWidget(hint)
 
         # ── Realtime search — narrows every section below by prefix/name ───────
@@ -847,7 +847,7 @@ class GlobalFilterDialog(QDialog):
         self._uncat_cb = QCheckBox("Hide content with no category label")
         # Blacklist semantics: checked = hide untagged (include_uncategorized = False)
         self._uncat_cb.setChecked(not self._config.global_filter_include_uncategorized)
-        self._uncat_cb.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_DIM}; padding-top: 4px;")
+        _theme.style_fn(self._uncat_cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_DIM}; padding-top: 4px;")
         self._uncat_cb.setToolTip(
             "Content with no detected category prefix is usually general/English-language.\n"
             "Leave unchecked to keep it visible (the safe default)."
@@ -884,7 +884,7 @@ class GlobalFilterDialog(QDialog):
 
         self._rescan_btn = QPushButton("Re-scan Prefixes")
         self._rescan_btn.setFlat(True)
-        self._rescan_btn.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED_2};")
+        _theme.style_fn(self._rescan_btn, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED_2};")
         self._rescan_btn.setToolTip(
             "Re-detect prefix codes for all channels using the current separator settings.\n"
             "Useful after adding a new source with a different naming convention."
@@ -894,7 +894,7 @@ class GlobalFilterDialog(QDialog):
 
         reset_btn = QPushButton("Reset Category Overrides")
         reset_btn.setFlat(True)
-        reset_btn.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ERR_MUTED};")
+        _theme.style_fn(reset_btn, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ERR_MUTED};")
         reset_btn.setToolTip(
             "Clear all your custom category assignments and restore built-in defaults.\n"
             "Source-specific overrides are not affected."
@@ -927,11 +927,9 @@ class GlobalFilterDialog(QDialog):
         for prefix in hidden:
             chip = QPushButton(f"{prefix} ×")
             chip.setFlat(True)
-            chip.setStyleSheet(
-                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED}; border: 1px solid {_theme.COLOR_BORDER};"
+            _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED}; border: 1px solid {_theme.COLOR_BORDER};"
                 " border-radius: 3px; padding: 1px 6px; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; border-color: {_theme.COLOR_MUTED_2}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; border-color: {_theme.COLOR_MUTED_2}; }}")
             chip.setToolTip(f"Click to restore {prefix} — will appear in Content Categories again")
             chip.clicked.connect(lambda _, p=prefix: self._unhide_prefix(p))
             self._hidden_chips_layout.addWidget(chip)
@@ -1391,10 +1389,8 @@ class GlobalFilterDialog(QDialog):
         remove_btn = QPushButton(_icons.close_icon)
         remove_btn.setFlat(True)
         remove_btn.setToolTip(f'Remove "{keyword}" from Global Exclusions')
-        remove_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ERR_MUTED}; }}"
-        )
+        _theme.style_fn(remove_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ERR_MUTED}; }}")
         remove_btn.clicked.connect(lambda _, k=keyword: self._remove_keyword(k))
         rl.addWidget(remove_btn)
 

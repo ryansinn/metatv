@@ -223,24 +223,19 @@ class _ProviderMixin:
         self._no_sources_lbl = QLabel(
             "No sources configured yet — add one to start browsing channels."
         )
-        self._no_sources_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_ACCENT_BLUE}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._no_sources_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BLUE}; font-size: {_theme.FONT_MD};")
         self._no_sources_lbl.setWordWrap(True)
         _nsb_layout.addWidget(self._no_sources_lbl)
         _nsb_layout.addStretch()
         self._no_sources_add_btn = QPushButton(f"{_icons.provider_icon} Add Source")
         self._no_sources_add_btn.setToolTip("Add Source…")
-        self._no_sources_add_btn.setStyleSheet(
-            f"QPushButton {{ border: 1px solid {_theme.COLOR_ACCENT_BLUE}; border-radius: 4px;"
+        _theme.style_fn(self._no_sources_add_btn, lambda: f"QPushButton {{ border: 1px solid {_theme.COLOR_ACCENT_BLUE}; border-radius: 4px;"
             f" padding: 4px 12px; font-size: {_theme.FONT_MD}; font-weight: 600;"
             f" background: {_theme.OVERLAY_BLUE_20}; color: {_theme.COLOR_ACCENT_BLUE}; }}"
-            f"QPushButton:hover {{ background: {_theme.OVERLAY_BLUE_40}; color: {_theme.COLOR_TEXT_HI}; }}"
-        )
+            f"QPushButton:hover {{ background: {_theme.OVERLAY_BLUE_40}; color: {_theme.COLOR_TEXT_HI}; }}")
         self._no_sources_add_btn.clicked.connect(self.add_provider)
         _nsb_layout.addWidget(self._no_sources_add_btn)
-        self._no_sources_banner.setStyleSheet(
-            f"background: {_theme.OVERLAY_BLUE_10}; border-radius: 4px;"
-        )
+        _theme.style_fn(self._no_sources_banner, lambda: f"background: {_theme.OVERLAY_BLUE_10}; border-radius: 4px;")
         self._no_sources_banner.hide()
         self._list_layout.addWidget(self._no_sources_banner)
 

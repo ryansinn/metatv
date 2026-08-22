@@ -45,45 +45,43 @@ class WatchForDialog(QDialog):
         vl.setSpacing(10)
 
         hdr = QLabel(f"{_icons.alert_icon}  Watch for new content")
-        hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
+        _theme.style_fn(hdr, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         vl.addWidget(hdr)
 
         hint = QLabel(
             "Get an alert when content matching this keyword appears on any of your sources."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         vl.addWidget(sep)
 
         # --- Keyword input ---
         lbl_kw = QLabel("Title / keyword:")
-        lbl_kw.setStyleSheet(f"font-size: {_theme.FONT_MD};")
+        _theme.style_fn(lbl_kw, lambda: f"font-size: {_theme.FONT_MD};")
         vl.addWidget(lbl_kw)
 
         self._text_edit = QLineEdit()
         self._text_edit.setClearButtonEnabled(True)
         self._text_edit.setPlaceholderText("e.g.  Dune,  Breaking Bad,  Severance")
-        self._text_edit.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; padding: 4px 6px;"
-        )
+        _theme.style_fn(self._text_edit, lambda: f"font-size: {_theme.FONT_MD}; padding: 4px 6px;")
         vl.addWidget(self._text_edit)
 
         # --- Type selector ---
         type_row = QHBoxLayout()
         lbl_type = QLabel("Content type:")
-        lbl_type.setStyleSheet(f"font-size: {_theme.FONT_MD};")
+        _theme.style_fn(lbl_type, lambda: f"font-size: {_theme.FONT_MD};")
         type_row.addWidget(lbl_type)
 
         self._type_combo = QComboBox()
         self._type_combo.addItem("Any", "any")
         self._type_combo.addItem(f"{_icons.movie_icon}  Movie", "movie")
         self._type_combo.addItem(f"{_icons.series_icon}  Series", "series")
-        self._type_combo.setStyleSheet(f"font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._type_combo, lambda: f"font-size: {_theme.FONT_MD};")
         type_row.addWidget(self._type_combo)
         type_row.addStretch()
         vl.addLayout(type_row)
@@ -92,13 +90,11 @@ class WatchForDialog(QDialog):
         buttons = QDialogButtonBox()
         self._watch_btn = QPushButton(f"{_icons.alert_icon}  Watch")
         self._watch_btn.setDefault(True)
-        self._watch_btn.setStyleSheet(
-            f"QPushButton {{ background: {_theme.COLOR_ACCENT};"
+        _theme.style_fn(self._watch_btn, lambda: f"QPushButton {{ background: {_theme.COLOR_ACCENT};"
             f" color: {_theme.COLOR_ON_ACCENT};"
             f" border: none; border-radius: 4px; padding: 4px 14px;"
             f" font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ background: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
+            f"QPushButton:hover {{ background: {_theme.COLOR_ACCENT_HOVER}; }}")
         self._watch_btn.clicked.connect(self._on_watch)
 
         cancel_btn = QPushButton("Cancel")
@@ -182,13 +178,11 @@ class ManageVodAlertsDialog(QDialog):
 
         hdr_row = QHBoxLayout()
         hdr = QLabel(f"{_icons.alert_icon}  Manage Watch Alerts")
-        hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
+        _theme.style_fn(hdr, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
         self._count_lbl = QLabel("")
-        self._count_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};"
-        )
+        _theme.style_fn(self._count_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         hdr_row.addWidget(self._count_lbl)
         vl.addLayout(hdr_row)
 
@@ -197,12 +191,12 @@ class ManageVodAlertsDialog(QDialog):
             "monitored series — appears on any of your sources."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         vl.addWidget(sep)
 
         self._scroll_area = QScrollArea()
@@ -227,7 +221,7 @@ class ManageVodAlertsDialog(QDialog):
 
     def _muted_line(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; padding: 2px 4px;")
+        _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; padding: 2px 4px;")
         return lbl
 
     def _load(self) -> None:
@@ -309,24 +303,20 @@ class ManageVodAlertsDialog(QDialog):
         cursor_affordance.set_clickable(row)
 
         name_lbl = QLabel(f"{_icons.alert_icon} {text}")
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         hl.addWidget(name_lbl, 1)
 
         type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
         type_lbl = type_icons.get(match_type, "")
         type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
         type_badge = QLabel(type_display)
-        type_badge.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
-        )
+        _theme.style_fn(type_badge, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};")
         hl.addWidget(type_badge)
 
         if alerted_count > 0:
             match_badge = QLabel(f"{alerted_count} match{'es' if alerted_count != 1 else ''}")
-            match_badge.setStyleSheet(
-                f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
-                " font-weight: bold;"
-            )
+            _theme.style_fn(match_badge, lambda: f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
+                " font-weight: bold;")
             match_badge.setToolTip(
                 f"{alerted_count} channel(s) already alerted for this rule"
             )
@@ -334,11 +324,9 @@ class ManageVodAlertsDialog(QDialog):
 
         view_btn = QPushButton(f"{_icons.search_icon} View")
         view_btn.setFlat(True)
-        view_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
+        _theme.style_fn(view_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
             f" border: none; padding: 1px 6px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}")
         view_btn.setToolTip(f"Show all content matching '{text}' in the channel list")
         view_btn.clicked.connect(
             lambda _checked=False, t=text, mt=match_type: self._view_matches(t, mt)
@@ -400,7 +388,7 @@ class ManageVodAlertsDialog(QDialog):
         row.setToolTip(f"{title}\n\n{identity_tip}")
 
         name_lbl = QLabel()
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         if suffix:
             # Rich text so the dim suffix flows right after the title.
             name_lbl.setTextFormat(Qt.TextFormat.RichText)
@@ -416,10 +404,8 @@ class ManageVodAlertsDialog(QDialog):
         if unseen > 0:
             ep_word = "ep" if unseen == 1 else "eps"
             badge = QLabel(f"{_icons.new_episodes_icon} +{unseen} {ep_word}")
-            badge.setStyleSheet(
-                f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
-                " font-weight: bold;"
-            )
+            _theme.style_fn(badge, lambda: f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
+                " font-weight: bold;")
             badge.setToolTip(f"{unseen} new {ep_word} since you last looked")
             hl.addWidget(badge)
 

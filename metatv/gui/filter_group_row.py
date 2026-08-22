@@ -105,7 +105,7 @@ class _ItemRow(QWidget):
         layout.addWidget(self._cb)
 
         self._label = QLabel(label)
-        self._label.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
+        _theme.style_fn(self._label, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._label.setMinimumWidth(0)   # prevent RTL/long text from forcing the panel wider
         self._label.setWordWrap(True)
@@ -134,7 +134,7 @@ class _ItemRow(QWidget):
     def refresh_theme(self) -> None:
         """Re-apply this row's tokens (checkbox, label, count, "Only" button)."""
         _theme.style(self._cb, "FILTER_CHECKBOX")
-        self._label.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
+        _theme.style_fn(self._label, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         if self._count_lbl is not None:
             _theme.style(self._count_lbl, "ITEM_COUNT")
         _theme.style(self._only_btn, "FILTER_ONLY_BTN")
@@ -190,8 +190,7 @@ class _GroupRow(QWidget):
         self._expand_btn = QPushButton(config.expand_icon)
         self._expand_btn.setFixedSize(16, 16)
         self._expand_btn.setFlat(True)
-        self._expand_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        _theme.style_fn(self._expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
         self._expand_btn.setToolTip("Show the codes in this group")
         self._expand_btn.clicked.connect(self._toggle_expand)
         hl.addWidget(self._expand_btn)
@@ -202,7 +201,7 @@ class _GroupRow(QWidget):
         hl.addWidget(self._tri)
 
         self._name_lbl = QLabel(group_name)
-        self._name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(self._name_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
         self._name_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
                                       QSizePolicy.Policy.Preferred)
         hl.addWidget(self._name_lbl)
@@ -296,10 +295,9 @@ class _GroupRow(QWidget):
         """Re-apply this group's tokens (expand button, tri-checkbox, name,
         count, "Only" button) and recurse into every child :class:`_ItemRow`.
         """
-        self._expand_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        _theme.style_fn(self._expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
         self._tri.refresh_theme()
-        self._name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(self._name_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
         if self._count_lbl is not None:
             _theme.style(self._count_lbl, "ITEM_COUNT")
         _theme.style(self._only_btn, "FILTER_ONLY_BTN")
@@ -441,25 +439,20 @@ class _Section(QWidget):
             f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
             f"border-left: 3px solid {accent}; }}"
         )
-        self._collapse_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
+        _theme.style_fn(self._collapse_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
             " background: transparent; }")
-        self._title_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
+        _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
             "letter-spacing: 1px;")
         if self._narrows_lbl is not None:
-            self._narrows_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
+            _theme.style_fn(self._narrows_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
                 " font-style: italic;")
         if self._info_btn is not None:
-            self._info_btn.setStyleSheet(
-                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
+            _theme.style_fn(self._info_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
                 " background: transparent; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}"
-            )
-        self._summary_lbl.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}")
+        _theme.style_fn(self._summary_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         self._select_all.refresh_theme()
-        self._sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
+        _theme.style_fn(self._sep, lambda: f"color: {_theme.COLOR_LINE_DARK};")
         if self._show_all_btn is not None:
             _theme.style(self._show_all_btn, "FILTER_SHOW_ALL_BTN")
         for row in self._rows:

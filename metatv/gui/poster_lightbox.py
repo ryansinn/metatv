@@ -71,10 +71,8 @@ class PosterLightbox(QWidget):
         # Card — centred frame that holds the image
         self._card = QFrame()
         self._card.setObjectName("poster_lightbox_card")
-        self._card.setStyleSheet(
-            f"#poster_lightbox_card {{ background: {_theme.COLOR_LIGHTBOX_BG};"
-            f" border-radius: 8px; border: 1px solid {_theme.COLOR_BORDER}; }}"
-        )
+        _theme.style_fn(self._card, lambda: f"#poster_lightbox_card {{ background: {_theme.COLOR_LIGHTBOX_BG};"
+            f" border-radius: 8px; border: 1px solid {_theme.COLOR_BORDER}; }}")
 
         card_layout = QVBoxLayout(self._card)
         card_layout.setContentsMargins(0, 0, 0, 0)
@@ -82,27 +80,21 @@ class PosterLightbox(QWidget):
 
         # Close button — top-right corner
         btn_row_widget = QWidget()
-        btn_row_widget.setStyleSheet(
-            f"background: {_theme.COLOR_LIGHTBOX_HEADER}; border-radius: 8px 8px 0 0;"
-        )
+        _theme.style_fn(btn_row_widget, lambda: f"background: {_theme.COLOR_LIGHTBOX_HEADER}; border-radius: 8px 8px 0 0;")
         from PyQt6.QtWidgets import QHBoxLayout
         btn_row = QHBoxLayout(btn_row_widget)
         btn_row.setContentsMargins(10, 4, 6, 4)
 
         hint = QLabel("Click outside or press Esc to close")
-        hint.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; background: transparent;"
-        )
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; background: transparent;")
         btn_row.addWidget(hint, 1)
 
         close_btn = QPushButton(_icons.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(22, 22)
-        close_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL};"
+        _theme.style_fn(close_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL};"
             " border: none; background: transparent; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
         close_btn.setToolTip("Close (Esc)")
         close_btn.clicked.connect(self._close)
         btn_row.addWidget(close_btn)
@@ -112,9 +104,7 @@ class PosterLightbox(QWidget):
         # Image label
         self._image_lbl = QLabel()
         self._image_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._image_lbl.setStyleSheet(
-            f"background: {_theme.COLOR_BG_DEEP}; border-radius: 0 0 8px 8px;"
-        )
+        _theme.style_fn(self._image_lbl, lambda: f"background: {_theme.COLOR_BG_DEEP}; border-radius: 0 0 8px 8px;")
         card_layout.addWidget(self._image_lbl)
 
         outer.addWidget(self._card)

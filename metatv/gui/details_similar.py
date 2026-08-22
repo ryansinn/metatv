@@ -53,9 +53,7 @@ class _SimilarSection(QWidget):
         self._toggle_btn.setToolTip("Collapse Similar Titles")
         self._toggle_btn.clicked.connect(self._toggle)
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet(
-            f"font-weight: bold; color: {_theme.COLOR_TEXT};"
-        )
+        _theme.style_fn(self._title_lbl, lambda: f"font-weight: bold; color: {_theme.COLOR_TEXT};")
         hdr.addWidget(self._toggle_btn)
         hdr.addWidget(self._title_lbl)
         hdr.addStretch()
@@ -143,9 +141,7 @@ class _SimilarSection(QWidget):
             type_lbl = QLabel(type_icon)
             type_lbl.setFixedWidth(18)
             type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            type_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};"
-            )
+            _theme.style_fn(type_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
             type_lbl.setToolTip((v.media_type or "").title())
             row.addWidget(type_lbl)
 
@@ -171,11 +167,9 @@ class _SimilarSection(QWidget):
         name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        name_btn.setStyleSheet(
-            f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
+        _theme.style_fn(name_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
             f" font-size: {_theme.FONT_MD}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
         name_btn.setToolTip("Click: preview in lightbox  ·  Right-click: open in details pane")
         name_btn.clicked.connect(
             lambda _, _idx=idx: self.similar_preview_requested.emit(
@@ -191,25 +185,19 @@ class _SimilarSection(QWidget):
         # 5. Rating icon (liked / disliked — hidden when neutral)
         if v.user_rating == 1:
             rating_lbl = QLabel(_icons.like_icon)
-            rating_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE};"
-            )
+            _theme.style_fn(rating_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE};")
             rating_lbl.setToolTip("You liked this")
             row.addWidget(rating_lbl)
         elif v.user_rating == -1:
             rating_lbl = QLabel(_icons.dislike_icon)
-            rating_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_ORANGE};"
-            )
+            _theme.style_fn(rating_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_ORANGE};")
             rating_lbl.setToolTip("You disliked this")
             row.addWidget(rating_lbl)
 
         # 6. History indicator (previously watched)
         if v.in_history:
             hist = QLabel(_icons.history_icon)
-            hist.setStyleSheet(
-                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};"
-            )
+            _theme.style_fn(hist, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 
@@ -217,9 +205,7 @@ class _SimilarSection(QWidget):
         year_lbl = QLabel(year_str)
         year_lbl.setFixedWidth(36)
         year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        year_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};"
-        )
+        _theme.style_fn(year_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         row.addWidget(year_lbl)
 
         # 8. Favorite toggle

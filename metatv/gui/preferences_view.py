@@ -72,10 +72,8 @@ class _AttrRow(QWidget):
             mute_btn.setFixedSize(20, 20)
             mute_btn.setFlat(True)
             mute_btn.setToolTip(tip)
-            mute_btn.setStyleSheet(
-                "QPushButton { border: none; }"
-                f"QPushButton:hover {{ background: {_theme.OVERLAY_10}; border-radius: 3px; }}"
-            )
+            _theme.style_fn(mute_btn, lambda: "QPushButton { border: none; }"
+                f"QPushButton:hover {{ background: {_theme.OVERLAY_10}; border-radius: 3px; }}")
             mute_btn.clicked.connect(
                 lambda: self.muteClicked.emit(self._attr_type, self._attr_name)
             )
@@ -90,10 +88,8 @@ class _AttrRow(QWidget):
                 palette = w.palette()
                 palette.setColor(QPalette.ColorRole.WindowText, gray)
                 w.setPalette(palette)
-            bar.setStyleSheet(
-                f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: {_theme.COLOR_BG_BAR}; }}"
-                f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}"
-            )
+            _theme.style_fn(bar, lambda: f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: {_theme.COLOR_BG_BAR}; }}"
+                f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}")
 
 
 class _AttrColumn(QWidget):
@@ -237,7 +233,7 @@ class PreferencesView(QWidget):
         # Header row
         header_row = QHBoxLayout()
         self._header_label = QLabel("No ratings yet")
-        self._header_label.setStyleSheet(f"font-size: {_theme.FONT_XL};")
+        _theme.style_fn(self._header_label, lambda: f"font-size: {_theme.FONT_XL};")
         header_row.addWidget(self._header_label)
         header_row.addStretch()
 
@@ -299,10 +295,8 @@ class PreferencesView(QWidget):
         excl_header = QHBoxLayout()
         self._excl_toggle_btn = QPushButton(f"{self.config.expand_icon} Excluded (0)")
         self._excl_toggle_btn.setFlat(True)
-        self._excl_toggle_btn.setStyleSheet(
-            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
+        _theme.style_fn(self._excl_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._excl_toggle_btn.clicked.connect(self._toggle_exclusions)
         excl_header.addWidget(self._excl_toggle_btn)
         excl_header.addStretch()
@@ -350,7 +344,7 @@ class PreferencesView(QWidget):
         row.addWidget(self._mix_slider)
 
         self._mix_label = QLabel("")
-        self._mix_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
         self._mix_label.setToolTip("Movies : series split of the list below")
         row.addWidget(self._mix_label)
 
@@ -426,10 +420,8 @@ class PreferencesView(QWidget):
             f"{self.config.expand_icon} Version Preferences"
         )
         self._ver_prefs_toggle_btn.setFlat(True)
-        self._ver_prefs_toggle_btn.setStyleSheet(
-            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
+        _theme.style_fn(self._ver_prefs_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._ver_prefs_toggle_btn.clicked.connect(self._toggle_version_prefs)
         ver_hdr.addWidget(self._ver_prefs_toggle_btn)
         ver_hdr.addStretch()
@@ -625,7 +617,7 @@ class PreferencesView(QWidget):
         rationale as the channel-list row delegate.
         """
         _theme.style(self._mix_caption_lbl, "META_HINT")
-        self._mix_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
         _theme.style(self._mix_auto_btn, "INLINE_ACTION_BTN")
 
         _toggle_style = (
@@ -806,7 +798,7 @@ class PreferencesView(QWidget):
                 continue
             has_content = True
             type_header = QLabel(f"<b>{attr_type.capitalize()}</b>")
-            type_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(type_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(type_header)
             for name in names:
                 row = self._make_exclusion_row(
@@ -827,7 +819,7 @@ class PreferencesView(QWidget):
         if names_ids:
             has_content = True
             titles_header = QLabel("<b>Not Interested titles</b>")
-            titles_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(titles_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(titles_header)
             for name, cid in names_ids:
                 row = self._make_exclusion_row(
@@ -841,7 +833,7 @@ class PreferencesView(QWidget):
         if dedup_overrides:
             has_content = True
             dedup_header = QLabel("<b>Shown separately (ungrouped)</b>")
-            dedup_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(dedup_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(dedup_header)
             session = self.db.get_session()
             try:
@@ -881,11 +873,9 @@ class PreferencesView(QWidget):
 
         change_btn = QPushButton("Change your mind?")
         change_btn.setFlat(True)
-        change_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; text-decoration: underline; border: none; "
+        _theme.style_fn(change_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; text-decoration: underline; border: none; "
             f"background: transparent; padding: 0; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         change_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         change_btn.clicked.connect(on_restore)
         hl.addWidget(change_btn)

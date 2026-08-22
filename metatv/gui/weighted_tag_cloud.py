@@ -400,11 +400,9 @@ class WeightedTagCloud(QWidget):
         """
         _theme.style(self._header_lbl, "CLOUD_HEADER_LABEL")
         _theme.style(self._sort_btn, "CLOUD_CTRL_BTN")
-        self._filter_edit.setStyleSheet(
-            f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
+        _theme.style_fn(self._filter_edit, lambda: f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
             f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
-            f" border-radius: 3px; padding: 1px 6px; }}"
-        )
+            f" border-radius: 3px; padding: 1px 6px; }}")
         _theme.style(self._more_btn, "CLOUD_MORE_BTN")
 
     # ── private: UI construction ──────────────────────────────────────────────
@@ -442,11 +440,9 @@ class WeightedTagCloud(QWidget):
         self._filter_edit.setPlaceholderText("Filter…")
         self._filter_edit.setFixedWidth(120)
         self._filter_edit.setClearButtonEnabled(True)
-        self._filter_edit.setStyleSheet(
-            f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
+        _theme.style_fn(self._filter_edit, lambda: f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
             f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
-            f" border-radius: 3px; padding: 1px 6px; }}"
-        )
+            f" border-radius: 3px; padding: 1px 6px; }}")
         self._filter_edit.setToolTip("Filter tags by name — live substring match")
         self._filter_edit.textChanged.connect(self._on_filter_changed)
         hl.addWidget(self._filter_edit)

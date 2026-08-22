@@ -84,15 +84,13 @@ class _BrowseView(QWidget):
         top = QHBoxLayout()
         self._back_btn = QPushButton("← Back")
         self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
+        _theme.style_fn(self._back_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         self._back_btn.clicked.connect(self.backRequested)
         top.addWidget(self._back_btn)
 
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
+        _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
         top.addWidget(self._title_lbl)
         top.addStretch()
 
@@ -105,10 +103,8 @@ class _BrowseView(QWidget):
 
         self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
         self._toggle_btn.setFlat(True)
-        self._toggle_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}"
-        )
+        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}")
         self._toggle_btn.clicked.connect(self._toggle_view)
         top.addWidget(self._toggle_btn)
         vl.addLayout(top)
@@ -168,15 +164,11 @@ class _BrowseView(QWidget):
         and ``RecipeView``'s "Show all" drill-down, each of which forwards to
         this from their own ``refresh_theme()``.
         """
-        self._back_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
-        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
-        self._toggle_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}"
-        )
+        _theme.style_fn(self._back_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
+        _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
+        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}")
 
     def load(self, title: str, cards: list[ContentCard], *, preserve_filter: bool = False) -> None:
         """Replace the browse contents with *cards* (the fresh page-1 / replace path).
