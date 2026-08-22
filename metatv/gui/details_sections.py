@@ -1426,6 +1426,11 @@ class _TechnicalSection(QWidget):
         self._toggle_btn.setText(
             self.config.expand_icon if self._collapsed else self.config.collapse_icon
         )
+        # Set HERE, not at construction: the glyph flips with state, so a fixed
+        # tooltip would contradict the arrow half the time.
+        self._toggle_btn.setToolTip(
+            "Expand this section" if self._collapsed else "Collapse this section"
+        )
 
     def is_collapsed(self) -> bool:
         return self._collapsed
@@ -1570,6 +1575,11 @@ class _CastSection(QWidget):
         self._content.setVisible(not self._collapsed)
         self._toggle_btn.setText(
             self.config.expand_icon if self._collapsed else self.config.collapse_icon
+        )
+        # Set HERE, not at construction: the glyph flips with state, so a fixed
+        # tooltip would contradict the arrow half the time.
+        self._toggle_btn.setToolTip(
+            "Expand this section" if self._collapsed else "Collapse this section"
         )
 
     def is_collapsed(self) -> bool:
@@ -1857,4 +1867,7 @@ class _TagsSection(QWidget):
         self._content.setVisible(not self._collapsed)
         self._toggle_btn.setText(
             _icons.expand_icon if self._collapsed else _icons.collapse_icon
+        )
+        self._toggle_btn.setToolTip(
+            "Expand this section" if self._collapsed else "Collapse this section"
         )

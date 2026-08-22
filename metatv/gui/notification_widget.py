@@ -142,6 +142,7 @@ class NotificationCard(QFrame):
         if self.notification.dismissible:
             close_btn = QPushButton(_icons.close_icon)
             close_btn.setFixedSize(20, 20)
+            close_btn.setToolTip("Dismiss this notification")
             close_btn.clicked.connect(self.dismiss)
             header_layout.addWidget(close_btn)
 
