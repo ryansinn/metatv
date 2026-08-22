@@ -134,28 +134,15 @@ def test_open_settings_tab_selects_interface_section(qapp, tmp_path, monkeypatch
             from concurrent.futures import ThreadPoolExecutor
             self.executor = ThreadPoolExecutor(max_workers=1)
 
-        def _apply_sidebar_visibility(self):
-            pass
-
-        def _apply_collapse_variants_setting(self):
-            # post-settings hook added by the collapse-variants slice (#387)
-            pass
-
-        def refresh_theme(self):
-            # post-settings hook added by the theme slice (#389)
-            pass
-
-        def _apply_channel_list_density(self):
-            # post-settings hook added by the density slice (#380/#383)
-            pass
-
-        def _refresh_recommendation_views(self):
-            pass
-
         def _manual_update_check(self):
             pass
 
+    from tests.conftest import wire_settings_dialog_hooks
+
     host = _MinimalHost(_make_config(tmp_path))
+    # Every settings_applied handler, from the shared factory. This class used
+    # to hand-list them and went red once per slice that added one.
+    wire_settings_dialog_hooks(host)
 
     captured: dict[str, SettingsDialog] = {}
     original_init = SettingsDialog.__init__

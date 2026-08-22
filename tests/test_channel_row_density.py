@@ -408,6 +408,9 @@ def test_apply_channel_list_density_updates_delegate_and_emits_layout_changed(qa
         _channel_row_delegate=delegate,
         channel_model=model,
     )
+    # The density seam also re-syncs the Style menu's ticks (see conftest).
+    from tests.conftest import wire_style_menu_actions
+    wire_style_menu_actions(fake_self)
 
     seen = []
     model.layoutChanged.connect(lambda: seen.append(True))
