@@ -18,6 +18,7 @@ creeping back.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import re
 
@@ -159,32 +160,157 @@ class TestRegistryHygiene:
 class TestDriftGuard:
     """The raw form must not creep back — the rule only holds if it can fail."""
 
+    # A regex over source LINES only ever knew one shape of the bug — the bare
+    # ``setStyleSheet(_theme.ROLE)``. Three real drift sites sailed past it: a
+    # TERNARY between two roles (recipe_bar_widgets), a CONCATENATION onto one
+    # (global_filter_dialog), and a BUILDER call composing from tokens
+    # (similar_lightbox_card). All three render once and go stale on the next
+    # theme switch, and one of them was introduced in the very file the previous
+    # theme slice was working in. So the check is an AST walk now: the shape of
+    # the expression cannot hide it.
+    #
+    # Two tiers, because the walk also surfaces ~300 sites of a DIFFERENT age:
+    #
+    #   Tier A (zero tolerated) — the argument hands over a COMPLETE role sheet
+    #     that theme.py owns: a bare role, a ternary picking between roles, a
+    #     concatenation onto one, or a theme builder call. ``theme.style`` /
+    #     ``theme.style_fn`` exist precisely for these, so there is no reason
+    #     for one to exist and each is a live staleness bug.
+    #
+    #   Tier B (ratcheted) — an f-string composing a sheet inline from tokens
+    #     (``f"color: {_theme.COLOR_MUTED};"``). Same staleness, but it predates
+    #     the registry by hundreds of call sites across nearly every GUI file;
+    #     migrating them is its own planned pass. The count may only SHRINK, so
+    #     the debt is measured and capped instead of quietly growing.
     @staticmethod
-    def _raw_sites() -> list[str]:
-        pat = re.compile(r"\.setStyleSheet\((?:_theme|theme)\.[A-Z][A-Z_0-9]*\)")
-        out = []
-        for path in sorted(pathlib.Path("metatv/gui").rglob("*.py")):
-            for i, line in enumerate(path.read_text().splitlines(), 1):
-                if pat.search(line):
-                    out.append(f"{path}:{i}: {line.strip()}")
-        return out
+    def _theme_reads(node: ast.AST) -> bool:
+        """Does this expression read anything off the theme module?"""
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id in ("_theme", "theme")
+            ):
+                return True
+        return False
 
-    def test_no_raw_setstylesheet_with_a_theme_role(self):
-        offenders = self._raw_sites()
-        assert not offenders, (
-            "these render correctly once and then go stale on every theme "
-            "switch — use theme.style(widget, \"ROLE\") instead:\n  "
-            + "\n  ".join(offenders)
+    @classmethod
+    def _drift_sites(cls) -> tuple[list[str], list[str]]:
+        """(tier_a, tier_b) — ``file:line: source`` for every drifting call."""
+        tier_a: list[str] = []
+        tier_b: list[str] = []
+        for path in sorted(pathlib.Path("metatv/gui").rglob("*.py")):
+            text = path.read_text()
+            lines = text.splitlines()
+            for node in ast.walk(ast.parse(text)):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "setStyleSheet"
+                    and node.args
+                ):
+                    continue
+                arg = node.args[0]
+                if not cls._theme_reads(arg):
+                    continue
+                site = f"{path}:{node.lineno}: {lines[node.lineno - 1].strip()}"
+                # An f-string anywhere in the argument means the sheet is being
+                # composed inline from tokens — the old, bulk population.
+                composed = any(
+                    isinstance(sub, ast.JoinedStr) for sub in ast.walk(arg)
+                )
+                (tier_b if composed else tier_a).append(site)
+        return tier_a, tier_b
+
+    @classmethod
+    def _raw_sites(cls) -> list[str]:
+        """Tier A only — kept as the name the rest of the suite refers to."""
+        return cls._drift_sites()[0]
+
+    # Measured on the tree that introduced the AST walk. It may only go DOWN:
+    # a drop means someone migrated sites and should lower this; a rise means
+    # new inline-composed styling was added instead of theme.style_fn().
+    COMPOSED_BUDGET = 292
+
+    def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
+        tier_a, _ = self._drift_sites()
+        assert not tier_a, (
+            "these hand a complete theme-owned sheet to setStyleSheet, so they "
+            "render once and go stale on every theme switch — use "
+            "theme.style(widget, \"ROLE\") for a plain role, or "
+            "theme.style_fn(widget, builder) for a composed one:\n  "
+            + "\n  ".join(tier_a)
         )
 
-    def test_the_guard_can_actually_fail(self, tmp_path, monkeypatch):
-        """A matcher that never matches would read as a clean codebase forever."""
-        pat = re.compile(r"\.setStyleSheet\((?:_theme|theme)\.[A-Z][A-Z_0-9]*\)")
-        assert pat.search('lbl.setStyleSheet(_theme.SECTION_HINT)')
-        assert pat.search('self.x.setStyleSheet(theme.LANG_CHIP)')
-        # …and does NOT flag the correct form or a composed one.
-        assert not pat.search('_theme.style(lbl, "SECTION_HINT")')
-        assert not pat.search('lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")')
+    def test_inline_composed_stylesheets_only_shrink(self):
+        """The ~300-site pre-registry population is capped, not blessed."""
+        _, tier_b = self._drift_sites()
+        assert len(tier_b) == self.COMPOSED_BUDGET, (
+            f"{len(tier_b)} inline-composed stylesheets vs budget "
+            f"{self.COMPOSED_BUDGET}. "
+            + (
+                "New styling must use theme.style_fn(widget, builder) so it "
+                "survives a theme switch."
+                if len(tier_b) > self.COMPOSED_BUDGET else
+                f"Good news — sites were migrated: lower COMPOSED_BUDGET to "
+                f"{len(tier_b)} so the ratchet keeps its teeth."
+            )
+        )
+
+    @pytest.mark.parametrize("snippet", [
+        # The bare form the old regex knew about…
+        'lbl.setStyleSheet(_theme.SECTION_HINT)',
+        'self.x.setStyleSheet(theme.LANG_CHIP)',
+        # …and the three shapes that sailed straight past it.
+        'b.setStyleSheet(_theme.RECIPE_TAB_ACTIVE if on else _theme.RECIPE_TAB)',
+        'l.setStyleSheet(_theme.LABEL_MUTED + " font-style: italic;")',
+        'r.setStyleSheet(_theme.lightbox_version_row(color))',
+    ])
+    def test_the_guard_catches_every_shape_of_the_bug(self, snippet, tmp_path):
+        """A matcher that knows one shape reads as a clean codebase forever."""
+        (tmp_path / "metatv" / "gui").mkdir(parents=True)
+        (tmp_path / "metatv" / "gui" / "probe.py").write_text(snippet + "\n")
+        cwd = pathlib.Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            assert self._drift_sites()[0], f"not caught: {snippet}"
+        finally:
+            os.chdir(cwd)
+
+    @pytest.mark.parametrize("snippet", [
+        '_theme.style(lbl, "SECTION_HINT")',
+        '_theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_MUTED};")',
+        'lbl.setStyleSheet("")',
+        'lbl.setStyleSheet(self._provider_colour_sheet)',
+    ])
+    def test_the_guard_does_not_flag_the_correct_forms(self, snippet, tmp_path):
+        """style()/style_fn() re-apply on switch, and a runtime value is not a role."""
+        (tmp_path / "metatv" / "gui").mkdir(parents=True)
+        (tmp_path / "metatv" / "gui" / "probe.py").write_text(snippet + "\n")
+        cwd = pathlib.Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            a, b = self._drift_sites()
+            assert not a and not b, f"false positive: {snippet}"
+        finally:
+            os.chdir(cwd)
+
+    def test_an_inline_composed_sheet_lands_in_the_ratchet_not_the_hard_gate(
+        self, tmp_path
+    ):
+        """The two tiers must actually sort — otherwise one of them is dead."""
+        (tmp_path / "metatv" / "gui").mkdir(parents=True)
+        (tmp_path / "metatv" / "gui" / "probe.py").write_text(
+            'w.setStyleSheet(f"color: {_theme.COLOR_MUTED};")\n'
+        )
+        cwd = pathlib.Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            tier_a, tier_b = self._drift_sites()
+            assert not tier_a, "an f-string composition is Tier B, not a hard fail"
+            assert len(tier_b) == 1, "…but it must still be counted"
+        finally:
+            os.chdir(cwd)
 
     def test_the_migration_actually_registered_widgets(self):
         """Count style() call sites — a migration that silently no-op'd would

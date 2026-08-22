@@ -102,7 +102,7 @@ class _RecipeTabBar(QWidget):
     def _apply(self) -> None:
         for i, btn in ((0, self._recipe_btn), (1, self._saved_btn)):
             active = i == self._index
-            btn.setStyleSheet(_theme.RECIPE_TAB_ACTIVE if active else _theme.RECIPE_TAB)
+            _theme.style(btn, "RECIPE_TAB_ACTIVE" if active else "RECIPE_TAB")
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this bar's own chrome (background,

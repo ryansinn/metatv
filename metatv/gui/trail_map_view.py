@@ -234,8 +234,8 @@ class _TrailRow(QWidget):
         lay.addWidget(self._actions, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._selected = selected   # exposed for path-aware highlight assertions
-        self.setStyleSheet(
-            _theme.TRAILMAP_ROW_SELECTED if selected else _theme.TRAILMAP_ROW
+        _theme.style(
+            self, "TRAILMAP_ROW_SELECTED" if selected else "TRAILMAP_ROW"
         )
 
     # A press anywhere on the row that a child button did not consume selects/expands.
@@ -261,8 +261,8 @@ class _TrailColumn(QFrame):
     def __init__(self, kicker: str, name: str, *, is_trail: bool) -> None:
         super().__init__()
         self.setObjectName("trailmap_col")
-        self.setStyleSheet(
-            _theme.TRAILMAP_TRAIL_COLUMN if is_trail else _theme.TRAILMAP_COLUMN
+        _theme.style(
+            self, "TRAILMAP_TRAIL_COLUMN" if is_trail else "TRAILMAP_COLUMN"
         )
         self.setFixedWidth(_TRAIL_COL_W if is_trail else _DRILL_COL_W)
 

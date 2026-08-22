@@ -414,7 +414,13 @@ class TestSourcesManagerViewRefreshTheme:
 
         after_empty = view._empty_label.styleSheet()
         assert after_empty == theme.EXPLORE_STATUS
-        assert after_empty != midnight_empty
+        # NOT asserted: that this string CHANGED. EXPLORE_STATUS paints on the
+        # fixed-dark cinema shell (EXPLORE_VIEW_BG == COLOR_LIGHTBOX_BG), so it
+        # is deliberately identical in every palette — a palette-tuned colour
+        # there is the bug (Daylight's muted grey measured 4.33:1 on that dark
+        # shell). "The string differs" was only ever a proxy for "refresh_theme
+        # re-applied it"; the editor button below is a theme-VARYING role and
+        # proves that directly.
 
         # Forwards to the embedded ProviderEditorView instance.
         after_editor_btn = provider_editor._action_refresh_btn.styleSheet()

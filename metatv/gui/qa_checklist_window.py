@@ -1122,8 +1122,8 @@ class QAChecklistWindow(QWidget):
         pass_btn.setToolTip("Mark passed")
         pass_btn.setFixedWidth(28)
         pass_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        pass_btn.setStyleSheet(
-            _theme.QA_PASS_BTN_ACTIVE if state == "pass" else _theme.QA_PASS_BTN
+        _theme.style(
+            pass_btn, "QA_PASS_BTN_ACTIVE" if state == "pass" else "QA_PASS_BTN"
         )
         pass_btn.clicked.connect(
             lambda _, eid=entry.id, si=idx: self._on_mark(eid, si, "pass")
@@ -1133,8 +1133,8 @@ class QAChecklistWindow(QWidget):
         fail_btn.setToolTip("Mark failed")
         fail_btn.setFixedWidth(28)
         fail_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        fail_btn.setStyleSheet(
-            _theme.QA_FAIL_BTN_ACTIVE if state == "fail" else _theme.QA_FAIL_BTN
+        _theme.style(
+            fail_btn, "QA_FAIL_BTN_ACTIVE" if state == "fail" else "QA_FAIL_BTN"
         )
         fail_btn.clicked.connect(
             lambda _, eid=entry.id, si=idx: self._on_mark(eid, si, "fail")
