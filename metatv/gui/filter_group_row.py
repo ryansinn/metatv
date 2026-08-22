@@ -192,6 +192,7 @@ class _GroupRow(QWidget):
         self._expand_btn.setFlat(True)
         self._expand_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        self._expand_btn.setToolTip("Show the codes in this group")
         self._expand_btn.clicked.connect(self._toggle_expand)
         hl.addWidget(self._expand_btn)
 
@@ -243,6 +244,10 @@ class _GroupRow(QWidget):
         self._child_container.setVisible(self._expanded)
         glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
         self._expand_btn.setText(glyph)
+        self._expand_btn.setToolTip(
+            "Hide the codes in this group" if self._expanded
+            else "Show the codes in this group"
+        )
 
     def _on_tri_changed(self, state_val: int):
         state = Qt.CheckState(state_val)
