@@ -45,9 +45,7 @@ class _StepRow(QWidget):
         layout.addWidget(self._glyph)
 
         self._label = QLabel(label)
-        self._label.setStyleSheet(
-            f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
-        )
+        _theme.style_fn(self._label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self._label)
 
@@ -161,11 +159,9 @@ class NotificationCard(QFrame):
             action_layout.addStretch()
             for label, callback in self.notification.actions:
                 btn = QPushButton(label)
-                btn.setStyleSheet(
-                    f"QPushButton {{ font-size: {_theme.FONT_MD}; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
+                _theme.style_fn(btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
                     " border-radius: 3px; padding: 2px 8px; }"
-                    f"QPushButton:hover {{ background: {_theme.OVERLAY_15}; }}"
-                )
+                    f"QPushButton:hover {{ background: {_theme.OVERLAY_15}; }}")
                 btn.setToolTip(label)
                 btn.clicked.connect(lambda _, cb=callback: (cb(), self.dismiss()))
                 action_layout.addWidget(btn)

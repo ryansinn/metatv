@@ -121,7 +121,7 @@ class ProviderItemWidget(QWidget):
         self._name_lbl.setWordWrap(False)
         self._name_lbl.setTextFormat(Qt.TextFormat.PlainText)
         if is_expired:
-            self._name_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR}; font-style: italic;")
+            _theme.style_fn(self._name_lbl, lambda: f"color: {_theme.COLOR_ERR}; font-style: italic;")
         elif sub_color:
             self._name_lbl.setStyleSheet(f"color: {sub_color};")
         layout.addWidget(self._name_lbl, 1)

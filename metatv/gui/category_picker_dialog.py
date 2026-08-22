@@ -169,13 +169,13 @@ class CategoryPickerDialog(QDialog):
         header = QLabel(
             f"Adding <b>{n:,} channel{'s' if n != 1 else ''}</b> to category:"
         )
-        header.setStyleSheet(f"font-size: {_theme.FONT_LG};")
+        _theme.style_fn(header, lambda: f"font-size: {_theme.FONT_LG};")
         vl.addWidget(header)
 
         # ── Quick-pick shortcuts ───────────────────────────────────────────────
         quick_row = QHBoxLayout()
         quick_lbl = QLabel("Quick:")
-        quick_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(quick_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         quick_row.addWidget(quick_lbl)
 
         _quick_picks = [
@@ -220,7 +220,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Mood bar ───────────────────────────────────────────────────────────
         mood_hdr = QLabel("Mood  (optional):")
-        mood_hdr.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(mood_hdr, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         vl.addWidget(mood_hdr)
 
         self._mood_bar = _MoodBar(self._config)
@@ -229,7 +229,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Global Exclusions toggle (shown when Dislike selected or new category) ──
         self._excl_cb = QCheckBox("Add this category to Global Exclusions (hide everywhere)")
-        self._excl_cb.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(self._excl_cb, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
         self._excl_cb.setToolTip(
             "Channels in this category will be hidden from Discovery,\n"
             "Recommendations, and the channel list everywhere.\n"

@@ -738,22 +738,18 @@ class QAChecklistWindow(QWidget):
 
         # ── header bar ────────────────────────────────────────────────────────
         header_bar = QWidget()
-        header_bar.setStyleSheet(
-            f"background: {_theme.COLOR_BG_BAR};"
-            f" border-bottom: 1px solid {_theme.COLOR_LINE};"
-        )
+        _theme.style_fn(header_bar, lambda: f"background: {_theme.COLOR_BG_BAR};"
+            f" border-bottom: 1px solid {_theme.COLOR_LINE};")
         hbar_layout = QHBoxLayout(header_bar)
         hbar_layout.setContentsMargins(12, 8, 12, 8)
 
         icon_label = QLabel(_icons.qa_checklist_icon)
-        icon_label.setStyleSheet(f"font-size: {_theme.FONT_2XL};")
+        _theme.style_fn(icon_label, lambda: f"font-size: {_theme.FONT_2XL};")
         hbar_layout.addWidget(icon_label)
 
         title_label = QLabel("Testing Checklist")
-        title_label.setStyleSheet(
-            f"font-size: {_theme.FONT_LG}; font-weight: bold;"
-            f" color: {_theme.COLOR_TEXT};"
-        )
+        _theme.style_fn(title_label, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold;"
+            f" color: {_theme.COLOR_TEXT};")
         hbar_layout.addWidget(title_label, stretch=1)
 
         self._purge_btn = QPushButton(f"{_icons.qa_purge_icon}  Mark all done")
@@ -954,7 +950,7 @@ class QAChecklistWindow(QWidget):
                 self._render_entry(entry)
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.HLine)
-                sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+                _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
                 self._body_layout.addWidget(sep)
 
             all_done = self._all_complete(open_entries)
@@ -982,20 +978,18 @@ class QAChecklistWindow(QWidget):
 
         icon_lbl = QLabel(_icons.qa_all_clear_icon)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet(f"font-size: {_theme.FONT_4XL};")
+        _theme.style_fn(icon_lbl, lambda: f"font-size: {_theme.FONT_4XL};")
         layout.addWidget(icon_lbl)
 
         msg_lbl = QLabel("Nothing to test")
         msg_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        msg_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_XL}; color: {_theme.COLOR_MUTED}; padding: 8px 0 4px 0;"
-        )
+        _theme.style_fn(msg_lbl, lambda: f"font-size: {_theme.FONT_XL}; color: {_theme.COLOR_MUTED}; padding: 8px 0 4px 0;")
         layout.addWidget(msg_lbl)
 
         sub_lbl = QLabel("All test steps pass or no entries have steps yet.")
         sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub_lbl.setWordWrap(True)
-        sub_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(sub_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
         layout.addWidget(sub_lbl)
 
         self._body_layout.addWidget(container)
@@ -1047,7 +1041,7 @@ class QAChecklistWindow(QWidget):
             header_layout.addWidget(fail_badge)
 
         ref_lbl = QLabel(entry.date)
-        ref_lbl.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+        _theme.style_fn(ref_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         ref_lbl.setOpenExternalLinks(True)
         header_layout.addWidget(ref_lbl)
         self._ref_labels[entry.id] = ref_lbl
@@ -1200,11 +1194,9 @@ class QAChecklistWindow(QWidget):
                         f"Jump to addressing entry #{addr_eid} in this checklist"
                     )
                     jump_btn.setFixedWidth(24)
-                    jump_btn.setStyleSheet(
-                        f"QPushButton {{ border: none; color: {_theme.COLOR_OK};"
+                    _theme.style_fn(jump_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_OK};"
                         f" font-size: {_theme.FONT_MD}; }}"
-                        f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-                    )
+                        f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
                     jump_btn.clicked.connect(
                         lambda _, eid=addr_eid: self._jump_to_entry(eid)
                     )
@@ -1320,9 +1312,7 @@ class QAChecklistWindow(QWidget):
         if last_retested:
             retested_lbl = QLabel(f"re-reviewed {last_retested[:10]}")
             retested_lbl.setToolTip(f"Last re-reviewed at {last_retested}")
-            retested_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_OK};"
-            )
+            _theme.style_fn(retested_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_OK};")
             chips_layout.addWidget(retested_lbl)
 
         chips_layout.addStretch(1)
@@ -1338,7 +1328,7 @@ class QAChecklistWindow(QWidget):
         """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         self._body_layout.addWidget(sep)
 
         # ── header row with toggle ────────────────────────────────────────────
@@ -1355,18 +1345,14 @@ class QAChecklistWindow(QWidget):
             "Show archived entries" if collapsed else "Hide archived entries"
         )
         toggle_btn.setFixedWidth(24)
-        toggle_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}"
-        )
+        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}")
         self._archived_toggle_btn = toggle_btn
         hdr_layout.addWidget(toggle_btn)
 
         section_hdr = QLabel(f"Archived ({len(archived)})")
-        section_hdr.setStyleSheet(
-            f"font-size: {_theme.FONT_SM}; font-weight: bold;"
-            f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;"
-        )
+        _theme.style_fn(section_hdr, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold;"
+            f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;")
         hdr_layout.addWidget(section_hdr, stretch=1)
         self._body_layout.addWidget(hdr_row)
 
@@ -1381,7 +1367,7 @@ class QAChecklistWindow(QWidget):
             self._render_entry(entry, archived=True, parent_layout=container_layout)
             inner_sep = QFrame()
             inner_sep.setFrameShape(QFrame.Shape.HLine)
-            inner_sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
+            _theme.style_fn(inner_sep, lambda: f"color: {_theme.COLOR_LINE_DARK};")
             container_layout.addWidget(inner_sep)
 
         # Track the hidden attribute explicitly — Qt's isVisible() returns False
@@ -1429,7 +1415,7 @@ class QAChecklistWindow(QWidget):
         """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         self._body_layout.addWidget(sep)
 
         collapsed: bool = getattr(self._config, "qa_flagged_collapsed", False)
@@ -1453,19 +1439,15 @@ class QAChecklistWindow(QWidget):
             "Show flagged items" if collapsed else "Hide flagged items"
         )
         flagged_toggle_btn.setFixedWidth(24)
-        flagged_toggle_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}"
-        )
+        _theme.style_fn(flagged_toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}")
         hdr_layout.addWidget(flagged_toggle_btn)
 
         section_hdr = QLabel(
             f"{_icons.qa_flag_icon} Flagged Items ({len(active_items)})"
         )
-        section_hdr.setStyleSheet(
-            f"font-size: {_theme.FONT_SM}; font-weight: bold;"
-            f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;"
-        )
+        _theme.style_fn(section_hdr, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold;"
+            f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;")
         hdr_layout.addWidget(section_hdr, stretch=1)
 
         add_btn = QPushButton(f"+ Add item")
@@ -1565,20 +1547,16 @@ class QAChecklistWindow(QWidget):
             "Show resolved items" if collapsed else "Hide resolved items"
         )
         toggle_btn.setFixedWidth(24)
-        toggle_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_SM}; }}"
-        )
+        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}")
         hdr_layout.addWidget(toggle_btn)
 
         section_hdr = QLabel(f"{_icons.qa_addressed_icon} Resolved ({len(resolved)})")
         section_hdr.setToolTip(
             "Flagged items a later PR has addressed — re-test, then remove."
         )
-        section_hdr.setStyleSheet(
-            f"font-size: {_theme.FONT_SM}; font-weight: bold;"
-            f" color: {_theme.COLOR_OK}; letter-spacing: 1px;"
-        )
+        _theme.style_fn(section_hdr, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold;"
+            f" color: {_theme.COLOR_OK}; letter-spacing: 1px;")
         hdr_layout.addWidget(section_hdr, stretch=1)
         self._body_layout.addWidget(hdr_row)
 
@@ -1649,10 +1627,8 @@ class QAChecklistWindow(QWidget):
             return
 
         card = QWidget()
-        card.setStyleSheet(
-            f"QWidget {{ background: {_theme.OVERLAY_04};"
-            f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; }}"
-        )
+        _theme.style_fn(card, lambda: f"QWidget {{ background: {_theme.OVERLAY_04};"
+            f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; }}")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(8, 6, 8, 6)
         card_layout.setSpacing(4)
@@ -1668,11 +1644,9 @@ class QAChecklistWindow(QWidget):
         title_edit.setPlaceholderText("What did you notice?")
         title_edit.setText(item.get("title", ""))
         title_edit.setToolTip("Brief title for this observation")
-        title_edit.setStyleSheet(
-            f"QLineEdit {{ background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_LINE};"
+        _theme.style_fn(title_edit, lambda: f"QLineEdit {{ background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_LINE};"
             f" border-radius: 3px; padding: 2px 6px; color: {_theme.COLOR_TEXT};"
-            f" font-size: {_theme.FONT_MD}; }}"
-        )
+            f" font-size: {_theme.FONT_MD}; }}")
         self._flagged_title_edits[item_id] = title_edit
         title_row_layout.addWidget(title_edit, stretch=1)
 
@@ -1684,12 +1658,10 @@ class QAChecklistWindow(QWidget):
             "bug = reproducible defect  feature = enhancement request  note = observation"
         )
         type_btn.setFixedWidth(88)
-        type_btn.setStyleSheet(
-            f"QPushButton {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px;"
+        _theme.style_fn(type_btn, lambda: f"QPushButton {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px;"
             f" color: {_theme.COLOR_TEXT_LOW}; font-size: {_theme.FONT_SM};"
             f" padding: 1px 4px; }}"
-            f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
+            f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         title_row_layout.addWidget(type_btn)
 
         status = item.get("status", "open")
@@ -1709,10 +1681,8 @@ class QAChecklistWindow(QWidget):
         remove_btn = QPushButton(_icons.close_icon)
         remove_btn.setToolTip("Remove this flagged item")
         remove_btn.setFixedWidth(24)
-        remove_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
-            f" font-size: {_theme.FONT_MD}; }}"
-        )
+        _theme.style_fn(remove_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_MD}; }}")
         title_row_layout.addWidget(remove_btn)
 
         card_layout.addWidget(title_row)
@@ -1772,9 +1742,7 @@ class QAChecklistWindow(QWidget):
         created = item.get("created", "") or "?"
         meta_lbl = QLabel(f"build {sha} · {created[:10]}")
         meta_lbl.setToolTip(f"Flagged on build {sha} at {created}")
-        meta_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_FAINT};"
-        )
+        _theme.style_fn(meta_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_FAINT};")
         chips_layout.addWidget(meta_lbl)
 
         card_layout.addWidget(chips_row)

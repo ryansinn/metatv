@@ -52,9 +52,7 @@ class NewFacetValuesDialog(QDialog):
         vl.setSpacing(10)
 
         header = QLabel(f"{_icons.discover_icon} New filter values found")
-        header.setStyleSheet(
-            f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};"
-        )
+        _theme.style_fn(header, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
         vl.addWidget(header)
 
         hint = QLabel(
@@ -63,7 +61,7 @@ class NewFacetValuesDialog(QDialog):
             "uncheck any you'd like to exclude."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(hint, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         vl.addWidget(hint)
 
         scroll = QScrollArea()
@@ -80,10 +78,8 @@ class NewFacetValuesDialog(QDialog):
             if not values:
                 continue
             grp_lbl = QLabel(title.upper())
-            grp_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_SM}; font-weight: bold; "
-                f"color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px; padding-top: 6px;"
-            )
+            _theme.style_fn(grp_lbl, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold; "
+                f"color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px; padding-top: 6px;")
             il.addWidget(grp_lbl)
 
             value_labels = labels.get(section_key, {})
@@ -94,9 +90,7 @@ class NewFacetValuesDialog(QDialog):
                     display = f"{display}  ({value})"
                 cb = QCheckBox(display)
                 cb.setChecked(True)
-                cb.setStyleSheet(
-                    f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};"
-                )
+                _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
                 il.addWidget(cb)
                 self._checks[section_key][value] = cb
 

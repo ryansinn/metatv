@@ -223,7 +223,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # Thin separator
         self._header_sep = QFrame()
         self._header_sep.setFrameShape(QFrame.Shape.HLine)
-        self._header_sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
+        _theme.style_fn(self._header_sep, lambda: f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
         root.addWidget(self._header_sep)
 
         # ── Stale-EPG notice ────────────────────────────────────────────
@@ -419,14 +419,14 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         h.setContentsMargins(0, 2, 0, 2)
         h.setSpacing(8)
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_2};")
         h.addWidget(lbl, 1)
         det = QLabel(detail)
-        det.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(det, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
         h.addWidget(det)
         rm_btn = QPushButton(self.config.close_icon)
         rm_btn.setFixedWidth(24)
-        rm_btn.setStyleSheet(f"border: none; color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL}; font-weight: bold;")
+        _theme.style_fn(rm_btn, lambda: f"border: none; color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL}; font-weight: bold;")
         rm_btn.setToolTip("Remove")
         rm_btn.clicked.connect(on_remove)
         h.addWidget(rm_btn)
@@ -543,17 +543,15 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         is torn down and rebuilt from current tokens on every reload, so it's
         already live — same rationale as the channel-list row delegate.
         """
-        self._header_sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
+        _theme.style_fn(self._header_sep, lambda: f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
         _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
 
         # Watchlist / My Channels / Discover tabs (epg_watchlist_mixin.py)
         _theme.style(self._watchlist_hint_lbl, "LABEL_MUTED")
-        self._watchlist_ci_note_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
         _theme.style(self.ch_empty_label, "EMPTY_LABEL")
         _theme.style(self._rec_title_lbl, "CHANNEL_NAME_DIM")
-        self.manage_dismissed_btn.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;"
-        )
+        _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")
         _theme.style(self.rec_empty_label, "EMPTY_LABEL")
 
         # On Now tab (epg_on_now_mixin.py)
@@ -564,9 +562,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         _theme.style(self._scrubber_left_label, "LABEL_MUTED")
         _theme.style(self._scrubber_right_label, "LABEL_MUTED")
         _theme.style(self._scrubber_pos_label, "EPG_SCRUBBER_POS")
-        self.browse_placeholder.setStyleSheet(
-            f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;"
-        )
+        _theme.style_fn(self.browse_placeholder, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         _theme.style(self.browse_stats, "LABEL_MUTED")
 
         # Events tab (epg_events_mixin.py) — reuse the existing active/inactive
@@ -709,7 +705,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             btn_cat.clicked.connect(lambda: (self._hide_category(category), dlg.accept()))
             lay.addWidget(btn_cat)
         cancel = QPushButton("Cancel")
-        cancel.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(cancel, lambda: f"color: {_theme.COLOR_MUTED};")
         cancel.clicked.connect(dlg.reject)
         lay.addWidget(cancel)
         dlg.exec()

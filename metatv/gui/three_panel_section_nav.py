@@ -44,14 +44,12 @@ class ThreePanelSectionNav(QWidget):
         self.section_list = QListWidget()
         self.section_list.setFixedWidth(160)
         self.section_list.setToolTip("Choose a settings section.")
-        self.section_list.setStyleSheet(
-            "QListWidget { border: none; border-right: 1px solid "
+        _theme.style_fn(self.section_list, lambda: "QListWidget { border: none; border-right: 1px solid "
             f"{_theme.COLOR_LINE}; background: transparent; font-size: {_theme.FONT_XL};"
             " outline: none; }"
             f"QListWidget::item {{ padding: 8px 12px; color: {_theme.COLOR_TEXT_LOW}; }}"
             "QListWidget::item:hover { background: "
-            f"{_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT_2}; }}"
-        )
+            f"{_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT_2}; }}")
         # Shared "coloured-text item view" selection chokepoint (soft tint +
         # left accent bar) — appends onto the base stylesheet above.
         _theme.apply_list_selection(self.section_list)
@@ -63,11 +61,9 @@ class ThreePanelSectionNav(QWidget):
         self.help_panel.setOpenExternalLinks(False)
         self.help_panel.setReadOnly(True)
         self.help_panel.setToolTip("Help for the selected settings section.")
-        self.help_panel.setStyleSheet(
-            "QTextBrowser { border: none; border-left: 1px solid "
+        _theme.style_fn(self.help_panel, lambda: "QTextBrowser { border: none; border-left: 1px solid "
             f"{_theme.COLOR_LINE}; background: transparent; color: {_theme.COLOR_MUTED};"
-            f" font-size: {_theme.FONT_MD}; padding: 10px; }}"
-        )
+            f" font-size: {_theme.FONT_MD}; padding: 10px; }}")
 
         layout.addWidget(self.section_list)
         layout.addWidget(self.stack, 1)

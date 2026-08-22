@@ -48,9 +48,7 @@ class _CategorySection(QWidget):
 
         # ── Header ─────────────────────────────────────────────────────────────
         hdr = QWidget()
-        hdr.setStyleSheet(
-            f"QWidget {{ background: {_theme.COLOR_BG_CARD}; border-radius: 4px; }}"
-        )
+        _theme.style_fn(hdr, lambda: f"QWidget {{ background: {_theme.COLOR_BG_CARD}; border-radius: 4px; }}")
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(8, 6, 8, 6)
         hl.setSpacing(6)
@@ -64,19 +62,17 @@ class _CategorySection(QWidget):
 
         mood_icon = self._mood_icon()
         name_lbl = QLabel(f"{mood_icon}  {self._name}")
-        name_lbl.setStyleSheet(f"font-weight: bold; font-size: {_theme.FONT_LG};")
+        _theme.style_fn(name_lbl, lambda: f"font-weight: bold; font-size: {_theme.FONT_LG};")
         hl.addWidget(name_lbl)
 
         count_lbl = QLabel(f"({self._count:,})")
-        count_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(count_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         hl.addWidget(count_lbl)
 
         if self._is_excluded:
             badge = QLabel("globally excluded")
-            badge.setStyleSheet(
-                f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_SM}; padding: 2px 6px;"
-                f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px;"
-            )
+            _theme.style_fn(badge, lambda: f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_SM}; padding: 2px 6px;"
+                f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px;")
             badge.setToolTip(
                 "Channels in this category are hidden everywhere.\n"
                 "Open Global Exclusions to change this."
@@ -127,7 +123,7 @@ class _CategorySection(QWidget):
 
         if not channels:
             lbl = QLabel("No channels in this category.")
-            lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 4px 0;")
+            _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 4px 0;")
             self._body_vl.addWidget(lbl)
             return
 
@@ -141,25 +137,21 @@ class _CategorySection(QWidget):
         hl.setSpacing(6)
 
         name_lbl = QLabel(channel.name)
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
         hl.addWidget(name_lbl, 1)
 
         move_btn = QPushButton("Change Category")
         move_btn.setFlat(True)
-        move_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
-        )
+        _theme.style_fn(move_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}")
         move_btn.setToolTip("Move this channel to a different category")
         move_btn.clicked.connect(lambda _, cid=channel.id: self._change_category(cid))
         hl.addWidget(move_btn)
 
         remove_btn = QPushButton(f"{self._config.close_icon} Remove")
         remove_btn.setFlat(True)
-        remove_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"
-        )
+        _theme.style_fn(remove_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}")
         remove_btn.setToolTip(
             "Remove from this category — channel returns to normal visibility"
         )
@@ -225,17 +217,17 @@ class CategoriesDialog(QDialog):
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("Your Categories")
-        hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
+        _theme.style_fn(hdr, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
         hint = QLabel("Expand a category to see its channels and manage assignments.")
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         hdr_row.addWidget(hint)
         vl.addLayout(hdr_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
         vl.addWidget(sep)
 
         self._scroll_area = QScrollArea()
@@ -277,7 +269,7 @@ class CategoriesDialog(QDialog):
                 'or "Add to Category..." to get started.'
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_LG}; padding: 30px;")
+            _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_LG}; padding: 30px;")
             self._scroll_vl.addWidget(empty)
         else:
             for cat in cats:

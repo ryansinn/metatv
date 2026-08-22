@@ -163,7 +163,7 @@ class _ProviderEditorTabsMixin:
         group_layout.addLayout(btn_row)
 
         self._acct_error_lbl = QLabel("")
-        self._acct_error_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._acct_error_lbl, lambda: f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD};")
         self._acct_error_lbl.hide()
         group_layout.addWidget(self._acct_error_lbl)
 
@@ -271,7 +271,7 @@ class _ProviderEditorTabsMixin:
                 self._acct_progress.show()
             else:
                 self._acct_remaining_lbl.setText("Expired")
-                self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {_theme.COLOR_ERR};")
+                _theme.style_fn(self._acct_remaining_lbl, lambda: f"font-weight: 600; color: {_theme.COLOR_ERR};")
                 self._acct_progress.setValue(0)
                 self._acct_progress.show()
         else:

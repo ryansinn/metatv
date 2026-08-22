@@ -280,7 +280,7 @@ class _EpgBrowseMixin:
 
         self.browse_placeholder = QLabel("Loading the upcoming schedule…")
         self.browse_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
+        _theme.style_fn(self.browse_placeholder, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         layout.addWidget(self.browse_placeholder)
 
         # Browse-only "###,### programmes" count — it belongs to this tab page, not

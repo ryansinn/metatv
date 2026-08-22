@@ -75,7 +75,7 @@ class _Shelf(QWidget):
         header.setSpacing(2)
 
         self._title_lbl = QLabel(f"<b>{title}</b>")
-        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL};")
+        _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_XL};")
         header.addWidget(self._title_lbl)
         header.addStretch()
 
@@ -87,10 +87,8 @@ class _Shelf(QWidget):
 
         self._see_all_btn = QPushButton("See all →")
         self._see_all_btn.setFlat(True)
-        self._see_all_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
+        _theme.style_fn(self._see_all_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         self._see_all_btn.clicked.connect(lambda: self.seeAllRequested.emit(self._shelf_key))
         header.addWidget(self._see_all_btn)
 
@@ -188,11 +186,9 @@ class _Shelf(QWidget):
         if self._collapsed:
             self._collapse_btn.setText(self._config.expand_icon)
             self._collapse_btn.setToolTip("Expand")
-            self._collapse_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; "
+            _theme.style_fn(self._collapse_btn, lambda: "QPushButton { background: transparent; border: none; "
                 f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
             cursor_affordance.set_clickable(self._title_lbl, True)
@@ -200,11 +196,9 @@ class _Shelf(QWidget):
         else:
             self._collapse_btn.setText(self._config.collapse_icon)
             self._collapse_btn.setToolTip("Collapse")
-            self._collapse_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; "
+            _theme.style_fn(self._collapse_btn, lambda: "QPushButton { background: transparent; border: none; "
                 f"color: {_theme.COLOR_DISABLED}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
             cursor_affordance.set_clickable(self._title_lbl, False)
@@ -216,19 +210,15 @@ class _Shelf(QWidget):
         if self._pinned:
             self._pin_btn.setText(self._config.pin_icon)
             self._pin_btn.setToolTip("Unpin")
-            self._pin_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; "
+            _theme.style_fn(self._pin_btn, lambda: "QPushButton { background: transparent; border: none; "
                 f"color: {_theme.COLOR_GOLD}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_GOLD_LIGHT}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_GOLD_LIGHT}; }}")
         else:
             self._pin_btn.setText(self._config.pin_icon)
             self._pin_btn.setToolTip("Pin to top")
-            self._pin_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; "
+            _theme.style_fn(self._pin_btn, lambda: "QPushButton { background: transparent; border: none; "
                 f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
 
     def set_collapsed(self, collapsed: bool) -> None:
         self._collapsed = collapsed
@@ -245,9 +235,7 @@ class _Shelf(QWidget):
         if self._collapsed:
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
-            self.setStyleSheet(
-                f"QWidget {{ background: {_theme.OVERLAY_18}; border-radius: 4px; }}"
-            )
+            _theme.style_fn(self, lambda: f"QWidget {{ background: {_theme.OVERLAY_18}; border-radius: 4px; }}")
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:

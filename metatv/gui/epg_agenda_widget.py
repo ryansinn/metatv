@@ -126,7 +126,7 @@ class EpgAgendaWidget(QWidget):
     def _build_now_card(self, prog, now: datetime) -> QWidget:
         card = QWidget()
         card.setObjectName("nowCard")
-        card.setStyleSheet(f"""
+        _theme.style_fn(card, lambda: f"""
             QWidget#nowCard {{
                 background: {_theme.OVERLAY_WARN_06};
                 border-left: 3px solid {_theme.COLOR_WARN};
@@ -142,12 +142,12 @@ class EpgAgendaWidget(QWidget):
         # Ignored horizontal policy: layout skips minimumSizeHint() for this widget,
         # preventing a long show title from expanding the scroll area content width.
         title_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        title_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
+        _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         layout.addWidget(title_lbl)
 
         time_str = f"{_fmt_time(prog.start_time)} — {_fmt_time(prog.stop_time)}  ·  {_fmt_duration(prog.start_time, prog.stop_time)}"
         time_lbl = QLabel(time_str)
-        time_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM_2};")
+        _theme.style_fn(time_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM_2};")
         layout.addWidget(time_lbl)
 
         pct = _progress_pct(prog.start_time, prog.stop_time, now)
@@ -155,7 +155,7 @@ class EpgAgendaWidget(QWidget):
         layout.addWidget(bar)
 
         remaining_lbl = QLabel(f"{pct}%  ·  {_remaining_str(prog.stop_time, now)}")
-        remaining_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(remaining_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
         layout.addWidget(remaining_lbl)
 
         return card
@@ -168,16 +168,16 @@ class EpgAgendaWidget(QWidget):
 
         time_lbl = QLabel(_fmt_time(prog.start_time))
         time_lbl.setFixedWidth(58)
-        time_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};")
+        _theme.style_fn(time_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};")
         h.addWidget(time_lbl)
 
         title_lbl = QLabel(prog.title)
-        title_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
         title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         h.addWidget(title_lbl, 1)
 
         dur_lbl = QLabel(_fmt_duration(prog.start_time, prog.stop_time))
-        dur_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(dur_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
         dur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         h.addWidget(dur_lbl)
 
@@ -188,7 +188,7 @@ class EpgAgendaWidget(QWidget):
             bell_btn.setFixedWidth(26)
             bell_btn.setCheckable(True)
             bell_btn.setChecked(in_wl)
-            bell_btn.setStyleSheet(f"border: none; padding: 0; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(bell_btn, lambda: f"border: none; padding: 0; font-size: {_theme.FONT_MD};")
             bell_btn.setToolTip("Remove from watchlist" if in_wl else "Add to watchlist")
             bell_btn.toggled.connect(
                 lambda checked, t=prog.title, b=bell_btn: self._toggle_watchlist(t, checked, b)
@@ -244,14 +244,12 @@ class _ProgressBar(QWidget):
 def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet(f"color: {_theme.OVERLAY_08};")
+    _theme.style_fn(line, lambda: f"color: {_theme.OVERLAY_08};")
     return line
 
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
-    lbl.setStyleSheet(
-        f"font-size: {_theme.FONT_SM}; font-weight: bold; color: {_theme.COLOR_FAINT}; letter-spacing: 1px;"
-        " padding: 6px 10px 2px 10px;"
-    )
+    _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold; color: {_theme.COLOR_FAINT}; letter-spacing: 1px;"
+        " padding: 6px 10px 2px 10px;")
     return lbl

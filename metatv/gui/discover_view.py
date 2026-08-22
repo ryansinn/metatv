@@ -112,7 +112,7 @@ class DiscoverView(QWidget):
 
         # Zoom icon label
         self._zoom_icon_lbl = QLabel(_icons.zoom_icon)
-        self._zoom_icon_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         self._zoom_icon_lbl.setToolTip("Resize Discover cards")
         hbl.addWidget(self._zoom_icon_lbl)
 
@@ -155,10 +155,8 @@ class DiscoverView(QWidget):
 
         self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         self._manage_btn.setFlat(True)
-        self._manage_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
+        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._manage_btn.clicked.connect(self._open_manage_dialog)
         hbl.addWidget(self._manage_btn)
         vl.addWidget(header_bar)
@@ -179,7 +177,7 @@ class DiscoverView(QWidget):
 
         self._loading_lbl = QLabel("Loading…")
         self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
+        _theme.style_fn(self._loading_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
         self._shelves_layout.addWidget(self._loading_lbl)
 
         # Zone containers
@@ -199,8 +197,7 @@ class DiscoverView(QWidget):
 
         self._more_btn = QPushButton("▶  More Categories")
         self._more_btn.setFixedHeight(36)
-        self._more_btn.setStyleSheet(
-            "QPushButton {"
+        _theme.style_fn(self._more_btn, lambda: "QPushButton {"
             f"  background: {_theme.OVERLAY_08};"
             "  border: none;"
             "  border-radius: 4px;"
@@ -212,8 +209,7 @@ class DiscoverView(QWidget):
             "QPushButton:hover {"
             f"  background: {_theme.OVERLAY_15};"
             f"  color: {_theme.COLOR_TEXT};"
-            "}"
-        )
+            "}")
         self._more_btn.clicked.connect(self._toggle_more_categories)
         self._more_btn.setVisible(False)
         self._more_expanded = self._config.discover_more_expanded
@@ -732,14 +728,11 @@ class DiscoverView(QWidget):
         channel-list row delegate — not swept here; follow-up if a live
         mid-session restyle of an already-open shelf is wanted.
         """
-        self._zoom_icon_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        self._manage_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
-        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
-        self._more_btn.setStyleSheet(
-            "QPushButton {"
+        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
+        _theme.style_fn(self._loading_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
+        _theme.style_fn(self._more_btn, lambda: "QPushButton {"
             f"  background: {_theme.OVERLAY_08};"
             "  border: none;"
             "  border-radius: 4px;"
@@ -751,8 +744,7 @@ class DiscoverView(QWidget):
             "QPushButton:hover {"
             f"  background: {_theme.OVERLAY_15};"
             f"  color: {_theme.COLOR_TEXT};"
-            "}"
-        )
+            "}")
         if hasattr(self._browse_view, "refresh_theme"):
             self._browse_view.refresh_theme()
 

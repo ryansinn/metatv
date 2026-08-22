@@ -293,10 +293,8 @@ class _PosterSection(QWidget):
         _poster_sp = self.poster_label.sizePolicy()
         _poster_sp.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
         self.poster_label.setSizePolicy(_poster_sp)
-        self.poster_label.setStyleSheet(
-            f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
-            f" color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_SM}; }}"
-        )
+        _theme.style_fn(self.poster_label, lambda: f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
+            f" color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_SM}; }}")
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")
         self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
@@ -330,10 +328,8 @@ class _PosterSection(QWidget):
         self._action_rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # Dark-gray gutter panel (not pitch black) beside the poster; the individual
         # button fills (DETAIL_RAIL_BTN, ~40% light) read as frosted chips on top of it.
-        self._action_rail.setStyleSheet(
-            f"#posterActionRail {{ background-color: {_theme.COLOR_BG_CARD};"
-            f" border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}"
-        )
+        _theme.style_fn(self._action_rail, lambda: f"#posterActionRail {{ background-color: {_theme.COLOR_BG_CARD};"
+            f" border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}")
         self._action_rail_layout = QVBoxLayout(self._action_rail)
         # Symmetric margins so the fixed-size buttons center horizontally in the rail.
         self._action_rail_layout.setContentsMargins(0, 0, 0, 0)
@@ -350,7 +346,7 @@ class _PosterSection(QWidget):
         live_layout.setSpacing(8)
 
         self._country_info_lbl = QLabel()
-        self._country_info_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED}; font-style: italic;")
+        _theme.style_fn(self._country_info_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED}; font-style: italic;")
         self._country_info_lbl.setWordWrap(True)
         _no_width_force(self._country_info_lbl)
         self._country_info_lbl.hide()
@@ -873,9 +869,7 @@ class _MetadataSection(QWidget):
         title_bar_layout.addWidget(self._quality_chip)
 
         self._name_year_lbl = QLabel()
-        self._name_year_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_MUTED}; font-weight: bold;"
-        )
+        _theme.style_fn(self._name_year_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_MUTED}; font-weight: bold;")
         self._name_year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._name_year_lbl.hide()
         title_bar_layout.addWidget(self._name_year_lbl)
@@ -894,14 +888,12 @@ class _MetadataSection(QWidget):
         # and the trailing stretch absorbs the slack.
         badge_row = QHBoxLayout()
         self.source_label = _ClickableLabel()
-        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self.source_label, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         self.source_label.hide()
         badge_row.addWidget(self.source_label)
         self.adult_indicator = QLabel("🔞 Adult")
-        self.adult_indicator.setStyleSheet(
-            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
-            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
-        )
+        _theme.style_fn(self.adult_indicator, lambda: f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
+            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;")
         self.adult_indicator.hide()
         badge_row.addWidget(self.adult_indicator)
         badge_row.addStretch()
@@ -910,9 +902,7 @@ class _MetadataSection(QWidget):
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
-        self._tagline_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};"
-        )
+        _theme.style_fn(self._tagline_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};")
         _no_width_force(self._tagline_lbl)
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
@@ -941,31 +931,25 @@ class _MetadataSection(QWidget):
         media_row_layout.addWidget(self.runtime_label)
 
         self._imdb_lbl = QLabel()
-        self._imdb_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
-        )
+        _theme.style_fn(self._imdb_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};")
         self._imdb_lbl.hide()
         media_row_layout.addWidget(self._imdb_lbl)
 
         self._tmdb_lbl = QLabel()
-        self._tmdb_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
-        )
+        _theme.style_fn(self._tmdb_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};")
         self._tmdb_lbl.hide()
         media_row_layout.addWidget(self._tmdb_lbl)
 
         # PG-13 / content-rating badge — right of the IDs, left of the stars
         self._content_rating_lbl = QLabel()
-        self._content_rating_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
-            f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;"
-        )
+        _theme.style_fn(self._content_rating_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+            f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;")
         self._content_rating_lbl.hide()
         media_row_layout.addWidget(self._content_rating_lbl)
 
         # Star rating — rightmost, hidden when no rating present (no empty gap)
         self.rating_label = QLabel()
-        self.rating_label.setStyleSheet(f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
+        _theme.style_fn(self.rating_label, lambda: f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
         self.rating_label.hide()
         media_row_layout.addWidget(self.rating_label)
 
@@ -979,9 +963,7 @@ class _MetadataSection(QWidget):
         # it once genres arrive.  Both start hidden; load_basic() shows the loading label;
         # load_metadata() hides it and populates the flow container.
         self._genres_loading_lbl = QLabel()
-        self._genres_loading_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};"
-        )
+        _theme.style_fn(self._genres_loading_lbl, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
         self._genres_loading_lbl.hide()
         layout.addWidget(self._genres_loading_lbl)
 
@@ -998,7 +980,7 @@ class _MetadataSection(QWidget):
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
-        self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
+        _theme.style_fn(self.rec_reason_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
         self.rec_reason_label.setWordWrap(True)
         _no_width_force(self.rec_reason_label)
         self.rec_reason_label.hide()
@@ -1010,7 +992,7 @@ class _MetadataSection(QWidget):
             self._genres_loading_lbl.hide()
             self._genres_container.hide()
         if is_live:
-            self.title_label.setStyleSheet(f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
+            _theme.style_fn(self.title_label, lambda: f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
             self._tagline_lbl.hide()
             # rating_label and _content_rating_lbl live on _media_row which is
             # already hidden above via self._media_row.setVisible(not is_live)

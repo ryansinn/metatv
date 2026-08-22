@@ -307,24 +307,21 @@ class FilterPanel(QWidget):
         style computation isn't duplicated) and
         ``MainWindow.refresh_theme()``.
         """
-        self.setStyleSheet(f"background: {_theme.COLOR_BG_SECTION};")
-        self._header_bar.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")
-        self._includes_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(self, lambda: f"background: {_theme.COLOR_BG_SECTION};")
+        _theme.style_fn(self._header_bar, lambda: f"background: {_theme.COLOR_LINE_DARK};")
+        _theme.style_fn(self._includes_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
         _theme.style(self._all_btn, "PANEL_BTN")
         _theme.style(self._clear_btn, "PANEL_BTN")
-        self._hide_watched_row.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")
-        self._hide_watched_cb.setStyleSheet(
-            f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};"
-        )
-        self._scroll.setStyleSheet(f"""
+        _theme.style_fn(self._hide_watched_row, lambda: f"background: {_theme.COLOR_LINE_DARK};")
+        _theme.style_fn(self._hide_watched_cb, lambda: f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._scroll, lambda: f"""
             QScrollArea {{ border:none; background:{_theme.COLOR_BG_SECTION}; }}
             QScrollBar:vertical {{ background:{_theme.COLOR_BG_BAR}; width:6px; border-radius:3px; }}
             QScrollBar::handle:vertical {{ background:{_theme.COLOR_BORDER}; border-radius:3px; }}
         """)
-        self._section_container.setStyleSheet(f"background:{_theme.COLOR_BG_SECTION};")
+        _theme.style_fn(self._section_container, lambda: f"background:{_theme.COLOR_BG_SECTION};")
         for line in self._dividers:
-            line.setStyleSheet(f"background:{_theme.COLOR_LINE_DARK}; border:none;")
+            _theme.style_fn(line, lambda: f"background:{_theme.COLOR_LINE_DARK}; border:none;")
         for sec in self._all_sections():
             sec.refresh_theme()
 
@@ -950,7 +947,7 @@ class FilterPanel(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
-        line.setStyleSheet(f"background:{_theme.COLOR_LINE_DARK}; border:none;")
+        _theme.style_fn(line, lambda: f"background:{_theme.COLOR_LINE_DARK}; border:none;")
         self._sl.addWidget(line)
         self._dividers.append(line)
 
@@ -987,10 +984,8 @@ class FilterPanel(QWidget):
 
     def _on_item_right_clicked(self, item_key: str, section_key: str, pos: QPoint):
         menu = QMenu(self)
-        menu.setStyleSheet(
-            f"QMenu {{ background:{_theme.COLOR_LINE_DARK}; color:{_theme.COLOR_TEXT}; border:1px solid {_theme.COLOR_BORDER}; }}"
-            f"QMenu::item:selected {{ background:{_theme.COLOR_BORDER}; }}"
-        )
+        _theme.style_fn(menu, lambda: f"QMenu {{ background:{_theme.COLOR_LINE_DARK}; color:{_theme.COLOR_TEXT}; border:1px solid {_theme.COLOR_BORDER}; }}"
+            f"QMenu::item:selected {{ background:{_theme.COLOR_BORDER}; }}")
 
         only_act = menu.addAction(f"Only '{item_key}'")
         only_act.setToolTip("Show only this group — clears all other filters")

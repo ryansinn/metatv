@@ -209,3 +209,4 @@ These legacy forms coexist with the rules above — new code follows the rule, d
 | Roadmap | ROADMAP.md |
 | Refactor / dedup / cleanup plan | docs/REFACTOR_PLAN.md |
 | Current audit + **Band 10** remediation plan | docs/AUDIT_2026-06-19.md |
+| **`channel.py` split — planned slices + constraints** | docs/CHANNEL_REPOSITORY_SPLIT.md |

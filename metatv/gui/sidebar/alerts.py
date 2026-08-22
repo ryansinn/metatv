@@ -377,7 +377,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # of the section's height (never starved to a sliver) and grows to help fill the
         # pane instead of leaving a gap.  A long list scrolls within its share.
         self._vod_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.style_fn(self._vod_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._vod_list)
         cursor_affordance.set_clickable(self._vod_list)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
@@ -405,7 +405,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         retry_hdr_row.addWidget(self._retry_toggle)
 
         _info_lbl = QLabel(self.config.info_icon)
-        _info_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(_info_lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD};")
         _info_lbl.setToolTip(
             "Stream Monitoring periodically re-checks streams that previously\n"
             "failed to play. When a stream becomes available again you'll\n"
@@ -424,7 +424,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # Matching Expanding + equal stretch so Stream Monitoring shares the pane on the
         # same footing as the other two sub-lists.
         self._retry_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        self._retry_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.style_fn(self._retry_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)

@@ -1488,9 +1488,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Build the full-width bottom tab bar with nav chips and Exclusions control."""
         bar = self._bottom_nav_bar = QWidget()
         bar.setObjectName("bottomNavBar")
-        bar.setStyleSheet(
-            f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE}; }}"
-        )
+        _theme.style_fn(bar, lambda: f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE}; }}")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
@@ -1720,23 +1718,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._hidden_banner_lbl = QLabel(
             f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
         )
-        self._hidden_banner_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._hidden_banner_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
         _hb_layout.addWidget(self._hidden_banner_lbl)
         _hb_layout.addStretch()
         self._manage_cats_btn = QPushButton("📁 Manage Categories")
         self._manage_cats_btn.setFlat(True)
-        self._manage_cats_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
+        _theme.style_fn(self._manage_cats_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
             f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}"
-        )
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}")
         self._manage_cats_btn.setToolTip("Browse and manage your user-defined categories")
         self._manage_cats_btn.clicked.connect(self._open_categories_dialog)
         _hb_layout.addWidget(self._manage_cats_btn)
-        self._hidden_banner.setStyleSheet(
-            f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;"
-        )
+        _theme.style_fn(self._hidden_banner, lambda: f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;")
         self._hidden_banner.hide()
         self._list_layout.addWidget(self._hidden_banner)
 
@@ -1754,10 +1747,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._channel_banner = QLabel()
         self._channel_banner.setVisible(False)
         self._channel_banner.setWordWrap(True)
-        self._channel_banner.setStyleSheet(
-            f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
-            f" font-size: {_theme.FONT_MD}; }}"
-        )
+        _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+            f" font-size: {_theme.FONT_MD}; }}")
         self._list_layout.addWidget(self._channel_banner)
 
         # Filter-transparency bar: up to three clickable "N hidden by <layer> — show"
@@ -2075,7 +2066,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setContentsMargins(10, 5, 10, 5)
         self.stats_label = QLabel("Showing 0 of 0 channels")
-        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
+        _theme.style_fn(self.stats_label, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
 
@@ -2455,10 +2446,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if hasattr(self, "_settings_btn"):
             _theme.style(self._settings_btn, "FLAT_NAV_BTN")
         if hasattr(self, "_bottom_nav_bar"):
-            self._bottom_nav_bar.setStyleSheet(
-                f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR};"
-                f" border-top: 1px solid {_theme.COLOR_LINE}; }}"
-            )
+            _theme.style_fn(self._bottom_nav_bar, lambda: f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR};"
+                f" border-top: 1px solid {_theme.COLOR_LINE}; }}")
         if hasattr(self, "_diagnose_btn"):
             _theme.style(self._diagnose_btn, "FLAT_NAV_BTN")
         if hasattr(self, "_split_toggle_btn"):
@@ -2491,24 +2480,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             _theme.style(self._context_filter_dismiss_btn, "CONTEXT_FILTER_CHIP_BTN")
 
         if hasattr(self, "_manage_cats_btn"):
-            self._manage_cats_btn.setStyleSheet(
-                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
+            _theme.style_fn(self._manage_cats_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
                 f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}"
-            )
+                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}")
         if hasattr(self, "_hidden_banner"):
-            self._hidden_banner.setStyleSheet(
-                f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;"
-            )
+            _theme.style_fn(self._hidden_banner, lambda: f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;")
         if hasattr(self, "_hidden_banner_lbl"):
-            self._hidden_banner_lbl.setStyleSheet(
-                f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};"
-            )
+            _theme.style_fn(self._hidden_banner_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
         if hasattr(self, "_channel_banner"):
-            self._channel_banner.setStyleSheet(
-                f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
-                f" font-size: {_theme.FONT_MD}; }}"
-            )
+            _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+                f" font-size: {_theme.FONT_MD}; }}")
         if hasattr(self, "_channel_exclusion_btn"):
             _seg_style = (
                 f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
@@ -2521,7 +2502,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 getattr(self, btn_name).setStyleSheet(_seg_style)
 
         if hasattr(self, "stats_label"):
-            self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
+            _theme.style_fn(self.stats_label, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
         if hasattr(self, "epg_status_label"):
             _theme.style(self.epg_status_label, "CHANNEL_NAME_DIM")
 

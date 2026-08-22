@@ -73,9 +73,7 @@ class WhatsNewDialog(QDialog):
         header_layout.setSpacing(2)
 
         icon_label = QLabel(f"{_icons.whats_new_icon}  What's New")
-        icon_label.setStyleSheet(
-            f"font-size: {_theme.FONT_3XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};"
-        )
+        _theme.style_fn(icon_label, lambda: f"font-size: {_theme.FONT_3XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         header_layout.addWidget(icon_label)
         root.addWidget(header_widget)
 
@@ -125,9 +123,7 @@ class WhatsNewDialog(QDialog):
 
         # ── Footer with "Got it" button ───────────────────────────────
         footer_widget = QWidget()
-        footer_widget.setStyleSheet(
-            f"background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE};"
-        )
+        _theme.style_fn(footer_widget, lambda: f"background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE};")
         footer_layout = QVBoxLayout(footer_widget)
         footer_layout.setContentsMargins(16, 10, 16, 10)
 

@@ -171,6 +171,15 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 
 ## Code Health / Refactor
 
+- [ ] **Split `core/repositories/channel.py` (4044 lines).** The one file split that earns
+  doing: it is not one long concern but FIVE sharing a session — ingestion/backfill (1006
+  lines), core queries (1533), provider lifecycle (518), user state (395), identity (224).
+  Four behaviour-preserving slices, largest first, each keeping a delegator so no caller
+  changes. The seam is proven: extracting `channel_lens.py` in v0.32.0 SHRANK the file 85
+  lines because the helpers went with it. Plan, constraints and done-criteria:
+  **docs/CHANNEL_REPOSITORY_SPLIT.md**. Independent of the theme/layout work (`core/` vs
+  `gui/`), so the two can run in either order.
+
 The big refactor work is **done** — Bands 1–8 (2026-06-01 → 06-14; details in git history)
 delivered the structural fixes (`session_scope`, `closeEvent` registry, `JSONEncoded`, `icons.py`,
 EPG conversion boundary), `theme.py` token migration, `main_window.py` decomposition into mixins,
