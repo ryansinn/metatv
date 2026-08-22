@@ -296,7 +296,32 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    # ── The rest of the fixed "cinema" family ────────────────────────────────
+    # IDENTICAL in all three palettes ON PURPOSE, exactly like the four tokens
+    # above. The preview overlay is a deliberately fixed-dark surface in EVERY
+    # theme, so a foreground painted on it cannot come from a palette-tuned
+    # token: Daylight's are chosen for a LIGHT app background, and measured
+    # against the card they collapse — the Back button landed at 1.06:1
+    # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
+    # boxes on the dark card, and the state glyphs at 1.24:1.
+    # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
+    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # one of them against the surface it actually lands on.
+    # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
+    # this dark shell with genuine app-surface regions, so which surface each
+    # of its roles lands on is a real per-role question — its own pass.
     'COLOR_LIGHTBOX_LINK': '#aad4ff',
+    'COLOR_LIGHTBOX_MUTED': '#9aa0ab',
+    'COLOR_LIGHTBOX_FAINT': '#8f96a1',
+    'COLOR_LIGHTBOX_SUNKEN': '#15151f',
+    'COLOR_LIGHTBOX_LINE': '#3a3a4e',
+    'COLOR_LIGHTBOX_BORDER': '#43435a',
+    'COLOR_LIGHTBOX_ACCENT': '#6cb6ff',
+    'COLOR_LIGHTBOX_FILL': '#1f6fc7',
+    'COLOR_LIGHTBOX_FILL_HOVER': '#2f7fd6',
+    'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
+    'COLOR_LIGHTBOX_GOLD': '#ffc857',
+    'COLOR_LIGHTBOX_OK': '#5fd08a',
 }
 
 
@@ -462,7 +487,32 @@ _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    # ── The rest of the fixed "cinema" family ────────────────────────────────
+    # IDENTICAL in all three palettes ON PURPOSE, exactly like the four tokens
+    # above. The preview overlay is a deliberately fixed-dark surface in EVERY
+    # theme, so a foreground painted on it cannot come from a palette-tuned
+    # token: Daylight's are chosen for a LIGHT app background, and measured
+    # against the card they collapse — the Back button landed at 1.06:1
+    # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
+    # boxes on the dark card, and the state glyphs at 1.24:1.
+    # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
+    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # one of them against the surface it actually lands on.
+    # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
+    # this dark shell with genuine app-surface regions, so which surface each
+    # of its roles lands on is a real per-role question — its own pass.
     'COLOR_LIGHTBOX_LINK': '#aad4ff',
+    'COLOR_LIGHTBOX_MUTED': '#9aa0ab',
+    'COLOR_LIGHTBOX_FAINT': '#8f96a1',
+    'COLOR_LIGHTBOX_SUNKEN': '#15151f',
+    'COLOR_LIGHTBOX_LINE': '#3a3a4e',
+    'COLOR_LIGHTBOX_BORDER': '#43435a',
+    'COLOR_LIGHTBOX_ACCENT': '#6cb6ff',
+    'COLOR_LIGHTBOX_FILL': '#1f6fc7',
+    'COLOR_LIGHTBOX_FILL_HOVER': '#2f7fd6',
+    'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
+    'COLOR_LIGHTBOX_GOLD': '#ffc857',
+    'COLOR_LIGHTBOX_OK': '#5fd08a',
 }
 
 
@@ -674,7 +724,32 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'FONT_CLOUD_6': '27px',
     'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
+    # ── The rest of the fixed "cinema" family ────────────────────────────────
+    # IDENTICAL in all three palettes ON PURPOSE, exactly like the four tokens
+    # above. The preview overlay is a deliberately fixed-dark surface in EVERY
+    # theme, so a foreground painted on it cannot come from a palette-tuned
+    # token: Daylight's are chosen for a LIGHT app background, and measured
+    # against the card they collapse — the Back button landed at 1.06:1
+    # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
+    # boxes on the dark card, and the state glyphs at 1.24:1.
+    # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
+    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # one of them against the surface it actually lands on.
+    # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
+    # this dark shell with genuine app-surface regions, so which surface each
+    # of its roles lands on is a real per-role question — its own pass.
     'COLOR_LIGHTBOX_LINK': '#aad4ff',
+    'COLOR_LIGHTBOX_MUTED': '#9aa0ab',
+    'COLOR_LIGHTBOX_FAINT': '#8f96a1',
+    'COLOR_LIGHTBOX_SUNKEN': '#15151f',
+    'COLOR_LIGHTBOX_LINE': '#3a3a4e',
+    'COLOR_LIGHTBOX_BORDER': '#43435a',
+    'COLOR_LIGHTBOX_ACCENT': '#6cb6ff',
+    'COLOR_LIGHTBOX_FILL': '#1f6fc7',
+    'COLOR_LIGHTBOX_FILL_HOVER': '#2f7fd6',
+    'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
+    'COLOR_LIGHTBOX_GOLD': '#ffc857',
+    'COLOR_LIGHTBOX_OK': '#5fd08a',
 }
 
 

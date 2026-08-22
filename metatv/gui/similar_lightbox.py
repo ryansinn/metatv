@@ -557,7 +557,7 @@ class SimilarTitleLightbox(QWidget):
             # Honest empty state on the card the user is already looking at —
             # navigating to nothing would be worse than saying so. The strip's
             # search link stays live so they can still check the full list.
-            self._card.set_lens(self._lens_label(lens, value, empty=True), lens, value)
+            self._card.show_notice(self._lens_label(lens, value, empty=True))
             return
 
         label = self._lens_label(lens, value)
@@ -579,7 +579,7 @@ class SimilarTitleLightbox(QWidget):
         for cid, title in rows:
             if title:
                 self._nav_titles[cid] = title
-        self._card.set_lens(label, lens, value)
+        self._card.set_lens(lens, value)
         self._card.set_header(label, lens=True)
         self._card.set_back_visible(True)
         self._load_channel(self._origin_ids[0])
@@ -595,9 +595,8 @@ class SimilarTitleLightbox(QWidget):
         self._nav_stack = state["nav_stack"]
         self._lens = state["lens"]
         if self._lens:
-            label = self._lens_label(*self._lens)
-            self._card.set_lens(label, *self._lens)
-            self._card.set_header(label, lens=True)
+            self._card.set_lens(*self._lens)
+            self._card.set_header(self._lens_label(*self._lens), lens=True)
         else:
             self._card.clear_lens()
             self._card.set_header(self._origin_title)

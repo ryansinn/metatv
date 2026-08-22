@@ -41,10 +41,20 @@ claim is wrong or these eleven sites are. Deciding that changes how bright a
 lot of secondary UI reads, which is a design call, not a contrast fix — it is
 recorded here rather than settled by whoever noticed it.
 
-**The lightbox / trail-map family (20 entries).** These sit on the deliberately
-fixed-dark "cinema" backdrop, not on the app surface this test assumes. Their
-numbers here are measured against the wrong thing and should not be acted on
-until the test can be told which surface a role lands on.
+**The lightbox / trail-map family.** These sit on the deliberately fixed-dark
+"cinema" backdrop, not on the app surface this test assumes, so their numbers
+here are measured against the wrong thing.
+
+That exemption was read for a while as "these are fine, we just can't measure
+them", and they were NOT fine: measured against the card they actually paint
+on, Daylight's Back button was 1.06:1 (invisible), its keyboard-hint chips and
+poster wells were white boxes, and its state glyphs 1.24:1.
+``tests/test_lightbox_surface_contrast.py`` now measures the ``LIGHTBOX_*``
+half against its real surface and is the authority on those roles; six entries
+left this list when that fix landed, because the correct colours pass even by
+this test's wrong yardstick. The ``TRAILMAP_*`` half is still un-measured — it
+mixes the dark shell with genuine app-surface regions, so it needs a per-role
+answer rather than a sweep.
 
 **Poster overlays (4).** Same problem: they paint on photographs.
 
@@ -97,25 +107,23 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
         "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("LANG_CHIP", "<bare>"):
         "3.77 worst palette",
-    ("LIGHTBOX_BREADCRUMB_CRUMB", "QPushButton"):
+    ("LIGHTBOX_BACK_BTN", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("LIGHTBOX_CHEVRON", "QPushButton"):
+    ("LIGHTBOX_LENS_LINK", "QPushButton"):
+        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
+    ("LIGHTBOX_NOTICE_TEXT", "<bare>"):
+        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
+    ("LIGHTBOX_BREADCRUMB_CRUMB", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("LIGHTBOX_CLOSE_BTN", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
+    ("LIGHTBOX_FOOTER_HINT", "<bare>"):
+        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("LIGHTBOX_GENRE_CHIP", "<bare>"):
-        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("LIGHTBOX_KBD", "<bare>"):
-        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("LIGHTBOX_PLAY_PRIMARY", "QPushButton"):
-        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("LIGHTBOX_SIM_POSTER", "#lightbox_sim_poster"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("LIGHTBOX_VERSION_BADGE", "<bare>"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("LIGHTBOX_VERSION_ROW", "QPushButton"):
-        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("LIGHTBOX_VERSION_ROW", "QPushButton:hover"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("NAV_TOGGLE_BTN", "QPushButton:checked:hover"):
         "2.97 worst palette",
@@ -174,8 +182,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
     ("TRAILMAP_FAV_STAR", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("TRAILMAP_HERE_TAG", "<bare>"):
-        "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
-    ("TRAILMAP_PLAY_BTN", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("TRAILMAP_THUMB", "#trailmap_thumb"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",

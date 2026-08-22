@@ -1,9 +1,12 @@
 """The clickable-metadata pieces of the lightbox card: chips, links, lens strip.
 
-One small module for the three widgets/renderers that make a title's metadata
-navigable inside the preview overlay — a genre chip you can click, cast/crew
-names rendered as links, and the strip that names the resulting *lens* and
-carries the single explicit hand-off out to the channel list.
+One small module for the pieces that make a title's metadata navigable inside
+the preview overlay — a genre chip you can click, cast/crew names rendered as
+links, and the one-line notice shown when a click matched nothing.
+
+The lens's exit to the channel list is NOT here: it lives in the card header,
+beside the name it applies to. An earlier cut gave the lens its own full-width
+strip that repeated the header's label and read as a disabled text input.
 
 They live together because they are one concern (turn metadata into
 navigation), and apart from ``similar_lightbox_card.py`` because that card is
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 import html
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import theme as _theme
@@ -115,60 +118,98 @@ def cast_links_html(people) -> tuple[str, bool]:
     return text, bool(names or directors)
 
 
-class LensBar(QWidget):
-    """Strip naming the facet set the overlay is currently paging.
+class LensNotice(QWidget):
+    """A one-line notice under the header, for a click that produced nothing.
 
-    Visible only inside a lens. It carries the ONE hand-off to the channel
-    list: that list sits hidden behind the overlay, so committing to it has to
-    be an explicit choice the user makes, never something a metadata click does
-    quietly on their behalf.
+    Every other facet click is self-evidencing: the overlay re-seeds, the header
+    renames itself, the breadcrumb grows a crumb. The empty case has none of
+    that — nothing to navigate to — so it is the one that needs to be said out
+    loud, on the card the user is already looking at.
+
+    It clears itself on the next navigation, so it never becomes furniture.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        _theme.style(self, "LIGHTBOX_NOTICE_BAR")
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(14, 5, 12, 5)
+        row.setSpacing(8)
+
+        self._label = QLabel()
+        _theme.style(self._label, "LIGHTBOX_NOTICE_TEXT")
+        row.addWidget(self._label, 1)
+
+        self.hide()
+
+    def show_notice(self, text: str) -> None:
+        """Say what happened, and show the line."""
+        self._label.setText(text)
+        self.show()
+
+    def clear(self) -> None:
+        """Hide the line (any navigation supersedes it)."""
+        self._label.clear()
+        self.hide()
+
+    @property
+    def text(self) -> str:
+        return self._label.text()
+
+
+class LensChrome(QObject):
+    """The card's facet-lens chrome: the exit link, and the empty-click notice.
+
+    Two widgets that live in different places on the card — the exit button goes
+    in the header row, beside the name of the lens it applies to; the notice
+    goes under it — but they are one concern and one state machine, so the card
+    holds this instead of four widgets and four flags.
+
+    Deliberately NOT a strip of its own. An earlier cut gave the lens a
+    full-width bar under the header carrying its name plus the exit; the name
+    repeated the header verbatim, and the stretched label read as a disabled
+    text input. The header names the lens, the breadcrumb names its anchor, and
+    what is left over is what lives here.
     """
 
     search_requested = pyqtSignal(str, str)  # lens ("person"/"genre"), value
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        _theme.style(self, "LIGHTBOX_LENS_BAR")
         self._lens: tuple[str, str] | None = None
 
-        row = QHBoxLayout(self)
-        row.setContentsMargins(14, 6, 12, 6)
-        row.setSpacing(8)
-
-        self._label = QLabel()
-        _theme.style(self._label, "LIGHTBOX_LENS_LABEL")
-        row.addWidget(self._label, 1)
-
-        self._search_btn = QPushButton("See all in Search →")
-        self._search_btn.setFlat(True)
-        _theme.style(self._search_btn, "LIGHTBOX_LENS_LINK")
-        self._search_btn.setToolTip(
+        self.exit_button = QPushButton("See all in Search →")
+        self.exit_button.setFlat(True)
+        _theme.style(self.exit_button, "LIGHTBOX_LENS_LINK")
+        self.exit_button.setToolTip(
             "Close the preview and filter the channel list by this"
         )
-        set_clickable(self._search_btn)
-        self._search_btn.clicked.connect(self._emit_search)
-        row.addWidget(self._search_btn)
+        set_clickable(self.exit_button)
+        self.exit_button.clicked.connect(self._emit_search)
+        self.exit_button.hide()
 
-        self.hide()
+        self.notice = LensNotice()
 
-    def set_lens(self, label: str, lens: str, value: str) -> None:
-        """Name the set being paged and show the strip."""
+    def set_lens(self, lens: str, value: str) -> None:
+        """Enter a lens: offer the exit, drop any stale notice."""
         self._lens = (lens, value)
-        self._label.setText(label)
-        self.show()
+        self.exit_button.show()
+        self.notice.clear()
 
     def clear(self) -> None:
-        """Leave the lens — back on a title's own neighbours."""
+        """Leave the lens (back on a title's own neighbours)."""
         self._lens = None
-        self.hide()
+        self.exit_button.hide()
+        self.notice.clear()
+
+    def show_notice(self, text: str) -> None:
+        """Say that a click matched nothing — the one case with no navigation."""
+        self.notice.show_notice(text)
 
     @property
     def lens(self) -> tuple[str, str] | None:
         return self._lens
-
-    @property
-    def label_text(self) -> str:
-        return self._label.text()
 
     def _emit_search(self) -> None:
         if self._lens:

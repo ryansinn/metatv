@@ -276,22 +276,52 @@ def test_genre_chips_are_clickable_with_cursor_and_tooltip(qapp):
     assert genres == ["Drama"]
 
 
-def test_lens_strip_appears_only_inside_a_lens_and_carries_the_hand_off(qapp):
+def test_the_exit_to_search_exists_only_inside_a_lens(qapp):
+    """The hand-off is offered where the lens is NAMED — the header — and only
+    while a lens is actually open."""
     card = _card(qapp)
     card.populate(_base_data())
-    assert not card._lens_bar.isVisibleTo(card), "no lens open — no strip"
+    assert not card._lens.exit_button.isVisibleTo(card), "no lens open — no exit"
 
-    card.set_lens("With Nicolas Cage", "person", "Nicolas Cage")
-    assert card._lens_bar.isVisibleTo(card)
-    assert card._lens_bar.label_text == "With Nicolas Cage"
+    card.set_lens("person", "Nicolas Cage")
+    assert card._lens.exit_button.isVisibleTo(card)
 
     searches: list[tuple] = []
     card.lens_search_requested.connect(lambda *a: searches.append(a))
-    card._lens_bar._search_btn.click()
+    card._lens.exit_button.click()
     assert searches == [("person", "Nicolas Cage")]
 
     card.clear_lens()
-    assert not card._lens_bar.isVisibleTo(card)
+    assert not card._lens.exit_button.isVisibleTo(card)
+
+
+def test_the_lens_name_is_not_repeated_below_the_header(qapp):
+    """Regression: an earlier cut put the lens name in a full-width bordered
+    strip under the header, which repeated the header verbatim AND read as a
+    disabled text input. The header names the lens; nothing else should."""
+    card = _card(qapp)
+    card.populate(_base_data())
+    card.set_header("With Nicolas Cage", lens=True)
+    card.set_lens("person", "Nicolas Cage")
+
+    assert card._title_lbl.text() == "With Nicolas Cage"
+    assert not card._lens.notice.isVisibleTo(card), (
+        "a successful lens needs no notice — the re-seeded card IS the feedback"
+    )
+
+
+def test_an_empty_click_says_so_on_the_card(qapp):
+    """The one facet click with no navigation to act as its own feedback."""
+    card = _card(qapp)
+    card.populate(_base_data())
+
+    card.show_notice("Nothing else with Obscure Person")
+    assert card._lens.notice.isVisibleTo(card)
+    assert card._lens.notice.text == "Nothing else with Obscure Person"
+
+    # Any navigation supersedes it, so it never becomes furniture.
+    card.set_lens("person", "Someone Else")
+    assert not card._lens.notice.isVisibleTo(card)
 
 
 def test_a_display_string_still_renders_unlinked(qapp):
@@ -300,6 +330,23 @@ def test_a_display_string_still_renders_unlinked(qapp):
     card.populate(_base_data(cast="Bruce Willis, Brad Pitt · dir. Terry Gilliam"))
     assert "<a href" not in card._cast_lbl.text()
     assert "Bruce Willis" in card._cast_lbl.text()
+
+
+def test_the_keyboard_legend_says_what_the_arrows_are_actually_walking(qapp):
+    """In a lens the chevrons page the LENS results, not the anchor's similar set.
+
+    FAILS pre-fix: the legend was built once and read "browse similar"
+    everywhere, describing a list the user is not looking at.
+    """
+    card = _card(qapp)
+    card.populate(_base_data())
+    assert card._keyhints.browse_hint == "browse similar"
+
+    card.set_lens("person", "Nicolas Cage")
+    assert card._keyhints.browse_hint == "browse these results"
+
+    card.clear_lens()
+    assert card._keyhints.browse_hint == "browse similar"
 
 
 # ---------------------------------------------------------------------------
@@ -474,17 +521,23 @@ class _StubCard:
     def __init__(self):
         self.lens = None
         self.lens_cleared = 0
+        self.notice = None
         self.header = None
         self.back_visible = None
         self.breadcrumb = None
         self.counter = None
 
-    def set_lens(self, label, lens, value):
-        self.lens = (label, lens, value)
+    def set_lens(self, lens, value):
+        self.lens = (lens, value)
+        self.notice = None
 
     def clear_lens(self):
         self.lens = None
+        self.notice = None
         self.lens_cleared += 1
+
+    def show_notice(self, text):
+        self.notice = text
 
     def set_header(self, title, lens=False):
         self.header = (title, lens)
@@ -549,7 +602,7 @@ def test_a_lens_reseeds_the_overlay_and_names_itself():
     assert lb._origin_ids == ["c2", "c3"]
     assert lb._origin_title == "With Nicolas Cage"
     assert lb._lens == ("person", "Nicolas Cage")
-    assert lb._card.lens == ("With Nicolas Cage", "person", "Nicolas Cage")
+    assert lb._card.lens == ("person", "Nicolas Cage")
     assert lb._card.header == ("With Nicolas Cage", True)
     assert lb._card.back_visible is True
     assert lb.loaded == ["c2"], "the lens opens on its first title"
@@ -598,9 +651,7 @@ def test_an_empty_lens_says_so_instead_of_navigating_nowhere():
 
     assert lb.loaded == [], "nothing to show — stay on the title we are on"
     assert lb._origin_ids == ["c1", "cX"]
-    assert lb._card.lens == (
-        "Nothing else with Obscure Person", "person", "Obscure Person",
-    )
+    assert lb._card.notice == "Nothing else with Obscure Person"
 
 
 def test_a_stale_lens_result_is_ignored():

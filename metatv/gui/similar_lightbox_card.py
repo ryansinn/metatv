@@ -38,7 +38,8 @@ from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.lightbox_breadcrumb import LightboxBreadcrumb
-from metatv.gui.lightbox_facets import LensBar, cast_links_html, genre_chips
+from metatv.gui.lightbox_facets import LensChrome, cast_links_html, genre_chips
+from metatv.gui.lightbox_keyhints import LightboxKeyHints
 from metatv.gui.sim_badges import make_sim_badges
 
 # Poster / strip-card dimensions (structural spacing — px is fine inline).
@@ -243,6 +244,10 @@ class _LightboxCard(QFrame):
         # url → poster labels awaiting an async image (main poster + strip cards).
         self._poster_targets: dict[str, list[QLabel]] = {}
         self.main_poster_url: str | None = None
+        # The facet-lens chrome (exit link + empty-click notice), built before
+        # the header so ``_build_header`` can place its button.
+        self._lens = LensChrome(self)
+        self._lens.search_requested.connect(self.lens_search_requested)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -279,6 +284,10 @@ class _LightboxCard(QFrame):
         _theme.style(self._counter_lbl, "LIGHTBOX_COUNTER")
         row.addWidget(self._counter_lbl)
 
+        # Facet-lens exit — hidden unless a lens is open, and placed next to the
+        # lens name the header carries (see ``LensChrome``).
+        row.addWidget(self._lens.exit_button)
+
         # Explore — opens the cascading-columns trail-map seeded with this dive path
         # (contextual lateral adjacency; distinct from the global ✨ Discover).
         self._explore_btn = QPushButton(f"{_icons.explore_icon} Explore")
@@ -306,11 +315,7 @@ class _LightboxCard(QFrame):
         self._breadcrumb.explore_ellipsis_clicked.connect(self.explore_clicked)
         outer.addWidget(self._breadcrumb)
 
-        # Facet-lens strip — visible only while the overlay is paging a facet
-        # set ("With Nicolas Cage"), and the one explicit way out to the list.
-        self._lens_bar = LensBar()
-        self._lens_bar.search_requested.connect(self.lens_search_requested)
-        outer.addWidget(self._lens_bar)
+        outer.addWidget(self._lens.notice)
 
     def _build_body(self, outer: QVBoxLayout) -> None:
         scroll = _GrowScrollArea()
@@ -574,26 +579,8 @@ class _LightboxCard(QFrame):
         body.addWidget(self._strip_scroll)
 
     def _build_footer(self, outer: QVBoxLayout) -> None:
-        bar = QWidget()
-        _theme.style(bar, "LIGHTBOX_FOOTER_BAR")
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(20, 10, 20, 10)
-        row.setSpacing(18)
-        hints = [
-            (f"{_icons.nav_prev_icon} {_icons.nav_next_icon}", "browse similar"),
-            (_icons.lightbox_icon, "dive in"),
-            ("Backspace", "back"),
-            ("Esc", "close"),
-        ]
-        for key, text in hints:
-            kbd = QLabel(key)
-            _theme.style(kbd, "LIGHTBOX_KBD")
-            row.addWidget(kbd)
-            lbl = QLabel(text)
-            _theme.style(lbl, "LIGHTBOX_FOOTER_HINT")
-            row.addWidget(lbl)
-        row.addStretch()
-        outer.addWidget(bar)
+        self._keyhints = LightboxKeyHints()
+        outer.addWidget(self._keyhints)
 
     def _section_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -640,13 +627,20 @@ class _LightboxCard(QFrame):
             origin_title if lens else f"Similar to:  {origin_title}"
         )
 
-    def set_lens(self, label: str, lens: str, value: str) -> None:
-        """Show the facet-lens strip naming the set currently being paged."""
-        self._lens_bar.set_lens(label, lens, value)
+    # Facet-lens chrome — the card just forwards; ``LensChrome`` owns the state.
+    def set_lens(self, lens: str, value: str) -> None:
+        """Enter a facet lens (the header names it, the breadcrumb its anchor)."""
+        self._lens.set_lens(lens, value)
+        self._keyhints.set_lens_active(True)
 
     def clear_lens(self) -> None:
-        """Hide the facet-lens strip (back on a title's own neighbours)."""
-        self._lens_bar.clear()
+        """Leave the lens — back on a title's own neighbours."""
+        self._lens.clear()
+        self._keyhints.set_lens_active(False)
+
+    def show_notice(self, text: str) -> None:
+        """Say that a click matched nothing (no navigation happened)."""
+        self._lens.show_notice(text)
 
     def set_counter(self, text: str) -> None:
         self._counter_lbl.setText(text)
