@@ -130,7 +130,7 @@ def test_main_card_populated_from_fetched_metadata(tmp_path):
 
     FAILS against the old stored-only read: with metadata_id=None the old
     ``session.get(MetadataDB, ...)`` was None, so poster/plot/rating were None,
-    cast="" and genres=[].
+    cast=[] and genres=[].
     """
     db = _make_db(tmp_path / "seam_main.db")
     with db.session_scope() as s:
@@ -142,8 +142,11 @@ def test_main_card_populated_from_fetched_metadata(tmp_path):
 
     assert data.get("poster_url") == "https://image.tmdb.org/t/p/w500/rich.jpg"
     assert data.get("plot") == "A gripping tale spanning decades."
-    cast = data.get("cast") or ""
-    assert "Jane Doe" in cast and "dir. Ada Helm" in cast
+    # Structured since the card made every name a lens link — a display line
+    # cannot be split back into names reliably.
+    people = data.get("cast") or []
+    assert [p["name"] for p in people if p["role"] == "cast"] == ["Jane Doe", "John Roe"]
+    assert [p["name"] for p in people if p["role"] == "director"] == ["Ada Helm"]
     assert data.get("genres") == ["Drama", "Thriller"]
     assert data.get("rating") == 7.8
     assert data.get("runtime") == 118

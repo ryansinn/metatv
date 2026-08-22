@@ -1356,7 +1356,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Card frame + chrome
     LIGHTBOX_CARD = (
         "#lightbox_card { background: " + COLOR_LIGHTBOX_BG + "; border-radius: 12px;"
-        " border: 1px solid " + COLOR_BORDER + "; }"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; }"
     )
     LIGHTBOX_HEADER_BAR = (
         "background: " + COLOR_LIGHTBOX_HEADER + "; border-radius: 12px 12px 0 0;"
@@ -1365,79 +1365,105 @@ def _build_semantic_constants() -> dict[str, object]:
         "background: " + COLOR_LIGHTBOX_HEADER + "; border-radius: 0 0 12px 12px;"
     )
     LIGHTBOX_BACK_BTN = (
-        "QPushButton { color: " + COLOR_ACCENT_BLUE_2 + "; font-size: " + FONT_XL + ";"
+        "QPushButton { color: " + COLOR_LIGHTBOX_LINK + "; font-size: " + FONT_XL + ";"
         " font-weight: bold; border: none; background: transparent; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
     LIGHTBOX_TITLE = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_2XL + "; font-weight: bold;"
     )
-    LIGHTBOX_COUNTER = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    LIGHTBOX_COUNTER = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
     LIGHTBOX_CLOSE_BTN = (
-        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_3XL + ";"
+        "QPushButton { color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_3XL + ";"
         " border: none; background: transparent; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
     # Round prev/next chevron flanking the card (used 2×).
     LIGHTBOX_CHEVRON = (
-        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_4XL + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: 22px;"
+        "QPushButton { color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_4XL + ";"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: 22px;"
         " background: " + COLOR_LIGHTBOX_BG + "; }"
-        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
-        "QPushButton:disabled { color: " + COLOR_LINE + "; border-color: " + COLOR_LINE + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_LIGHTBOX_ACCENT + "; }"
+        "QPushButton:disabled { color: " + COLOR_LIGHTBOX_LINE + "; border-color: " + COLOR_LIGHTBOX_LINE + "; }"
     )
 
     # Hero — poster slot + future-player affordance
     LIGHTBOX_POSTER_SLOT = (
-        "#lightbox_poster { background: " + COLOR_BG_DEEP + "; border-radius: 9px;"
-        " border: 1px solid " + COLOR_BORDER + "; }"
+        "#lightbox_poster { background: " + COLOR_LIGHTBOX_SUNKEN + "; border-radius: 9px;"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; }"
     )
     LIGHTBOX_POSTER_PLACEHOLDER = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + ";"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_LG + ";"
     )
 
     # Primary Play button under the poster (filled accent, dark text).
     LIGHTBOX_PLAY_PRIMARY = (
-        "QPushButton { background: " + COLOR_ACCENT + "; color: " + COLOR_LIGHTBOX_TEXT_HI + ";"
+        "QPushButton { background: " + COLOR_LIGHTBOX_FILL + "; color: " + COLOR_LIGHTBOX_ON_FILL + ";"
         " border: none; border-radius: 9px; padding: 9px 12px; font-size: " + FONT_XL + ";"
         " font-weight: bold; }"
-        "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
+        "QPushButton:hover { background: " + COLOR_LIGHTBOX_FILL_HOVER + "; }"
     )
     # Secondary action button (Queue / Favorite / Hide) — outline, checkable-friendly.
     LIGHTBOX_ACTION_BTN = (
-        "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: " + COLOR_LIGHTBOX_HEADER + ";"
+        "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; background: " + COLOR_LIGHTBOX_HEADER + ";"
         " color: " + COLOR_LIGHTBOX_TEXT + "; border-radius: 9px; padding: 8px 12px;"
         " font-size: " + FONT_LG + "; font-weight: bold; }"
-        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_LIGHTBOX_ACCENT + "; }"
     )
 
     # Right column typography
     LIGHTBOX_HEADING = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_3XL + "; font-weight: bold;"
     )
-    LIGHTBOX_META = "color: " + COLOR_MUTED + "; font-size: " + FONT_XL + ";"
-    LIGHTBOX_STAR = "color: " + COLOR_GOLD + "; font-size: " + FONT_XL + "; font-weight: bold;"
-    LIGHTBOX_SOURCE = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    LIGHTBOX_META = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_XL + ";"
+    LIGHTBOX_STAR = "color: " + COLOR_LIGHTBOX_GOLD + "; font-size: " + FONT_XL + "; font-weight: bold;"
+    LIGHTBOX_SOURCE = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
     # ×N versions badge on the meta line (used when >1 content_key sibling).
     LIGHTBOX_VERSION_BADGE = (
-        "background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
-        " border: 1px solid " + COLOR_ACCENT_BLUE + "; border-radius: 6px;"
+        "background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
+        " border: 1px solid " + COLOR_LIGHTBOX_ACCENT + "; border-radius: 6px;"
         " padding: 1px 7px; font-size: " + FONT_LG + "; font-weight: bold;"
     )
 
     # Genre chips — DISPLAY ONLY here (not clickable-to-Recipe yet); no hover affordance.
     LIGHTBOX_GENRE_CHIP = (
-        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
+        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
         " border-radius: 10px; padding: 3px 10px; font-size: " + FONT_LG + ";"
     )
 
     # Section sub-heading (OVERVIEW / CAST & CREW / OTHER VERSIONS / SIMILAR TITLES).
     LIGHTBOX_SECTION_HDR = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
         " letter-spacing: 1px;"
     )
     LIGHTBOX_PLOT = "color: " + COLOR_LIGHTBOX_TEXT + "; font-size: " + FONT_XL + ";"
-    LIGHTBOX_CAST = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    LIGHTBOX_CAST = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
+
+    # ── Facet lens: the header's exit link + the empty-result notice ─────────
+    # A cast/genre click re-seeds the overlay with that facet's titles. The
+    # HEADER already names the lens ("With Nicolas Cage") and the breadcrumb
+    # already shows the anchor it was opened from, so there is no separate
+    # label: an earlier cut repeated the name in a full-width bordered strip
+    # that read as a disabled text input. What is left is the one thing neither
+    # of those says — the explicit way out to the channel list, which sits in
+    # the header beside the name it applies to.
+    LIGHTBOX_LENS_LINK = (
+        "QPushButton { background: transparent; color: " + COLOR_LIGHTBOX_LINK + ";"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: 9px;"
+        " padding: 4px 10px; font-size: " + FONT_MD + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + ";"
+        " border-color: " + COLOR_LIGHTBOX_ACCENT + "; }"
+    )
+    # Transient notice under the header, used when a click produced NOTHING —
+    # the one case with no navigation to act as its own feedback.
+    LIGHTBOX_NOTICE_BAR = (
+        "background: " + COLOR_LIGHTBOX_SUNKEN + ";"
+        " border-bottom: 1px solid " + COLOR_LIGHTBOX_LINE + ";"
+    )
+    LIGHTBOX_NOTICE_TEXT = (
+        "background: transparent; color: " + COLOR_LIGHTBOX_MUTED + ";"
+        " font-size: " + FONT_MD + ";"
+    )
 
     # Other Versions row (used N×) — a full-width entry in the hero's vertical, scrollable
     # list showing the friendly "<source> · <quality/region>" label plus an optional
@@ -1447,9 +1473,9 @@ def _build_semantic_constants() -> dict[str, object]:
     # is always present, so the row never distinguishes by colour alone.
     LIGHTBOX_VERSION_ROW = (
         "QPushButton { text-align: left; background: transparent; color: " + COLOR_LIGHTBOX_TEXT + ";"
-        " border: none; border-bottom: 1px solid " + COLOR_LINE + "; padding: 6px 8px;"
+        " border: none; border-bottom: 1px solid " + COLOR_LIGHTBOX_LINE + "; padding: 6px 8px;"
         " font-size: " + FONT_MD + "; }"
-        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; background: " + COLOR_BG_DEEP + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; background: " + COLOR_LIGHTBOX_SUNKEN + "; }"
     )
 
 
@@ -1469,19 +1495,19 @@ def _build_semantic_constants() -> dict[str, object]:
 
     # Similar-strip mini card (used N×) — poster (whole card dives in), name, year.
     LIGHTBOX_SIM_POSTER = (
-        "#lightbox_sim_poster { background: " + COLOR_BG_DEEP + "; border-radius: 8px;"
-        " border: 1px solid " + COLOR_BORDER + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
+        "#lightbox_sim_poster { background: " + COLOR_LIGHTBOX_SUNKEN + "; border-radius: 8px;"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
         " font-size: " + FONT_MD + "; }"
     )
     LIGHTBOX_SIM_NAME = "color: " + COLOR_LIGHTBOX_TEXT + "; font-size: " + FONT_LG + ";"
-    LIGHTBOX_SIM_YEAR = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+    LIGHTBOX_SIM_YEAR = "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_MD + ";"
 
     # Language/region chip — the ONE canonical bordered chip shared by the sim-badge
     # renderer (lightbox strip + trail-map rows, via ``sim_badges.make_sim_badges``) and
     # the trail-map detail strip, so the lang/region badge reads identically everywhere
     # (single source of truth — no per-surface lang style).
     LANG_CHIP = (
-        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
+        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
         " border-radius: 8px; padding: 1px 7px; font-size: " + FONT_MD + ";"
     )
 
@@ -1491,19 +1517,25 @@ def _build_semantic_constants() -> dict[str, object]:
     # surfaces (blue like/queue, gold favorite/rating, green watched); each glyph also
     # carries a tooltip, so state is never conveyed by colour alone.  (Language uses the
     # shared ``LANG_CHIP`` above.)
-    LIGHTBOX_SIM_RATING        = "color: " + COLOR_GOLD + "; font-size: " + FONT_MD + "; font-weight: bold;"
-    LIGHTBOX_SIM_GLYPH_LIKE    = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
-    LIGHTBOX_SIM_GLYPH_QUEUE   = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
-    LIGHTBOX_SIM_GLYPH_FAV     = "color: " + COLOR_GOLD + "; font-size: " + FONT_MD + ";"
-    LIGHTBOX_SIM_GLYPH_WATCHED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + ";"
+    LIGHTBOX_SIM_RATING        = "color: " + COLOR_LIGHTBOX_GOLD + "; font-size: " + FONT_MD + "; font-weight: bold;"
+    LIGHTBOX_SIM_GLYPH_LIKE    = "color: " + COLOR_LIGHTBOX_ACCENT + "; font-size: " + FONT_MD + ";"
+    LIGHTBOX_SIM_GLYPH_QUEUE   = "color: " + COLOR_LIGHTBOX_ACCENT + "; font-size: " + FONT_MD + ";"
+    LIGHTBOX_SIM_GLYPH_FAV     = "color: " + COLOR_LIGHTBOX_GOLD + "; font-size: " + FONT_MD + ";"
+    LIGHTBOX_SIM_GLYPH_WATCHED = "color: " + COLOR_LIGHTBOX_OK + "; font-size: " + FONT_MD + ";"
 
     # Footer keyboard-hint kbd chip (used N×).
     LIGHTBOX_KBD = (
-        "background: " + COLOR_BG_DEEP + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: 5px; padding: 1px 6px;"
+        "background: " + COLOR_LIGHTBOX_SUNKEN + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: 5px; padding: 1px 6px;"
         " font-size: " + FONT_MD + ";"
     )
-    LIGHTBOX_FOOTER_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+    # Explicit transparent background: these labels carry their own stylesheet,
+    # and a stylesheet-bearing QLabel paints the palette background unless told
+    # otherwise — on Daylight that is a light box on the dark cinema bar.
+    LIGHTBOX_FOOTER_HINT = (
+        "background: transparent; color: " + COLOR_LIGHTBOX_MUTED + ";"
+        " font-size: " + FONT_MD + ";"
+    )
 
     # ── Explore trail-map (cascading columns + detail strip) ─────────────────────
     # Role constants for ``trail_map_view.py`` / ``trail_map_detail.py``.  Same dark
@@ -1674,16 +1706,20 @@ def _build_semantic_constants() -> dict[str, object]:
 
     # Lightbox dive-trail breadcrumb (#388) — inside the builder so a theme
     # switch recomposes them like every other semantic constant.
+    # These render INSIDE the lightbox header, so they belong to the fixed
+    # cinema family like the rest of it — they were still on the app-surface
+    # ramp (COLOR_MUTED/COLOR_TEXT/COLOR_MUTED_2), which put the separator at
+    # 2.2:1 in every theme and the current crumb at 2.4:1 in Daylight.
     LIGHTBOX_BREADCRUMB_CRUMB = (
-        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+        "QPushButton { color: " + COLOR_LIGHTBOX_LINK + "; font-size: " + FONT_SM + ";"
         " border: none; background: transparent; padding: 0 2px; text-align: left; }"
-        "QPushButton:hover { color: " + COLOR_TEXT + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
     LIGHTBOX_BREADCRUMB_CURRENT = (
-        "color: " + COLOR_TEXT + "; font-size: " + FONT_SM + ";"
+        "color: " + COLOR_LIGHTBOX_TEXT + "; font-size: " + FONT_SM + ";"
     )
     LIGHTBOX_BREADCRUMB_SEP = (
-        "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + ";"
     )
 
     # Shared QProgressBar role (background enrichment queue view; migration_progress_widget.py

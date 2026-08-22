@@ -8,7 +8,7 @@
     "metatv/core/filter_utils.py": 1336,
     "metatv/core/players/mpv.py": 1350,
     "metatv/core/provider_loader.py": 1264,
-    "metatv/core/repositories/channel.py": 4129,
+    "metatv/core/repositories/channel.py": 4044,
     "metatv/core/repositories/tag.py": 1750,
     "metatv/gui/channel_list_delegate.py": 1288,
     "metatv/gui/details_sections.py": 1860,
@@ -16,7 +16,7 @@
     "metatv/gui/epg_watchlist_mixin.py": 1109,
     "metatv/gui/filter_panel.py": 1053,
     "metatv/gui/global_filter_dialog.py": 1747,
-    "metatv/gui/main_window.py": 3184,
+    "metatv/gui/main_window.py": 3188,
     "metatv/gui/main_window_channels.py": 2009,
     "metatv/gui/main_window_favorites.py": 1072,
     "metatv/gui/main_window_providers.py": 1060,
@@ -25,7 +25,7 @@
     "metatv/gui/provider_editor.py": 1004,
     "metatv/gui/qa_checklist_window.py": 2456,
     "metatv/gui/sidebar/alerts.py": 1364,
-    "metatv/gui/theme.py": 2190
+    "metatv/gui/theme.py": 2226
   },
   "get_session_calls": 79
 }

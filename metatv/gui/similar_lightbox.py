@@ -40,6 +40,11 @@ if TYPE_CHECKING:
     from metatv.core.metadata_manager import MetadataManager
 
 
+# Max titles a facet lens pages through. Generous enough that a prolific actor's
+# set is worth walking, bounded so one click never becomes an unbounded scan.
+_LENS_LIMIT = 24
+
+
 class SimilarTitleLightbox(QWidget):
     """Full-window overlay that previews a similar title without replacing the details pane."""
 
@@ -51,9 +56,14 @@ class SimilarTitleLightbox(QWidget):
     suppression_requested = pyqtSignal(str, bool) # channel_id, suppressed
     explore_requested     = pyqtSignal(list)      # seed channel_ids (the walked trail)
     poster_expand_requested = pyqtSignal(QPixmap) # enlarge the main poster (peek)
+    # The one hand-off OUT of the overlay to the channel list, from the lens
+    # strip's "See all in Search" — never something a metadata click does on its
+    # own (the list is invisible behind the overlay).
+    lens_search_requested = pyqtSignal(str, str)  # lens ("person"/"genre"), value
 
-    # Internal signal — background thread emits this; main thread receives it
+    # Internal signals — background thread emits these; main thread receives them
     _data_ready = pyqtSignal(str, object)   # channel_id, data dict
+    _lens_ready = pyqtSignal(str, str, object)  # lens, value, [(id, title), …]
 
     def __init__(
         self,
@@ -84,12 +94,23 @@ class SimilarTitleLightbox(QWidget):
         # queries the DB on the UI thread (it repaints on every navigation).
         self._nav_titles: dict[str, str] = {}
         self._current_id: str = ""
+        # Facet lenses. Clicking a cast name or genre chip re-seeds the overlay
+        # with that facet's titles instead of punching through to the channel
+        # list — the list is hidden behind the overlay, so a click there would
+        # rewrite something the user cannot see and would cost them the trail
+        # (Back/Esc/breadcrumb) this overlay exists to preserve.
+        # ``_lens`` is the set currently being paged; ``_lens_stack`` holds the
+        # whole nav state to restore when Back leaves it, so lenses nest.
+        self._lens: tuple[str, str] | None = None
+        self._lens_stack: list[dict] = []
+        self._pending_lens: tuple[str, str] | None = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._build_ui()
         self._data_ready.connect(self._apply_data)
+        self._lens_ready.connect(self._apply_lens)
         self._image_cache.image_loaded.connect(self._on_image_loaded)
         self.hide()
 
@@ -110,6 +131,10 @@ class SimilarTitleLightbox(QWidget):
         self._origin_idx = max(0, min(index, len(channel_ids) - 1))
         self._origin_title = origin_title
         self._nav_stack = []
+        self._lens = None
+        self._lens_stack = []
+        self._pending_lens = None
+        self._card.clear_lens()
         self._card.set_header(origin_title)
         self._card.set_back_visible(False)
         self.resize(self.parent().size())
@@ -150,6 +175,15 @@ class SimilarTitleLightbox(QWidget):
         )
         self._card.dive_requested.connect(self._dive_into)
         self._card.explore_clicked.connect(self._on_explore)
+        # Facet lenses stay INSIDE the overlay; only the lens strip's explicit
+        # "See all in Search" leaves it.
+        self._card.person_clicked.connect(
+            lambda name: self._open_lens("person", name)
+        )
+        self._card.genre_clicked.connect(
+            lambda genre: self._open_lens("genre", genre)
+        )
+        self._card.lens_search_requested.connect(self._on_lens_search)
         # Poster-peek relay: the card's enlarge request bubbles to the host, which
         # feeds the SAME enlarged-poster overlay the details pane / trail-map use.
         self._card.poster_expand_requested.connect(self.poster_expand_requested)
@@ -317,7 +351,7 @@ class SimilarTitleLightbox(QWidget):
                     "runtime": meta.runtime if meta else None,
                     "genres": self._extract_genres(meta),
                     "plot": meta.plot if meta else None,
-                    "cast": self._extract_cast(meta),
+                    "cast": self._extract_cast(meta),   # structured [{name, role}]
                     "similar": similar,
                     "versions": versions,
                     "version_count": len(versions),
@@ -367,20 +401,26 @@ class SimilarTitleLightbox(QWidget):
         return []
 
     @staticmethod
-    def _extract_cast(meta) -> str:
-        """Build a 'A, B, C · dir. D' line from MetadataDB cast + director."""
+    def _extract_cast(meta) -> list[dict]:
+        """Structured cast + crew: ``[{"name": …, "role": "cast"|"director"}]``.
+
+        Structured rather than the old pre-joined "A, B, C · dir. D" display
+        line because the card now makes every name a LINK into that person's
+        lens — and a display line cannot be split back into names reliably
+        (commas appear inside names, "dir." is a label, not a separator).
+        The card owns the joining; this owns the identity.
+        """
+        from metatv.core.preference_engine import _split_directors
+
         if not meta:
-            return ""
-        names = [
-            (p.get("name") or "")
-            for p in (getattr(meta, "cast", None) or [])[:5]
-            if isinstance(p, dict)
-        ]
-        cast = ", ".join(n for n in names if n)
-        director = (getattr(meta, "director", None) or "").strip()
-        if director:
-            return f"{cast} · dir. {director}" if cast else f"dir. {director}"
-        return cast
+            return []
+        people: list[dict] = []
+        for p in (getattr(meta, "cast", None) or [])[:5]:
+            if isinstance(p, dict) and (p.get("name") or "").strip():
+                people.append({"name": p["name"].strip(), "role": "cast"})
+        for name in _split_directors(getattr(meta, "director", None) or ""):
+            people.append({"name": name, "role": "director"})
+        return people
 
     def _apply_data(self, channel_id: str, data: object) -> None:
         """Called on the main thread via _data_ready signal."""
@@ -447,6 +487,128 @@ class SimilarTitleLightbox(QWidget):
         if seed:
             self.explore_requested.emit(seed)
 
+    # ── Facet lenses (metadata adjacency) ──────────────────────────────────
+
+    @staticmethod
+    def _lens_label(lens: str, value: str, empty: bool = False) -> str:
+        """Name the facet set in the header, the strip and the breadcrumb.
+
+        One phrasing, used in all three, so the crumb the user clicks back to
+        reads the same as the header they were just looking at.
+        """
+        if lens == "person":
+            return f"Nothing else with {value}" if empty else f"With {value}"
+        return f"No other {value} titles" if empty else f"{value} titles"
+
+    def _open_lens(self, lens: str, value: str) -> None:
+        """A cast/crew name or genre chip was clicked — re-seed with that facet.
+
+        Deliberately does NOT close the overlay or filter the channel list: the
+        list is invisible behind the overlay, so the user would get no feedback
+        and would lose the trail. The hop instead becomes another stop with its
+        own Back step, exactly like a dive.
+        """
+        value = (value or "").strip()
+        if not value or not self.isVisible():
+            return
+        self._pending_lens = (lens, value)
+        self._executor.submit(self._bg_load_lens, lens, value, self._current_id)
+
+    def _bg_load_lens(self, lens: str, value: str, anchor_id: str) -> None:
+        """Background: resolve the facet's titles, emit ``_lens_ready``.
+
+        Routes through the canonical ``get_lens_channels`` — the SAME predicates
+        the channel-list context chip uses — so "See all in Search" lands on the
+        set the lens was paging rather than a second, differently-shaped answer.
+        Returns plain (id, title) tuples: no ORM object crosses the thread.
+        """
+        rows: list[tuple[str, str]] = []
+        try:
+            from metatv.core.repositories import RepositoryFactory
+
+            with self._db.session_scope(commit=False) as session:
+                repos = RepositoryFactory(session)
+                # Absolute gate (DR-0007) + the user's Global Exclusions, applied
+                # inside the query exactly as the Similar strip applies them.
+                hidden = set(repos.providers.get_hidden_provider_ids())
+                for ch in repos.channels.get_lens_channels(
+                    lens, value,
+                    excluded_provider_ids=hidden,
+                    limit=_LENS_LIMIT,
+                    config=self._config,
+                ):
+                    # The anchor itself always matches its own facet; paging back
+                    # onto the title you clicked FROM reads as a broken hop.
+                    if ch.id == anchor_id:
+                        continue
+                    rows.append((ch.id, ch.detected_title or ch.name))
+        except Exception:
+            logger.exception("Lightbox lens load failed for %s=%s", lens, value)
+            rows = []
+        self._lens_ready.emit(lens, value, rows)
+
+    def _apply_lens(self, lens: str, value: str, rows: object) -> None:
+        """Main thread: enter the facet lens (or say plainly that it is empty)."""
+        if self._pending_lens != (lens, value) or not self.isVisible():
+            return
+        self._pending_lens = None
+        rows = list(rows or [])
+        if not rows:
+            # Honest empty state on the card the user is already looking at —
+            # navigating to nothing would be worse than saying so. The strip's
+            # search link stays live so they can still check the full list.
+            self._card.show_notice(self._lens_label(lens, value, empty=True))
+            return
+
+        label = self._lens_label(lens, value)
+        # Save the whole nav state so Back restores this exact spot — lenses nest.
+        self._lens_stack.append({
+            "origin_ids": list(self._origin_ids),
+            "origin_idx": self._origin_idx,
+            "origin_title": self._origin_title,
+            "nav_stack": list(self._nav_stack),
+            "current_id": self._current_id,
+            "anchor_title": self._nav_titles.get(self._current_id) or self._origin_title,
+            "lens": self._lens,
+        })
+        self._origin_ids = [cid for cid, _ in rows]
+        self._origin_idx = 0
+        self._origin_title = label
+        self._nav_stack = []
+        self._lens = (lens, value)
+        for cid, title in rows:
+            if title:
+                self._nav_titles[cid] = title
+        self._card.set_lens(lens, value)
+        self._card.set_header(label, lens=True)
+        self._card.set_back_visible(True)
+        self._load_channel(self._origin_ids[0])
+
+    def _exit_lens(self) -> None:
+        """Back out of a facet lens, restoring the nav state it was opened from."""
+        if not self._lens_stack:
+            return
+        state = self._lens_stack.pop()
+        self._origin_ids = state["origin_ids"]
+        self._origin_idx = state["origin_idx"]
+        self._origin_title = state["origin_title"]
+        self._nav_stack = state["nav_stack"]
+        self._lens = state["lens"]
+        if self._lens:
+            self._card.set_lens(*self._lens)
+            self._card.set_header(self._lens_label(*self._lens), lens=True)
+        else:
+            self._card.clear_lens()
+            self._card.set_header(self._origin_title)
+        if not (self._nav_stack or self._lens_stack):
+            self._card.set_back_visible(False)
+        self._load_channel(state["current_id"])
+
+    def _on_lens_search(self, lens: str, value: str) -> None:
+        """"See all in Search" — the explicit hand-off to the channel list."""
+        self._close()
+        self.lens_search_requested.emit(lens, value)
+
     def _dive_into(self, channel_id: str) -> None:
         """Navigate deeper into similar / other-version content (rabbit-hole mode)."""
         if not channel_id:
@@ -456,12 +618,14 @@ class SimilarTitleLightbox(QWidget):
         self._load_channel(channel_id)
 
     def _go_back(self) -> None:
-        if not self._nav_stack:
+        """One step back: out of the dive first, then out of the facet lens."""
+        if self._nav_stack:
+            prev_id = self._nav_stack.pop()
+            if not (self._nav_stack or self._lens_stack):
+                self._card.set_back_visible(False)
+            self._load_channel(prev_id)
             return
-        prev_id = self._nav_stack.pop()
-        if not self._nav_stack:
-            self._card.set_back_visible(False)
-        self._load_channel(prev_id)
+        self._exit_lens()
 
     def _on_breadcrumb_crumb_clicked(self, channel_id: str) -> None:
         """Handle breadcrumb crumb click — truncate stack and load that channel.
@@ -469,14 +633,23 @@ class SimilarTitleLightbox(QWidget):
         Truncates the nav_stack so it ends just before the clicked channel,
         effectively "rewinding" to that point.
         """
-        if not channel_id or channel_id not in self._nav_stack:
+        if not channel_id:
             return
-        # Find the index of the crumb and truncate the stack there
-        idx = self._nav_stack.index(channel_id)
-        self._nav_stack = self._nav_stack[:idx]
-        if not self._nav_stack:
-            self._card.set_back_visible(False)
-        self._load_channel(channel_id)
+        if channel_id in self._nav_stack:
+            # Find the index of the crumb and truncate the stack there
+            idx = self._nav_stack.index(channel_id)
+            self._nav_stack = self._nav_stack[:idx]
+            if not (self._nav_stack or self._lens_stack):
+                self._card.set_back_visible(False)
+            self._load_channel(channel_id)
+            return
+        # A lens anchor crumb ("Adaptation." in "Adaptation. › With Nicolas
+        # Cage"): unwind the lenses opened after it, then leave the lens itself.
+        for i, entry in enumerate(self._lens_stack):
+            if entry["current_id"] == channel_id:
+                del self._lens_stack[i + 1:]
+                self._exit_lens()
+                return
 
     def _update_nav_state(self) -> None:
         in_rabbit_hole = bool(self._nav_stack)
@@ -490,10 +663,12 @@ class SimilarTitleLightbox(QWidget):
             self._card.set_counter(f"{idx + 1} of {n}")
             self._prev_chev.setEnabled(idx > 0)
             self._next_chev.setEnabled(idx < n - 1)
-        # Update the breadcrumb trail
+        # Update the breadcrumb trail. Lens anchors precede the origin, so a
+        # facet hop reads "Adaptation. › With Nicolas Cage › Con Air".
         self._card.update_breadcrumb(
             self._origin_title, self._origin_ids, self._nav_stack,
             self._current_id, self._nav_titles,
+            [(e["anchor_title"], e["current_id"]) for e in self._lens_stack],
         )
 
     # ------------------------------------------------------------------ #
@@ -503,6 +678,10 @@ class SimilarTitleLightbox(QWidget):
     def _close(self) -> None:
         self._nav_stack.clear()
         self._nav_titles.clear()
+        self._lens_stack.clear()
+        self._lens = None
+        self._pending_lens = None
+        self._card.clear_lens()
         self._card.set_back_visible(False)
         self.hide()
 
@@ -525,7 +704,7 @@ class SimilarTitleLightbox(QWidget):
             self._go_prev()
         elif event.key() == Qt.Key.Key_Right and not self._nav_stack:
             self._go_next()
-        elif event.key() == Qt.Key.Key_Backspace and self._nav_stack:
+        elif event.key() == Qt.Key.Key_Backspace and (self._nav_stack or self._lens_stack):
             self._go_back()
         else:
             super().keyPressEvent(event)

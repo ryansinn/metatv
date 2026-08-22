@@ -38,6 +38,8 @@ from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.lightbox_breadcrumb import LightboxBreadcrumb
+from metatv.gui.lightbox_facets import LensChrome, cast_links_html, genre_chips
+from metatv.gui.lightbox_keyhints import LightboxKeyHints
 from metatv.gui.sim_badges import make_sim_badges
 
 # Poster / strip-card dimensions (structural spacing — px is fine inline).
@@ -221,6 +223,12 @@ class _LightboxCard(QFrame):
     suppression_toggled = pyqtSignal(bool)  # Not-Interested on/off
     dive_requested      = pyqtSignal(str)   # channel_id (Other Version OR similar card)
     poster_expand_requested = pyqtSignal(QPixmap)  # enlarge the main poster (peek)
+    # Facet lenses — a cast/crew name or a genre chip was clicked. The overlay
+    # re-seeds itself with that facet's titles rather than filtering the channel
+    # list, which is invisible behind the overlay (see ``set_lens``).
+    person_clicked      = pyqtSignal(str)   # person name
+    genre_clicked       = pyqtSignal(str)   # genre name
+    lens_search_requested = pyqtSignal(str, str)  # lens ("person"/"genre"), value
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -236,6 +244,10 @@ class _LightboxCard(QFrame):
         # url → poster labels awaiting an async image (main poster + strip cards).
         self._poster_targets: dict[str, list[QLabel]] = {}
         self.main_poster_url: str | None = None
+        # The facet-lens chrome (exit link + empty-click notice), built before
+        # the header so ``_build_header`` can place its button.
+        self._lens = LensChrome(self)
+        self._lens.search_requested.connect(self.lens_search_requested)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -272,6 +284,10 @@ class _LightboxCard(QFrame):
         _theme.style(self._counter_lbl, "LIGHTBOX_COUNTER")
         row.addWidget(self._counter_lbl)
 
+        # Facet-lens exit — hidden unless a lens is open, and placed next to the
+        # lens name the header carries (see ``LensChrome``).
+        row.addWidget(self._lens.exit_button)
+
         # Explore — opens the cascading-columns trail-map seeded with this dive path
         # (contextual lateral adjacency; distinct from the global ✨ Discover).
         self._explore_btn = QPushButton(f"{_icons.explore_icon} Explore")
@@ -298,6 +314,8 @@ class _LightboxCard(QFrame):
         self._breadcrumb.crumb_clicked.connect(self._on_breadcrumb_clicked)
         self._breadcrumb.explore_ellipsis_clicked.connect(self.explore_clicked)
         outer.addWidget(self._breadcrumb)
+
+        outer.addWidget(self._lens.notice)
 
     def _build_body(self, outer: QVBoxLayout) -> None:
         scroll = _GrowScrollArea()
@@ -484,6 +502,12 @@ class _LightboxCard(QFrame):
         body.addWidget(self._cast_hdr)
         self._cast_lbl = QLabel()
         self._cast_lbl.setWordWrap(True)
+        # Rich text so each name is its own link into that person's lens — the
+        # same grammar (and the same resolved set) as the details pane's Cast &
+        # Crew, which has been clickable all along.
+        self._cast_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._cast_lbl.setOpenExternalLinks(False)
+        self._cast_lbl.linkActivated.connect(self.person_clicked)
         _theme.style(self._cast_lbl, "LIGHTBOX_CAST")
         body.addWidget(self._cast_lbl)
 
@@ -555,26 +579,8 @@ class _LightboxCard(QFrame):
         body.addWidget(self._strip_scroll)
 
     def _build_footer(self, outer: QVBoxLayout) -> None:
-        bar = QWidget()
-        _theme.style(bar, "LIGHTBOX_FOOTER_BAR")
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(20, 10, 20, 10)
-        row.setSpacing(18)
-        hints = [
-            (f"{_icons.nav_prev_icon} {_icons.nav_next_icon}", "browse similar"),
-            (_icons.lightbox_icon, "dive in"),
-            ("Backspace", "back"),
-            ("Esc", "close"),
-        ]
-        for key, text in hints:
-            kbd = QLabel(key)
-            _theme.style(kbd, "LIGHTBOX_KBD")
-            row.addWidget(kbd)
-            lbl = QLabel(text)
-            _theme.style(lbl, "LIGHTBOX_FOOTER_HINT")
-            row.addWidget(lbl)
-        row.addStretch()
-        outer.addWidget(bar)
+        self._keyhints = LightboxKeyHints()
+        outer.addWidget(self._keyhints)
 
     def _section_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -608,8 +614,33 @@ class _LightboxCard(QFrame):
     # Header / navigation state (driven by the overlay)                    #
     # ------------------------------------------------------------------ #
 
-    def set_header(self, origin_title: str) -> None:
-        self._title_lbl.setText(f"Similar to:  {origin_title}")
+    def set_header(self, origin_title: str, lens: bool = False) -> None:
+        """Set the header line.
+
+        Args:
+            origin_title: The anchor title, or the lens label when *lens*.
+            lens: True when the overlay is paging a facet set — the label already
+                reads as a set ("With Nicolas Cage"), so it takes no
+                "Similar to:" prefix.
+        """
+        self._title_lbl.setText(
+            origin_title if lens else f"Similar to:  {origin_title}"
+        )
+
+    # Facet-lens chrome — the card just forwards; ``LensChrome`` owns the state.
+    def set_lens(self, lens: str, value: str) -> None:
+        """Enter a facet lens (the header names it, the breadcrumb its anchor)."""
+        self._lens.set_lens(lens, value)
+        self._keyhints.set_lens_active(True)
+
+    def clear_lens(self) -> None:
+        """Leave the lens — back on a title's own neighbours."""
+        self._lens.clear()
+        self._keyhints.set_lens_active(False)
+
+    def show_notice(self, text: str) -> None:
+        """Say that a click matched nothing (no navigation happened)."""
+        self._lens.show_notice(text)
 
     def set_counter(self, text: str) -> None:
         self._counter_lbl.setText(text)
@@ -624,12 +655,16 @@ class _LightboxCard(QFrame):
         nav_stack: list[str],
         current_id: str,
         titles: dict[str, str],
+        lens_crumbs: list[tuple[str, str]] | None = None,
     ) -> None:
         """Update the breadcrumb trail with the current dive path.
 
-        Called whenever the lightbox loads a new channel or dives deeper.
+        Called whenever the lightbox loads a new channel, dives deeper, or opens
+        a facet lens (*lens_crumbs* — the anchors the lens was opened from).
         """
-        self._breadcrumb.update_trail(origin_title, origin_ids, nav_stack, current_id, titles)
+        self._breadcrumb.update_trail(
+            origin_title, origin_ids, nav_stack, current_id, titles, lens_crumbs,
+        )
 
     def _on_breadcrumb_clicked(self, channel_id: str) -> None:
         """Handle breadcrumb crumb click — relay as a signal for the overlay."""
@@ -746,17 +781,12 @@ class _LightboxCard(QFrame):
         self._source_row_w.show()
 
     def _populate_genres(self, genres: list[str]) -> None:
+        """Render the genre chips — each one a lens trigger."""
         self._clear_flow(self._genres_flow)
-        shown = 0
-        for g in genres:
-            g = (g or "").strip()
-            if not g:
-                continue
-            chip = QLabel(g)
-            _theme.style(chip, "LIGHTBOX_GENRE_CHIP")
+        chips = genre_chips(genres, self.genre_clicked.emit)
+        for chip in chips:
             self._genres_flow.addWidget(chip)
-            shown += 1
-        self._genres_w.setVisible(shown > 0)
+        self._genres_w.setVisible(bool(chips))
 
     def _populate_rating(self, data: dict) -> None:
         rating = int(data.get("user_rating") or 0)
@@ -782,11 +812,16 @@ class _LightboxCard(QFrame):
         self._plot_lbl.setVisible(has)
         self._plot_lbl.setText(plot)
 
-    def _populate_cast(self, cast: str) -> None:
-        has = bool(cast.strip())
+    def _populate_cast(self, cast) -> None:
+        """Render CAST & CREW, each name a link into that person's lens."""
+        text, linked = cast_links_html(cast)
+        has = bool(text.strip())
         self._cast_hdr.setVisible(has)
         self._cast_lbl.setVisible(has)
-        self._cast_lbl.setText(cast)
+        self._cast_lbl.setText(text)
+        self._cast_lbl.setToolTip(
+            "Click a name to see everything they are in" if linked else ""
+        )
 
     def _populate_versions(self, versions: list[dict]) -> None:
         self._clear_layout(self._versions_list)

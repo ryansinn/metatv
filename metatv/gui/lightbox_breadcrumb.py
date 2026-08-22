@@ -63,6 +63,7 @@ class LightboxBreadcrumb(QWidget):
         nav_stack: list[str],
         current_id: str,
         titles: dict[str, str],
+        lens_crumbs: list[tuple[str, str]] | None = None,
     ) -> None:
         """Update the breadcrumb with the current dive path.
 
@@ -73,6 +74,12 @@ class LightboxBreadcrumb(QWidget):
             current_id: The currently shown channel's ID.
             titles: channel_id → display title, captured by the lightbox as
                 the user dives (no DB access: this runs on every navigation).
+            lens_crumbs: ``(label, channel_id)`` pairs that PRECEDE the origin —
+                the anchors the user was sitting on when they clicked a cast
+                name or genre chip and the overlay re-seeded itself with that
+                facet. Each is clickable (returning to that anchor's set);
+                *origin_title* then names the lens itself ("With Nicolas Cage"),
+                which is a set label, not a place, so it stays unclickable.
         """
         # Clear previous crumbs
         self._crumb_buttons.clear()
@@ -81,8 +88,8 @@ class LightboxBreadcrumb(QWidget):
             if w := item.widget():
                 w.deleteLater()
 
-        if not nav_stack:
-            # Not in a dive; don't show the breadcrumb
+        if not nav_stack and not lens_crumbs:
+            # Neither in a dive nor inside a facet lens; don't show the breadcrumb
             self.hide()
             return
 
@@ -91,7 +98,10 @@ class LightboxBreadcrumb(QWidget):
         titles = dict(titles or {})
 
         # Build the trail: origin › stack items › current
-        trail: list[tuple[str, str]] = [(origin_title, "")]  # origin is not clickable
+        # Lens anchors first ("Adaptation. › With Nicolas Cage › …"), then the
+        # origin/lens label, which is never clickable.
+        trail: list[tuple[str, str]] = list(lens_crumbs or [])
+        trail.append((origin_title, ""))
         for cid in nav_stack:
             trail.append((titles.get(cid) or "…", cid))
         trail.append((titles.get(current_id) or "…", current_id))
@@ -118,8 +128,12 @@ class LightboxBreadcrumb(QWidget):
                 set_clickable(ellipsis_btn)
                 ellipsis_btn.clicked.connect(self.explore_ellipsis_clicked)
                 self._layout.addWidget(ellipsis_btn, 0)
-            elif is_current:
-                # Current crumb is not clickable
+            elif is_current or not cid:
+                # Not a destination: the CURRENT crumb (you are already here) and
+                # any crumb with no channel to go to — the origin, and a lens
+                # label like "With Nicolas Cage", which names a SET rather than a
+                # place. Rendering those as buttons gave them a pointing-hand
+                # cursor and a click that emitted "" and did nothing.
                 current_lbl = QLabel(title)
                 _theme.style(current_lbl, "LIGHTBOX_BREADCRUMB_CURRENT")
                 current_lbl.setToolTip(title)

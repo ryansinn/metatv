@@ -31,6 +31,12 @@ from metatv.core.repositories.dtos import (
     ReconnectCandidateDTO, ReconnectMatchDTO,
 )
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
+# Facet lenses + the predicates the channel-list person/genre filters share with
+# them — one definition, so "See all in Search" lands on the set the lens showed.
+from metatv.core.repositories.channel_lens import (
+    GENRE_MEDIA_TYPES, apply_global_exclusions, collapse_best_variant,
+    genre_predicate, lens_channels, metadata_person_exists, person_predicate,
+)
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
 from metatv.core.tag_decomposer import region_code_from_category
 
@@ -160,49 +166,7 @@ def _channel_text_search_predicate(search_term: str):
         A SQLAlchemy boolean clause suitable for ``query.filter(...)``.
     """
     pattern = f"%{search_term}%"
-    return or_(ChannelDB.name.ilike(pattern), _metadata_person_exists(pattern))
-
-
-def _metadata_person_exists(pattern: str):
-    """Correlated EXISTS: the channel's linked ``MetadataDB`` row has a
-    director/cast match for *pattern* (a SQL ``LIKE``/``ILIKE`` pattern,
-    e.g. ``f"%{name}%"``).
-
-    Single chokepoint for "does this channel's *enriched* metadata mention
-    this person" — shared by :func:`_channel_text_search_predicate` (free-text
-    search box) and the details-pane Cast/Crew context-chip filter
-    (``ChannelRepository._apply_channel_filters`` ``person_filter`` branch).
-    Both need the same shape (details pane displays ``MetadataDB.cast``/
-    ``director``, so any filter over "who's in this" must match what's
-    displayed, not the raw provider blob) — extend this helper for a future
-    variant rather than forking a second correlated subquery.
-
-    ``MetadataDB.cast`` is a ``JSONEncoded`` (``Text``-backed) column storing
-    ``[{"name": ..., "character": ..., "photo_url": ...}]`` — matched with a
-    plain substring ``ILIKE`` against the serialized JSON text, which is
-    sufficient for a name lookup without a ``json_each`` split.
-    ``MetadataDB.director`` is matched the same way. Both comparisons wrap the
-    column in ``type_coerce(..., Text)`` first — without it, SQLAlchemy runs
-    the ``JSONEncoded`` bind-processor on the search pattern too (JSON-encoding
-    it into a quoted string literal), which silently never matches.
-    """
-    from sqlalchemy import exists as _exists, select as _sa_select, type_coerce as _type_coerce, Text as _Text
-
-    # correlate(ChannelDB) is REQUIRED: get_all() now outerjoins MetadataDB (for
-    # the list DTO's plot/poster columns), so without an explicit correlation
-    # SQLAlchemy auto-correlates MetadataDB out of this subquery too and raises
-    # "returned no FROM clauses due to auto-correlation".
-    return _exists(
-        _sa_select(MetadataDB.id)
-        .where(
-            MetadataDB.id == ChannelDB.metadata_id,
-            or_(
-                MetadataDB.director.ilike(pattern),
-                _type_coerce(MetadataDB.cast, _Text).ilike(pattern),
-            ),
-        )
-        .correlate(ChannelDB)
-    )
+    return or_(ChannelDB.name.ilike(pattern), metadata_person_exists(pattern))
 
 
 def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bool:
@@ -833,62 +797,17 @@ class ChannelRepository(_ChannelStatsMixin):
         # pattern that function uses; falls back to a raw_data.genre LIKE for
         # rows ingested before detected_genres existed / not yet re-swept.
         if strict_genre_filter:
-            from sqlalchemy import text as _text2
-            _canon_genre = normalize_genre(strict_genre_filter)
             query = query.filter(
-                ChannelDB.media_type.in_(["movie", "series"]),
-                or_(
-                    _text2(
-                        "EXISTS (SELECT 1 FROM json_each(channels.detected_genres) AS dg_je "
-                        "WHERE dg_je.value = :_strict_genre_exact)"
-                    ).bindparams(_strict_genre_exact=_canon_genre),
-                    _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
-                        _strict_genre=f"%{strict_genre_filter}%"
-                    ),
-                ),
+                ChannelDB.media_type.in_(GENRE_MEDIA_TYPES),
+                genre_predicate(strict_genre_filter),
             )
 
-        # Person filter — from details-pane cast/director/crew chip clicks. The
-        # details pane displays the ENRICHED MetadataDB.cast/director, so the
-        # filter must match what's shown there first (via the shared
-        # _metadata_person_exists EXISTS, also used by the free-text search
-        # predicate) — otherwise an enriched-only row (e.g. a movie whose raw
-        # provider feed carries no cast field, but MetadataDB.cast does) is
-        # invisible to its own chip. Falls back to the raw_data.cast/director
-        # LIKE match for un-enriched rows (most channels have no metadata_id).
+        # Person filter — from details-pane cast/director/crew chip clicks, and
+        # the lightbox person lens. The predicate (enriched metadata, the channel
+        # NAME incl. live, and the raw provider blobs) is defined once in
+        # channel_lens.person_predicate so both surfaces resolve the same set.
         if person_filter:
-            from sqlalchemy import text as _text3
-            _person_pattern = f"%{person_filter}%"
-            query = query.filter(
-                or_(
-                    _metadata_person_exists(_person_pattern),
-                    # The NAME itself, LIVE INCLUDED. Providers append the lead
-                    # actor to VOD filenames ("EN - Adaptation. 4K (2002)
-                    # NICOLAS CAGE"), which the parser strips into
-                    # detected_title — so the person is visibly on the row yet
-                    # was invisible to a person filter: searching that name
-                    # FOUND the title while filtering by it MISSED it.
-                    #
-                    # This deliberately covers live too. An earlier version of
-                    # this filter excluded live on the theory that a channel
-                    # named after a person is a naming coincidence. The corpus
-                    # says otherwise: providers ship whole CATEGORIES of curated
-                    # actor channels — "24/7 TOM HANKS" under
-                    # "24/7 MOVIES/ACTORS VIP", "AR| TOM HANKS MOVIES" under
-                    # "AR| ACTORS 4K", "BS| NICOLAS CAGE COLLECTION". A 24/7
-                    # channel devoted to an actor is exactly what someone
-                    # filtering for that actor wants, and hiding it is
-                    # censorial (mirror-not-cage). Same logic as an ANIME
-                    # collection belonging to the Anime genre.
-                    ChannelDB.name.ilike(_person_pattern),
-                    _text3(
-                        "json_extract(raw_data, '$.cast') LIKE :_person_cast"
-                    ).bindparams(_person_cast=_person_pattern),
-                    _text3(
-                        "json_extract(raw_data, '$.director') LIKE :_person_dir"
-                    ).bindparams(_person_dir=_person_pattern),
-                )
-            )
+            query = query.filter(person_predicate(person_filter))
 
         # ── Tag facet filter: per-facet correlated EXISTS (AND across, OR within) ──
         # Each constrained facet gets one EXISTS subquery against content_tags JOIN tags.
@@ -3191,10 +3110,10 @@ class ChannelRepository(_ChannelStatsMixin):
         - Word-overlap heuristic on the origin's ``normalize_title`` words of length
           ≥ 4: a candidate qualifies when it shares ≥ ``max(1, len(words)//2)`` of
           them (non-ASCII is blanked before splitting a candidate's words).
-        - Collapses same-production variants by ``content_key or normalized_title``,
-          keeping the best-scored variant per group
-          (``preference_engine.version_score`` — requires *config*; without it the
-          first variant encountered per group wins).
+        - Collapses same-production variants via the shared
+          ``channel_lens.collapse_best_variant`` (``content_key`` or title,
+          best-scored variant per group — requires *config*; without it the first
+          variant encountered per group wins).
         - Drops any candidate whose ``build_dedup_key`` equals the origin's current
           key (its own other-source variants belong in "Other Versions", not here).
 
@@ -3232,7 +3151,6 @@ class ChannelRepository(_ChannelStatsMixin):
             boundary (ORM-to-DTO rule).
         """
         from metatv.core.content_dedup import normalize_title, build_dedup_key
-        from metatv.core.preference_engine import version_score as _version_score
 
         channel = self.session.get(ChannelDB, channel_id)
         if not channel:
@@ -3261,17 +3179,7 @@ class ChannelRepository(_ChannelStatsMixin):
         # Similar surfaces.  The excluded set comes from the shared filter_utils
         # resolvers (single source of truth for the DATA); the SQL is applied with the
         # canonical _apply_prefix_filter predicate.  config=None or paused → no-op.
-        if config is not None and not getattr(config, "global_filter_paused", False):
-            from metatv.core.filter_utils import (
-                get_active_category_filter, get_excluded_prefixes,
-            )
-            from metatv.core.discovery_engine import _apply_prefix_filter
-
-            cat_excluded, include_uncategorized = get_active_category_filter(config)
-            excluded_prefixes = set(cat_excluded or []) | get_excluded_prefixes(config)
-            q = _apply_prefix_filter(
-                q, list(excluded_prefixes) or None, include_uncategorized
-            )
+        q = apply_global_exclusions(q, config)
         candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
 
         threshold = max(1, len(words) // 2)
@@ -3286,7 +3194,7 @@ class ChannelRepository(_ChannelStatsMixin):
         # prefers the stored content_key (localized/translated + "MULTI" variants share
         # a key and collapse exactly as on Discover/Other-Versions); falls back to the
         # normalized title only for rows with no content_key (pre-backfill).
-        best_per_group: "dict[str, tuple[ChannelDB, int]]" = {}
+        matches: "list[ChannelDB]" = []
         for ch in candidates:
             ch_norm = normalize_title(ch.name, ch.detected_prefix)
             ch_norm_ascii = _SIMILAR_NON_ASCII_RE.sub(" ", ch_norm).strip()
@@ -3301,13 +3209,20 @@ class ChannelRepository(_ChannelStatsMixin):
                 )
                 if build_dedup_key(ch, ch_meta) == current_key:
                     continue
-            group_key = (ch.content_key or None) or ch_norm
-            score = _version_score(ch, config) if config is not None else 0
-            existing = best_per_group.get(group_key)
-            if existing is None or score > existing[1]:
-                best_per_group[group_key] = (ch, score)
+            matches.append(ch)
 
-        return [ch for ch, _ in list(best_per_group.values())[:limit]]
+        return collapse_best_variant(matches, config=config, limit=limit)
+
+    def get_lens_channels(self, lens: str, value: str, **kwargs) -> "List[ChannelDB]":
+        """Every visible title matching a facet — see ``channel_lens.lens_channels``.
+
+        Lives on the repository so callers reach it the same way they reach
+        every other channel query; the implementation is in
+        ``metatv.core.repositories.channel_lens`` because the channel-list
+        context chip and the lightbox lens must share one definition (and
+        because this file is already 4k lines of recorded debt).
+        """
+        return lens_channels(self.session, lens, value, **kwargs)
 
     # ── User category methods ──────────────────────────────────────────────────
 
