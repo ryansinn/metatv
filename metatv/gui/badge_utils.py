@@ -66,7 +66,7 @@ def _quality_outline_colors() -> dict[str, str]:
 def _chip_base() -> str:
     return (
         "border-radius: 3px; padding: 1px 5px; font-size: " + _theme.FONT_SM + ";"
-        " font-weight: bold; color: white; background: {bg};"
+        " font-weight: bold; color: " + _theme.COLOR_TEXT_HI + "; background: {bg};"
     )
 
 

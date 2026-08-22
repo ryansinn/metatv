@@ -200,7 +200,7 @@ class _ContentCard(QWidget):
             status_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
             status_lbl.setStyleSheet(
                 f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
-                " padding: 1px 3px; color: white;"
+                f" padding: 1px 3px; color: {_theme.COLOR_ON_FILL_LIGHT};"
             )
             status_lbl.adjustSize()
             status_lbl.move(cw - status_lbl.width() - round(4 * z), round(4 * z))

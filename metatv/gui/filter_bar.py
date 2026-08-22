@@ -175,17 +175,7 @@ class FilterDropdown(QPushButton):
         self.selected_groups: set = set(groups.keys()) if all_selected else set()
 
         self.setText(f"{label} ▼")
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: white;
-                color: {_theme.COLOR_LINE};
-                border: 1px solid {_theme.COLOR_TEXT};
-                border-radius: 4px;
-                padding: 6px 12px;
-                text-align: left;
-            }}
-            QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT}; color: {_theme.COLOR_LINE}; }}
-        """)
+        _theme.style(self, "MULTISELECT_DROPDOWN_BTN")
 
         self.menu = QMenu(self)
         self.checkboxes = {}
