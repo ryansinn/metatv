@@ -1538,14 +1538,19 @@ def _build_semantic_constants() -> dict[str, object]:
     )
 
     # ── Explore trail-map (cascading columns + detail strip) ─────────────────────
-    # Role constants for ``trail_map_view.py`` / ``trail_map_detail.py``.  Same dark
-    # lightbox design family (owner: propagate the lightbox styling app-wide); colours
-    # come only from the tokens above so the widget files carry no literals.
+    # Role constants for ``trail_map_view.py`` / ``trail_map_detail.py``.  Same
+    # FIXED-DARK cinema surface as the preview overlay (owner: propagate the
+    # lightbox styling app-wide), so — like that family — every colour here comes
+    # from the fixed COLOR_LIGHTBOX_* set, never a palette-tuned token. Measured
+    # against the shell they actually paint on, the palette-tuned ones collapsed
+    # in Daylight: the "here" tag was white-on-white (1.03:1), the watched badges
+    # 1.33/1.44:1, the header link 1.24:1, and the thumb/poster wells rendered as
+    # white boxes. tests/test_cinema_surface_contrast.py measures them.
 
     # Shell + header
     TRAILMAP_SHELL = (
         "#trailmap_shell { background: " + COLOR_LIGHTBOX_BG + "; border-radius: 12px;"
-        " border: 1px solid " + COLOR_BORDER + "; }"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; }"
     )
     TRAILMAP_HEADER_BAR = (
         "background: " + COLOR_LIGHTBOX_HEADER + "; border-radius: 12px 12px 0 0;"
@@ -1553,37 +1558,37 @@ def _build_semantic_constants() -> dict[str, object]:
     TRAILMAP_TITLE = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_2XL + "; font-weight: bold;"
     )
-    TRAILMAP_SUBTITLE = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    TRAILMAP_SUBTITLE = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
     TRAILMAP_CLOSE_BTN = LIGHTBOX_CLOSE_BTN
     # Flat "collapse branches" link button in the header.
     TRAILMAP_LINK_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_ACCENT_BLUE + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_LIGHTBOX_LINK + ";"
         " font-size: " + FONT_LG + "; padding: 3px 6px; }"
-        "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
 
     # Columns
     TRAILMAP_COLUMN = (
         "#trailmap_col { background: transparent;"
-        " border-right: 1px solid " + COLOR_LINE + "; }"
+        " border-right: 1px solid " + COLOR_LIGHTBOX_LINE + "; }"
     )
     TRAILMAP_TRAIL_COLUMN = (
         "#trailmap_col { background: " + OVERLAY_03 + ";"
-        " border-right: 2px solid " + COLOR_BORDER + "; }"
+        " border-right: 2px solid " + COLOR_LIGHTBOX_BORDER + "; }"
     )
     TRAILMAP_COLHEAD = (
-        "background: transparent; border-bottom: 1px solid " + COLOR_LINE + ";"
+        "background: transparent; border-bottom: 1px solid " + COLOR_LIGHTBOX_LINE + ";"
     )
     TRAILMAP_COLHEAD_KICKER = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
         " letter-spacing: 1px;"
     )
     TRAILMAP_COLHEAD_NAME = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_LG + "; font-weight: bold;"
     )
     TRAILMAP_COLHINT = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + ";"
-        " border-top: 1px solid " + COLOR_LINE + ";"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + ";"
+        " border-top: 1px solid " + COLOR_LIGHTBOX_LINE + ";"
     )
 
     # Rows (custom QWidget; needs WA_StyledBackground). Two states applied in code —
@@ -1594,92 +1599,92 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     TRAILMAP_ROW_SELECTED = (
         "#trailmap_row { background: " + OVERLAY_BLUE_15 + "; border-radius: 8px;"
-        " border-left: 2px solid " + COLOR_ACCENT + "; }"
+        " border-left: 2px solid " + COLOR_LIGHTBOX_ACCENT + "; }"
     )
     TRAILMAP_THUMB = (
-        "#trailmap_thumb { background: " + COLOR_BG_DEEP + "; border-radius: 4px;"
-        " border: 1px solid " + COLOR_BORDER + "; color: " + COLOR_FAINT + ";"
+        "#trailmap_thumb { background: " + COLOR_LIGHTBOX_SUNKEN + "; border-radius: 4px;"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; color: " + COLOR_LIGHTBOX_FAINT + ";"
         " font-size: " + FONT_LG + "; }"
     )
     TRAILMAP_ROW_TITLE = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_LG + "; font-weight: bold;"
     )
-    TRAILMAP_ROW_YEAR = "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + ";"
-    TRAILMAP_ROW_CHEVRON = "color: " + COLOR_FAINT + "; font-size: " + FONT_XL + ";"
-    TRAILMAP_TRAIL_NUM = "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + ";"
+    TRAILMAP_ROW_YEAR = "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + ";"
+    TRAILMAP_ROW_CHEVRON = "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_XL + ";"
+    TRAILMAP_TRAIL_NUM = "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + ";"
     # "here" tag on the current (last) trail stop.
     TRAILMAP_HERE_TAG = (
-        "background: " + COLOR_LIGHTBOX_TEXT_HI + "; color: " + COLOR_BG_DEEP + ";"
+        "background: " + COLOR_LIGHTBOX_TEXT_HI + "; color: " + COLOR_LIGHTBOX_BG + ";"
         " border-radius: 3px; padding: 0 4px; font-size: " + FONT_XS + "; font-weight: bold;"
     )
 
     # Detail strip
     TRAILMAP_DETAIL = (
-        "#trailmap_detail { background: " + COLOR_BG_DEEP + ";"
-        " border-top: 1px solid " + COLOR_LINE + "; }"
+        "#trailmap_detail { background: " + COLOR_LIGHTBOX_SUNKEN + ";"
+        " border-top: 1px solid " + COLOR_LIGHTBOX_LINE + "; }"
     )
     TRAILMAP_DETAIL_POSTER = (
-        "#trailmap_detail_poster { background: " + COLOR_BG_DEEP + "; border-radius: 8px;"
-        " border: 1px solid " + COLOR_BORDER + "; color: " + COLOR_FAINT + ";"
+        "#trailmap_detail_poster { background: " + COLOR_LIGHTBOX_SUNKEN + "; border-radius: 8px;"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; color: " + COLOR_LIGHTBOX_FAINT + ";"
         " font-size: " + FONT_LG + "; }"
     )
     # Corner "mark watched" badge on the detail poster — 3 states (base / partial / done);
     # shape+glyph carry meaning, colour reinforces (colour-not-alone).
     TRAILMAP_WBADGE = (
-        "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 11px;"
-        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_FAINT + ";"
+        "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: 11px;"
+        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_LIGHTBOX_FAINT + ";"
         " font-size: " + FONT_LG + "; }"
-        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_OK + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_LIGHTBOX_OK + "; }"
     )
     TRAILMAP_WBADGE_DONE = (
-        "QPushButton { border: 1px solid " + COLOR_OK + "; border-radius: 11px;"
-        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_OK + ";"
+        "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_OK + "; border-radius: 11px;"
+        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_LIGHTBOX_OK + ";"
         " font-size: " + FONT_LG + "; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
     TRAILMAP_WBADGE_PARTIAL = (
-        "QPushButton { border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 11px;"
-        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_ACCENT_ORANGE + ";"
+        "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_WARN + "; border-radius: 11px;"
+        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_LIGHTBOX_WARN + ";"
         " font-size: " + FONT_LG + "; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
     TRAILMAP_DETAIL_TITLE = (
         "color: " + COLOR_LIGHTBOX_TEXT_HI + "; font-size: " + FONT_3XL + "; font-weight: bold;"
     )
-    TRAILMAP_DETAIL_YEAR = "color: " + COLOR_MUTED + "; font-size: " + FONT_2XL + ";"
+    TRAILMAP_DETAIL_YEAR = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_2XL + ";"
     # Favourite title-star (☆→★) — persistent, gold when on (NOT a rail button).
     TRAILMAP_FAV_STAR = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_FAINT + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_LIGHTBOX_FAINT + ";"
         " font-size: " + FONT_4XL + "; }"
-        "QPushButton:hover { color: " + COLOR_GOLD + "; }"
-        "QPushButton:checked { color: " + COLOR_GOLD + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_GOLD + "; }"
+        "QPushButton:checked { color: " + COLOR_LIGHTBOX_GOLD + "; }"
     )
-    TRAILMAP_DETAIL_META = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    TRAILMAP_DETAIL_META = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
     TRAILMAP_DETAIL_STAR = (
-        "color: " + COLOR_GOLD + "; font-size: " + FONT_LG + "; font-weight: bold;"
+        "color: " + COLOR_LIGHTBOX_GOLD + "; font-size: " + FONT_LG + "; font-weight: bold;"
     )
     TRAILMAP_SECTION_HDR = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
+        "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
         " letter-spacing: 1px;"
     )
     TRAILMAP_OVERVIEW = "color: " + COLOR_LIGHTBOX_TEXT + "; font-size: " + FONT_LG + ";"
-    TRAILMAP_CREW = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+    TRAILMAP_CREW = "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_LG + ";"
     TRAILMAP_PLAY_BTN = LIGHTBOX_PLAY_PRIMARY
     # Secondary outline link buttons (↗ Open in details, ✦ Make recipe).
     TRAILMAP_DETAIL_LINK_BTN = (
-        "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
+        "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; background: transparent;"
         " color: " + COLOR_LIGHTBOX_TEXT + "; border-radius: 8px; padding: 6px 10px;"
         " font-size: " + FONT_LG + "; }"
-        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+        "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_LIGHTBOX_LINK + "; }"
     )
-    TRAILMAP_EMPTY_HINT = "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + ";"
+    TRAILMAP_EMPTY_HINT = "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_LG + ";"
 
     # Explore views (embedded trail-map: History / Favorites / Watch Queue / Recommended):
     # opaque backing so the transient loading / empty state is not a see-through gap over
     # the content area.  One role constant shared by every Explore entry point.
     EXPLORE_VIEW_BG = "#exploreView { background: " + COLOR_LIGHTBOX_BG + "; }"
     EXPLORE_STATUS = (
-        "color: " + COLOR_MUTED + "; font-size: " + FONT_XL + ";"
+        "color: " + COLOR_LIGHTBOX_MUTED + "; font-size: " + FONT_XL + ";"
     )
 
     # Sidebar "Explore →" header link (History / Favorites / Queue / Recommended → the

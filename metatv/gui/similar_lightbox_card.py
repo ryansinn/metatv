@@ -853,7 +853,7 @@ class _LightboxCard(QFrame):
         visible = f"{icon}  {label}".strip() if icon else label
         row = QPushButton(visible)
         row.setFlat(True)
-        row.setStyleSheet(_theme.lightbox_version_row(color))
+        _theme.style_fn(row, lambda: _theme.lightbox_version_row(color))
         detail = f"{name} · {src}" if src else name
         row.setToolTip(detail)  # QPushButton auto-qualifies for the hand cursor
         cid = v.get("id")

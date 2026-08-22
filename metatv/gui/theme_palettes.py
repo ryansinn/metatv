@@ -305,7 +305,7 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
     # boxes on the dark card, and the state glyphs at 1.24:1.
     # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
-    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # from this family; tests/test_cinema_surface_contrast.py measures every
     # one of them against the surface it actually lands on.
     # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
     # this dark shell with genuine app-surface regions, so which surface each
@@ -322,6 +322,7 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
+    'COLOR_LIGHTBOX_WARN': '#f0b429',
 }
 
 
@@ -496,7 +497,7 @@ _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
     # boxes on the dark card, and the state glyphs at 1.24:1.
     # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
-    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # from this family; tests/test_cinema_surface_contrast.py measures every
     # one of them against the surface it actually lands on.
     # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
     # this dark shell with genuine app-surface regions, so which surface each
@@ -513,6 +514,7 @@ _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
+    'COLOR_LIGHTBOX_WARN': '#f0b429',
 }
 
 
@@ -733,7 +735,7 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     # (invisible), the keyboard-hint chips and poster wells rendered as WHITE
     # boxes on the dark card, and the state glyphs at 1.24:1.
     # Any new role that paints on COLOR_LIGHTBOX_BG/_HEADER takes its colour
-    # from this family; tests/test_lightbox_surface_contrast.py measures every
+    # from this family; tests/test_cinema_surface_contrast.py measures every
     # one of them against the surface it actually lands on.
     # NOT yet extended to the TRAILMAP_* family: the Explore trail-map mixes
     # this dark shell with genuine app-surface regions, so which surface each
@@ -750,6 +752,7 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_ON_FILL': '#ffffff',
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
+    'COLOR_LIGHTBOX_WARN': '#f0b429',
 }
 
 

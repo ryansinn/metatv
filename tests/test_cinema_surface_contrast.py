@@ -1,4 +1,4 @@
-"""Every lightbox role, measured against the surface it ACTUALLY paints on.
+"""Every role on the fixed-dark "cinema" shell, measured against that shell.
 
 The gap this closes
 -------------------
@@ -38,12 +38,20 @@ surface comes from the cinema family** (the fixed ``COLOR_LIGHTBOX_*`` tokens).
 It checks the rendered outcome (contrast), not the token names, so a role that
 finds some other way to be legible still passes.
 
-Not covered here: the ``TRAILMAP_*`` family. The Explore trail-map is an
-embedded view that mixes the dark shell with genuine app-surface regions
-(``COLOR_BG``/``COLOR_BG_SECTION``/``COLOR_BG_BAR`` all appear in it), so which
-surface a given role lands on is a real per-role question and not something to
-guess at in a sweep. It needs its own pass — see the module docstring note in
-``theme_palettes.py``.
+Coverage now includes the ``TRAILMAP_*`` and ``EXPLORE_*`` families, which paint
+on the same fixed-dark shell (``TRAILMAP_SHELL`` / ``EXPLORE_VIEW_BG`` are both
+``COLOR_LIGHTBOX_BG``). They were left out of the first pass because the view
+looked mixed-surface; measuring settled it — of the 21 trail-map roles that
+declare no background of their own, 17 were legible on the dark shell and
+illegible on the app background, which is only consistent with the shell being
+their surface. Their Daylight numbers were as bad as the lightbox's: the "here"
+tag on the current trail stop was white-on-white at 1.03:1, the watched badges
+1.33/1.44:1, the header link 1.24:1, and the thumbnail and detail-poster wells
+were near-white fills on the dark shell.
+
+This matters as one surface rather than two: the lightbox's Explore button opens
+straight into the trail map, so fixing one and not the other just moves where
+the user meets the bug.
 """
 
 from __future__ import annotations
@@ -56,6 +64,11 @@ from metatv.gui import theme as _theme
 
 PALETTES = ["Midnight", "Graphite", "Daylight"]
 
+# The role families that paint on the fixed-dark cinema shell. Anything added to
+# theme.py with one of these prefixes is measured by this module automatically —
+# no enumeration to forget to extend.
+CINEMA_PREFIXES = ("LIGHTBOX_", "TRAILMAP_", "EXPLORE_")
+
 # WCAG 2.1 AA for normal text. Every role here is text or an icon glyph.
 FLOOR = 4.5
 
@@ -66,6 +79,9 @@ _HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b")
 _NO_FOREGROUND = {
     "LIGHTBOX_CARD", "LIGHTBOX_HEADER_BAR", "LIGHTBOX_FOOTER_BAR",
     "LIGHTBOX_POSTER_SLOT", "LIGHTBOX_NOTICE_BAR",
+    "TRAILMAP_SHELL", "TRAILMAP_HEADER_BAR", "TRAILMAP_COLUMN",
+    "TRAILMAP_TRAIL_COLUMN", "TRAILMAP_COLHEAD", "TRAILMAP_ROW",
+    "TRAILMAP_ROW_SELECTED", "TRAILMAP_DETAIL", "EXPLORE_VIEW_BG",
 }
 
 # Roles that render on the header bar rather than the card body. Everything
@@ -75,6 +91,8 @@ _ON_HEADER = {
     "LIGHTBOX_CLOSE_BTN", "LIGHTBOX_ACTION_BTN", "LIGHTBOX_FOOTER_HINT",
     "LIGHTBOX_BREADCRUMB_CRUMB", "LIGHTBOX_BREADCRUMB_SEP",
     "LIGHTBOX_BREADCRUMB_CURRENT", "LIGHTBOX_LENS_LINK",
+    "TRAILMAP_TITLE", "TRAILMAP_SUBTITLE", "TRAILMAP_CLOSE_BTN",
+    "TRAILMAP_LINK_BTN",
 }
 
 
@@ -116,10 +134,10 @@ def _declared(block: str, prop: str) -> str | None:
     return found
 
 
-def _lightbox_roles() -> list[str]:
+def _cinema_roles() -> list[str]:
     return sorted(
         name for name in dir(_theme)
-        if name.startswith("LIGHTBOX_") and isinstance(getattr(_theme, name), str)
+        if name.startswith(CINEMA_PREFIXES) and isinstance(getattr(_theme, name), str)
     )
 
 
@@ -148,16 +166,17 @@ def _restore_theme():
 
 
 @pytest.mark.parametrize("palette", PALETTES)
-def test_every_lightbox_role_is_legible_on_its_own_surface(palette):
-    """No role in the preview overlay falls below 4.5:1 where it renders.
+def test_every_cinema_role_is_legible_on_its_own_surface(palette):
+    """No role on the fixed-dark shell falls below 4.5:1 where it renders.
 
-    FAILS against the pre-fix tree in Daylight with 17 roles below the floor,
-    five of them under 2.4:1 (invisible, not merely dim).
+    FAILS against the pre-fix tree in Daylight — 17 lightbox roles below the
+    floor before the first pass, and 6 trail-map roles before this one, the
+    worst of them at 1.03:1 (invisible, not merely dim).
     """
     _theme.apply_theme(palette)
 
     failures = []
-    for role in _lightbox_roles():
+    for role in _cinema_roles():
         if role in _NO_FOREGROUND:
             continue
         measured = _measure(role)
@@ -168,7 +187,7 @@ def test_every_lightbox_role_is_legible_on_its_own_surface(palette):
             failures.append(f"{role}: {fg} on {bg} = {ratio:.2f}:1")
 
     assert not failures, (
-        f"{palette}: {len(failures)} lightbox role(s) below {FLOOR}:1 on the "
+        f"{palette}: {len(failures)} cinema role(s) below {FLOOR}:1 on the "
         f"surface they actually paint on —\n  " + "\n  ".join(failures)
     )
 

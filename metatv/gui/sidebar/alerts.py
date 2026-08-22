@@ -285,7 +285,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         add_btn = QPushButton(_icons.add_icon)
         add_btn.setFixedSize(22, 20)
         add_btn.setToolTip("Watch for new content…")
-        add_btn.setStyleSheet(_btn_style.format(
+        _theme.style_fn(add_btn, lambda: _btn_style.format(
             fs=_theme.FONT_LG,
             c=_theme.COLOR_DIM,
             bg=_theme.OVERLAY_05,

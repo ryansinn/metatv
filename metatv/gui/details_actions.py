@@ -113,7 +113,7 @@ class _ActionBar(QWidget):
         """Build one icon-only rail button (parented to self until reparented)."""
         btn = QPushButton(icon, self)
         btn.setToolTip(tooltip)
-        btn.setStyleSheet(style or _theme.DETAIL_RAIL_BTN)
+        _theme.style_fn(btn, lambda: style or _theme.DETAIL_RAIL_BTN)
         if checkable:
             btn.setCheckable(True)
         return btn

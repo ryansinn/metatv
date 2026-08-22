@@ -275,7 +275,7 @@ class SourcesSection(CollapsibleSection):
         refresh_all_btn = QPushButton(self.config.refresh_icon)
         refresh_all_btn.setFixedSize(22, 20)
         refresh_all_btn.setToolTip("Refresh all sources")
-        refresh_all_btn.setStyleSheet(_btn_style.format(
+        _theme.style_fn(refresh_all_btn, lambda: _btn_style.format(
             fs=13, c=_theme.COLOR_DIM,
             bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
         ))
@@ -288,7 +288,7 @@ class SourcesSection(CollapsibleSection):
         # Routed through the SHARED _btn_style template above (same one the
         # Refresh-All button uses) — not a hand-rolled stylesheet, so the pair
         # cannot drift and no font-size literal is inlined.
-        add_btn.setStyleSheet(_btn_style.format(
+        _theme.style_fn(add_btn, lambda: _btn_style.format(
             fs=13, c=_theme.COLOR_TEXT,
             bg=_theme.OVERLAY_15, hbg=_theme.OVERLAY_18,
         ))

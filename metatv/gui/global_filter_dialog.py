@@ -1470,7 +1470,9 @@ class GlobalFilterDialog(QDialog):
             count_lbl.setToolTip("")
         else:
             count_lbl.setText("— no matches")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED + " font-style: italic;")
+            _theme.style_fn(
+                count_lbl, lambda: _theme.LABEL_MUTED + " font-style: italic;"
+            )
             count_lbl.setToolTip(
                 "This keyword doesn't match any channel titles right now — check for a typo."
             )

@@ -213,8 +213,9 @@ class ProviderIconPicker(QWidget):
 
     def _update_selection(self, selected: str):
         for icon, btn in self._color_btns:
-            btn.setStyleSheet(
-                _theme.ICON_PICK_BTN_SELECTED if icon == selected else _theme.ICON_PICK_BTN
+            _theme.style(
+                btn,
+                "ICON_PICK_BTN_SELECTED" if icon == selected else "ICON_PICK_BTN",
             )
 
     def get_icon(self) -> str:
