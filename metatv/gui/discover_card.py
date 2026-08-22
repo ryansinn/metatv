@@ -183,7 +183,7 @@ class _ContentCard(QWidget):
             cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cat_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
             cat_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT};"
+                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ON_FILL_LIGHT};"
                 " border-radius: 3px; padding: 1px 3px;"
             )
             cat_lbl.adjustSize()

@@ -175,7 +175,7 @@ class FilterDropdown(QPushButton):
         self.selected_groups: set = set(groups.keys()) if all_selected else set()
 
         self.setText(f"{label} ▼")
-        _theme.style(self, "MULTISELECT_DROPDOWN_BTN")
+        _theme.style(self, "FILTER_CONTROL_BTN")
 
         self.menu = QMenu(self)
         self.checkboxes = {}
@@ -402,13 +402,7 @@ class FilterBar(QWidget):
 
         self.clear_filters_btn = QPushButton("Clear")
         self.clear_filters_btn.setToolTip("Reset all filters — show everything")
-        self.clear_filters_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {_theme.COLOR_SURFACE_LIGHT_2}; color: {_theme.COLOR_LINE};
-                border: 1px solid {_theme.COLOR_TEXT}; border-radius: 4px; padding: 6px 12px;
-            }}
-            QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT_3}; color: {_theme.COLOR_LINE}; }}
-        """)
+        _theme.style(self.clear_filters_btn, "FILTER_CONTROL_BTN")
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_row.addWidget(self.clear_filters_btn)
 

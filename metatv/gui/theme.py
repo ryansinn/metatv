@@ -297,13 +297,13 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
         "QPushButton:hover { background:" + COLOR_SURFACE_LIGHT_2 + "; color:" + COLOR_TEXT_HI + "; }"
     )
-    # Multi-select dropdown button ("Genres ▼") — the SAME control in
-    # filter_bar.py and sports_filter_bar.py, so one role rather than two
-    # copies. Both used to hardcode ``background-color: white`` with
+    # Filter-bar controls — the multi-select dropdowns ("Genres ▼") in
+    # filter_bar.py and sports_filter_bar.py, and filter_bar's "Clear" button.
+    # One role rather than three copies of the same sheet. Both used to hardcode ``background-color: white`` with
     # ``COLOR_LINE`` as the text: a hard-white slab in the dark themes, lettered
     # in a hairline-separator colour. Same shape as the #298 view-chip bug
     # documented in filter_bar.py — a literal cannot track a palette.
-    MULTISELECT_DROPDOWN_BTN = (
+    FILTER_CONTROL_BTN = (
         "QPushButton { background-color: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
         " padding: 6px 12px; text-align: left; }"

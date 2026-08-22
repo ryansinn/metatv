@@ -50,7 +50,7 @@ def _mood_selected_style() -> str:
 
 def _mood_idle_style() -> str:
     return (
-        f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_MUTED_2};"
+        f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT};"
         f" border: 1px solid {_theme.COLOR_BORDER};"
         f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
         f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"

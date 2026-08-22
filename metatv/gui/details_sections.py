@@ -295,7 +295,7 @@ class _PosterSection(QWidget):
         self.poster_label.setSizePolicy(_poster_sp)
         self.poster_label.setStyleSheet(
             f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
-            f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
+            f" color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_SM}; }}"
         )
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")

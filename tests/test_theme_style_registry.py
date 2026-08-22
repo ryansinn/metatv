@@ -230,7 +230,7 @@ class TestDriftGuard:
     # Measured on the tree that introduced the AST walk. It may only go DOWN:
     # a drop means someone migrated sites and should lower this; a rise means
     # new inline-composed styling was added instead of theme.style_fn().
-    COMPOSED_BUDGET = 286
+    COMPOSED_BUDGET = 285
 
     def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
         tier_a, _ = self._drift_sites()

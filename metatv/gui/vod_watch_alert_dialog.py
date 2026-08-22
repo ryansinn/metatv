@@ -93,7 +93,8 @@ class WatchForDialog(QDialog):
         self._watch_btn = QPushButton(f"{_icons.alert_icon}  Watch")
         self._watch_btn.setDefault(True)
         self._watch_btn.setStyleSheet(
-            f"QPushButton {{ background: {_theme.COLOR_ACCENT}; color: {_theme.COLOR_TEXT};"
+            f"QPushButton {{ background: {_theme.COLOR_ACCENT};"
+            f" color: {_theme.COLOR_ON_ACCENT};"
             f" border: none; border-radius: 4px; padding: 4px 14px;"
             f" font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ background: {_theme.COLOR_ACCENT_HOVER}; }}"
