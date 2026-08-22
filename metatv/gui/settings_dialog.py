@@ -133,7 +133,13 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
     instead of ``QTabWidget`` tabs.
     """
 
-    settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
+    # Emitted by BOTH Apply and OK. It used to be Apply-only, on the theory
+    # that OK closes so the host can just re-apply afterwards — and the host
+    # did, from a hand-written list that named three of the five connected
+    # handlers. Row density, poster thumbnails, platform-name style and
+    # collapse-variants were all saved by OK and then never applied, so the
+    # setting looked dead until something else re-rendered the list.
+    settings_applied = pyqtSignal()
     check_updates_requested = pyqtSignal()  # "Check for updates now" clicked (Interface → Updates)
     # Metadata tab TMDb/OMDb "Test" buttons: (provider_name, (success, message)) —
     # emitted by the executor worker (metatv/gui/settings_dialog_tabs.py), the
@@ -521,5 +527,6 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self.settings_applied.emit()
 
     def _accept(self):
-        self._save_values()
+        """OK = Apply + close. Anything less makes OK the weaker button."""
+        self._apply()
         self.accept()

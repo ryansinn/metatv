@@ -39,6 +39,7 @@ from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_series import _SeriesMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
+from metatv.gui.main_window_style_menu import _StyleMenuMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.notifications import NotificationManager
@@ -134,7 +135,7 @@ class _ClickableNavLabel(QLabel):
 
 
 
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _AsyncMixin, QMainWindow):
+class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -2379,25 +2380,17 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_channel_list_density)
         dialog.settings_applied.connect(self.refresh_theme)
         dialog.settings_applied.connect(self._apply_collapse_variants_setting)
+        dialog.settings_applied.connect(self._sync_split_toggle)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             dialog.select_section_by_label(tab)
         dialog.exec()
-        self._apply_sidebar_visibility()
-        # The Recommendations tab's dials change how the engine scores, so both
-        # recommendation surfaces have to be re-scored, not just repainted.
-        self._refresh_recommendation_views()
-        # Covers OK (which only emits settings_applied via Apply, not OK/accept) —
-        # refresh_theme() itself no-ops instantly if the palette didn't change.
-        self.refresh_theme()
-        # Re-sync the nav-bar Split toggle in case the user changed the setting
-        # via the Settings dialog's Playback tab checkbox.
-        if hasattr(self, "_split_toggle_btn"):
-            self._split_toggle_btn.blockSignals(True)
-            self._split_toggle_btn.setChecked(
-                getattr(self.config, "split_streams_by_source", False)
-            )
-            self._split_toggle_btn.blockSignals(False)
+        # NOTHING is re-run here. There used to be a hand-written tail repeating
+        # some of the handlers above, because OK saved without emitting
+        # settings_applied — and it listed three of the five, so OK silently
+        # dropped row density, thumbnails, platform-name style and
+        # collapse-variants. OK emits now, so the connections ARE the list;
+        # re-running them here would only let the two drift apart again.
 
     def _refresh_recommendation_views(self) -> None:
         """Re-score every recommendation surface after the scoring dials change.
@@ -2562,79 +2555,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # layoutChanged — no row geometry changed here, just colours).
         if hasattr(self, "channels_list"):
             self.channels_list.viewport().update()
-
-    def _build_style_menu(self, menubar) -> None:
-        """Build the Style menu: theme and results density, both live.
-
-        Every entry is checkable and exclusive within its group, and reflects
-        the CURRENT config on open — a menu that doesn't show what is active is
-        a menu you have to guess at.
-
-        Args:
-            menubar: The window's ``QMenuBar``.
-        """
-        from PyQt6.QtGui import QActionGroup
-
-        from metatv.gui import theme as _t
-
-        style_menu = menubar.addMenu("&Style")
-
-        theme_menu = style_menu.addMenu("&Theme")
-        self._theme_action_group = QActionGroup(self)
-        self._theme_action_group.setExclusive(True)
-        current_theme = getattr(self.config, "theme_name", _t.current_theme())
-        for name in _t.available_themes():
-            action = QAction(name, self, checkable=True)
-            action.setChecked(name == current_theme)
-            action.triggered.connect(lambda _c, n=name: self._set_theme_from_menu(n))
-            self._theme_action_group.addAction(action)
-            theme_menu.addAction(action)
-
-        density_menu = style_menu.addMenu("&Results density")
-        self._density_action_group = QActionGroup(self)
-        self._density_action_group.setExclusive(True)
-        current_density = getattr(self.config, "channel_list_density", "comfy")
-        # (config value, label) — labels match Settings → Interface so the two
-        # surfaces read the same.
-        for value, label in (
-            ("compact", "&Compact"),
-            ("comfy", "Com&fy"),
-            ("comfy_plus", "Comfy &+"),
-        ):
-            action = QAction(label, self, checkable=True)
-            action.setChecked(value == current_density)
-            action.triggered.connect(lambda _c, v=value: self._set_density_from_menu(v))
-            self._density_action_group.addAction(action)
-            density_menu.addAction(action)
-
-        style_menu.addSeparator()
-
-        # Poster thumbnails — a pure appearance toggle, and the one most worth
-        # reaching quickly (posters are the biggest visual change in the list).
-        self._thumbs_action = QAction("Poster &thumbnails", self, checkable=True)
-        self._thumbs_action.setChecked(
-            bool(getattr(self.config, "channel_list_thumbnails", True))
-        )
-        self._thumbs_action.toggled.connect(self._set_thumbnails_from_menu)
-        style_menu.addAction(self._thumbs_action)
-
-        # Platform names — "Netflix" vs "NF" on the row chip.
-        platform_menu = style_menu.addMenu("&Platform names")
-        self._platform_action_group = QActionGroup(self)
-        self._platform_action_group.setExclusive(True)
-        current_platform = getattr(self.config, "platform_name_style", "auto")
-        for value, label in (
-            ("auto", "&Auto"),
-            ("full", "&Full name"),
-            ("short", "&Short code"),
-        ):
-            action = QAction(label, self, checkable=True)
-            action.setChecked(value == current_platform)
-            action.triggered.connect(
-                lambda _c, v=value: self._set_platform_style_from_menu(v)
-            )
-            self._platform_action_group.addAction(action)
-            platform_menu.addAction(action)
 
     # Panel index in ``main_splitter``: [sidebar | content | details].
     _SIDEBAR_PANEL = 0
@@ -2816,42 +2736,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             bool(getattr(self.config, "filter_section_visible", True))
         )
 
-    def _set_thumbnails_from_menu(self, enabled: bool) -> None:
-        """Toggle poster thumbnails from the Style menu.
-
-        Args:
-            enabled: True to show posters in the results list.
-        """
-        if bool(getattr(self.config, "channel_list_thumbnails", True)) == enabled:
-            return
-        self.config.channel_list_thumbnails = enabled
-        self.config.save()
-        self._apply_channel_list_density()
-
-    def _set_platform_style_from_menu(self, value: str) -> None:
-        """Set how platform chips are labelled, from the Style menu.
-
-        Args:
-            value: One of ``"auto"``/``"full"``/``"short"``.
-        """
-        if getattr(self.config, "platform_name_style", None) == value:
-            return
-        self.config.platform_name_style = value
-        self.config.save()
-        self._apply_channel_list_density()
-
-    def _set_density_from_menu(self, value: str) -> None:
-        """Apply and persist a row density chosen from the Style menu.
-
-        Args:
-            value: One of ``"compact"``/``"comfy"``/``"comfy_plus"``.
-        """
-        if getattr(self.config, "channel_list_density", None) == value:
-            return
-        self.config.channel_list_density = value
-        self.config.save()
-        self._apply_channel_list_density()
-
     def _apply_channel_list_density(self) -> None:
         """Re-apply the channel-list row density, thumbnail toggle, AND
         platform-name style (Settings → Interface → Channel List) live.
@@ -2877,6 +2761,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channel_model.layoutChanged.emit()
         if thumbnails_enabled and hasattr(self, "channels_list"):
             self.channels_list.request_visible_hydration()
+        # The Style menu shows the same values as radio ticks. Its actions were
+        # checked once at construction and never re-read, so a change made in
+        # Settings left the menu asserting the OLD value — and then picking the
+        # value Settings had actually set hit the "already that" early-return in
+        # _set_density_from_menu and did nothing, which reads as a dead menu.
+        self._sync_style_menu_state()
 
     def _apply_collapse_variants_setting(self) -> None:
         """Re-query the channel list after the collapse-variants checkbox changes.

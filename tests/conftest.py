@@ -709,6 +709,76 @@ def mock_settings_playback_widgets(dlg) -> None:
     dlg._recheck_failed_on_refresh_check = _stub("isChecked", True)
 
 
+def wire_style_menu_actions(host) -> None:
+    """Attach the Style menu's action groups to a skeleton MainWindow.
+
+    ``_apply_channel_list_density`` ends by re-reading the Style menu's ticks
+    from config (``_sync_style_menu_state``), so any skeleton host driving that
+    seam needs the groups to exist. Real ``QActionGroup``/``QAction`` objects,
+    so the caller needs a ``QApplication``.
+
+    Repairing it here rather than with a ``hasattr`` in production is the point:
+    in the real window ``_build_style_menu`` always runs during ``setup_ui``,
+    long before anything can apply a density, so a production guard would only
+    hide a genuine init-order bug.
+
+    Args:
+        host: A ``MainWindow``-shaped double (``__new__``/``SimpleNamespace``).
+    """
+    from PyQt6.QtGui import QAction, QActionGroup
+
+    def _group(values):
+        group = QActionGroup(None)
+        group.setExclusive(True)
+        for value in values:
+            action = QAction(value, None, checkable=True)
+            action.setData(value)
+            group.addAction(action)
+        return group
+
+    from metatv.gui.main_window import MainWindow
+
+    host._theme_action_group = _group(["Midnight", "Graphite", "Daylight"])
+    host._density_action_group = _group(["compact", "comfy", "comfy_plus"])
+    host._platform_action_group = _group(["auto", "full", "short"])
+    host._thumbs_action = QAction("Poster thumbnails", None, checkable=True)
+    # Bind the REAL sync, not a stub: a host driving the density seam should
+    # exercise the tick-syncing it now does, otherwise this factory would hide
+    # the very regression the seam was changed to prevent.
+    host._sync_style_menu_state = MainWindow._sync_style_menu_state.__get__(host)
+
+
+# Every handler MainWindow connects to ``SettingsDialog.settings_applied``.
+# Hand-listing these on each test double is what made three separate slices go
+# red (#380/#383 density, #387 collapse-variants, #389 theme) — each time the
+# fix was one more stub in one more file. One factory instead.
+_SETTINGS_APPLIED_HOOKS = (
+    "_apply_sidebar_visibility",
+    "_refresh_recommendation_views",
+    "_apply_channel_list_density",
+    "refresh_theme",
+    "_apply_collapse_variants_setting",
+    "_sync_split_toggle",
+)
+
+
+def wire_settings_dialog_hooks(host, **overrides) -> None:
+    """Attach no-op stubs for every ``settings_applied`` handler to *host*.
+
+    ``MainWindow.open_settings`` connects each of these before showing the
+    dialog, so a skeleton host missing one raises as soon as OK or Apply fires.
+
+    Args:
+        host: A ``MainWindow``-shaped double.
+        **overrides: Replace a hook with a real callable (e.g. a recorder) —
+            anything not overridden becomes a no-op.
+    """
+    for name in _SETTINGS_APPLIED_HOOKS:
+        setattr(host, name, overrides.get(name, lambda *a, **k: None))
+    for name, fn in overrides.items():
+        setattr(host, name, fn)
+
+
 def wire_settings_playback_widgets(dlg) -> None:
     """Attach the Settings → Playback tab's Network group widgets to a skeleton dialog.
 
