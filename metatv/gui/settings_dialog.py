@@ -2,7 +2,8 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QCheckBox, QComboBox, QDialogButtonBox, QListWidgetItem,
+    QDialog, QVBoxLayout, QCheckBox, QComboBox, QDialogButtonBox, QFormLayout,
+    QListWidgetItem,
 )
 from loguru import logger
 
@@ -27,6 +28,65 @@ _SIDEBAR_SECTION_LABELS: dict[str, str] = {
 _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 
+
+
+def _fit_list_to_rows(widget) -> None:
+    """Shrink a fixed-length list to the rows it actually holds.
+
+    The sidebar-section list carried ``setFixedHeight(200)``, roughly double
+    what it needs: the section set is a fixed five, and the comment beside it
+    records that "sources" LEFT the list in Wave 6 — the constant outlived its
+    content and left a ~110px void under the last row.
+
+    Sized from the rows rather than re-guessed, so adding or removing a section
+    can never reopen the gap. No-ops on an empty list, and adds the frame so
+    the last row is never clipped.
+    """
+    count = widget.count()
+    if not count:
+        return
+    row_h = widget.sizeHintForRow(0)
+    if row_h <= 0:
+        return
+    frame = widget.frameWidth() * 2
+    widget.setFixedHeight(row_h * count + frame + 2)
+
+
+def _align_label_columns(page) -> None:
+    """Give every form on ONE settings page the same label-column width.
+
+    Qt sizes each ``QFormLayout``'s label column independently, and a page
+    holds several. On Interface that meant "Theme:" let its combo start at
+    x=246 while "Platform names:" in the very next group pushed its combo to
+    x=297 — the control column wandered as you read down, with no rule behind
+    where it landed.
+
+    Per PAGE, not per dialog. Aligning across all thirteen forms works, but the
+    widest label in the whole dialog is Playback\'s "Mark as partially-watched
+    after:", which would impose a 178px column on Interface for the sake of
+    matching a page you cannot see at the same time — correct alignment, real
+    wasted space. Sections are separate views; alignment is a within-view
+    property.
+
+    The width is MEASURED, not a constant, so the column stays right when a
+    label is reworded or translated and there is no magic number to drift.
+
+    Called once per page rather than threaded through ~40 ``addRow`` sites —
+    one seam, and a new form aligns without anyone remembering to opt in.
+    """
+    forms = page.findChildren(QFormLayout)
+    labels = [
+        item.widget()
+        for form in forms
+        for i in range(form.rowCount())
+        for item in [form.itemAt(i, QFormLayout.ItemRole.LabelRole)]
+        if item is not None and item.widget() is not None
+    ]
+    if not labels:
+        return
+    widest = max(label.sizeHint().width() for label in labels)
+    for label in labels:
+        label.setMinimumWidth(widest)
 
 
 def _load_channel_density(combo: QComboBox, config) -> None:
@@ -183,7 +243,9 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             self._build_interface_tab,
         )
         for (section_id, label), builder in zip(_SECTIONS, builders):
-            self._nav.add_section(section_id, label, builder())
+            page = builder()
+            _align_label_columns(page)
+            self._nav.add_section(section_id, label, page)
         layout.addWidget(self._nav, 1)
 
         # Restore the last-selected section with signals blocked so it doesn't
@@ -388,6 +450,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             )
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             self._sidebar_list.addItem(item)
+        _fit_list_to_rows(self._sidebar_list)
 
         # Appearance
         self._theme_combo.blockSignals(True)
