@@ -170,6 +170,99 @@ def _relative(p: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Named CSS colours — the blind spot
+# ---------------------------------------------------------------------------
+# Everything above hunts hex and rgba. CSS also accepts ~150 NAMED colours, and
+# ``color: white`` is just as unable to track a palette as ``color: #ffffff`` —
+# it was simply invisible to this file, so it survived every sweep. What that
+# hid, measured on the surfaces the app actually paints:
+#
+#   badge_utils        region/platform/audio chips: white on a near-white tint,
+#                      1.59-1.75:1 in Daylight — on the MAIN results rows
+#   ppv_view           quality / sport / play: white on mint and orange fills,
+#                      1.88-2.51:1 in Midnight
+#   filter_bar         the "Genres v" dropdown: a hard-WHITE slab in the dark
+#   sports_filter_bar  themes, lettered in a hairline-separator colour
+#
+# The set below is the subset that plausibly appears in a stylesheet. Matching
+# is deliberately narrow — a CSS property, a colon, then the word — so prose
+# ("the scrim is black") and identifiers (``white_list``) are not flagged.
+_NAMED_CSS_COLORS = (
+    "white", "black", "gray", "grey", "silver", "red", "green", "blue",
+    "yellow", "orange", "purple", "pink", "brown", "cyan", "magenta", "navy",
+    "teal", "olive", "maroon", "lime", "aqua", "fuchsia", "gold", "beige",
+    "ivory", "khaki", "salmon", "tan", "violet", "indigo", "crimson", "coral",
+    "lightgray", "lightgrey", "darkgray", "darkgrey", "lightblue", "darkblue",
+    "lightgreen", "darkgreen", "lightyellow", "darkred",
+)
+
+_NAMED_COLOR_RE = re.compile(
+    r"(?:color|background|background-color|border|border-color|border-top|"
+    r"border-bottom|border-left|border-right|outline|outline-color)"
+    r"\s*:\s*"
+    r"(?:\d+px\s+\w+\s+)?"
+    r"(" + "|".join(_NAMED_CSS_COLORS) + r")\s*[;\"']",
+    re.IGNORECASE,
+)
+
+
+def _code_lines(path: Path) -> list[tuple[int, str]]:
+    """Source lines with comments and docstrings removed.
+
+    Prose describing a past bug ("wrote ``color: white`` on it") is not a
+    literal, and flagging it would pressure people to delete the explanation
+    rather than keep it.
+    """
+    import io
+    import tokenize
+
+    text = path.read_text()
+    drop: set[int] = set()
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                drop.add(tok.start[0])
+            elif tok.type == tokenize.STRING:
+                stripped = tok.line.lstrip()
+                if stripped[:4] in ('"""', "'''", 'r"""') or stripped[:3] in ('"""', "'''"):
+                    for ln in range(tok.start[0], tok.end[0] + 1):
+                        drop.add(ln)
+    except tokenize.TokenError:
+        pass
+    return [
+        (i, line) for i, line in enumerate(text.splitlines(), 1) if i not in drop
+    ]
+
+
+def test_no_named_css_colour_literals_in_widget_code() -> None:
+    """A named colour is a literal too, and cannot follow the palette.
+
+    FAILS against the pre-fix tree with the eight sites listed above.
+    """
+    offenders: list[str] = []
+    for path in _source_files():
+        for lineno, line in _code_lines(path):
+            if _NAMED_COLOR_RE.search(line):
+                offenders.append(f"{_relative(path)}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "named CSS colours cannot track a palette — use a theme token, or "
+        "theme.on_fill(fill) for text painted on a solid fill:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_named_colour_matcher_can_actually_fail() -> None:
+    """A matcher that never matches reads as a clean codebase forever."""
+    assert _NAMED_COLOR_RE.search('lbl.setStyleSheet("color: white;")')
+    assert _NAMED_COLOR_RE.search('"background-color: gray;"')
+    assert _NAMED_COLOR_RE.search('"border: 1px solid black;"')
+    # …and does not flag prose, identifiers, or a token reference.
+    assert not _NAMED_COLOR_RE.search("the scrim is black over the poster")
+    assert not _NAMED_COLOR_RE.search("white_list = []")
+    assert not _NAMED_COLOR_RE.search('f"color: {_theme.COLOR_TEXT_HI};"')
+
+
+# ---------------------------------------------------------------------------
 # Smoke-import test — verifies the theme import was added and the module loads
 # ---------------------------------------------------------------------------
 

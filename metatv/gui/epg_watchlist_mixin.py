@@ -896,9 +896,11 @@ class _EpgWatchlistMixin:
         if prog:
             play_btn = QPushButton(f"{self.config.play_icon} Play")
             play_btn.setFixedWidth(70)
-            play_btn.setStyleSheet(
-                f"background: {_theme.COLOR_ACCENT_GREEN}; color: white; border-radius: 3px; padding: 2px 6px;"
-            )
+            _theme.style_fn(play_btn, lambda: (
+                f"background: {_theme.COLOR_ACCENT_GREEN};"
+                f" color: {_theme.on_fill(_theme.COLOR_ACCENT_GREEN)};"
+                " border-radius: 3px; padding: 2px 6px;"
+            ))
             play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
             header.addWidget(play_btn)
 

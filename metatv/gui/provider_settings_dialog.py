@@ -11,6 +11,7 @@ from loguru import logger
 
 from metatv.core.models import Provider, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
+from metatv.gui import theme as _theme
 
 
 class URLListItem(QWidget):
@@ -57,7 +58,7 @@ class URLListItem(QWidget):
         # Stats
         stats_text = self.get_stats_text()
         stats_label = QLabel(stats_text)
-        stats_label.setStyleSheet("font-size: 10pt; color: gray;")
+        _theme.style(stats_label, "LABEL_MUTED")
         info_layout.addWidget(stats_label)
         
         layout.addLayout(info_layout, 1)

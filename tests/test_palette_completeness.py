@@ -215,7 +215,20 @@ def test_background_surface_tokens_match_declared_kind(palette_name):
 # ---------------------------------------------------------------------------
 
 def _shared_fraction(a: dict, b: dict) -> tuple[float, list[str]]:
-    keys = sorted(set(a.keys()) & set(b.keys()))
+    """Fraction of the THEMEABLE tokens two palettes give the same value.
+
+    Tokens that are invariant by design (the fixed-dark cinema family, image
+    scrims, on-fill text, the font scale — see
+    ``theme_palettes.is_theme_invariant``) are excluded. Counting them measures
+    the wrong thing: they are identical on purpose, so every one added drags
+    the shared percentage up until this guard fails for a good reason, and the
+    obvious "fix" is to raise the limit — which is exactly how a guard against
+    "Graphite shipped as a copy of Midnight" would stop working.
+    """
+    keys = sorted(
+        k for k in set(a.keys()) & set(b.keys())
+        if not tp.is_theme_invariant(k, a[k])
+    )
     same = [k for k in keys if a[k] == b[k]]
     return (len(same) / len(keys) if keys else 0.0), same
 

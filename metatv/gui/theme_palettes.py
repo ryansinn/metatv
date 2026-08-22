@@ -323,6 +323,14 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
     'COLOR_LIGHTBOX_WARN': '#f0b429',
+    # ── Text painted ON a solid fill ─────────────────────────────────────────
+    # Fixed in every palette, because the FILL carries the palette: a chip
+    # filled with COLOR_OK is mint in the dark themes and forest in Daylight,
+    # so the legible foreground flips with the fill, not with the theme. Pick
+    # between them with theme.on_fill(); never hardcode "white", which is what
+    # put 1.88:1 text on the mint fills.
+    'COLOR_ON_FILL_LIGHT': '#ffffff',
+    'COLOR_ON_FILL_DARK': '#10131a',
 }
 
 
@@ -515,6 +523,14 @@ _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
     'COLOR_LIGHTBOX_WARN': '#f0b429',
+    # ── Text painted ON a solid fill ─────────────────────────────────────────
+    # Fixed in every palette, because the FILL carries the palette: a chip
+    # filled with COLOR_OK is mint in the dark themes and forest in Daylight,
+    # so the legible foreground flips with the fill, not with the theme. Pick
+    # between them with theme.on_fill(); never hardcode "white", which is what
+    # put 1.88:1 text on the mint fills.
+    'COLOR_ON_FILL_LIGHT': '#ffffff',
+    'COLOR_ON_FILL_DARK': '#10131a',
 }
 
 
@@ -533,6 +549,33 @@ from metatv.gui.tokens.loader import build_legacy_palette as _build
 
 _TOKENS_DIR = _Path(__file__).parent / "tokens"
 
+def is_theme_invariant(key: str, value: TokenValue) -> bool:
+    """Is this token the SAME in every palette by design?
+
+    Three families qualify, for the same underlying reason — each is a property
+    of the thing it paints on, not of the theme:
+
+    - ``FONT_*`` — a type scale, not a colour.
+    - ``COLOR_LIGHTBOX_*`` — the preview overlay and Explore trail-map are a
+      fixed-dark "cinema" surface in every theme.
+    - ``OVERLAY_BLACK_*`` — image scrims darken a poster so text can sit on it.
+    - ``COLOR_ON_FILL_*`` — text on a solid fill, where the FILL carries the
+      palette (``theme.on_fill()`` picks between them).
+
+    One definition, used by :func:`_derive` to carry them across from the legacy
+    dicts AND by the palette-distinctness test to exclude them from its measure
+    — a token that is invariant on purpose is not evidence that two palettes are
+    insufficiently different.
+    """
+    return (
+        key.startswith("FONT_")
+        or key.startswith("COLOR_LIGHTBOX_")
+        or key.startswith("OVERLAY_BLACK_")
+        or key.startswith("COLOR_ON_FILL_")
+        or not isinstance(value, str)
+    )
+
+
 def _derive(name: str, legacy: dict[str, TokenValue]) -> dict[str, TokenValue]:
     """Resolve a DTCG palette, carrying over the non-colour entries.
 
@@ -541,14 +584,7 @@ def _derive(name: str, legacy: dict[str, TokenValue]) -> dict[str, TokenValue]:
     untouched. Everything else is derived from the token file.
     """
     return {
-        **{k: v for k, v in legacy.items()
-           if k.startswith("FONT_") or k.startswith("COLOR_LIGHTBOX_")
-           # Image scrims: black in EVERY theme. They darken a poster so text
-           # can sit on it, so they are a property of the image, not the
-           # palette — and Radix's dark alpha scales are white-based, so
-           # deriving them inverted every one into a pale wash.
-           or k.startswith("OVERLAY_BLACK_")
-           or not isinstance(v, str)},
+        **{k: v for k, v in legacy.items() if is_theme_invariant(k, v)},
         **_build(_TOKENS_DIR / f"{name}.tokens.json"),
     }
 
@@ -753,6 +789,14 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_GOLD': '#ffc857',
     'COLOR_LIGHTBOX_OK': '#5fd08a',
     'COLOR_LIGHTBOX_WARN': '#f0b429',
+    # ── Text painted ON a solid fill ─────────────────────────────────────────
+    # Fixed in every palette, because the FILL carries the palette: a chip
+    # filled with COLOR_OK is mint in the dark themes and forest in Daylight,
+    # so the legible foreground flips with the fill, not with the theme. Pick
+    # between them with theme.on_fill(); never hardcode "white", which is what
+    # put 1.88:1 text on the mint fills.
+    'COLOR_ON_FILL_LIGHT': '#ffffff',
+    'COLOR_ON_FILL_DARK': '#10131a',
 }
 
 

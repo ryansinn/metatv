@@ -297,6 +297,20 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
         "QPushButton:hover { background:" + COLOR_SURFACE_LIGHT_2 + "; color:" + COLOR_TEXT_HI + "; }"
     )
+    # Multi-select dropdown button ("Genres ▼") — the SAME control in
+    # filter_bar.py and sports_filter_bar.py, so one role rather than two
+    # copies. Both used to hardcode ``background-color: white`` with
+    # ``COLOR_LINE`` as the text: a hard-white slab in the dark themes, lettered
+    # in a hairline-separator colour. Same shape as the #298 view-chip bug
+    # documented in filter_bar.py — a literal cannot track a palette.
+    MULTISELECT_DROPDOWN_BTN = (
+        "QPushButton { background-color: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
+        " padding: 6px 12px; text-align: left; }"
+        "QPushButton:hover { background-color: " + COLOR_SURFACE_LIGHT_2 + ";"
+        " color: " + COLOR_TEXT_HI + "; }"
+    )
+
     # Compact inline "Only" link-button for filter group rows
     # Same COLOR_MUTED_2-on-app-surface problem as CLOSE_BTN (2.81/2.53/1.68):
     # this is a link the user is meant to notice and click, not decoration.
@@ -1740,6 +1754,49 @@ def _build_semantic_constants() -> dict[str, object]:
 
 
 globals().update(_build_semantic_constants())
+
+
+def _relative_luminance(value: str) -> float:
+    """WCAG 2.1 relative luminance of a ``#rgb``/``#rrggbb`` colour."""
+    h = value.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    channels = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255
+        channels.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = channels
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def on_fill(fill: str) -> str:
+    """The legible text colour for something painted ON a solid *fill*.
+
+    The one definition of "what colour goes on top of this". Hardcoding
+    ``white`` was the bug this replaces: the accent/status fills invert between
+    the light and dark palettes, so a fixed foreground is wrong in one of them
+    — white on Midnight's mint ``COLOR_OK`` measured 1.88:1, and white on the
+    orange PPV accent 2.51:1, in the theme most people run.
+
+    Picks whichever of the two fixed on-fill tokens contrasts more, so the
+    answer follows the FILL rather than the palette. Callers pass a resolved
+    colour, so this composes with runtime fills (a provider's colour, a quality
+    hue) as readily as with a token.
+
+    Args:
+        fill: The background this text sits on, as ``#rgb``/``#rrggbb``.
+
+    Returns:
+        ``COLOR_ON_FILL_DARK`` or ``COLOR_ON_FILL_LIGHT``.
+    """
+    fill_lum = _relative_luminance(fill)
+    def _contrast(fg: str) -> float:
+        fg_lum = _relative_luminance(fg)
+        hi, lo = max(fg_lum, fill_lum), min(fg_lum, fill_lum)
+        return (hi + 0.05) / (lo + 0.05)
+    return max(
+        (COLOR_ON_FILL_DARK, COLOR_ON_FILL_LIGHT), key=_contrast
+    )
 
 
 def qt_palette() -> QPalette:

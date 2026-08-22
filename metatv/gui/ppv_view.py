@@ -62,28 +62,31 @@ class PPVEventCard(QFrame):
         quality = self._meta.get('quality')
         if quality:
             q = QLabel(quality)
-            q.setStyleSheet(
-                f"background-color: {_theme.COLOR_OK}; color: white; padding: 2px 8px; "
-                f"border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
-            )
+            _theme.style_fn(q, lambda: (
+                f"background-color: {_theme.COLOR_OK};"
+                f" color: {_theme.on_fill(_theme.COLOR_OK)}; padding: 2px 8px;"
+                f" border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
+            ))
             badges_layout.addWidget(q)
         sport_type = self._meta.get('sport_type')
         if sport_type:
             s = QLabel(sport_type.capitalize())
-            s.setStyleSheet(
-                f"background-color: {_theme.COLOR_ACCENT}; color: white; padding: 2px 8px; "
-                f"border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
-            )
+            _theme.style_fn(s, lambda: (
+                f"background-color: {_theme.COLOR_ACCENT};"
+                f" color: {_theme.on_fill(_theme.COLOR_ACCENT)}; padding: 2px 8px;"
+                f" border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
+            ))
             badges_layout.addWidget(s)
         badges_layout.addStretch()
         layout.addLayout(badges_layout)
 
         play_button = QPushButton("▶ Play")
         play_button.clicked.connect(lambda: self.play_requested.emit(self.channel))
-        play_button.setStyleSheet(
-            f"background-color: {_theme.COLOR_PPV_ACCENT}; color: white; border: none; "
-            "padding: 8px; border-radius: 4px; font-weight: bold;"
-        )
+        _theme.style_fn(play_button, lambda: (
+            f"background-color: {_theme.COLOR_PPV_ACCENT};"
+            f" color: {_theme.on_fill(_theme.COLOR_PPV_ACCENT)}; border: none;"
+            " padding: 8px; border-radius: 4px; font-weight: bold;"
+        ))
         layout.addWidget(play_button)
 
     def update_countdown(self):
