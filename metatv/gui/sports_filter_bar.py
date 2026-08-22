@@ -40,7 +40,7 @@ class HierarchicalFilterDropdown(QPushButton):
         self._rebuilding: bool = False
 
         self.setText(f"{label} ▼")
-        _theme.style(self, "MULTISELECT_DROPDOWN_BTN")
+        _theme.style(self, "FILTER_CONTROL_BTN")
 
         self.menu = QMenu(self)
         self.checkboxes: Dict[str, QCheckBox] = {}
