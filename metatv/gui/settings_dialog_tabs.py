@@ -70,7 +70,7 @@ class SettingsTabsMixin:
         player_form.addRow("Player mode:", self._player_mode_combo)
 
         self._autoplay_check = QCheckBox("Autoplay next episode when playing from a season")
-        player_form.addRow("", self._autoplay_check)
+        player_form.addRow(self._autoplay_check)
 
         self._prompt_after_autoplay_check = QCheckBox(
             "Ask \"Still here?\" after auto-advancing through episodes"
@@ -80,7 +80,7 @@ class SettingsTabsMixin:
             "closes, ask whether you actually watched them. Confirming promotes them from\n"
             "gray (auto-watched) to solid (fully engaged) and advances your resume point."
         )
-        player_form.addRow("", self._prompt_after_autoplay_check)
+        player_form.addRow(self._prompt_after_autoplay_check)
 
         threshold_row = QHBoxLayout()
         self._watch_threshold_spin = QSpinBox()
@@ -108,7 +108,7 @@ class SettingsTabsMixin:
         player_form.addRow("Mark as partially-watched after:", partial_threshold_row)
 
         self._close_player_check = QCheckBox("Close player when stream finishes")
-        player_form.addRow("", self._close_player_check)
+        player_form.addRow(self._close_player_check)
 
         self._buffer_combo = QComboBox()
         self._buffer_combo.addItem("Reconnect only (no extra buffer)", userData="reconnect_only")
@@ -132,13 +132,13 @@ class SettingsTabsMixin:
 
         buffer_hint = QLabel("Auto-reconnect is always on — streams resume after brief drops.")
         _theme.style(buffer_hint, "META_HINT")
-        player_form.addRow("", buffer_hint)
+        player_form.addRow(buffer_hint)
 
         self._prebuffer_check = QCheckBox("Pre-buffer before playing")
         self._prebuffer_check.setToolTip(
             "Wait until the buffer fills before starting — smoother start, slightly slower to begin."
         )
-        player_form.addRow("", self._prebuffer_check)
+        player_form.addRow(self._prebuffer_check)
 
         prebuffer_wait_row = QHBoxLayout()
         self._prebuffer_wait_spin = QSpinBox()
@@ -156,7 +156,7 @@ class SettingsTabsMixin:
             "When on, a stream from a different source opens in its own player window "
             "instead of replacing the current one. Each source still allows only one connection."
         )
-        player_form.addRow("", self._split_check)
+        player_form.addRow(self._split_check)
 
         self._user_agent_view = QLineEdit()
         self._user_agent_view.setReadOnly(True)
@@ -189,7 +189,7 @@ class SettingsTabsMixin:
             "waiting for the background retry checker's own schedule. Recovered\n"
             "streams are restored to full visibility right away."
         )
-        net_form.addRow("", self._recheck_failed_on_refresh_check)
+        net_form.addRow(self._recheck_failed_on_refresh_check)
 
         layout.addWidget(net_group)
 
@@ -454,10 +454,10 @@ class SettingsTabsMixin:
         meta_form.setSpacing(8)
 
         self._meta_enabled_check = QCheckBox("Enable metadata enrichment")
-        meta_form.addRow("", self._meta_enabled_check)
+        meta_form.addRow(self._meta_enabled_check)
 
         self._meta_autofetch_check = QCheckBox("Auto-fetch on channel select")
-        meta_form.addRow("", self._meta_autofetch_check)
+        meta_form.addRow(self._meta_autofetch_check)
 
         self._cache_ttl_spin = QSpinBox()
         self._cache_ttl_spin.setRange(1, 365)
@@ -505,7 +505,7 @@ class SettingsTabsMixin:
         self._tmdb_test_result = QLabel("")
         _theme.style(self._tmdb_test_result, "URL_BADGE")
         self._tmdb_test_result.hide()
-        tmdb_form.addRow("", self._tmdb_test_result)
+        tmdb_form.addRow(self._tmdb_test_result)
 
         self._tmdb_lang_input = QLineEdit()
         self._tmdb_lang_input.setClearButtonEnabled(True)
@@ -549,7 +549,7 @@ class SettingsTabsMixin:
         self._omdb_test_result = QLabel("")
         _theme.style(self._omdb_test_result, "URL_BADGE")
         self._omdb_test_result.hide()
-        omdb_form.addRow("", self._omdb_test_result)
+        omdb_form.addRow(self._omdb_test_result)
 
         layout.addWidget(omdb_group)
 
@@ -605,7 +605,7 @@ class SettingsTabsMixin:
             "at each source's refresh interval. Turn off to only refresh EPG "
             "manually (the Refresh button on the EPG screen still works)."
         )
-        epg_form.addRow("", self._epg_auto_refresh_check)
+        epg_form.addRow(self._epg_auto_refresh_check)
 
         layout.addWidget(epg_group)
 
@@ -727,7 +727,7 @@ class SettingsTabsMixin:
             "context chips when you change them, and restores them the next time\n"
             "you launch the app or return to the channel list."
         )
-        search_form.addRow("", self._remember_search_check)
+        search_form.addRow(self._remember_search_check)
 
         search_hint = QLabel(
             "Restores the query text, source filter (if any), All/Hidden toggle, "
@@ -735,7 +735,7 @@ class SettingsTabsMixin:
         )
         search_hint.setWordWrap(True)
         _theme.style(search_hint, "META_HINT")
-        search_form.addRow("", search_hint)
+        search_form.addRow(search_hint)
 
         layout.addWidget(search_group)
 
@@ -790,7 +790,7 @@ class SettingsTabsMixin:
             "screen are downloaded — scrolling never queues the whole list.\n"
             "Applies immediately when you click OK or Apply."
         )
-        channel_list_form.addRow("", self._channel_thumbnails_check)
+        channel_list_form.addRow(self._channel_thumbnails_check)
 
         self._collapse_variants_check = QCheckBox(
             "Collapse quality/language versions into one row"
@@ -801,7 +801,7 @@ class SettingsTabsMixin:
             "pick a specific one. Off by default. Applies immediately when you\n"
             "click OK or Apply."
         )
-        channel_list_form.addRow("", self._collapse_variants_check)
+        channel_list_form.addRow(self._collapse_variants_check)
 
         layout.addWidget(channel_list_group)
 
@@ -816,7 +816,7 @@ class SettingsTabsMixin:
             "When off, 'Refresh All' skips sources you've disabled. "
             "Refreshing a single source still works."
         )
-        sources_form.addRow("", self._refresh_all_inactive_check)
+        sources_form.addRow(self._refresh_all_inactive_check)
 
         layout.addWidget(sources_group)
 
@@ -857,7 +857,6 @@ class SettingsTabsMixin:
         self._sidebar_list = QListWidget()
         self._sidebar_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self._sidebar_list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self._sidebar_list.setFixedHeight(200)
         sidebar_layout.addWidget(self._sidebar_list)
 
         arrow_row = QHBoxLayout()
