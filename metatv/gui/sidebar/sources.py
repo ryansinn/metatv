@@ -289,7 +289,7 @@ class SourcesSection(CollapsibleSection):
         # Refresh-All button uses) — not a hand-rolled stylesheet, so the pair
         # cannot drift and no font-size literal is inlined.
         _theme.style_fn(add_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_TEXT,
+            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
             bg=_theme.OVERLAY_15, hbg=_theme.OVERLAY_18,
         ))
         add_btn.clicked.connect(self.addProviderClicked.emit)

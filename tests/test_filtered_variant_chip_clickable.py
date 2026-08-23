@@ -125,7 +125,11 @@ def test_it_no_longer_renders_as_a_disabled_control(section):
     from metatv.gui import theme as _theme
 
     sheet = _filtered_chips(section)[0].styleSheet()
-    assert f"color: {_theme.COLOR_BORDER}" not in sheet, (
+    # Anchored: a bare `color:` only. A plain substring test also matches
+    # `border-color: <same hex>`, which is a legitimate use of the outline
+    # token and has nothing to do with how the LABEL reads.
+    import re as _re
+    assert not _re.search(rf"(?<![-a-z])color:\s*{_re.escape(_theme.COLOR_BORDER)}", sheet), (
         "chip still paints its label in the border colour — reads as disabled"
     )
     assert _contrast(_fg(sheet), _theme.COLOR_BG_SECTION) >= 3.0, (

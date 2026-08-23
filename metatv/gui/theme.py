@@ -840,7 +840,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Separators / surfaces
     SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"
     SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin: 8px 0;"
-    SEP_DARK       = "color: " + COLOR_BORDER + "; margin-top: 4px; margin-bottom: 4px;"
+    SEP_DARK       = "color: " + COLOR_TEXT + "; margin-top: 4px; margin-bottom: 4px;"
     CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: 6px; }"
     HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
     # Scoped variant of HEADER_TINT for sidebar section headers: an *unscoped*
