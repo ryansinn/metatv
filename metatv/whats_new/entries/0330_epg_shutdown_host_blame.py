@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=330,
-    version="0.33.0",
+    version="0.40.0",
     date="2026-08-22",
     title="Closing during a guide download no longer blames your sources",
     items=(
