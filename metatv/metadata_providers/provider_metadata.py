@@ -5,7 +5,11 @@ import re
 from loguru import logger
 
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
-from metatv.metadata_providers.raw_parse import parse_cast_string, parse_genres
+from metatv.metadata_providers.raw_parse import (
+    extract_artwork,
+    parse_cast_string,
+    parse_genres,
+)
 
 
 class ProviderMetadataProvider(MetadataProviderPlugin):
@@ -107,14 +111,19 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                 else:
                     resolved_title = clean_title
 
+                _poster, _backdrop = extract_artwork(info)
                 result = MetadataResult(
                     title=resolved_title,
                     plot=info.get('plot') or info.get('description'),
                     tagline=info.get('tagline'),
 
-                    # Images (use logo_url/stream_icon as poster fallback)
-                    poster_url=info.get('cover') or info.get('movie_image') or channel.logo_url,
-                    backdrop_url=self._get_first_or_none(info.get('backdrop_path', [])),
+                    # Images. The keys and their precedence live in
+                    # raw_parse.extract_artwork — the same helper the enrichment
+                    # sweep's harvest uses, so the two can't disagree about where
+                    # a poster is. The logo_url fallback stays HERE because it is
+                    # a fact about this channel, not about the blob.
+                    poster_url=_poster or channel.logo_url,
+                    backdrop_url=_backdrop,
                     logo_url=channel.logo_url,
 
                     # People

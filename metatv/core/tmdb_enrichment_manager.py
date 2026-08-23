@@ -178,6 +178,77 @@ class TmdbEnrichmentManager(QObject):
     # Public API
     # ------------------------------------------------------------------
 
+    def harvest_for_channels(self, channel_ids) -> dict[str, int]:
+        """Fetch the detail blob for EXPLICIT ids and fill their empty metadata.
+
+        The repair seam, distinct from :meth:`enqueue` in the two ways that
+        matter for repairing:
+
+        * It takes the ids it is given. ``enqueue`` narrows to *candidates* —
+          idless rows that have not been attempted — which is right for a lazy
+          background sweep and wrong here: a row damaged by the pre-#438 cache
+          clobber has usually already been attempted, so it is not a candidate
+          and the sweep will never look at it again.
+        * It runs on the CALLING thread and returns counts, rather than queueing
+          onto the background executor. A repair pass wants to report what it
+          did before it exits.
+
+        Everything after the fetch is shared with the normal drain — the same
+        ``_fetch_provider`` and the same fill-only-empty
+        ``apply_metadata_harvest`` — so a repaired row ends up exactly as the
+        app would have filled it. No field is overwritten.
+
+        Args:
+            channel_ids: The rows to repair.
+
+        Returns:
+            ``{"attempted": n, "fetched": n, "filled": n, "errors": n}``.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+
+        ids = [cid for cid in dict.fromkeys(channel_ids) if cid]
+        totals = {"attempted": len(ids), "fetched": 0, "filled": 0, "errors": 0}
+        if not ids:
+            return totals
+
+        concurrency = max(1, int(getattr(
+            self.config, "tmdb_enrichment_concurrency", _DEFAULT_CONCURRENCY)))
+        throttle = max(0.0, float(getattr(
+            self.config, "tmdb_enrichment_throttle_ms", _DEFAULT_THROTTLE_MS)) / 1000.0)
+
+        with self.db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            rows = [
+                {"id": r[0], "source_id": r[1], "media_type": r[2], "provider_id": r[3]}
+                for r in session.query(
+                    ChannelDB.id, ChannelDB.source_id,
+                    ChannelDB.media_type, ChannelDB.provider_id,
+                ).filter(ChannelDB.id.in_(ids)).all()
+            ]
+            by_provider: dict[str, list[dict]] = {}
+            for row in rows:
+                by_provider.setdefault(row["provider_id"], []).append(row)
+            providers = {}
+            for pid in list(by_provider):
+                pdb = repos.providers.get_by_id(pid)
+                if pdb is None:
+                    del by_provider[pid]
+                    continue
+                providers[pid] = repos.providers.to_model(pdb)
+
+        for pid, prows in by_provider.items():
+            _hits, _misses, meta_by_id, errors = asyncio.run(
+                self._fetch_provider(providers[pid], prows, concurrency, throttle)
+            )
+            totals["fetched"] += len(meta_by_id)
+            totals["errors"] += errors
+            if meta_by_id:
+                with self.db.session_scope() as session:
+                    repos = RepositoryFactory(session)
+                    totals["filled"] += repos.channels.apply_metadata_harvest(meta_by_id)
+        return totals
+
     def enqueue(self, channel_ids) -> None:
         """Queue channel ids a result surface just loaded for lazy enrichment.
 

@@ -15,7 +15,7 @@ and one cast parser in the codebase (Governing Principle: single chokepoint).
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Optional
 
 
 def parse_genres(genre_str: Any) -> list[str]:
@@ -75,24 +75,80 @@ def extract_info(raw: Any) -> dict:
     return flat
 
 
-def harvest_detail_metadata(data: Any) -> dict:
-    """Pull genre/plot/cast/director out of a ``get_vod_info``/``get_series_info`` blob.
+def first_or_none(value: Any) -> Optional[str]:
+    """First element of a list, the value itself if it is a string, else None.
 
-    Used by the enrichment sweep to salvage the metadata the sparse list ``raw_data``
-    omits for movies.  Every field comes back empty (``[]`` / ``None``) when absent,
-    so a caller can safely fill-only-empty without a presence check per field.
+    Xtream returns ``backdrop_path`` as a LIST of urls while every other image
+    field is a bare string, so a caller that assumes either shape is wrong half
+    the time.
+    """
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value if isinstance(value, str) and value else None
+
+
+def extract_artwork(info: dict) -> tuple[Optional[str], Optional[str]]:
+    """``(poster_url, backdrop_url)`` from an Xtream ``info`` dict.
+
+    The ONE place the artwork keys and their precedence are written down.
+    ``cover`` before ``movie_image`` because a detail blob that carries both
+    puts the poster in ``cover`` and a smaller list-grade image in
+    ``movie_image``.
+
+    No fallback to the channel's own ``logo_url`` here — that is a decision
+    about a CHANNEL, not about a detail blob, and it belongs to the caller that
+    has one (see ``ProviderMetadataProvider.get_details``).
+
+    Args:
+        info: The blob's info dict (see :func:`extract_info`).
+
+    Returns:
+        ``(poster, backdrop)``, either of which may be ``None``.
+    """
+    poster = info.get("cover") or info.get("movie_image")
+    return (poster if isinstance(poster, str) and poster else None,
+            first_or_none(info.get("backdrop_path")))
+
+
+#: The keys :func:`harvest_detail_metadata` returns, owned by the function that
+#: PRODUCES them rather than by the writer that consumes them — so adding a
+#: field is one edit here, and no consumer can drift from the contract.
+#: ``genres`` leads because ``apply_metadata_harvest`` counts only that one.
+HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_url")
+
+
+def harvest_detail_metadata(data: Any) -> dict:
+    """Pull genre/plot/cast/director/ARTWORK out of a ``get_vod_info`` /
+    ``get_series_info`` blob.
+
+    Used by the enrichment sweep to salvage the metadata the sparse list
+    ``raw_data`` omits for movies.  Every field comes back empty (``[]`` /
+    ``None``) when absent, so a caller can safely fill-only-empty without a
+    presence check per field.
+
+    **Artwork was missing from this harvest until 2026-08-23**, and its absence
+    had teeth. The bulk catalog frequently carries ``stream_icon: null``, so for
+    those titles the ONLY place a poster ever appears is this blob — yet the
+    sweep read the blob, took four fields, and dropped the image on the floor.
+    When the pre-#438 cache clobber then emptied a stored ``poster_url``, there
+    was nothing left in the tree that could put it back: 60 of the owner's 70
+    damaged rows were unrecoverable for exactly this reason.
 
     Args:
         data: The parsed detail-endpoint response (dict, ``None``, or anything).
 
     Returns:
         ``{"genres": list[str], "plot": str|None, "cast": list[dict],
-        "director": str|None}``.
+        "director": str|None, "poster_url": str|None,
+        "backdrop_url": str|None}``.
     """
     info = extract_info(data)
+    poster, backdrop = extract_artwork(info)
     return {
         "genres": parse_genres(info.get("genre", "")),
         "plot": info.get("plot") or info.get("description"),
         "cast": parse_cast_string(info.get("cast", "")),
         "director": info.get("director"),
+        "poster_url": poster,
+        "backdrop_url": backdrop,
     }

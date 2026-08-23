@@ -2872,7 +2872,7 @@ class ChannelRepository(_ChannelStatsMixin):
     def apply_metadata_harvest(self, harvest: Dict[str, dict]) -> int:
         """Fill EMPTY metadata fields for fetched titles from their detail blob.
 
-        ``harvest`` maps ``channel_id → {genres, plot, cast, director}`` parsed from
+        ``harvest`` maps ``channel_id → :data:`_HARVEST_FIELDS`` parsed from
         the channel's ``get_vod_info`` / ``get_series_info`` response (see
         :func:`metatv.metadata_providers.raw_parse.harvest_detail_metadata`).  For
         each channel that HAS a linked ``MetadataDB`` row, only fields that are
@@ -2886,11 +2886,15 @@ class ChannelRepository(_ChannelStatsMixin):
         left unmarked and retried on a later pass (defer-on-error).
 
         Args:
-            harvest: ``{channel_id: {genres, plot, cast, director}}``.
+            harvest: ``{channel_id: {field: value}}`` — see `_HARVEST_FIELDS`.
 
         Returns:
             The number of metadata rows whose ``genres`` were populated this call.
         """
+        # Local: an import-scope edge from the repository layer to a metadata
+        # provider module would be a new cross-layer dependency at load time.
+        from metatv.metadata_providers.raw_parse import HARVEST_FIELDS
+
         cids = list(harvest.keys())
         if not cids:
             return 0
@@ -2929,15 +2933,15 @@ class ChannelRepository(_ChannelStatsMixin):
             if meta is None:
                 continue  # no metadata row to fill (not a scoring candidate anyway)
 
-            if not meta.genres and h.get("genres"):
-                meta.genres = h["genres"]
-                filled += 1
-            if not meta.plot and h.get("plot"):
-                meta.plot = h["plot"]
-            if not meta.cast and h.get("cast"):
-                meta.cast = h["cast"]
-            if not meta.director and h.get("director"):
-                meta.director = h["director"]
+            # Fill-only-empty. Artwork only became reachable when the harvest
+            # started KEEPING the detail blob's image (2026-08-23): before that
+            # a title whose catalog carries ``stream_icon: null`` had no route
+            # back to a poster once its stored one was lost.
+            for field in HARVEST_FIELDS:
+                if not getattr(meta, field) and h.get(field):
+                    setattr(meta, field, h[field])
+                    if field == "genres":
+                        filled += 1
 
         if movie_fetched:
             self.session.execute(
