@@ -52,7 +52,7 @@ def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
     """
     return (
         f"{html.escape(text)} "
-        f'<span style="color:{_theme.COLOR_MUTED}; font-size:{_theme.FONT_SM}">'
+        f'<span style="color:{_theme.COLOR_TEXT}; font-size:{_theme.FONT_SM}">'
         f"{html.escape(suffix)}</span>"
     )
 
@@ -205,6 +205,8 @@ class _AlertRow(QWidget):
 class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     """Alerts section — EPG watch alerts + VOD watch-for rules + stream retry monitoring."""
 
+    MIN_ROWS: int = 7   # three nested sub-groups need room to be legible
+
     alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
     channel_selected = pyqtSignal(str)      # channel_db_id — single click → load details pane
     channelContextMenuRequested = pyqtSignal(str, int, int) # channel_db_id, global_x, global_y
@@ -287,7 +289,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         add_btn.setToolTip("Watch for new content…")
         _theme.style_fn(add_btn, lambda: _btn_style.format(
             fs=_theme.FONT_LG,
-            c=_theme.COLOR_DIM,
+            c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
             bg=_theme.OVERLAY_05,
             hbg=_theme.OVERLAY_15,
         ))
@@ -405,7 +407,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         retry_hdr_row.addWidget(self._retry_toggle)
 
         _info_lbl = QLabel(self.config.info_icon)
-        _theme.style_fn(_info_lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(_info_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         _info_lbl.setToolTip(
             "Stream Monitoring periodically re-checks streams that previously\n"
             "failed to play. When a stream becomes available again you'll\n"

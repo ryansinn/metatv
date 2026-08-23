@@ -217,7 +217,7 @@ class _Shelf(QWidget):
             self._pin_btn.setText(self._config.pin_icon)
             self._pin_btn.setToolTip("Pin to top")
             _theme.style_fn(self._pin_btn, lambda: "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
+                f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
 
     def set_collapsed(self, collapsed: bool) -> None:

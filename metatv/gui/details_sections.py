@@ -869,7 +869,7 @@ class _MetadataSection(QWidget):
         title_bar_layout.addWidget(self._quality_chip)
 
         self._name_year_lbl = QLabel()
-        _theme.style_fn(self._name_year_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_MUTED}; font-weight: bold;")
+        _theme.style_fn(self._name_year_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; font-weight: bold;")
         self._name_year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._name_year_lbl.hide()
         title_bar_layout.addWidget(self._name_year_lbl)
@@ -888,7 +888,7 @@ class _MetadataSection(QWidget):
         # and the trailing stretch absorbs the slack.
         badge_row = QHBoxLayout()
         self.source_label = _ClickableLabel()
-        _theme.style_fn(self.source_label, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self.source_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         self.source_label.hide()
         badge_row.addWidget(self.source_label)
         self.adult_indicator = QLabel("🔞 Adult")
@@ -902,7 +902,7 @@ class _MetadataSection(QWidget):
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
-        _theme.style_fn(self._tagline_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};")
+        _theme.style_fn(self._tagline_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-style: italic; font-size: {_theme.FONT_LG};")
         _no_width_force(self._tagline_lbl)
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
@@ -942,7 +942,7 @@ class _MetadataSection(QWidget):
 
         # PG-13 / content-rating badge — right of the IDs, left of the stars
         self._content_rating_lbl = QLabel()
-        _theme.style_fn(self._content_rating_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+        _theme.style_fn(self._content_rating_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
             f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;")
         self._content_rating_lbl.hide()
         media_row_layout.addWidget(self._content_rating_lbl)
@@ -963,7 +963,7 @@ class _MetadataSection(QWidget):
         # it once genres arrive.  Both start hidden; load_basic() shows the loading label;
         # load_metadata() hides it and populates the flow container.
         self._genres_loading_lbl = QLabel()
-        _theme.style_fn(self._genres_loading_lbl, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._genres_loading_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         self._genres_loading_lbl.hide()
         layout.addWidget(self._genres_loading_lbl)
 
@@ -980,7 +980,7 @@ class _MetadataSection(QWidget):
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
-        _theme.style_fn(self.rec_reason_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
+        _theme.style_fn(self.rec_reason_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; font-style: italic;")
         self.rec_reason_label.setWordWrap(True)
         _no_width_force(self.rec_reason_label)
         self.rec_reason_label.hide()

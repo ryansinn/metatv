@@ -186,6 +186,13 @@ def test_base_section_header_is_clickable_header(qapp):
     section = _bare_section(qapp)
     object.__setattr__(section, "title", "Test")
     object.__setattr__(section, "icon", "T")
+    # Faked like `icon` above. create_header() reads it to choose between a
+    # vector glyph and the emoji, and on a __new__'d section ANY unset instance
+    # attribute raises RuntimeError rather than AttributeError — so it has to
+    # be present, not merely defaulted. None keeps this test on the text path,
+    # which is what it is about; the glyph is covered against real sections by
+    # tests/test_sidebar_header_vector_icons.py.
+    object.__setattr__(section, "vector_role", None)
     object.__setattr__(section, "toggle_collapse", MagicMock())
 
     section.create_header()
@@ -218,6 +225,13 @@ def _make_section(cls, extra_kwargs=None, qapp=None):
     # C++ side was never constructed raises RuntimeError.
     object.__setattr__(section, "title", "Test")
     object.__setattr__(section, "icon", "T")
+    # Faked like `icon` above. create_header() reads it to choose between a
+    # vector glyph and the emoji, and on a __new__'d section ANY unset instance
+    # attribute raises RuntimeError rather than AttributeError — so it has to
+    # be present, not merely defaulted. None keeps this test on the text path,
+    # which is what it is about; the glyph is covered against real sections by
+    # tests/test_sidebar_header_vector_icons.py.
+    object.__setattr__(section, "vector_role", None)
     object.__setattr__(section, "config", _stub_config())
     object.__setattr__(section, "is_collapsed", False)
     object.__setattr__(section, "_user_collapsed", False)

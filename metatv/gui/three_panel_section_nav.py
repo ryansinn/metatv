@@ -62,7 +62,7 @@ class ThreePanelSectionNav(QWidget):
         self.help_panel.setReadOnly(True)
         self.help_panel.setToolTip("Help for the selected settings section.")
         _theme.style_fn(self.help_panel, lambda: "QTextBrowser { border: none; border-left: 1px solid "
-            f"{_theme.COLOR_LINE}; background: transparent; color: {_theme.COLOR_MUTED};"
+            f"{_theme.COLOR_LINE}; background: transparent; color: {_theme.COLOR_TEXT};"
             f" font-size: {_theme.FONT_MD}; padding: 10px; }}")
 
         layout.addWidget(self.section_list)

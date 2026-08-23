@@ -983,13 +983,13 @@ class QAChecklistWindow(QWidget):
 
         msg_lbl = QLabel("Nothing to test")
         msg_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _theme.style_fn(msg_lbl, lambda: f"font-size: {_theme.FONT_XL}; color: {_theme.COLOR_MUTED}; padding: 8px 0 4px 0;")
+        _theme.style_fn(msg_lbl, lambda: f"font-size: {_theme.FONT_XL}; color: {_theme.COLOR_TEXT}; padding: 8px 0 4px 0;")
         layout.addWidget(msg_lbl)
 
         sub_lbl = QLabel("All test steps pass or no entries have steps yet.")
         sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub_lbl.setWordWrap(True)
-        _theme.style_fn(sub_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(sub_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         layout.addWidget(sub_lbl)
 
         self._body_layout.addWidget(container)
@@ -1742,7 +1742,7 @@ class QAChecklistWindow(QWidget):
         created = item.get("created", "") or "?"
         meta_lbl = QLabel(f"build {sha} · {created[:10]}")
         meta_lbl.setToolTip(f"Flagged on build {sha} at {created}")
-        _theme.style_fn(meta_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(meta_lbl, lambda: f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_TEXT};")
         chips_layout.addWidget(meta_lbl)
 
         card_layout.addWidget(chips_row)

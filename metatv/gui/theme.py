@@ -287,7 +287,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # findable. On the app surface the old pairing measured 2.81 / 2.53 / 1.68
     # across the palettes — in Daylight the × was very nearly invisible.
     CLOSE_BTN = "color: " + COLOR_TEXT + "; border: none; background: transparent; font-size: " + FONT_2XL + ";"
-    EYE_BTN = "border: none; padding: 0; color: " + COLOR_DIM + ";"
+    EYE_BTN = "border: none; padding: 0; color: " + COLOR_TEXT + ";"
     # A control at rest gets the CONTAINER surface, not COLOR_LINE — that is a
     # separator hairline, and pairing it with COLOR_DIM measured 2.70:1 in every
     # palette. Same mistake, same family, as the results list reading COLOR_LINE
@@ -321,7 +321,7 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     # "Show all (N)" / "Show less" expander link inside large filter facet sections
     FILTER_SHOW_ALL_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_MD + "; padding: 4px 8px; text-align: left; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
@@ -344,7 +344,7 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     RATING_BTN = (
         "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
-        " font-size: " + FONT_XL + "; color: " + COLOR_MUTED + "; }"
+        " font-size: " + FONT_XL + "; color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_18 + "; color: " + COLOR_TEXT_HI + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + "; }"
     )
@@ -378,7 +378,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:checked { background: " + OVERLAY_ACCENT_35 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ACCENT + "; }"
         "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; color: " + COLOR_TEXT_HI + ";"
-        " border-color: " + COLOR_DIM + "; }"
+        " border-color: " + COLOR_BORDER + "; }"
         # Hovering an ALREADY-ACTIVE button used to raise the accent wash to 50%
         # while keeping near-white text on it — which LOWERS contrast (4.24:1 in
         # Midnight), so the one interaction that should confirm "yes, this is
@@ -405,7 +405,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:checked { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ERR + "; }"
         "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; color: " + COLOR_TEXT_HI + ";"
-        " border-color: " + COLOR_DIM + "; }"
+        " border-color: " + COLOR_BORDER + "; }"
     )
 
     # Gold (COLOR_GOLD) tints — the FAVORITED rail-button fill.
@@ -475,7 +475,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # the "Automatic" mix reset, greyed out while the mix already IS automatic).
     # Neutral rather than blue — it sits inside a control row, not beside a heading.
     INLINE_ACTION_BTN = (
-        "QPushButton { color: " + COLOR_DIM + "; font-size: " + FONT_MD
+        "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD
         + "; border: none; padding: 2px 6px; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; }"
         "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
@@ -492,9 +492,9 @@ def _build_semantic_constants() -> dict[str, object]:
     # expand/collapse arrow; brightens on hover.  Shared so the three sub-headers stay
     # visually identical (one role constant, never copy-pasted per sub-section).
     SIDEBAR_SUBSECTION_TOGGLE = (
-        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-weight: bold;"
+        "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-weight: bold;"
         " border: none; text-align: left; padding: 0 2px; }"
-        "QPushButton:hover { color: " + COLOR_DIM + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; }"
     )
 
     # Sub-section header inside a management dialog (Manage Watch Alerts: "keyword
@@ -533,7 +533,7 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-radius: 8px; padding: 1px 7px; font-size: " + FONT_LG + ";"
     )
     VOD_ALERT_COUNT_NEW  = "color: " + COLOR_OK + ";"
-    VOD_ALERT_COUNT_IDLE = "color: " + COLOR_MUTED + ";"
+    VOD_ALERT_COUNT_IDLE = "color: " + COLOR_TEXT + ";"
 
     # Watch Queue pinned "new matches from your alerts" line — a single clickable GREEN
     # row at the top of the queue.  GREEN fill + the 🚨 glyph + the count text = the
@@ -577,7 +577,7 @@ def _build_semantic_constants() -> dict[str, object]:
         " padding: 8px 12px; font-size: " + FONT_XL + "; font-weight: bold;"
         " background: transparent; color: " + COLOR_TEXT + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
-        " border-color: " + COLOR_DIM + "; }"
+        " border-color: " + COLOR_BORDER + "; }"
     )
 
     # Details-pane Play button in the "currently playing" state — a GREEN outline that
@@ -616,9 +616,9 @@ def _build_semantic_constants() -> dict[str, object]:
         " padding: 6px 12px; font-size: " + FONT_LG + "; background: transparent;"
         " color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_18 + "; color: " + COLOR_TEXT_HI + ";"
-        " border-color: " + COLOR_DIM + "; }"
+        " border-color: " + COLOR_BORDER + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
-        " border-color: " + COLOR_DIM + "; }"
+        " border-color: " + COLOR_BORDER + "; }"
     )
 
     # Poster watched badge — a corner check overlay (Plex/Jellyfin convention).
@@ -633,8 +633,8 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-color: " + COLOR_ERR + "; }"
     )
     POSTER_UNWATCHED_BADGE = (
-        "QPushButton { background: " + OVERLAY_BLACK_30 + "; color: " + COLOR_DIM + ";"
-        " border: 1px solid " + COLOR_DIM + "; border-radius: 13px;"
+        "QPushButton { background: " + OVERLAY_BLACK_30 + "; color: " + COLOR_TEXT + ";"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: 13px;"
         " font-size: " + FONT_XL + "; }"
         "QPushButton:hover { background: " + OVERLAY_BLACK_55 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_TEXT_HI + "; }"
@@ -644,13 +644,13 @@ def _build_semantic_constants() -> dict[str, object]:
     CHANNEL_NAME          = "font-size: " + FONT_MD + ";"
     CHANNEL_NAME_LIVE     = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     CHANNEL_NAME_UPCOMING = "color: " + COLOR_DIM_2 + "; font-size: " + FONT_MD + ";"
-    CHANNEL_NAME_DIM      = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+    CHANNEL_NAME_DIM      = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
 
     # Channel-list row — ForegroundRole color for fully-watched (non-live) rows.
     # Dimmed so completed content recedes; in-progress and unwatched rows use the
     # default (delegate) foreground.  Build a QBrush from this at the call site:
     #   QBrush(QColor(CHANNEL_ROW_WATCHED_FG))
-    CHANNEL_ROW_WATCHED_FG: str = COLOR_MUTED
+    CHANNEL_ROW_WATCHED_FG: str = COLOR_DISABLED
 
     # Channel-list row — ForegroundRole color for "degraded" reliability_state rows
     # (graduated play-failure ledger, roadmap S3 — 3+ consecutive user-initiated
@@ -658,7 +658,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # state above so an unreliable stream reads as visually distinct from merely
     # "already seen".  Never encodes state by color alone — the row stays fully
     # clickable/playable, this is reinforcement only.
-    CHANNEL_ROW_DEGRADED_FG: str = COLOR_FAINT
+    CHANNEL_ROW_DEGRADED_FG: str = COLOR_DISABLED
 
     # Channel-list playback-state indicator — colour applied by the row delegate to the
     # fixed "·"/▶/✓ separator glyph.  Shape carries the meaning; these are reinforcement
@@ -668,7 +668,7 @@ def _build_semantic_constants() -> dict[str, object]:
     COLOR_PLAYBACK_WATCHED: str = COLOR_OK                   # ✓ finished
 
     # Time labels
-    TIME_LABEL          = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+    TIME_LABEL          = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     TIME_LABEL_UPCOMING = "color: " + COLOR_DISABLED + "; font-size: " + FONT_MD + ";"
 
     # Section headers / hints / items
@@ -680,7 +680,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "font-size: " + FONT_MD + "; font-weight: bold; color: " + COLOR_MUTED_2 +
         "; letter-spacing: 1px; padding: 4px 0;"
     )
-    SECTION_HINT      = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + "; padding: 2px 0 6px 0;"
+    SECTION_HINT      = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; padding: 2px 0 6px 0;"
     # Warning banner for stale/out-of-date EPG guide data (EPG view).
     EPG_STALE_NOTICE  = (
         "color: " + COLOR_WARN + "; font-size: " + FONT_MD + ";"
@@ -690,11 +690,11 @@ def _build_semantic_constants() -> dict[str, object]:
     EPG_SCRUBBER_POS  = (
         "color: " + COLOR_ACCENT_HOVER + "; font-size: " + FONT_LG + "; font-weight: bold;"
     )
-    SECTION_ITEM      = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + "; padding: 4px 0;"
+    SECTION_ITEM      = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; padding: 4px 0;"
     SECTION_TITLE_SM  = "font-size: " + FONT_LG + "; font-weight: bold; padding-top: 4px;"
 
     # Generic labels
-    EMPTY_LABEL  = "color: " + COLOR_FAINT + "; font-size: " + FONT_XL + "; padding: 20px;"
+    EMPTY_LABEL  = "color: " + COLOR_TEXT + "; font-size: " + FONT_XL + "; padding: 20px;"
     LABEL_MUTED  = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + ";"
     LIST_TITLE   = "font-weight: bold; font-size: " + FONT_XL + ";"
     FIELD_LABEL  = "font-weight: 600;"
@@ -707,7 +707,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # details_sections.py) so per-episode and series-level ratings render identically.
     DETAIL_EPISODE_RATING = "color: " + COLOR_GOLD + "; font-weight: bold;"
     # Episode-mode air-date chip — small and muted, sits beside the rating.
-    DETAIL_EPISODE_AIR_DATE = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+    DETAIL_EPISODE_AIR_DATE = "color: " + COLOR_TEXT + "; font-size: " + FONT_SM + ";"
     DETAIL_TEXT  = "color: " + COLOR_LIGHTGRAY + ";"
     META_DIM     = "color: " + COLOR_GRAY + ";"
     LOADING_TEXT = "color: " + COLOR_GRAY + "; font-style: italic;"
@@ -715,23 +715,23 @@ def _build_semantic_constants() -> dict[str, object]:
     # Filter dialog / panel
     FILTER_CHECKBOX  = "QCheckBox { color: " + COLOR_TEXT + "; }"
     FILTER_ITEM_TEXT = "font-size: " + FONT_LG + ";"
-    ITEM_COUNT       = "font-size: " + FONT_MD + "; color: " + COLOR_FAINT + ";"
+    ITEM_COUNT       = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     EXPAND_HINT      = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XS + ";"
-    INFO_LABEL       = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + "; padding-left: 4px; padding-top: 4px;"
+    INFO_LABEL       = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + "; padding-left: 4px; padding-top: 4px;"
 
     # Provider editor
-    META_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+    META_HINT = "color: " + COLOR_TEXT + "; font-size: " + FONT_SM + ";"
     STATUS_OK   = "color: " + COLOR_OK + "; font-size: " + FONT_LG + "; font-weight: 600;"
     STATUS_WARN = "color: " + COLOR_WARN + "; font-size: " + FONT_LG + "; font-weight: 600;"
     STATUS_ERR  = "color: " + COLOR_ERR + "; font-size: " + FONT_LG + "; font-weight: 600;"
 
     # Provider editor — URL-test result badge (smaller than STATUS_*)
     URL_BADGE         = "font-size: " + FONT_SM + "; font-weight: 600;"
-    URL_BADGE_TESTING = "font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+    URL_BADGE_TESTING = "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     URL_BADGE_OK      = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_OK + ";"
     URL_BADGE_ERR     = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_ERR_2 + ";"
     URL_REMOVE_BTN    = (
-        "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_FAINT + "; border-radius: 3px; }"
+        "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_BORDER + "; border-radius: 3px; }"
         "QPushButton:hover { background: " + OVERLAY_ERR + "; }"
     )
 
@@ -802,14 +802,14 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 2px 8px;"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_DIM + ";"
+        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
     )
     CATEGORY_CHIP_SM = (
-        "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_DIM + ";"
+        "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 1px 6px;"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + ";"
+        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
     )
     # Quality badge in the details pane title bar (amber/gold, next to language chip)
@@ -824,7 +824,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Genre chips — details pane metadata genre buttons (blue / link-like, flow-layout row)
     GENRE_CHIP = (
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_ACCENT_BLUE_2 + ";"
-        " border: 1px solid " + COLOR_FAINT + "; border-radius: 4px; padding: 2px 8px;"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 2px 8px;"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE_2 + ";"
         " background: " + OVERLAY_BLUE_10 + "; }"
@@ -833,14 +833,14 @@ def _build_semantic_constants() -> dict[str, object]:
     # Variant-count badge (content-collapse Slice 2) — bottom-left overlay on poster cards.
     # Shown only when variant_count > 1; styled to be unobtrusive (muted + slight tint).
     VARIANT_BADGE = (
-        "background: " + OVERLAY_BLACK_55 + "; color: " + COLOR_DIM
+        "background: " + OVERLAY_BLACK_55 + "; color: " + COLOR_TEXT
         + "; border-radius: 3px; padding: 1px 4px;"
     )
 
     # Separators / surfaces
     SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"
     SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin: 8px 0;"
-    SEP_DARK       = "color: " + COLOR_BORDER + "; margin-top: 4px; margin-bottom: 4px;"
+    SEP_DARK       = "color: " + COLOR_TEXT + "; margin-top: 4px; margin-bottom: 4px;"
     CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: 6px; }"
     HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
     # Scoped variant of HEADER_TINT for sidebar section headers: an *unscoped*
@@ -898,21 +898,21 @@ def _build_semantic_constants() -> dict[str, object]:
     # Verdict headline base — color is interpolated at runtime per verdict (see dialog).
     DIAG_VERDICT_HEADLINE = "font-size: " + FONT_2XL + "; font-weight: bold;"
     # Always-visible URL line — redacted stream URL with optional episode code.
-    DIAG_URL = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+    DIAG_URL = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     # Plain-language summary paragraph under the headline.
     DIAG_SUMMARY = "color: " + COLOR_LIGHTGRAY + "; font-size: " + FONT_LG + ";"
     # Metrics block (throughput / bitrate / headroom / ttfb / codec / resolution).
-    DIAG_METRICS = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+    DIAG_METRICS = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     # Key column in the diagnostics technical-details grid (dim label, value beside it).
-    DIAG_METRIC_KEY = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-weight: 600;"
+    DIAG_METRIC_KEY = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-weight: 600;"
     # Recommended-args / placeholder line.
-    DIAG_RECOMMEND = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-style: italic;"
+    DIAG_RECOMMEND = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-style: italic;"
     # Saved-confirmation line after applying tuning.
     DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
     # Live playback-health readout in the bottom nav bar (buffer · speed · dropped frames).
     # Dim/muted at-a-glance line; only visible while mpv is actively playing.
-    NAV_HEALTH = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+    NAV_HEALTH = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
 
     # Discover / recommendation rows (EPG Watchlist tab)
     # DISCOVER_REC_NAME        — channel name label in a recommendation row
@@ -951,7 +951,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     )
     WHATS_NEW_META = (
-        "font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+        "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )
     WHATS_NEW_ITEM = (
         "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
@@ -962,15 +962,15 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     # What's New carousel — navigation chevron buttons (large, monochrome, minimal border)
     WHATS_NEW_NAV_BTN = (
-        "QPushButton { font-size: " + FONT_3XL + "; color: " + COLOR_DIM + ";"
+        "QPushButton { font-size: " + FONT_3XL + "; color: " + COLOR_TEXT + ";"
         " background: transparent; border: 1px solid " + COLOR_LINE + "; border-radius: 4px;"
         " padding: 2px 10px; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
-        "QPushButton:disabled { color: " + COLOR_FAINT + "; border-color: " + COLOR_LINE_DARK + "; }"
+        "QPushButton:disabled { color: " + COLOR_TEXT + "; border-color: " + COLOR_LINE_DARK + "; }"
     )
     # What's New carousel — "1 / 4" position indicator label
     WHATS_NEW_POS_LABEL = (
-        "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+        "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     )
 
     # Tag provenance + confidence chips (details pane — DR-0006 display)
@@ -979,13 +979,13 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 1px 6px;"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_DIM + ";"
+        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
     )
     # INFERRED chips: dashed border + muted text → "MetaTV guessed this"
     TAG_CHIP_INFERRED = (
-        "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_MUTED + ";"
-        " border: 1px dashed " + COLOR_FAINT + "; border-radius: 4px; padding: 1px 6px;"
+        "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
+        " border: 1px dashed " + COLOR_BORDER + "; border-radius: 4px; padding: 1px 6px;"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
@@ -1003,10 +1003,10 @@ def _build_semantic_constants() -> dict[str, object]:
 
     # Events tab — segmented view-mode toggle (Timeline / By Network)
     EVENTS_SEG_INACTIVE = (
-        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+        "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px;"
         " padding: 3px 10px; background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_DIM + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + "; }"
     )
     EVENTS_SEG_ACTIVE = (
         "QPushButton { color: " + COLOR_TEXT_HI + "; font-size: " + FONT_MD + "; font-weight: 600;"
@@ -1019,8 +1019,8 @@ def _build_semantic_constants() -> dict[str, object]:
         " letter-spacing: 1px; padding: 4px 2px 2px 2px;"
     )
     # Time/availability hint label on each event row
-    EVENTS_TIME_HINT = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
-    EVENTS_TIME_HINT_PASSED = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+    EVENTS_TIME_HINT = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
+    EVENTS_TIME_HINT_PASSED = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     EVENTS_TIME_ON_NOW = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
     # WeightedTagCloud — role-named semantic constants
@@ -1031,18 +1031,18 @@ def _build_semantic_constants() -> dict[str, object]:
     # State-mark prefix on exclude-state tags (orange/red ⊘)
     CLOUD_EXCLUDE_MARK = "color: " + COLOR_WARN + ";"
     # Header label for the tag cloud ("Genre · N values · sized by catalogue weight")
-    CLOUD_HEADER_LABEL = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+    CLOUD_HEADER_LABEL = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     # Sort-toggle and filter search controls in the cloud header
     CLOUD_CTRL_BTN = (
-        "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+        "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px; padding: 1px 6px;"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
         "QPushButton:checked { color: " + COLOR_ACCENT + "; border-color: " + COLOR_ACCENT + "; }"
     )
     # "+N more" expand button at the tail of the cloud
     CLOUD_MORE_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_MD + "; padding: 4px 2px; text-align: left; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
@@ -1141,7 +1141,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Clear button — ghost style
     RECIPE_CLEAR_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
-        " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 6px 14px;"
+        " color: " + COLOR_TEXT + "; border-radius: 4px; padding: 6px 14px;"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT_2 + "; }"
     )
@@ -1197,7 +1197,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Sub-tab bar ("Recipe" | "Saved") — pill toggle group.
     RECIPE_TABBAR_BG = "QWidget { background: transparent; }"
     RECIPE_TAB = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_XL + "; font-weight: 600; padding: 5px 16px; border-radius: 7px; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
     )
@@ -1207,11 +1207,11 @@ def _build_semantic_constants() -> dict[str, object]:
         " padding: 5px 16px; border-radius: 7px; }"
     )
     # Small right-aligned hint next to the tabs.
-    RECIPE_TABBAR_HINT = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+    RECIPE_TABBAR_HINT = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
 
     # "BROWSE BY FACET" uppercase section header above the masonry grid.
     RECIPE_BROWSE_HDR = (
-        "font-size: " + FONT_MD + "; font-weight: 600; color: " + COLOR_MUTED + ";"
+        "font-size: " + FONT_MD + "; font-weight: 600; color: " + COLOR_TEXT + ";"
         " letter-spacing: 1.4px;"
     )
 
@@ -1221,15 +1221,15 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-top: 1px solid " + COLOR_BORDER + "; border-bottom: 1px solid " + COLOR_BORDER + "; }"
     )
     RECIPE_BAR_LABEL = (
-        "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_FAINT + ";"
+        "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_TEXT + ";"
         " letter-spacing: 1.6px;"
     )
     RECIPE_BAR_EMPTY = (
-        "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + "; font-style: italic;"
+        "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + "; font-style: italic;"
     )
-    RECIPE_BAR_OP = "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + "; font-weight: 600;"
+    RECIPE_BAR_OP = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + "; font-weight: 600;"
     RECIPE_BAR_YIELD = (
-        "font-size: " + FONT_LG + "; color: " + COLOR_MUTED + ";"
+        "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
     )
     # Save (gold, primary) + Clear (ghost) actions on the recipe bar.
     RECIPE_BAR_SAVE_BTN = (
@@ -1240,7 +1240,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:disabled { border-color: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
     )
     RECIPE_BAR_CLEAR_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_FAINT + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_LG + "; font-weight: 600; padding: 5px 11px; border-radius: 8px; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; background: " + OVERLAY_05 + "; }"
         "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
@@ -1248,10 +1248,10 @@ def _build_semantic_constants() -> dict[str, object]:
 
     # "MATCHING CONTENT" shelf header + "preview · N total" subtitle.
     RECIPE_MATCH_HDR = (
-        "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_MUTED + ";"
+        "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_TEXT + ";"
         " letter-spacing: 1.3px;"
     )
-    RECIPE_MATCH_SUB = "font-size: " + FONT_LG + "; color: " + COLOR_FAINT + ";"
+    RECIPE_MATCH_SUB = "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
     # "Show all →" link (flat blue accent, shared by shelf header).
     RECIPE_SHOW_ALL_BTN = (
         "QPushButton { color: " + COLOR_ACCENT_BLUE + "; border: none;"
@@ -1260,25 +1260,25 @@ def _build_semantic_constants() -> dict[str, object]:
     )
 
     # Saved tab — subtitle + recipe card frame + editable name + count line.
-    RECIPE_SAVED_SUB = "color: " + COLOR_FAINT + "; font-size: " + FONT_XL + ";"
+    RECIPE_SAVED_SUB = "color: " + COLOR_TEXT + "; font-size: " + FONT_XL + ";"
     RECIPE_SAVED_CARD = (
         "QFrame#savedRecipeCard { background: " + COLOR_RECIPE_PANEL_BG + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 12px; }"
-        "QFrame#savedRecipeCard:hover { border-color: " + COLOR_DIM + "; }"
+        "QFrame#savedRecipeCard:hover { border-color: " + COLOR_BORDER + "; }"
     )
     RECIPE_SAVED_NAME_EDIT = (
         "QLineEdit { border: none; background: transparent; color: " + COLOR_TEXT_HI + ";"
         " font-size: " + FONT_2XL + "; font-weight: 600; padding: 0; }"
         "QLineEdit:focus { border-bottom: 1px solid " + COLOR_BORDER + "; }"
     )
-    RECIPE_SAVED_COUNT = "font-size: " + FONT_MD + "; color: " + COLOR_FAINT + ";"
+    RECIPE_SAVED_COUNT = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     # Generic muted empty/loading placeholder text (saved-empty, grid-loading, no-matches).
     RECIPE_EMPTY_HINT = (
         "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XL + "; padding: 8px 2px;"
     )
     # Small icon button on a saved card (delete / load) — faint, hover-lit.
     RECIPE_SAVED_ICON_BTN = (
-        "QPushButton { border: none; background: transparent; color: " + COLOR_FAINT + ";"
+        "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
         " font-size: " + FONT_XL + "; padding: 2px 5px; border-radius: 4px; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + OVERLAY_10 + "; }"
     )
@@ -1290,7 +1290,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # reads at a glance.  Composed from existing tokens — no new colour literals.
     QA_PASS_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
-        " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 0 8px;"
+        " color: " + COLOR_TEXT + "; border-radius: 4px; padding: 0 8px;"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
     )
@@ -1301,7 +1301,7 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     QA_FAIL_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
-        " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 0 8px;"
+        " color: " + COLOR_TEXT + "; border-radius: 4px; padding: 0 8px;"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_ERR2_15 + "; color: " + COLOR_ERR_2 + "; }"
     )
@@ -1320,14 +1320,14 @@ def _build_semantic_constants() -> dict[str, object]:
 
     # Attachment chip — small removable label for a saved screenshot / log path.
     QA_ATTACHMENT_CHIP = (
-        "QPushButton { background: " + OVERLAY_05 + "; color: " + COLOR_DIM + ";"
+        "QPushButton { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px; padding: 0 6px;"
         " font-size: " + FONT_SM + "; }"
         "QPushButton:hover { background: " + OVERLAY_ERR2_15 + "; color: " + COLOR_ERR_2 + "; }"
     )
     QA_ATTACH_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
-        " color: " + COLOR_DIM + "; border-radius: 4px; padding: 0 8px;"
+        " color: " + COLOR_TEXT + "; border-radius: 4px; padding: 0 8px;"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + "; }"
     )

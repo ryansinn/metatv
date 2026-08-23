@@ -497,3 +497,75 @@ def watch_icon_for_channel(
         return None
     muted = (last_played_via == "queue")
     return watch_icon(glyph, muted)
+
+
+# ---------------------------------------------------------------------------
+# Vector icon keys — the monochrome, themeable counterpart to the glyphs above
+# ---------------------------------------------------------------------------
+# The emoji constants above cannot take a colour: they render in whatever the
+# font supplies, so they ignore the palette entirely and look different on every
+# platform. ``mdi6`` (Material Design Icons, already shipped via the qtawesome
+# dependency) is monochrome and colour-controlled, so an icon finally tracks the
+# theme like any other foreground.
+#
+# One map, keyed by the SAME semantic role the glyph constants use, so a caller
+# reads either representation from one place. Resolution goes through
+# ``icon_utils.resolve_icon``, which owns the fallback chain — this module never
+# imports qtawesome itself.
+VECTOR_KEYS: dict[str, str] = {
+    # media kind — chosen by rendering candidates at row size, not by name:
+    # a "television" glyph beats "play-box" for series because the latter's play
+    # triangle reads as a play BUTTON next to an actual one, and "access-point"
+    # beats "satellite-variant" for live, which collapses into noise at 15px.
+    "live": "mdi6.access-point",
+    "movie": "mdi6.movie-open-outline",
+    "series": "mdi6.television-classic",
+    "season": "mdi6.folder-outline",
+    "episode": "mdi6.play-circle-outline",
+    # judgement / state
+    "favorite": "mdi6.star",
+    "unfavorite": "mdi6.star-outline",
+    "like": "mdi6.thumb-up-outline",
+    "dislike": "mdi6.thumb-down-outline",
+    "not_interested": "mdi6.cancel",
+    "watched": "mdi6.check",
+    "unwatched": "mdi6.circle-outline",
+    "monitor": "mdi6.bell-outline",
+    "monitor_off": "mdi6.bell-off-outline",
+    "hide": "mdi6.eye-off-outline",
+    "queue": "mdi6.playlist-plus",
+    "watch_later": "mdi6.eye-outline",
+    # navigation / chrome
+    "search": "mdi6.magnify",
+    "epg": "mdi6.calendar-month-outline",
+    "recommended": "mdi6.star-check-outline",
+    "discover": "mdi6.shimmer",
+    "recipe": "mdi6.tune-variant",
+    "explore": "mdi6.arrow-right",
+    "columns": "mdi6.arrow-expand",
+    "settings": "mdi6.cog-outline",
+    "tools": "mdi6.wrench-outline",
+    "split": "mdi6.view-split-vertical",
+    "expand": "mdi6.chevron-down",
+    "collapse": "mdi6.chevron-right",
+    "more": "mdi6.dots-horizontal",
+    "close": "mdi6.close",
+    "add": "mdi6.plus",
+    "refresh": "mdi6.refresh",
+    "warning": "mdi6.alert-outline",
+    "history": "mdi6.history",
+    "sources": "mdi6.package-variant-closed",
+    "play": "mdi6.play",
+    "as_grid": "mdi6.view-grid-outline",
+    "as_list": "mdi6.view-list-outline",
+}
+
+
+def vector_key(role: str) -> str:
+    """The ``mdi6`` key for a semantic *role*.
+
+    Raises:
+        KeyError: if *role* has no vector counterpart — deliberately loud, so a
+            typo surfaces at the call site instead of silently rendering nothing.
+    """
+    return VECTOR_KEYS[role]

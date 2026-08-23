@@ -178,7 +178,7 @@ class ProviderIconPicker(QWidget):
 
         custom_row = QHBoxLayout()
         self._custom_label = QLabel("Custom:")
-        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         custom_row.addWidget(self._custom_label)
         self._custom_input = QLineEdit()
         self._custom_input.setClearButtonEnabled(True)
@@ -239,7 +239,7 @@ class ProviderIconPicker(QWidget):
         """
         _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
         _theme.style(self._palette, "ICON_PICK_POPUP")
-        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         _theme.style_fn(self._custom_input, lambda: f"font-size: {_theme.FONT_INPUT};")
         self._update_selection(self._icon)
 
@@ -281,7 +281,7 @@ class _CopyableLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._full_text = ""
-        _theme.style_fn(self, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_TEXT};")
         cursor_affordance.set_clickable(self)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
 

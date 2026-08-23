@@ -220,7 +220,7 @@ class _TagButton(QPushButton):
             f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px;"
             f" padding: 2px 6px; background: transparent; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
-            f" border-color: {_theme.COLOR_DIM}; background: {_theme.OVERLAY_05}; }}"
+            f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_05}; }}"
         )
         self.setToolTip(f"{label_value} — {count:,} channels")
         self.adjustSize()

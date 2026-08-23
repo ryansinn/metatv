@@ -104,7 +104,8 @@ _MIDNIGHT_PIN: dict[str, object] = {
     "COLOR_BG_DEEP": "#111111",
     "COLOR_LIGHTBOX_BG": "#1e1e2e",
     "BACKDROP_TINTS": ["#1a3a5c", "#2d4a1e", "#4a1e2d", "#2d1e4a", "#1e4a3a", "#3a2d1e"],
-    # Type scale (never varies by palette)
+    # Type scale — the PRE-V3 values, kept as the "it actually moved" evidence
+    # below. They are no longer the contract: V3 rebuilt the ramp.
     "FONT_MD": "11px",
     "FONT_CLOUD_1": "11px",
     "FONT_4XL": "20px",
@@ -136,12 +137,56 @@ class TestMidnightIsDerivedFromTheTokenLayer:
         missing = [n for n in _MIDNIGHT_PIN if n not in theme_palettes.MIDNIGHT]
         assert missing == [], f"tokens vanished from the palette: {missing}"
 
-    def test_the_type_scale_is_untouched(self):
-        """FONT_* is a type scale, not a colour, and does not vary by palette."""
-        for name, expected in _MIDNIGHT_PIN.items():
-            if name.startswith("FONT_"):
-                assert theme_palettes.MIDNIGHT[name] == expected
-                assert getattr(theme, name) == expected
+    def test_the_type_scale_does_not_vary_by_palette(self):
+        """The real invariant this test was always named for.
+
+        It used to ALSO pin three literals (FONT_MD == "11px", ...), which made
+        the approved V3 ramp a red gate — the same mistake the class docstring
+        describes for the colours, and the reason a pinned px is banned. The
+        property is that FONT_* is a type scale, not a colour: one ramp shared
+        by every palette. Pinning three of eighteen values never checked that;
+        this checks all eighteen, in all three palettes.
+        """
+        fonts = [n for n in theme_palettes.MIDNIGHT if n.startswith("FONT_")]
+        assert len(fonts) >= 18, "the type scale lost tokens"
+        for name in fonts:
+            expected = theme_palettes.MIDNIGHT[name]
+            for pname, palette in theme_palettes.PALETTES.items():
+                assert palette[name] == expected, (
+                    f"{name} is {palette[name]} in {pname} but {expected} in "
+                    "Midnight — the type scale must not vary by palette"
+                )
+            assert getattr(theme, name) == expected, name
+
+    def test_the_type_scale_is_a_scale_not_a_cluster(self):
+        """V3 rebuilt the ramp; prove it is one and that it actually moved.
+
+        Before V3, seven of the nine body steps sat inside a 6px band (9..15),
+        so FONT_SM and FONT_HEADING were visually the same size and weight was
+        carrying nearly all the hierarchy. A scale is a RATIO — 11->12 is a 9%
+        step and reads, the same 1px at 24->25 would not — so this asserts the
+        ratio, never a pixel.
+        """
+        ramp = ["FONT_XS", "FONT_SM", "FONT_MD", "FONT_LG", "FONT_XL",
+                "FONT_2XL", "FONT_3XL", "FONT_4XL"]
+        vals = [int(theme_palettes.MIDNIGHT[n].removesuffix("px")) for n in ramp]
+
+        assert vals == sorted(vals), f"the ramp is not increasing: {vals}"
+        assert len(set(vals)) == len(vals), f"the ramp has duplicate steps: {vals}"
+
+        ratios = [round(b / a, 3) for a, b in zip(vals, vals[1:])]
+        assert all(r >= 1.07 for r in ratios), (
+            f"a step under 7% is not a perceptible step: {ratios}"
+        )
+
+        # ...and it is no longer the cramped band. Body text carries the app,
+        # so the baseline rising off 11px is the change users actually see.
+        assert int(theme_palettes.MIDNIGHT["FONT_MD"].removesuffix("px")) > int(
+            _MIDNIGHT_PIN["FONT_MD"].removesuffix("px")
+        ), "FONT_MD is still the pre-V3 baseline — the type scale did not land"
+        assert vals[-1] - vals[0] >= 15, (
+            f"the ramp still spans only {vals[-1] - vals[0]}px end to end"
+        )
 
     def test_non_colour_entries_are_untouched(self):
         assert theme_palettes.MIDNIGHT["BACKDROP_TINTS"] == _MIDNIGHT_PIN["BACKDROP_TINTS"]

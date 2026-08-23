@@ -51,7 +51,7 @@ class PPVEventCard(QFrame):
         layout.addWidget(name_label)
 
         self.datetime_label = QLabel()
-        _theme.style_fn(self.datetime_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(self.datetime_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         layout.addWidget(self.datetime_label)
 
         self.countdown_label = QLabel()
@@ -106,7 +106,7 @@ class PPVEventCard(QFrame):
             days_ago = abs(time_until.days)
             text = "Ended (replay available)" if days_ago == 0 else f"Ended {days_ago}d ago"
             self.countdown_label.setText(text)
-            _theme.style_fn(self.countdown_label, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_MUTED};")
+            _theme.style_fn(self.countdown_label, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_TEXT};")
         else:
             days = time_until.days
             hours, remainder = divmod(time_until.seconds, 3600)

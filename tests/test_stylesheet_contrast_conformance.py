@@ -87,24 +87,14 @@ _DECL = re.compile(r"(?<![-\w])(background-color|background|color)\s*:\s*([^;{}]
 #: Every entry is a decision, not an oversight. Delete a line when you fix it —
 #: the test fails if an allowlisted pair starts passing.
 KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
-    ("CATEGORY_CHIP_SM", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
-    ("CLOUD_CTRL_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
-    ("CLOUD_MORE_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("DISCOVER_REC_PILL_BTN", "QPushButton"):
         "3.19 worst palette",
-    ("EVENTS_SEG_INACTIVE", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("EXCL_CHIP_ACTIVE", "QPushButton"):
         "2.46 — needs a per-palette Exclusions teal; that colour is the owner's brand mark",
     ("EXCL_CHIP_ACTIVE", "QPushButton:hover"):
         "2.70 — needs a per-palette Exclusions teal; that colour is the owner's brand mark",
     ("EXCL_CHIP_ACTIVE", "QPushButton:pressed"):
         "2.70 — needs a per-palette Exclusions teal; that colour is the owner's brand mark",
-    ("FILTER_SHOW_ALL_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("LANG_CHIP", "<bare>"):
         "3.77 worst palette",
     ("LIGHTBOX_BACK_BTN", "QPushButton"):
@@ -133,46 +123,28 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
         "paints over POSTER ART, not an app surface — this number is not what is seen",
     ("POSTER_WATCHED_BADGE", "QPushButton"):
         "paints over POSTER ART, not an app surface — this number is not what is seen",
-    ("QA_ATTACHMENT_CHIP", "QPushButton"):
-        "3.16 worst palette",
     ("QA_ATTACHMENT_CHIP", "QPushButton:hover"):
         "3.01 worst palette",
-    ("QA_ATTACH_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("QA_ATTACH_BTN", "QPushButton:hover"):
         "4.28 worst palette",
-    ("QA_FAIL_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("QA_FAIL_BTN", "QPushButton:hover"):
         "3.01 worst palette",
     ("QA_FAIL_BTN_ACTIVE", "QPushButton"):
         "3.01 worst palette",
-    ("QA_PASS_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("RATING_BTN", "QPushButton:hover"):
         "4.28 worst palette",
-    ("RECIPE_BAR_CLEAR_BTN", "QPushButton"):
-        "2.90 worst palette",
     ("RECIPE_BAR_SAVE_BTN", "QPushButton"):
         "1.39 worst palette",
     ("RECIPE_BAR_SAVE_BTN", "QPushButton:hover"):
         "1.10 worst palette",
-    ("RECIPE_CLEAR_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
-    ("RECIPE_SAVED_ICON_BTN", "QPushButton"):
-        "2.90 worst palette",
     ("RECIPE_SAVE_BTN", "QPushButton"):
         "3.15 worst palette",
     ("RECIPE_SAVE_BTN", "QPushButton:disabled"):
         "disabled control — WCAG exempts these by definition",
-    ("RECIPE_TAB", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("SAVE_BTN", "QPushButton"):
         "3.15 worst palette",
     ("SAVE_BTN", "QPushButton:disabled"):
         "disabled control — WCAG exempts these by definition",
-    ("TAG_CHIP_INFERRED", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
     ("TRAILMAP_LINK_BTN", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("TRAILMAP_CLOSE_BTN", "QPushButton"):
@@ -183,8 +155,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("VARIANT_BADGE", "<bare>"):
         "1.44 worst palette",
-    ("WHATS_NEW_NAV_BTN", "QPushButton"):
-        "3.33 — COLOR_MUTED ({neutral.10}) as body text; see the cluster note above",
 }
 
 

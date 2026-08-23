@@ -445,17 +445,20 @@ class TestPreferencesViewRefreshTheme:
                          cache_dir=tmp_path / "cache")
         theme.apply_theme("Midnight")
         view = PreferencesView(file_db, config, None)
+        # COLOR_TEXT, not a hardcoded hex: this test is about refresh_theme()
+        # re-applying the sheet, so it must track whichever token the widget
+        # reads rather than pin a value a palette change would move.
         midnight_mix_label = view._mix_label.styleSheet()
-        assert tp.MIDNIGHT["COLOR_DIM"] in midnight_mix_label
+        assert tp.MIDNIGHT["COLOR_TEXT"] in midnight_mix_label
 
         theme.apply_theme("Daylight")
         view.refresh_theme()
 
         after = view._mix_label.styleSheet()
-        assert tp.DAYLIGHT["COLOR_DIM"] in after
-        assert tp.MIDNIGHT["COLOR_DIM"] not in after
+        assert tp.DAYLIGHT["COLOR_TEXT"] in after
+        assert tp.MIDNIGHT["COLOR_TEXT"] not in after
         assert after != midnight_mix_label
         # The Excluded/Version-Preferences collapsible toggles share one style
         # string — proves both were re-applied, not just the mix label.
         assert view._excl_toggle_btn.styleSheet() == view._ver_prefs_toggle_btn.styleSheet()
-        assert tp.DAYLIGHT["COLOR_DIM"] in view._excl_toggle_btn.styleSheet()
+        assert tp.DAYLIGHT["COLOR_TEXT"] in view._excl_toggle_btn.styleSheet()

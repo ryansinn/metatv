@@ -71,10 +71,6 @@ _RGBA = re.compile(
 
 # (file, selector, fg token, bg token) -> why it is still below the floor.
 KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
-    ("category_picker_dialog.py", "QPushButton:hover", "@COLOR_DIM@", "@COLOR_LINE@"):
-        "COLOR_MUTED-family secondary text; see module docstring",
-    ("discover_view.py", "QPushButton", "@COLOR_MUTED@", "@OVERLAY_08@"):
-        "COLOR_MUTED-family secondary text; see module docstring",
     ("discover_view.py", "QPushButton:hover", "@COLOR_TEXT@", "@OVERLAY_15@"):
         "COLOR_MUTED-family secondary text; see module docstring",
     ("main_window.py", "QPushButton", "@COLOR_DISABLED@", "@COLOR_LINE_DARK@"):
@@ -83,8 +79,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
      "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
         "4.02:1 in Daylight — the owner's chosen banner pair, retuning it is "
         "their call (same reasoning as the Exclusions teal)",
-    ("details_versions.py", "QPushButton:hover", "@COLOR_MUTED@", "@OVERLAY_04@"):
-        "COLOR_MUTED-family secondary text; see module docstring",
     ("categories_dialog.py", "<bare>", "@COLOR_ERR_2@", "@OVERLAY_ERR2_15@"):
         "error red on its own red tint; the pair is the semantic signal and "
         "retinting it is a palette decision",

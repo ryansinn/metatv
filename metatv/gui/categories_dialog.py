@@ -123,7 +123,7 @@ class _CategorySection(QWidget):
 
         if not channels:
             lbl = QLabel("No channels in this category.")
-            _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 4px 0;")
+            _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding: 4px 0;")
             self._body_vl.addWidget(lbl)
             return
 
@@ -269,7 +269,7 @@ class CategoriesDialog(QDialog):
                 'or "Add to Category..." to get started.'
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_LG}; padding: 30px;")
+            _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_LG}; padding: 30px;")
             self._scroll_vl.addWidget(empty)
         else:
             for cat in cats:

@@ -253,7 +253,8 @@ class SourcesSection(CollapsibleSection):
         # tree rebuild in refresh() so the spinner/disabled state is re-applied.
         self._busy_ids: set[str] = set()
         self._item_widgets: dict[str, "ProviderItemWidget"] = {}
-        super().__init__("Sources", config.provider_icon, config, parent)
+        super().__init__("Sources", config.provider_icon, config, parent,
+                         vector_role="sources")
 
     def get_section_id(self):
         return "sources"
@@ -263,12 +264,12 @@ class SourcesSection(CollapsibleSection):
         header = self._build_clickable_header()
         header_layout = header.layout()
 
-        self.title_label = QLabel(f"{self.config.provider_icon} <b>Sources</b>")
+        self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
         _btn_style = (
-            "QPushButton {{ font-size: {fs}px; border: 1px solid {c};"
+            "QPushButton {{ font-size: {fs}px; border: 1px solid {bc};"
             " border-radius: 3px; color: {c}; background: {bg}; }}"
             "QPushButton:hover {{ background: {hbg}; }}"
         )
@@ -276,7 +277,7 @@ class SourcesSection(CollapsibleSection):
         refresh_all_btn.setFixedSize(22, 20)
         refresh_all_btn.setToolTip("Refresh all sources")
         _theme.style_fn(refresh_all_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_DIM,
+            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
             bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
         ))
         refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)
@@ -289,7 +290,7 @@ class SourcesSection(CollapsibleSection):
         # Refresh-All button uses) — not a hand-rolled stylesheet, so the pair
         # cannot drift and no font-size literal is inlined.
         _theme.style_fn(add_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_TEXT,
+            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
             bg=_theme.OVERLAY_15, hbg=_theme.OVERLAY_18,
         ))
         add_btn.clicked.connect(self.addProviderClicked.emit)

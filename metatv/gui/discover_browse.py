@@ -103,7 +103,7 @@ class _BrowseView(QWidget):
 
         self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
         self._toggle_btn.setFlat(True)
-        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
+        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}")
         self._toggle_btn.clicked.connect(self._toggle_view)
         top.addWidget(self._toggle_btn)
@@ -167,7 +167,7 @@ class _BrowseView(QWidget):
         _theme.style_fn(self._back_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
-        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
+        _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}")
 
     def load(self, title: str, cards: list[ContentCard], *, preserve_filter: bool = False) -> None:

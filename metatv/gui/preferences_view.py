@@ -295,7 +295,7 @@ class PreferencesView(QWidget):
         excl_header = QHBoxLayout()
         self._excl_toggle_btn = QPushButton(f"{self.config.expand_icon} Excluded (0)")
         self._excl_toggle_btn.setFlat(True)
-        _theme.style_fn(self._excl_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+        _theme.style_fn(self._excl_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._excl_toggle_btn.clicked.connect(self._toggle_exclusions)
         excl_header.addWidget(self._excl_toggle_btn)
@@ -344,7 +344,7 @@ class PreferencesView(QWidget):
         row.addWidget(self._mix_slider)
 
         self._mix_label = QLabel("")
-        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         self._mix_label.setToolTip("Movies : series split of the list below")
         row.addWidget(self._mix_label)
 
@@ -420,7 +420,7 @@ class PreferencesView(QWidget):
             f"{self.config.expand_icon} Version Preferences"
         )
         self._ver_prefs_toggle_btn.setFlat(True)
-        _theme.style_fn(self._ver_prefs_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+        _theme.style_fn(self._ver_prefs_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._ver_prefs_toggle_btn.clicked.connect(self._toggle_version_prefs)
         ver_hdr.addWidget(self._ver_prefs_toggle_btn)
@@ -617,11 +617,11 @@ class PreferencesView(QWidget):
         rationale as the channel-list row delegate.
         """
         _theme.style(self._mix_caption_lbl, "META_HINT")
-        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         _theme.style(self._mix_auto_btn, "INLINE_ACTION_BTN")
 
         _toggle_style = (
-            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+            f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         self._excl_toggle_btn.setStyleSheet(_toggle_style)
@@ -718,7 +718,7 @@ class PreferencesView(QWidget):
 
         def _kw_link(word: str, base_color: str) -> str:
             if word in muted_kws:
-                return (f'<a href="kw:{word}" style="color:{_theme.COLOR_FAINT}; '
+                return (f'<a href="kw:{word}" style="color:{_theme.COLOR_TEXT}; '
                         f'text-decoration:line-through; font-style:italic;">{word}</a>')
             return f'<a href="kw:{word}" style="color:{base_color}; text-decoration:none;">{word}</a>'
 
@@ -798,7 +798,7 @@ class PreferencesView(QWidget):
                 continue
             has_content = True
             type_header = QLabel(f"<b>{attr_type.capitalize()}</b>")
-            _theme.style_fn(type_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(type_header, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(type_header)
             for name in names:
                 row = self._make_exclusion_row(
@@ -819,7 +819,7 @@ class PreferencesView(QWidget):
         if names_ids:
             has_content = True
             titles_header = QLabel("<b>Not Interested titles</b>")
-            _theme.style_fn(titles_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(titles_header, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(titles_header)
             for name, cid in names_ids:
                 row = self._make_exclusion_row(
@@ -833,7 +833,7 @@ class PreferencesView(QWidget):
         if dedup_overrides:
             has_content = True
             dedup_header = QLabel("<b>Shown separately (ungrouped)</b>")
-            _theme.style_fn(dedup_header, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+            _theme.style_fn(dedup_header, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
             self._excl_layout.addWidget(dedup_header)
             session = self.db.get_session()
             try:
@@ -864,7 +864,7 @@ class PreferencesView(QWidget):
         singular = type_label.rstrip("s") if type_label.endswith("s") else type_label
         lbl = QLabel(
             f"<b>{name}</b> · "
-            f"<span style='color:{_theme.COLOR_MUTED}'>{singular}</span>"
+            f"<span style='color:{_theme.COLOR_TEXT}'>{singular}</span>"
             f" — not interesting to you"
         )
         lbl.setTextFormat(Qt.TextFormat.RichText)
