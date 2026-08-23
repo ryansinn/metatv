@@ -3,7 +3,8 @@
 from typing import List, Dict, Optional
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
-    QMenu, QCheckBox, QScrollArea, QFrame, QWidgetAction, QComboBox
+    QMenu, QCheckBox, QScrollArea, QFrame, QWidgetAction, QComboBox,
+    QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
@@ -17,8 +18,15 @@ class ToggleChip(QPushButton):
 
     toggled_changed = pyqtSignal(bool)
 
+    #: Corner radius of the segmented track. The chips at each end round their
+    #: OUTER corners to match it, because Qt does not clip a child widget to its
+    #: parent's border-radius — a square chip inside a rounded track bleeds
+    #: through the curve.
+    SEGMENT_RADIUS: int = 7
+
     def __init__(self, label: str, enabled: bool = True,
-                 vector_role: str | None = None):
+                 vector_role: str | None = None,
+                 segment: str | None = None):
         super().__init__()
         self.label = label
         self._enabled = enabled
@@ -28,10 +36,44 @@ class ToggleChip(QPushButton):
         # label — an emoji cannot take a colour, so it ignored the palette and
         # rendered differently on every platform.
         self._vector_role = vector_role
+        # Position in a segmented track: "first" | "middle" | "last", or None
+        # for a free-standing pill (the original, still used by the filter bar).
+        # A segmented chip fills its whole cell when selected instead of
+        # floating as a pill, which is what makes the active view read as the
+        # active view rather than as one more button.
+        self._segment = segment
+        if segment is not None:
+            # Fill the track vertically. Without this the chip keeps its
+            # sizeHint height and the layout centres it, leaving it floating
+            # 31px tall inside a 40px track with the track's own fill showing
+            # above and below — a pill in a box, which is the look the
+            # segmented track exists to replace.
+            self.setSizePolicy(QSizePolicy.Policy.Preferred,
+                               QSizePolicy.Policy.Expanding)
         self.setCheckable(True)
         self.setChecked(enabled)
         self.update_appearance()
         self.clicked.connect(self.on_clicked)
+
+    def _geometry_css(self) -> str:
+        """Corner radii and separator for this chip's place in the track.
+
+        One helper feeding both the selected and unselected builders, so the
+        two states cannot drift apart on shape — only on colour.
+        """
+        if self._segment is None:
+            return "border-radius: 12px; padding: 6px 14px;"
+
+        r = self.SEGMENT_RADIUS
+        corners = {
+            "first": f"border-top-left-radius: {r}px; border-bottom-left-radius: {r}px;",
+            "last": f"border-top-right-radius: {r}px; border-bottom-right-radius: {r}px;",
+        }.get(self._segment, "")
+        # Every chip but the leftmost carries the hairline that divides it from
+        # its neighbour, so the track shows exactly one rule per boundary.
+        rule = "" if self._segment == "first" else \
+            f"border-left: 1px solid {_theme.COLOR_LINE};"
+        return f"border-radius: 0px; {corners} {rule} padding: 7px 16px;"
 
     def on_clicked(self):
         self._enabled = self.isChecked()
@@ -90,28 +132,36 @@ class ToggleChip(QPushButton):
         if self._count is not None:
             label_text = f"{self.label} ({self._count})"
 
+        segmented = self._segment is not None
         if self._enabled:
-            self.setText(f"{label_text} ●")
+            # A segmented cell shows its state by filling edge to edge — a
+            # shape cue, not a colour one — so it does not also need the dot
+            # the free-standing pill uses.
+            self.setText(label_text if segmented else f"{label_text} ●")
             _theme.style_fn(self, lambda: self._tinted(True, f"""
                 QPushButton {{
                     background-color: {_theme.COLOR_ACCENT};
                     color: {_theme.COLOR_ON_ACCENT};
                     border: none;
-                    border-radius: 12px;
-                    padding: 6px 14px;
+                    {self._geometry_css()}
                     font-weight: bold;
                 }}
                 QPushButton:hover {{ background-color: {_theme.COLOR_ACCENT_HOVER}; }}
             """))
         else:
-            self.setText(f"{label_text} ○")
+            self.setText(label_text if segmented else f"{label_text} ○")
+            # Both token reads happen INSIDE the builder. Hoisting them here
+            # would bake the current palette's hex into the closure, and the
+            # re-invocation on a theme switch would hand back the old colours —
+            # the precise staleness style_fn exists to stop.
             _theme.style_fn(self, lambda: self._tinted(False, f"""
                 QPushButton {{
-                    background-color: {_theme.COLOR_BG_CARD};
+                    background-color: {
+                        "transparent" if segmented else _theme.COLOR_BG_CARD};
                     color: {_theme.COLOR_TEXT};
-                    border: 1px solid {_theme.COLOR_BORDER};
-                    border-radius: 12px;
-                    padding: 6px 14px;
+                    {"border: none;" if segmented
+                     else f"border: 1px solid {_theme.COLOR_BORDER};"}
+                    {self._geometry_css()}
                 }}
                 QPushButton:hover {{ background-color: {_theme.COLOR_BG_BAR}; }}
             """))

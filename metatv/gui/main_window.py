@@ -1493,36 +1493,50 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
 
-        # Nav chip group — centered in the bar with 30px gaps between chips
-        nav_group = QWidget()
+        # Nav chip group — one segmented track, not five floating pills.
+        # Five pills separated by 30px of nothing gave the five primary views
+        # no grouping and no edges: they read as loose buttons, and the active
+        # one was a small filled lozenge rather than an obviously-current tab.
+        # As a track they share one outline, one hairline per boundary, and the
+        # active view fills its whole cell.
+        nav_group = self._nav_track = QWidget()
+        nav_group.setObjectName("navTrack")
+        _theme.style_fn(nav_group, lambda: (
+            f"#navTrack {{ background: {_theme.COLOR_BG_CARD};"
+            f" border: 1px solid {_theme.COLOR_BORDER};"
+            f" border-radius: {ToggleChip.SEGMENT_RADIUS + 1}px; }}"
+        ))
         nav_layout = QHBoxLayout(nav_group)
+        # Zero margins and zero spacing are load-bearing: any gap here would
+        # show the track's fill between cells and break the shared-edge look.
         nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(30)
+        nav_layout.setSpacing(0)
 
-        self.search_chip = ToggleChip("Search", enabled=True, vector_role="search")
-        self.search_chip.setToolTip("Channel list and search")
-        self.search_chip.clicked.connect(self.on_search_view_toggle)
-        nav_layout.addWidget(self.search_chip)
-
-        self.epg_chip = ToggleChip("EPG", enabled=False, vector_role="epg")
-        self.epg_chip.setToolTip("EPG — programme guide, watchlist, on-now")
-        self.epg_chip.clicked.connect(self.on_special_view_toggle)
-        nav_layout.addWidget(self.epg_chip)
-
-        self.prefs_chip = ToggleChip("Recommended", enabled=False, vector_role="recommended")
-        self.prefs_chip.setToolTip("Personalised recommendations")
-        self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
-        nav_layout.addWidget(self.prefs_chip)
-
-        self.discover_chip = ToggleChip("Discover", enabled=False, vector_role="discover")
-        self.discover_chip.setToolTip("Browse by genre, decade, actor, director")
-        self.discover_chip.clicked.connect(self.on_discover_view_toggle)
-        nav_layout.addWidget(self.discover_chip)
-
-        self.recipe_chip = ToggleChip("Recipe", enabled=False, vector_role="recipe")
-        self.recipe_chip.setToolTip("Build a recipe from facets — genre, language, region, decade…")
-        self.recipe_chip.clicked.connect(self.on_recipe_view_toggle)
-        nav_layout.addWidget(self.recipe_chip)
+        specs = [
+            ("search_chip", "Search", "search", "Channel list and search",
+             self.on_search_view_toggle),
+            ("epg_chip", "EPG", "epg",
+             "EPG — programme guide, watchlist, on-now",
+             self.on_special_view_toggle),
+            ("prefs_chip", "Recommended", "recommended",
+             "Personalised recommendations", self.on_preferences_view_toggle),
+            ("discover_chip", "Discover", "discover",
+             "Browse by genre, decade, actor, director",
+             self.on_discover_view_toggle),
+            ("recipe_chip", "Recipe", "recipe",
+             "Build a recipe from facets — genre, language, region, decade…",
+             self.on_recipe_view_toggle),
+        ]
+        for i, (attr, label, role, tip, slot) in enumerate(specs):
+            segment = ("first" if i == 0
+                       else "last" if i == len(specs) - 1
+                       else "middle")
+            chip = ToggleChip(label, enabled=(i == 0), vector_role=role,
+                              segment=segment)
+            chip.setToolTip(tip)
+            chip.clicked.connect(slot)
+            setattr(self, attr, chip)
+            nav_layout.addWidget(chip)
 
         # Diagnose action — far-left, mirrors the Exclusions chip on the right
         self._diagnose_btn = QPushButton(_icons.diagnose_icon)
