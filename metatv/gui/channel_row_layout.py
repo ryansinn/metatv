@@ -106,16 +106,28 @@ def art_size(art_square: bool) -> tuple[int, int]:
     return (ART_TILE, ART_TILE) if art_square else (ART_W, ART_H)
 
 
-def row_height(line_h: int, lines: int, *, has_art: bool, art_square: bool) -> int:
-    """Total row height for a stack of *lines* text lines at *line_h*.
+def row_height(stack_h: int, *, has_art: bool) -> int:
+    """Total row height for a text stack *stack_h* px tall.
 
-    The row is the taller of its text stack and its artwork, plus padding on
-    both sides of the fill — so turning thumbnails on grows a two-line row to
-    fit the poster instead of cropping it, and a three-line comfy+ row that is
-    already taller than the poster is left alone.
+    The row is the taller of its text stack and the ARTWORK WELL, plus padding
+    on both sides of the fill — so turning thumbnails on grows a two-line row
+    to fit the poster instead of cropping it, and a three-line comfy+ row that
+    is already taller than the poster is left alone.
+
+    The well is always the POSTER's height, even on a live channel whose tile
+    is square. Sizing each row to its own artwork gave a mixed list two
+    different row heights (68px for movies and series, 50px for live), so
+    scrolling through one stepped between two rhythms. A live tile centres
+    inside the taller row instead, which is what the approved design shows —
+    and it is why this function takes no media-kind argument at all.
+
+    Args:
+        stack_h: Measured height of the row's text lines, gaps included. The
+            caller measures it, because it depends on fonts and this module
+            holds no paint device.
+        has_art: Whether this row reserves an artwork well.
     """
-    stack = lines * line_h + max(0, lines - 1) * LINE_GAP
-    content = max(stack, art_size(art_square)[1] if has_art else 0)
+    content = max(stack_h, ART_H if has_art else 0)
     return content + 2 * ROW_PAD_V + 2 * FILL_INSET_V
 
 

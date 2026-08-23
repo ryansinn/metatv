@@ -397,10 +397,13 @@ class ChannelRowDelegate(QStyledItemDelegate):
         lines = self._line_count(index)
         stack = title_h + (lines - 1) * (meta_h + _LINE_GAP)
 
-        has_art = self._shows_thumbnail(row_kind, index)
-        art_h = _layout.art_size(self._kind_of(index) == "live")[1] if has_art else 0
-        content = max(stack, art_h)
-        return QSize(option.rect.width(), content + 2 * _ROW_V_PAD + 2 * _layout.FILL_INSET_V)
+        # Height comes from the LAYOUT module, and deliberately does not depend
+        # on this row's own artwork shape — a live channel's square tile
+        # centres inside the same row height a poster gets, rather than giving
+        # a mixed list two rhythms. See ``row_height``.
+        return QSize(option.rect.width(), _layout.row_height(
+            stack, has_art=self._shows_thumbnail(row_kind, index)
+        ))
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
         if index.data(ROW_KIND_ROLE) == "header":
@@ -830,13 +833,18 @@ class ChannelRowDelegate(QStyledItemDelegate):
         meta_cells = _ordered(by_slot, ROW_META_ORDER)
         plot = index.data(PLOT_ROLE) or ""
 
-        # A row whose every optional fact is absent has no meta line to paint.
-        # Its title centres in the row rather than sitting at the top of an
-        # empty two-line stack — the height is unchanged (artwork and the
-        # density both fix it), only the title's own placement.
-        if lines > 1 and not meta_cells and not plot:
-            lines = 1
-
+        # The stack is sized from the DENSITY, never from whether this
+        # particular row happens to have facts to put on its meta line.
+        #
+        # It briefly was: a row with an empty meta line collapsed to one line
+        # and re-centred its title. That looked reasonable on a single row and
+        # wrecked the list — titles no longer shared a baseline, so scrolling
+        # past a mix of rows made every few titles jump up and down while the
+        # row pitch stayed constant. It was also the row's own first rule
+        # broken from the inside: geometry must not depend on the row's
+        # content any more than on its selection state. An empty meta line
+        # simply paints nothing, and the title stays where its neighbours'
+        # titles are.
         stack_h = title_h + (lines - 1) * (meta_h + _LINE_GAP)
         top = box.top() + max(0, (box.height() - stack_h) // 2)
 
@@ -848,9 +856,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
             return
 
         y = top + title_h + _LINE_GAP
-        self._paint_meta_line(
-            painter, QRect(box.left(), y, box.width(), meta_h), meta_cells, meta_font
-        )
+        if meta_cells:
+            self._paint_meta_line(
+                painter, QRect(box.left(), y, box.width(), meta_h), meta_cells, meta_font
+            )
         if lines >= 3:
             y += meta_h + _LINE_GAP
             self._paint_plot_line(
