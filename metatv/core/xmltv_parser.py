@@ -23,6 +23,21 @@ _DT_RE = re.compile(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s*([+-]\d{4})")
 _GZIP_MAGIC = b"\x1f\x8b"
 
 
+class XmltvAborted(Exception):
+    """The caller's ``on_progress`` callback asked to abandon the fetch.
+
+    Distinct from every other exception ``parse_xmltv_url`` can raise, all of
+    which mean "this host did not give us a guide". This one means "we are
+    going away" — the app is shutting down and nobody is left to receive the
+    result — and it says nothing whatsoever about the host.
+
+    The difference is not cosmetic: the EPG fetch path records a URL failure
+    for any exception it sees, so without a type to tell these apart, closing
+    the app mid-fetch permanently marks the host it happened to be using (and
+    then every fallback host) as unreliable.
+    """
+
+
 @dataclass
 class XmltvChannel:
     epg_id: str
@@ -115,6 +130,10 @@ def parse_xmltv_url(
                     f"using {len(programmes)} programmes collected before the error"
                 )
 
+    except XmltvAborted:
+        # Not a fetch error — the caller is tearing down. Propagate silently so
+        # it is not logged as a failure and, crucially, not recorded as one.
+        raise
     except Exception as e:
         logger.error(f"XMLTV fetch/parse error: {e}")
         raise
