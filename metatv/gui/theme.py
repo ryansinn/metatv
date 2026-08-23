@@ -55,7 +55,9 @@ from metatv.gui import theme_palettes
 # the type scale. See tokens/scales.py, in particular why a PILL cannot be
 # a radius step.
 from metatv.gui.tokens.scales import (  # noqa: F401
-    RADIUS_LG, RADIUS_MD, RADIUS_NONE, RADIUS_SM, radius_px, zoomed_font,
+    RADIUS_LG, RADIUS_MD, RADIUS_NONE, RADIUS_SM,
+    SPACE_LG, SPACE_MD, SPACE_NONE, SPACE_SM, SPACE_XS,
+    radius_px, space_px, zoomed_font,
 )
 
 
@@ -323,7 +325,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:checked:hover { color: " + COLOR_ACCENT_HOVER + "; background: " + COLOR_LINE_DARK + "; }"
     )
     RATING_BTN = (
-        "QPushButton { border: none; border-radius: " + RADIUS_SM + "; padding: 2px 6px;"
+        "QPushButton { border: none; border-radius: " + RADIUS_SM + "; padding: 2px " + SPACE_SM + ";"
         " font-size: " + FONT_XL + "; color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_18 + "; color: " + COLOR_TEXT_HI + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + "; }"
@@ -353,7 +355,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # a glance — when every state is filled, a fill says nothing.
     DETAIL_RAIL_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
+        " padding: 4px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
         " color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_ACCENT_35 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ACCENT + "; }"
@@ -380,7 +382,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # reskinned — so they were never a candidate for a button fill at all.
     DETAIL_RAIL_BTN_ALERT = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
+        " padding: 4px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
         " color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ERR + "; }"
@@ -404,7 +406,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # says "on" far more clearly than a wash of the same colour.
     DETAIL_RAIL_BTN_FAV = (
         "QPushButton { border: 1px solid " + COLOR_GOLD + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_GOLD + ";"
+        " padding: 4px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + COLOR_GOLD + ";"
         " color: " + COLOR_ON_BRIGHT + "; }"
         "QPushButton:hover { background: " + COLOR_GOLD_LIGHT + "; color: " + COLOR_ON_BRIGHT + ";"
         " border-color: " + COLOR_GOLD_LIGHT + "; }"
@@ -416,7 +418,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # the red :checked alerting state when the shown title has UNVIEWED matched content.
     DETAIL_RAIL_BTN_NEW_MATCH = (
         "QPushButton { border: 2px solid " + COLOR_OK + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 3px 1px; font-size: " + FONT_2XL + "; background: " + OVERLAY_GREEN_15 + ";"
+        " padding: 3px " + SPACE_XS + "; font-size: " + FONT_2XL + "; background: " + OVERLAY_GREEN_15 + ";"
         " color: " + COLOR_OK + "; }"
         "QPushButton:checked { background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + ";"
         " border-color: " + COLOR_OK + "; }"
@@ -456,7 +458,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Neutral rather than blue — it sits inside a control row, not beside a heading.
     INLINE_ACTION_BTN = (
         "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD
-        + "; border: none; padding: 2px 6px; }"
+        + "; border: none; padding: 2px " + SPACE_SM + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; }"
         "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
     )
@@ -488,7 +490,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # rule "Remove" / series "Stop alerts").  Shared so both destructive links match.
     DIALOG_DANGER_LINK = (
         "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_ERR_2 + ";"
-        " padding: 1px 6px; border: none; }"
+        " padding: 1px " + SPACE_SM + "; border: none; }"
         "QPushButton:hover { color: " + COLOR_RED_BRIGHT + "; }"
     )
 
@@ -510,7 +512,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # text — dim text, a faint border, no fill. Composed from tokens only.
     YEAR_CHIP            = (
         "color: " + COLOR_TEXT_LOW + "; border: 1px solid " + COLOR_BORDER + ";"
-        " border-radius: " + RADIUS_MD + "; padding: 1px 7px; font-size: " + FONT_LG + ";"
+        " border-radius: " + RADIUS_MD + "; padding: 1px " + SPACE_SM + "; font-size: " + FONT_LG + ";"
     )
     VOD_ALERT_COUNT_NEW  = "color: " + COLOR_OK + ";"
     VOD_ALERT_COUNT_IDLE = "color: " + COLOR_TEXT + ";"
@@ -567,7 +569,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # without colour vision.
     DETAIL_PLAY_BTN_PLAYING = (
         "QPushButton { border: 2px solid " + COLOR_OK + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 7px 11px; font-size: " + FONT_XL + "; font-weight: bold;"
+        " padding: 7px " + SPACE_MD + "; font-size: " + FONT_XL + "; font-weight: bold;"
         " background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
         "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_OK + "; }"
@@ -664,7 +666,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Warning banner for stale/out-of-date EPG guide data (EPG view).
     EPG_STALE_NOTICE  = (
         "color: " + COLOR_WARN + "; font-size: " + FONT_MD + ";"
-        " border: 1px solid " + COLOR_WARN + "; border-radius: " + RADIUS_SM + "; padding: 6px 10px;"
+        " border: 1px solid " + COLOR_WARN + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_MD + ";"
     )
     # Browse timeline-scrubber current-position label (Phase 2).
     EPG_SCRUBBER_POS  = (
@@ -749,11 +751,11 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
     )
     DELETE_BTN = (
-        "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_ERR_2 + "; border-radius: " + RADIUS_SM + "; padding: 6px 14px; }"
+        "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_ERR_2 + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_LG + "; }"
         "QPushButton:hover { background: " + OVERLAY_ERR_15 + "; }"
     )
     SAVE_BTN = (
-        "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + "; border-radius: " + RADIUS_SM + "; padding: 6px 18px; font-weight: 600; }"
+        "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_LG + "; font-weight: 600; }"
         "QPushButton:hover { background: " + COLOR_BTN_SAVE_HOVER + "; }"
         "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
     )
@@ -772,7 +774,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # COLOR_ACCENT fill is the on-accent token, never the on-background ramp.
     SOURCES_ADD_BTN = (
         "QPushButton { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + ";"
-        " border: none; border-radius: " + RADIUS_SM + "; padding: 5px 14px; font-weight: 600;"
+        " border: none; border-radius: " + RADIUS_SM + "; padding: 5px " + SPACE_LG + "; font-weight: 600;"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
     )
@@ -787,7 +789,7 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     CATEGORY_CHIP_SM = (
         "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px 6px;"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
@@ -839,14 +841,14 @@ def _build_semantic_constants() -> dict[str, object]:
     EXCL_CHIP_ACTIVE = (
         "QPushButton { background-color: " + OVERLAY_EXCLUSIONS_10 + "; color: " + COLOR_EXCLUSIONS_ACTIVE + ";"
         " border: 1px solid " + COLOR_EXCLUSIONS_ACTIVE + "; border-radius: 12px;"
-        " padding: 6px 14px; font-weight: bold; }"
+        " padding: 6px " + SPACE_LG + "; font-weight: bold; }"
         "QPushButton:hover { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
         "QPushButton:pressed { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
     )
     EXCL_CHIP_PAUSED = (
         "QPushButton { background-color: " + OVERLAY_ORANGE_10 + "; color: " + COLOR_ACCENT_ORANGE + ";"
         " border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 12px;"
-        " padding: 6px 14px; font-weight: bold; }"
+        " padding: 6px " + SPACE_LG + "; font-weight: bold; }"
         "QPushButton:hover { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
         "QPushButton:pressed { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
     )
@@ -873,7 +875,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # can't be probed concurrently). Amber, bordered — distinct from the verdict headline.
     DIAG_PLAYING_WARNING = (
         "color: " + COLOR_WARN + "; font-size: " + FONT_LG + ";"
-        " border: 1px solid " + COLOR_WARN + "; border-radius: " + RADIUS_SM + "; padding: 6px 10px;"
+        " border: 1px solid " + COLOR_WARN + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_MD + ";"
     )
     # Verdict headline base — color is interpolated at runtime per verdict (see dialog).
     DIAG_VERDICT_HEADLINE = "font-size: " + FONT_2XL + "; font-weight: bold;"
@@ -944,7 +946,7 @@ def _build_semantic_constants() -> dict[str, object]:
     WHATS_NEW_NAV_BTN = (
         "QPushButton { font-size: " + FONT_3XL + "; color: " + COLOR_TEXT + ";"
         " background: transparent; border: 1px solid " + COLOR_LINE + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 2px 10px; }"
+        " padding: 2px " + SPACE_MD + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
         "QPushButton:disabled { color: " + COLOR_TEXT + "; border-color: " + COLOR_LINE_DARK + "; }"
     )
@@ -957,7 +959,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # SOURCE-GIVEN chips: solid border + slightly brighter text → "provider said so"
     TAG_CHIP_SOURCE = (
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px 6px;"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
@@ -965,7 +967,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # INFERRED chips: dashed border + muted text → "MetaTV guessed this"
     TAG_CHIP_INFERRED = (
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
-        " border: 1px dashed " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px 6px;"
+        " border: 1px dashed " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
@@ -985,18 +987,18 @@ def _build_semantic_constants() -> dict[str, object]:
     EVENTS_SEG_INACTIVE = (
         "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 3px 10px; background: transparent; }"
+        " padding: 3px " + SPACE_MD + "; background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + "; }"
     )
     EVENTS_SEG_ACTIVE = (
         "QPushButton { color: " + COLOR_TEXT_HI + "; font-size: " + FONT_MD + "; font-weight: 600;"
         " border: 1px solid " + COLOR_ACCENT + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 3px 10px; background: " + OVERLAY_BLUE_15 + "; }"
+        " padding: 3px " + SPACE_MD + "; background: " + OVERLAY_BLUE_15 + "; }"
     )
     # Event row group header (bold, non-selectable section label inside the list)
     EVENTS_GROUP_HEADER = (
         "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_MUTED_2 + ";"
-        " letter-spacing: 1px; padding: 4px 2px 2px 2px;"
+        " letter-spacing: 1px; padding: 4px " + SPACE_XS + " 2px " + SPACE_XS + ";"
     )
     # Time/availability hint label on each event row
     EVENTS_TIME_HINT = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
@@ -1015,7 +1017,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Sort-toggle and filter search controls in the cloud header
     CLOUD_CTRL_BTN = (
         "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px 6px;"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
         "QPushButton:checked { color: " + COLOR_ACCENT + "; border-color: " + COLOR_ACCENT + "; }"
@@ -1023,7 +1025,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # "+N more" expand button at the tail of the cloud
     CLOUD_MORE_BTN = (
         "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
-        " font-size: " + FONT_MD + "; padding: 4px 2px; text-align: left; }"
+        " font-size: " + FONT_MD + "; padding: 4px " + SPACE_XS + "; text-align: left; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
 
@@ -1114,14 +1116,14 @@ def _build_semantic_constants() -> dict[str, object]:
     # Save recipe button — present but disabled for slice 4
     RECIPE_SAVE_BTN = (
         "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + ";"
-        " border-radius: " + RADIUS_SM + "; padding: 6px 14px; font-weight: 600; font-size: " + FONT_MD + "; }"
+        " border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_LG + "; font-weight: 600; font-size: " + FONT_MD + "; }"
         "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
     )
 
     # Clear button — ghost style
     RECIPE_CLEAR_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
-        " color: " + COLOR_TEXT + "; border-radius: " + RADIUS_SM + "; padding: 6px 14px;"
+        " color: " + COLOR_TEXT + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_LG + ";"
         " font-size: " + FONT_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT_2 + "; }"
     )
@@ -1148,7 +1150,7 @@ def _build_semantic_constants() -> dict[str, object]:
     RECIPE_MORE_FACETS_BTN = (
         "QPushButton { border: none; background: transparent; color: " + COLOR_RECIPE_MUTED + ";"
         " font-size: " + FONT_SM + "; font-weight: bold; letter-spacing: 1px;"
-        " text-align: left; padding: 6px 2px; }"
+        " text-align: left; padding: 6px " + SPACE_XS + "; }"
         "QPushButton:hover { color: " + COLOR_RECIPE_TEXT + "; }"
     )
 
@@ -1215,13 +1217,13 @@ def _build_semantic_constants() -> dict[str, object]:
     RECIPE_BAR_SAVE_BTN = (
         "QPushButton { border: 1px solid " + COLOR_GOLD + "; background: transparent;"
         " color: " + COLOR_GOLD + "; font-size: " + FONT_LG + "; font-weight: 600;"
-        " padding: 5px 13px; border-radius: " + RADIUS_MD + "; }"
+        " padding: 5px " + SPACE_MD + "; border-radius: " + RADIUS_MD + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_GOLD_LIGHT + "; }"
         "QPushButton:disabled { border-color: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
     )
     RECIPE_BAR_CLEAR_BTN = (
         "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
-        " font-size: " + FONT_LG + "; font-weight: 600; padding: 5px 11px; border-radius: " + RADIUS_MD + "; }"
+        " font-size: " + FONT_LG + "; font-weight: 600; padding: 5px " + SPACE_MD + "; border-radius: " + RADIUS_MD + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; background: " + OVERLAY_05 + "; }"
         "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
     )
@@ -1235,7 +1237,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # "Show all →" link (flat blue accent, shared by shelf header).
     RECIPE_SHOW_ALL_BTN = (
         "QPushButton { color: " + COLOR_ACCENT_BLUE + "; border: none;"
-        " font-size: " + FONT_LG + "; font-weight: 600; padding: 2px 6px; }"
+        " font-size: " + FONT_LG + "; font-weight: 600; padding: 2px " + SPACE_SM + "; }"
         "QPushButton:hover { color: " + COLOR_GOLD + "; }"
     )
 
@@ -1254,12 +1256,12 @@ def _build_semantic_constants() -> dict[str, object]:
     RECIPE_SAVED_COUNT = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     # Generic muted empty/loading placeholder text (saved-empty, grid-loading, no-matches).
     RECIPE_EMPTY_HINT = (
-        "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XL + "; padding: 8px 2px;"
+        "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XL + "; padding: 8px " + SPACE_XS + ";"
     )
     # Small icon button on a saved card (delete / load) — faint, hover-lit.
     RECIPE_SAVED_ICON_BTN = (
         "QPushButton { border: none; background: transparent; color: " + COLOR_TEXT + ";"
-        " font-size: " + FONT_XL + "; padding: 2px 5px; border-radius: " + RADIUS_SM + "; }"
+        " font-size: " + FONT_XL + "; padding: 2px " + SPACE_XS + "; border-radius: " + RADIUS_SM + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + OVERLAY_10 + "; }"
     )
 
@@ -1416,13 +1418,13 @@ def _build_semantic_constants() -> dict[str, object]:
     LIGHTBOX_VERSION_BADGE = (
         "background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
         " border: 1px solid " + COLOR_LIGHTBOX_ACCENT + "; border-radius: " + RADIUS_MD + ";"
-        " padding: 1px 7px; font-size: " + FONT_LG + "; font-weight: bold;"
+        " padding: 1px " + SPACE_SM + "; font-size: " + FONT_LG + "; font-weight: bold;"
     )
 
     # Genre chips — DISPLAY ONLY here (not clickable-to-Recipe yet); no hover affordance.
     LIGHTBOX_GENRE_CHIP = (
         "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
-        " border-radius: 10px; padding: 3px 10px; font-size: " + FONT_LG + ";"
+        " border-radius: 10px; padding: 3px " + SPACE_MD + "; font-size: " + FONT_LG + ";"
     )
 
     # Section sub-heading (OVERVIEW / CAST & CREW / OTHER VERSIONS / SIMILAR TITLES).
@@ -1444,7 +1446,7 @@ def _build_semantic_constants() -> dict[str, object]:
     LIGHTBOX_LENS_LINK = (
         "QPushButton { background: transparent; color: " + COLOR_LIGHTBOX_LINK + ";"
         " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: 9px;"
-        " padding: 4px 10px; font-size: " + FONT_MD + "; }"
+        " padding: 4px " + SPACE_MD + "; font-size: " + FONT_MD + "; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + ";"
         " border-color: " + COLOR_LIGHTBOX_ACCENT + "; }"
     )
@@ -1502,7 +1504,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # (single source of truth — no per-surface lang style).
     LANG_CHIP = (
         "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
-        " border-radius: " + RADIUS_MD + "; padding: 1px 7px; font-size: " + FONT_MD + ";"
+        " border-radius: " + RADIUS_MD + "; padding: 1px " + SPACE_SM + "; font-size: " + FONT_MD + ";"
     )
 
     # Similar-strip mini-card badge cluster — a compact meta line (language/region +
@@ -1520,7 +1522,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Footer keyboard-hint kbd chip (used N×).
     LIGHTBOX_KBD = (
         "background: " + COLOR_LIGHTBOX_SUNKEN + "; color: " + COLOR_LIGHTBOX_TEXT + ";"
-        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px 6px;"
+        " border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " font-size: " + FONT_MD + ";"
     )
     # Explicit transparent background: these labels carry their own stylesheet,
@@ -1557,7 +1559,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Flat "collapse branches" link button in the header.
     TRAILMAP_LINK_BTN = (
         "QPushButton { border: none; background: transparent; color: " + COLOR_LIGHTBOX_LINK + ";"
-        " font-size: " + FONT_LG + "; padding: 3px 6px; }"
+        " font-size: " + FONT_LG + "; padding: 3px " + SPACE_SM + "; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; }"
     )
 
@@ -1667,7 +1669,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Secondary outline link buttons (↗ Open in details, ✦ Make recipe).
     TRAILMAP_DETAIL_LINK_BTN = (
         "QPushButton { border: 1px solid " + COLOR_LIGHTBOX_BORDER + "; background: transparent;"
-        " color: " + COLOR_LIGHTBOX_TEXT + "; border-radius: " + RADIUS_MD + "; padding: 6px 10px;"
+        " color: " + COLOR_LIGHTBOX_TEXT + "; border-radius: " + RADIUS_MD + "; padding: 6px " + SPACE_MD + ";"
         " font-size: " + FONT_LG + "; }"
         "QPushButton:hover { color: " + COLOR_LIGHTBOX_TEXT_HI + "; border-color: " + COLOR_LIGHTBOX_LINK + "; }"
     )

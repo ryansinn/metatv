@@ -74,6 +74,39 @@ RADIUS_MD = "8px"     # cards, panels, dialog sections      (safe >= 16px tall)
 RADIUS_LG = "12px"    # overlays, sheets, the lightbox card (safe >= 24px tall)
 
 
+# ── Spacing ─────────────────────────────────────────────────────────────────
+#
+# A 4pt grid. 18 distinct padding values shipped before this family existed —
+# every integer from 0 to 14, plus 16, 18 and 20 — across ~215 declarations.
+#
+# APPLIED TO HORIZONTAL PADDING ONLY, and the reason is the radius rule above.
+# Vertical padding sets a control's HEIGHT, and Qt squares any box whose radius
+# exceeds half its height. Several badges sit within 2px of that line:
+#
+#     POSTER_WATCHED_BADGE   radius 13px, height 26px   headroom 0.0px
+#     TRAILMAP_WBADGE        radius 11px, height 23px   headroom 0.5px
+#     LANG_CHIP              radius  8px, height 20px   headroom 2.0px
+#
+# Width is load-bearing for nothing, so the horizontal axis is free. The
+# vertical axis is left exactly as it is rather than reasoned about per site.
+#
+# Worth knowing, because it is where the danger actually lives: all but
+# LANG_CHIP have NO padding at all — their height comes from ``font-size``.
+# So the thing most likely to square them is a change to the TYPE scale, not to
+# this one. ``tests/test_spacing_scale.py`` renders them and is deliberately
+# agnostic about which scale moved.
+SPACE_NONE = "0px"
+SPACE_XS = "4px"
+SPACE_SM = "8px"
+SPACE_MD = "12px"
+SPACE_LG = "16px"
+
+
+def space_px(token: str) -> int:
+    """The integer px of a ``SPACE_*`` token, for layout-margin call sites."""
+    return int(token.replace("px", ""))
+
+
 def radius_px(token: str) -> int:
     """The integer px of a ``RADIUS_*`` token, for ``QPainter`` call sites.
 
