@@ -320,19 +320,50 @@ def test_absent_facts_leave_no_gap_in_the_meta_line(delegate):
     assert separators == [], "a separator was painted with nothing after it"
 
 
-def test_a_row_with_no_meta_line_centres_its_title(delegate):
-    """…and it centres rather than sitting at the top of an empty two-line
-    stack. The row's HEIGHT is unchanged — artwork and the density fix that —
-    so a hanging title would just read as a rendering fault."""
-    _model, bare = _index(YEAR_ROLE="", GENRES_ROLE=(), GENRE_ROLE="",
-                          COLLECTION_ROLE="", CATEGORY_ROLE="", LANGUAGE_ROLE="")
-    _model2, full = _index()
+def test_titles_share_a_baseline_whether_or_not_a_row_has_facts(delegate):
+    """A row's TEXT must not move it any more than its selection does.
+
+    This briefly did the opposite: a row with an empty meta line collapsed to
+    one line and re-centred its title. Reasonable on one row, wrong on a list —
+    titles stopped sharing a baseline, so scrolling past a mix of rows made
+    every few titles jump while the row pitch stayed constant (owner report,
+    2026-08-23). Rule 1 broken from the inside: geometry must not depend on the
+    row's content any more than on its state.
+    """
+    _m1, with_facts = _index()
+    _m2, bare = _index(YEAR_ROLE="", GENRES_ROLE=(), GENRE_ROLE="",
+                       COLLECTION_ROLE="", CATEGORY_ROLE="", LANGUAGE_ROLE="")
+    full_title = paint_channel_row(delegate, with_facts, rect=ROW).rect_of("The Murky Stream")
     bare_title = paint_channel_row(delegate, bare, rect=ROW).rect_of("The Murky Stream")
-    full_title = paint_channel_row(delegate, full, rect=ROW).rect_of("The Murky Stream")
-    assert bare_title.top() > full_title.top(), (
-        "a title with no meta line beneath it did not drop to the row's centre"
+    assert bare_title == full_title, (
+        f"the title moved from {full_title} to {bare_title} because the row had "
+        f"no facts to put beneath it"
     )
-    assert abs(bare_title.center().y() - ROW.center().y()) <= 2
+
+
+def test_row_height_does_not_depend_on_media_kind(delegate, qapp):
+    """A live channel's SQUARE tile must not make its row shorter.
+
+    Sizing each row to its own artwork gave a mixed list two heights — 68px for
+    movies and series, 50px for live — so scrolling stepped between two
+    rhythms. The tile centres inside the poster's height instead, which is what
+    the approved design renders.
+    """
+    from PyQt6.QtWidgets import QStyleOptionViewItem
+
+    opt = QStyleOptionViewItem()
+    opt.rect = ROW
+    heights = {}
+    for kind in ("movie", "series", "live"):
+        _model, index = _index(MEDIA_KIND_ROLE=kind)
+        heights[kind] = delegate.sizeHint(opt, index).height()
+    assert len(set(heights.values())) == 1, f"row height varies by kind: {heights}"
+
+    # …and the square tile is genuinely centred in that taller row, not pinned
+    # to the top of it.
+    box = layout.row_layout(ROW, has_art=True, art_square=True, rail_w=0)
+    assert box.art.height() == layout.ART_TILE
+    assert abs(box.art.center().y() - box.fill.center().y()) <= 1
 
 
 def test_meta_segments_are_separated_by_exactly_one_middle_dot(delegate):
