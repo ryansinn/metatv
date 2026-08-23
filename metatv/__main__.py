@@ -53,6 +53,13 @@ def main():
     app.setApplicationName("MetaTV")
     app.setOrganizationName("MetaTV")
 
+    # Bundled typefaces (metatv/assets/fonts) — registered before the theme and
+    # before any widget, because the type scale sets SIZES and inherits the
+    # family from the application font. A face that fails to load is logged and
+    # the platform default stands; it must not cost the app its launch.
+    from metatv.gui import fonts as _fonts
+    _fonts.apply_ui_font(app)
+
     # Pointing-hand cursor on hover for clickable controls (single app-level
     # event filter; kept referenced on the app so it isn't garbage-collected).
     app._cursor_affordance_filter = cursor_affordance.install(app)

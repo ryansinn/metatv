@@ -57,6 +57,16 @@ hiddenimports += collect_submodules("metatv")
 # ── Data files ───────────────────────────────────────────────────────────────
 datas = []
 datas += collect_data_files("qtawesome")  # bundled icon fonts / charmaps
+# The repository's own typefaces (Inter, and the Material Symbols subset).
+# metatv/gui/fonts.py resolves them relative to the package, so they must land
+# beside it in the bundle — without this the frozen app silently falls back to
+# the platform default face.
+datas.append(
+    (
+        os.path.join(REPO_ROOT, "metatv", "assets", "fonts"),
+        os.path.join("metatv", "assets", "fonts"),
+    )
+)
 # Also ship the What's New entry modules on disk so pkgutil.iter_modules can
 # enumerate them inside the frozen app.
 datas.append(
