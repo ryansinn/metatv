@@ -13,7 +13,13 @@ from metatv.gui import theme as _theme
 
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
 # The splitter enforces this so the user cannot drag an expanded section below it.
-_MIN_EXPANDED = 80
+_MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
+
+
+def _floor_of(widget) -> int:
+    """The expanded floor for *widget*, falling back for non-section children."""
+    fn = getattr(widget, "min_expanded_height", None)
+    return fn() if callable(fn) else _MIN_EXPANDED
 
 
 class _ClickableHeader(QWidget):
@@ -256,6 +262,16 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     # None (the default) → no "Explore →" link on this section.
     EXPLORE_KEY: str | None = None
 
+    # How many content rows this section needs before it stops being worth
+    # showing at all.  A single global floor let a section be squeezed to ~2
+    # rows: the owner's saved layout had History at 91px against Watch Queue's
+    # 403px, which is not a preference, it is the arithmetic falling out of
+    # whatever order the panes happened to be resized in.  Sections override
+    # this when their rows carry more (Alerts nests three sub-groups) or less.
+    MIN_ROWS: int = 3
+    ROW_H: int = 24        # one content row, incl. its sub-line
+    HEADER_H: int = 26
+
     def __init__(self, title: str, icon: str, config, parent=None):
         super().__init__(parent)
         self.title = title
@@ -268,7 +284,7 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
 
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        self.setMinimumHeight(_MIN_EXPANDED)  # splitter enforces this while expanded
+        self.setMinimumHeight(self.min_expanded_height())  # splitter enforces this while expanded
 
         # Main layout
         self.main_layout = QVBoxLayout(self)
@@ -288,6 +304,16 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
 
         # Create section-specific content
         self.create_content()
+
+    def min_expanded_height(self) -> int:
+        """Smallest height at which this section still shows useful content.
+
+        Derived from :attr:`MIN_ROWS` rather than shared, so "History needs four
+        rows" is stated once, next to History, instead of being an emergent
+        property of splitter arithmetic.
+        """
+        return max(_MIN_EXPANDED,
+                   self.HEADER_H + self.MIN_ROWS * self.ROW_H + 8)
 
     def _build_clickable_header(self) -> "_ClickableHeader":
         """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.
@@ -426,7 +452,7 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         if collapsed:
             self.toggle_btn.setText(self.config.expand_icon)
             h = self.height()
-            if h >= _MIN_EXPANDED:
+            if h >= self.min_expanded_height():
                 self._expanded_height = h
             freed = max(0, h - 26)
             self.setMinimumHeight(26)
@@ -435,7 +461,7 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
                 self._release_in_splitter(freed)
         else:
             self.toggle_btn.setText(self.config.collapse_icon)
-            self.setMinimumHeight(_MIN_EXPANDED)
+            self.setMinimumHeight(self.min_expanded_height())
             self.setMaximumHeight(16777215)  # Qt's QWIDGETSIZE_MAX
             if save:
                 self._grow_in_splitter()
@@ -465,13 +491,14 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         if idx < 0 or idx >= n:
             return
 
-        target = max(_MIN_EXPANDED, self._expanded_height)
+        target = max(self.min_expanded_height(), self._expanded_height)
         if sizes[idx] >= target:
             return
 
         # Floor for each other section: header-only if collapsed, _MIN_EXPANDED if expanded
         floors = [
-            26 if getattr(splitter.widget(i), 'is_collapsed', False) else _MIN_EXPANDED
+            26 if getattr(splitter.widget(i), 'is_collapsed', False)
+            else _floor_of(splitter.widget(i))
             for i in range(n)
         ]
 

@@ -13,6 +13,8 @@ from metatv.gui import theme as _theme
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
 
+    MIN_ROWS: int = 4
+
     EXPLORE_KEY = "history"
 
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)

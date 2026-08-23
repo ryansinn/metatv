@@ -26,6 +26,8 @@ _REC_LOAD_ERROR = object()
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
 
+    MIN_ROWS: int = 3
+
     EXPLORE_KEY = "recommended"
 
     itemSelected              = pyqtSignal(str, str)  # channel_id, reason

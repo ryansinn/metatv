@@ -205,6 +205,8 @@ class _AlertRow(QWidget):
 class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     """Alerts section — EPG watch alerts + VOD watch-for rules + stream retry monitoring."""
 
+    MIN_ROWS: int = 7   # three nested sub-groups need room to be legible
+
     alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
     channel_selected = pyqtSignal(str)      # channel_db_id — single click → load details pane
     channelContextMenuRequested = pyqtSignal(str, int, int) # channel_db_id, global_x, global_y

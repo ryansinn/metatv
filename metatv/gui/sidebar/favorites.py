@@ -23,6 +23,8 @@ _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on anot
 class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
 
+    MIN_ROWS: int = 4
+
     EXPLORE_KEY = "favorites"
 
     favoriteClicked         = pyqtSignal(str)   # channel_id (double-click, available only)

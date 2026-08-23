@@ -73,6 +73,8 @@ def _haystack(*parts: str | None) -> str:
 class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     """Sidebar section showing the user's ordered watch queue."""
 
+    MIN_ROWS: int = 5
+
     # Uses the base ``create_header``, which grows the shared "Explore →" link.
     EXPLORE_KEY = "queue"
 
