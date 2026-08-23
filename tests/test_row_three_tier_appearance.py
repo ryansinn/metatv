@@ -24,13 +24,16 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 from PyQt6.QtWidgets import QStyleOptionViewItem
 
 import metatv.gui.channel_list_delegate as d
+from metatv.core.channel_name_utils import collection_display
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
 from metatv.gui.channel_list_delegate import (
-    ROW_CHIP_ORDER,
+    ROW_META_ORDER,
+    ROW_RAIL_ORDER,
     ChannelRowDelegate,
     _language_cell,
 )
+from tests.conftest import ROW_ROLE_DEFAULTS, paint_channel_row, row_model
 
 PALETTES = list(tp.PALETTES.keys())
 ROW_W = 620
@@ -94,96 +97,32 @@ def _list_surface() -> str:
 # Capture harness — records what the delegate paints for one full row.
 # ---------------------------------------------------------------------------
 
-_ROW_DATA = {
-    "TITLE_ROLE": "The Murky Stream",
-    "QUALITY_TOKEN_ROLE": "4K",
-    "YEAR_ROLE": "2024",
-    "LANGUAGE_ROLE": "KR",
-    "PRIMARY_LANGUAGE_ROLE": "EN",
-    "SECONDARY_LANGUAGE_ROLE": "",
-    "SUBTITLE_MARKER_ROLE": "",
-    "GENRE_ROLE": "Drama",
-    "GENRES_ROLE": ("Drama", "Thriller"),
-    "COLLECTION_ROLE": "KOREAN DRAMA",
-    "CATEGORY_ROLE": "KR | KOREAN DRAMA",
-    "VARIANT_COUNT_ROLE": 1,
-    "RATING_ROLE": 0,
-    "MEDIA_ICON_ROLE": "",
-    "FAV_GLYPH_ROLE": "",
-    "PLAYBACK_GLYPH_ROLE": "",
-    "MATCH_MARKER_ROLE": "",
-    "PLOT_ROLE": "",
-}
+#: The row this file measures. Field values live in ``ROW_ROLE_DEFAULTS``
+#: (tests/conftest.py) so a role added to the row shows up here automatically
+#: instead of being quietly absent.
+_ROW_DATA = dict(ROW_ROLE_DEFAULTS)
 
 
 def _index(**overrides):
-    values = {**_ROW_DATA, **overrides}
-    index = MagicMock()
-
-    def data(role):
-        for name, value in values.items():
-            if role == getattr(d, name, object()):
-                return value
-        return None
-
-    index.data.side_effect = data
+    model = row_model(**overrides)
+    index = model.index(0)
+    index._model_keepalive = model  # noqa: SLF001
     return index
 
 
-class _Painted:
-    """One row's worth of paint calls: text runs and cells, with geometry."""
-
-    def __init__(self) -> None:
-        self.texts: list[tuple[QRect, str, object, QFont]] = []
-        self.cells: list[tuple[QRect, object]] = []
-
-    @property
-    def all_foregrounds(self) -> list[object]:
-        return [c for _, _, c, _ in self.texts] + [cell.fg for _, cell in self.cells]
-
-    def cell(self, text: str):
-        return next((c for _, c in self.cells if c.text == text), None)
-
-    def rect_of(self, text: str) -> QRect:
-        for rect, drawn, _, _ in self.texts:
-            if drawn == text:
-                return rect
-        for rect, cell in self.cells:
-            if cell.text == text:
-                return rect
-        raise AssertionError(f"{text!r} was never painted")
-
-
 def _paint_row(delegate: ChannelRowDelegate, index, *, selected=False,
-               density=d.DENSITY_COMFY) -> _Painted:
-    """Run the real comfy paint path, recording every draw."""
-    out = _Painted()
-    delegate._density = density
-    delegate._draw_text = (
-        lambda p, rect, text, color, font: out.texts.append((QRect(rect), text, color, font))
-    )
-    delegate._paint_cell = lambda p, rect, cell, font: out.cells.append((QRect(rect), cell))
-    painter = MagicMock()
-    rect = QRect(0, 0, ROW_W, 44)
-    color = _theme.COLOR_ON_ACCENT if selected else _theme.COLOR_TEXT
-    if density == d.DENSITY_COMPACT:
-        delegate._paint_compact(painter, rect, index, color, QFont(),
-                                title_color=delegate._title_color_for_test(selected),
-                                selected=selected)
-    else:
-        delegate._paint_comfy(painter, rect, index, color, QFont(),
-                              title_color=delegate._title_color_for_test(selected),
-                              selected=selected)
-    return out
+               density=d.DENSITY_COMFY):
+    """Run the REAL ``paint()`` and record every rect it drew into.
 
-
-# The delegate resolves the title colour from a QStyleOptionViewItem; tests
-# drive the two branches directly rather than faking Qt state flags.
-def _title_color_for_test(self, selected: bool):
-    return _theme.COLOR_ON_ACCENT if selected else _theme.COLOR_ROW_TITLE
-
-
-ChannelRowDelegate._title_color_for_test = _title_color_for_test
+    This replaced a harness that called ``_paint_comfy``/``_paint_compact``
+    directly and stubbed the title colour with a test-only method bolted onto
+    the delegate. Both are gone: the V3 row has one paint entry point, and
+    driving anything else means the geometry chokepoint and the selection
+    handling are never exercised by the tests that claim to cover them.
+    """
+    delegate.set_thumbnails_enabled(True)
+    return paint_channel_row(delegate, index, rect=QRect(0, 0, ROW_W, 68),
+                             selected=selected, density=density)
 
 
 # ---------------------------------------------------------------------------
@@ -271,16 +210,20 @@ def test_only_the_language_chip_is_actually_filled(qapp, palette_name):
     region, genre, collection and (solid, at full opacity) platform — plus a
     tinted interior behind the quality outline. Tier 1 is language and genuine
     row state; a row with a fill on every fact has no top tier at all.
+
+    Measured on a row at REST. A selected/hovered row legitimately adds its own
+    chrome fill, and the artwork well legitimately fills a placeholder tile —
+    both are row STATE and row STRUCTURE, neither is a facet, so the row is
+    painted without either.
     """
     _theme.apply_theme(palette_name)
     delegate = ChannelRowDelegate()
-    delegate._density = d.DENSITY_COMFY
-    pixmap = QPixmap(ROW_W, 44)
+    delegate.set_density(d.DENSITY_COMFY)
+    delegate.set_thumbnails_enabled(False)
+    pixmap = QPixmap(ROW_W, 68)
     painter = _FillRecordingPainter(pixmap)
     try:
-        delegate._paint_comfy(painter, QRect(0, 0, ROW_W, 44), _index(),
-                              _theme.COLOR_TEXT, QFont(),
-                              title_color=_theme.COLOR_ROW_TITLE)
+        delegate.paint(painter, _rest_option(QRect(0, 0, ROW_W, 68)), _index())
     finally:
         painter.end()
 
@@ -289,6 +232,17 @@ def test_only_the_language_chip_is_actually_filled(qapp, palette_name):
         f"{palette_name}: expected exactly one fill (the language chip), got "
         f"{painter.fills}"
     )
+
+
+def _rest_option(rect):
+    """A style option for a row that is neither selected nor hovered."""
+    from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+    opt = QStyleOptionViewItem()
+    opt.rect = rect
+    opt.state = QStyle.StateFlag.State_Enabled
+    opt.palette = _theme.qt_palette()
+    return opt
 
 
 @pytest.mark.parametrize("palette_name", PALETTES)
@@ -352,20 +306,29 @@ def test_every_tier_2_hue_clears_4_5_on_the_list_surface(qapp, palette_name):
 # 4. Tier 3 — outlined, never filled, and quality sits by the title.
 # ---------------------------------------------------------------------------
 
-def test_quality_paints_left_of_the_whole_right_hand_group(qapp):
-    """Quality qualifies THIS COPY of the title, so it must sit next to it —
-    not in the right rail with the facts about the content.
+def test_quality_is_the_outermost_cell_in_the_rail(qapp):
+    """Quality moved. #298 put it against the title, because a claim separated
+    from what it qualifies reads as a different fact — true when the row's other
+    facts were also chips scattered across two lines.
 
-    Geometry, not order: a cell can be first in a list and still be painted on
+    V3 gives it a COLUMN instead: with the meta line carrying the facts and the
+    rail carrying only the language family, ``4K`` landing in the same x on
+    every row that has one is worth more than adjacency, and the row's own
+    mockup is what settled it.
+
+    Geometry, not order: a cell can be last in a list and still be painted on
     the far side of the row.
     """
     painted = _paint_row(ChannelRowDelegate(), _index())
     quality = painted.rect_of("4K")
     title = painted.rect_of(_ROW_DATA["TITLE_ROLE"])
-    assert quality.left() >= title.left()
-    for text in ("2024", "KR", "EN"):
-        assert quality.right() < painted.rect_of(text).left(), (
-            f"quality is painted to the right of {text!r}"
+    assert quality.left() > title.left()
+    assert quality.right() > painted.rect_of("EN").right(), (
+        "quality must be the outermost cell in the rail"
+    )
+    for text in ("2024", "KR"):
+        assert quality.left() > painted.rect_of(text).right(), (
+            f"quality is painted to the left of the meta line's {text!r}"
         )
 
 
@@ -374,57 +337,80 @@ def test_tier_3_boxes_are_never_filled(qapp):
     interior — a white-alpha wash used as a RESTING fill, which is the exact
     move that put an un-authored, un-themeable grey into the row."""
     painted = _paint_row(ChannelRowDelegate(), _index())
-    for text in ("4K", "2024"):
-        cell = painted.cell(text)
-        assert cell is not None and cell.outline is True
-        assert cell.bg is None, f"{text!r} outline box is filled with {cell.bg}"
+    outlined = [c for _r, c in painted.cells if c.outline]
+    assert [c.text for c in outlined] == ["4K"], (
+        "quality is tier 3's only member — the year joined the meta line, where "
+        f"the separator does the boxing; got {[c.text for c in outlined]}"
+    )
+    for cell in outlined:
+        assert cell.bg is None, f"{cell.text!r} outline box is filled with {cell.bg}"
 
 
 def test_outline_box_fits_inside_the_line_it_is_drawn_on(qapp):
-    """The stroke is drawn ON the rect's edge and the row clips to the line, so
-    a box at full line height loses its top and bottom edges — which rendered
-    the year as a lozenge with the ends cut off."""
+    """The stroke is drawn ON the rect's edge and the row clips to the fill, so
+    a box at full height loses its top and bottom edges — which rendered the
+    chip as a lozenge with the ends cut off."""
+    from metatv.gui import channel_row_layout as _layout
+
     delegate = ChannelRowDelegate()
     painted = _paint_row(delegate, _index())
-    line_top = min(r.top() for r, _t, _c, _f in painted.texts)
-    line_bottom = max(r.bottom() for r, _t, _c, _f in painted.texts)
-    box = painted.rect_of("2024").adjusted(0, d._OUTLINE_V_INSET, 0, -d._OUTLINE_V_INSET)
-    assert box.top() > line_top and box.bottom() < line_bottom
+    fill = _layout.row_layout(QRect(0, 0, ROW_W, 68), has_art=True,
+                              art_square=False, rail_w=0).fill
+    box = painted.rect_of("4K").adjusted(0, d._OUTLINE_V_INSET, 0, -d._OUTLINE_V_INSET)
+    assert box.top() > fill.top() and box.bottom() < fill.bottom()
 
 
 # ---------------------------------------------------------------------------
 # 5. Chip order comes from ONE constant — asserted on painted x positions.
 # ---------------------------------------------------------------------------
 
-def test_painted_positions_follow_the_single_order_constant(qapp):
-    """Order != position. This walks the row left to right and checks the
-    painted x of each chip against :data:`ROW_CHIP_ORDER`, so re-ordering the
-    constant is the only way to re-order the row.
-    """
+def test_meta_line_positions_follow_the_single_order_constant(qapp):
+    """Order != position. This walks the meta line left to right and checks the
+    painted x of each segment against :data:`ROW_META_ORDER`, so re-ordering the
+    constant is the only way to re-order the row."""
+    painted = _paint_row(ChannelRowDelegate(), _index(VARIANT_COUNT_ROLE=3))
+    slot_text = {
+        d.CHIP_SLOT_KIND: "Movie",
+        d.CHIP_SLOT_YEAR: "2024",
+        d.CHIP_SLOT_REGION: "KR",
+        d.CHIP_SLOT_GENRE: "Drama / Thriller",
+        d.CHIP_SLOT_COLLECTION: collection_display(_ROW_DATA["COLLECTION_ROLE"], None),
+        d.CHIP_SLOT_VARIANTS: "×3",
+    }
+    expected = [slot_text[s] for s in ROW_META_ORDER if s in slot_text]
+    lefts = [painted.rect_of(text).left() for text in expected]
+    assert lefts == sorted(lefts), (
+        f"painted left-to-right order {expected} does not match ROW_META_ORDER"
+    )
+
+
+def test_rail_positions_follow_the_single_order_constant(qapp):
+    """The same guarantee for the right-hand rail."""
     painted = _paint_row(ChannelRowDelegate(),
                          _index(SUBTITLE_MARKER_ROLE="KO-SUB",
                                 SECONDARY_LANGUAGE_ROLE="JA"))
-    # Line 1's right-hand group, in the constant's declared precedence.
     slot_text = {
-        d.CHIP_SLOT_YEAR: "2024",
-        d.CHIP_SLOT_REGION: "KR",
         d.CHIP_SLOT_SUBTITLE: "KO-SUB",
         d.CHIP_SLOT_LANGUAGE_2: "JA",
         d.CHIP_SLOT_LANGUAGE: "EN",
+        d.CHIP_SLOT_QUALITY: "4K",
     }
-    expected = [slot_text[s] for s in ROW_CHIP_ORDER if s in slot_text]
+    expected = [slot_text[s] for s in ROW_RAIL_ORDER if s in slot_text]
     lefts = [painted.rect_of(text).left() for text in expected]
     assert lefts == sorted(lefts), (
-        f"painted left-to-right order {expected} does not match ROW_CHIP_ORDER"
+        f"painted left-to-right order {expected} does not match ROW_RAIL_ORDER"
     )
 
 
 def test_multiple_genres_are_painted_when_present(qapp):
-    """A title that is both Drama and Thriller was claiming to be only Drama."""
+    """A title that is both Drama and Thriller was claiming to be only Drama.
+
+    They now paint as ONE run — three separate cells would put three ``·``
+    separators inside a single fact.
+    """
     painted = _paint_row(ChannelRowDelegate(), _index())
-    assert painted.cell("Drama") is not None
-    assert painted.cell("Thriller") is not None
-    assert painted.rect_of("Drama").left() < painted.rect_of("Thriller").left()
+    assert painted.cell("Drama / Thriller") is not None
+    assert painted.cell("Drama") is None
 
 
 def test_genre_count_is_capped(qapp):
@@ -433,31 +419,39 @@ def test_genre_count_is_capped(qapp):
         ChannelRowDelegate(),
         _index(GENRES_ROLE=("A", "B", "C", "D", "E")),
     )
-    painted_genres = [c.text for _r, c in painted.cells if c.facet == "genre"]
-    assert len(painted_genres) == d._MAX_GENRES
+    run = next(c for _r, c in painted.cells if c.facet == "genre")
+    assert run.text.count("/") == d._MAX_GENRES - 1
+    assert "D" not in run.text.split(" / ")
 
 
 # ---------------------------------------------------------------------------
-# 6. A selected row is a fill, so what sits on it is measured against it.
+# 6. A selected row is a TINT, so what sits on it keeps its own hue.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("palette_name", PALETTES)
-def test_nothing_on_a_selected_row_keeps_a_hue_that_fails_on_the_accent(qapp, palette_name):
-    """PRE-#298 THIS FAILED: a selected row painted its green region code and
-    its blue-filled language chip straight onto the blue selection highlight —
-    the app's worst contrast pair lived here, on the one row the user had
-    deliberately picked.
+def test_a_selected_row_keeps_every_hue_and_stays_legible(qapp, palette_name):
+    """The inverse of the pre-V3 rule, and deliberately so.
+
+    #298's selected row was a SATURATED accent fill, so every cell had to be
+    flattened onto the highlight foreground to stay readable — which meant the
+    one row the user had deliberately picked was the one row that lost its facet
+    encoding. V3's selection is ``primary.container``, a tint, so the hues
+    survive; this test is what stops a future change from re-saturating the fill
+    without noticing what it costs.
     """
     _theme.apply_theme(palette_name)
-    painted = _paint_row(ChannelRowDelegate(), _index(), selected=True)
-    accent = str(_theme.COLOR_ACCENT)
-    for _rect, cell in painted.cells:
-        assert cell.bg is None, (
-            f"{palette_name}: {cell.text!r} keeps its own fill on a selected row"
+    at_rest = _paint_row(ChannelRowDelegate(), _index())
+    selected = _paint_row(ChannelRowDelegate(), _index(), selected=True)
+
+    resting_hues = {c.text: str(c.fg) for _r, c in at_rest.cells}
+    for _rect, cell in selected.cells:
+        assert str(cell.fg) == resting_hues[cell.text], (
+            f"{palette_name}: {cell.text!r} lost its hue on a selected row"
         )
-        ratio = _contrast(cell.fg, accent)
+        against = cell.bg if cell.bg else _theme.COLOR_ROW_SELECTED_FILL
+        ratio = _contrast(cell.fg, against)
         assert ratio >= 4.5, (
-            f"{palette_name}: {cell.text!r} is {ratio:.2f}:1 on the selection fill"
+            f"{palette_name}: {cell.text!r} is {ratio:.2f}:1 on the selection tint"
         )
 
 

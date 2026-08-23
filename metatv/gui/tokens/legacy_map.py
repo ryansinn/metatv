@@ -206,4 +206,24 @@ ROLE_TOKENS: dict[str, str] = {
     # WAS near-black everywhere before the restructure and is now near-WHITE in
     # Daylight — so they render white-on-gold there.
     "COLOR_ON_BRIGHT": "on-fill.bright",
+    # ── The V3 row's own chrome (the channel row redesign) ────────────────
+    # The row paints its OWN fill instead of letting QStyle paint a full-bleed
+    # highlight, because V3's fill is INSET and rounded — it reads as an object
+    # on the surface rather than a band across it. That means the three states
+    # need real roles of their own rather than borrowing QPalette.Highlight.
+    #
+    # Selection is a TINT (primary.4), not the saturated accent it used to be.
+    # That is what lets the row keep its normal text ramp when selected: the
+    # old saturated fill forced every cell to flatten onto the highlight
+    # foreground, which threw away the facet hues on exactly the row the user
+    # was looking at.
+    "COLOR_ROW_SELECTED_FILL": "primary.container",
+    "COLOR_ROW_HOVER_FILL": "surface.container-high",
+    # The 3px bar on the fill's left edge. Saturated on purpose: it is the one
+    # place the row states "this one", and a tint cannot carry that alone
+    # (colour-never-alone is satisfied by the bar's SHAPE, not its hue).
+    "COLOR_ROW_MARKER": "primary.text",
+    # The always-reserved action affordance, painted only on hover/current.
+    "COLOR_ROW_ACTION_FILL": "surface.container",
+    "COLOR_ROW_ACTION_FG": "on-surface.default",
 }

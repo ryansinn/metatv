@@ -104,9 +104,30 @@ GENRE_ROLE = Qt.ItemDataRole.UserRole + 26                # detected_genre or ""
 # before the column existed and not yet re-swept.
 GENRES_ROLE = Qt.ItemDataRole.UserRole + 27               # tuple[str, ...] (possibly empty)
 
+#: Normalised media kind — "live" / "movie" / "series" / "" — read straight off
+#: the stored ``media_type``. The V3 row treats kind as STRUCTURAL (it picks the
+#: kind mark, the artwork aspect, and the first word of the meta line), and a
+#: structural decision cannot be made from ``MEDIA_ICON_ROLE``: that role is a
+#: display glyph the host supplies, so reading a kind back out of it would be
+#: re-deriving a stored fact from its own rendering.
+MEDIA_KIND_ROLE = Qt.ItemDataRole.UserRole + 28
+
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
 # so a row is never silently dropped (mirror-not-cage).
+#: The kinds the V3 row knows how to draw. Anything else (``"unknown"``, a
+#: provider-invented string) resolves to ``""``, which the row renders as a
+#: generic mark and an omitted kind word — mirror-not-cage: an unrecognised
+#: kind still gets a row.
+MEDIA_KINDS: tuple[str, ...] = ("live", "movie", "series")
+
+
+def _media_kind(media_type: str | None) -> str:
+    """Normalise a stored ``media_type`` to one of :data:`MEDIA_KINDS`, or ""."""
+    value = (media_type or "").strip().lower()
+    return value if value in MEDIA_KINDS else ""
+
+
 SECTION_ORDER: tuple[str, ...] = ("movie", "series", "live")
 _SECTION_LABELS: dict[str, str] = {"movie": "Movies", "series": "Series", "live": "Live"}
 
@@ -286,6 +307,8 @@ class ChannelListModel(QAbstractListModel):
             return channel.detected_genre or ""
         if role == GENRES_ROLE:
             return tuple(channel.detected_genres or ())
+        if role == MEDIA_KIND_ROLE:
+            return _media_kind(channel.media_type)
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

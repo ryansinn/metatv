@@ -20,13 +20,17 @@ Coverage:
 3. ``CategoryMarkerBackfillTask`` — version gate, populates pre-existing
    rows, and the crash-retry contract (a run() that raises must NOT bump
    the version), modeled on test_detected_genre_backfill.py.
-4. Comfy row layout (``channel_list_delegate.py``, offscreen Qt):
-   the quality chip sits on line 1 immediately after the title (no
-   stretch); line 1's right group is flush right in the order
-   year → region → subtitle marker → secondary language → primary
-   language, for a row carrying all five at once; line 2 no longer
-   carries quality/region/language and instead shows the collection chip
-   flush right; compact density's right group is unaffected.
+4. V3 row layout (``channel_list_delegate.py`` + ``channel_row_layout.py``,
+   offscreen Qt): the cleaned collection reaches the META LINE rather than a
+   line-2 chip, ordered after the genres; the language family and quality are
+   the row's only boxed cells and sit right-aligned in the rail; and the
+   marker-derived fields (secondary language, sub/dub) still paint when a row
+   carries all of them at once.
+
+   The pre-V3 shape this section used to assert — quality hugging the title,
+   the year as an outline chip in a right-hand group, a separate line-2 badge
+   row — is gone by design, not by accident. See the V3 row's own gate,
+   ``tests/test_v3_channel_row.py``, for the rules that replaced it.
 """
 
 from __future__ import annotations
@@ -39,7 +43,12 @@ import pytest
 from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QFont
 
-from metatv.core.channel_name_utils import CategoryMarker, parse_category_marker, quality_display
+from metatv.core.channel_name_utils import (
+    CategoryMarker,
+    collection_display,
+    parse_category_marker,
+    quality_display,
+)
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui.channel_list_delegate import (
     DENSITY_COMFY,
@@ -390,282 +399,97 @@ def _model(dtos) -> ChannelListModel:
     return model
 
 
-class TestComfyLine1Layout:
+class TestV3MetaLine:
+    """Where the category-marker fields land in the V3 row.
 
-    def test_quality_chip_hugs_title_no_stretch(self, qapp):
-        model = _model([_dto()])
-        idx = model.index(0)
+    Asserted on painted geometry via the shared harness in ``tests/conftest.py``
+    — the real ``paint()`` over a real model index, never a density-specific
+    private painter.
+    """
+
+    ROW = QRect(0, 0, 900, 68)
+
+    def _painted(self, **roles):
+        from tests.conftest import paint_channel_row, row_model
+
         delegate = ChannelRowDelegate()
+        delegate.set_density(DENSITY_COMFY)
+        delegate.set_thumbnails_enabled(True)
+        model = row_model(**roles)
+        return delegate, paint_channel_row(delegate, model.index(0), rect=self.ROW)
 
-        drawn_text_calls = []
-        cell_calls = []
-
-        def _capture_draw_text(painter, rect, text, color, font):
-            drawn_text_calls.append((rect, text))
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((rect, cell))
-
-        with patch.object(delegate, "_draw_text", side_effect=_capture_draw_text), \
-             patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_title_year_line(MagicMock(), line, idx, "#fff", QFont())
-
-        title_rect = next(r for r, t in drawn_text_calls if t == "My Great Show")
-        quality_rect = next(r for r, c in cell_calls if c.text == quality_display("4K"))
-
-        # Immediately follows the title TEXT — no stretch between them.
-        #
-        # This originally asserted ``title_rect.width()`` — the title BOX, which is
-        # stretched to every pixel up to the right group — so it locked in the very
-        # regression its name describes (chip painted flush against the right group,
-        # owner UX report vs 0.21.0). Measure the drawn text instead.
-        #
-        # Measured with the TITLE's own font, not the row font: the title paints
-        # DemiBold (#298), so regular-weight metrics under-measure it and the
-        # chip would appear to overlap text that is actually wider.
-        from PyQt6.QtGui import QFontMetrics
-        fm = QFontMetrics(delegate._title_font(QFont()))
-        title_text_end = title_rect.left() + min(
-            fm.horizontalAdvance("My Great Show"), title_rect.width()
+    def test_cleaned_collection_paints_on_the_meta_line(self, qapp):
+        """The whole point of the marker cleanup: the row shows
+        ``Korean Drama``, never the provider's raw ``KR | KOREAN DRAMA``."""
+        _delegate, painted = self._painted(
+            COLLECTION_ROLE="KOREAN DRAMA", CATEGORY_ROLE="KR | KOREAN DRAMA"
         )
-        assert quality_rect.left() == title_text_end + _CELL_GAP
+        labels = [c.text for _, c in painted.cells]
+        assert collection_display("KOREAN DRAMA", None) in labels
+        assert "KR | KOREAN DRAMA" not in labels
 
-    def test_right_group_full_ordering_flush_right(self, qapp):
-        """A row carrying all five right-group values at once: order is
-        year -> region -> subtitle marker -> secondary language -> primary
-        language, flush right."""
-        model = _model([_dto()])
-        idx = model.index(0)
-        delegate = ChannelRowDelegate()
+    def test_collection_follows_the_genres_on_the_meta_line(self, qapp):
+        """Order comes from ``ROW_META_ORDER``, and the collection is the last
+        taxonomy fact — the one a reader falls back on when the genres did not
+        answer the question."""
+        _delegate, painted = self._painted(
+            GENRES_ROLE=("Drama", "Thriller"), COLLECTION_ROLE="KOREAN DRAMA",
+            CATEGORY_ROLE="KR | KOREAN DRAMA",
+        )
+        genre = painted.rect_of("Drama / Thriller")
+        collection = painted.rect_of(collection_display("KOREAN DRAMA", None))
+        assert collection.left() > genre.right(), (
+            "the collection must read after the genres, not before them"
+        )
+        assert collection.top() == genre.top(), "both belong to the same line"
 
-        cell_calls = []
+    def test_language_family_and_quality_are_the_rows_only_boxed_cells(self, qapp):
+        """Tier 1 is the language family; tier 3 is quality. Everything else in
+        the row is bare tinted text, which is what stops the row from reading as
+        a wall of badges."""
+        _delegate, painted = self._painted(
+            PRIMARY_LANGUAGE_ROLE="EN", SECONDARY_LANGUAGE_ROLE="AR",
+            SUBTITLE_MARKER_ROLE="AR-SUB", QUALITY_TOKEN_ROLE="4K",
+            YEAR_ROLE="2024", LANGUAGE_ROLE="US", COLLECTION_ROLE="ANIME",
+            CATEGORY_ROLE="ANIME",
+        )
+        boxed = {c.text for _, c in painted.cells if c.is_chip}
+        assert boxed == {"EN", "AR", "AR-SUB", quality_display("4K")}, (
+            f"unexpected boxed cells: {sorted(boxed)}"
+        )
 
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((rect, cell))
+    def test_rail_is_right_aligned_with_quality_outermost(self, qapp):
+        """Quality lands in the same column on every row that has one, so it
+        sits furthest right; the language family reads inward from it."""
+        _delegate, painted = self._painted(
+            PRIMARY_LANGUAGE_ROLE="EN", SECONDARY_LANGUAGE_ROLE="AR",
+            SUBTITLE_MARKER_ROLE="AR-SUB", QUALITY_TOKEN_ROLE="4K",
+        )
+        order = sorted(
+            ((rect.left(), c.text) for rect, c in painted.cells if c.is_chip),
+        )
+        assert [text for _, text in order] == ["AR-SUB", "AR", "EN", quality_display("4K")]
+        rightmost = order[-1][1]
+        assert rightmost == quality_display("4K")
+        # …and flush against the reserved action gutter, not floating mid-row.
+        from metatv.gui import channel_row_layout as _layout
 
-        with patch.object(delegate, "_draw_text"), \
-             patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_title_year_line(MagicMock(), line, idx, "#fff", QFont())
+        box = _layout.row_layout(self.ROW, has_art=True, art_square=False, rail_w=0)
+        assert painted.rect_of(quality_display("4K")).right() <= box.action.left()
+        assert painted.rect_of(quality_display("4K")).right() > self.ROW.width() // 2
 
-        rects_by_text = {c.text: r for r, c in cell_calls}
-        expected_order = ["2024", "US", "AR-SUB", "FR", "DE"]
-        for text in expected_order:
-            assert text in rects_by_text, f"expected chip {text!r} missing from line 1"
-
-        lefts = [rects_by_text[t].left() for t in expected_order]
-        assert lefts == sorted(lefts), "right-group cells must be in spec order left-to-right"
-
-        # The primary (own/honest) language sits furthest right — flush with
-        # the line's own right edge.
-        assert rects_by_text["DE"].right() == line.right()
-
-    def test_line1_omits_absent_right_group_cells(self, qapp):
-        """A row with no secondary language / subtitle marker doesn't leave
-        gaps — those chips are simply absent, not blank."""
-        model = _model([_dto(detected_collection_language=None, detected_collection_subdub=None)])
-        idx = model.index(0)
-        delegate = ChannelRowDelegate()
-
-        cell_calls = []
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((rect, cell))
-
-        with patch.object(delegate, "_draw_text"), \
-             patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_title_year_line(MagicMock(), line, idx, "#fff", QFont())
-
-        texts = {c.text for _, c in cell_calls}
-        assert "AR-SUB" not in texts
-        assert "FR" not in texts
-        assert {"2024", "US", "DE"} <= texts
-
-
-class TestComfyLine2Layout:
-
-    def test_badge_line_drops_quality_and_region_collection_flush_right(self, qapp):
-        # detected_collection overridden to "APPLE KIDS SERIES" — NOT "4K
-        # SERIES" (the class default) — so the render-time trailing-"SERIES"
-        # strip (#257 Part B, collection_display()) can't coincidentally
-        # produce a string equal to the quality chip's OWN text ("4K"),
-        # which would make the "no quality chip on line 2" assertion below
-        # a false negative.
-        model = _model([_dto(user_rating=1, detected_collection="APPLE KIDS SERIES")])
-        idx = model.index(0)
-        delegate = ChannelRowDelegate()
-
-        cell_calls = []
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((rect, cell))
-
-        with patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_badge_line(MagicMock(), line, idx, QFont())
-
-        texts = [c.text for _, c in cell_calls]
-        assert quality_display("4K") not in texts   # moved to line 1
-        assert "US" not in texts                    # region moved to line 1
-        assert "DE" not in texts                     # primary language moved to line 1
-
-        # The channel-list-only collection_display() transform (#257 Part B)
-        # strips the trailing "SERIES" media-type token at render time (the
-        # row's own media-type icon already conveys it) — the CHIP shows
-        # "APPLE KIDS"; the stored detected_collection value itself is
-        # untouched (Discover still reads "APPLE KIDS SERIES" verbatim).
-        collection_rect = next(r for r, c in cell_calls if c.text == "APPLE KIDS")
-        assert collection_rect.right() == line.right()  # flush right
+    def test_absent_marker_fields_paint_nothing(self, qapp):
+        """A row with no secondary language and no sub/dub marker paints
+        neither — no empty boxes, no reserved gaps."""
+        _delegate, painted = self._painted(
+            SECONDARY_LANGUAGE_ROLE="", SUBTITLE_MARKER_ROLE="",
+            PRIMARY_LANGUAGE_ROLE="EN", QUALITY_TOKEN_ROLE="",
+        )
+        boxed = {c.text for _, c in painted.cells if c.is_chip}
+        assert boxed == {"EN"}
 
 
-class TestCompactUnaffected:
-
-    def test_compact_right_group_unchanged(self, qapp):
-        """Compact's right group stays [year, region(LANGUAGE_ROLE), rating] —
-        the comfy line1/line2 reshuffle must not leak into compact."""
-        model = _model([_dto(user_rating=1)])
-        idx = model.index(0)
-        delegate = ChannelRowDelegate()
-        delegate.set_density(DENSITY_COMPACT)
-
-        cell_calls = []
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((rect, cell))
-
-        with patch.object(delegate, "_draw_text"), \
-             patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            rect = QRect(0, 0, 600, 20)
-            delegate._paint_compact(MagicMock(), rect, idx, "#fff", QFont())
-
-        texts = [c.text for _, c in cell_calls]
-        # Region + year still present; the new secondary/subtitle marker
-        # chips must NOT appear in compact.
-        assert "US" in texts
-        assert "2024" in texts
-        assert "AR-SUB" not in texts
-        assert "FR" not in texts
+class TestDensityDefault:
 
     def test_density_still_defaults_to_comfy(self, qapp):
-        delegate = ChannelRowDelegate()
-        assert delegate.density == DENSITY_COMFY
-
-
-# ---------------------------------------------------------------------------
-# Quality-chip POSITION (owner UX report against 0.21.0)
-#
-# The row grammar says the quality chip hugs the TITLE TEXT. The first
-# implementation offset the chip by ``title_box_w`` — the title box is stretched
-# to every pixel up to the right-aligned group, so the chip was painted flush
-# against that group instead, on the far right of the row.
-#
-# The cell ORDER was correct throughout, which is why the original suite passed
-# green while the rendered row was wrong. These tests assert painted GEOMETRY.
-# ---------------------------------------------------------------------------
-
-class TestQualityChipHugsTitle:
-
-    ROW_W = 900  # wide row => large gap between title text and the right group
-
-    def _capture(self, density):
-        """Paint one row and return {label: rect} for every painted cell."""
-        from PyQt6.QtGui import QFontMetrics
-
-        delegate = ChannelRowDelegate()
-        painted: dict[str, QRect] = {}
-        delegate._paint_cell = lambda p, rect, cell, font: painted.__setitem__(
-            cell.text, QRect(rect)
-        )
-        drawn: list[tuple[QRect, str]] = []
-        delegate._draw_text = lambda p, rect, text, color, font: drawn.append(
-            (QRect(rect), text)
-        )
-
-        index = MagicMock()
-        roles = {
-            "TITLE_ROLE": "Fallout",
-            "QUALITY_TOKEN_ROLE": "4K",
-            "YEAR_ROLE": "2024",
-            "LANGUAGE_ROLE": "US",
-        }
-        import metatv.gui.channel_list_delegate as d
-
-        def data(role):
-            for name, value in roles.items():
-                if role == getattr(d, name, object()):
-                    return value
-            return None
-
-        index.data.side_effect = data
-        font = QFont()
-        rect = QRect(0, 0, self.ROW_W, 40)
-        if density == DENSITY_COMPACT:
-            delegate._paint_compact(None, rect, index, None, font)
-        else:
-            delegate._paint_title_year_line(None, rect, index, None, font)
-        return painted, drawn, QFontMetrics(font)
-
-    def _assert_hugs(self, density):
-        painted, drawn, fm = self._capture(density)
-        chip = painted.get(quality_display("4K"))
-        assert chip is not None, "quality chip was never painted"
-
-        title_draw = next((r for r, t in drawn if t.startswith("Fallout")), None)
-        assert title_draw is not None, "title was never drawn"
-        title_text_end = title_draw.left() + fm.horizontalAdvance("Fallout")
-
-        # The chip starts right after the title TEXT, not after the stretched box.
-        assert chip.left() <= title_text_end + 2 * _CELL_GAP, (
-            f"quality chip drifted right: chip.left()={chip.left()} but the title "
-            f"text ends at {title_text_end} (row width {self.ROW_W})"
-        )
-        # And it is nowhere near the right edge — the regression's signature.
-        assert chip.left() < self.ROW_W // 2, (
-            f"quality chip parked on the right half ({chip.left()}) — it must hug "
-            "the title on the left"
-        )
-
-    def test_comfy_quality_chip_hugs_title(self, qapp):
-        self._assert_hugs(DENSITY_COMFY)
-
-    def test_compact_quality_chip_hugs_title(self, qapp):
-        self._assert_hugs(DENSITY_COMPACT)
-
-    def test_year_is_an_outline_chip_right_aligned(self, qapp):
-        """Year is TIER 3 — an OUTLINE box, right-aligned (owner call, #298:
-        "put an outline on the year").
-
-        It was unboxed plain text through 0.22.0. The box is what stops a bare
-        number from reading as part of whatever text abuts it; the outline
-        (rather than a fill) is what keeps it in the recede-tier with quality
-        instead of competing with the language chip beside it.
-        """
-        from PyQt6.QtGui import QFontMetrics  # noqa: F401
-
-        delegate = ChannelRowDelegate()
-        cells: list = []
-        delegate._paint_cell = lambda p, rect, cell, font: cells.append((QRect(rect), cell))
-        delegate._draw_text = lambda p, rect, text, color, font: None
-
-        index = MagicMock()
-        import metatv.gui.channel_list_delegate as d
-        roles = {"TITLE_ROLE": "Fallout", "QUALITY_TOKEN_ROLE": "4K",
-                 "YEAR_ROLE": "2024", "LANGUAGE_ROLE": "US"}
-
-        def data(role):
-            for name, value in roles.items():
-                if role == getattr(d, name, object()):
-                    return value
-            return None
-
-        index.data.side_effect = data
-        delegate._paint_title_year_line(
-            None, QRect(0, 0, self.ROW_W, 40), index, None, QFont()
-        )
-        year = next(((r, c) for r, c in cells if c.text == "2024"), None)
-        assert year is not None, "year was never painted"
-        assert year[1].outline is True, "year must be an OUTLINE chip"
-        assert year[1].bg is None, "the year's box must not be filled"
-        assert year[0].left() > self.ROW_W // 2, "year must be right-aligned"
+        assert ChannelRowDelegate().density == DENSITY_COMFY

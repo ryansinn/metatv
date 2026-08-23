@@ -78,3 +78,60 @@ def inline_icon_html(icon_key: str, color: str = _theme.COLOR_TEXT,
     encoded = bytes(buffer.data().toBase64()).decode("ascii")
     return (f'<img src="data:image/png;base64,{encoded}" '
             f'width="{size}" height="{size}">')
+
+
+# ── Vector glyphs on a raw QPainter surface (the channel row) ───────────────
+#
+# The channel-list delegate paints with QPainter, not stylesheets, so it can use
+# neither a QIcon in a QLabel nor the rich-text <img> above. It needs a pixmap,
+# and it needs one per PAINTED ROW — so the resolve+render cost has to be paid
+# once per (key, colour, size, DPR) and never again.
+#
+# Keyed on the colour STRING rather than a theme constant, which is what makes a
+# theme switch correct for free: the delegate re-reads ``theme.COLOR_*`` on every
+# paint (that is how the whole file already works), so a new palette produces a
+# new key and a fresh render, while the old entries simply go unused.
+_VECTOR_PIXMAP_CACHE: dict[tuple[str, str, int, float], object] = {}
+
+
+def vector_pixmap(icon_key: str, color: str, size: int = 16) -> object:
+    """A device-pixel-ratio-correct ``QPixmap`` of *icon_key* painted in *color*.
+
+    Builds a ``QPixmap``, so main thread only (see docs/THREADING_PATTERNS.md) —
+    which a delegate's ``paint()`` always is.
+
+    Args:
+        icon_key: An icon-pack key, normally from ``icons.vector_key(role)``.
+        color: Any CSS colour the glyph should be painted in.
+        size: Logical edge length in px.
+
+    Returns:
+        A cached ``QPixmap``. A key that resolves to nothing yields a null
+        pixmap, which callers must skip rather than draw — a row with a missing
+        glyph should lose the glyph, not the row.
+    """
+    from PyQt6.QtGui import QPixmap
+    from PyQt6.QtWidgets import QApplication
+
+    screen = QApplication.primaryScreen()
+    dpr = screen.devicePixelRatio() if screen is not None else 1.0
+    cache_key = (icon_key, color, size, dpr)
+    cached = _VECTOR_PIXMAP_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    icon = resolve_icon(icon_key, color=color)
+    if icon.isNull():
+        pixmap = QPixmap()
+    else:
+        pixmap = icon.pixmap(int(size * dpr), int(size * dpr))
+        pixmap.setDevicePixelRatio(dpr)
+    _VECTOR_PIXMAP_CACHE[cache_key] = pixmap
+    return pixmap
+
+
+def _clear_vector_pixmap_cache() -> None:
+    """Discard every cached pixmap — QPixmaps outlive their ``QApplication``
+    as dangling C++ objects, so the cache must be dropped between app
+    instances (the same reason ``icons._clear_glyph_icon_cache`` exists)."""
+    _VECTOR_PIXMAP_CACHE.clear()
