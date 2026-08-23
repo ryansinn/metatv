@@ -86,13 +86,13 @@ class PosterLightbox(QWidget):
         btn_row.setContentsMargins(10, 4, 6, 4)
 
         hint = QLabel("Click outside or press Esc to close")
-        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; background: transparent;")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; background: transparent;")
         btn_row.addWidget(hint, 1)
 
         close_btn = QPushButton(_icons.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(22, 22)
-        _theme.style_fn(close_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL};"
+        _theme.style_fn(close_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_2XL};"
             " border: none; background: transparent; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
         close_btn.setToolTip("Close (Esc)")

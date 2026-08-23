@@ -439,7 +439,7 @@ class _Section(QWidget):
             f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
             f"border-left: 3px solid {accent}; }}"
         )
-        _theme.style_fn(self._collapse_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
+        _theme.style_fn(self._collapse_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_XS};"
             " background: transparent; }")
         _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
             "letter-spacing: 1px;")
@@ -447,7 +447,7 @@ class _Section(QWidget):
             _theme.style_fn(self._narrows_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
                 " font-style: italic;")
         if self._info_btn is not None:
-            _theme.style_fn(self._info_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
+            _theme.style_fn(self._info_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
                 " background: transparent; }"
                 f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}")
         _theme.style_fn(self._summary_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")

@@ -847,7 +847,7 @@ class SettingsTabsMixin:
             "All changes apply immediately when you click OK or Apply."
         )
         hint.setWordWrap(True)
-        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         sidebar_layout.addWidget(hint)
 
         self._sidebar_list = QListWidget()

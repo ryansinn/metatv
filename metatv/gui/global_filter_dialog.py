@@ -521,7 +521,7 @@ class _ContentTypeSection(QWidget):
         hl.addWidget(self._expand_lbl)
 
         name_lbl = QLabel("Other (unmapped types)")
-        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_TEXT};")
         name_lbl.setToolTip(
             "Live channels whose source_category header from the source\n"
             "didn't match any configured Content Type group.\n"
@@ -792,7 +792,7 @@ class GlobalFilterDialog(QDialog):
         header_row.addWidget(header_lbl)
 
         info_lbl = QLabel("ⓘ")
-        _theme.style_fn(info_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_LG}; padding-left: 4px;")
+        _theme.style_fn(info_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_LG}; padding-left: 4px;")
         info_lbl.setToolTip(
             "Categories are detected from the prefix in each title\n"
             "(e.g. 'AR Drama', 'DE Movies'). Group headings are\n"
@@ -808,7 +808,7 @@ class GlobalFilterDialog(QDialog):
             "Nothing checked = show all content. Expand a group to control individual prefixes."
         )
         hint.setWordWrap(True)
-        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         vl.addWidget(hint)
 
         # ── Realtime search — narrows every section below by prefix/name ───────
@@ -847,7 +847,7 @@ class GlobalFilterDialog(QDialog):
         self._uncat_cb = QCheckBox("Hide content with no category label")
         # Blacklist semantics: checked = hide untagged (include_uncategorized = False)
         self._uncat_cb.setChecked(not self._config.global_filter_include_uncategorized)
-        _theme.style_fn(self._uncat_cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_DIM}; padding-top: 4px;")
+        _theme.style_fn(self._uncat_cb, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; padding-top: 4px;")
         self._uncat_cb.setToolTip(
             "Content with no detected category prefix is usually general/English-language.\n"
             "Leave unchecked to keep it visible (the safe default)."
@@ -927,7 +927,7 @@ class GlobalFilterDialog(QDialog):
         for prefix in hidden:
             chip = QPushButton(f"{prefix} ×")
             chip.setFlat(True)
-            _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED}; border: 1px solid {_theme.COLOR_BORDER};"
+            _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT}; border: 1px solid {_theme.COLOR_BORDER};"
                 " border-radius: 3px; padding: 1px 6px; }"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; border-color: {_theme.COLOR_MUTED_2}; }}")
             chip.setToolTip(f"Click to restore {prefix} — will appear in Content Categories again")

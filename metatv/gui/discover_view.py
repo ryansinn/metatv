@@ -112,7 +112,7 @@ class DiscoverView(QWidget):
 
         # Zoom icon label
         self._zoom_icon_lbl = QLabel(_icons.zoom_icon)
-        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         self._zoom_icon_lbl.setToolTip("Resize Discover cards")
         hbl.addWidget(self._zoom_icon_lbl)
 
@@ -155,7 +155,7 @@ class DiscoverView(QWidget):
 
         self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         self._manage_btn.setFlat(True)
-        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
+        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._manage_btn.clicked.connect(self._open_manage_dialog)
         hbl.addWidget(self._manage_btn)
@@ -201,7 +201,7 @@ class DiscoverView(QWidget):
             f"  background: {_theme.OVERLAY_08};"
             "  border: none;"
             "  border-radius: 4px;"
-            f"  color: {_theme.COLOR_MUTED};"
+            f"  color: {_theme.COLOR_TEXT_HI};"
             f"  font-size: {_theme.FONT_LG};"
             "  text-align: left;"
             "  padding: 0 12px;"
@@ -728,15 +728,15 @@ class DiscoverView(QWidget):
         channel-list row delegate — not swept here; follow-up if a live
         mid-session restyle of an already-open shelf is wanted.
         """
-        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
+        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         _theme.style_fn(self._loading_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
         _theme.style_fn(self._more_btn, lambda: "QPushButton {"
             f"  background: {_theme.OVERLAY_08};"
             "  border: none;"
             "  border-radius: 4px;"
-            f"  color: {_theme.COLOR_MUTED};"
+            f"  color: {_theme.COLOR_TEXT_HI};"
             f"  font-size: {_theme.FONT_LG};"
             "  text-align: left;"
             "  padding: 0 12px;"

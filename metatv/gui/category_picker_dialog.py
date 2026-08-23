@@ -53,7 +53,7 @@ def _mood_idle_style() -> str:
         f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT};"
         f" border: 1px solid {_theme.COLOR_BORDER};"
         f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
-        f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"
+        f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_TEXT_HI};"
         f" border-color: {_theme.COLOR_MUTED_2}; }}"
     )
 
@@ -220,7 +220,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Mood bar ───────────────────────────────────────────────────────────
         mood_hdr = QLabel("Mood  (optional):")
-        _theme.style_fn(mood_hdr, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(mood_hdr, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         vl.addWidget(mood_hdr)
 
         self._mood_bar = _MoodBar(self._config)
@@ -229,7 +229,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Global Exclusions toggle (shown when Dislike selected or new category) ──
         self._excl_cb = QCheckBox("Add this category to Global Exclusions (hide everywhere)")
-        _theme.style_fn(self._excl_cb, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(self._excl_cb, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         self._excl_cb.setToolTip(
             "Channels in this category will be hidden from Discovery,\n"
             "Recommendations, and the channel list everywhere.\n"

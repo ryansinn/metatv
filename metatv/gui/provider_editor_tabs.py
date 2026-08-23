@@ -629,9 +629,9 @@ class _ProviderEditorTabsMixin:
         from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, to_local
 
         if not epg_url:
-            text, style = "Not configured", f"color: {_theme.COLOR_MUTED};"
+            text, style = "Not configured", f"color: {_theme.COLOR_TEXT};"
         elif epg_data_end is None:
-            text, style = "No guide data fetched yet", f"color: {_theme.COLOR_MUTED};"
+            text, style = "No guide data fetched yet", f"color: {_theme.COLOR_TEXT};"
         else:
             try:
                 day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")

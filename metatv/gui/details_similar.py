@@ -126,7 +126,7 @@ class _SimilarSection(QWidget):
         play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
-        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_icon_btn()}")
+        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_TEXT}; }} {_icon_btn()}")
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
@@ -141,7 +141,7 @@ class _SimilarSection(QWidget):
             type_lbl = QLabel(type_icon)
             type_lbl.setFixedWidth(18)
             type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            _theme.style_fn(type_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+            _theme.style_fn(type_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
             type_lbl.setToolTip((v.media_type or "").title())
             row.addWidget(type_lbl)
 
@@ -197,7 +197,7 @@ class _SimilarSection(QWidget):
         # 6. History indicator (previously watched)
         if v.in_history:
             hist = QLabel(_icons.history_icon)
-            _theme.style_fn(hist, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+            _theme.style_fn(hist, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 

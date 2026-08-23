@@ -52,7 +52,7 @@ class WatchForDialog(QDialog):
             "Get an alert when content matching this keyword appears on any of your sources."
         )
         hint.setWordWrap(True)
-        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
         sep = QFrame()
@@ -191,7 +191,7 @@ class ManageVodAlertsDialog(QDialog):
             "monitored series — appears on any of your sources."
         )
         hint.setWordWrap(True)
-        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
         sep = QFrame()
@@ -221,7 +221,7 @@ class ManageVodAlertsDialog(QDialog):
 
     def _muted_line(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; padding: 2px 4px;")
+        _theme.style_fn(lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; padding: 2px 4px;")
         return lbl
 
     def _load(self) -> None:
@@ -394,7 +394,7 @@ class ManageVodAlertsDialog(QDialog):
             name_lbl.setTextFormat(Qt.TextFormat.RichText)
             name_lbl.setText(
                 f"{html.escape(_icons.series_icon)} {html.escape(title)} "
-                f'<span style="color:{_theme.COLOR_MUTED}; font-size:{_theme.FONT_SM}">'
+                f'<span style="color:{_theme.COLOR_TEXT}; font-size:{_theme.FONT_SM}">'
                 f"{html.escape(suffix)}</span>"
             )
         else:

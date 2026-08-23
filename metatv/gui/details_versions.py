@@ -161,12 +161,12 @@ class _CategoryNamePopup(QFrame):
     def __init__(self, prefix: str, current_name: str, config, parent=None):
         super().__init__(parent, Qt.WindowType.ToolTip)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        _theme.style_fn(self, lambda: f"QFrame {{ background: {_theme.COLOR_BG_CARD}; border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; }}")
+        _theme.style_fn(self, lambda: f"QFrame {{ background: {_theme.COLOR_BG_CARD}; border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px; }}")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
         prefix_lbl = QLabel(prefix)
-        _theme.style_fn(prefix_lbl, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;")
+        _theme.style_fn(prefix_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; font-weight: bold;")
         layout.addWidget(prefix_lbl)
         self._edit = QLineEdit(current_name)
         self._edit.setClearButtonEnabled(True)
@@ -253,7 +253,7 @@ class _VersionSection(QWidget):
         label_row_layout.setContentsMargins(0, 0, 0, 0)
         label_row_layout.setSpacing(0)
         cat_label = QLabel("Also available as:")
-        _theme.style_fn(cat_label, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(cat_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         label_row_layout.addWidget(cat_label)
         label_row_layout.addStretch()
@@ -278,7 +278,7 @@ class _VersionSection(QWidget):
         filtered_header_layout.setSpacing(4)
         self._filtered_toggle_btn = QPushButton(_icons.expand_icon)
         self._filtered_toggle_btn.setFixedSize(20, 20)
-        _theme.style_fn(self._filtered_toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; border: none; }}"
+        _theme.style_fn(self._filtered_toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._filtered_toggle_btn.setToolTip("Show/hide filtered variants")
         self._filtered_toggle_btn.clicked.connect(self._toggle_filtered_section)
@@ -286,7 +286,7 @@ class _VersionSection(QWidget):
         # Flat QPushButton styled as a label so the whole text is also clickable.
         self._filtered_hdr_lbl = QPushButton("FILTERED VARIANTS")
         self._filtered_hdr_lbl.setFlat(True)
-        _theme.style_fn(self._filtered_hdr_lbl, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+        _theme.style_fn(self._filtered_hdr_lbl, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
             " font-weight: bold; border: none; text-align: left; padding: 0; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._filtered_hdr_lbl.setToolTip("Show/hide filtered variants")
@@ -481,7 +481,7 @@ class _VersionSection(QWidget):
             _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};"
                 f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; padding: 2px 8px;"
                 " opacity: 0.6; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_MUTED};"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT};"
                 f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_04}; }}")
             tip = self._chip_tooltip(v, suffix="Click to show this version's details")
             chip.setToolTip(tip)
@@ -490,9 +490,9 @@ class _VersionSection(QWidget):
         else:
             chip = QPushButton(label)
             _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
-                f" border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; padding: 2px 8px; }}"
+                f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px; padding: 2px 8px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
-                f" border-color: {_theme.COLOR_MUTED}; background: {_theme.OVERLAY_05}; }}")
+                f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_05}; }}")
             tip = self._chip_tooltip(v, suffix="Click to show this version's details")
             chip.setToolTip(tip)
             # Left-click → show this variant's details
@@ -528,11 +528,11 @@ class _VersionSection(QWidget):
         _theme.style_fn(
             chip,
             lambda _extra=extra: (
-                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};"
-                f" border: 1px solid {_theme.COLOR_FAINT}; background: transparent;"
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
+                f" border: 1px solid {_theme.COLOR_BORDER}; background: transparent;"
                 f" border-radius: 4px; padding: 2px 8px; {_extra} }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT};"
-                f" border-color: {_theme.COLOR_DIM}; }}"
+                f" border-color: {_theme.COLOR_BORDER}; }}"
             ),
         )
         cursor_affordance.set_clickable(chip)

@@ -21,7 +21,7 @@ _FALLBACKS: dict[str, list[str]] = {
 }
 
 
-def resolve_icon(icon_key: str, color: str = _theme.COLOR_MUTED) -> QIcon:
+def resolve_icon(icon_key: str, color: str = _theme.COLOR_TEXT) -> QIcon:
     """Resolve an icon pack key to a QIcon, trying fallbacks on null result.
 
     Returns an empty QIcon only if every key in the chain fails.

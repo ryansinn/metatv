@@ -1747,7 +1747,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._channel_banner = QLabel()
         self._channel_banner.setVisible(False)
         self._channel_banner.setWordWrap(True)
-        _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+        _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_TEXT}; padding: 4px 8px;"
             f" font-size: {_theme.FONT_MD}; }}")
         self._list_layout.addWidget(self._channel_banner)
 
@@ -2488,7 +2488,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if hasattr(self, "_hidden_banner_lbl"):
             _theme.style_fn(self._hidden_banner_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
         if hasattr(self, "_channel_banner"):
-            _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+            _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_TEXT}; padding: 4px 8px;"
                 f" font-size: {_theme.FONT_MD}; }}")
         if hasattr(self, "_channel_exclusion_btn"):
             _seg_style = (

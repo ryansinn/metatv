@@ -61,7 +61,7 @@ class NewFacetValuesDialog(QDialog):
             "uncheck any you'd like to exclude."
         )
         hint.setWordWrap(True)
-        _theme.style_fn(hint, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        _theme.style_fn(hint, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         vl.addWidget(hint)
 
         scroll = QScrollArea()

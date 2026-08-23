@@ -268,7 +268,7 @@ class SourcesSection(CollapsibleSection):
         header_layout.addStretch()
 
         _btn_style = (
-            "QPushButton {{ font-size: {fs}px; border: 1px solid {c};"
+            "QPushButton {{ font-size: {fs}px; border: 1px solid {bc};"
             " border-radius: 3px; color: {c}; background: {bg}; }}"
             "QPushButton:hover {{ background: {hbg}; }}"
         )
@@ -276,7 +276,7 @@ class SourcesSection(CollapsibleSection):
         refresh_all_btn.setFixedSize(22, 20)
         refresh_all_btn.setToolTip("Refresh all sources")
         _theme.style_fn(refresh_all_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_DIM,
+            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
             bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
         ))
         refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)

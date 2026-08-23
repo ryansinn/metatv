@@ -119,7 +119,7 @@ class _EpgWatchlistMixin:
         layout.addLayout(add_row)
 
         self._watchlist_ci_note_lbl = QLabel("Patterns are not case-sensitive")
-        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         layout.addWidget(self._watchlist_ci_note_lbl)
 
         # Pattern cards — responsive FlowLayout
@@ -177,7 +177,7 @@ class _EpgWatchlistMixin:
         rec_header.addWidget(self._rec_title_lbl)
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
-        _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")
+        _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")
         self.manage_dismissed_btn.clicked.connect(self._manage_dismissed)
         rec_header.addWidget(self.manage_dismissed_btn)
         layout.addLayout(rec_header)
@@ -685,9 +685,9 @@ class _EpgWatchlistMixin:
                 f"{self.config.move_down_icon}  {n_extra_grps} more programs"
             )
             more_grps_btn.setFlat(True)
-            _theme.style_fn(more_grps_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; border: none;"
+            _theme.style_fn(more_grps_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none;"
                 " text-align: left; padding: 2px 8px; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}")
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
 
             def _toggle_groups(_, btn=more_grps_btn, cont=extra_grp_container, n=n_extra_grps):
                 if cont.isHidden():
@@ -803,9 +803,9 @@ class _EpgWatchlistMixin:
 
         toggle_btn = QPushButton()
         toggle_btn.setFlat(True)
-        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; border: none;"
+        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none;"
             " text-align: left; padding: 2px 4px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}")
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
 
         cards_container = QWidget()
         cards_layout = QVBoxLayout(cards_container)
@@ -909,7 +909,7 @@ class _EpgWatchlistMixin:
             layout.addWidget(prog_lbl)
         else:
             no_epg = QLabel("  No EPG data")
-            _theme.style_fn(no_epg, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
+            _theme.style_fn(no_epg, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
             layout.addWidget(no_epg)
 
         return w

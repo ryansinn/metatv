@@ -84,8 +84,8 @@ def _audio_style() -> str:
 
 def _year_style() -> str:
     return (
-        f"border: 1px solid {_theme.COLOR_FAINT}; border-radius: 3px; padding: 1px 5px;"
-        f" font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED}; background: transparent;"
+        f"border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 5px;"
+        f" font-size: {_theme.FONT_SM}; color: {_theme.COLOR_TEXT}; background: transparent;"
     )
 
 

@@ -42,7 +42,7 @@ _ZONE_COLLAPSED = "collapsed"
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
-    _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM}; "
+    _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
         "padding: 6px 0 2px 0;")
     return lbl
 
@@ -75,7 +75,7 @@ class _ShelfRow(QWidget):
         btn = QPushButton(label)
         btn.setFixedHeight(22)
         btn.setFlat(True)
-        _theme.style_fn(btn, lambda: f"QPushButton {{ background: {_theme.COLOR_LINE}; border: 1px solid {_theme.COLOR_FAINT}; "
+        _theme.style_fn(btn, lambda: f"QPushButton {{ background: {_theme.COLOR_LINE}; border: 1px solid {_theme.COLOR_BORDER}; "
             f"border-radius: 3px; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; }}")
         if tooltip:
@@ -150,7 +150,7 @@ class DiscoverManageDialog(QDialog):
         expand_all_btn = QPushButton("Expand all")
         expand_all_btn.clicked.connect(self._expand_all)
         for btn in (collapse_all_btn, expand_all_btn):
-            _theme.style_fn(btn, lambda: f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; border: 1px solid {_theme.COLOR_FAINT}; "
+            _theme.style_fn(btn, lambda: f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; border: 1px solid {_theme.COLOR_BORDER}; "
                 f"border-radius: 3px; color: {_theme.COLOR_TEXT}; padding: 3px 10px; }}"
                 f"QPushButton:hover {{ background: {_theme.COLOR_BORDER}; }}")
         global_row.addWidget(collapse_all_btn)
@@ -328,7 +328,7 @@ class DiscoverManageDialog(QDialog):
     def _add_empty_label(self, container: QWidget) -> None:
         empty = QLabel("(none)")
         empty.setObjectName("_empty_placeholder")
-        _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 2px 0;")
+        _theme.style_fn(empty, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding: 2px 0;")
         container.layout().addWidget(empty)
 
     def _sync_empty_label(self, container: QWidget) -> None:

@@ -49,7 +49,7 @@ class _TaskRow(QWidget):
         self._glyph.setFixedWidth(14)
         self._glyph.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._glyph.setToolTip("Migration in progress")
-        _theme.style_fn(self._glyph, lambda: f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        _theme.style_fn(self._glyph, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         top.addWidget(self._glyph)
 
         self._label = QLabel(label)
@@ -84,7 +84,7 @@ class _TaskRow(QWidget):
         self._pct = QLabel("")
         self._pct.setFixedWidth(36)
         self._pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        _theme.style_fn(self._pct, lambda: f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};")
+        _theme.style_fn(self._pct, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_XS};")
         bottom.addWidget(self._pct)
         outer.addLayout(bottom)
 

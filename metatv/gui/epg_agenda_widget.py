@@ -155,7 +155,7 @@ class EpgAgendaWidget(QWidget):
         layout.addWidget(bar)
 
         remaining_lbl = QLabel(f"{pct}%  ·  {_remaining_str(prog.stop_time, now)}")
-        _theme.style_fn(remaining_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
+        _theme.style_fn(remaining_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         layout.addWidget(remaining_lbl)
 
         return card
@@ -177,7 +177,7 @@ class EpgAgendaWidget(QWidget):
         h.addWidget(title_lbl, 1)
 
         dur_lbl = QLabel(_fmt_duration(prog.start_time, prog.stop_time))
-        _theme.style_fn(dur_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
+        _theme.style_fn(dur_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         dur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         h.addWidget(dur_lbl)
 
@@ -250,6 +250,6 @@ def _divider() -> QFrame:
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
-    _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold; color: {_theme.COLOR_FAINT}; letter-spacing: 1px;"
+    _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_SM}; font-weight: bold; color: {_theme.COLOR_TEXT}; letter-spacing: 1px;"
         " padding: 6px 10px 2px 10px;")
     return lbl
