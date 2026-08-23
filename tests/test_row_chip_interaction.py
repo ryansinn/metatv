@@ -173,12 +173,17 @@ class TestChipSemantics:
         import re
 
         from metatv.core import tag_decomposer
-        from metatv.gui import channel_list_delegate
+        from metatv.gui import channel_list_delegate, channel_row_cells
 
-        emitted = set(re.findall(
-            r'facet=["\']([a-z_]+)["\']',
-            inspect.getsource(channel_list_delegate),
-        ))
+        # Both halves of the row, so the guard cannot be dodged by moving a
+        # builder between them — which is exactly what happened when the cell
+        # builders were split out of the delegate.
+        emitted = set()
+        for module in (channel_list_delegate, channel_row_cells):
+            emitted |= set(re.findall(
+                r'facet=["\']([a-z_]+)["\']',
+                inspect.getsource(module),
+            ))
         known = {"audio", "collection", "genre", "language", "quality", "region"}
         assert emitted, "no chip facets found — did the attribute get renamed?"
         assert emitted <= known, (

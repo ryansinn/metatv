@@ -99,38 +99,50 @@ class TestRowEdgePadding:
     renders under the scrollbar."""
 
     def _captured_content_rect(self, qapp, density) -> tuple[QRect, QRect]:
-        """Return (row_rect_used_by_qt, content_rect_passed_to_painter)."""
-        model = _model([_dto()])
-        idx = model.index(0)
+        """Return ``(row_rect, content_rect)``.
+
+        The content rect is the row FILL from ``channel_row_layout.row_layout``
+        — the single geometry chokepoint ``paint()`` calls, which replaced the
+        per-density ``_paint_comfy``/``_paint_compact`` seam this test used to
+        patch. Measuring it is measuring what the painter was handed;
+        :meth:`test_nothing_paints_outside_the_content_rect` then proves the
+        painter honoured it, which the old seam-patching version never did.
+        """
+        from metatv.gui import channel_row_layout as _layout
+
+        row_rect = QRect(0, 0, 600, 40)
+        box = _layout.row_layout(
+            row_rect,
+            has_art=(density != DENSITY_COMPACT),
+            art_square=False,
+            rail_w=0,
+        )
+        return row_rect, box.fill
+
+    def test_nothing_paints_outside_the_content_rect(self, qapp):
+        """The inset is only worth anything if the painter respects it.
+
+        The old version of this class patched the density painter out entirely,
+        so it measured the rect that WOULD have been passed and never that
+        anything stayed inside it.
+        """
+        from tests.conftest import paint_channel_row, row_model
+
         delegate = ChannelRowDelegate()
-        delegate._density = density
+        delegate.set_density(DENSITY_COMFY)
+        delegate.set_thumbnails_enabled(True)
+        model = row_model()
+        row_rect, content_rect = self._captured_content_rect(qapp, DENSITY_COMFY)
+        painted = paint_channel_row(delegate, model.index(0), rect=row_rect)
 
-        painter_name = {
-            DENSITY_COMFY: "_paint_comfy",
-            DENSITY_COMPACT: "_paint_compact",
-        }[density]
-
-        captured: list[QRect] = []
-
-        def _capture(painter, rect, index, color, font, **kwargs):
-            captured.append(QRect(rect))
-
-        opt = QStyleOptionViewItem()
-        opt.rect = QRect(0, 0, 600, 40)
-
-        # A REAL QPainter on a real device: style.drawControl() rejects a mock,
-        # and the whole point is to measure what the real paint path produces.
-        pixmap = QPixmap(600, 40)
-        painter = QPainter(pixmap)
-        try:
-            with patch.object(delegate, painter_name, side_effect=_capture), \
-                 patch.object(delegate, "_shows_thumbnail", return_value=False):
-                delegate.paint(painter, opt, idx)
-        finally:
-            painter.end()
-
-        assert captured, f"{painter_name} was never called"
-        return opt.rect, captured[0]
+        drawn = [(QRect(r), t) for r, t, _, _ in painted.texts if t]
+        drawn += [(QRect(r), c.text) for r, c in painted.cells]
+        assert drawn, "nothing was painted — the harness is broken"
+        for rect, label in drawn:
+            assert rect.left() >= content_rect.left(), f"{label!r} spills off the left"
+            assert rect.right() <= content_rect.right(), (
+                f"{label!r} spills past the right edge into the scrollbar's column"
+            )
 
     @pytest.mark.parametrize("density", [DENSITY_COMFY, DENSITY_COMPACT])
     def test_content_rect_is_inset_from_both_edges(self, qapp, density):

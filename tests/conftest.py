@@ -1128,3 +1128,181 @@ def make_channel_state_bus_host(db_obj):
     host.channel_state_bus.subscribe(host._on_channel_state_echo)
 
     return host
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# V3 channel-row paint harness
+#
+# Every row test drives the REAL ``ChannelRowDelegate.paint`` through a REAL
+# model index — never a density-specific private painter and never a MagicMock
+# index. That matters twice over: ``paint`` is where ``row_layout`` is called
+# and where selection/hover reach the row at all, so a test that skips it can
+# assert neither the geometry nor the state behaviour it claims to.
+#
+# Two capture modes, because "rendered appearance" means two different things:
+#
+#   ``paint_channel_row``  — GEOMETRY. Intercepts the delegate's two draw
+#       chokepoints and records the QRect handed to each, so a test can assert
+#       where something landed.
+#   ``render_channel_row`` — PIXELS. Paints onto a real QPixmap and hands back
+#       an image, so a test can assert the colour that actually reached the
+#       screen (chrome fills, the marker bar) rather than the token that was
+#       supposed to produce it.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Every role the V3 row reads, with a value that renders. Tests override just
+#: the fields they are about — one dict, so a role added to the row later shows
+#: up in every test's data instead of being silently absent from most of them.
+ROW_ROLE_DEFAULTS: dict[str, object] = {
+    "ROW_KIND_ROLE": "channel",
+    "MEDIA_KIND_ROLE": "movie",
+    "TITLE_ROLE": "The Murky Stream",
+    "YEAR_ROLE": "2024",
+    "GENRES_ROLE": ("Drama", "Thriller"),
+    "GENRE_ROLE": "Drama",
+    "COLLECTION_ROLE": "KOREAN DRAMA",
+    "CATEGORY_ROLE": "KR | KOREAN DRAMA",
+    "QUALITY_TOKEN_ROLE": "4K",
+    "LANGUAGE_ROLE": "KR",
+    "PRIMARY_LANGUAGE_ROLE": "EN",
+    "SECONDARY_LANGUAGE_ROLE": "",
+    "SUBTITLE_MARKER_ROLE": "",
+    "VARIANT_COUNT_ROLE": 1,
+    "POSTER_URL_ROLE": "",
+    "PLOT_ROLE": "",
+    "FAV_GLYPH_ROLE": "",
+    "PLAYBACK_GLYPH_ROLE": "",
+    "PLAYBACK_GLYPH_COLOR_ROLE": None,
+    "MATCH_MARKER_ROLE": "",
+}
+
+
+def row_model(*rows, **overrides):
+    """A real one-column list model over *rows* (dicts of role-name → value).
+
+    Called with no rows, yields a single row from :data:`ROW_ROLE_DEFAULTS`
+    updated with **overrides — the common case.
+    """
+    from PyQt6.QtCore import QAbstractListModel, QModelIndex, Qt
+
+    import metatv.gui.channel_list_delegate as _d
+
+    records = [dict(ROW_ROLE_DEFAULTS, **r) for r in rows] or [
+        dict(ROW_ROLE_DEFAULTS, **overrides)
+    ]
+    lookup = {getattr(_d, name): name for name in ROW_ROLE_DEFAULTS}
+
+    class _Model(QAbstractListModel):
+        def rowCount(self, parent=QModelIndex()):  # noqa: N802
+            return len(records)
+
+        def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+            name = lookup.get(role)
+            return records[index.row()].get(name) if name else None
+
+    return _Model()
+
+
+class PaintedRow:
+    """What one row's ``paint()`` actually drew, with geometry."""
+
+    def __init__(self) -> None:
+        #: (rect, text, colour, font) per plain text run.
+        self.texts: list = []
+        #: (rect, _Cell) per cell — meta segments and rail chips alike.
+        self.cells: list = []
+
+    @property
+    def all_foregrounds(self) -> list:
+        return [c for _, _, c, _ in self.texts] + [cell.fg for _, cell in self.cells]
+
+    def cell(self, text: str):
+        """The cell whose text is *text*, or None."""
+        return next((c for _, c in self.cells if c.text == text), None)
+
+    def rect_of(self, text: str):
+        """Painted rect for *text*, whether it was drawn as a run or a cell."""
+        for rect, drawn, _, _ in self.texts:
+            if drawn == text:
+                return rect
+        for rect, cell in self.cells:
+            if cell.text == text:
+                return rect
+        raise AssertionError(
+            f"{text!r} was never painted; painted: "
+            f"{[t for _, t, _, _ in self.texts] + [c.text for _, c in self.cells]}"
+        )
+
+    def painted(self, text: str) -> bool:
+        try:
+            self.rect_of(text)
+        except AssertionError:
+            return False
+        return True
+
+
+def _row_option(rect, *, selected=False, hovered=False):
+    from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+    from metatv.gui import theme as _theme
+
+    opt = QStyleOptionViewItem()
+    opt.rect = rect
+    opt.state = QStyle.StateFlag.State_Enabled
+    if selected:
+        opt.state |= QStyle.StateFlag.State_Selected
+    if hovered:
+        opt.state |= QStyle.StateFlag.State_MouseOver
+    opt.palette = _theme.qt_palette()
+    return opt
+
+
+def paint_channel_row(delegate, index, *, rect=None, selected=False, hovered=False,
+                      density=None) -> PaintedRow:
+    """Run the REAL ``paint()`` and record every rect it drew into."""
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtCore import QRect
+
+    if density is not None:
+        delegate.set_density(density)
+    rect = rect if rect is not None else QRect(0, 0, 620, 68)
+
+    out = PaintedRow()
+    original_text, original_cell = delegate._draw_text, delegate._paint_cell
+    delegate._draw_text = (
+        lambda p, r, text, color, font: out.texts.append((QRect(r), text, color, font))
+    )
+    delegate._paint_cell = lambda p, r, cell, font: out.cells.append((QRect(r), cell))
+    try:
+        delegate.paint(MagicMock(), _row_option(rect, selected=selected, hovered=hovered),
+                       index)
+    finally:
+        delegate._draw_text, delegate._paint_cell = original_text, original_cell
+    return out
+
+
+def render_channel_row(delegate, index, *, rect=None, selected=False, hovered=False,
+                       density=None, background=None):
+    """Paint one row onto a real ``QPixmap`` and return its ``QImage``.
+
+    The background is filled first, because the row paints only its own chrome —
+    a transparent pixmap would make every "what colour is this pixel" assertion
+    a measurement of nothing.
+    """
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QColor, QPainter, QPixmap
+
+    from metatv.gui import theme as _theme
+
+    if density is not None:
+        delegate.set_density(density)
+    rect = rect if rect is not None else QRect(0, 0, 620, 68)
+    pixmap = QPixmap(rect.width(), rect.height())
+    pixmap.fill(QColor(background if background is not None else _theme.COLOR_BG_DEEP))
+    painter = QPainter(pixmap)
+    try:
+        delegate.paint(painter, _row_option(rect, selected=selected, hovered=hovered), index)
+    finally:
+        painter.end()
+    return pixmap.toImage()

@@ -354,9 +354,19 @@ def test_sizehint_reserves_no_thumbnail_height_when_disabled(qapp):
     delegate.set_thumbnails_enabled(True)
     height_on = delegate.sizeHint(opt, index).height()
 
-    # ON reserves at least the fixed thumbnail height; OFF never does.
-    assert height_on == max(height_off, _THUMB_H + 2 * _ROW_V_PAD)
-    assert height_on > height_off or height_off >= _THUMB_H + 2 * _ROW_V_PAD
+    # ON reserves at least the fixed artwork height; OFF never does.
+    # The PROPERTY, not the arithmetic: the row's padding formula is the
+    # layout module's business and has changed once already, but "a row with
+    # artwork is tall enough to show it, and one without is not" is what this
+    # test is named for and is what must never drift.
+    assert height_on >= _THUMB_H, (
+        f"artwork enabled but the row is {height_on}px — too short for a "
+        f"{_THUMB_H}px poster, which would be cropped"
+    )
+    assert height_off < _THUMB_H, (
+        f"artwork disabled but the row still reserves {height_off}px"
+    )
+    assert height_on > height_off
 
 
 # ---------------------------------------------------------------------------

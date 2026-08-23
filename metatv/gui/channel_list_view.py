@@ -65,11 +65,13 @@ class ChannelListView(QListView):
         return None
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        cell = self._cell_at(event.position().toPoint())
-        # Pointing hand ONLY over a chip that actually filters. A chip that just
+        pos = event.position().toPoint()
+        cell = self._cell_at(pos)
+        # Pointing hand ONLY over something that actually does something: a
+        # segment/chip that filters, or the action affordance. A cell that just
         # explains itself (the ×N variant badge) keeps the default cursor —
         # promising a click that does nothing is worse than no affordance.
-        if cell is not None and cell.facet:
+        if (cell is not None and cell.facet) or self._action_hit(pos):
             cursor_affordance.set_clickable(self)
         else:
             self.unsetCursor()
@@ -91,7 +93,34 @@ class ChannelListView(QListView):
             return True
         return super().viewportEvent(event)
 
+    def _action_hit(self, pos: QPoint) -> bool:
+        """Whether *pos* lands on a row's reserved action affordance (``⋯``).
+
+        Asks the delegate to recompute the rect rather than reading one stashed
+        during paint: the gutter is RESERVED on every row but only PAINTED on
+        hover/current, so a stashed rect would exist only for rows that had
+        already been hovered — and the first click on a fresh row is exactly the
+        case that has to work.
+        """
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return False
+        delegate = self.itemDelegate()
+        action_rect = getattr(delegate, "action_rect", None)
+        if action_rect is None:
+            return False
+        return action_rect(self.visualRect(index), index).contains(pos)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._action_hit(
+            event.position().toPoint()
+        ):
+            # Routed through the SAME seam the right-click menu uses, so the
+            # affordance can never offer a different menu from the gesture it
+            # is a shortcut for (channel_menu.py owns what is in it).
+            self.customContextMenuRequested.emit(event.position().toPoint())
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             index = self.indexAt(event.position().toPoint())
             if index.isValid():

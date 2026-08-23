@@ -57,12 +57,12 @@ from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_colors, _quality_outline_colors
 from metatv.gui.channel_list_delegate import (
+    DENSITY_COMFY,
     ChannelRowDelegate,
     _category_cell,
     _genre_cell,
     _language_cell,
     _quality_cell,
-    _rating_glyph_cell,
     _region_or_platform_cell,
     _to_qcolor,
     _variant_badge_cell,
@@ -293,8 +293,7 @@ class TestFacetHueCellBuilders:
                       _category_cell("Some Collection"),
                       _year_cell("2024"),
                       _quality_cell("4K"),
-                      _variant_badge_cell(3),
-                      _rating_glyph_cell(1)):
+                      _variant_badge_cell(3)):
             assert other is not None
             assert other.bg is None, (
                 f"{other.text!r} carries a fill — tier 1 is language and state only"
@@ -302,6 +301,7 @@ class TestFacetHueCellBuilders:
 
     def test_genre_is_tinted_text_in_its_own_hue(self, qapp):
         cell = _genre_cell("Action")
+        assert cell is not None
         assert cell.is_chip is False
         assert cell.bg is None
         assert cell.fg == _theme.COLOR_ROW_GENRE
@@ -396,47 +396,42 @@ class TestGenreRoleWiring:
         idx = model.index(0)
         assert model.data(idx, GENRE_ROLE) == ""
 
-    def test_badge_line_paints_genre_before_collection_both_flush_right(self, qapp):
-        model = _model([_dto()])
-        idx = model.index(0)
+    def test_meta_line_paints_genre_before_collection(self, qapp):
+        """Taxonomy order (#257 Part C) survived the V3 rewrite: the genres read
+        first, the collection is the fallback fact after them.
+
+        The line they share moved — there is no separate badge row any more —
+        so this drives the real ``paint()`` and reads the painted x, which is
+        the only thing that can tell "before" from "declared first".
+        """
+        from tests.conftest import paint_channel_row, row_model
+
         delegate = ChannelRowDelegate()
+        delegate.set_density(DENSITY_COMFY)
+        model = row_model(GENRES_ROLE=("Comedy",), GENRE_ROLE="Comedy",
+                          COLLECTION_ROLE="APPLE+ KIDS", CATEGORY_ROLE="APPLE+ KIDS",
+                          LANGUAGE_ROLE="A+")
+        painted = paint_channel_row(delegate, model.index(0), rect=QRect(0, 0, 600, 68))
 
-        cell_calls = []
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((QRect(rect), cell))
-
-        with patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_badge_line(MagicMock(), line, idx, QFont())
-
-        rects_by_text = {c.text: r for r, c in cell_calls}
+        rects_by_text = {c.text: r for r, c in painted.cells}
         # detected_collection "APPLE+ KIDS" with own platform "A+" renders as "KIDS".
-        assert "Comedy" in rects_by_text, "genre chip was never painted"
-        assert "KIDS" in rects_by_text, "collection chip was never painted"
-
-        genre_rect = rects_by_text["Comedy"]
-        collection_rect = rects_by_text["KIDS"]
-        assert genre_rect.left() < collection_rect.left(), (
-            "genre must sit to the LEFT of collection (taxonomy group order, #257 Part C)"
+        assert "Comedy" in rects_by_text, "genre was never painted"
+        assert "KIDS" in rects_by_text, "collection was never painted"
+        assert rects_by_text["Comedy"].left() < rects_by_text["KIDS"].left()
+        assert rects_by_text["Comedy"].top() == rects_by_text["KIDS"].top(), (
+            "genre and collection belong to the same meta line"
         )
-        assert collection_rect.right() == line.right(), "collection stays flush right"
 
-    def test_badge_line_omits_genre_chip_when_absent(self, qapp):
-        model = _model([_dto(detected_genre=None)])
-        idx = model.index(0)
+    def test_meta_line_omits_genre_when_absent(self, qapp):
+        from tests.conftest import paint_channel_row, row_model
+
         delegate = ChannelRowDelegate()
-
-        cell_calls = []
-
-        def _capture_paint_cell(painter, rect, cell, font):
-            cell_calls.append((QRect(rect), cell))
-
-        with patch.object(delegate, "_paint_cell", side_effect=_capture_paint_cell):
-            line = QRect(0, 0, 600, 20)
-            delegate._paint_badge_line(MagicMock(), line, idx, QFont())
-
-        texts = {c.text for _, c in cell_calls}
+        delegate.set_density(DENSITY_COMFY)
+        model = row_model(GENRES_ROLE=(), GENRE_ROLE="",
+                          COLLECTION_ROLE="APPLE+ KIDS", CATEGORY_ROLE="APPLE+ KIDS",
+                          LANGUAGE_ROLE="A+")
+        painted = paint_channel_row(delegate, model.index(0), rect=QRect(0, 0, 600, 68))
+        texts = {c.text for _, c in painted.cells}
         assert "KIDS" in texts
         assert "Comedy" not in texts
 
@@ -475,34 +470,47 @@ class TestPlatformNameStyleResolution:
         delegate.set_platform_name_style("not-a-real-style")
         assert delegate.platform_name_style == "auto"
 
-    def test_platform_chip_text_changes_with_effective_style(self, qapp):
-        """End-to-end: a comfy row shows the full brand name, a compact row
-        the short code, for the SAME channel."""
+    def test_platform_text_changes_with_effective_style(self, qapp):
+        """End-to-end: the SAME channel reads "Apple+" under the full style and
+        "A+" under the short one, in the row that actually shows it.
+
+        Both cases are driven on a COMFY row rather than one of each density.
+        V3's compact row is the title line alone — it carries no meta line, so
+        it shows no platform at all, and asserting the short style there would
+        be asserting the absence of the thing under test.
+        """
+        from tests.conftest import paint_channel_row, row_model
+
+        model = row_model(LANGUAGE_ROLE="A+")
+
+        def _texts(style):
+            delegate = ChannelRowDelegate()
+            delegate.set_density(DENSITY_COMFY)
+            delegate.set_platform_name_style(style)
+            painted = paint_channel_row(delegate, model.index(0),
+                                        rect=QRect(0, 0, 600, 68))
+            return {c.text for _, c in painted.cells}
+
+        assert "Apple+" in _texts("full")
+        assert "A+" in _texts("short")
+
+    def test_compact_carries_no_meta_line(self, qapp):
+        """The other half of the statement above, asserted rather than assumed:
+        compact exists to fit more rows on screen, so it drops the meta line
+        entirely instead of shrinking it."""
         from metatv.gui.channel_list_delegate import DENSITY_COMPACT
+        from tests.conftest import paint_channel_row, row_model
 
-        model = _model([_dto(detected_region="A+")])
-        idx = model.index(0)
-
-        comfy_delegate = ChannelRowDelegate()
-        cell_calls = []
-        with patch.object(comfy_delegate, "_paint_cell",
-                           side_effect=lambda p, r, c, f: cell_calls.append(c)), \
-             patch.object(comfy_delegate, "_draw_text"):
-            comfy_delegate._paint_title_year_line(
-                MagicMock(), QRect(0, 0, 600, 20), idx, "#fff", QFont()
-            )
-        assert any(c.text == "Apple+" for c in cell_calls)
-
-        compact_delegate = ChannelRowDelegate()
-        compact_delegate.set_density(DENSITY_COMPACT)
-        cell_calls2 = []
-        with patch.object(compact_delegate, "_paint_cell",
-                           side_effect=lambda p, r, c, f: cell_calls2.append(c)), \
-             patch.object(compact_delegate, "_draw_text"):
-            compact_delegate._paint_compact(
-                MagicMock(), QRect(0, 0, 600, 20), idx, "#fff", QFont()
-            )
-        assert any(c.text == "A+" for c in cell_calls2)
+        delegate = ChannelRowDelegate()
+        delegate.set_density(DENSITY_COMPACT)
+        model = row_model(LANGUAGE_ROLE="A+")
+        painted = paint_channel_row(delegate, model.index(0), rect=QRect(0, 0, 600, 30))
+        texts = {c.text for _, c in painted.cells}
+        assert "Apple+" not in texts and "A+" not in texts
+        assert "Movie" not in texts, "compact painted a kind word — that is the meta line"
+        # …but the language and quality chips stay: they are the rail, not the
+        # meta line, and the rail is what compact keeps.
+        assert "EN" in texts
 
 
 class TestPlatformNameStyleConfigAndSettings:
@@ -620,7 +628,6 @@ class TestColorConversionChokepoint:
                 _language_cell("DE"),
                 _genre_cell("Action"),
                 _category_cell("Some Collection"),
-                _rating_glyph_cell(1), _rating_glyph_cell(-1),
                 _variant_badge_cell(3),
             ]
             tokens: dict[str, object] = {}
