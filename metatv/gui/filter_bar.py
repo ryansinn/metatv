@@ -17,11 +17,17 @@ class ToggleChip(QPushButton):
 
     toggled_changed = pyqtSignal(bool)
 
-    def __init__(self, label: str, enabled: bool = True):
+    def __init__(self, label: str, enabled: bool = True,
+                 vector_role: str | None = None):
         super().__init__()
         self.label = label
         self._enabled = enabled
         self._count = None
+        # A semantic icon role (metatv.gui.icons.VECTOR_KEYS). When set, the chip
+        # carries a monochrome vector icon instead of an emoji baked into its
+        # label — an emoji cannot take a colour, so it ignored the palette and
+        # rendered differently on every platform.
+        self._vector_role = vector_role
         self.setCheckable(True)
         self.setChecked(enabled)
         self.update_appearance()
@@ -35,6 +41,26 @@ class ToggleChip(QPushButton):
     def set_count(self, count: int):
         self._count = count if count > 0 else None
         self.update_appearance()
+
+
+    def _tinted(self, on: bool, sheet: str) -> str:
+        """Re-tint the vector icon, then hand back *sheet* unchanged.
+
+        Called from inside the ``style_fn`` builder on purpose. That builder is
+        what ``theme._reapply_registered_styles()`` re-invokes on a palette
+        switch, so putting the re-tint here is what makes the icon follow the
+        theme; the same call placed in ``update_appearance`` runs once at
+        construction and never again.
+        """
+        if self._vector_role:
+            from PyQt6.QtCore import QSize
+            from metatv.gui import icon_utils as _icon_utils
+            from metatv.gui import icons as _icons_mod
+            colour = _theme.COLOR_ON_ACCENT if on else _theme.COLOR_TEXT
+            self.setIcon(_icon_utils.resolve_icon(
+                _icons_mod.vector_key(self._vector_role), color=colour))
+            self.setIconSize(QSize(14, 14))
+        return sheet
 
     def update_appearance(self):
         """Repaint the chip for its current state.
@@ -66,7 +92,7 @@ class ToggleChip(QPushButton):
 
         if self._enabled:
             self.setText(f"{label_text} ●")
-            _theme.style_fn(self, lambda: f"""
+            _theme.style_fn(self, lambda: self._tinted(True, f"""
                 QPushButton {{
                     background-color: {_theme.COLOR_ACCENT};
                     color: {_theme.COLOR_ON_ACCENT};
@@ -76,10 +102,10 @@ class ToggleChip(QPushButton):
                     font-weight: bold;
                 }}
                 QPushButton:hover {{ background-color: {_theme.COLOR_ACCENT_HOVER}; }}
-            """)
+            """))
         else:
             self.setText(f"{label_text} ○")
-            _theme.style_fn(self, lambda: f"""
+            _theme.style_fn(self, lambda: self._tinted(False, f"""
                 QPushButton {{
                     background-color: {_theme.COLOR_BG_CARD};
                     color: {_theme.COLOR_TEXT};
@@ -88,7 +114,7 @@ class ToggleChip(QPushButton):
                     padding: 6px 14px;
                 }}
                 QPushButton:hover {{ background-color: {_theme.COLOR_BG_BAR}; }}
-            """)
+            """))
 
     def is_enabled(self) -> bool:
         return self._enabled

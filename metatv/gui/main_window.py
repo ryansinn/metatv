@@ -1499,27 +1499,27 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(30)
 
-        self.search_chip = ToggleChip(f"{self.config.search_icon} Search", enabled=True)
+        self.search_chip = ToggleChip("Search", enabled=True, vector_role="search")
         self.search_chip.setToolTip("Channel list and search")
         self.search_chip.clicked.connect(self.on_search_view_toggle)
         nav_layout.addWidget(self.search_chip)
 
-        self.epg_chip = ToggleChip("📅 EPG", enabled=False)
+        self.epg_chip = ToggleChip("EPG", enabled=False, vector_role="epg")
         self.epg_chip.setToolTip("EPG — programme guide, watchlist, on-now")
         self.epg_chip.clicked.connect(self.on_special_view_toggle)
         nav_layout.addWidget(self.epg_chip)
 
-        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Recommended", enabled=False)
+        self.prefs_chip = ToggleChip("Recommended", enabled=False, vector_role="recommended")
         self.prefs_chip.setToolTip("Personalised recommendations")
         self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
         nav_layout.addWidget(self.prefs_chip)
 
-        self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
+        self.discover_chip = ToggleChip("Discover", enabled=False, vector_role="discover")
         self.discover_chip.setToolTip("Browse by genre, decade, actor, director")
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         nav_layout.addWidget(self.discover_chip)
 
-        self.recipe_chip = ToggleChip(f"{_icons.recipe_icon} Recipe", enabled=False)
+        self.recipe_chip = ToggleChip("Recipe", enabled=False, vector_role="recipe")
         self.recipe_chip.setToolTip("Build a recipe from facets — genre, language, region, decade…")
         self.recipe_chip.clicked.connect(self.on_recipe_view_toggle)
         nav_layout.addWidget(self.recipe_chip)
