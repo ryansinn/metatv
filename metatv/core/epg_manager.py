@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import types as _types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -14,6 +13,7 @@ from loguru import logger
 from metatv.core.channel_name_utils import epg_tld_compatible
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
+from metatv.core.epg_matching import build_match_map
 from metatv.core.epg_utils import (
     EPG_FILLER_THRESHOLD,
     epg_auto_delta,
@@ -28,6 +28,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls, persist_url_stats
 from metatv.core.url_cycle import UrlCycler
 from metatv.core.xmltv_parser import (
+    XmltvAborted,
     XmltvChannel,
     XmltvProgramme,
     normalize_channel_name,
@@ -40,17 +41,6 @@ from metatv.core.xmltv_parser import (
 # "%.{code}" idiom in repositories/epg.py). Only a 2-3 letter alpha suffix is
 # treated as a TLD — anything else (numeric, longer) is not a TLD and the
 # region gate abstains (see channel_name_utils.epg_tld_compatible).
-_EPG_ID_TLD_RE = re.compile(r"\.([A-Za-z]{2,3})$")
-
-
-def _epg_id_tld(epg_id: str) -> str | None:
-    """Extract the lowercase TLD suffix from an XMLTV epg_id, or None if absent."""
-    if not epg_id:
-        return None
-    m = _EPG_ID_TLD_RE.search(epg_id)
-    return m.group(1).lower() if m else None
-
-
 # ``EPG_FILLER_THRESHOLD`` now lives in ``epg_utils`` (single source of truth) and is
 # imported above; existing ``from metatv.core.epg_manager import EPG_FILLER_THRESHOLD``
 # imports still resolve via this module's namespace. A programme longer than this is a
@@ -136,6 +126,9 @@ class EpgManager(QObject):
         self._progress_done.connect(self._do_progress_done)
         self._progress_error.connect(self._do_progress_error)
         self._active_refreshes: set[str] = set()  # provider IDs currently refreshing
+        # Plain Python attribute on purpose: still readable after Qt has
+        # deleted this object's C++ side, which is the worker's exact case.
+        self._shutting_down = False
         self._unmatched_refresh_attempted: set[str] = set()  # per-session unmatched-relink guard
 
     def _do_notify(self, title: str, message: str, type_: str, auto_dismiss_ms: int) -> None:
@@ -600,6 +593,12 @@ class EpgManager(QObject):
                 channels, programmes = parse_xmltv_url(
                     url, timeout=180, on_progress=on_parse_progress,
                 )
+            except XmltvAborted:
+                # Says nothing about base_url. Recording it would penalise a
+                # blameless host — and the loop would then abort identically
+                # on every remaining one, so one app close would mark them all
+                # unreliable.
+                raise
             except Exception as e:
                 logger.warning(
                     f"EPG fetch failed for {provider_name} @ {base_url}: {e}"
@@ -634,19 +633,51 @@ class EpgManager(QObject):
             f"All EPG hosts failed for provider {provider_name!r}"
         )
 
+    def _emit_or_abort(self, signal, *args) -> None:
+        """Emit a worker progress signal, or abandon the fetch if we are gone.
+
+        ``shutdown()`` does not wait for the worker, so Qt can delete this
+        object's C++ side mid-fetch and the emit then raises RuntimeError.
+
+        Raises:
+            XmltvAborted: Shutting down or already destroyed — a distinct type
+                so the fetch path can tell this from "the host failed".
+        """
+        if self._shutting_down:
+            raise XmltvAborted("EPG manager is shutting down")
+        try:
+            signal.emit(*args)
+        except RuntimeError as exc:      # the C++ object is already gone
+            raise XmltvAborted(str(exc)) from exc
+
     def _fetch_worker(self, provider_id: str, provider_name: str,
                       notif_id: str | None = None) -> None:
-        """Background worker: resolve the fetch URL(s), download, parse, and store
-        XMLTV data (see ``_resolve_and_fetch_guide`` for the URL resolution +
-        host-cycling policy)."""
+        """Background worker: fetch and store a provider's guide.
+
+        A thin guard around :meth:`_run_fetch`. Teardown can interrupt at any
+        emit — including the first, before the download starts — so the
+        handler wraps the whole body rather than one call. No error signal or
+        toast on abort: both touch Qt objects already being destroyed.
+        """
+        try:
+            self._run_fetch(provider_id, provider_name, notif_id)
+        except XmltvAborted as e:
+            logger.info(f"EPG refresh for {provider_name} abandoned: {e}")
+            self._active_refreshes.discard(provider_id)
+
+    def _run_fetch(self, provider_id: str, provider_name: str,
+                   notif_id: str | None = None) -> None:
+        """Resolve the fetch URL(s), download, parse, and store XMLTV data
+        (see ``_resolve_and_fetch_guide`` for URL resolution + host cycling)."""
         def on_parse_progress(count: int) -> None:
-            self._progress_update.emit(
-                notif_id or "", count, -1,
+            """Report parse progress; aborts the parse once we are torn down."""
+            self._emit_or_abort(
+                self._progress_update, notif_id or "", count, -1,
                 f"Parsing… {count:,} programmes",
             )
 
         # Phase 1: download — indeterminate (no Content-Length on most XMLTV feeds)
-        self._progress_update.emit(
+        self._emit_or_abort(self._progress_update, 
             notif_id or "", 0, -1, "Downloading guide…"
         )
 
@@ -655,10 +686,12 @@ class EpgManager(QObject):
                 provider_id, provider_name,
                 on_parse_progress if notif_id else None,
             )
+        except XmltvAborted:
+            raise      # teardown — _fetch_worker handles it, quietly
         except Exception as e:
             logger.error(f"EPG refresh failed for {provider_name}: {e}")
             self.refresh_error.emit(provider_id, str(e))
-            self._progress_error.emit(notif_id or "")
+            self._emit_or_abort(self._progress_error, notif_id or "")
             self._show_notification(
                 "EPG Error", f"{provider_name}: {e}",
                 type_="error", auto_dismiss_ms=6000,
@@ -671,7 +704,7 @@ class EpgManager(QObject):
             total_progs = len(programmes)
 
             # Phase 2: channel matching — indeterminate (fast, no useful fraction)
-            self._progress_update.emit(
+            self._emit_or_abort(self._progress_update, 
                 notif_id or "", 0, -1,
                 f"Matching channels to your streams…"
             )
@@ -684,14 +717,14 @@ class EpgManager(QObject):
             chan_name_map = {ch.epg_id: ch.display_name for ch in channels}
 
             # Phase 3: clear old guide — indeterminate (one DELETE, fast)
-            self._progress_update.emit(
+            self._emit_or_abort(self._progress_update, 
                 notif_id or "", 0, -1, "Clearing old guide…"
             )
             session.query(EpgProgramDB).filter_by(provider_id=provider_id).delete()
             session.commit()  # release write lock before inserts start
 
             # Phase 4: bulk insert — now we know total, switch to determinate
-            self._progress_update.emit(
+            self._emit_or_abort(self._progress_update, 
                 notif_id or "", 0, total_progs, f"Saving {total_progs:,} programmes…"
             )
 
@@ -726,7 +759,7 @@ class EpgManager(QObject):
                     batch.clear()
                     if saved % _report_every < 2000:
                         pct = int(saved / total_progs * 100)
-                        self._progress_update.emit(
+                        self._emit_or_abort(self._progress_update, 
                             notif_id or "", saved, total_progs,
                             f"Saving… {saved:,}/{total_progs:,} ({pct}%)",
                         )
@@ -774,13 +807,16 @@ class EpgManager(QObject):
             logger.info(f"EPG: stored {count:,} programmes for {provider_name}")
 
             self.refresh_finished.emit(provider_id, count)
-            self._progress_done.emit(notif_id or "", f"{count:,} programmes loaded")
+            self._emit_or_abort(self._progress_done, notif_id or "", f"{count:,} programmes loaded")
 
+        except XmltvAborted:
+            session.rollback()   # no half-written guide; finally still closes
+            raise
         except Exception as e:
             logger.error(f"EPG refresh failed for {provider_name}: {e}")
             session.rollback()
             self.refresh_error.emit(provider_id, str(e))
-            self._progress_error.emit(notif_id or "")
+            self._emit_or_abort(self._progress_error, notif_id or "")
             self._show_notification(
                 "EPG Error", f"{provider_name}: {e}",
                 type_="error", auto_dismiss_ms=6000,
@@ -794,135 +830,10 @@ class EpgManager(QObject):
     ) -> dict[str, str]:
         """Build xmltv_epg_id → channel_db_id lookup.
 
-        Resolution order (first match wins):
-        1. Exact ``epg_channel_id`` match — highest confidence, provider-agnostic.
-        2. Same-provider fuzzy name match — normalized channel name from the feed's
-           own provider wins over any cross-source match.
-        3. Cross-provider fuzzy name match — fills gaps when the feed's own provider
-           has no matching channel (e.g. a bare XMLTV feed covering multiple sources).
-
-        Channels belonging to hidden (inactive or expired) providers are excluded from
-        the fuzzy candidate pool entirely, so guide data never attaches to a
-        disabled/expired source at fetch time.
-
-        Two persistent config-driven guards, both consulted here so they can never
-        be bypassed by ``relink_all()`` (which re-runs this on every EPG view
-        activation) or by a provider re-ingestion rewriting ``ChannelDB.epg_channel_id``:
-
-        * ``config.epg_link_blocklist`` — channel_db_ids the user manually cleared
-          ("Clear EPG link"). Excluded from ALL tiers (1/2/3).
-        * ``config.epg_fuzzy_prefix_blocklist`` — ``detected_prefix`` values (e.g.
-          "24/7") that denote show-loop/rotation feeds, not real broadcasts.
-          Excluded from tiers 2/3 only; tier-1 exact ids still apply.
-
-        Tiers 2/3 are additionally region-gated: a candidate's ``detected_prefix``/
-        ``detected_region`` is checked against the EPG feed's TLD (parsed from its
-        epg_id) via ``channel_name_utils.epg_tld_compatible`` — an unrecognized
-        code/TLD abstains (matches as before); a recognized mismatch is rejected.
+        Delegates to :func:`metatv.core.epg_matching.build_match_map`; see that
+        module for the tier/blocklist/region rules.
         """
-        repos = RepositoryFactory(session)
-        hidden_ids: set[str] = set(repos.providers.get_hidden_provider_ids())
-        blocked_ids: set[str] = set(self.config.epg_link_blocklist or [])
-        fuzzy_prefix_blocklist: set[str] = {
-            p.strip().upper() for p in (self.config.epg_fuzzy_prefix_blocklist or []) if p
-        }
-
-        # ── Tier 1: exact epg_channel_id match ──────────────────────────────
-        # Select only the two scalar columns needed — avoids loading raw_data
-        # (potentially large JSON) for every channel in a 1M+ library.
-        db_channels_with_id = session.query(
-            ChannelDB.id, ChannelDB.epg_channel_id,
-        ).filter(
-            ChannelDB.epg_channel_id.isnot(None),
-            ChannelDB.is_hidden == False,
-        ).all()
-        exact: dict[str, str] = {
-            epg_id: cid
-            for cid, epg_id in db_channels_with_id
-            if epg_id and cid not in blocked_ids
-        }
-
-        # ── Tiers 2 & 3: fuzzy name candidates, excluding hidden providers ──
-        # Build two separate dicts so same-provider always beats cross-provider.
-        # Last-writer-wins within each dict is fine: duplicate normalized names
-        # are rare and either candidate would be acceptable. Values carry
-        # (channel_db_id, detected_prefix, detected_region) so the region gate
-        # below can consult them without a second query.
-        # yield_per streams results in fixed-size buffers to avoid materialising
-        # the full channel table (240k–1M rows) into memory at once.
-        all_live = session.query(
-            ChannelDB.id, ChannelDB.name, ChannelDB.provider_id,
-            ChannelDB.detected_prefix, ChannelDB.detected_region,
-        ).filter(
-            ChannelDB.media_type == "live",
-            ChannelDB.is_hidden == False,
-        ).yield_per(10000)
-
-        same_provider: dict[str, tuple[str, str | None, str | None]] = {}
-        cross_provider: dict[str, tuple[str, str | None, str | None]] = {}
-
-        for cid, name, prov_id, prefix, region in all_live:
-            if prov_id in hidden_ids:
-                continue  # never attach guide data to a disabled/expired source
-            if cid in blocked_ids:
-                continue  # manually cleared — never re-enter fuzzy matching
-            if prefix and prefix.strip().upper() in fuzzy_prefix_blocklist:
-                continue  # show-loop/rotation feed — fuzzy name matching is unreliable
-            norm = normalize_channel_name(name)
-            if not norm:
-                # Placeholder/separator names ('HD', blanks) normalize to "" and
-                # would all collide on the same key (last-writer-wins), attaching a
-                # guide to an unrelated channel. Never key the fuzzy pool on "".
-                continue
-            candidate = (cid, prefix, region)
-            if prov_id == provider_id:
-                same_provider[norm] = candidate
-            else:
-                cross_provider[norm] = candidate
-
-        result: dict[str, str] = {}
-        for xch in xmltv_channels:
-            if xch.epg_id in exact:
-                # Tier 1 — exact epg_channel_id (never region-gated)
-                result[xch.epg_id] = exact[xch.epg_id]
-                continue
-
-            norm = normalize_channel_name(xch.display_name)
-            epg_tld = _epg_id_tld(xch.epg_id)
-
-            if norm in same_provider:
-                # Tier 2 — same-provider fuzzy
-                cid, prefix, region = same_provider[norm]
-                if epg_tld_compatible((prefix, region), epg_tld):
-                    result[xch.epg_id] = cid
-                else:
-                    logger.debug(
-                        f"EPG region gate: rejected same-provider fuzzy match "
-                        f"{xch.display_name!r} (epg_id={xch.epg_id!r}, tld={epg_tld!r}) "
-                        f"against channel prefix={prefix!r} region={region!r}"
-                    )
-            elif norm in cross_provider:
-                # Tier 3 — cross-provider fuzzy
-                cid, prefix, region = cross_provider[norm]
-                if epg_tld_compatible((prefix, region), epg_tld):
-                    result[xch.epg_id] = cid
-                else:
-                    logger.debug(
-                        f"EPG region gate: rejected cross-provider fuzzy match "
-                        f"{xch.display_name!r} (epg_id={xch.epg_id!r}, tld={epg_tld!r}) "
-                        f"against channel prefix={prefix!r} region={region!r}"
-                    )
-
-        matched = len(result)
-        logger.info(
-            f"EPG channel matching: {matched}/{len(xmltv_channels)} XMLTV channels "
-            f"matched to playable streams (provider={provider_id})"
-        )
-        return result
-
-    # ------------------------------------------------------------------
-    # Relink — DB-only re-match (no network fetch)
-    # ------------------------------------------------------------------
+        return build_match_map(session, xmltv_channels, provider_id, self.config)
 
     def _relink_provider(self, session, provider_id: str) -> int:
         """Re-run channel matching for existing EPG rows without re-downloading.
@@ -1264,6 +1175,10 @@ class EpgManager(QObject):
 
     def shutdown(self) -> None:
         """Clean up resources on app exit."""
+        # FIRST: the executor is torn down without waiting, so an in-flight
+        # parse needs to notice it should stop rather than crash on a dead
+        # QObject.
+        self._shutting_down = True
         self.stop_notification_timer()
         self.stop_scheduler()
         self._executor.shutdown(wait=False)
