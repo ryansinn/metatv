@@ -306,30 +306,39 @@ def test_every_tier_2_hue_clears_4_5_on_the_list_surface(qapp, palette_name):
 # 4. Tier 3 — outlined, never filled, and quality sits by the title.
 # ---------------------------------------------------------------------------
 
-def test_quality_is_the_outermost_cell_in_the_rail(qapp):
-    """Quality moved. #298 put it against the title, because a claim separated
-    from what it qualifies reads as a different fact — true when the row's other
-    facts were also chips scattered across two lines.
+def test_quality_hugs_the_title_and_is_not_in_the_rail(qapp):
+    """Quality qualifies THIS COPY of the title, so it sits next to it.
 
-    V3 gives it a COLUMN instead: with the meta line carrying the facts and the
-    rail carrying only the language family, ``4K`` landing in the same x on
-    every row that has one is worth more than adjacency, and the row's own
-    mockup is what settled it.
+    #298 established that; V3 briefly moved it into the right-hand rail to give
+    it a fixed column, and the owner reported the cost within a day: quality is
+    on 6.6% of rows, and a right-aligned group containing an optional member
+    puts every member LEFT of it in a different column depending on that
+    member's presence — the language badge visibly jumped down a scrolling
+    list. Against the title, its absence costs a few pixels of title box and
+    nothing else.
 
-    Geometry, not order: a cell can be last in a list and still be painted on
+    Geometry, not order: a cell can be first in a list and still be painted on
     the far side of the row.
     """
     painted = _paint_row(ChannelRowDelegate(), _index())
     quality = painted.rect_of("4K")
     title = painted.rect_of(_ROW_DATA["TITLE_ROLE"])
-    assert quality.left() > title.left()
-    assert quality.right() > painted.rect_of("EN").right(), (
-        "quality must be the outermost cell in the rail"
+    language = painted.rect_of("EN")
+
+    # On the title's LINE, and left of the rail that shares it.
+    assert quality.center().y() == title.center().y(), (
+        "quality must sit on the title's own line, not the meta line"
     )
-    for text in ("2024", "KR"):
-        assert quality.left() > painted.rect_of(text).right(), (
-            f"quality is painted to the left of the meta line's {text!r}"
-        )
+    assert quality.left() >= title.left()
+    assert quality.right() < language.left(), (
+        "quality is painted inside the right-hand rail"
+    )
+    # …and nowhere near the right edge — the arrangement's failure signature.
+    assert quality.left() < ROW_W // 2, (
+        f"quality parked on the right half ({quality.left()} of {ROW_W})"
+    )
+    # The meta line is a separate line below it.
+    assert painted.rect_of("2024").top() > title.bottom() - title.height() // 2
 
 
 def test_tier_3_boxes_are_never_filled(qapp):
@@ -370,7 +379,6 @@ def test_meta_line_positions_follow_the_single_order_constant(qapp):
     constant is the only way to re-order the row."""
     painted = _paint_row(ChannelRowDelegate(), _index(VARIANT_COUNT_ROLE=3))
     slot_text = {
-        d.CHIP_SLOT_KIND: "Movie",
         d.CHIP_SLOT_YEAR: "2024",
         d.CHIP_SLOT_REGION: "KR",
         d.CHIP_SLOT_GENRE: "Drama / Thriller",
@@ -393,7 +401,6 @@ def test_rail_positions_follow_the_single_order_constant(qapp):
         d.CHIP_SLOT_SUBTITLE: "KO-SUB",
         d.CHIP_SLOT_LANGUAGE_2: "JA",
         d.CHIP_SLOT_LANGUAGE: "EN",
-        d.CHIP_SLOT_QUALITY: "4K",
     }
     expected = [slot_text[s] for s in ROW_RAIL_ORDER if s in slot_text]
     lefts = [painted.rect_of(text).left() for text in expected]

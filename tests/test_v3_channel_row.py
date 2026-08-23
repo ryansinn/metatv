@@ -143,16 +143,29 @@ def test_action_affordance_paints_only_on_hover_or_current(delegate, qapp):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("kind,word", [("movie", "Movie"), ("series", "Series"),
-                                       ("live", "Live")])
-def test_kind_leads_the_meta_line(delegate, kind, word):
-    """The meta line's FIRST painted segment is the kind word, for every kind."""
+                                      ("live", "Live")])
+def test_kind_is_never_repeated_as_a_word(delegate, kind, word):
+    """The mark states the kind; the meta line must not state it again.
+
+    The V3 design called for the kind as the meta line's first word. Against the
+    real library that rendered as "Movie · … / Movie · … / Movie · …" straight
+    down a filtered list — a column of one repeated word occupying the meta
+    line's most valuable position, next to an icon that had already said it
+    (owner report, 2026-08-23). Kind is still structural; it is just not
+    structural twice.
+    """
     _model, index = _index(MEDIA_KIND_ROLE=kind)
     painted = paint_channel_row(delegate, index, rect=ROW)
-    meta = [(rect, cell) for rect, cell in painted.cells
-            if rect.top() > painted.rect_of("The Murky Stream").top()]
-    assert meta, "no meta line was painted"
-    leftmost = min(meta, key=lambda pair: pair[0].left())
-    assert leftmost[1].text == word
+    drawn = {t for _, t, _, _ in painted.texts} | {c.text for _, c in painted.cells}
+    assert word not in drawn, f"the row spelled out {word!r} next to its own mark"
+
+
+def test_the_meta_line_leads_with_the_first_fact_the_mark_cannot_give(delegate):
+    """…and with the kind word gone, the year leads."""
+    _model, index = _index()
+    painted = paint_channel_row(delegate, index, rect=ROW)
+    segments = sorted((rect.left(), c.text) for rect, c in painted.cells if not c.is_chip)
+    assert segments[0][1] == "2024"
 
 
 def test_live_gets_a_square_tile_and_vod_gets_a_poster(delegate):
@@ -217,6 +230,49 @@ def test_live_kind_mark_is_the_accent_and_vod_is_not(delegate, qapp):
 # Rule 3 — only render what exists.
 # ---------------------------------------------------------------------------
 
+def test_the_language_column_never_moves_when_quality_is_absent(delegate):
+    """THE bug this arrangement exists to prevent, reported against the built
+    row on 2026-08-23.
+
+    Quality and the language badge shared a right-aligned rail. A right-aligned
+    group is only stable if every member is always present — and quality is
+    present on 6.6% of rows, so the language badge landed in one column on a 4K
+    row and a different one on the row beneath it, jumping left and right down a
+    scrolling list.
+
+    Quality now paints against the TITLE, where its absence costs a few pixels
+    of title box and nothing else.
+    """
+    _model, with_q = _index(QUALITY_TOKEN_ROLE="4K")
+    _model2, without_q = _index(QUALITY_TOKEN_ROLE="")
+    painted_with = paint_channel_row(delegate, with_q, rect=ROW)
+    painted_without = paint_channel_row(delegate, without_q, rect=ROW)
+
+    assert painted_with.rect_of("EN") == painted_without.rect_of("EN"), (
+        "the language badge moved because this row happened to have a quality "
+        "token — quality must not share a right-aligned group with it"
+    )
+
+
+def test_quality_paints_immediately_after_the_title_text(delegate):
+    """Not after the title BOX, which runs all the way to the rail — offsetting
+    by the box width parks the chip against the rail, where it reads as one more
+    right-hand fact instead of a qualifier on this copy."""
+    _model, index = _index(TITLE_ROLE="Fallout", QUALITY_TOKEN_ROLE="4K")
+    painted = paint_channel_row(delegate, index, rect=QRect(0, 0, 900, 68))
+    title_rect = painted.rect_of("Fallout")
+    quality = painted.rect_of("4K")
+    from PyQt6.QtGui import QFontMetrics
+
+    title_font = next(f for _r, t, _c, f in painted.texts if t == "Fallout")
+    text_end = title_rect.left() + QFontMetrics(title_font).horizontalAdvance("Fallout")
+    assert quality.left() <= text_end + 2 * d._CELL_GAP, (
+        f"quality drifted right: starts at {quality.left()}, title text ends at "
+        f"{text_end}"
+    )
+    assert quality.left() < 900 // 2, "quality parked on the right half of the row"
+
+
 def test_quality_is_rendered_not_reserved(delegate):
     """Quality exists on 6.6% of the library (live 26.2 / movie 3.3 /
     series 2.0). A row without it must give that space back to the title rather
@@ -254,12 +310,29 @@ def test_absent_facts_leave_no_gap_in_the_meta_line(delegate):
     separators, no reserved slots."""
     _model, index = _index(MEDIA_KIND_ROLE="live", YEAR_ROLE="", GENRES_ROLE=(),
                            GENRE_ROLE="", COLLECTION_ROLE="", CATEGORY_ROLE="",
-                           LANGUAGE_ROLE="")
+                           LANGUAGE_ROLE="", QUALITY_TOKEN_ROLE="",
+                           PRIMARY_LANGUAGE_ROLE="")
     painted = paint_channel_row(delegate, index, rect=ROW)
-    meta_texts = [c.text for _, c in painted.cells if c.text == "Live"]
-    assert meta_texts == ["Live"]
+    assert [c.text for _, c in painted.cells] == [], (
+        "a row with no facts painted a meta segment anyway"
+    )
     separators = [t for _, t, _, _ in painted.texts if t == d._META_SEPARATOR]
     assert separators == [], "a separator was painted with nothing after it"
+
+
+def test_a_row_with_no_meta_line_centres_its_title(delegate):
+    """…and it centres rather than sitting at the top of an empty two-line
+    stack. The row's HEIGHT is unchanged — artwork and the density fix that —
+    so a hanging title would just read as a rendering fault."""
+    _model, bare = _index(YEAR_ROLE="", GENRES_ROLE=(), GENRE_ROLE="",
+                          COLLECTION_ROLE="", CATEGORY_ROLE="", LANGUAGE_ROLE="")
+    _model2, full = _index()
+    bare_title = paint_channel_row(delegate, bare, rect=ROW).rect_of("The Murky Stream")
+    full_title = paint_channel_row(delegate, full, rect=ROW).rect_of("The Murky Stream")
+    assert bare_title.top() > full_title.top(), (
+        "a title with no meta line beneath it did not drop to the row's centre"
+    )
+    assert abs(bare_title.center().y() - ROW.center().y()) <= 2
 
 
 def test_meta_segments_are_separated_by_exactly_one_middle_dot(delegate):
@@ -271,9 +344,9 @@ def test_meta_segments_are_separated_by_exactly_one_middle_dot(delegate):
     # definition a rail chip, not a segment. The companion assertion below
     # stops that filter from silently drifting if a segment ever grows a box.
     segments = [c for _, c in painted.cells if not c.is_chip]
-    rail = [c for _, c in painted.cells if c.is_chip]
-    assert {c.text for c in rail} == {"EN", "4K"}, (
-        f"the rail painted something unexpected: {[c.text for c in rail]}"
+    boxed = [c for _, c in painted.cells if c.is_chip]
+    assert {c.text for c in boxed} == {"EN", "4K"}, (
+        f"unexpected boxed cells: {[c.text for c in boxed]}"
     )
     separators = [t for _, t, _, _ in painted.texts if t == "·"]
     assert len(segments) >= 3

@@ -87,8 +87,7 @@ correctness is unit-testable without rendering pixels.
 
 from __future__ import annotations
 
-import re
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import (
@@ -202,64 +201,10 @@ _CHIP_RADIUS = 8      # chip corner radius — matches LANG_CHIP's "border-radiu
                       # (_chip_radius) so a short chip becomes a true pill rather
                       # than an over-rounded lozenge.
 
-# ---------------------------------------------------------------------------
-# Colour conversion — the ONE chokepoint every colour this delegate paints
-# must go through. Never construct a bare QColor(token) at a paint call site.
-# ---------------------------------------------------------------------------
-
-# CSS rgba(r,g,b,a) / rgb(r,g,b) — the format theme_palettes.py's OVERLAY_*
-# tokens use. Whitespace-tolerant; the alpha group is optional (rgb() form).
-_RGBA_RE = re.compile(
-    r'^\s*rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$'
-)
-
-
-def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
-    """Convert a theme token value into a valid, correctly-coloured QColor —
-    the single conversion chokepoint every colour this delegate paints must
-    route through instead of a bare ``QColor(token)`` call.
-
-    ``QColor``'s own string constructor parses ``#RRGGBB``/``#RGB`` hex and
-    Qt/SVG colour NAMES ("gold", "white", ...) — but NOT the CSS
-    CSS functional-notation colour syntax
-    ``theme_palettes.py``'s ``OVERLAY_*`` tokens use. Feeding one of those
-    straight to ``QColor(...)`` silently returns an INVALID colour that
-    paints as OPAQUE BLACK, alpha 255 — a real bug this chokepoint fixes:
-    every chip whose background read an ``OVERLAY_*`` token (language/
-    region/genre/collection, and the outline quality chip's own subtle tint)
-    was painting a solid black box instead of the intended translucent tint.
-    Those ``rgba()`` strings are legitimate CSS for QSS stylesheets; they are
-    simply not valid ``QColor`` constructor input on a raw ``QPainter``
-    surface like this delegate.
-
-    Args:
-        token: A theme token value — ``#RRGGBB``/``#RGB`` hex, an SVG colour
-            name, a CSS functional-notation colour string, an
-            already-constructed ``QColor`` (passed through unchanged — some
-            callers, e.g. ``_resolve_default_color``, already hand this a
-            real ``QColor``), or ``None``/``""``.
-
-    Returns:
-        A ``QColor``. ``rgba()``/``rgb()`` strings are parsed component-wise
-        (alpha via ``setAlphaF``, clamped to ``[0, 1]``); everything else is
-        handed to ``QColor()`` directly (hex/named colours parse correctly
-        there). An empty/unparseable token falls back to ``QColor()`` (Qt's
-        own invalid-black) rather than raising — paint code must never crash
-        the row.
-    """
-    if isinstance(token, QColor):
-        return token
-    if not token:
-        return QColor()
-    match = _RGBA_RE.match(token)
-    if match:
-        r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
-        color = QColor(r, g, b)
-        if match.group(4) is not None:
-            color.setAlphaF(max(0.0, min(1.0, float(match.group(4)))))
-        return color
-    return QColor(token)
-
+# The colour-conversion chokepoint lives in ``token_color`` — see that module
+# for why a bare ``QColor(token)`` is a silent bug. Bound to the private name
+# this file has always used it under.
+from metatv.gui.token_color import to_qcolor as _to_qcolor  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pure rect math — unit-testable without a painter/style.
@@ -285,7 +230,6 @@ def stacked_line_rects(container: QRect, line_height: int, gap: int) -> tuple[QR
 from metatv.gui.channel_row_cells import (  # noqa: E402
     CHIP_SLOT_COLLECTION,
     CHIP_SLOT_GENRE,
-    CHIP_SLOT_KIND,
     CHIP_SLOT_LANGUAGE,
     CHIP_SLOT_LANGUAGE_2,
     CHIP_SLOT_QUALITY,
@@ -297,7 +241,6 @@ from metatv.gui.channel_row_cells import (  # noqa: E402
     ROW_META_ORDER,
     ROW_RAIL_ORDER,
     _KIND_ICON_ROLES,
-    _KIND_LABELS,
     _MAX_GENRES,
     _category_cell,
     _Cell,
@@ -305,7 +248,6 @@ from metatv.gui.channel_row_cells import (  # noqa: E402
     _genre_cell,
     _genre_cells,
     _GENRE_JOINER,
-    _kind_cell,
     _language_cell,
     _ordered,
     _quality_cell,
@@ -475,6 +417,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
         by_slot = self._cells_by_slot(index)
         rail_cells = _ordered(by_slot, ROW_RAIL_ORDER)
         rail_w = self._group_width(QFontMetrics(meta_font), rail_cells)
+        quality_cells = by_slot.get(CHIP_SLOT_QUALITY) or []
+        quality_cell = quality_cells[0] if quality_cells else None
 
         # The ONE call that decides where anything goes. It is handed no
         # selection/hover flag — see channel_row_layout's docstring: row
@@ -509,7 +453,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
                 cell = _edged_on_selection(cell)
             self._paint_cell(painter, rect, cell, meta_font)
 
-        self._paint_text_stack(painter, box.text, index, opt, by_slot, meta_font)
+        self._paint_text_stack(painter, box.text, index, opt, by_slot, meta_font,
+                               quality_cell=quality_cell)
 
         if selected or (opt.state & QStyle.StateFlag.State_MouseOver):
             self._paint_action(painter, box.action)
@@ -837,7 +782,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
             return [cell] if cell is not None else []
 
         return {
-            CHIP_SLOT_KIND: one(_kind_cell(self._kind_of(index))),
             CHIP_SLOT_QUALITY: one(_quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")),
             CHIP_SLOT_VARIANTS: one(_variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1)),
             CHIP_SLOT_GENRE: _genre_cells(
@@ -869,8 +813,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
     # ── The text stack ───────────────────────────────────────────────────────
 
-    def _paint_text_stack(self, painter, box: QRect, index, opt, by_slot, meta_font) -> None:
-        """Title, then the meta line, then (comfy+ only) the plot.
+    def _paint_text_stack(self, painter, box: QRect, index, opt, by_slot, meta_font,
+                          *, quality_cell=None) -> None:
+        """Title (with the quality chip against it), then the meta line, then
+        (comfy+ only) the plot.
 
         Each line is measured with the metrics of the font it is actually
         painted in — eliding a DemiBold title against regular-weight metrics
@@ -881,39 +827,77 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title_h = QFontMetrics(title_font).height()
         meta_h = QFontMetrics(meta_font).height()
         lines = self._line_count(index)
+        meta_cells = _ordered(by_slot, ROW_META_ORDER)
+        plot = index.data(PLOT_ROLE) or ""
+
+        # A row whose every optional fact is absent has no meta line to paint.
+        # Its title centres in the row rather than sitting at the top of an
+        # empty two-line stack — the height is unchanged (artwork and the
+        # density both fix it), only the title's own placement.
+        if lines > 1 and not meta_cells and not plot:
+            lines = 1
 
         stack_h = title_h + (lines - 1) * (meta_h + _LINE_GAP)
         top = box.top() + max(0, (box.height() - stack_h) // 2)
 
         self._paint_title(
-            painter, QRect(box.left(), top, box.width(), title_h), index, opt, title_font
+            painter, QRect(box.left(), top, box.width(), title_h), index, opt,
+            title_font, quality_cell=quality_cell, meta_font=meta_font,
         )
         if lines == 1:
             return
 
         y = top + title_h + _LINE_GAP
         self._paint_meta_line(
-            painter, QRect(box.left(), y, box.width(), meta_h), by_slot, meta_font
+            painter, QRect(box.left(), y, box.width(), meta_h), meta_cells, meta_font
         )
         if lines >= 3:
             y += meta_h + _LINE_GAP
             self._paint_plot_line(
-                painter, QRect(box.left(), y, box.width(), meta_h),
-                index.data(PLOT_ROLE) or "", meta_font,
+                painter, QRect(box.left(), y, box.width(), meta_h), plot, meta_font
             )
 
-    def _paint_title(self, painter, line: QRect, index, opt, title_font) -> None:
+    def _paint_title(self, painter, line: QRect, index, opt, title_font, *,
+                     quality_cell=None, meta_font=None) -> None:
         """The title, elided against a box whose right edge is fixed by
-        ``row_layout`` — so a long title can never displace the rail, and the
-        rail can never be pushed under the action gutter."""
+        ``row_layout``, with the quality chip painted IMMEDIATELY after the
+        title text.
+
+        Quality hugs the title TEXT, not the title BOX: the box runs all the way
+        to the rail, so offsetting by its width parks the chip against the rail
+        instead, where it reads as one more right-hand fact rather than as a
+        qualifier on this copy.
+
+        Why it is here and not in the rail at all: quality exists on 6.6% of
+        rows, and a right-aligned rail containing an optional member puts every
+        member LEFT of it in a different column depending on that member's
+        presence — the language badge visibly jumped down a scrolling list.
+        Against the title, quality's absence costs nothing but a few pixels of
+        title box, and the language column never moves.
+        """
         leading = self._paint_leading_glyphs(painter, line, index, title_font)
         title = index.data(TITLE_ROLE) or ""
-        width = max(0, line.right() - leading + 1)
-        elided = QFontMetrics(title_font).elidedText(
-            title, Qt.TextElideMode.ElideRight, width
-        )
-        self._draw_text(painter, QRect(leading, line.top(), width, line.height()),
+        title_fm = QFontMetrics(title_font)
+        chip_font = meta_font if meta_font is not None else opt.font
+        quality_w = (self._cell_width(QFontMetrics(chip_font), quality_cell)
+                     if quality_cell else 0)
+
+        box_w = max(0, line.right() - leading + 1
+                    - (quality_w + _CELL_GAP if quality_cell else 0))
+        elided = title_fm.elidedText(title, Qt.TextElideMode.ElideRight, box_w)
+        self._draw_text(painter, QRect(leading, line.top(), box_w, line.height()),
                         elided, self._title_color(opt, index), title_font)
+
+        if quality_cell:
+            title_w = min(title_fm.horizontalAdvance(elided), box_w)
+            chip_h = min(_layout.CHIP_H, line.height())
+            self._paint_cell(
+                painter,
+                QRect(leading + title_w + _CELL_GAP,
+                      line.top() + max(0, (line.height() - chip_h) // 2),
+                      quality_w, chip_h),
+                quality_cell, chip_font,
+            )
 
     def _paint_leading_glyphs(self, painter, line: QRect, index, font) -> int:
         """The favourite star, the playback glyph (·/▶/✓) and the unviewed
@@ -948,9 +932,9 @@ class ChannelRowDelegate(QStyledItemDelegate):
             x += w
         return x
 
-    def _paint_meta_line(self, painter, line: QRect, by_slot, font) -> None:
-        """``Movie · 2000 · Thriller / Drama · Anime`` — one run of tier-2
-        tinted segments joined by :data:`_META_SEPARATOR`.
+    def _paint_meta_line(self, painter, line: QRect, cells, font) -> None:
+        """``2000 · Thriller / Drama · Anime`` — one run of tier-2 tinted
+        segments joined by :data:`_META_SEPARATOR`.
 
         Segments are painted left to right and STOP at the line's right edge
         rather than eliding the run: a half-drawn ``Thrill…`` says less than an
@@ -963,7 +947,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         sep_w = fm.horizontalAdvance(_META_SEPARATOR)
         x = line.left()
         first = True
-        for cell in _ordered(by_slot, ROW_META_ORDER):
+        for cell in cells:
             width = fm.horizontalAdvance(cell.text)
             advance = width if first else sep_w + 2 * _META_GAP + width
             if x + advance > line.right() + 1:

@@ -89,8 +89,6 @@ def _edged_on_selection(cell: _Cell) -> _Cell:
 # Chip order — ONE definition, deliberately not emergent from the paint code.
 # ---------------------------------------------------------------------------
 
-CHIP_SLOT_KIND = "kind"              # "Movie"/"Series"/"Live" — the meta line's
-                                     # first word, and the row's one always-present fact
 CHIP_SLOT_QUALITY = "quality"
 CHIP_SLOT_VARIANTS = "variants"
 CHIP_SLOT_GENRE = "genre"
@@ -104,16 +102,18 @@ CHIP_SLOT_LANGUAGE = "language"
 #: The META LINE, left to right — one run of tinted text segments joined by
 #: ``·``, which is tier 2 ("tinted text, no box") applied to a whole line.
 #:
-#: Kind leads because kind is STRUCTURAL in V3: a series and a live channel do
-#: not have the same facts, so the word that tells you which you are looking at
-#: has to come before the facts that depend on it.
+#: **No kind word.** The row states its kind with the mark in its own gutter,
+#: and a list filtered to movies read "Movie · … / Movie · … / Movie · …" down
+#: every row — a column of the same word, spending the meta line's most valuable
+#: position on the one fact the icon beside it had already made unambiguous
+#: (owner report, against the real library). Kind is still structural; it is
+#: just not structural TWICE.
 #:
 #: The year lost its outline box here. #298 gave it one so it would not read as
 #: part of whatever text abutted it — a real problem when it sat loose in a
 #: right-hand rail. Inside a ``·``-separated line the separator does that job,
 #: and a box around one segment of a sentence is louder than the sentence.
 ROW_META_ORDER: tuple[str, ...] = (
-    CHIP_SLOT_KIND,
     CHIP_SLOT_YEAR,
     CHIP_SLOT_REGION,
     CHIP_SLOT_GENRE,
@@ -124,23 +124,30 @@ ROW_META_ORDER: tuple[str, ...] = (
 #: The RIGHT-HAND RAIL, left to right, right-aligned as a group against the
 #: action gutter.
 #:
-#: Only two kinds of thing earn a box in V3: the language family (tier 1, the
-#: row's one fill — owner's call, #298) and quality (tier 3, the row's one
-#: CLAIM). Quality sits furthest right so the ``4K`` column lands in the same
-#: place on every row that has one; the language family reads inward from it.
+#: **The language family only, and quality is deliberately NOT here.** Quality
+#: sits immediately after the title instead (see ``_paint_title``), for the
+#: reason that outranks tidiness: it is present on 6.6% of rows, so a rail
+#: holding both put the language badge in a DIFFERENT COLUMN depending on
+#: whether this particular row happened to have a quality token — the language
+#: badge visibly jumped left and right down a scrolling list (owner report).
 #:
-#: Ratings are NOT here and are not anywhere in the row: they are not objective,
+#: A right-aligned group is only stable if every member is always present. The
+#: language family is: the channel's OWN language is flush right (owner spec,
+#: #298), and the optional secondary/sub-dub markers extend LEFTWARD from it, so
+#: the column a reader actually tracks never moves.
+#:
+#: Ratings are not here and are not anywhere in the row: they are not objective,
 #: and in this library the top of the range is a wall of identical 10.0s.
 ROW_RAIL_ORDER: tuple[str, ...] = (
     CHIP_SLOT_SUBTITLE,
     CHIP_SLOT_LANGUAGE_2,
     CHIP_SLOT_LANGUAGE,
-    CHIP_SLOT_QUALITY,
 )
 
 #: Every slot the row can paint, in reading order — kept as ONE declaration so
-#: a future Settings → Interface reorder has a single tuple to permute.
-ROW_CHIP_ORDER: tuple[str, ...] = ROW_META_ORDER + ROW_RAIL_ORDER
+#: a future Settings → Interface reorder has a single tuple to permute. Quality
+#: leads because it is painted FIRST, against the title.
+ROW_CHIP_ORDER: tuple[str, ...] = (CHIP_SLOT_QUALITY,) + ROW_META_ORDER + ROW_RAIL_ORDER
 
 #: How many genres a row will show before it stops (#298 — "show multiple
 #: genres when present"). ``detected_genres`` regularly holds 4+ segments;
@@ -180,33 +187,14 @@ def _region_label(code: str) -> str:
 # Cell builders — map a raw role value to a paintable _Cell (or None to omit).
 # ---------------------------------------------------------------------------
 
-#: The kind word each media kind contributes to the meta line. Not a lookup
-#: table of channel-name data (those live in ``channel_name_utils``) — these are
-#: UI labels for the three kinds ``channel_list_model.MEDIA_KINDS`` publishes.
-_KIND_LABELS: dict[str, str] = {"live": "Live", "movie": "Movie", "series": "Series"}
-
 #: Semantic icon role per kind, resolved through ``icons.vector_key`` — the row
 #: never names an icon-pack key itself.
+#:
+#: There is no matching table of kind WORDS any more. The row used to open its
+#: meta line with "Movie"/"Series"/"Live"; against the real library that
+#: rendered as the same word repeated down every row of a filtered list, saying
+#: nothing the mark in the gutter had not already said.
 _KIND_ICON_ROLES: dict[str, str] = {"live": "live", "movie": "movie", "series": "series"}
-
-
-def _kind_cell(kind: str) -> Optional[_Cell]:
-    """The meta line's first word — TIER 2, neutral text.
-
-    Neutral rather than hued on purpose: kind is not a facet in the tag system
-    (``tag_decomposer`` emits audio/collection/genre/language/quality/region),
-    and the row already states kind twice over in the mark and the artwork
-    shape. A fourth hue here would be inventing an encoding for a fact that is
-    already unambiguous.
-
-    Not filterable for the same reason — the media filter is a different
-    control, and a segment that grows a pointing hand and then does nothing is
-    worse than one that plainly just labels itself.
-    """
-    label = _KIND_LABELS.get(kind, "")
-    if not label:
-        return None
-    return _Cell(label, False, _theme.COLOR_ROW_META)
 
 
 def _year_cell(year) -> Optional[_Cell]:

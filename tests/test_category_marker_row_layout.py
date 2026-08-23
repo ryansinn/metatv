@@ -458,25 +458,34 @@ class TestV3MetaLine:
             f"unexpected boxed cells: {sorted(boxed)}"
         )
 
-    def test_rail_is_right_aligned_with_quality_outermost(self, qapp):
-        """Quality lands in the same column on every row that has one, so it
-        sits furthest right; the language family reads inward from it."""
+    def test_rail_is_the_language_family_right_aligned(self, qapp):
+        """The channel's OWN language is flush right (owner spec, #298) and the
+        optional secondary/sub-dub markers extend LEFTWARD from it — so the
+        column a reader tracks never moves when a marker is absent.
+
+        Quality is deliberately NOT in this group: it is optional, and an
+        optional member of a right-aligned group shifts every member left of it.
+        """
         _delegate, painted = self._painted(
             PRIMARY_LANGUAGE_ROLE="EN", SECONDARY_LANGUAGE_ROLE="AR",
             SUBTITLE_MARKER_ROLE="AR-SUB", QUALITY_TOKEN_ROLE="4K",
         )
-        order = sorted(
-            ((rect.left(), c.text) for rect, c in painted.cells if c.is_chip),
-        )
-        assert [text for _, text in order] == ["AR-SUB", "AR", "EN", quality_display("4K")]
-        rightmost = order[-1][1]
-        assert rightmost == quality_display("4K")
-        # …and flush against the reserved action gutter, not floating mid-row.
         from metatv.gui import channel_row_layout as _layout
 
         box = _layout.row_layout(self.ROW, has_art=True, art_square=False, rail_w=0)
-        assert painted.rect_of(quality_display("4K")).right() <= box.action.left()
-        assert painted.rect_of(quality_display("4K")).right() > self.ROW.width() // 2
+        rail = sorted((rect.left(), c.text) for rect, c in painted.cells
+                      if c.is_chip and rect.left() > self.ROW.width() // 2)
+        assert [text for _, text in rail] == ["AR-SUB", "AR", "EN"]
+        en = painted.rect_of("EN")
+        assert en.right() <= box.action.left(), "the rail runs under the action gutter"
+        assert en.right() > self.ROW.width() // 2
+
+        # …and the same row without the optional markers puts EN in the SAME column.
+        _d2, bare = self._painted(
+            PRIMARY_LANGUAGE_ROLE="EN", SECONDARY_LANGUAGE_ROLE="",
+            SUBTITLE_MARKER_ROLE="", QUALITY_TOKEN_ROLE="",
+        )
+        assert bare.rect_of("EN") == en
 
     def test_absent_marker_fields_paint_nothing(self, qapp):
         """A row with no secondary language and no sub/dub marker paints

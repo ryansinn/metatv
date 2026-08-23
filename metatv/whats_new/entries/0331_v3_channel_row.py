@@ -10,12 +10,14 @@ ENTRY = WhatsNewEntry(
         "and a piece of artwork shaped to match: a poster for movies and "
         "series, a square tile for live channels, whose logos are square.",
         "Underneath the title is a single readable line of facts instead of a "
-        "scatter of coloured chips: 'Movie · 2000 · Thriller / Drama · "
-        "Anime'. The language badge and the quality badge keep their own "
-        "column at the right, so 4K always lands in the same place.",
-        "Quality only appears on the rows that have it — it exists on about "
-        "one row in fifteen, and reserving a column for it made every other "
-        "row look like it was missing something.",
+        "scatter of coloured chips: '2000 · Thriller / Drama · Anime'. The "
+        "kind is not spelled out there — the mark at the left already says "
+        "it, and a list of films read 'Movie' down every single row.",
+        "The quality badge sits right after the title, and the language badge "
+        "has its own fixed column at the right. That pairing is deliberate: "
+        "quality is on about one row in fifteen, so if the two shared a "
+        "right-aligned group the language badge would jump left and right "
+        "down the list depending on which rows happened to have a 4K tag.",
         "Selecting a row no longer moves anything in it. The '…' actions "
         "button has a permanently reserved slot at the right edge and is "
         "simply painted in when you hover or select — click it for the same "
@@ -33,7 +35,11 @@ ENTRY = WhatsNewEntry(
     test_steps=(
         "Open Search and look at the channel list — every row should show a "
         "kind mark at the far left, then artwork, then the title with a "
-        "facts line beneath it.",
+        "facts line beneath it, and NO 'Movie'/'Series'/'Live' word in that "
+        "facts line.",
+        "Scroll a list where only some rows have a 4K/HD badge → the language "
+        "badge stays in exactly the same column on every row, and the quality "
+        "badge sits immediately after each title.",
         "Find a live channel and a movie in the same list → the live "
         "channel's tile is SQUARE and its mark is accent-coloured; the "
         "movie's artwork is a tall poster and its mark is grey.",
