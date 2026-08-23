@@ -39,6 +39,7 @@ from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_series import _SeriesMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
+from metatv.gui.app_header import _AppHeaderMixin
 from metatv.gui.main_window_style_menu import _StyleMenuMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories.provider import parse_provider_urls
@@ -113,29 +114,7 @@ from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 
 
-class _ClickableNavLabel(QLabel):
-    """A QLabel variant that emits ``clicked`` on left mouse-press.
-
-    Used for the playback-health readout in the bottom nav bar so the user
-    can click to cycle between open player windows.  Does NOT replicate the
-    clipboard behaviour of ``details_sections._ClickableLabel`` — it is purely
-    a click-event bridge.
-    """
-
-    clicked = _pyqtSignal()
-
-    def __init__(self, text: str = "", parent=None):
-        super().__init__(text, parent)
-        cursor_affordance.set_clickable(self)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
-
-
-
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, QMainWindow):
+class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -834,8 +813,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # _schedule_layout_save; the raw splitterMoved fires per drag pixel).
         self.main_splitter.splitterMoved.connect(self._schedule_layout_save)
         
+        main_layout.insertWidget(0, self._create_header())
         main_layout.addWidget(self.main_splitter, 1)
-        main_layout.addWidget(self._create_bottom_nav_bar())
 
         # Create status bar
         self.status_bar = QStatusBar()
@@ -872,8 +851,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._build_buffer_menu(menubar)
         
         # Tools menu
-        tools_menu = menubar.addMenu("&Tools")
+        tools_menu = self._tools_menu = menubar.addMenu("&Tools")
         tools_menu.addAction("&Diagnostics", self.show_diagnostics)
+        # Stream-quality diagnosis of the SELECTED channel. It had its own
+        # permanent button in the bottom bar, which put a niche action on
+        # screen beside the primary navigation forever; the header's Tools
+        # button opens this menu instead (R5).
+        tools_menu.addAction("Diagnose &stream quality", self.on_diagnose_clicked)
         tools_menu.addAction("&Filters", self.manage_filters)
         missing_tmdb_action = QAction(
             f"{_icons.missing_data_icon}  Missing TMDb Data", self
@@ -1484,108 +1468,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 self.config.save()
             self._refresh_watch_alerts()
 
-    def _create_bottom_nav_bar(self) -> QWidget:
-        """Build the full-width bottom tab bar with nav chips and Exclusions control."""
-        bar = self._bottom_nav_bar = QWidget()
-        bar.setObjectName("bottomNavBar")
-        _theme.style_fn(bar, lambda: f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE}; }}")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(4)
-
-        # Nav chip group — one segmented track, not five floating pills.
-        # Five pills separated by 30px of nothing gave the five primary views
-        # no grouping and no edges: they read as loose buttons, and the active
-        # one was a small filled lozenge rather than an obviously-current tab.
-        # As a track they share one outline, one hairline per boundary, and the
-        # active view fills its whole cell.
-        nav_group = self._nav_track = QWidget()
-        nav_group.setObjectName("navTrack")
-        _theme.style_fn(nav_group, lambda: (
-            f"#navTrack {{ background: {_theme.COLOR_BG_CARD};"
-            f" border: 1px solid {_theme.COLOR_BORDER};"
-            f" border-radius: {ToggleChip.SEGMENT_RADIUS + 1}px; }}"
-        ))
-        nav_layout = QHBoxLayout(nav_group)
-        # Zero margins and zero spacing are load-bearing: any gap here would
-        # show the track's fill between cells and break the shared-edge look.
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(0)
-
-        specs = [
-            ("search_chip", "Search", "search", "Channel list and search",
-             self.on_search_view_toggle),
-            ("epg_chip", "EPG", "epg",
-             "EPG — programme guide, watchlist, on-now",
-             self.on_special_view_toggle),
-            ("prefs_chip", "Recommended", "recommended",
-             "Personalised recommendations", self.on_preferences_view_toggle),
-            ("discover_chip", "Discover", "discover",
-             "Browse by genre, decade, actor, director",
-             self.on_discover_view_toggle),
-            ("recipe_chip", "Recipe", "recipe",
-             "Build a recipe from facets — genre, language, region, decade…",
-             self.on_recipe_view_toggle),
-        ]
-        for i, (attr, label, role, tip, slot) in enumerate(specs):
-            segment = ("first" if i == 0
-                       else "last" if i == len(specs) - 1
-                       else "middle")
-            chip = ToggleChip(label, enabled=(i == 0), vector_role=role,
-                              segment=segment)
-            chip.setToolTip(tip)
-            chip.clicked.connect(slot)
-            setattr(self, attr, chip)
-            nav_layout.addWidget(chip)
-
-        # Diagnose action — far-left, mirrors the Exclusions chip on the right
-        self._diagnose_btn = QPushButton(_icons.diagnose_icon)
-        self._diagnose_btn.setFlat(True)
-        self._diagnose_btn.setToolTip(
-            "Diagnose stream quality of the selected channel — "
-            "is buffering your source or your connection?"
-        )
-        _theme.style(self._diagnose_btn, "FLAT_NAV_BTN")
-        self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)
-        layout.addWidget(self._diagnose_btn)
-
-        # Split-streams toggle — one player window per source when ON.
-        self._split_toggle_btn = QPushButton(f"{_icons.split_icon} Split")
-        self._split_toggle_btn.setCheckable(True)
-        self._split_toggle_btn.setChecked(
-            getattr(self.config, "split_streams_by_source", False)
-        )
-        _theme.style(self._split_toggle_btn, "NAV_TOGGLE_BTN")
-        self._split_toggle_btn.setToolTip(
-            "Split streams — keep one player window per source.\n"
-            "Off: each play replaces the shared window.\n"
-            "On: a different source opens in its own window."
-        )
-        self._split_toggle_btn.toggled.connect(self.on_split_toggle_clicked)
-        layout.addWidget(self._split_toggle_btn)
-
-        # Live playback-health readout — only visible while mpv is actively playing.
-        self._playback_health_label = _ClickableNavLabel("")
-        self._playback_health_label.setToolTip(
-            "Live playback health (buffer · download speed · dropped frames)"
-        )
-        _theme.style(self._playback_health_label, "NAV_HEALTH")
-        self._playback_health_label.hide()
-        self._playback_health_label.clicked.connect(self._on_health_readout_clicked)
-        layout.addWidget(self._playback_health_label)
-
-        layout.addStretch(1)
-        layout.addWidget(nav_group)
-        layout.addStretch(1)
-
-        self._filter_chip = FilterChip("Exclusions")
-        self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
-        self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
-        layout.addWidget(self._filter_chip)
-
-        QTimer.singleShot(0, self._update_filter_btn_state)
-        return bar
-
     def on_diagnose_clicked(self) -> None:
         """Diagnose the currently-selected channel's stream (nav-bar action)."""
         channel = getattr(self.details_pane, "current_channel", None)
@@ -1690,11 +1572,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         _cfc_layout.addWidget(self._context_filter_dismiss_btn)
         controls_layout.addWidget(self._context_filter_chip)
 
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Filter channels by name, category...")
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self._on_search_text_changed)
-        controls_layout.addWidget(self.search_input)
+        # The search box used to sit here and was the row's stretching widget.
+        # With it moved to the header, nothing absorbed the slack and the
+        # All/Hidden pair stretched to half the window. An explicit stretch
+        # keeps them their natural size and pins "Group by type" to the right.
+        controls_layout.addStretch(1)
 
         # Opt-in "Group by type" toggle — groups the results into collapsible
         # Movies / Series / Live sections. OFF by default (flat list). State is
@@ -2459,11 +2341,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         if hasattr(self, "_settings_btn"):
             _theme.style(self._settings_btn, "FLAT_NAV_BTN")
-        if hasattr(self, "_bottom_nav_bar"):
-            _theme.style_fn(self._bottom_nav_bar, lambda: f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR};"
-                f" border-top: 1px solid {_theme.COLOR_LINE}; }}")
-        if hasattr(self, "_diagnose_btn"):
-            _theme.style(self._diagnose_btn, "FLAT_NAV_BTN")
+        if hasattr(self, "_tools_btn"):
+            _theme.style(self._tools_btn, "NAV_TOGGLE_BTN")
         if hasattr(self, "_split_toggle_btn"):
             _theme.style(self._split_toggle_btn, "NAV_TOGGLE_BTN")
         if hasattr(self, "_playback_health_label"):

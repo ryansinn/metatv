@@ -866,6 +866,35 @@ def wire_hide_channel_banners(host) -> None:
     host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)
 
 
+def wire_header_search_sync(host) -> None:
+    """Give a skeleton nav host ``_sync_header_search_visibility``.
+
+    The V3 header owns the search box, and the three places that show/hide the
+    content-area controls row now keep the header's box in step with it — the
+    box filters the channel list, so it is meaningless on EPG, Recommended,
+    Discover and Recipe.
+
+    Those three call sites live in ``_NavMixin``; the method lives on
+    ``MainWindow``. The real window has both, but the nav tests build a bare
+    ``_NavMixin`` via ``__new__`` and therefore do not — which is the same
+    shape of break CLAUDE.md records for ``_hide_channel_banners``, and the
+    same fix: repair at this factory, never with a ``hasattr`` guard in
+    production, which would mask a genuinely missing method in the real window.
+
+    Binds the REAL implementation, so a regression in it still surfaces here.
+    It is safe on a skeleton: the method guards with ``hasattr(self,
+    "search_input")`` on a plain attribute the skeleton simply lacks.
+
+    Args:
+        host: Any object standing in for ``MainWindow`` in a nav test.
+    """
+    from metatv.gui.main_window import MainWindow
+
+    host._sync_header_search_visibility = (
+        MainWindow._sync_header_search_visibility.__get__(host)
+    )
+
+
 def wire_shutdown_flag(host):
     """Set the shutdown flag ``MainWindow.__init__`` sets, on a bare skeleton.
 

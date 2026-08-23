@@ -141,7 +141,11 @@ class TestMainWindowRefreshThemeSweepsPromotedWidgets:
 
     def test_sweeps_promoted_locals_and_filter_panel(self, qapp):
         settings_btn = MagicMock()
-        bottom_nav_bar = MagicMock()
+        # The bottom nav bar is gone — Option A moved the switcher into a
+        # header, which frees the bar entirely. The header styles itself
+        # through theme.style_fn builders in app_header.py, so it is NOT part
+        # of this hand-maintained sweep and correctly absent here.
+        tools_btn = MagicMock()
         hidden_banner_lbl = MagicMock()
         context_filter_dismiss_btn = MagicMock()
         filter_panel = MagicMock()
@@ -149,7 +153,7 @@ class TestMainWindowRefreshThemeSweepsPromotedWidgets:
         fake_self = SimpleNamespace(
             config=SimpleNamespace(theme_name="Daylight"),
             _settings_btn=settings_btn,
-            _bottom_nav_bar=bottom_nav_bar,
+            _tools_btn=tools_btn,
             _hidden_banner_lbl=hidden_banner_lbl,
             _context_filter_dismiss_btn=context_filter_dismiss_btn,
             filter_panel=filter_panel,
@@ -158,7 +162,7 @@ class TestMainWindowRefreshThemeSweepsPromotedWidgets:
         MainWindow.refresh_theme(fake_self)
 
         settings_btn.setStyleSheet.assert_called_once_with(theme.FLAT_NAV_BTN)
-        bottom_nav_bar.setStyleSheet.assert_called_once()
+        tools_btn.setStyleSheet.assert_called_once()
         hidden_banner_lbl.setStyleSheet.assert_called_once()
         context_filter_dismiss_btn.setStyleSheet.assert_called_once_with(
             theme.CONTEXT_FILTER_CHIP_BTN
