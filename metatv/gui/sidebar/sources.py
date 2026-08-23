@@ -253,7 +253,8 @@ class SourcesSection(CollapsibleSection):
         # tree rebuild in refresh() so the spinner/disabled state is re-applied.
         self._busy_ids: set[str] = set()
         self._item_widgets: dict[str, "ProviderItemWidget"] = {}
-        super().__init__("Sources", config.provider_icon, config, parent)
+        super().__init__("Sources", config.provider_icon, config, parent,
+                         vector_role="sources")
 
     def get_section_id(self):
         return "sources"
@@ -263,7 +264,7 @@ class SourcesSection(CollapsibleSection):
         header = self._build_clickable_header()
         header_layout = header.layout()
 
-        self.title_label = QLabel(f"{self.config.provider_icon} <b>Sources</b>")
+        self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 

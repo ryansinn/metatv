@@ -1,6 +1,6 @@
 """HistorySection."""
 
-from PyQt6.QtWidgets import QLabel, QPushButton, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
@@ -27,7 +27,8 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("History", config.history_icon, config, parent)
+        super().__init__("History", config.history_icon, config, parent,
+                         vector_role="history")
         self._init_background_refresh()
 
     def get_section_id(self):
@@ -37,7 +38,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         """Header with an "Explore →" link that opens the Watch-History trail-map."""
         header = self._build_clickable_header()
         hl = header.layout()
-        self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
+        self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch()
         self._add_explore_link(hl)

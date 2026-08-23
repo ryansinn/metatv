@@ -9,6 +9,8 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
@@ -272,10 +274,17 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     ROW_H: int = 24        # one content row, incl. its sub-line
     HEADER_H: int = 26
 
-    def __init__(self, title: str, icon: str, config, parent=None):
+    def __init__(self, title: str, icon: str, config, parent=None,
+                 vector_role: str | None = None):
         super().__init__(parent)
         self.title = title
         self.icon = icon
+        # Semantic key into icons.VECTOR_KEYS. When set, the header draws a
+        # monochrome vector glyph that follows the palette instead of *icon*,
+        # which is an emoji and therefore fixed-colour and platform-dependent.
+        # Left None the section keeps its emoji, so this converts section by
+        # section rather than in one flag day.
+        self.vector_role = vector_role
         self.config = config
         self.is_collapsed = False
         self.is_empty = True
@@ -407,13 +416,56 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         self.explore_btn = btn
         return btn
 
+    def header_tint(self) -> str | None:
+        """Colour for the header icon, or ``None`` for the default text colour.
+
+        A method rather than a constructor argument on purpose: it is called
+        from inside the ``style_fn`` builder, so overriding it with a live token
+        read (``_theme.COLOR_GOLD``) re-resolves on every palette switch. A
+        value passed in at construction would be the old palette's hex forever.
+        """
+        return None
+
+    def _title_html(self) -> str:
+        """The header's icon-and-title rich text for the CURRENT palette."""
+        if self.vector_role:
+            glyph = _icon_utils.inline_icon_html(
+                _icons.vector_key(self.vector_role),
+                self.header_tint() or _theme.COLOR_TEXT,
+            )
+            if glyph:
+                return f"{glyph} <b>{self.title}</b>"
+        # No role, or the icon pack failed to resolve — keep the emoji.
+        return f"{self.icon} <b>{self.title}</b>"
+
+    def make_title_label(self) -> QLabel:
+        """Build the header title label and keep its icon on-palette.
+
+        The single place a section header's title is constructed. Five sections
+        had grown their own copy of this line, which is how the gold Favorites
+        star and the plain ones drifted apart in the first place; a new header
+        affordance now lands in one file instead of five.
+
+        Registered through ``theme.style_fn`` because that is what a palette
+        switch re-invokes — and re-rendering the glyph is the whole point, since
+        an already-rasterised PNG cannot change colour on its own.
+        """
+        label = QLabel()
+        label.setTextFormat(Qt.TextFormat.RichText)
+
+        def _build() -> str:
+            label.setText(self._title_html())
+            return ""      # the label carries no sheet of its own
+
+        _theme.style_fn(label, _build)
+        return label
+
     def create_header(self):
         """Create collapsible header with title and toggle button."""
         header = self._build_clickable_header()
         header_layout = header.layout()
 
-        # Title with icon
-        self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
+        self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         self._add_header_actions(header_layout)

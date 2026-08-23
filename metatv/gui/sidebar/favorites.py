@@ -1,7 +1,7 @@
 """FavoritesSection sidebar widget."""
 
 from PyQt6.QtWidgets import (
-    QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
+    QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
@@ -38,21 +38,27 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     def __init__(self, config, db, parent=None):
         self.db = db
         self._has_unavailable = False
-        super().__init__("Favorites", config.favorite_icon, config, parent)
+        super().__init__("Favorites", config.favorite_icon, config, parent,
+                         vector_role="favorite")
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
         return "favorites"
 
+    def header_tint(self) -> str | None:
+        """Favourites keeps its gold star — the one section with a tinted icon.
+
+        Read through the override rather than baked into the label at build
+        time, so the star re-resolves against whichever palette is active.
+        """
+        return _theme.COLOR_GOLD
+
     def create_header(self):
         """Header with an "Explore →" link that opens the Favorites trail-map."""
         header = self._build_clickable_header()
         hl = header.layout()
-        self.title_label = QLabel(
-            f'<span style="color:{_theme.COLOR_GOLD}">{self.icon}</span> <b>{self.title}</b>'
-        )
-        self.title_label.setTextFormat(Qt.TextFormat.RichText)
+        self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch()
         self._add_explore_link(hl)

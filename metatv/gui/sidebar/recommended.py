@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import (
-    QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget,
+    QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from loguru import logger
@@ -39,7 +39,8 @@ class RecommendedSection(CollapsibleSection):
     def __init__(self, config, db, parent=None):
         self.db = db
         self._executor = ThreadPoolExecutor(max_workers=1)
-        super().__init__("Recommended", config.preferences_icon, config, parent)
+        super().__init__("Recommended", config.preferences_icon, config, parent,
+                         vector_role="recommended")
         self._rec_data_ready.connect(self._on_rec_data_ready)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -50,7 +51,7 @@ class RecommendedSection(CollapsibleSection):
         header = self._build_clickable_header()
         hl = header.layout()
 
-        self.title_label = QLabel(f"{self.config.preferences_icon} <b>Recommended</b>")
+        self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch()
 
