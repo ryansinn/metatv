@@ -609,8 +609,7 @@ class _EpgOnNowMixin:
                 self._show_hide_dialog(title, ch_id, ch_name, category)
 
     def _on_now_context_menu(self, pos) -> None:
-        from metatv.core.repositories import RepositoryFactory
-
+        """On Now's menu — the channel-id core plus this tree's own extras."""
         # Slice 3C: group header rows carry no channel and aren't ItemIsSelectable,
         # but filter defensively in case a future Qt version selects them anyway.
         items = [i for i in self.on_now_list.selectedItems() if i.parent() is not None]
@@ -618,13 +617,46 @@ class _EpgOnNowMixin:
             return
 
         ch_ids = [i.data(0, Qt.ItemDataRole.UserRole) for i in items]
-        valid_ch_ids = [cid for cid in ch_ids if cid]
-        is_single = len(items) == 1
+        self.show_epg_channel_menu(
+            ch_ids,
+            "epg_on_now",
+            self.on_now_list.viewport().mapToGlobal(pos),
+            items=items,
+        )
+
+    def show_epg_channel_menu(self, channel_ids: list, surface: str, global_pos,
+                              *, items: list | None = None) -> None:
+        """Build and exec the channel menu for any EPG surface.
+
+        The single seam every EPG surface asks for a channel menu, rather than
+        one menu per surface: My Channels had NO menu at all and no click
+        handler either, so a pinned channel with no guide data offered a ``✕``
+        and nothing else (owner report, 2026-08-23). Growing a second menu for
+        it would have been the third copy of this wiring.
+
+        Everything derivable from a channel id is built here. *items* is the
+        one genuinely tree-specific part — track-show, assign-category and
+        hide-title all read columns off a ``QTreeWidgetItem`` — so those three
+        actions are offered only when a caller has items to give.
+
+        Args:
+            channel_ids: Selected channel ids (may contain falsy entries, which
+                are filtered for context but kept for the menu's own bookkeeping).
+            surface: The ``SURFACE_LAYOUTS`` key for this surface.
+            global_pos: Where to pop the menu up, in global coordinates.
+            items: Tree rows behind the selection, when the caller has them.
+        """
+        from metatv.core.repositories import RepositoryFactory
+
+        valid_ch_ids = [cid for cid in channel_ids if cid]
+        if not channel_ids:
+            return
+        is_single = len(channel_ids) == 1
 
         # ── Build context ────────────────────────────────────────────────────
         ctx_kwargs: dict = dict(
-            channel_ids=valid_ch_ids or ch_ids,
-            surface="epg_on_now",
+            channel_ids=valid_ch_ids or list(channel_ids),
+            surface=surface,
         )
 
         if is_single and valid_ch_ids:
@@ -707,7 +739,6 @@ class _EpgOnNowMixin:
         # EPG-extra handlers
         watched = [cid for cid in valid_ch_ids if cid in self.config.epg_watchlist_channels]
         unwatched = [cid for cid in valid_ch_ids if cid not in self.config.epg_watchlist_channels]
-        items_snap = items[:]
         valid_ids_snap = valid_ch_ids[:]
 
         if unwatched:
@@ -722,14 +753,7 @@ class _EpgOnNowMixin:
                 self._unwatch_channel(c) for c in ids
             ]
 
-        # Track show — only when there are recognizable show titles
-        show_titles = list({
-            i.text(3).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
-        })
-        if show_titles:
-            handlers["epg_track_show"] = lambda its=items_snap: self._track_shows_from_items(its)
-
-        handlers["epg_assign_category"] = lambda its=items_snap: self._bulk_assign_category(its)
+        handlers["epg_hide_channel"] = lambda ids=valid_ids_snap: self._bulk_hide_channels(ids)
 
         has_override = any(
             cid in self.config.epg_category_overrides for cid in valid_ch_ids
@@ -739,11 +763,25 @@ class _EpgOnNowMixin:
                 self._remove_category_overrides(ids)
             )
 
-        handlers["epg_hide_channel"] = lambda ids=valid_ids_snap: self._bulk_hide_channels(ids)
-        handlers["epg_hide_show"] = lambda its=items_snap: self._bulk_hide_titles(its)
+        # ── Tree-only handlers — every one of these reads a column off the row
+        # behind the selection, so a surface without rows simply doesn't offer
+        # them rather than offering an action that cannot work.
+        if items:
+            items_snap = items[:]
+            show_titles = list({
+                i.text(3).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
+            })
+            if show_titles:
+                handlers["epg_track_show"] = lambda its=items_snap: (
+                    self._track_shows_from_items(its)
+                )
+            handlers["epg_assign_category"] = lambda its=items_snap: (
+                self._bulk_assign_category(its)
+            )
+            handlers["epg_hide_show"] = lambda its=items_snap: self._bulk_hide_titles(its)
 
         menu = build_channel_menu(ctx, handlers, parent=self)
-        menu.exec(self.on_now_list.viewport().mapToGlobal(pos))
+        menu.exec(global_pos)
 
     def _bulk_assign_category(self, items: list[QTreeWidgetItem]) -> None:
         dlg = _AssignCategoryDialog(self._known_categories(), self)

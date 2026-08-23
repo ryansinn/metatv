@@ -218,7 +218,7 @@ class MetadataManager:
             return None
         if lookup is None:
             return None
-        cached_result, ch_name, ch_media_type = lookup
+        cached_result, stale_result, ch_name, ch_media_type = lookup
         if cached_result is not None:
             logger.debug(f"Using cached metadata for {ch_name}")
             return cached_result
@@ -271,19 +271,34 @@ class MetadataManager:
 
         # Save to cache if we got any data
         if not (result.title or result.plot or result.poster_url):
+            # The refetch came back empty. That is a statement about the
+            # PROVIDERS, not about the title — so if we already had something
+            # stored, keep showing it rather than reporting the title has no
+            # metadata. Returning None here is what left a details pane blank
+            # beside a results row that was still rendering the poster.
+            if stale_result is not None:
+                logger.debug(f"Refetch returned nothing for {ch_name} — keeping stored metadata")
+                return stale_result
             logger.debug(f"No metadata found for {ch_name}")
             return None
 
         try:
-            self._persist_metadata_cache(channel_id, result, providers_tried, ch_name)
+            stored = self._persist_metadata_cache(
+                channel_id, result, providers_tried, ch_name
+            )
         except Exception as e:
             logger.error(f"Error saving metadata for {channel_id}: {e}", exc_info=True)
-            return None
-        return result
+            return result
+        # Return what is NOW STORED, not the raw provider merge: the write
+        # deliberately keeps fields the refetch did not supply (see
+        # ``_fill_if_present``), so the stored row is the complete picture and
+        # the raw result is only the part that came back this time. Returning
+        # the latter would show a details pane less than the database holds.
+        return stored if stored is not None else result
 
     def _load_channel_for_metadata(
         self, channel_id: str, force_refresh: bool
-    ) -> Optional[Tuple[Optional[MetadataResult], str, str]]:
+    ) -> Optional[Tuple[Optional[MetadataResult], Optional[MetadataResult], str, str]]:
         """Read-only lookup: channel name/media_type + cached metadata, own short scope.
 
         Runs in its own ``session_scope(commit=False)`` that closes before
@@ -296,9 +311,15 @@ class MetadataManager:
 
         Returns:
             ``None`` when the channel doesn't exist. Otherwise
-            ``(cached_result_or_None, channel_name, media_type)`` — a non-None
-            first element means the cache was fresh and the caller should
-            return it directly without any network fetch.
+            ``(fresh_or_None, stale_or_None, channel_name, media_type)``.
+
+            A non-None FIRST element means the cache was fresh and the caller
+            should return it directly without any network fetch. A non-None
+            SECOND element means there is stored metadata that has aged past
+            its TTL: the caller refetches, but keeps this to fall back on and
+            to fill whatever the refetch fails to return. Losing that was the
+            bug — a stale row was simply discarded, so a refetch that returned
+            less than we already knew showed the user nothing.
         """
         with self.db.session_scope(commit=False) as session:
             logger.debug(f"Querying for channel {channel_id}...")
@@ -313,17 +334,22 @@ class MetadataManager:
             ch_media_type = channel.media_type
 
             cached_result = None
-            if not force_refresh and channel.metadata_id:
+            stale_result = None
+            if channel.metadata_id:
                 cached = self._get_cached_metadata(session, channel.metadata_id)
-                if cached and not self._is_stale(cached):
-                    cached_result = self._metadata_db_to_result(cached)
+                if cached:
+                    stored = self._metadata_db_to_result(cached)
+                    if force_refresh or self._is_stale(cached):
+                        stale_result = stored
+                    else:
+                        cached_result = stored
 
-            return (cached_result, ch_name, ch_media_type)
+            return (cached_result, stale_result, ch_name, ch_media_type)
 
     def _persist_metadata_cache(
         self, channel_id: str, result: MetadataResult,
         providers_tried: List[str], ch_name: str,
-    ) -> None:
+    ) -> Optional[MetadataResult]:
         """Write phase: open a fresh session only AFTER all network I/O is done.
 
         Re-queries the channel in this new session (the one from
@@ -336,6 +362,13 @@ class MetadataManager:
             result: The merged provider result to cache.
             providers_tried: Provider names that contributed data (for logging).
             ch_name: Channel display name (for logging only).
+
+        Returns:
+            The row as it stands AFTER the write, mapped to a ``MetadataResult``
+            inside the session (ORM objects must not outlive it — CLAUDE.md),
+            or ``None`` if the channel vanished. The caller returns this rather
+            than its own ``result`` because the write preserves fields the
+            refetch did not supply.
         """
         with self.db.session_scope() as session:
             channel = session.query(ChannelDB).filter_by(id=channel_id).first()
@@ -343,9 +376,12 @@ class MetadataManager:
                 logger.warning(
                     f"Channel disappeared before metadata cache write: {channel_id}"
                 )
-                return
+                return None
             self._save_metadata_cache(session, channel, result)
+            stored_row = self._get_cached_metadata(session, channel.metadata_id)
+            stored = self._metadata_db_to_result(stored_row) if stored_row else None
         logger.info(f"Cached metadata for {ch_name} from: {', '.join(providers_tried)}")
+        return stored
     
     async def _check_rate_limit(self, provider_name: str) -> bool:
         """Check and wait for rate limit if needed
@@ -444,6 +480,23 @@ class MetadataManager:
             confidence=1.0
         )
     
+    @staticmethod
+    def _fill_if_present(metadata: MetadataDB, field: str, value) -> None:
+        """Write *value* onto *metadata.field* only when it carries information.
+
+        "Carries information" means not ``None`` and not an empty
+        string/list — an empty list from a provider that returned no cast is
+        the same statement as "I don't know", and it must not overwrite a cast
+        we already have. ``0`` and ``False`` are kept: a rating of 0 or a
+        runtime of 0 is a real answer, so the test is explicitly against
+        ``None``/empty-container rather than plain falsiness.
+        """
+        if value is None:
+            return
+        if isinstance(value, (str, list, tuple, dict)) and len(value) == 0:
+            return
+        setattr(metadata, field, value)
+
     def _save_metadata_cache(self, session, channel: ChannelDB, result: MetadataResult):
         """Save metadata result to cache"""
         try:
@@ -462,32 +515,57 @@ class MetadataManager:
                 session.add(metadata)
                 channel.metadata_id = metadata_id
             
-            # Update fields
-            metadata.title = result.title
-            metadata.year = self._derive_year(result.year, result.release_date)
-            metadata.plot = result.plot
-            metadata.tagline = result.tagline
-            
-            metadata.poster_url = result.poster_url
-            metadata.backdrop_url = result.backdrop_url
-            
-            metadata.cast = result.cast or []
-            metadata.crew = result.crew or []
-            metadata.genres = result.genres or []
+            # Update fields — FILLING IN, never blanking out.
+            #
+            # Every assignment here used to be unconditional, which turned a
+            # thin refetch into DATA LOSS. The path: a cached row ages past its
+            # TTL (30 days, 90 for old content), so the next time its details
+            # pane opens, ``get_metadata`` skips the cache and re-runs the
+            # provider chain. If that chain now returns less than it did the
+            # first time — a provider disabled, an API key removed, a title the
+            # provider no longer matches, a rate limit — the result still has
+            # *something* (a title is enough to pass the save gate), and every
+            # field it lacks was written back as ``None`` OVER a perfectly good
+            # stored value. The user watched a poster that was visible in the
+            # results row report "No poster available" in the details pane
+            # (owner report, 2026-08-23), and the row would have followed on the
+            # next reload.
+            #
+            # A refetch that learns less than we already knew is not new
+            # information, so it does not get to erase old information. Fresh
+            # values always win; absent ones leave what is there alone. A
+            # deliberate wipe belongs in an explicit "clear metadata" action,
+            # not as a silent side effect of opening a details pane.
+            _keep = self._fill_if_present
 
-            metadata.director = result.director
-            metadata.content_rating = result.content_rating
-            
-            metadata.rating = result.rating
-            metadata.rating_count = result.rating_count
-            
-            metadata.runtime = result.runtime
-            metadata.release_date = result.release_date
-            
-            metadata.trailer_url = result.trailer_url
-            metadata.imdb_id = result.imdb_id
-            metadata.tmdb_id = result.tmdb_id
-            
+            _keep(metadata, "title", result.title)
+            _keep(metadata, "year", self._derive_year(result.year, result.release_date))
+            _keep(metadata, "plot", result.plot)
+            _keep(metadata, "tagline", result.tagline)
+
+            _keep(metadata, "poster_url", result.poster_url)
+            _keep(metadata, "backdrop_url", result.backdrop_url)
+
+            _keep(metadata, "cast", result.cast)
+            _keep(metadata, "crew", result.crew)
+            _keep(metadata, "genres", result.genres)
+
+            _keep(metadata, "director", result.director)
+            _keep(metadata, "content_rating", result.content_rating)
+
+            _keep(metadata, "rating", result.rating)
+            _keep(metadata, "rating_count", result.rating_count)
+
+            _keep(metadata, "runtime", result.runtime)
+            _keep(metadata, "release_date", result.release_date)
+
+            _keep(metadata, "trailer_url", result.trailer_url)
+            _keep(metadata, "imdb_id", result.imdb_id)
+            _keep(metadata, "tmdb_id", result.tmdb_id)
+
+            # Provenance and freshness are always overwritten: they describe THIS
+            # fetch, not the content. Stamping fetched_at is what stops the row
+            # from being re-fetched on every single selection once it goes stale.
             metadata.source = result.provider_name
             metadata.fetched_at = datetime.now()
             

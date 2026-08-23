@@ -842,77 +842,14 @@ class _EpgWatchlistMixin:
 
     def _make_channel_item(self, channel_db_id: str, channel_name: str,
                            prog: EpgProgramDB | None) -> QWidget:
-        """Build a watchlist channel card from stored detected_* fields.
+        """The pinned-channel card — built by ``epg_channel_card``.
 
-        Reads ``_channel_*`` maps populated by ``_build_name_map`` — no
-        ``parse_channel_name()`` call (ingestion-only rule, CLAUDE.md).
+        Kept as a method because that is what every caller (and the card's own
+        tests) reach for; the widget itself lives in its own module, see there.
         """
-        w = QWidget()
-        w.setMinimumWidth(280)
-        w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        _theme.style(w, "CARD_BG")
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(3)
+        from metatv.gui.epg_channel_card import build_pinned_channel_card
 
-        display_quality = self._channel_quality_map.get(channel_db_id, "")
-        region = self._channel_region_map.get(channel_db_id, "")
-        audio_form = self._channel_audio_map.get(channel_db_id, "")
-        prefix = self._channel_prefix_map.get(channel_db_id, "")
-        bare_name = self._channel_title_map.get(channel_db_id, channel_name)
-        year = self._channel_year_map.get(channel_db_id, "")
-
-        header = QHBoxLayout()
-        icon_lbl = QLabel(f"{self.config.series_icon} ")
-        _theme.style_fn(icon_lbl, lambda: f"font-size: {_theme.FONT_XL};")
-        header.addWidget(icon_lbl)
-        if region:
-            header.addWidget(make_region_chip(region, w))
-        if audio_form:
-            header.addWidget(make_audio_chip(audio_form, w))
-        if prefix:
-            header.addWidget(make_region_chip(prefix, w))
-        ch_lbl = QLabel(bare_name)
-        _theme.style(ch_lbl, "LIST_TITLE")
-        header.addWidget(ch_lbl)
-        if display_quality:
-            header.addWidget(make_quality_chip(display_quality, w))
-        if year:
-            header.addWidget(make_year_chip(year, w))
-        header.addStretch()
-
-        if prog:
-            play_btn = QPushButton(f"{self.config.play_icon} Play")
-            play_btn.setFixedWidth(70)
-            _theme.style_fn(play_btn, lambda: (
-                f"background: {_theme.COLOR_ACCENT_GREEN};"
-                f" color: {_theme.on_fill(_theme.COLOR_ACCENT_GREEN)};"
-                " border-radius: 3px; padding: 2px 6px;"
-            ))
-            play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
-            header.addWidget(play_btn)
-
-        remove_btn = QPushButton(self.config.close_icon)
-        remove_btn.setFixedWidth(24)
-        remove_btn.setToolTip(f"Stop watching '{channel_name}'")
-        _theme.style(remove_btn, "CLOSE_BTN")
-        remove_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._unwatch_channel(cid))
-        header.addWidget(remove_btn)
-        layout.addLayout(header)
-
-        if prog:
-            now = _now_utc()
-            remain = _remaining_str(prog.stop_time) if prog.stop_time > now else ""
-            suffix = f"  ·  {remain}" if remain else ""
-            prog_lbl = QLabel(f"  {prog.title}{suffix}")
-            _theme.style_fn(prog_lbl, lambda: f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
-            layout.addWidget(prog_lbl)
-        else:
-            no_epg = QLabel("  No EPG data")
-            _theme.style_fn(no_epg, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
-            layout.addWidget(no_epg)
-
-        return w
+        return build_pinned_channel_card(self, channel_db_id, channel_name, prog)
 
     def _make_recommendation_item(self, channel_db_id: str, channel_name: str, count: int) -> QWidget:
         # Outer container holds header row + expandable matches sub-list.
