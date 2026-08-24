@@ -122,6 +122,8 @@ class _NavMixin:
         self._hide_channel_banners()
         if hasattr(self, "filter_panel"):
             self.filter_panel.setVisible(False)
+        if "filter_chip_bar" in self.__dict__:
+            self.filter_chip_bar.setVisible(False)
         self._hidden_mode = False
         if hasattr(self, "_tab_all_btn"):
             self._tab_all_btn.setChecked(True)
@@ -181,7 +183,10 @@ class _NavMixin:
         self.search_controls.setVisible(True)
         self._sync_header_search_visibility(True)
         if hasattr(self, "filter_panel"):
-            self.filter_panel.setVisible(True)
+            # Not setVisible(True): in chip mode the column is meant to be shut,
+            # and forcing it here would re-open it on every return to the list.
+            # _apply_filter_ui_mode is the only thing that decides.
+            self._apply_filter_ui_mode()
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
 

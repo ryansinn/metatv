@@ -839,6 +839,10 @@ class Config(BaseModel):
     filter_config_version: int = 0
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
+    # "chips" = a one-line active-filter bar, panel opened on demand (default,
+    # the column costs ~250px whether or not it is filtering); "panel" = the
+    # always-present Includes column. docs/V3_INTERFACE_SPEC.md Q3.
+    filter_ui_mode: str = "chips"
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
     filter_untagged_selected: list = Field(
         default_factory=lambda: ["no_prefix", "no_quality"])        # legacy "Unknown" section (retired #299)

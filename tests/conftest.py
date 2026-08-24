@@ -895,6 +895,51 @@ def wire_header_search_sync(host) -> None:
     )
 
 
+def wire_filter_chip_host(host) -> None:
+    """Give a skeleton host the filter-chip methods ``MainWindow`` mixes in.
+
+    Same shape of break as ``wire_header_search_sync`` above, and the same fix.
+    Two families of skeleton need this:
+
+    * the nav tests, which build a bare ``_NavMixin`` via ``__new__`` — the
+      channel-list restore path now asks ``_apply_filter_ui_mode`` which
+      presentation is current, instead of forcing the Includes column visible;
+    * the Layout-menu tests, which hang real menu handlers on a plain
+      ``QMainWindow`` — the menu now carries a "Filters as chips" entry, and
+      building the menu connects it.
+
+    Binds the REAL implementations, so a regression in them still surfaces in
+    those files. They are safe on a skeleton: every one reaches its
+    collaborators through ``self.__dict__.get`` (PyQt raises ``RuntimeError``,
+    not ``AttributeError``, for attribute access on a ``__new__``'d QObject, so
+    ``hasattr`` would not absorb it) and returns early when the panel is absent.
+
+    Args:
+        host: Any object standing in for ``MainWindow``.
+    """
+    from metatv.gui.filter_chip_host import _FilterChipHostMixin
+
+    # These methods ask config which presentation is current. A skeleton built
+    # by ``__new__`` has no config at all, so supply a minimal stand-in rather
+    # than teaching production code to cope with a host that has none — the
+    # real window always does.
+    if "config" not in host.__dict__:
+        host.config = SimpleNamespace(
+            filter_ui_mode="chips",
+            filter_section_visible=True,
+            filter_panel_width=220,
+            save=lambda: None,
+        )
+
+    for name in (
+        "filter_ui_mode", "toggle_filter_ui_mode", "_apply_filter_ui_mode",
+        "_shut_column_at_launch", "_set_filter_panel_width",
+        "_sync_filter_chips", "_on_filter_chip_removed",
+        "_on_filter_chip_add", "_on_filter_chip_clear",
+    ):
+        setattr(host, name, getattr(_FilterChipHostMixin, name).__get__(host))
+
+
 def wire_shutdown_flag(host):
     """Set the shutdown flag ``MainWindow.__init__`` sets, on a bare skeleton.
 

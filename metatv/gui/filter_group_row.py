@@ -158,6 +158,16 @@ class _ItemRow(QWidget):
         if block:
             self._cb.blockSignals(False)
 
+    def label(self) -> str:
+        """The human-facing text for this row — ``"English"`` for key ``"en"``.
+
+        The chip bar needs keys resolved to labels and the rows are where that
+        mapping already lives; exposing it beats rebuilding a parallel dict,
+        which would then be a second place for a new language to be missing
+        from.
+        """
+        return self._label.text()
+
     def key(self) -> str:
         return self._key
 
@@ -604,6 +614,17 @@ class _Section(QWidget):
         for grp in self._groups:
             keys.extend(grp.get_selected_keys())
         return keys
+
+    def label_for(self, key: str) -> str | None:
+        """Return *key*'s display label, or None when this section has no such key."""
+        for r in self._rows:
+            if r.key() == key:
+                return r.label()
+        for g in self._groups:
+            for c in g._children:
+                if c.key() == key:
+                    return c.label()
+        return None
 
     def get_all_keys(self) -> list[str]:
         """Return every key in this section regardless of check state."""

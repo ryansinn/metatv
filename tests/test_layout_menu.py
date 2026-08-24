@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from tests.conftest import wire_filter_chip_host
+
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
@@ -58,6 +60,10 @@ def window(qapp):
     host._SIDEBAR_PANEL = MainWindow._SIDEBAR_PANEL
     host._DETAILS_PANEL = MainWindow._DETAILS_PANEL
     host._toggle_filters_from_menu = MagicMock()
+    # The Layout menu now carries "Filters as chips", and building it connects
+    # that entry — so the host needs the chip-host methods MainWindow mixes in.
+    wire_filter_chip_host(host)
+    host.config.filter_ui_mode = "chips"
     host.save_splitter_sizes = MagicMock()
     host._build_layout_menu(host.menuBar())
     return host
@@ -73,11 +79,22 @@ def _menu(window, title):
 class TestMenuShape:
 
     def test_the_layout_menu_lists_all_three_panels(self, window):
-        entries = {a.text().replace("&", "") for a in _menu(window, "Layout").actions()}
-        assert entries == {"Sidebar", "Details pane", "Filter panel"}
+        entries = {
+            a.text().replace("&", "")
+            for a in _menu(window, "Layout").actions()
+            if not a.isSeparator()
+        }
+        assert entries == {
+            "Sidebar", "Details pane", "Filter panel",
+            # Below the separator: not a panel but a choice of which filter UI
+            # those panels present — see docs/V3_INTERFACE_SPEC.md Q3.
+            "Filters as chips",
+        }
 
     def test_every_entry_is_checkable_and_has_a_tooltip(self, window):
         for action in _menu(window, "Layout").actions():
+            if action.isSeparator():
+                continue
             assert action.isCheckable(), f"{action.text()!r} is not a toggle"
             assert action.toolTip(), f"{action.text()!r} has no tooltip"
 
