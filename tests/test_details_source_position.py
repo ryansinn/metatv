@@ -69,14 +69,27 @@ def _row_index_of(section, widget) -> int:
     raise AssertionError(f"{widget!r} not found in the section layout")
 
 
-def test_source_row_sits_directly_below_the_title_row(qapp):
+def test_source_row_sits_in_the_title_block(qapp):
+    """Provenance stays header information, directly under title + byline.
+
+    The original of this test asserted ``source_idx == title_idx + 1``. That
+    was the right intent expressed as an exact offset, and the byline — one
+    line reading "Movie · 2024", added under the title so the prefix, quality
+    and year badges could stop competing with a wrapping title for the same
+    row — moved it to +2 without changing anything the test was protecting.
+
+    So assert the property instead of the offset: source comes after the title,
+    before the tagline and the meta row, and nothing but the byline is between.
+    """
     section = _section()
     title_idx = _row_index_of(section, section.title_label)
+    byline_idx = _row_index_of(section, section._byline_lbl)
     source_idx = _row_index_of(section, section.source_label)
 
-    assert source_idx == title_idx + 1, (
-        f"Source row must be the row right after the title bar "
-        f"(title at {title_idx}, source at {source_idx})"
+    assert byline_idx == title_idx + 1, "the byline belongs immediately under the title"
+    assert source_idx == byline_idx + 1, (
+        f"Source must be the row after the title block "
+        f"(title {title_idx}, byline {byline_idx}, source {source_idx})"
     )
 
 
@@ -84,7 +97,10 @@ def test_source_row_is_above_the_media_type_row(qapp):
     """The regression this fixes: Source used to render BELOW the metadata block."""
     section = _section()
     source_idx = _row_index_of(section, section.source_label)
-    media_idx = _row_index_of(section, section._media_type_lbl)
+    # The media-type WORD moved to the byline under the title; the row it
+    # used to sit on still exists and still carries runtime/IDs/rating, so
+    # anchor on the row itself.
+    media_idx = _row_index_of(section, section._media_row)
     tagline_idx = _row_index_of(section, section._tagline_lbl)
 
     assert source_idx < media_idx, "Source must render above the media-type/rating row"

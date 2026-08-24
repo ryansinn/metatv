@@ -178,24 +178,31 @@ class TestLoadBasicStoredFields:
 
         assert section._quality_chip.isHidden(), "Quality chip must be hidden when no quality"
 
-    def test_year_label_from_detected_year(self, qapp):
-        """Year label must show detected_year."""
+    def test_the_byline_carries_detected_year(self, qapp):
+        """The year reads in the byline under the title.
+
+        It used to be its own right-aligned label INSIDE the title row, which
+        is part of why a long title wrapped to four lines: the year, the prefix
+        chip and the quality chip all took their width before the only child
+        that could shrink. The stored field it reads is unchanged.
+        """
         section = self._make_section(qapp)
         channel = _fake_channel(detected_year="2024", detected_title="Oppenheimer")
 
         section.load_basic(channel)
 
-        assert not section._name_year_lbl.isHidden(), "Year label must be visible"
-        assert section._name_year_lbl.text() == "2024"
+        assert not section._byline_lbl.isHidden()
+        assert section._byline_lbl.text() == "Movie · 2024"
 
-    def test_year_label_hidden_when_no_year(self, qapp):
-        """Year label must be hidden when detected_year is None."""
+    def test_the_byline_drops_the_year_when_there_is_none(self, qapp):
+        """No year → no dangling separator."""
         section = self._make_section(qapp)
         channel = _fake_channel(detected_year=None)
 
         section.load_basic(channel)
 
-        assert section._name_year_lbl.isHidden(), "Year label must be hidden when no year"
+        assert section._byline_lbl.text() == "Movie"
+        assert "·" not in section._byline_lbl.text()
 
     def test_parse_channel_name_not_called_in_load_basic(self, qapp):
         """load_basic must render from stored detected_* fields, never re-parse.
@@ -225,7 +232,7 @@ class TestLoadBasicStoredFields:
         assert section.title_label.text() == "Peliculas"
         assert section._prefix_chip.text() == "Spain (ES)"  # region name + code (#139)
         assert section._quality_chip.text() == "HD"
-        assert section._name_year_lbl.text() == "2024"
+        assert section._byline_lbl.text().endswith("2024")
 
     def test_detected_region_used_as_prefix_fallback(self, qapp):
         """When detected_prefix is None, detected_region is shown in the prefix chip."""

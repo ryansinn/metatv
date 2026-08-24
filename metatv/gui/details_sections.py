@@ -109,20 +109,15 @@ class _PosterLabel(QLabel):
         and forget the pair.
         """
         cursor_affordance.set_clickable(self, self._has_pixmap)
-        # Poster ART hugs the LEFT edge, so the slim action rail floating over
-        # that edge always overlays the poster rather than the card margin, and
-        # the pillarbox padding falls entirely on the right.
+        # Poster ART is CENTRED in the space the rail leaves (the label is
+        # already inset by _RAIL_W), so the art can never slide under the rail
+        # and the icons read on plain card rather than over whatever the poster
+        # happens to be bright with. This reverses the previous left-hug, which
+        # existed to put the rail ON the art; the V3 render puts it beside.
         #
-        # Placeholder TEXT gets no such treatment: it is a message about an
-        # empty card, not an image being positioned within one, so it centres.
-        # It inherited the pixmap's left-alignment and sat against the left
-        # border of a large empty frame for as long as the card has existed
-        # (owner: "it's always bothered me").
-        self.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            if self._has_pixmap
-            else Qt.AlignmentFlag.AlignCenter
-        )
+        # Placeholder text centres for the same reason, so both states now
+        # agree and this branch is about intent rather than geometry.
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def mousePressEvent(self, event) -> None:
         if self._has_pixmap and event.button() == Qt.MouseButton.LeftButton:
@@ -675,26 +670,28 @@ class _PosterSection(QWidget):
             self._watched_badge.raise_()
 
     def _reposition_watched_badge(self) -> None:
-        """Pin the badge to the *rendered poster's* lower-right corner (near the play zone,
-        where the eye lands after the poster).
+        """Pin the badge to the rendered poster's TOP-right corner.
 
-        The poster is left-aligned + v-centered and usually narrower than the card (a
-        pillarboxed portrait fits to height), so the visible image ends well left of the
-        card's right edge.  Anchor to the pixmap's actual rect — its right edge is
-        ``pixmap.width()`` (left-aligned at x=0) and its bottom is v-centered — so the badge
-        lands ON the poster, not out in the gray margin.  Falls back to the label bounds when
-        no pixmap is set (e.g. the "No poster available" placeholder).
+        Top rather than bottom: the bottom of a poster is where its title
+        artwork usually is, and the badge was landing on it. The top-right is
+        the corner posters keep clear, and it is where the V3 render puts it.
+
+        Anchor to the PIXMAP's rect, not the label's. The art is centred and
+        usually narrower than the card (a pillarboxed portrait fits to height),
+        so the label's right edge is out in the card margin — a badge pinned
+        there floats beside the poster rather than on it. Falls back to the
+        label bounds when there is no pixmap (the empty-card placeholder).
         """
         lbl = self.poster_label
         pix = lbl.pixmap()
         if pix is not None and not pix.isNull():
-            right = pix.width()
-            bottom = (lbl.height() + pix.height()) // 2
+            right = (lbl.width() + pix.width()) // 2
+            top = (lbl.height() - pix.height()) // 2
         else:
             right = lbl.width()
-            bottom = lbl.height()
+            top = 0
         x = right - self._watched_badge.width() - self._BADGE_MARGIN
-        y = bottom - self._watched_badge.height() - self._BADGE_MARGIN
+        y = top + self._BADGE_MARGIN
         self._watched_badge.move(max(0, x), max(0, y))
 
     def _display_poster(self, pixmap: QPixmap) -> None:
@@ -818,6 +815,8 @@ class _MetadataSection(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
+        self._byline_kind = ""
+        self._byline_year = ""
         self._setup()
 
     def _setup(self) -> None:
@@ -852,29 +851,25 @@ class _MetadataSection(QWidget):
         _theme.style(self.title_label, "DETAIL_TITLE")
         title_bar_layout.addWidget(self.title_label, 1)
 
-        self._prefix_chip = QPushButton()
-        self._prefix_chip.setFlat(True)
-        _theme.style(self._prefix_chip, "CATEGORY_CHIP")
-        self._prefix_chip.setFixedHeight(24)
-        self._prefix_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self._prefix_chip.hide()
-        title_bar_layout.addWidget(self._prefix_chip)
-
-        self._quality_chip = QPushButton()
-        self._quality_chip.setFlat(True)
-        _theme.style(self._quality_chip, "QUALITY_CHIP")
-        self._quality_chip.setFixedHeight(24)
-        self._quality_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self._quality_chip.hide()
-        title_bar_layout.addWidget(self._quality_chip)
-
-        self._name_year_lbl = QLabel()
-        _theme.style_fn(self._name_year_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT}; font-weight: bold;")
-        self._name_year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._name_year_lbl.hide()
-        title_bar_layout.addWidget(self._name_year_lbl)
-
+        # The title row ends here, deliberately. It used to be
+        # ``[title ···] [prefix chip] [quality chip] [year]``, and because the
+        # title is the only child that can shrink, every one of those took its
+        # width first: "Monty Python's The Meaning of Life" wrapped to four
+        # lines beside a two-word chip. The badges move to the row below, where
+        # nothing is competing with a wrapping label for the same pixels.
         layout.addWidget(title_bar)
+
+        # Byline — "Movie · 2024", the one-line answer to "what is this".
+        # Genres do NOT join it: in this app a genre is a clickable chip that
+        # activates a strict context filter (docs/CONTEXT_FILTER_CHIPS.md), so
+        # flattening them into static text here would trade a shipped
+        # interaction for a shorter line. They keep their own row directly
+        # beneath, which reads as the same block.
+        self._byline_lbl = QLabel()
+        _theme.style(self._byline_lbl, "DETAIL_BYLINE")
+        _no_width_force(self._byline_lbl)
+        self._byline_lbl.hide()
+        layout.addWidget(self._byline_lbl)
 
         # Source badge + adult indicator row — sits DIRECTLY under the title/year
         # line (not below the metadata block, where it used to live): provenance is
@@ -886,7 +881,34 @@ class _MetadataSection(QWidget):
         # children, so this row must never gain a wide/unbreakable child (see
         # docs/DETAILS_PANE_DESIGN.md → "Width discipline").  Both labels are short
         # and the trailing stretch absorbs the slack.
-        badge_row = QHBoxLayout()
+        # A _FlowLayout, not a QHBoxLayout: this row now carries the prefix and
+        # quality chips too, and a QHBoxLayout's minimum width is the SUM of its
+        # children — "Latin American Spanish (LAT)" + "4K / UHD" + "Source: TREX
+        # Shared" would floor the whole pane wider than its viewport, which is
+        # the width trap docs/DETAILS_PANE_DESIGN.md records recurring ~5 times.
+        # A flow's minimum is its widest SINGLE child, so the row wraps instead.
+        self._badge_row_w = QWidget()
+        self._badge_row_w.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        badge_row = _FlowLayout(self._badge_row_w, h_spacing=6, v_spacing=4)
+
+        self._prefix_chip = QPushButton()
+        self._prefix_chip.setFlat(True)
+        _theme.style(self._prefix_chip, "CATEGORY_CHIP")
+        self._prefix_chip.setFixedHeight(24)
+        self._prefix_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._prefix_chip.hide()
+        badge_row.addWidget(self._prefix_chip)
+
+        self._quality_chip = QPushButton()
+        self._quality_chip.setFlat(True)
+        _theme.style(self._quality_chip, "QUALITY_CHIP")
+        self._quality_chip.setFixedHeight(24)
+        self._quality_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._quality_chip.hide()
+        badge_row.addWidget(self._quality_chip)
+
         self.source_label = _ClickableLabel()
         _theme.style_fn(self.source_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         self.source_label.hide()
@@ -896,8 +918,7 @@ class _MetadataSection(QWidget):
             f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;")
         self.adult_indicator.hide()
         badge_row.addWidget(self.adult_indicator)
-        badge_row.addStretch()
-        layout.addLayout(badge_row)
+        layout.addWidget(self._badge_row_w)
 
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
@@ -920,10 +941,6 @@ class _MetadataSection(QWidget):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
         media_row_layout = _FlowLayout(self._media_row, h_spacing=8, v_spacing=4)
-
-        self._media_type_lbl = QLabel()
-        _theme.style(self._media_type_lbl, "META_DIM")
-        media_row_layout.addWidget(self._media_type_lbl)
 
         self.runtime_label = QLabel()
         _theme.style(self.runtime_label, "META_DIM")
@@ -999,6 +1016,18 @@ class _MetadataSection(QWidget):
         else:
             _theme.style(self.title_label, "DETAIL_TITLE")
 
+    def _refresh_byline(self) -> None:
+        """Rebuild "Movie · 2024" from whichever parts are known.
+
+        Called from both the tier-1 load and the metadata pass, because the
+        year can arrive in either: a channel name may carry it, and enrichment
+        may correct it. Rebuilding from the parts means the second caller does
+        not have to know what the first one wrote.
+        """
+        parts = [p for p in (self._byline_kind, self._byline_year) if p]
+        self._byline_lbl.setText(" · ".join(parts))
+        self._byline_lbl.setVisible(bool(parts))
+
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata.
 
@@ -1043,20 +1072,13 @@ class _MetadataSection(QWidget):
         else:
             self._quality_chip.hide()
 
-        # Year from channel name — shown to the right of the title
-        year = getattr(channel, "detected_year", None)
-        if year:
-            self._name_year_lbl.setText(year)
-            self._name_year_lbl.show()
-        else:
-            self._name_year_lbl.hide()
-
-        media_icon = {
-            "live":   _icons.live_icon,
-            "movie":  _icons.movie_icon,
-            "series": _icons.series_icon,
-        }.get(channel.media_type or "", _icons.unknown_icon)
-        self._media_type_lbl.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
+        # Byline — kind and year, in that order, on the line under the title.
+        # No icon on the kind: the row list uses one because it has no room for
+        # a word, but here there is room, and an icon plus its own word is the
+        # redundancy the V3 row pass removed.
+        self._byline_year = getattr(channel, "detected_year", None) or ""
+        self._byline_kind = (channel.media_type or "unknown").title()
+        self._refresh_byline()
         self.runtime_label.hide()
 
         provider_id = getattr(channel, "provider_id", None)
@@ -1134,8 +1156,10 @@ class _MetadataSection(QWidget):
             self._tagline_lbl.show()
 
         if metadata.year:
-            self._name_year_lbl.setText(str(metadata.year))
-            self._name_year_lbl.show()
+            # Metadata year wins over the one parsed out of the channel name:
+            # it comes from release_date, resolved at ingestion.
+            self._byline_year = str(metadata.year)
+            self._refresh_byline()
 
         if metadata.rating:
             count_str = (
@@ -1223,9 +1247,10 @@ class _MetadataSection(QWidget):
         self.title_label.clear()
         self._prefix_chip.hide()
         self._quality_chip.hide()
-        self._name_year_lbl.hide()
+        self._byline_kind = ""
+        self._byline_year = ""
+        self._byline_lbl.hide()
         self._tagline_lbl.hide()
-        self._media_type_lbl.clear()
         self.runtime_label.hide()
         self._imdb_lbl.hide()
         self._tmdb_lbl.hide()

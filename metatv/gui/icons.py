@@ -52,6 +52,7 @@ tools_icon: str = "⚒"       # U+2692 HAMMER AND PICK — the header's Tools me
                             # Monochrome by codepoint, unlike 🔧/🛠 which render as
                             # colour emoji on most platforms and would ignore the palette.
 new_window_icon: str = "❐"  # U+2750 UPPER-RIGHT DROP-SHADOWED SQUARE — window-over-window (separate per-source window)
+back_icon: str = "‹"  # U+2039 SINGLE LEFT-POINTING ANGLE QUOTATION MARK — step back up one level (details "All regions"); NOT collapse_icon, which points DOWN and reads as "fold this away" rather than "go back"
 close_icon: str = "×"
 delete_icon: str = "🗑"
 undo_icon: str = "↩"   # U+21A9 LEFTWARDS ARROW WITH HOOK — "Undo" a pending recoverable-remove

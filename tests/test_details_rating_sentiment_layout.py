@@ -1,7 +1,7 @@
 """Behavioral tests for details-pane layout changes (PR #232).
 
 Change A — Rating on the media-type line:
-  * rating_label lives on the same row as _media_type_lbl (not a separate row).
+  * rating_label lives on the shared meta row (not a separate row).
   * Shows when raw_data / metadata provide a rating; hidden + no gap when absent.
   * Content-rating badge (PG-13) also on the media-type row.
 
@@ -54,18 +54,24 @@ def _stub_channel(**kwargs):
 
 # ── Change A: rating on the media-type row ───────────────────────────────────
 
-def test_rating_label_is_sibling_of_media_type_label(qapp):
-    """After construction, rating_label and _media_type_lbl must share the same
-    parent widget (_media_row), proving rating is on the type line (not its own row)."""
+def test_rating_label_is_on_the_shared_meta_row(qapp):
+    """rating_label belongs on the wrapping meta row, not a row of its own.
+
+    It used to be checked against ``_media_type_lbl`` as its rowmate. That
+    label is gone — the media-type WORD moved to the byline under the title,
+    where it reads as "Movie · 2024" instead of as an icon-plus-word badge
+    duplicating the row list's icon. The row it shared still exists and still
+    carries runtime, the IDs, the content rating and the stars, so the property
+    under test is unchanged; only the rowmate used to prove it has moved.
+    """
     from metatv.gui.details_sections import _MetadataSection
 
     section = _MetadataSection(_make_config())
-    # Both must be children of the same _media_row widget
     assert section.rating_label.parent() is section._media_row, (
-        "rating_label.parent() must be _media_row — it belongs on the type line"
+        "rating_label.parent() must be _media_row — it belongs on the meta line"
     )
-    assert section._media_type_lbl.parent() is section._media_row, (
-        "_media_type_lbl.parent() must also be _media_row"
+    assert section.runtime_label.parent() is section._media_row, (
+        "runtime_label.parent() must also be _media_row"
     )
 
 
@@ -141,7 +147,7 @@ def test_rating_shown_via_load_metadata(qapp):
 
 
 def test_content_rating_badge_on_media_row(qapp):
-    """_content_rating_lbl must share the same parent as _media_type_lbl."""
+    """_content_rating_lbl must share the meta row with the other badges."""
     from metatv.gui.details_sections import _MetadataSection
 
     section = _MetadataSection(_make_config())

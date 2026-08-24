@@ -294,9 +294,15 @@ class TestPosterPlaceholderIsCentred:
         # by text that fills the card edge to edge, and by 0 == 0.
         assert left_margin > 0 and right_margin > 0
 
-    def test_poster_art_still_hugs_the_left_edge(self, qapp):
-        """The other half of the rule, which the fix must not break: real art
-        stays left-aligned so the action rail overlays the poster."""
+    def test_poster_art_is_centred_too(self, qapp):
+        """Art centres, same as the placeholder — both halves of one rule now.
+
+        Art used to hug the LEFT so the action rail would overlay the poster
+        itself. The V3 render puts the rail BESIDE the art instead, on plain
+        card, where the icons are not fighting whatever the poster happens to
+        be bright with — and the poster label is already inset by the rail
+        width, so centring inside that inset can never slide art under it.
+        """
         from PyQt6.QtGui import QColor, QPixmap
 
         from metatv.gui.details_sections import _PosterLabel
@@ -306,7 +312,11 @@ class TestPosterPlaceholderIsCentred:
         label = _PosterLabel()
         label.setPixmap(art)
         left, right = self._content_bounds(label)
-        assert left == 0, f"poster art starts {left}px in — it must hug the left edge"
-        assert right < self.WIDTH - 1, (
-            "art should leave its pillarbox padding on the RIGHT"
+        left_margin, right_margin = left, self.WIDTH - 1 - right
+        assert abs(left_margin - right_margin) <= 2, (
+            f"art is not centred: {left_margin}px of card on the left, "
+            f"{right_margin}px on the right"
         )
+        # Non-zero on both sides, so "equal margins" cannot be satisfied by art
+        # that fills the card edge to edge, nor by 0 == 0.
+        assert left_margin > 0 and right_margin > 0
