@@ -1,9 +1,10 @@
 """CollapsibleSection base class and shared helpers for sidebar sections."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
+    QFrame, QSizePolicy, QTreeWidgetItem,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 from loguru import logger
 
@@ -16,6 +17,15 @@ from metatv.gui import theme as _theme
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
 # The splitter enforces this so the user cannot drag an expanded section below it.
 _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
+
+# Row fitting lives in row_budget.py — see there for why "+N more" is an
+# allocation consequence and not a cap. The sentinel is re-exported because
+# callers already reach for it here.
+from metatv.gui.sidebar.row_budget import (  # noqa: F401
+    _MORE_ROLE,
+    _MORE_ROW,
+    RowBudgetMixin,
+)
 
 
 def _floor_of(widget) -> int:
@@ -250,7 +260,7 @@ class InPlaceRowMixin:
                 list_widget.takeItem(index)
 
 
-class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
+class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
     # Signal when section wants to update its size
@@ -273,6 +283,19 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     MIN_ROWS: int = 3
     ROW_H: int = 24        # one content row, incl. its sub-line
     HEADER_H: int = 26
+
+    #: Extra rows a section is allowed while it has NEWS. Bounded on purpose —
+    #: "a section widens when it has something to say" must not become "the
+    #: section with news takes the sidebar". It relaxes on its own the moment
+    #: :meth:`news` goes quiet again (R13, mechanism 3).
+    NEWS_BOOST_ROWS: int = 2
+
+    #: Whether :meth:`news` last reported something. Plain state rather than a
+    #: call inside :meth:`min_expanded_height`, because that method is invoked
+    #: with the CLASS as ``self`` in several places ("this type's floor, no
+    #: instance needed") — and a class cannot answer a question about its
+    #: current contents. Updated wherever the header status is built.
+    _news_active: bool = False
 
     def __init__(self, title: str, icon: str, config, parent=None,
                  vector_role: str | None = None):
@@ -314,15 +337,49 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         # Create section-specific content
         self.create_content()
 
+    def news(self) -> str:
+        """What this section has to SAY right now, or ``""`` when nothing.
+
+        **A count is inventory; ``+9 eps`` is news.** Inventory tells you how
+        much you own, news tells you something changed — and only one of those
+        is worth a glance (R1, owner's words). So a section that has news
+        surfaces it in its header INSTEAD of a bare number, and gets a bounded
+        extra height allowance while it holds it.
+
+        Sections override. The default is silence, which is right for
+        Favorites and History: nothing about them is ever new.
+        """
+        return ""
+
+    def item_count(self) -> int | None:
+        """Rows this section holds, or ``None`` when a count says nothing.
+
+        Shown in the header only when :meth:`news` is quiet — the two occupy
+        the same slot, and news wins.
+        """
+        return None
+
+    def header_status(self) -> str:
+        """The text in the header's right-hand slot: news if any, else a count."""
+        headline = self.news()
+        if headline:
+            return headline
+        count = self.item_count()
+        return "" if count is None else str(count)
+
     def min_expanded_height(self) -> int:
         """Smallest height at which this section still shows useful content.
 
         Derived from :attr:`MIN_ROWS` rather than shared, so "History needs four
         rows" is stated once, next to History, instead of being an emergent
-        property of splitter arithmetic.
+        property of splitter arithmetic — the owner's saved layout had History
+        at 91px against Watch Queue's 403px, which was not a preference.
+
+        A section holding news earns :attr:`NEWS_BOOST_ROWS` more, so Alerts
+        widens exactly when it has something to say.
         """
-        return max(_MIN_EXPANDED,
-                   self.HEADER_H + self.MIN_ROWS * self.ROW_H + 8)
+        rows = self.MIN_ROWS + (self.NEWS_BOOST_ROWS if self._news_active else 0)
+        return max(_MIN_EXPANDED, self.HEADER_H + rows * self.ROW_H + 8)
 
     def _build_clickable_header(self) -> "_ClickableHeader":
         """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.
@@ -460,6 +517,56 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         _theme.style_fn(label, _build)
         return label
 
+    def make_status_label(self) -> QLabel:
+        """The header's right-hand slot — news, or a count, or nothing.
+
+        One label for both so they can never both appear: they are alternatives,
+        not a pair, and a header showing ``1 new  ·  13`` is back to being
+        inventory with a decoration.
+
+        Registered through ``theme.style_fn`` so a palette switch re-colours it;
+        news is painted in the accent because it is the one thing in a collapsed
+        sidebar worth looking at.
+        """
+        label = self._status_label = QLabel()
+
+        def _build() -> str:  # noqa: D401 — a style_fn builder
+            self._news_active = bool(self.news())
+            text = self.header_status()
+            label.setText(text)
+            label.setVisible(bool(text))
+            colour = _theme.COLOR_ACCENT if self.news() else _theme.COLOR_MUTED
+            return f"color: {colour}; font-size: {_theme.FONT_SM};"
+
+        self._status_build = _build
+        _theme.style_fn(label, _build)
+        return label
+
+    def refresh_header_status(self) -> None:
+        """Re-read :meth:`news`/:meth:`item_count` into the header.
+
+        Called by a section whenever its contents change. Also re-applies the
+        section's minimum height, because gaining or losing news changes it —
+        that is the news boost taking effect (R13, mechanism 3).
+        """
+        # Re-run the registered builder rather than reaching for a theme-level
+        # "reapply one widget" that does not exist: the builder is what sets
+        # the TEXT as well as the sheet, so re-invoking it is the update.
+        label = self.__dict__.get("_status_label")
+        build = self.__dict__.get("_status_build")
+        if label is not None and build is not None:
+            label.setStyleSheet(build())
+        try:
+            self.setMinimumHeight(
+                self.HEADER_H if self.is_collapsed else self.min_expanded_height()
+            )
+        except RuntimeError:
+            # A ``__new__``'d section (several tests drive the real update
+            # methods on one) has no C++ side to resize. The header state above
+            # is still worth updating; the floor is not, because there is no
+            # splitter for it to act on.
+            pass
+
     def create_header(self):
         """Create collapsible header with title and toggle button."""
         header = self._build_clickable_header()
@@ -468,6 +575,7 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
+        header_layout.addWidget(self.make_status_label())
         self._add_header_actions(header_layout)
         self._add_explore_link(header_layout)
 

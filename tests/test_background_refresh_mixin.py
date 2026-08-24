@@ -29,6 +29,15 @@ class _FakeSection(BackgroundRefreshMixin, ScrollPreservingMixin, QObject):
     does — the refresh mixin calls into it to keep the user's place across the
     clear-and-repopulate, so a host without it is not the real MRO.
     """
+
+    def reapply_row_budget(self) -> None:
+        """The refresh mixin fits the rows to the section after every populate.
+
+        A double that stands in for a section has to answer it — the real
+        ``CollapsibleSection`` provides it, and leaving it off makes this host
+        a different MRO from the one under test.
+        """
+
     _data_ready = pyqtSignal(object)
 
     def __init__(self, load_result=None, raise_exc=False):

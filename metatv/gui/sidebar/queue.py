@@ -207,6 +207,36 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         below = self._overflow_btn.rect().bottomLeft()
         self._overflow_menu.exec(self._overflow_btn.mapToGlobal(below))
 
+    def budgeted_list(self):
+        """The rows this section fits to its height (see
+        ``CollapsibleSection.apply_row_budget``)."""
+        return self.__dict__.get("_list")
+
+    def item_count(self) -> int | None:
+        """Rows currently rendered — inventory, shown only when :meth:`news` is
+        quiet.
+
+        Read off the list itself rather than tracked separately, so the header
+        cannot claim a number the rows disagree with. The ``+N more`` tail is
+        excluded: it is chrome, not content.
+        """
+        from PyQt6.QtCore import Qt
+
+        from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
+
+        lst = self.__dict__.get("_list")
+        if lst is None:
+            return None
+        return sum(
+            1 for i in range(lst.count())
+            if lst.item(i).data(_MORE_ROLE) != _MORE_ROW
+        )
+
+    def news(self) -> str:
+        """Unviewed watch-for matches — the "a new season dropped" signal."""
+        count = self.__dict__.get("_new_match_count", 0)
+        return f"{count} new" if count else ""
+
     def update_new_match_count(self, count: int) -> None:
         """Show/hide the pinned green new-matches banner.
 
@@ -216,6 +246,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         Args:
             count: Number of unviewed watch-for matches across all rules.
         """
+        # Kept for news() regardless of whether the banner widget exists, so a
+        # collapsed section still reports what changed.
+        self._new_match_count = count
+        self.refresh_header_status()
         try:
             line = self._new_matches_btn
         except (AttributeError, RuntimeError):

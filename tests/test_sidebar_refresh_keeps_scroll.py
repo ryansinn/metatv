@@ -73,6 +73,20 @@ class _Section(BackgroundRefreshMixin, ScrollPreservingMixin):
             self._list.addItem(QListWidgetItem(str(r)))
 
 
+# These suites cover scroll PRESERVATION across a clear-and-repopulate — the
+# "losing your place during bulk triage" bug, reported repeatedly. A section
+# that opts into the row budget does not scroll at all (V3 R13: no nested
+# scrollbars; overflow becomes "+N more"), so the sections here opt OUT of the
+# budget to keep exercising that path. Budgeted behaviour is covered by
+# tests/test_sidebar_allocation.py.
+def _opt_out_of_row_budget(section):
+    section.budgeted_list = lambda: None
+    # This double does not inherit CollapsibleSection, so it lacks the hook the
+    # refresh mixin now calls after every populate. Opting out of the budget
+    # means there is nothing for it to do.
+    section.reapply_row_budget = lambda: None
+    return section
+
 def _tall_list(qapp, n=200) -> QListWidget:
     lst = QListWidget()
     for i in range(n):
@@ -90,7 +104,7 @@ def test_scroll_position_survives_a_refresh(qapp):
     QApplication.processEvents()
     assert lst.verticalScrollBar().value() == 120
 
-    section = _Section(lst)
+    section = _opt_out_of_row_budget(_Section(lst))
     # The two halves of a refresh, without the executor round-trip.
     section._pending_scroll = section._scroll_offset(lst)
     lst.clear()
@@ -113,7 +127,7 @@ def test_offset_is_clamped_when_the_list_shrinks(qapp):
     lst.verticalScrollBar().setValue(lst.verticalScrollBar().maximum())
     QApplication.processEvents()
 
-    section = _Section(lst)
+    section = _opt_out_of_row_budget(_Section(lst))
     section._pending_scroll = section._scroll_offset(lst)
     lst.clear()
     section._on_data_ready([f"row {i}" for i in range(5)])   # shrank
@@ -127,7 +141,7 @@ def test_error_branch_drops_the_saved_offset(qapp):
     """An error row is a short list; scrolling it away would hide the message."""
     lst = _tall_list(qapp)
     lst.verticalScrollBar().setValue(150)
-    section = _Section(lst)
+    section = _opt_out_of_row_budget(_Section(lst))
     section._pending_scroll = section._scroll_offset(lst)
     lst.clear()
 
@@ -146,7 +160,7 @@ def test_top_of_list_is_unaffected(qapp):
     lst = _tall_list(qapp)
     lst.verticalScrollBar().setValue(0)
 
-    section = _Section(lst)
+    section = _opt_out_of_row_budget(_Section(lst))
     section._pending_scroll = section._scroll_offset(lst)
     lst.clear()
     section._on_data_ready([f"row {i}" for i in range(200)])
@@ -161,7 +175,7 @@ def test_refresh_captures_before_clearing(qapp):
     lst.verticalScrollBar().setValue(90)
     QApplication.processEvents()
 
-    section = _Section(lst)
+    section = _opt_out_of_row_budget(_Section(lst))
     section._executor = type("E", (), {"submit": lambda self, fn: None})()
     section.refresh()
 
