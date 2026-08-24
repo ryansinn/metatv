@@ -61,6 +61,7 @@ from metatv.gui.tokens.scales import (  # noqa: F401
 )
 # Role groups that compose themselves from the tokens and merge in below.
 from metatv.gui.tokens import chip_roles as _chip_roles
+from metatv.gui.tokens import detail_roles as _detail_roles
 
 
 # ── 1. Design tokens ────────────────────────────────────────────────────────────
@@ -683,6 +684,11 @@ def _build_semantic_constants() -> dict[str, object]:
     LIST_TITLE   = "font-weight: bold; font-size: " + FONT_XL + ";"
     FIELD_LABEL  = "font-weight: 600;"
     DETAIL_TITLE = "font-size: " + FONT_3XL + "; font-weight: bold;"
+    # Byline — "Movie · 2024" on the line under the title. Quiet and small: it
+    # answers "what is this" for someone who has already read the title, so it
+    # must not compete with it. COLOR_TEXT, not a legacy grey — those clear
+    # 4.5:1 against no app surface in any palette.
+    DETAIL_BYLINE = "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
     # Episode byline — the episode title shown under the series title in episode mode.
     # Subordinate to the series title (smaller than DETAIL_TITLE) but still emphasized.
     DETAIL_EPISODE_BYLINE = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
@@ -1745,6 +1751,7 @@ globals().update(_build_semantic_constants())
 # Both this call and apply_theme's rebuild must run, or a theme switch would
 # leave these roles on the old palette.
 globals().update(_chip_roles.build(globals()))
+globals().update(_detail_roles.build(globals()))
 
 
 def _relative_luminance(value: str) -> float:
@@ -2245,6 +2252,7 @@ def _apply_theme_locked(name: str) -> bool:
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
         globals().update(_chip_roles.build(globals()))
+        globals().update(_detail_roles.build(globals()))
         rewrite_map = _build_palette_rewrite_map(before, _color_token_snapshot())
         _CONSTANT_REWRITE = {
             was: globals()[n]

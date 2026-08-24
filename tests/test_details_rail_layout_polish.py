@@ -251,8 +251,16 @@ def test_action_rows_ordered_below_poster_block(qapp):
 # 5. Watched badge pinned to the LOWER-right corner
 # ---------------------------------------------------------------------------
 
-def test_watched_badge_pinned_lower_right(qapp):
-    """The two-state Watched badge must sit in the poster's LOWER-right corner."""
+def test_watched_badge_pinned_upper_right(qapp):
+    """The Watched badge sits in the poster's UPPER-right corner.
+
+    This reverses a deliberate earlier move to the lower-right, and is worth
+    stating plainly rather than quietly flipping: the V3 design pass settled on
+    the top-right, and the reason holds up against real posters — the BOTTOM of
+    a poster is where its title artwork almost always is, so a badge pinned
+    there lands on the one part of the image that carries information. The top
+    corner is the part posters keep clear.
+    """
     poster, _ = _build(qapp)
     poster.set_mode(is_live=False)
     poster.poster_label.resize(300, 450)  # width applies; height is the fixed box
@@ -262,16 +270,44 @@ def test_watched_badge_pinned_lower_right(qapp):
 
     margin = poster._BADGE_MARGIN
     bw = poster._watched_badge.width()
-    bh = poster._watched_badge.height()
     lw = poster.poster_label.width()
     lh = poster.poster_label.height()
-    expected_x = lw - bw - margin
-    expected_y = lh - bh - margin
 
-    assert poster._watched_badge.x() == expected_x, "badge must hug the right edge"
-    assert poster._watched_badge.y() == expected_y, "badge must hug the BOTTOM edge"
-    # Unambiguously in the lower half (regression guard vs the old top-right position).
-    assert poster._watched_badge.y() > lh // 2, "badge must be in the poster's lower half"
+    assert poster._watched_badge.x() == lw - bw - margin, "badge must hug the right edge"
+    assert poster._watched_badge.y() == margin, "badge must hug the TOP edge"
+    # Unambiguously in the upper half, so the assertion above cannot be
+    # satisfied by a margin that happens to equal some other offset.
+    assert poster._watched_badge.y() < lh // 2, "badge must be in the poster's upper half"
+
+
+def test_watched_badge_lands_on_the_art_not_the_card_margin(qapp):
+    """With centred art the label's right edge is out in the card.
+
+    A badge pinned to the LABEL floats beside the poster rather than on it, so
+    it anchors to the pixmap's rect instead.
+    """
+    from PyQt6.QtGui import QColor, QPixmap
+
+    poster, _ = _build(qapp)
+    poster.set_mode(is_live=False)
+    poster.poster_label.resize(300, 450)
+
+    art = QPixmap(140, 210)           # portrait, much narrower than the card
+    art.fill(QColor("#ff00ff"))
+    poster.poster_label.setPixmap(art)
+    poster.set_watched(True)
+    poster._reposition_watched_badge()
+
+    label = poster.poster_label
+    art_left = (label.width() - art.width()) // 2
+    art_right = art_left + art.width()
+    badge = poster._watched_badge
+
+    assert badge.x() + badge.width() <= art_right, (
+        f"badge right edge {badge.x() + badge.width()} is past the art's "
+        f"{art_right} — it is floating in the card margin"
+    )
+    assert badge.x() >= art_left, "badge is left of the art"
 
 
 # ---------------------------------------------------------------------------

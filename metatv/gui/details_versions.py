@@ -16,6 +16,12 @@ from metatv.core.channel_name_utils import (
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.details_version_groups import (
+    DEFAULT_VISIBLE_REGIONS as VISIBLE_REGIONS,
+    GROUPING_THRESHOLD,
+    group_by_region,
+    summarise,
+)
 from metatv.gui.flow_layout import enable_height_for_width
 from metatv.gui.qt_text_utils import escape_mnemonic
 
@@ -215,6 +221,9 @@ class _VersionSection(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
+        self._active_versions: list = []
+        self._region_expanded: str | None = None
+        self._show_all_regions: bool = False
         self._setup()
 
     def _setup(self) -> None:
@@ -252,11 +261,19 @@ class _VersionSection(QWidget):
         label_row_layout = QHBoxLayout(label_row)
         label_row_layout.setContentsMargins(0, 0, 0, 0)
         label_row_layout.setSpacing(0)
-        cat_label = QLabel("Also available as:")
+        cat_label = QLabel("Also available")
         _theme.style_fn(cat_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         label_row_layout.addWidget(cat_label)
         label_row_layout.addStretch()
+        # "65 versions · 19 regions" — the scale, stated, so the grid below is
+        # understood as a summary rather than mistaken for the whole list.
+        self._region_summary_lbl = QLabel()
+        _theme.style(self._region_summary_lbl, "DETAIL_REGION_SUMMARY")
+        self._region_summary_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+        )
+        label_row_layout.addWidget(self._region_summary_lbl)
         row_layout.addWidget(label_row)
 
         # Active chips — full width
@@ -376,8 +393,15 @@ class _VersionSection(QWidget):
             )
             self._pref_nudge.show()
 
-        for v in active:
-            layout.addWidget(self._make_active_chip(v))
+        # Active variants render GROUPED BY REGION (see
+        # details_version_groups.py — 65 chips become 12 plus a tail). Filtered
+        # variants stay one chip per version: that list is short, already
+        # behind a collapsed disclosure, and its whole purpose is naming the
+        # individual thing that got filtered.
+        self._active_versions = list(active)
+        self._region_expanded = None
+        self._show_all_regions = False
+        self._render_region_grid()
         for v in filtered:
             self._filtered_chips_layout.addWidget(self._make_greyed_chip(v))
 
@@ -392,6 +416,118 @@ class _VersionSection(QWidget):
         self._chips_row.updateGeometry()
         if filtered:
             self._filtered_chips_row.updateGeometry()
+
+    def _clear_active_chips(self) -> None:
+        """Empty the grid — and take the old chips OFF THE SCREEN, now.
+
+        ``deleteLater()`` alone does not: it schedules destruction for the next
+        event-loop pass, and until then the widget is still a visible child of
+        the row, painting where it was. Taking it out of the LAYOUT only stops
+        it being positioned, so re-rendering in place (drilling into a region)
+        drew the new chips straight over the old ones. ``setParent(None)``
+        detaches it immediately; deleteLater then frees it.
+        """
+        while self._chips_layout.count():
+            item = self._chips_layout.takeAt(0)
+            if w := item.widget():
+                w.setParent(None)
+                w.deleteLater()
+
+    def _render_region_grid(self) -> None:
+        """Draw the active grid: region chips, or one region's versions.
+
+        Two states, one renderer, because they are the same grid — drilling in
+        replaces its contents rather than opening anything, so the pane never
+        changes height under the pointer.
+        """
+        self._clear_active_chips()
+        groups = group_by_region(self._active_versions)
+        self._region_summary_lbl.setText(summarise(groups) if groups else "")
+
+        # Few enough to just show. Grouping costs a click to reach any version
+        # and drops the source icon and quality tier from the face, which is a
+        # bad trade until the flat list is genuinely unreadable.
+        if len(self._active_versions) <= GROUPING_THRESHOLD:
+            self._region_expanded = None
+            for v in self._active_versions:
+                self._chips_layout.addWidget(self._make_active_chip(v))
+            self._chips_row.updateGeometry()
+            return
+
+        if self._region_expanded is not None:
+            group = next(
+                (g for g in groups if g.code == self._region_expanded), None
+            )
+            if group is not None:
+                self._chips_layout.addWidget(self._make_back_chip(group))
+                for v in group.versions:
+                    self._chips_layout.addWidget(self._make_active_chip(v))
+                self._chips_row.updateGeometry()
+                return
+            # The region vanished under us (a reload with different data).
+            self._region_expanded = None
+
+        shown = groups if self._show_all_regions else groups[:VISIBLE_REGIONS]
+        for group in shown:
+            self._chips_layout.addWidget(self._make_region_chip(group))
+        hidden = len(groups) - len(shown)
+        if hidden > 0:
+            self._chips_layout.addWidget(self._make_more_chip(hidden))
+        self._chips_row.updateGeometry()
+
+    def _make_region_chip(self, group) -> QPushButton:
+        """One region: its code and how many versions are in it."""
+        chip = QPushButton(f"{group.code}  {group.count}")
+        chip.setFlat(True)
+        _theme.style(chip, "DETAIL_REGION_CHIP")
+        cursor_affordance.set_clickable(chip)
+        # The FACE is a bare code because a grid of twelve full region names is
+        # the wall this replaced. The NAME is one hover away, with the region's
+        # quality tiers — which is where they belong: quality is present on
+        # roughly 6% of the library, so putting it on the face would leave
+        # almost every chip with a gap where a tier should be.
+        name = resolve_category_name(group.code, self.config) or group.code
+        lines = [f"{name} — {group.count} version{'s' if group.count != 1 else ''}"]
+        if group.qualities:
+            lines.append("Quality: " + ", ".join(
+                quality_display(q) for q in group.qualities
+            ))
+        lines.append("Click to see them")
+        chip.setToolTip("\n".join(lines))
+        chip.clicked.connect(lambda _=False, code=group.code: self._expand_region(code))
+        return chip
+
+    def _make_more_chip(self, hidden: int) -> QPushButton:
+        chip = QPushButton(f"+ {hidden} more")
+        chip.setFlat(True)
+        _theme.style(chip, "DETAIL_REGION_LINK")
+        cursor_affordance.set_clickable(chip)
+        chip.setToolTip(f"Show the remaining {hidden} region"
+                        f"{'s' if hidden != 1 else ''}")
+        chip.clicked.connect(self._show_every_region)
+        return chip
+
+    def _make_back_chip(self, group) -> QPushButton:
+        name = resolve_category_name(group.code, self.config) or group.code
+        chip = QPushButton(f"{_icons.back_icon} All regions")
+        chip.setFlat(True)
+        _theme.style(chip, "DETAIL_REGION_LINK")
+        cursor_affordance.set_clickable(chip)
+        chip.setToolTip(f"Back to every region — showing {name}")
+        chip.clicked.connect(self._collapse_region)
+        return chip
+
+    def _expand_region(self, code: str) -> None:
+        self._region_expanded = code
+        self._render_region_grid()
+
+    def _collapse_region(self) -> None:
+        self._region_expanded = None
+        self._render_region_grid()
+
+    def _show_every_region(self) -> None:
+        self._show_all_regions = True
+        self._render_region_grid()
 
     def clear(self) -> None:
         self.load([])
