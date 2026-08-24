@@ -395,6 +395,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             label += f"  {_icons.loading_icon} checking…"
         self._vod_toggle.setText(f"{arrow}  {label}")
 
+    def budgeted_tree(self):
+        """Watch Alerts fits its top-level groups, not a flat list.
+
+        This is the section R13 names directly — 173px subdivided four ways,
+        each sub-group scrolling in about 35px.
+        """
+        return self.__dict__.get("alerts_tree")
+
     def news(self) -> str:
         """Firing rules plus series with unseen episodes.
 

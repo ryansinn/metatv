@@ -360,3 +360,108 @@ def test_every_flat_list_section_declares_its_list(module, cls):
     assert "budgeted_list" in vars(section_cls), (
         f"{cls} does not declare budgeted_list, so its rows are never fitted"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. Sub-grouped sections budget WITHIN each group.
+#
+# Watch Alerts is the section R13 names directly — 173px subdivided four ways,
+# each sub-group scrolling in ~35px. The fix it asks for is "three readable
+# groups", so every group stays on screen and each truncates its own children.
+# A first attempt budgeted the TOP-LEVEL rows instead and hid four of five
+# groups outright, which is the opposite of the thing being fixed.
+# ---------------------------------------------------------------------------
+
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem  # noqa: E402
+
+
+class _TreeSection(CollapsibleSection):
+    def __init__(self, config):
+        super().__init__("Tree", "T", config)
+
+    def get_section_id(self):
+        return "tree"
+
+    def create_content(self):
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.content_layout.addWidget(self.tree)
+
+    def budgeted_tree(self):
+        return self.tree
+
+
+def _tree_section(qapp, config, groups, children, height=200):
+    section = _TreeSection(config)
+    for g in range(groups):
+        group = QTreeWidgetItem([f"group {g}"])
+        for c in range(children):
+            group.addChild(QTreeWidgetItem([f"child {c}"]))
+        section.tree.addTopLevelItem(group)
+        group.setExpanded(True)
+    section.tree.setFixedHeight(height - section.HEADER_H)
+    section.resize(240, height)
+    section.show()
+    qapp.processEvents()
+    return section
+
+
+def _visible_children(group):
+    return [group.child(i) for i in range(group.childCount())
+            if not group.child(i).isHidden()
+            and group.child(i).data(0, Qt.ItemDataRole.UserRole) != _MORE_ROW]
+
+
+def test_every_group_header_stays_on_screen(qapp, config):
+    """"Three readable groups" — a budget that hides whole groups is the
+    problem, not the fix."""
+    section = _tree_section(qapp, config, groups=4, children=10)
+    section.apply_tree_row_budget(section.tree)
+    hidden = [i for i in range(section.tree.topLevelItemCount())
+              if section.tree.topLevelItem(i).isHidden()]
+    assert hidden == [], f"groups {hidden} were hidden — budget the children instead"
+
+
+def test_each_group_carries_its_own_tail(qapp, config):
+    section = _tree_section(qapp, config, groups=3, children=12)
+    hidden = section.apply_tree_row_budget(section.tree)
+    assert hidden > 0
+    for i in range(section.tree.topLevelItemCount()):
+        group = section.tree.topLevelItem(i)
+        tails = [group.child(c) for c in range(group.childCount())
+                 if group.child(c).data(0, Qt.ItemDataRole.UserRole) == _MORE_ROW]
+        assert len(tails) == 1, f"group {i} has {len(tails)} tails"
+
+
+def test_the_tree_never_grows_its_own_scrollbar(qapp, config):
+    section = _tree_section(qapp, config, groups=4, children=10)
+    section.apply_tree_row_budget(section.tree)
+    assert (section.tree.verticalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+
+def test_a_group_that_fits_keeps_every_child(qapp, config):
+    section = _tree_section(qapp, config, groups=1, children=2, height=400)
+    section.apply_tree_row_budget(section.tree)
+    group = section.tree.topLevelItem(0)
+    assert len(_visible_children(group)) == 2
+    assert all(group.child(c).data(0, Qt.ItemDataRole.UserRole) != _MORE_ROW
+               for c in range(group.childCount()))
+
+
+def test_refitting_a_tree_twice_does_not_stack_tails(qapp, config):
+    section = _tree_section(qapp, config, groups=3, children=12)
+    for _ in range(3):
+        section.apply_tree_row_budget(section.tree)
+    for i in range(section.tree.topLevelItemCount()):
+        group = section.tree.topLevelItem(i)
+        tails = [c for c in range(group.childCount())
+                 if group.child(c).data(0, Qt.ItemDataRole.UserRole) == _MORE_ROW]
+        assert len(tails) <= 1
+
+
+def test_the_alerts_section_declares_its_tree():
+    """The section R13 names is the one a list-shaped budget could not reach."""
+    from metatv.gui.sidebar.alerts import WatchAlertsSection
+
+    assert "budgeted_tree" in vars(WatchAlertsSection)

@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
-    QFrame, QSizePolicy,
+    QFrame, QSizePolicy, QTreeWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
@@ -18,9 +18,10 @@ from metatv.gui import theme as _theme
 # The splitter enforces this so the user cannot drag an expanded section below it.
 _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
 
-#: Marks the "+N more" tail row so a click can be told from a content click.
-#: A sentinel rather than a text match — the label carries a live count.
-_MORE_ROW = "__more_row__"
+# Row fitting lives in row_budget.py — see there for why "+N more" is an
+# allocation consequence and not a cap. The sentinel is re-exported because
+# callers already reach for it here.
+from metatv.gui.sidebar.row_budget import _MORE_ROW, RowBudgetMixin  # noqa: F401
 
 
 def _floor_of(widget) -> int:
@@ -255,7 +256,7 @@ class InPlaceRowMixin:
                 list_widget.takeItem(index)
 
 
-class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
+class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
     # Signal when section wants to update its size
@@ -561,122 +562,6 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
             # is still worth updating; the floor is not, because there is no
             # splitter for it to act on.
             pass
-
-    # ── Row budget: no nested scrollbars ────────────────────────────────────
-
-    def apply_row_budget(self, list_widget, on_more=None) -> int:
-        """Show the rows that FIT and end with ``+N more →``; never scroll.
-
-        The sidebar had a scrollbar inside a scrollbar — Watch Alerts
-        subdivided 173px four ways, each sub-group scrolling in ~35px, which is
-        a window too small to read through. *This alone recovers most of the
-        jam* (R13, mechanism 1).
-
-        ``+N more`` is **a consequence of the allocated height, never a cap**:
-        drag the section taller and it renders more rows. The minimum is a
-        floor, never a ceiling.
-
-        Args:
-            list_widget: The section's ``QListWidget``, already populated.
-            on_more: Called when the tail row is activated. Defaults to the
-                section's Explore link, which is where "show me the rest"
-                already goes.
-
-        Returns:
-            How many rows were hidden behind the tail (0 when everything fit).
-        """
-        list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # Drop any tail from a previous pass FIRST. This runs again on every
-        # resize, and without this each drag would stack another "+N more" row
-        # on the end of the list.
-        for index in reversed(range(list_widget.count())):
-            if list_widget.item(index).data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
-                list_widget.takeItem(index)
-
-        total = list_widget.count()
-        if total == 0:
-            return 0
-
-        viewport = list_widget.viewport().height()
-        if viewport <= 0:
-            # Not laid out yet — leave every row visible rather than guessing a
-            # budget from a zero height and hiding the whole list.
-            for index in range(total):
-                list_widget.item(index).setHidden(False)
-            return 0
-
-        used, fits = 0, 0
-        for index in range(total):
-            item = list_widget.item(index)
-            item.setHidden(False)
-            height = item.sizeHint().height() or self.ROW_H
-            if used + height > viewport:
-                break
-            used += height
-            fits += 1
-
-        if fits >= total:
-            return 0
-
-        # The tail row costs a row, so it displaces one more piece of content.
-        if fits > 0 and used + self.ROW_H > viewport:
-            fits -= 1
-
-        hidden = total - fits
-        for index in range(fits, total):
-            list_widget.item(index).setHidden(True)
-
-        tail = QListWidgetItem(f"+ {hidden} more  →")
-        tail.setData(Qt.ItemDataRole.UserRole, _MORE_ROW)
-        tail.setToolTip(f"{hidden} more — open the full view")
-        list_widget.addItem(tail)
-        self._more_handler = on_more or self.exploreClicked.emit
-        try:
-            list_widget.itemClicked.disconnect(self._on_more_row_clicked)
-        except TypeError:
-            pass
-        list_widget.itemClicked.connect(self._on_more_row_clicked)
-        return hidden
-
-    def budgeted_list(self):
-        """The list this section fits rows into, or ``None`` to opt out.
-
-        Sections override with their ``QListWidget``. Opting out is the right
-        answer for a section whose content is not a flat list — Watch Alerts
-        renders a ``QTreeWidget`` of sub-groups, which needs its own budget.
-        """
-        return None
-
-    def reapply_row_budget(self) -> None:
-        """Re-fit the rows to the section's CURRENT height.
-
-        This is what makes ``+N more`` an allocation consequence rather than a
-        cap: without it the budget would be computed once, at load, and dragging
-        a section taller would leave it showing the same rows it showed at its
-        old size. Called on resize and after every populate.
-        """
-        lst = self.budgeted_list()
-        if lst is not None:
-            self.apply_row_budget(lst)
-            self.refresh_header_status()
-
-    def resizeEvent(self, event):  # noqa: N802 (Qt override)
-        """Re-fit on every resize — the splitter drag is the whole point.
-
-        Deferred by a zero-timer because the viewport has not taken its new
-        height yet while this fires; measuring here would budget against the
-        size the section is leaving, not the one it is arriving at.
-        """
-        super().resizeEvent(event)
-        QTimer.singleShot(0, self.reapply_row_budget)
-
-    def _on_more_row_clicked(self, item) -> None:
-        """Route a click on the ``+N more`` tail to the section's full view."""
-        if item is not None and item.data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
-            handler = self.__dict__.get("_more_handler")
-            if handler is not None:
-                handler()
 
     def create_header(self):
         """Create collapsible header with title and toggle button."""
