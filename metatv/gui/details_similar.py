@@ -6,8 +6,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_versions import ChannelVersion, resolve_category_name
 
 
@@ -56,8 +58,10 @@ class _HoverRow(QWidget):
         super().leaveEvent(event)
 
 
-class _SimilarSection(QWidget):
+class _SimilarSection(CollapsibleMixin, QWidget):
     """Collapsible 'Similar Titles' section showing fuzzy-matched content."""
+
+    COLLAPSE_KEY = "similar"
 
     play_requested            = pyqtSignal(str)              # channel_id
     version_selected          = pyqtSignal(str)              # channel_id → show in details pane
@@ -71,7 +75,6 @@ class _SimilarSection(QWidget):
         self.config = config
         self._channel_ids: list[str] = []
         self._origin_title: str = ""
-        self._expanded = True
         self._setup()
 
     def _setup(self) -> None:
@@ -79,30 +82,35 @@ class _SimilarSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header row
-        self._header = QWidget()
-        hdr = QHBoxLayout(self._header)
-        hdr.setContentsMargins(0, 4, 0, 2)
-        hdr.setSpacing(4)
-        self._toggle_btn = QPushButton(_icons.collapse_icon)
-        self._toggle_btn.setFixedSize(20, 20)
-        self._toggle_btn.setToolTip("Collapse Similar Titles")
-        self._toggle_btn.clicked.connect(self._toggle)
-        self._title_lbl = QLabel()
-        _theme.style_fn(self._title_lbl, lambda: f"font-weight: bold; color: {_theme.COLOR_TEXT};")
-        hdr.addWidget(self._toggle_btn)
-        hdr.addWidget(self._title_lbl)
-        hdr.addStretch()
+        # Header — the shared collapsible one. The count moves to the right,
+        # where every other section's count is, instead of being welded into
+        # the title as "Similar Titles (18)".
+        self._header = CollapsibleHeader("Similar Titles")
+
+        # ⤢ — the door to the cascading-column overlay. The pane deliberately
+        # shows a handful rather than all eighteen: the overlay is where you
+        # browse, and this says "there are more, here is the way in".
+        self._expand_btn = QPushButton(_icons.lightbox_icon)
+        self._expand_btn.setFixedSize(20, 20)
+        self._expand_btn.setFlat(True)
+        _theme.style(self._expand_btn, "DETAIL_SECTION_CHEVRON")
+        cursor_affordance.set_clickable(self._expand_btn)
+        self._expand_btn.setToolTip("Browse all similar titles in the preview overlay")
+        self._expand_btn.clicked.connect(self._open_overlay)
+        self._header.add_trailing(self._expand_btn)
+
         self._header.hide()
         layout.addWidget(self._header)
 
         # Body
-        self._body = QWidget()
-        self._body_layout = QVBoxLayout(self._body)
+        self._content = QWidget()
+        self._body = self._content        # kept: the row builders use this name
+        self._body_layout = QVBoxLayout(self._content)
         self._body_layout.setContentsMargins(4, 0, 0, 4)
         self._body_layout.setSpacing(2)
-        self._body.hide()
-        layout.addWidget(self._body)
+        self._content.hide()
+        layout.addWidget(self._content)
+        self._wire_header()
 
     def load(self, titles: list[ChannelVersion], origin_title: str = "") -> None:
         """Populate the section. Hides itself if titles is empty."""
@@ -113,17 +121,19 @@ class _SimilarSection(QWidget):
 
         if not titles:
             self._header.hide()
-            self._body.hide()
+            self._content.hide()
             self._channel_ids = []
             return
 
         self._channel_ids = [v.channel_id for v in titles]
         self._origin_title = origin_title
 
-        self._title_lbl.setText(f"Similar Titles ({len(titles)})")
+        self._header.set_summary(
+            str(len(titles)),
+            f"{len(titles)} similar title{'s' if len(titles) != 1 else ''}",
+        )
         self._header.show()
-        if self._expanded:
-            self._body.show()
+        self._apply_collapsed()
 
         for v in titles:
             self._body_layout.addWidget(self._make_row(v))
@@ -131,15 +141,17 @@ class _SimilarSection(QWidget):
     def clear(self) -> None:
         self.load([])
 
-    def _toggle(self) -> None:
-        self._expanded = not self._expanded
-        self._body.setVisible(self._expanded)
-        self._toggle_btn.setText(
-            _icons.collapse_icon if self._expanded else _icons.expand_icon
-        )
-        self._toggle_btn.setToolTip(
-            "Collapse Similar Titles" if self._expanded else "Expand Similar Titles"
-        )
+    def _open_overlay(self) -> None:
+        """⤢ — open the cascading-column overlay on the first title.
+
+        Reuses the signal a row click already emits, so the overlay gets the
+        same (ids, index, origin) triple whichever way you reach it; there is
+        no second path into it to keep in step.
+        """
+        if self._channel_ids:
+            self.similar_preview_requested.emit(
+                self._channel_ids, 0, self._origin_title
+            )
 
     # ------------------------------------------------------------------ #
     # Row builder                                                          #

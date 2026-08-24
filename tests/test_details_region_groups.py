@@ -131,7 +131,7 @@ def test_sixty_five_versions_render_as_twelve_chips_and_a_tail(section, qapp):
     assert len(texts) == DEFAULT_VISIBLE_REGIONS + 1
     assert texts[0].startswith("DE")
     assert texts[-1] == "+ 7 more"
-    assert section._region_summary_lbl.text() == "65 versions · 19 regions"
+    assert section._header.summary() == "65 versions · 19 regions"
 
 
 def test_the_chips_are_actually_laid_out_side_by_side(section, qapp):

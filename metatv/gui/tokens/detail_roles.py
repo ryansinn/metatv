@@ -48,4 +48,26 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         "DETAIL_REGION_SUMMARY": (
             f"color: {text}; font-size: {font_sm};"
         ),
+        # ── Section headers ──────────────────────────────────────────────
+        # The chevron is a target, so it is legible at rest rather than
+        # revealing itself on hover: unlike a Play button on one row of
+        # eighteen, there are six of these and each one is the only way into
+        # its section.
+        "DETAIL_SECTION_CHEVRON": (
+            f"QPushButton {{ color: {text}; background: transparent;"
+            f" border: none; padding: 0; }}"
+            f"QPushButton:hover {{ color: {text_hi}; }}"
+        ),
+        # A button, not a label: the WORDS toggle too, not just the 20px
+        # chevron. Styled to read as a heading — the affordance is the cursor
+        # and the hover, not a button frame.
+        "DETAIL_SECTION_TITLE": (
+            f"QPushButton {{ color: {text_hi}; font-size: {font_md};"
+            f" font-weight: bold; background: transparent; border: none;"
+            f" padding: 0; text-align: left; }}"
+            f"QPushButton:hover {{ color: {accent}; }}"
+        ),
+        "DETAIL_SECTION_SUMMARY": (
+            f"color: {text}; font-size: {font_sm}; background: transparent;"
+        ),
     }
