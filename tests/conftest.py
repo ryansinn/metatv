@@ -619,6 +619,15 @@ def wire_settings_theme_widget(dlg) -> None:
     dlg._theme_combo = QComboBox()
     for palette_name in theme_palettes.PALETTES:
         dlg._theme_combo.addItem(palette_name, palette_name)
+    # Appearance group, beside the theme combo: hide-the-menu-bar-until-Alt.
+    # Added here rather than guarded in production — PyQt raises RuntimeError
+    # (not AttributeError) for attribute access on a __new__'d dialog, so a
+    # hasattr guard would not absorb it and would mask a genuinely missing
+    # widget in the real dialog.
+    from PyQt6.QtWidgets import QCheckBox
+
+    dlg._menu_auto_hide_check = QCheckBox()
+    dlg._menu_auto_hide_check.setChecked(False)
 
 
 def mock_settings_density_widget(dlg) -> None:
@@ -644,6 +653,8 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._theme_combo = MagicMock()
     dlg._theme_combo.currentData.return_value = "Midnight"
     dlg._theme_combo.currentText.return_value = "Midnight"
+    dlg._menu_auto_hide_check = MagicMock()
+    dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
 def wire_settings_density_widget(dlg) -> None:
@@ -680,6 +691,8 @@ def wire_settings_density_widget(dlg) -> None:
     # so they live in this factory rather than eight duplicated stubs.
     dlg._collapse_variants_check = QCheckBox()
     dlg._collapse_variants_check.setChecked(False)
+    dlg._menu_auto_hide_check = QCheckBox()
+    dlg._menu_auto_hide_check.setChecked(False)
     try:
         from metatv.gui.theme_palettes import PALETTES as _PALETTES
     except Exception:
@@ -759,6 +772,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "refresh_theme",
     "_apply_collapse_variants_setting",
     "_sync_split_toggle",
+    "_apply_menu_bar_setting",
 )
 
 

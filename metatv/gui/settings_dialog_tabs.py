@@ -750,6 +750,21 @@ class SettingsTabsMixin:
         )
         appearance_form.addRow("Theme:", self._theme_combo)
 
+        self._menu_auto_hide_check = QCheckBox(
+            "Hide the menu bar until Alt is pressed"
+        )
+        self._menu_auto_hide_check.setToolTip(
+            "Off by default. When on, the menu bar appears only while you\n"
+            "press Alt — and File, View, Layout, Style and Buffer all go with\n"
+            "it. The header's Tools button still opens the Tools menu, which\n"
+            "carries \"Menu bar always visible\" to turn this back off.\n"
+            "Not available on macOS: the menu bar there is the system bar at\n"
+            "the top of the screen, not part of this window."
+        )
+        from metatv.gui.menu_bar_reveal import auto_hide_supported
+        self._menu_auto_hide_check.setEnabled(auto_hide_supported())
+        appearance_form.addRow(self._menu_auto_hide_check)
+
         layout.addWidget(appearance_group)
 
         channel_list_group = QGroupBox("Channel List")

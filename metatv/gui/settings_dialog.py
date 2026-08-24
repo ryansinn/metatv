@@ -474,6 +474,11 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             getattr(c, "collapse_variants_in_list", False)
         )
         self._collapse_variants_check.blockSignals(False)
+        self._menu_auto_hide_check.blockSignals(True)
+        self._menu_auto_hide_check.setChecked(
+            getattr(c, "menu_bar_auto_hide", False)
+        )
+        self._menu_auto_hide_check.blockSignals(False)
 
     def _save_values(self):
         """Write widget values back to config and persist."""
@@ -577,7 +582,12 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         _save_channel_density(self._channel_density_combo, c)
         _save_platform_name_style(self._platform_name_style_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
-        c.collapse_variants_in_list = self._collapse_variants_check.isChecked()
+        # Written like every other setting; APPLIED by the host on
+        # settings_applied (MainWindow connects apply_menu_bar_auto_hide).
+        # Reaching for self.parent() here instead would both bypass that
+        # established seam and break every test that builds this dialog via
+        # __new__ — PyQt raises on any QWidget method there.
+        c.menu_bar_auto_hide = self._menu_auto_hide_check.isChecked()
 
         c.sidebar_sections = new_order
         c.sidebar_visible_sections = new_visible

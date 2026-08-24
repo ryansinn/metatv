@@ -41,6 +41,10 @@ from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
 from metatv.gui.app_header import _AppHeaderMixin
 from metatv.gui.filter_chip_host import _FilterChipHostMixin
+from metatv.gui.menu_bar_reveal import (
+    _MenuBarRevealMixin,
+    auto_hide_supported as menu_bar_auto_hide_supported,
+)
 from metatv.gui.main_window_style_menu import _StyleMenuMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories.provider import parse_provider_urls
@@ -115,7 +119,8 @@ from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 
 
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, QMainWindow):
+class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
+                 QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -887,6 +892,38 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         tools_menu.addAction(metadata_enrich_action)
 
         # Help menu
+        # The way BACK. The header's Tools button opens this same menu, so
+        # this entry is reachable with the menu bar hidden — which is precisely
+        # when someone needs it. Without it the only off-switch for auto-hide
+        # would be behind the thing auto-hide just hid.
+        tools_menu.addSeparator()
+        self._menu_always_visible_action = QAction(
+            "Menu &bar always visible", self, checkable=True
+        )
+        self._menu_always_visible_action.setToolTip(
+            "When unticked, the menu bar hides until you press Alt. "
+            "Untick only if you want the chrome gone — File, View, Layout, "
+            "Style and Buffer all go behind that Alt press; the header's "
+            "Tools button (this menu) stays reachable either way."
+        )
+        if not menu_bar_auto_hide_supported():
+            self._menu_always_visible_action.setEnabled(False)
+            self._menu_always_visible_action.setToolTip(
+                "On macOS the menu bar is the system bar at the top of the "
+                "screen, not part of this window — there is nothing to hide."
+            )
+        self._menu_always_visible_action.toggled.connect(
+            lambda visible: self.set_menu_bar_auto_hide(not visible)
+        )
+        tools_menu.addAction(self._menu_always_visible_action)
+        tools_menu.aboutToShow.connect(self.sync_menu_bar_actions)
+
+        # Alt-to-reveal, if the user has asked for it. Applied here rather than
+        # at the end of __init__ so the bar is never briefly visible first.
+        self._alt_pressed_alone = False
+        self.apply_menu_bar_auto_hide()
+        self.sync_menu_bar_actions()
+
         help_menu = menubar.addMenu("&Help")
         whats_new_action = QAction(f"{_icons.whats_new_icon}  What's New", self)
         whats_new_action.setToolTip("See what changed in recent updates")
@@ -2278,6 +2315,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_channel_list_density)
         dialog.settings_applied.connect(self.refresh_theme)
         dialog.settings_applied.connect(self._apply_collapse_variants_setting)
+        # Applies the menu-bar setting AND re-ticks the Tools entry, so the two
+        # surfaces cannot disagree after an OK.
+        dialog.settings_applied.connect(self._apply_menu_bar_setting)
         dialog.settings_applied.connect(self._sync_split_toggle)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
@@ -2289,6 +2329,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # dropped row density, thumbnails, platform-name style and
         # collapse-variants. OK emits now, so the connections ARE the list;
         # re-running them here would only let the two drift apart again.
+
+    def _apply_menu_bar_setting(self) -> None:
+        """Settings changed the menu-bar option — apply it and re-tick Tools."""
+        self.apply_menu_bar_auto_hide()
+        self.sync_menu_bar_actions()
 
     def _refresh_recommendation_views(self) -> None:
         """Re-score every recommendation surface after the scoring dials change.
