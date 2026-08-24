@@ -451,10 +451,17 @@ class DetailsPaneWidget(QWidget):
         self._tags     = _TagsSection(self.config)
         self._similar  = _SimilarSection(self.config)
 
-        # Restore collapse state
-        self._tech.restore_collapse_state(self.config.details_pane_collapsed_sections)
-        self._cast.restore_collapse_state(self.config.details_pane_collapsed_sections)
-        self._tags.restore_collapse_state(self.config.details_pane_collapsed_sections)
+        # Restore collapse state. Every section that owns a CollapsibleHeader
+        # is listed here — the two that were added when the shared header made
+        # collapsing cheap (Overview, Also available) included, so "remembers
+        # its state" is true of all of them rather than of the four that
+        # happened to have hand-rolled it.
+        self._collapsible_sections = (
+            self._plot, self._versions, self._cast, self._tech,
+            self._tags, self._similar,
+        )
+        for section in self._collapsible_sections:
+            section.restore_collapse_state(self.config.details_pane_collapsed_sections)
 
         # NOTE: _action_bar is intentionally NOT added to the content layout — it is
         # the logical owner of the action buttons, which are reparented into the
@@ -572,9 +579,13 @@ class DetailsPaneWidget(QWidget):
         ab.clear_epg_link_clicked.connect(self._on_clear_epg_link)
 
         # Collapse state persistence
-        self._tech._toggle_btn.clicked.connect(self._save_tech_state)
-        self._cast._toggle_btn.clicked.connect(self._save_cast_state)
-        self._tags._toggle_btn.clicked.connect(self._save_tags_state)
+        # One connection per section, from the same tuple that restored them —
+        # so a seventh section cannot be restored-but-never-saved, which is what
+        # a hand-listed pair of blocks eventually produces.
+        for section in self._collapsible_sections:
+            section._header.toggled.connect(
+                lambda _collapsed, sec=section: sec.save_state(self.config)
+            )
 
     def _configure_for(self, is_live: bool) -> None:
         self._poster.set_mode(is_live)
@@ -730,14 +741,6 @@ class DetailsPaneWidget(QWidget):
     # Collapse state persistence                                           #
     # ------------------------------------------------------------------ #
 
-    def _save_tech_state(self) -> None:
-        self._tech.save_state(self.config)
-
-    def _save_cast_state(self) -> None:
-        self._cast.save_state(self.config)
-
-    def _save_tags_state(self) -> None:
-        self._tags.save_state(self.config)
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this pane's own persistent chrome

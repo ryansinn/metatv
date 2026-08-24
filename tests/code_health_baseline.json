@@ -10,7 +10,7 @@
     "metatv/core/provider_loader.py": 1264,
     "metatv/core/repositories/channel.py": 4048,
     "metatv/core/repositories/tag.py": 1750,
-    "metatv/gui/details_sections.py": 1880,
+    "metatv/gui/details_sections.py": 1795,
     "metatv/gui/discover_view.py": 1023,
     "metatv/gui/epg_watchlist_mixin.py": 1036,
     "metatv/gui/filter_panel.py": 1049,

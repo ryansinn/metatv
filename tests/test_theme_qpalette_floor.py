@@ -180,42 +180,51 @@ class TestUnstyledWidgetContrastAgainstThemedBackground:
     classes, not a stand-in.
     """
 
-    def test_overview_header_label_contrast(self, qapp, palette_name):
+    def test_details_section_header_contrast(self, qapp, palette_name):
+        """The details-section headers, measured where their colour now comes from.
+
+        This replaces two tests that reached for the unstyled
+        ``<b>Overview</b>`` and ``<b>Technical Details</b>`` QLabels and read
+        their inherited palette. Those labels are gone: all six details
+        sections share one ``CollapsibleHeader`` whose title is a QPushButton
+        with an explicit colour from ``DETAIL_SECTION_TITLE``.
+
+        So the risk moved. It is no longer "inherits Qt's compiled-in
+        near-black" — the QPalette floor those tests were written for still
+        covers that class, on the widgets that still have no stylesheet. It is
+        now "the token chosen for the role is unreadable on the surface it
+        paints on", which is what this measures. And it covers all six headers
+        at once rather than two, because there is one role behind them.
+        """
+        import re
+
         theme.apply_theme(palette_name)
         bg_value = theme.COLOR_BG_SECTION
-        parent = _themed_dark_parent(bg_value)
 
-        section = _PlotSection(parent)
-        label = section._header  # the real "<b>Overview</b>" QLabel — no stylesheet
-        assert label.text() == "<b>Overview</b>"
+        match = re.search(r"color:\s*(#[0-9a-fA-F]{3,8})", theme.DETAIL_SECTION_TITLE)
+        assert match, "DETAIL_SECTION_TITLE sets no explicit colour"
+        fg = match.group(1)
 
-        fg = label.palette().color(QPalette.ColorRole.WindowText).name()
         ratio = _contrast(fg, bg_value)
         assert ratio >= 4.5, (
-            f"{palette_name}: Overview header foreground {fg} on background "
-            f"{bg_value} contrast is {ratio:.2f}:1, below the 4.5:1 minimum"
-        )
-
-    def test_technical_details_header_label_contrast(self, qapp, palette_name):
-        theme.apply_theme(palette_name)
-        bg_value = theme.COLOR_BG_SECTION
-        parent = _themed_dark_parent(bg_value)
-
-        cfg = SimpleNamespace(collapse_icon="v")
-        section = _TechnicalSection(cfg, parent)
-        # hdr.addWidget(QLabel("<b>Technical Details</b>")) — an unnamed child
-        # of _header_widget's layout; find it by its exact text.
-        header_label = next(
-            w for w in section._header_widget.findChildren(QLabel)
-            if w.text() == "<b>Technical Details</b>"
-        )
-
-        fg = header_label.palette().color(QPalette.ColorRole.WindowText).name()
-        ratio = _contrast(fg, bg_value)
-        assert ratio >= 4.5, (
-            f"{palette_name}: Technical Details header foreground {fg} on "
+            f"{palette_name}: details section header foreground {fg} on "
             f"background {bg_value} contrast is {ratio:.2f}:1, below the "
             f"4.5:1 minimum"
+        )
+
+    def test_details_section_summary_contrast(self, qapp, palette_name):
+        """The right-aligned count is text too, and quieter by design."""
+        import re
+
+        theme.apply_theme(palette_name)
+        bg_value = theme.COLOR_BG_SECTION
+
+        match = re.search(r"color:\s*(#[0-9a-fA-F]{3,8})", theme.DETAIL_SECTION_SUMMARY)
+        assert match, "DETAIL_SECTION_SUMMARY sets no explicit colour"
+        ratio = _contrast(match.group(1), bg_value)
+        assert ratio >= 4.5, (
+            f"{palette_name}: section summary {match.group(1)} on {bg_value} "
+            f"is {ratio:.2f}:1, below 4.5:1"
         )
 
     def test_status_bar_contrast(self, qapp, palette_name):

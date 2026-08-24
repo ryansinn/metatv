@@ -703,33 +703,37 @@ def test_toggle_button_icon_swaps_on_toggle(qapp):
     )
 
 
-def test_label_row_is_separate_widget_above_chips_row(qapp):
-    """The row_container uses a vertical layout with the label row above _chips_row.
+def test_the_header_sits_above_the_chips_not_beside_them(qapp):
+    """The header and the chip flow are STACKED.
 
-    Asserts via layout/parent structure that the "Also available as:" label and chip
-    flow are stacked (label above chips), not side by side.
+    The original asserted this by layout membership — that ``_chips_row`` was a
+    direct item of ``_row_container``'s layout. That stopped being true when
+    the section moved onto the shared CollapsibleHeader and its body went into
+    a ``_content`` wrapper so it can be folded away, without the stacking ever
+    changing. Membership was a proxy; this asserts the thing itself, by
+    measuring where the two are actually drawn.
     """
-    from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout
     from metatv.gui.details_versions import ChannelVersion
 
     section = _make_version_section(qapp)
+    section.resize(420, 240)
+    section.show()
     section.load([
         ChannelVersion(channel_id="ch-1", name="FOX", in_queue=False, is_filtered=False)
     ])
+    qapp.processEvents()
 
-    row_container_layout = section._row_container.layout()
-    assert isinstance(row_container_layout, QVBoxLayout), (
-        "_row_container must use QVBoxLayout (vertical stack) so label sits above chips"
+    header_bottom = section._header.mapTo(
+        section, section._header.rect().bottomLeft()
+    ).y()
+    chips_top = section._chips_row.mapTo(
+        section, section._chips_row.rect().topLeft()
+    ).y()
+
+    assert chips_top >= header_bottom, (
+        f"the chips start at y={chips_top} but the header runs to "
+        f"y={header_bottom} — they are side by side or overlapping"
     )
-
-    # _chips_row must be a direct child of the vertical layout
-    chips_row_found = False
-    for i in range(row_container_layout.count()):
-        item = row_container_layout.itemAt(i)
-        if item and item.widget() is section._chips_row:
-            chips_row_found = True
-            break
-    assert chips_row_found, "_chips_row must be a direct item in _row_container's vertical layout"
 
 
 def test_load_resets_filtered_section_to_collapsed(qapp):

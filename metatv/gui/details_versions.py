@@ -16,6 +16,7 @@ from metatv.core.channel_name_utils import (
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_version_groups import (
     DEFAULT_VISIBLE_REGIONS as VISIBLE_REGIONS,
     GROUPING_THRESHOLD,
@@ -197,7 +198,7 @@ class _CategoryNamePopup(QFrame):
 # _VersionSection
 # ---------------------------------------------------------------------------
 
-class _VersionSection(QWidget):
+class _VersionSection(CollapsibleMixin, QWidget):
     """Preferred-version nudge banner + wrapping source-picker chip row.
 
     Each chip shows the source icon (from *provider_map*), region/prefix, and
@@ -207,6 +208,8 @@ class _VersionSection(QWidget):
     Inactive-source chips are dimmed and offer a "Reactivate & play" menu option
     via right-click only.
     """
+
+    COLLAPSE_KEY = "versions"
 
     version_selected         = pyqtSignal(str)        # channel_id — show details
     play_version_requested   = pyqtSignal(str)        # channel_id — play that variant
@@ -256,31 +259,23 @@ class _VersionSection(QWidget):
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(4)
 
-        # Label row — left-aligned, full width
-        label_row = QWidget()
-        label_row_layout = QHBoxLayout(label_row)
-        label_row_layout.setContentsMargins(0, 0, 0, 0)
-        label_row_layout.setSpacing(0)
-        cat_label = QLabel("Also available")
-        _theme.style_fn(cat_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
-        cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        label_row_layout.addWidget(cat_label)
-        label_row_layout.addStretch()
-        # "65 versions · 19 regions" — the scale, stated, so the grid below is
-        # understood as a summary rather than mistaken for the whole list.
-        self._region_summary_lbl = QLabel()
-        _theme.style(self._region_summary_lbl, "DETAIL_REGION_SUMMARY")
-        self._region_summary_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
-        )
-        label_row_layout.addWidget(self._region_summary_lbl)
-        row_layout.addWidget(label_row)
+        # Header — the shared collapsible one, so this section folds away like
+        # every other and its "65 versions · 19 regions" sits where every other
+        # section's count sits.
+        self._header = CollapsibleHeader("Also available")
+        row_layout.addWidget(self._header)
+
+        self._content = QWidget()
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(4)
+        row_layout.addWidget(self._content)
 
         # Active chips — full width
         self._chips_row = QWidget()
         self._chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._chips_layout = _FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
-        row_layout.addWidget(self._chips_row)
+        content_layout.addWidget(self._chips_row)
 
         # Filtered variants collapsible sub-section (hidden until ≥1 filtered chip)
         self._filtered_section = QWidget()
@@ -321,7 +316,9 @@ class _VersionSection(QWidget):
 
         self._filtered_collapsed: bool = True
         self._filtered_section.hide()
-        row_layout.addWidget(self._filtered_section)
+        content_layout.addWidget(self._filtered_section)
+
+        self._wire_header()
 
         self._row_container.hide()
         layout.addWidget(self._row_container)
@@ -442,7 +439,7 @@ class _VersionSection(QWidget):
         """
         self._clear_active_chips()
         groups = group_by_region(self._active_versions)
-        self._region_summary_lbl.setText(summarise(groups) if groups else "")
+        self._header.set_summary(summarise(groups) if groups else "")
 
         # Few enough to just show. Grouping costs a click to reach any version
         # and drops the source icon and quality tier from the face, which is a

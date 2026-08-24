@@ -145,20 +145,25 @@ def test_a_collapse_toggle_keeps_its_tooltip_truthful(qapp_free=None) -> None:
     because the alternative (constructing three details-pane sections) buys no
     extra confidence about where the call sits.
     """
-    source = (_GUI / "details_sections.py").read_text()
+    # The four hand-rolled ``_apply`` methods this used to scan are gone: all
+    # six details sections now share one CollapsibleHeader, and the glyph flips
+    # in its ``_sync``. That is the same assertion against one implementation
+    # instead of four — and it now covers Overview and Also-available too,
+    # which never had a caret to get wrong.
+    source = (_GUI / "details_section_header.py").read_text()
     tree = ast.parse(source)
-    applies = [
+    syncs = [
         node for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_apply"
+        if isinstance(node, ast.FunctionDef) and node.name == "_sync"
     ]
     toggling = [
-        fn for fn in applies
-        if "_toggle_btn.setText" in (ast.get_source_segment(source, fn) or "")
+        fn for fn in syncs
+        if "_chevron.setText" in (ast.get_source_segment(source, fn) or "")
     ]
-    assert toggling, "no glyph-flipping _apply() found — has the shape changed?"
+    assert toggling, "no glyph-flipping _sync() found — has the shape changed?"
     for fn in toggling:
         body = ast.get_source_segment(source, fn) or ""
-        assert "_toggle_btn.setToolTip" in body, (
-            f"_apply() at line {fn.lineno} flips the toggle glyph without "
-            f"updating its tooltip — the tip will contradict the arrow"
+        assert "setToolTip" in body, (
+            f"_sync() at line {fn.lineno} flips the chevron without updating "
+            f"its tooltip — the tip will contradict the arrow"
         )

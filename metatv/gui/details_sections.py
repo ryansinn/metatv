@@ -19,6 +19,7 @@ from metatv.core.filter_utils import normalize_genre
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.gui.qt_text_utils import escape_mnemonic
@@ -1299,8 +1300,16 @@ class _MetadataSection(QWidget):
 # _PlotSection
 # ---------------------------------------------------------------------------
 
-class _PlotSection(QWidget):
-    """Overview header + plot text + loading indicator."""
+class _PlotSection(CollapsibleMixin, QWidget):
+    """Overview header + plot text + loading indicator.
+
+    Collapsible since the section-header component existed to make it cheap.
+    It was the one section with the most text and no way to fold it away —
+    not by decision, but because collapsing it would have meant a fifth copy
+    of the toggle code.
+    """
+
+    COLLAPSE_KEY = "overview"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1312,20 +1321,28 @@ class _PlotSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        self._header = QLabel("<b>Overview</b>")
+        self._header = CollapsibleHeader("Overview")
         layout.addWidget(self._header)
+
+        self._content = QWidget()
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(2)
+        layout.addWidget(self._content)
 
         self.plot_label = QLabel()
         self.plot_label.setWordWrap(True)
         self.plot_label.setTextFormat(Qt.TextFormat.PlainText)
         _theme.style(self.plot_label, "DETAIL_TEXT")
         _no_width_force(self.plot_label)
-        layout.addWidget(self.plot_label)
+        content_layout.addWidget(self.plot_label)
 
         self.plot_loading = QLabel("Loading description...")
         _theme.style(self.plot_loading, "LOADING_TEXT")
         self.plot_loading.hide()
-        layout.addWidget(self.plot_loading)
+        content_layout.addWidget(self.plot_loading)
+
+        self._wire_header()
 
     def set_mode(self, is_live: bool) -> None:
         self._is_live = is_live
@@ -1362,13 +1379,14 @@ class _PlotSection(QWidget):
 # _TechnicalSection
 # ---------------------------------------------------------------------------
 
-class _TechnicalSection(QWidget):
+class _TechnicalSection(CollapsibleMixin, QWidget):
     """Collapsible Technical Details section."""
+
+    COLLAPSE_KEY = "technical"
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self._collapsed: bool = False
         self._setup()
 
     def _setup(self) -> None:
@@ -1376,17 +1394,9 @@ class _TechnicalSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header
-        self._header_widget = QWidget()
-        hdr = QHBoxLayout(self._header_widget)
-        hdr.setContentsMargins(0, 5, 0, 5)
-        self._toggle_btn = QPushButton(self.config.collapse_icon)
-        self._toggle_btn.setFixedSize(20, 20)
-        self._toggle_btn.clicked.connect(self._toggle)
-        hdr.addWidget(self._toggle_btn)
-        hdr.addWidget(QLabel("<b>Technical Details</b>"))
-        hdr.addStretch()
-        layout.addWidget(self._header_widget)
+        self._header = CollapsibleHeader("Technical details")
+        self._header_widget = self._header      # kept: existing callers use this name
+        layout.addWidget(self._header)
 
         # Content
         self._content = QWidget()
@@ -1400,15 +1410,11 @@ class _TechnicalSection(QWidget):
         content_layout.addWidget(self.tech_details_label)
         layout.addWidget(self._content)
 
-    def restore_collapse_state(self, collapsed_sections: list[str]) -> None:
-        self._collapsed = "technical" in collapsed_sections
-        self._apply()
-
     def set_mode(self, is_live: bool) -> None:
         if is_live:
             self.hide()
         else:
-            self._apply()
+            self._apply_collapsed()
 
     def load(self, metadata: MetadataResult, weights=None) -> bool:
         """Populate section. Returns True if there is anything to display."""
@@ -1424,40 +1430,15 @@ class _TechnicalSection(QWidget):
         self.tech_details_label.clear()
         self.hide()
 
-    def _toggle(self) -> None:
-        self._collapsed = not self._collapsed
-        self._apply()
-
-    def _apply(self) -> None:
-        self._content.setVisible(not self._collapsed)
-        self._toggle_btn.setText(
-            self.config.expand_icon if self._collapsed else self.config.collapse_icon
-        )
-        # Set HERE, not at construction: the glyph flips with state, so a fixed
-        # tooltip would contradict the arrow half the time.
-        self._toggle_btn.setToolTip(
-            "Expand this section" if self._collapsed else "Collapse this section"
-        )
-
-    def is_collapsed(self) -> bool:
-        return self._collapsed
-
-    def save_state(self, config) -> None:
-        sections = set(config.details_pane_collapsed_sections)
-        if self._collapsed:
-            sections.add("technical")
-        else:
-            sections.discard("technical")
-        config.details_pane_collapsed_sections = list(sections)
-        config.save()
-
 
 # ---------------------------------------------------------------------------
 # _CastSection
 # ---------------------------------------------------------------------------
 
-class _CastSection(QWidget):
+class _CastSection(CollapsibleMixin, QWidget):
     """Collapsible Cast & Crew section."""
+
+    COLLAPSE_KEY = "cast"
 
     person_clicked = pyqtSignal(str)  # emits the person's name when clicked
 
@@ -1474,16 +1455,9 @@ class _CastSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._header_widget = QWidget()
-        hdr = QHBoxLayout(self._header_widget)
-        hdr.setContentsMargins(0, 5, 0, 5)
-        self._toggle_btn = QPushButton(self.config.collapse_icon)
-        self._toggle_btn.setFixedSize(20, 20)
-        self._toggle_btn.clicked.connect(self._toggle)
-        hdr.addWidget(self._toggle_btn)
-        hdr.addWidget(QLabel("<b>Cast & Crew</b>"))
-        hdr.addStretch()
-        layout.addWidget(self._header_widget)
+        self._header = CollapsibleHeader("Cast")
+        self._header_widget = self._header
+        layout.addWidget(self._header)
 
         self._content = QWidget()
         content_layout = QVBoxLayout(self._content)
@@ -1515,13 +1489,13 @@ class _CastSection(QWidget):
         layout.addWidget(self._content)
 
     def restore_collapse_state(self, collapsed_sections: list[str]) -> None:
-        self._collapsed = "cast" in collapsed_sections
-        self._apply()
+        self._header.set_collapsed("cast" in (collapsed_sections or []))
+        self._apply_collapsed()
 
     def set_mode(self, is_live: bool) -> None:
         self._is_live = is_live
         if not is_live:
-            self._apply()
+            self._apply_collapsed()
         self._apply_visibility()
 
     def load(self, cast: list, director: str | None = None, weights=None) -> None:
@@ -1574,32 +1548,6 @@ class _CastSection(QWidget):
         Re-shown when a reused pane lands on a title that has people."""
         self.setVisible(not self._is_live and self._has_content)
 
-    def _toggle(self) -> None:
-        self._collapsed = not self._collapsed
-        self._apply()
-
-    def _apply(self) -> None:
-        self._content.setVisible(not self._collapsed)
-        self._toggle_btn.setText(
-            self.config.expand_icon if self._collapsed else self.config.collapse_icon
-        )
-        # Set HERE, not at construction: the glyph flips with state, so a fixed
-        # tooltip would contradict the arrow half the time.
-        self._toggle_btn.setToolTip(
-            "Expand this section" if self._collapsed else "Collapse this section"
-        )
-
-    def is_collapsed(self) -> bool:
-        return self._collapsed
-
-    def save_state(self, config) -> None:
-        sections = set(config.details_pane_collapsed_sections)
-        if self._collapsed:
-            sections.add("cast")
-        else:
-            sections.discard("cast")
-        config.details_pane_collapsed_sections = list(sections)
-        config.save()
 
 
 # ---------------------------------------------------------------------------
@@ -1639,7 +1587,7 @@ _FACET_LABELS: dict[str, str] = {
 _LOW_CONF_THRESHOLD: float = 0.5
 
 
-class _TagsSection(QWidget):
+class _TagsSection(CollapsibleMixin, QWidget):
     """Collapsible 'Tags' section showing stored content_tags, grouped by facet.
 
     Each tag renders as a chip labeled with:
@@ -1660,6 +1608,8 @@ class _TagsSection(QWidget):
     not a re-derived query on the lossy 'collection' residual.
     """
 
+    COLLAPSE_KEY = "tags"
+
     # (facet_type, value) — left-click: strict exact-tag context filter
     tag_filter_clicked = pyqtSignal(str, str)
     # (facet_type, value) — right-click: seed Discover/Recipe with this one tag
@@ -1668,7 +1618,6 @@ class _TagsSection(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self._collapsed: bool = False
         self._setup()
 
     # ------------------------------------------------------------------ #
@@ -1681,17 +1630,9 @@ class _TagsSection(QWidget):
         layout.setSpacing(0)
 
         # Collapsible header
-        self._header_widget = QWidget()
-        hdr = QHBoxLayout(self._header_widget)
-        hdr.setContentsMargins(0, 5, 0, 5)
-
-        self._toggle_btn = QPushButton(_icons.collapse_icon)
-        self._toggle_btn.setFixedSize(20, 20)
-        self._toggle_btn.clicked.connect(self._toggle)
-        hdr.addWidget(self._toggle_btn)
-        hdr.addWidget(QLabel(f"<b>{_icons.tag_section_icon} Tags</b>"))
-        hdr.addStretch()
-        layout.addWidget(self._header_widget)
+        self._header = CollapsibleHeader(f"{_icons.tag_section_icon} Tags")
+        self._header_widget = self._header
+        layout.addWidget(self._header)
 
         # Scrollable content area — chips can wrap into many rows
         self._content = QWidget()
@@ -1740,7 +1681,7 @@ class _TagsSection(QWidget):
         for facet in ordered_facets:
             self._render_facet_group(facet, grouped[facet])
 
-        self._apply()
+        self._apply_collapsed()
         self.show()
 
     def clear(self) -> None:
@@ -1748,21 +1689,6 @@ class _TagsSection(QWidget):
         self._clear_content()
         self.hide()
 
-    def restore_collapse_state(self, collapsed_sections: list[str]) -> None:
-        self._collapsed = "tags" in collapsed_sections
-        self._apply()
-
-    def save_state(self, config) -> None:
-        sections = set(config.details_pane_collapsed_sections)
-        if self._collapsed:
-            sections.add("tags")
-        else:
-            sections.discard("tags")
-        config.details_pane_collapsed_sections = list(sections)
-        config.save()
-
-    def is_collapsed(self) -> bool:
-        return self._collapsed
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #
@@ -1866,15 +1792,4 @@ class _TagsSection(QWidget):
 
         return chip
 
-    def _toggle(self) -> None:
-        self._collapsed = not self._collapsed
-        self._apply()
 
-    def _apply(self) -> None:
-        self._content.setVisible(not self._collapsed)
-        self._toggle_btn.setText(
-            _icons.expand_icon if self._collapsed else _icons.collapse_icon
-        )
-        self._toggle_btn.setToolTip(
-            "Expand this section" if self._collapsed else "Collapse this section"
-        )
