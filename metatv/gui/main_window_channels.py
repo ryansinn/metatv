@@ -1306,6 +1306,7 @@ class _ChannelListMixin:
         # via on_provider_selected_new which calls load_channels(provider_id) directly.
         # Reset the cursor so a subsequent source click toggles on rather than off.
         self.selected_provider_id = None
+        self._sync_filter_chips()   # chips describe the state about to be queried
         self.load_channels(None)
 
     def initialize_filter_stats(self) -> None:
@@ -1369,6 +1370,9 @@ class _ChannelListMixin:
         self._filter_unmapped_prefixes = []
         if hasattr(self, 'filter_panel'):
             self.filter_panel.update_data(tag_counts, untagged_counts)
+            # Until now the sections are empty, so a filter restored at startup
+            # renders as "en"; this is the moment it can say "English".
+            self._sync_filter_chips()
         total = sum(sum(v.values()) for v in tag_counts.values())
         logger.info(f"Initialized filter stats (tag model): {total:,} total tag-value occurrences")
 

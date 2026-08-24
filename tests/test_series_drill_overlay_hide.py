@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, call
 
 from metatv.gui.main_window_nav import _NavMixin
-from tests.conftest import wire_header_search_sync
+from tests.conftest import wire_filter_chip_host, wire_header_search_sync
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +79,7 @@ def _make_host() -> _NavMixin:
     """
     host = _NavMixin.__new__(_NavMixin)
     wire_header_search_sync(host)
+    wire_filter_chip_host(host)
 
     # Required base widgets
     host.channels_list    = _FakeWidget(visible=False)

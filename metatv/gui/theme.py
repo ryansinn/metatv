@@ -59,6 +59,8 @@ from metatv.gui.tokens.scales import (  # noqa: F401
     SPACE_LG, SPACE_MD, SPACE_NONE, SPACE_SM, SPACE_XS,
     radius_px, space_px, zoomed_font,
 )
+# Role groups that compose themselves from the tokens and merge in below.
+from metatv.gui.tokens import chip_roles as _chip_roles
 
 
 # ── 1. Design tokens ────────────────────────────────────────────────────────────
@@ -1736,6 +1738,13 @@ def _build_semantic_constants() -> dict[str, object]:
 
 
 globals().update(_build_semantic_constants())
+# Role groups that live in their own module. `theme.py` is on a shrink-only
+# ratchet, and a semantic constant is a pure function of the tokens — so a new
+# family composes itself from the token globals and merges in here, the same
+# way tokens/scales.py keeps the radius and spacing scales out of this file.
+# Both this call and apply_theme's rebuild must run, or a theme switch would
+# leave these roles on the old palette.
+globals().update(_chip_roles.build(globals()))
 
 
 def _relative_luminance(value: str) -> float:
@@ -2235,6 +2244,7 @@ def _apply_theme_locked(name: str) -> bool:
         _current_theme = name
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
+        globals().update(_chip_roles.build(globals()))
         rewrite_map = _build_palette_rewrite_map(before, _color_token_snapshot())
         _CONSTANT_REWRITE = {
             was: globals()[n]

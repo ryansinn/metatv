@@ -40,6 +40,7 @@ from metatv.gui.main_window_series import _SeriesMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
 from metatv.gui.app_header import _AppHeaderMixin
+from metatv.gui.filter_chip_host import _FilterChipHostMixin
 from metatv.gui.main_window_style_menu import _StyleMenuMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories.provider import parse_provider_urls
@@ -114,7 +115,7 @@ from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 
 
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, QMainWindow):
+class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -1606,6 +1607,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(0)
 
+        # Active-filter chips — the first thing above the results, because they
+        # describe the results. Built before the banners so it sits above them:
+        # a banner is about one transient event, the chip line is about what the
+        # whole list is.
+        self._list_layout.addWidget(self._create_filter_chip_bar())
+
         # Hidden-mode banner
         self._hidden_banner = QWidget()
         _hb_layout = QHBoxLayout(self._hidden_banner)
@@ -1956,6 +1963,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._inner_splitter.setSizes([panel_w, max(300, 800 - panel_w)])
         self._inner_splitter.splitterMoved.connect(self._schedule_layout_save)
         self.content_layout.addWidget(self._inner_splitter, 1)
+        # One call decides which filter UI is up. In chip mode the column starts
+        # shut — "+ Add filter" is the way in — and the chip line reports what,
+        # if anything, is filtering.
+        self._apply_filter_ui_mode()
 
         # Stats label below the splitter
         stats_container = QWidget()
@@ -2475,6 +2486,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._filters_visible_action.triggered.connect(self._toggle_filters_from_menu)
         layout_menu.addAction(self._filters_visible_action)
 
+        layout_menu.addSeparator()
+        self._filter_chips_action = QAction("Filters as &chips", self, checkable=True)
+        self._filter_chips_action.setToolTip(
+            "Show active filters as a line of removable chips above the results, "
+            "opening the full panel on demand. Unticked, the Includes column is "
+            "always present instead."
+        )
+        self._filter_chips_action.triggered.connect(self.toggle_filter_ui_mode)
+        layout_menu.addAction(self._filter_chips_action)
+
         self._sync_layout_menu()
 
     def _sync_layout_menu(self) -> None:
@@ -2495,6 +2516,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._filters_visible_action.setChecked(
             bool(getattr(self.config, "filter_section_visible", True))
         )
+        chips_action = self.__dict__.get("_filter_chips_action")
+        if chips_action is not None:
+            chips_action.setChecked(self.filter_ui_mode() == "chips")
 
     def _toggle_sidebar_from_menu(self) -> None:
         """Collapse or restore the sidebar from the Layout menu."""

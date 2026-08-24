@@ -24,12 +24,13 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui import theme as _theme
+from metatv.gui.filter_panel_chip_seam import _ChipSeamMixin
 from metatv.gui.filter_group_row import _accent_colors, _fmt, _TriCheckbox, _ItemRow, _GroupRow, _Section
 
 
 # ── Main FilterPanel ───────────────────────────────────────────────────────────
 
-class FilterPanel(QWidget):
+class FilterPanel(_ChipSeamMixin, QWidget):
     """Vertical faceted filter panel — lives in a QSplitter left of the channel list."""
 
     filter_changed = pyqtSignal()

@@ -64,11 +64,14 @@ class _FakeLabel:
 
 def _nav_host() -> _NavMixin:
     """Minimal real ``_NavMixin`` — the switchers under test are the real ones."""
-    from tests.conftest import wire_header_search_sync, wire_hide_channel_banners
+    from tests.conftest import (
+        wire_filter_chip_host, wire_header_search_sync, wire_hide_channel_banners,
+    )
 
     host = _NavMixin.__new__(_NavMixin)
     wire_hide_channel_banners(host)
     wire_header_search_sync(host)
+    wire_filter_chip_host(host)
     for name in (
         "channels_list", "series_tree", "epg_view", "preferences_view",
         "discover_view", "provider_editor", "search_controls", "_hidden_banner",
