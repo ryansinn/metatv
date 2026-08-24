@@ -28,6 +28,29 @@ ACCENTS = {
 BG = "#282828"
 FG1 = "#ebdbb2"
 
+# ── Light mode ──────────────────────────────────────────────────────────────
+# Gruvbox publishes a light mode, and it is not the dark ramp reversed: the
+# accents have their OWN darker alternatives (#9d0006, #79740e, #076678 …),
+# which exist precisely because the bright ones are unreadable on cream. So the
+# light scale takes step 9 = normal and step 10 = the published *dark*
+# alternative, mirroring what the dark scale does with *bright*.
+NEUTRAL_LIGHT = ["#f9f5d7", "#fbf1c7", "#f2e5bc", "#ebdbb2", "#d5c4a1", "#bdae93",
+                 "#a89984", "#928374", "#7c6f64", "#665c54", "#504945", "#3c3836"]
+ACCENTS_LIGHT = {
+    "GRUVRED":    ("#cc241d", "#9d0006"),
+    "GRUVGREEN":  ("#98971a", "#79740e"),
+    "GRUVYELLOW": ("#d79921", "#b57614"),
+    "GRUVBLUE":   ("#458588", "#076678"),
+    "GRUVPURPLE": ("#b16286", "#8f3f71"),
+    "GRUVAQUA":   ("#689d6a", "#427b58"),
+    "GRUVORANGE": ("#d65d0e", "#af3a03"),
+}
+BG_LIGHT = "#fbf1c7"
+FG1_LIGHT = "#3c3836"
+# Mirror of the dark rule: text steps DARKEN, and stay above (i.e. no lighter
+# than) the title's luminance so the row hierarchy holds the same way.
+STEP_11_L_LIGHT, STEP_12_L_LIGHT = 0.22, 0.15
+
 # ── Tunables, both set by a failing test ────────────────────────────────────
 # High enough that a low-luminance hue still clears 4.5:1 on the SELECTION
 # tint. Purple is the binding case: COLOR_ROW_PLATFORM measured 3.35:1 at 0.66
@@ -63,6 +86,24 @@ def _lum(c):
 
 
 CEIL = _lum(FG1) * CEILING_FRACTION
+# Light mode's floor is the mirror image: an accent used as text must be at
+# least as dark as the title, or it out-shouts it from the other direction.
+FLOOR_LIGHT = _lum(FG1_LIGHT) / CEILING_FRACTION
+
+
+def _darken(c, target_l):
+    """Light-mode twin of :func:`_lighten` — same saturation floor, opposite end."""
+    r, g, b = (v / 255 for v in _hx(c))
+    h, _l, s = colorsys.rgb_to_hls(r, g, b)
+    s = max(s, SAT_FLOOR)
+    out = c
+    while target_l < 0.95:
+        rr, gg, bb = colorsys.hls_to_rgb(h, target_l, s)
+        out = _st(round(rr * 255), round(gg * 255), round(bb * 255))
+        if _lum(out) >= FLOOR_LIGHT:
+            break
+        target_l += 0.02
+    return out
 
 
 def _lighten(c, target_l):
@@ -82,6 +123,17 @@ def _lighten(c, target_l):
 def accent_scale(normal, bright):
     lo = [_lerp(BG, normal, t) for t in (0.06, 0.14, 0.24, 0.34, 0.45, 0.58, 0.72, 0.86)]
     return lo + [normal, bright, _lighten(bright, STEP_11_L), _lighten(bright, STEP_12_L)]
+
+
+def accent_scale_light(normal, dark):
+    # Far gentler than the dark ramp's. On a cream ground these steps are
+    # BACKGROUNDS and borders, and Radix light scales keep 1-5 as very pale
+    # tints; the dark ramp's t-values put step 4 at #ebc97c, dark enough that
+    # the light-kind surface guard rejected it outright.
+    lo = [_lerp(BG_LIGHT, normal, t) for t in
+          (0.03, 0.07, 0.12, 0.18, 0.26, 0.40, 0.58, 0.78)]
+    return lo + [normal, dark,
+                 _darken(dark, STEP_11_L_LIGHT), _darken(dark, STEP_12_L_LIGHT)]
 
 
 def alpha_scale(solid):
@@ -106,6 +158,12 @@ def main():
     for name, (normal, bright) in ACCENTS.items():
         _emit(f"{name}_DARK", accent_scale(normal, bright))
         _emit(f"{name}_A_DARK", alpha_scale(bright))
+
+    _emit("GRUVNEUTRAL_LIGHT", NEUTRAL_LIGHT)
+    _emit("GRUVNEUTRAL_A_LIGHT", alpha_scale(FG1_LIGHT))
+    for name, (normal, dark) in ACCENTS_LIGHT.items():
+        _emit(f"{name}_LIGHT", accent_scale_light(normal, dark))
+        _emit(f"{name}_A_LIGHT", alpha_scale(dark))
 
 
 DOC = '''"""Gruvbox scales, in the same 12-step shape the Radix ones use.

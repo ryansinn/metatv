@@ -811,12 +811,17 @@ DAYLIGHT: dict[str, TokenValue] = _derive("daylight", _DAYLIGHT_LEGACY)
 # true structurally instead of by three copies agreeing. Everything that varies
 # comes from gruvbox.tokens.json.
 GRUVBOX: dict[str, TokenValue] = _derive("gruvbox", _MIDNIGHT_LEGACY)
+# Same token file structure and the same scales module, resolved in light mode.
+# Not a lightened copy of the dark theme: Gruvbox publishes its own light
+# accents, and gruvbox.py's *_LIGHT scales are built from those.
+GRUVBOX_LIGHT: dict[str, TokenValue] = _derive("gruvbox-light", _MIDNIGHT_LEGACY)
 
 PALETTES: dict[str, dict[str, TokenValue]] = {
     "Midnight": MIDNIGHT,
     "Graphite": GRAPHITE,
     "Daylight": DAYLIGHT,
     "Gruvbox": GRUVBOX,
+    "Gruvbox Light": GRUVBOX_LIGHT,
 }
 
 DEFAULT_PALETTE = "Midnight"
@@ -830,4 +835,5 @@ PALETTE_KIND: dict[str, str] = {
     "Graphite": "dark",
     "Daylight": "light",
     "Gruvbox": "dark",
+    "Gruvbox Light": "light",
 }

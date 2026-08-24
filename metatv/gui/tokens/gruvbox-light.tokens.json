@@ -1,0 +1,210 @@
+{
+  "$description": "MetaTV 'Gruvbox Light' palette. Same role structure and the same Gruvbox scales module as the dark variant, resolved in light mode — so it picks up Gruvbox's OWN published light accents (the darker #9d0006/#076678 family that exists because the bright ones are unreadable on cream), not a lightened copy of the dark theme. Every role whose coordinate flips between dark and light mode takes Daylight's light-mode choice — 21 of them, including on-fill.bright, which must be near-black in EVERY theme and would otherwise inherit the dark file's {neutral.1} and resolve to cream.",
+  "$extends": "radix",
+  "$mode": "light",
+  "$scales": {
+    "neutral": "gruvneutral",
+    "primary": "gruvblue",
+    "ok": "gruvaqua",
+    "warn": "gruvyellow",
+    "err": "gruvred",
+    "info": "gruvorange",
+    "blue": "gruvblue",
+    "indigo": "gruvblue",
+    "cyan": "gruvaqua",
+    "teal": "gruvgreen",
+    "green": "gruvaqua",
+    "amber": "gruvyellow",
+    "yellow": "gruvyellow",
+    "orange": "gruvorange",
+    "red": "gruvred",
+    "purple": "gruvpurple"
+  },
+  "surface": {
+    "$type": "color",
+    "dim": {
+      "$value": "{neutral.1}",
+      "$description": "app ground, behind everything"
+    },
+    "base": {
+      "$value": "{neutral.3}",
+      "$description": "panels, lists, the details pane"
+    },
+    "container": {
+      "$value": "{neutral.4}",
+      "$description": "controls at rest, chips with a fill"
+    },
+    "container-high": {
+      "$value": "{neutral.5}",
+      "$description": "hover over a container"
+    },
+    "container-max": {
+      "$value": "{neutral.6}",
+      "$description": "pressed / active container"
+    },
+    "sunk": {
+      "$value": "{neutral.2}",
+      "$description": "placeholder tiles — absence, not content"
+    }
+  },
+  "on-surface": {
+    "$type": "color",
+    "$description": "TWO text roles, not five. The old palette had 15 neutrals named dim/muted/faint/disabled/low — named by APPEARANCE, which gives no rule for which to use, so every new widget picked a new one. Radix publishes exactly two text steps (11 low-contrast, 12 high-contrast) and Material 3 names exactly two roles, because that is how many text roles actually exist. The rest below are non-text states and are exempt from the 4.5:1 floor by definition, not by exception.",
+    "strong": {
+      "$value": "{neutral.12}",
+      "$description": "titles — the loudest text in a row"
+    },
+    "default": {
+      "$value": "{neutral.11}",
+      "$description": "body and metadata text"
+    },
+    "disabled": {
+      "$value": "{neutral.10}",
+      "$description": "NOT text — a disabled control (WCAG exempts these)"
+    },
+    "placeholder": {
+      "$value": "{neutral.9}",
+      "$description": "NOT text — empty-field hint / absent-image glyph"
+    }
+  },
+  "meta": {
+    "$type": "color",
+    "$description": "Neutral row metadata. Deliberately NOT under facet.*: these carry no hue encoding, and putting them there made two of them share a colour, which for a hue-encoded facet would be a false statement about the data.",
+    "year": {
+      "$value": "{neutral.11}"
+    },
+    "collection": {
+      "$value": "{neutral.11}"
+    }
+  },
+  "outline": {
+    "$type": "color",
+    "default": {
+      "$value": "{neutral.7}",
+      "$description": "interactive component border"
+    },
+    "strong": {
+      "$value": "{neutral.8}",
+      "$description": "focus ring / emphasised border"
+    },
+    "subtle": {
+      "$value": "{neutral.6}",
+      "$description": "separators, hairlines"
+    }
+  },
+  "primary": {
+    "$type": "color",
+    "default": {
+      "$value": "{primary.11}",
+      "$description": "accent fill — SELECTION AND STATE ONLY. Step 10, not 9: blue.9 clears neither a light nor a dark foreground at 4.5:1 (2.81 with white, 4.21 with near-black), which the QPalette Highlight guard catches as unreadable selected rows."
+    },
+    "hover": {
+      "$value": "{primary.10}"
+    },
+    "text": {
+      "$value": "{primary.12}",
+      "$description": "accent as text/link"
+    },
+    "container": {
+      "$value": "{primary.4}",
+      "$description": "tinted accent background"
+    },
+    "on": {
+      "$value": "{neutral.1}",
+      "$description": "foreground ON a solid primary fill. NEAR-BLACK, not white: blue.9 is a light blue, so white on it measures 2.81:1 — the conventional dark-theme look and genuinely hard to read. This repeats a lesson already learned once at COLOR_ON_ACCENT, and the conformance test is what caught me repeating it."
+    }
+  },
+  "state": {
+    "$type": "color",
+    "ok": {
+      "$value": "{ok.12}"
+    },
+    "ok-fill": {
+      "$value": "{ok.4}"
+    },
+    "warn": {
+      "$value": "{warn.12}"
+    },
+    "warn-fill": {
+      "$value": "{warn.4}"
+    },
+    "err": {
+      "$value": "{err.12}"
+    },
+    "err-fill": {
+      "$value": "{err.4}"
+    },
+    "info": {
+      "$value": "{info.11}"
+    }
+  },
+  "scrim": {
+    "$type": "color",
+    "$description": "Alpha overlays. These are Radix ALPHA steps, not hand-mixed rgba() — the old OVERLAY_* family was 39 tokens over 16 base colours with hand-picked alphas.",
+    "subtle": {
+      "$value": "{neutralA.3}"
+    },
+    "soft": {
+      "$value": "{neutralA.4}"
+    },
+    "medium": {
+      "$value": "{neutralA.6}"
+    },
+    "strong": {
+      "$value": "{neutralA.8}"
+    }
+  },
+  "facet": {
+    "$type": "color",
+    "$description": "Data-category hues. One hue per facet, and NO TWO FACETS SHARE A HUE — the mockup review caught language and platform reading as the same thing. Step 11 keeps every one of them >=4.5:1 as text on surface.base.",
+    "language": {
+      "$value": "{blue.12}"
+    },
+    "region": {
+      "$value": "{green.12}"
+    },
+    "genre": {
+      "$value": "{teal.12}"
+    },
+    "platform": {
+      "$value": "{purple.12}"
+    },
+    "language-fill": {
+      "$value": "{blue.4}",
+      "$description": "language keeps a FILL — owner's call: it is the highest-value facet after the title"
+    }
+  },
+  "quality": {
+    "$type": "color",
+    "$description": "One DISTINCT hue per tier, which is what the hand-tuned palette already did (purple UHD / blue FHD / teal HD / yellow LIVE). A first draft here ramped them within one hue instead — and the palette conformance suite immediately failed it, because tiers a user must tell apart at a glance cannot differ only in lightness. Step 11 keeps every one of them >=4.5:1 as outline text. Quality is a claim about THIS copy, so it renders by the title, not in the right rail.",
+    "uhd": {
+      "$value": "{purple.12}"
+    },
+    "4k": {
+      "$value": "{purple.12}"
+    },
+    "fhd": {
+      "$value": "{blue.12}"
+    },
+    "hd": {
+      "$value": "{cyan.12}"
+    },
+    "sd": {
+      "$value": "{neutral.12}"
+    },
+    "raw": {
+      "$value": "{amber.12}",
+      "$description": "Daylight puts this on {neutral.11}, and that works there because its neutrals are GREY. Gruvbox's neutrals are brown, so neutral.11 (#504945) collided with the orange 'live' chip (#732602) and the two stopped being tellable apart. Keeps a real hue here instead."
+    },
+    "live": {
+      "$value": "{orange.12}"
+    }
+  },
+  "on-fill": {
+    "$type": "color",
+    "$description": "Foreground on a fixed-BRIGHT fill — a gold favourite, a coloured badge, anything whose fill is chosen for brand/state rather than by the palette. Near-black in EVERY theme, which is why it cannot be surface.dim: that token is near-black in the dark palettes and near-WHITE in Daylight, and several badges were reading it as 'dark text' and getting white.",
+    "bright": {
+      "$value": "{neutral.12}"
+    }
+  }
+}
