@@ -1394,7 +1394,7 @@ class _TechnicalSection(CollapsibleMixin, QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._header = CollapsibleHeader("Technical details")
+        self._header = CollapsibleHeader("Technical Details")
         self._header_widget = self._header      # kept: existing callers use this name
         layout.addWidget(self._header)
 
@@ -1409,6 +1409,7 @@ class _TechnicalSection(CollapsibleMixin, QWidget):
         _no_width_force(self.tech_details_label)
         content_layout.addWidget(self.tech_details_label)
         layout.addWidget(self._content)
+        self._wire_header()
 
     def set_mode(self, is_live: bool) -> None:
         if is_live:
@@ -1487,6 +1488,7 @@ class _CastSection(CollapsibleMixin, QWidget):
         _no_width_force(self.cast_label)
         content_layout.addWidget(self.cast_label)
         layout.addWidget(self._content)
+        self._wire_header()
 
     def restore_collapse_state(self, collapsed_sections: list[str]) -> None:
         self._header.set_collapsed("cast" in (collapsed_sections or []))
@@ -1640,6 +1642,7 @@ class _TagsSection(CollapsibleMixin, QWidget):
         self._content_layout.setContentsMargins(4, 0, 0, 6)
         self._content_layout.setSpacing(6)
         layout.addWidget(self._content)
+        self._wire_header()
 
         # Initially hidden until tags are loaded
         self.hide()

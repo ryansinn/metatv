@@ -85,7 +85,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # Header — the shared collapsible one. The count moves to the right,
         # where every other section's count is, instead of being welded into
         # the title as "Similar Titles (18)".
-        self._header = CollapsibleHeader("Similar titles")
+        self._header = CollapsibleHeader("Similar Titles")
 
         # ⤢ — the door to the cascading-column overlay. The pane deliberately
         # shows a handful rather than all eighteen: the overlay is where you

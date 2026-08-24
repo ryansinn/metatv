@@ -262,7 +262,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
         # Header — the shared collapsible one, so this section folds away like
         # every other and its "65 versions · 19 regions" sits where every other
         # section's count sits.
-        self._header = CollapsibleHeader("Also available")
+        self._header = CollapsibleHeader("Also Available")
         row_layout.addWidget(self._header)
 
         self._content = QWidget()

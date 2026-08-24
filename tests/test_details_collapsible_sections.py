@@ -64,6 +64,43 @@ def test_collapsing_a_section_hides_its_body_and_nothing_else(pane, qapp):
     )
 
 
+@pytest.mark.parametrize("index", range(6))
+def test_every_section_actually_hides_its_body(pane, qapp, index):
+    """Each section, individually. Not one of them, six times.
+
+    This is the test that was missing, and the bug it now catches shipped
+    because of the gap: three of the six sections never connected their
+    header's ``toggled`` signal to the code that hides the body, so they
+    flipped their chevron and saved their state while staying open. The
+    original test drove ``pane._plot`` — which happened to be one of the three
+    that WAS wired — and passed.
+
+    The body is shown first because two sections (Also available, Tags) hide
+    themselves entirely until they have content, and a section that is hidden
+    for that reason would report "not visible" and pass without collapsing
+    anything.
+    """
+    section = pane._collapsible_sections[index]
+    section._header.set_collapsed(False)
+    section._content.show()
+    qapp.processEvents()
+    assert not section._content.isHidden()
+
+    section._header.toggle()
+    qapp.processEvents()
+
+    assert section._content.isHidden(), (
+        f"{section.COLLAPSE_KEY!r} flips its chevron but never hides its body "
+        f"— its header is not connected to _apply_collapsed"
+    )
+
+    section._header.toggle()
+    qapp.processEvents()
+    assert not section._content.isHidden(), (
+        f"{section.COLLAPSE_KEY!r} does not come back when expanded"
+    )
+
+
 def test_every_section_persists_its_own_state(pane):
     """Six keys, six independent memories."""
     for section in pane._collapsible_sections:
@@ -157,3 +194,21 @@ def test_the_header_lays_title_left_and_summary_right(qapp):
         f"the summary sits at x={summary.x()} in a {header.width()}px header — "
         f"it is not right-aligned"
     )
+
+
+def test_section_headings_are_title_case(pane):
+    """One capitalisation rule across all six, so the column reads as a set.
+
+    The V3 render used sentence case throughout ("Also available", "Technical
+    details", "Similar titles"). The owner asked for Title Case on review, so
+    that is what ships — and it ships for ALL of them, because a column where
+    two headings are capitalised differently from the rest looks like an
+    oversight whichever convention is right.
+    """
+    for section in pane._collapsible_sections:
+        title = section._header.title()
+        words = [w for w in title.split() if w.isalpha()]
+        assert words, f"{title!r} has no words to check"
+        assert all(w[0].isupper() for w in words), (
+            f"{title!r} is not Title Case — every word should start capitalised"
+        )
