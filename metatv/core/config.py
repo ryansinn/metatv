@@ -843,6 +843,11 @@ class Config(BaseModel):
     # the column costs ~250px whether or not it is filtering); "panel" = the
     # always-present Includes column. docs/V3_INTERFACE_SPEC.md Q3.
     filter_ui_mode: str = "chips"
+    # Hide the menu bar until Alt is pressed. OFF by default and IGNORED on
+    # macOS, where the menu bar is the system bar and there is nothing in the
+    # window to hide. Note what it costs: the header surfaces only Tools, so
+    # Layout, Style, Buffer, View, File and Help all go behind the Alt press.
+    menu_bar_auto_hide: bool = False
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
     filter_untagged_selected: list = Field(
         default_factory=lambda: ["no_prefix", "no_quality"])        # legacy "Unknown" section (retired #299)
