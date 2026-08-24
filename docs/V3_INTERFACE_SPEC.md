@@ -30,7 +30,7 @@ drawings, settled the interface on **2026-08-21/22**.
 
 Verified against the tree, not against memory. Each ❌ is a slice.
 
-**Re-verified 2026-08-24** after #445–#451. 15 of 26 items now ✅, 4 ⚠️ partly,
+**Re-verified 2026-08-24** after #445–#453. 18 of 26 items now ✅, 1 ⚠️ partly,
 1 ⛔ rejected, 4 ❌, 2 ⏸. Every status below was checked by reading the tree —
 a `✅` cites the PR that built it, and a `⚠️` says exactly what is missing
 rather than rounding up. Item 8 is **rejected, not pending**: hiding the menu
@@ -55,10 +55,10 @@ an unbuilt slice on a future sweep.
 | 13 | Sidebar: content-aware minimums | `sidebar/*` `MIN_ROWS` | ✅ #329 |
 | 14 | Sidebar: `→` escalation, header-click expands | `sidebar/base.py` | ✅ #329 |
 | 15 | Filter chips replacing the Includes column (Q3) | `filter_chips.py`, `filter_chip_bar.py`, `filter_chip_host.py` | ✅ #449 — `Layout ▸ Filters as chips` switches back |
-| 16 | **Details: poster-led rebuild** (Q8/R8) | `details_pane` | ⚠️ **partly #450** — title freed of its badges, byline, poster art centred, Watched badge to top-right. The **two-column header** (poster left, title/meta right) is NOT built; the poster still spans the pane above the title block. |
+| 16 | Details: poster-led rebuild (Q8/R8) | `details_pane` | ✅ #450 — **corrected 2026-08-24**: this was logged as "partly, the two-column header is not built". There is no two-column header in the render — it shows title → byline → full-width poster card with centred art, which is what #450 built. The spec prose's "beside title and meta" was read too literally against an unambiguous render. |
 | 17 | Details: Also-available grouped by region (Q19) | `details_version_groups.py` | ✅ #450 — 65 → 12 chips + tail; groups only above 12 versions |
-| 18 | **Details: Similar titles header** — count + posters/list + ⤢ | `details_similar` | ⚠️ **partly** — the section is already at the bottom and Play is now hover-only (#451), but the header is still `Similar Titles (N)` with a collapse chevron: no right-aligned count, no toggle, no ⤢ |
-| 19 | Details: sections collapsible with remembered state | `details_sections` | ⚠️ partly — Technical, Cast and Tags remember; Overview, Also-available and Similar do not |
+| 18 | Details: Similar titles header — count + posters/list + ⤢ | `details_similar` | ✅ #451 #453 — at the bottom, Play hover-only, count right-aligned in the shared header, ⤢ opens the overlay. The posters/list toggle is item 26 and stays blocked. |
+| 19 | Details: sections collapsible with remembered state | `details_section_header.py` | ✅ #453 — one `CollapsibleHeader`; all six sections, Overview and Also-available included, each with its own key |
 | 20 | Language badge Filled/Outline/Off setting (R12/Q5) | `settings`, delegate | ❌ |
 | 21 | Accent as its own axis — 6 hues × 2 modes (R14) | `theme_palettes` | ❌ |
 | 22 | Inter bundled (O5) | `metatv/assets/fonts/` | ✅ #445 — Inter + a 7 KB 48-glyph Material Symbols subset, with `scripts/build_font_assets.py` |
