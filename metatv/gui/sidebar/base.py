@@ -21,7 +21,11 @@ _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises i
 # Row fitting lives in row_budget.py — see there for why "+N more" is an
 # allocation consequence and not a cap. The sentinel is re-exported because
 # callers already reach for it here.
-from metatv.gui.sidebar.row_budget import _MORE_ROW, RowBudgetMixin  # noqa: F401
+from metatv.gui.sidebar.row_budget import (  # noqa: F401
+    _MORE_ROLE,
+    _MORE_ROW,
+    RowBudgetMixin,
+)
 
 
 def _floor_of(widget) -> int:

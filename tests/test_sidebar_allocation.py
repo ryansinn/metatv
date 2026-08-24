@@ -30,7 +30,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 
 from metatv.gui import theme as _theme
-from metatv.gui.sidebar.base import _MORE_ROW, CollapsibleSection
+from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW, CollapsibleSection
 
 
 class _Section(CollapsibleSection):
@@ -113,7 +113,7 @@ def test_surplus_rows_are_hidden_behind_a_more_tail(qapp, config):
     assert len(visible) < 40, "everything was left visible — the budget did nothing"
 
     tail = section.list.item(section.list.count() - 1)
-    assert tail.data(Qt.ItemDataRole.UserRole) == _MORE_ROW
+    assert tail.data(_MORE_ROLE) == _MORE_ROW
     assert str(hidden) in tail.text()
 
 
@@ -123,8 +123,7 @@ def test_everything_fitting_means_no_tail(qapp, config):
     _fill(section, 2, row_h=20)
     _lay_out(qapp, section, 400)
     assert section.apply_row_budget(section.list) == 0
-    assert section.list.item(section.list.count() - 1).data(
-        Qt.ItemDataRole.UserRole) != _MORE_ROW
+    assert section.list.item(section.list.count() - 1).data(_MORE_ROLE) != _MORE_ROW
 
 
 def test_more_is_a_consequence_of_height_not_a_cap(qapp, config):
@@ -341,7 +340,7 @@ def test_refitting_twice_does_not_stack_tails(qapp, config):
     section.apply_row_budget(section.list)
 
     tails = [i for i in range(section.list.count())
-             if section.list.item(i).data(Qt.ItemDataRole.UserRole) == _MORE_ROW]
+             if section.list.item(i).data(_MORE_ROLE) == _MORE_ROW]
     assert len(tails) == 1, f"{len(tails)} tail rows after three passes"
 
 
@@ -409,7 +408,7 @@ def _tree_section(qapp, config, groups, children, height=200):
 def _visible_children(group):
     return [group.child(i) for i in range(group.childCount())
             if not group.child(i).isHidden()
-            and group.child(i).data(0, Qt.ItemDataRole.UserRole) != _MORE_ROW]
+            and group.child(i).data(0, _MORE_ROLE) != _MORE_ROW]
 
 
 def test_every_group_header_stays_on_screen(qapp, config):
@@ -429,7 +428,7 @@ def test_each_group_carries_its_own_tail(qapp, config):
     for i in range(section.tree.topLevelItemCount()):
         group = section.tree.topLevelItem(i)
         tails = [group.child(c) for c in range(group.childCount())
-                 if group.child(c).data(0, Qt.ItemDataRole.UserRole) == _MORE_ROW]
+                 if group.child(c).data(0, _MORE_ROLE) == _MORE_ROW]
         assert len(tails) == 1, f"group {i} has {len(tails)} tails"
 
 
@@ -445,7 +444,7 @@ def test_a_group_that_fits_keeps_every_child(qapp, config):
     section.apply_tree_row_budget(section.tree)
     group = section.tree.topLevelItem(0)
     assert len(_visible_children(group)) == 2
-    assert all(group.child(c).data(0, Qt.ItemDataRole.UserRole) != _MORE_ROW
+    assert all(group.child(c).data(0, _MORE_ROLE) != _MORE_ROW
                for c in range(group.childCount()))
 
 
@@ -456,7 +455,7 @@ def test_refitting_a_tree_twice_does_not_stack_tails(qapp, config):
     for i in range(section.tree.topLevelItemCount()):
         group = section.tree.topLevelItem(i)
         tails = [c for c in range(group.childCount())
-                 if group.child(c).data(0, Qt.ItemDataRole.UserRole) == _MORE_ROW]
+                 if group.child(c).data(0, _MORE_ROLE) == _MORE_ROW]
         assert len(tails) <= 1
 
 
@@ -465,3 +464,114 @@ def test_the_alerts_section_declares_its_tree():
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     assert "budgeted_tree" in vars(WatchAlertsSection)
+
+
+# ---------------------------------------------------------------------------
+# 6. The tail must not poison the payload every section reads.
+#
+# It did. The marker lived in UserRole, which is where each section stores its
+# OWN payload — a channel id, or in Watch Queue a dict. Selecting the tail row
+# handed _on_selection_changed a string where it expected a dict and took the
+# app down:
+#
+#     AttributeError: 'str' object has no attribute 'get'
+#
+# Twelve handlers read that role. These drive the REAL ones with a tail
+# present, which is the check that was missing — every test above exercised the
+# budget and none of them exercised what the budget leaves behind.
+# ---------------------------------------------------------------------------
+
+def test_the_tail_leaves_user_role_untouched(qapp, config):
+    """A section's own payload role must read empty on the tail, so every
+    existing "no payload" branch handles it without being told about it."""
+    section = _Section(config)
+    _fill(section, 40)
+    _lay_out(qapp, section, 100)
+    section.apply_row_budget(section.list)
+    tail = section.list.item(section.list.count() - 1)
+    assert tail.data(_MORE_ROLE) == _MORE_ROW
+    assert tail.data(Qt.ItemDataRole.UserRole) is None
+
+
+def test_the_tail_is_not_selectable(qapp, config):
+    """It is a link, not a row you can be "on" — and an unselectable row never
+    reaches a selection handler at all."""
+    section = _Section(config)
+    _fill(section, 40)
+    _lay_out(qapp, section, 100)
+    section.apply_row_budget(section.list)
+    tail = section.list.item(section.list.count() - 1)
+    assert not (tail.flags() & Qt.ItemFlag.ItemIsSelectable)
+
+
+def test_the_queue_selection_handler_survives_the_tail(qapp):
+    """THE crash, driven through the real handler.
+
+    ``WatchQueueSection._on_selection_changed`` calls ``payload.get(...)``.
+    Before the marker moved to its own role this raised AttributeError and
+    aborted the process.
+    """
+    from PyQt6.QtWidgets import QListWidgetItem
+
+    from metatv.gui.sidebar.queue import WatchQueueSection
+
+    section = WatchQueueSection.__new__(WatchQueueSection)
+    tail = QListWidgetItem("+ 9 more  →")
+    tail.setData(_MORE_ROLE, _MORE_ROW)
+
+    emitted = []
+    section.itemSelected = type("_S", (), {"emit": lambda _self, v: emitted.append(v)})()
+    section._route_matched_click = lambda item: False
+
+    WatchQueueSection._on_selection_changed(section, tail, None)
+    assert emitted == [], "the tail row routed a selection it has no payload for"
+
+
+def test_the_tree_tail_leaves_user_role_untouched(qapp, config):
+    section = _tree_section(qapp, config, groups=3, children=12)
+    section.apply_tree_row_budget(section.tree)
+    group = section.tree.topLevelItem(0)
+    tail = next(group.child(c) for c in range(group.childCount())
+                if group.child(c).data(0, _MORE_ROLE) == _MORE_ROW)
+    assert tail.data(0, Qt.ItemDataRole.UserRole) is None
+    assert not (tail.flags() & Qt.ItemFlag.ItemIsSelectable)
+
+
+def test_the_header_count_excludes_the_tail(qapp, config):
+    """The tail is chrome, not content.
+
+    Moving the marker to its own role silently broke this: ``item_count`` still
+    filtered on ``UserRole``, so every section reported one more row than it
+    held. Caught by looking at the running app, not by the suite — hence this.
+    """
+    class _Counting(_Section):
+        def item_count(self):
+            # __dict__.get: the header builder calls this during __init__,
+            # before create_content has made the list.
+            lst = self.__dict__.get("list")
+            if lst is None:
+                return None
+            return sum(
+                1 for i in range(lst.count())
+                if lst.item(i).data(_MORE_ROLE) != _MORE_ROW
+            )
+
+    section = _Counting(config)
+    _fill(section, 40)
+    _lay_out(qapp, section, 100)
+    section.apply_row_budget(section.list)
+    assert section.item_count() == 40, "the +N more row was counted as content"
+
+
+@pytest.mark.parametrize("module", ["history", "favorites", "recommended", "queue"])
+def test_no_section_filters_the_tail_on_the_wrong_role(module):
+    """A section still filtering ``UserRole`` counts its own tail."""
+    from pathlib import Path
+
+    source = Path(f"metatv/gui/sidebar/{module}.py").read_text()
+    if "_MORE_ROW" not in source:
+        pytest.skip("section does not filter the tail")
+    assert "_MORE_ROLE) != _MORE_ROW" in source, (
+        f"{module}.py filters the tail on the wrong role — its count will "
+        f"include the tail"
+    )

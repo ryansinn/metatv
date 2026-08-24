@@ -28,12 +28,12 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         lst = self.__dict__.get("history_list")
         if lst is None:
             return None
-        from metatv.gui.sidebar.base import _MORE_ROW
+        from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
         from PyQt6.QtCore import Qt
 
         return sum(
             1 for i in range(lst.count())
-            if lst.item(i).data(Qt.ItemDataRole.UserRole) != _MORE_ROW
+            if lst.item(i).data(_MORE_ROLE) != _MORE_ROW
         )
 
 

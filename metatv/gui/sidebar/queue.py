@@ -222,14 +222,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """
         from PyQt6.QtCore import Qt
 
-        from metatv.gui.sidebar.base import _MORE_ROW
+        from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 
         lst = self.__dict__.get("_list")
         if lst is None:
             return None
         return sum(
             1 for i in range(lst.count())
-            if lst.item(i).data(Qt.ItemDataRole.UserRole) != _MORE_ROW
+            if lst.item(i).data(_MORE_ROLE) != _MORE_ROW
         )
 
     def news(self) -> str:

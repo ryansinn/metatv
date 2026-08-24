@@ -28,8 +28,22 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QListWidgetItem, QTreeWidgetItem
 
-#: Marks a "+N more" tail row so a click can be told from a content click.
-#: A sentinel rather than a text match — the label carries a live count.
+#: The role the "+N more" marker lives in — **not** ``UserRole``.
+#:
+#: It was UserRole, and that crashed the app. Every section stores its own
+#: payload there — a channel id, or in Watch Queue a dict — and twelve
+#: handlers read it back and use it. Selecting the tail row handed
+#: ``_on_selection_changed`` a string where it expected a dict:
+#:
+#:     AttributeError: 'str' object has no attribute 'get'
+#:
+#: Its own role keeps UserRole untouched on the tail, so every one of those
+#: readers sees ``None`` and takes its existing "no payload" branch. Guarding
+#: twelve call sites would have been twelve chances to miss one.
+_MORE_ROLE = Qt.ItemDataRole.UserRole + 1
+
+#: Value stored in :data:`_MORE_ROLE`. Kept as a name so a reader of the click
+#: handler can see what is being compared.
 _MORE_ROW = "__more_row__"
 
 
@@ -69,7 +83,7 @@ class RowBudgetMixin:
         # resize, and without this each drag would stack another "+N more" row
         # on the end of the list.
         for index in reversed(range(list_widget.count())):
-            if list_widget.item(index).data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
+            if list_widget.item(index).data(_MORE_ROLE) == _MORE_ROW:
                 list_widget.takeItem(index)
 
         total = list_widget.count()
@@ -106,7 +120,11 @@ class RowBudgetMixin:
             list_widget.item(index).setHidden(True)
 
         tail = QListWidgetItem(f"+ {hidden} more  →")
-        tail.setData(Qt.ItemDataRole.UserRole, _MORE_ROW)
+        tail.setData(_MORE_ROLE, _MORE_ROW)
+        # Clickable but NOT selectable: it is a link, not a row you can be "on",
+        # and leaving it selectable also means every selection handler has to
+        # cope with the current item having no payload.
+        tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         tail.setToolTip(f"{hidden} more — open the full view")
         list_widget.addItem(tail)
         self._more_handler = on_more or self.exploreClicked.emit
@@ -139,7 +157,7 @@ class RowBudgetMixin:
         groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
         for group in groups:
             for index in reversed(range(group.childCount())):
-                if group.child(index).data(0, Qt.ItemDataRole.UserRole) == _MORE_ROW:
+                if group.child(index).data(0, _MORE_ROLE) == _MORE_ROW:
                     group.takeChild(index)
         if not groups:
             return 0
@@ -173,7 +191,8 @@ class RowBudgetMixin:
             hidden = total - keep
             hidden_total += hidden
             tail = QTreeWidgetItem([f"+ {hidden} more"])
-            tail.setData(0, Qt.ItemDataRole.UserRole, _MORE_ROW)
+            tail.setData(0, _MORE_ROLE, _MORE_ROW)
+            tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             tail.setToolTip(0, f"{hidden} more in this group")
             group.addChild(tail)
         return hidden_total
@@ -220,7 +239,7 @@ class RowBudgetMixin:
 
     def _on_more_row_clicked(self, item) -> None:
         """Route a click on the ``+N more`` tail to the section's full view."""
-        if item is not None and item.data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
+        if item is not None and item.data(_MORE_ROLE) == _MORE_ROW:
             handler = self.__dict__.get("_more_handler")
             if handler is not None:
                 handler()
