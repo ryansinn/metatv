@@ -25,6 +25,25 @@ _REC_LOAD_ERROR = object()
 
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
+    def item_count(self) -> int | None:
+        """Rows currently rendered — inventory, shown only when
+        :meth:`news` is quiet.
+
+        Read off the list itself rather than tracked separately, so the
+        header cannot claim a number the rows disagree with. The
+        ``+N more`` tail is excluded: it is chrome, not content.
+        """
+        lst = self.__dict__.get("_list")
+        if lst is None:
+            return None
+        from metatv.gui.sidebar.base import _MORE_ROW
+        from PyQt6.QtCore import Qt
+
+        return sum(
+            1 for i in range(lst.count())
+            if lst.item(i).data(Qt.ItemDataRole.UserRole) != _MORE_ROW
+        )
+
 
     MIN_ROWS: int = 3
 
@@ -54,7 +73,7 @@ class RecommendedSection(CollapsibleSection):
         self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch()
-
+        hl.addWidget(self.make_status_label())
         self._add_explore_link(hl)
 
         refresh_btn = QPushButton(self.config.refresh_icon)

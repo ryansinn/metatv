@@ -1,7 +1,8 @@
 """CollapsibleSection base class and shared helpers for sidebar sections."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
+    QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
@@ -16,6 +17,10 @@ from metatv.gui import theme as _theme
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
 # The splitter enforces this so the user cannot drag an expanded section below it.
 _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
+
+#: Marks the "+N more" tail row so a click can be told from a content click.
+#: A sentinel rather than a text match — the label carries a live count.
+_MORE_ROW = "__more_row__"
 
 
 def _floor_of(widget) -> int:
@@ -274,6 +279,19 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     ROW_H: int = 24        # one content row, incl. its sub-line
     HEADER_H: int = 26
 
+    #: Extra rows a section is allowed while it has NEWS. Bounded on purpose —
+    #: "a section widens when it has something to say" must not become "the
+    #: section with news takes the sidebar". It relaxes on its own the moment
+    #: :meth:`news` goes quiet again (R13, mechanism 3).
+    NEWS_BOOST_ROWS: int = 2
+
+    #: Whether :meth:`news` last reported something. Plain state rather than a
+    #: call inside :meth:`min_expanded_height`, because that method is invoked
+    #: with the CLASS as ``self`` in several places ("this type's floor, no
+    #: instance needed") — and a class cannot answer a question about its
+    #: current contents. Updated wherever the header status is built.
+    _news_active: bool = False
+
     def __init__(self, title: str, icon: str, config, parent=None,
                  vector_role: str | None = None):
         super().__init__(parent)
@@ -314,15 +332,49 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         # Create section-specific content
         self.create_content()
 
+    def news(self) -> str:
+        """What this section has to SAY right now, or ``""`` when nothing.
+
+        **A count is inventory; ``+9 eps`` is news.** Inventory tells you how
+        much you own, news tells you something changed — and only one of those
+        is worth a glance (R1, owner's words). So a section that has news
+        surfaces it in its header INSTEAD of a bare number, and gets a bounded
+        extra height allowance while it holds it.
+
+        Sections override. The default is silence, which is right for
+        Favorites and History: nothing about them is ever new.
+        """
+        return ""
+
+    def item_count(self) -> int | None:
+        """Rows this section holds, or ``None`` when a count says nothing.
+
+        Shown in the header only when :meth:`news` is quiet — the two occupy
+        the same slot, and news wins.
+        """
+        return None
+
+    def header_status(self) -> str:
+        """The text in the header's right-hand slot: news if any, else a count."""
+        headline = self.news()
+        if headline:
+            return headline
+        count = self.item_count()
+        return "" if count is None else str(count)
+
     def min_expanded_height(self) -> int:
         """Smallest height at which this section still shows useful content.
 
         Derived from :attr:`MIN_ROWS` rather than shared, so "History needs four
         rows" is stated once, next to History, instead of being an emergent
-        property of splitter arithmetic.
+        property of splitter arithmetic — the owner's saved layout had History
+        at 91px against Watch Queue's 403px, which was not a preference.
+
+        A section holding news earns :attr:`NEWS_BOOST_ROWS` more, so Alerts
+        widens exactly when it has something to say.
         """
-        return max(_MIN_EXPANDED,
-                   self.HEADER_H + self.MIN_ROWS * self.ROW_H + 8)
+        rows = self.MIN_ROWS + (self.NEWS_BOOST_ROWS if self._news_active else 0)
+        return max(_MIN_EXPANDED, self.HEADER_H + rows * self.ROW_H + 8)
 
     def _build_clickable_header(self) -> "_ClickableHeader":
         """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.
@@ -460,6 +512,133 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         _theme.style_fn(label, _build)
         return label
 
+    def make_status_label(self) -> QLabel:
+        """The header's right-hand slot — news, or a count, or nothing.
+
+        One label for both so they can never both appear: they are alternatives,
+        not a pair, and a header showing ``1 new  ·  13`` is back to being
+        inventory with a decoration.
+
+        Registered through ``theme.style_fn`` so a palette switch re-colours it;
+        news is painted in the accent because it is the one thing in a collapsed
+        sidebar worth looking at.
+        """
+        label = self._status_label = QLabel()
+
+        def _build() -> str:  # noqa: D401 — a style_fn builder
+            self._news_active = bool(self.news())
+            text = self.header_status()
+            label.setText(text)
+            label.setVisible(bool(text))
+            colour = _theme.COLOR_ACCENT if self.news() else _theme.COLOR_MUTED
+            return f"color: {colour}; font-size: {_theme.FONT_SM};"
+
+        self._status_build = _build
+        _theme.style_fn(label, _build)
+        return label
+
+    def refresh_header_status(self) -> None:
+        """Re-read :meth:`news`/:meth:`item_count` into the header.
+
+        Called by a section whenever its contents change. Also re-applies the
+        section's minimum height, because gaining or losing news changes it —
+        that is the news boost taking effect (R13, mechanism 3).
+        """
+        # Re-run the registered builder rather than reaching for a theme-level
+        # "reapply one widget" that does not exist: the builder is what sets
+        # the TEXT as well as the sheet, so re-invoking it is the update.
+        label = self.__dict__.get("_status_label")
+        build = self.__dict__.get("_status_build")
+        if label is not None and build is not None:
+            label.setStyleSheet(build())
+        try:
+            self.setMinimumHeight(
+                self.HEADER_H if self.is_collapsed else self.min_expanded_height()
+            )
+        except RuntimeError:
+            # A ``__new__``'d section (several tests drive the real update
+            # methods on one) has no C++ side to resize. The header state above
+            # is still worth updating; the floor is not, because there is no
+            # splitter for it to act on.
+            pass
+
+    # ── Row budget: no nested scrollbars ────────────────────────────────────
+
+    def apply_row_budget(self, list_widget, on_more=None) -> int:
+        """Show the rows that FIT and end with ``+N more →``; never scroll.
+
+        The sidebar had a scrollbar inside a scrollbar — Watch Alerts
+        subdivided 173px four ways, each sub-group scrolling in ~35px, which is
+        a window too small to read through. *This alone recovers most of the
+        jam* (R13, mechanism 1).
+
+        ``+N more`` is **a consequence of the allocated height, never a cap**:
+        drag the section taller and it renders more rows. The minimum is a
+        floor, never a ceiling.
+
+        Args:
+            list_widget: The section's ``QListWidget``, already populated.
+            on_more: Called when the tail row is activated. Defaults to the
+                section's Explore link, which is where "show me the rest"
+                already goes.
+
+        Returns:
+            How many rows were hidden behind the tail (0 when everything fit).
+        """
+        list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        total = list_widget.count()
+        if total == 0:
+            return 0
+
+        viewport = list_widget.viewport().height()
+        if viewport <= 0:
+            # Not laid out yet — leave every row visible rather than guessing a
+            # budget from a zero height and hiding the whole list.
+            for index in range(total):
+                list_widget.item(index).setHidden(False)
+            return 0
+
+        used, fits = 0, 0
+        for index in range(total):
+            item = list_widget.item(index)
+            item.setHidden(False)
+            height = item.sizeHint().height() or self.ROW_H
+            if used + height > viewport:
+                break
+            used += height
+            fits += 1
+
+        if fits >= total:
+            return 0
+
+        # The tail row costs a row, so it displaces one more piece of content.
+        if fits > 0 and used + self.ROW_H > viewport:
+            fits -= 1
+
+        hidden = total - fits
+        for index in range(fits, total):
+            list_widget.item(index).setHidden(True)
+
+        tail = QListWidgetItem(f"+ {hidden} more  →")
+        tail.setData(Qt.ItemDataRole.UserRole, _MORE_ROW)
+        tail.setToolTip(f"{hidden} more — open the full view")
+        list_widget.addItem(tail)
+        self._more_handler = on_more or self.exploreClicked.emit
+        try:
+            list_widget.itemClicked.disconnect(self._on_more_row_clicked)
+        except TypeError:
+            pass
+        list_widget.itemClicked.connect(self._on_more_row_clicked)
+        return hidden
+
+    def _on_more_row_clicked(self, item) -> None:
+        """Route a click on the ``+N more`` tail to the section's full view."""
+        if item is not None and item.data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
+            handler = self.__dict__.get("_more_handler")
+            if handler is not None:
+                handler()
+
     def create_header(self):
         """Create collapsible header with title and toggle button."""
         header = self._build_clickable_header()
@@ -468,6 +647,7 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
+        header_layout.addWidget(self.make_status_label())
         self._add_header_actions(header_layout)
         self._add_explore_link(header_layout)
 

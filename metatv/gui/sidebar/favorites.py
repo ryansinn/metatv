@@ -22,6 +22,25 @@ _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on anot
 
 class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
+    def item_count(self) -> int | None:
+        """Rows currently rendered — inventory, shown only when
+        :meth:`news` is quiet.
+
+        Read off the list itself rather than tracked separately, so the
+        header cannot claim a number the rows disagree with. The
+        ``+N more`` tail is excluded: it is chrome, not content.
+        """
+        lst = self.__dict__.get("favorites_list")
+        if lst is None:
+            return None
+        from metatv.gui.sidebar.base import _MORE_ROW
+        from PyQt6.QtCore import Qt
+
+        return sum(
+            1 for i in range(lst.count())
+            if lst.item(i).data(Qt.ItemDataRole.UserRole) != _MORE_ROW
+        )
+
 
     MIN_ROWS: int = 4
 
@@ -61,6 +80,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch()
+        hl.addWidget(self.make_status_label())
         self._add_explore_link(hl)
         self.main_layout.addWidget(header)
 
