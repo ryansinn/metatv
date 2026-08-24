@@ -804,10 +804,19 @@ _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
 GRAPHITE: dict[str, TokenValue] = _derive("graphite", _GRAPHITE_LEGACY)
 DAYLIGHT: dict[str, TokenValue] = _derive("daylight", _DAYLIGHT_LEGACY)
 
+# Gruvbox reuses _MIDNIGHT_LEGACY, and that is the point rather than a shortcut:
+# _derive keeps only the theme-INVARIANT entries from the legacy dict (the FONT_*
+# type scale and the fixed-dark COLOR_LIGHTBOX_* family), and "invariant" means
+# identical in every palette by definition. Taking them from one place makes that
+# true structurally instead of by three copies agreeing. Everything that varies
+# comes from gruvbox.tokens.json.
+GRUVBOX: dict[str, TokenValue] = _derive("gruvbox", _MIDNIGHT_LEGACY)
+
 PALETTES: dict[str, dict[str, TokenValue]] = {
     "Midnight": MIDNIGHT,
     "Graphite": GRAPHITE,
     "Daylight": DAYLIGHT,
+    "Gruvbox": GRUVBOX,
 }
 
 DEFAULT_PALETTE = "Midnight"
@@ -820,4 +829,5 @@ PALETTE_KIND: dict[str, str] = {
     "Midnight": "dark",
     "Graphite": "dark",
     "Daylight": "light",
+    "Gruvbox": "dark",
 }

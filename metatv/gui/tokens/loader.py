@@ -36,7 +36,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from metatv.gui.tokens import radix
+from metatv.gui.tokens import gruvbox, radix
 
 _REF_RE = re.compile(r"^\{([A-Za-z]+)\.(\d{1,2})\}$")
 
@@ -58,10 +58,14 @@ def _scale_for(name: str, mode: str) -> tuple[str, ...]:
     alpha = name.endswith("A")
     hue = name[:-1] if alpha else name
     attr = f"{hue}{'_A' if alpha else ''}_{mode}".upper()
-    scale = getattr(radix, attr, None)
+    # radix first, then the hand-authored palette scales. radix.py is vendored
+    # and carries "DO NOT hand-edit — regenerate from upstream", so a palette
+    # built from a published set that is not Radix (Gruvbox) lives beside it
+    # rather than being pasted in and lost at the next regeneration.
+    scale = getattr(radix, attr, None) or getattr(gruvbox, attr, None)
     if scale is None:
         raise TokenResolutionError(
-            f"no vendored Radix scale {attr!r} (hue={hue!r}, mode={mode!r})"
+            f"no scale {attr!r} in radix or gruvbox (hue={hue!r}, mode={mode!r})"
         )
     return scale
 
