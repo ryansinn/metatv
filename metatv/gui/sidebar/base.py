@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
     QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 from loguru import logger
 
@@ -587,6 +587,13 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
         """
         list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        # Drop any tail from a previous pass FIRST. This runs again on every
+        # resize, and without this each drag would stack another "+N more" row
+        # on the end of the list.
+        for index in reversed(range(list_widget.count())):
+            if list_widget.item(index).data(Qt.ItemDataRole.UserRole) == _MORE_ROW:
+                list_widget.takeItem(index)
+
         total = list_widget.count()
         if total == 0:
             return 0
@@ -631,6 +638,38 @@ class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
             pass
         list_widget.itemClicked.connect(self._on_more_row_clicked)
         return hidden
+
+    def budgeted_list(self):
+        """The list this section fits rows into, or ``None`` to opt out.
+
+        Sections override with their ``QListWidget``. Opting out is the right
+        answer for a section whose content is not a flat list — Watch Alerts
+        renders a ``QTreeWidget`` of sub-groups, which needs its own budget.
+        """
+        return None
+
+    def reapply_row_budget(self) -> None:
+        """Re-fit the rows to the section's CURRENT height.
+
+        This is what makes ``+N more`` an allocation consequence rather than a
+        cap: without it the budget would be computed once, at load, and dragging
+        a section taller would leave it showing the same rows it showed at its
+        old size. Called on resize and after every populate.
+        """
+        lst = self.budgeted_list()
+        if lst is not None:
+            self.apply_row_budget(lst)
+            self.refresh_header_status()
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        """Re-fit on every resize — the splitter drag is the whole point.
+
+        Deferred by a zero-timer because the viewport has not taken its new
+        height yet while this fires; measuring here would budget against the
+        size the section is leaving, not the one it is arriving at.
+        """
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.reapply_row_budget)
 
     def _on_more_row_clicked(self, item) -> None:
         """Route a click on the ``+N more`` tail to the section's full view."""

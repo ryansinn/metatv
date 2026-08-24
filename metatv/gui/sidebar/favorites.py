@@ -22,6 +22,11 @@ _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on anot
 
 class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
+    def budgeted_list(self):
+        """The rows this section fits to its height (see
+        ``CollapsibleSection.apply_row_budget``)."""
+        return self.__dict__.get("favorites_list")
+
     def item_count(self) -> int | None:
         """Rows currently rendered — inventory, shown only when
         :meth:`news` is quiet.

@@ -207,6 +207,11 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         below = self._overflow_btn.rect().bottomLeft()
         self._overflow_menu.exec(self._overflow_btn.mapToGlobal(below))
 
+    def budgeted_list(self):
+        """The rows this section fits to its height (see
+        ``CollapsibleSection.apply_row_budget``)."""
+        return self.__dict__.get("_list")
+
     def item_count(self) -> int | None:
         """Rows currently rendered — inventory, shown only when :meth:`news` is
         quiet.

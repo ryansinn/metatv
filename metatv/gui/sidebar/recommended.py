@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PyQt6.QtWidgets import (
     QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget,
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from loguru import logger
 
 from metatv.gui import theme as _theme
@@ -25,6 +25,11 @@ _REC_LOAD_ERROR = object()
 
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
+    def budgeted_list(self):
+        """The rows this section fits to its height (see
+        ``CollapsibleSection.apply_row_budget``)."""
+        return self.__dict__.get("_list")
+
     def item_count(self) -> int | None:
         """Rows currently rendered — inventory, shown only when
         :meth:`news` is quiet.
@@ -223,6 +228,9 @@ class RecommendedSection(CollapsibleSection):
             self._list.setItemWidget(item, row)
         self.set_empty(False)
         self._restore_scroll(self._list)
+        # This section is the BackgroundRefreshMixin exception, so it does not
+        # get the shared post-populate hook and has to fit its own rows.
+        QTimer.singleShot(0, self.reapply_row_budget)
 
     def _removal_list(self) -> QListWidget:
         """This section is the BackgroundRefreshMixin exception, so it has no

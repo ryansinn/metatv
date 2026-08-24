@@ -12,6 +12,11 @@ from metatv.gui import theme as _theme
 
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
+    def budgeted_list(self):
+        """The rows this section fits to its height (see
+        ``CollapsibleSection.apply_row_budget``)."""
+        return self.__dict__.get("history_list")
+
     def item_count(self) -> int | None:
         """Rows currently rendered — inventory, shown only when
         :meth:`news` is quiet.

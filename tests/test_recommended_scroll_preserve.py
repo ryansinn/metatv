@@ -34,6 +34,16 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+# These suites cover scroll PRESERVATION across a clear-and-repopulate — the
+# "losing your place during bulk triage" bug, reported repeatedly. A section
+# that opts into the row budget does not scroll at all (V3 R13: no nested
+# scrollbars; overflow becomes "+N more"), so the sections here opt OUT of the
+# budget to keep exercising that path. Budgeted behaviour is covered by
+# tests/test_sidebar_allocation.py.
+def _opt_out_of_row_budget(section):
+    section.budgeted_list = lambda: None
+    return section
+
 def _rec(i: int) -> SimpleNamespace:
     """A stand-in ScoredCandidate carrying every field the row builder reads."""
     return SimpleNamespace(
@@ -60,7 +70,7 @@ def section(qapp):
     ``db`` is never touched: every test drives the main-thread result slot
     directly and stubs the executor, so no background query runs.
     """
-    sec = RecommendedSection(Config(), db=None)
+    sec = _opt_out_of_row_budget(RecommendedSection(Config(), db=None))
     sec._executor = SimpleNamespace(submit=lambda fn: None)
     sec.resize(240, 160)
     sec.show()

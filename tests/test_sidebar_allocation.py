@@ -260,3 +260,103 @@ def test_refreshing_the_status_updates_text_and_floor(qapp, config):
     section.refresh_header_status()
     assert section._status_label.text() == "5 new"
     assert section.minimumHeight() > before
+
+# ---------------------------------------------------------------------------
+# 4. The mechanism is REACHABLE from the paths the app actually takes.
+#
+# The first version of this feature shipped with every test above passing and
+# nothing visible in the app, because `apply_row_budget` had exactly one class
+# of caller: these tests. A mechanism that is only ever invoked by its own
+# tests is not a feature. These assert the wiring, not the arithmetic.
+# ---------------------------------------------------------------------------
+
+def test_populating_a_section_fits_its_rows(qapp, config):
+    """The shared post-load hook must call the budget.
+
+    Drives ``_on_data_ready`` — the real completion path every
+    BackgroundRefreshMixin section takes — rather than calling the budget by
+    hand.
+    """
+    from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
+
+    calls = []
+
+    class _Wired(_Section):
+        def budgeted_list(self):
+            return self.list
+
+        def reapply_row_budget(self):
+            calls.append(True)
+            super().reapply_row_budget()
+
+        def _refresh_list(self):
+            return self.list
+
+        def _populate_rows(self, rows):
+            _fill(self, rows)
+
+    section = _Wired(config)
+    section._capture_scroll(section.list)
+    BackgroundRefreshMixin._on_data_ready(section, 30)
+    qapp.processEvents()
+    assert calls, (
+        "populating a section never fit its rows — apply_row_budget is not "
+        "reachable from the load path, only from tests"
+    )
+
+
+def test_resizing_a_section_refits_its_rows(qapp, config):
+    """Dragging the splitter is what makes ``+N more`` an allocation
+    consequence instead of a cap. Without a resize hook the budget is computed
+    once, at load, and a taller section keeps showing its old row count."""
+    calls = []
+
+    class _Wired(_Section):
+        def budgeted_list(self):
+            return self.list
+
+        def reapply_row_budget(self):
+            calls.append(True)
+
+    section = _Wired(config)
+    # Shown first: Qt delivers a resize event to a hidden widget only once it
+    # is polished, so a resize on an unshown section produces nothing and the
+    # test would fail for a reason the app never experiences.
+    section.show()
+    qapp.processEvents()
+    calls.clear()
+    section.resize(240, 320)
+    qapp.processEvents()
+    assert calls, "resizing a section never refit its rows"
+
+
+def test_refitting_twice_does_not_stack_tails(qapp, config):
+    """It runs on every resize, so it must be idempotent — otherwise each drag
+    leaves another "+N more" row behind."""
+    section = _Section(config)
+    _fill(section, 40, row_h=20)
+    _lay_out(qapp, section, 100)
+    section.apply_row_budget(section.list)
+    section.apply_row_budget(section.list)
+    section.apply_row_budget(section.list)
+
+    tails = [i for i in range(section.list.count())
+             if section.list.item(i).data(Qt.ItemDataRole.UserRole) == _MORE_ROW]
+    assert len(tails) == 1, f"{len(tails)} tail rows after three passes"
+
+
+@pytest.mark.parametrize("module,cls", [
+    ("history", "HistorySection"),
+    ("favorites", "FavoritesSection"),
+    ("recommended", "RecommendedSection"),
+    ("queue", "WatchQueueSection"),
+])
+def test_every_flat_list_section_declares_its_list(module, cls):
+    """A section that does not name its list silently opts out of the whole
+    mechanism — which is exactly how this shipped inert the first time."""
+    import importlib
+
+    section_cls = getattr(importlib.import_module(f"metatv.gui.sidebar.{module}"), cls)
+    assert "budgeted_list" in vars(section_cls), (
+        f"{cls} does not declare budgeted_list, so its rows are never fitted"
+    )

@@ -26,6 +26,8 @@ calls now live (they were here, and the exception silently missed out on them).
 """
 from concurrent.futures import ThreadPoolExecutor
 
+from PyQt6.QtCore import QTimer
+
 from loguru import logger
 
 
@@ -88,3 +90,8 @@ class BackgroundRefreshMixin:
             return
         self._populate_rows(rows)
         self._restore_scroll(lst)
+        # Fit the rows to the section's height and re-read its header. Deferred
+        # so the list has actually laid out — measuring its viewport in the same
+        # tick as the populate reads a stale height, which silently produces a
+        # budget for the size the section had BEFORE the rows arrived.
+        QTimer.singleShot(0, self.reapply_row_budget)
