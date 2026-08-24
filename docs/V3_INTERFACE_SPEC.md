@@ -30,30 +30,38 @@ drawings, settled the interface on **2026-08-21/22**.
 
 Verified against the tree, not against memory. Each ❌ is a slice.
 
+**Re-verified 2026-08-24** after #445–#451. 15 of 26 items now ✅, 4 ⚠️ partly,
+1 ⛔ rejected, 4 ❌, 2 ⏸. Every status below was checked by reading the tree —
+a `✅` cites the PR that built it, and a `⚠️` says exactly what is missing
+rather than rounding up. Item 8 is **rejected, not pending**: hiding the menu
+bar behind ALT was tried and the owner reversed it (*"leave the menu visible,
+because otherwise it's fucked on other platforms"*), so it must not reappear as
+an unbuilt slice on a future sweep.
+
 | # | Item | Where | Status |
 |---|---|---|---|
 | 1 | Row redesign | `channel_row_layout/_cells/_delegate` | ✅ #437 #439 |
 | 2 | Radius scale | `tokens/scales.py` | ✅ #441 |
 | 3 | Spacing grid | `tokens/scales.py` | ✅ #443 |
 | 4 | Type scale, contrast, icons, surfaces | `theme_palettes`, `icons` | ✅ #325–#329 |
-| 5 | **Header row** — brand · search · switcher · Split/Tools/Exclusions | `main_window` | ❌ **no header exists** |
-| 6 | **Switcher in the header** (Option A) | `main_window` | ⚠️ built as a segmented track, but in the **bottom bar** — Option C's location |
-| 7 | **Bottom bar freed** | `main_window` | ❌ still present |
-| 8 | **Menu bar hidden behind ALT**, platform-guarded | `main_window` | ❌ always visible |
-| 9 | **Sidebar: no nested scrollbars** | `sidebar/*` | ❌ only the horizontal policy is set |
-| 10 | **Sidebar: news boost** | `sidebar/base.py` | ❌ |
-| 11 | **Sidebar: collapsed headers carry news** | `sidebar/base.py` | ❌ still a bare count |
-| 12 | **Sidebar: `+N more →`** as an allocation consequence | `sidebar/*` | ❌ |
+| 5 | Header row — brand · search · switcher · Split/Tools/Exclusions | `app_header.py` | ✅ #446 |
+| 6 | Switcher in the header (Option A) | `app_header.py` | ✅ #446 — moved out of the bottom bar |
+| 7 | Bottom bar freed | `main_window` | ✅ #446 — residents rehomed, not dropped |
+| 8 | ~~Menu bar hidden behind ALT~~ | `main_window` | ⛔ **rejected by owner 2026-08-23** — *"leave the menu visible, because otherwise it's fucked on other platforms."* Not a slice. |
+| 9 | Sidebar: no nested scrollbars | `sidebar/row_budget.py` | ✅ #447 |
+| 10 | Sidebar: news boost | `sidebar/base.py` | ✅ #447 |
+| 11 | Sidebar: collapsed headers carry news | `sidebar/base.py` | ✅ #447 |
+| 12 | Sidebar: `+N more →` as an allocation consequence | `sidebar/row_budget.py` | ✅ #447 (crash fixed same PR: the marker had been stored in `UserRole`, where every section keeps its payload) |
 | 13 | Sidebar: content-aware minimums | `sidebar/*` `MIN_ROWS` | ✅ #329 |
 | 14 | Sidebar: `→` escalation, header-click expands | `sidebar/base.py` | ✅ #329 |
-| 15 | **Filter chips** replacing the Includes column (Q3) | `filter_panel`, `filter_bar` | ❌ |
-| 16 | **Details: poster-led rebuild** (Q8/R8) | `details_pane` | ❌ |
-| 17 | **Details: Also-available grouped by region** (Q19) | `details_versions` | ❌ |
-| 18 | **Details: Similar titles at the bottom**, count + posters/list + ⤢ | `details_similar` | ❌ |
-| 19 | Details: sections collapsible with remembered state | `details_sections` | ⚠️ partly |
+| 15 | Filter chips replacing the Includes column (Q3) | `filter_chips.py`, `filter_chip_bar.py`, `filter_chip_host.py` | ✅ #449 — `Layout ▸ Filters as chips` switches back |
+| 16 | **Details: poster-led rebuild** (Q8/R8) | `details_pane` | ⚠️ **partly #450** — title freed of its badges, byline, poster art centred, Watched badge to top-right. The **two-column header** (poster left, title/meta right) is NOT built; the poster still spans the pane above the title block. |
+| 17 | Details: Also-available grouped by region (Q19) | `details_version_groups.py` | ✅ #450 — 65 → 12 chips + tail; groups only above 12 versions |
+| 18 | **Details: Similar titles header** — count + posters/list + ⤢ | `details_similar` | ⚠️ **partly** — the section is already at the bottom and Play is now hover-only (#451), but the header is still `Similar Titles (N)` with a collapse chevron: no right-aligned count, no toggle, no ⤢ |
+| 19 | Details: sections collapsible with remembered state | `details_sections` | ⚠️ partly — Technical, Cast and Tags remember; Overview, Also-available and Similar do not |
 | 20 | Language badge Filled/Outline/Off setting (R12/Q5) | `settings`, delegate | ❌ |
 | 21 | Accent as its own axis — 6 hues × 2 modes (R14) | `theme_palettes` | ❌ |
-| 22 | Inter bundled (O5) | assets | ❌ |
+| 22 | Inter bundled (O5) | `metatv/assets/fonts/` | ✅ #445 — Inter + a 7 KB 48-glyph Material Symbols subset, with `scripts/build_font_assets.py` |
 | 23 | Option D — brand becomes the switcher, as a Settings option | `main_window` | ❌ |
 | 24 | Series seasons/episode counts on the row meta line | DTO + repo | ❌ not plumbed |
 | 25 | Configurable details layout (Q20) | — | ⏸ own slice |
