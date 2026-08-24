@@ -20,6 +20,42 @@ def _icon_btn() -> str:
     )
 
 
+class _HoverRow(QWidget):
+    """A row that reveals its pointer-only affordances while hovered.
+
+    Eighteen similar titles rendered eighteen Play buttons down the left edge —
+    a column of identical glyphs that carried no information, because every row
+    can be played. Play is an affordance, not a state, and an affordance only
+    needs to be visible where the pointer already is.
+
+    The button is HIDDEN, not removed: its size policy retains its space, so
+    the titles beside it stay in a column instead of stepping sideways as the
+    pointer moves down the list. A row that reflows under the cursor is the
+    same defect as a badge that shifts the columns beside it.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hover_only: list[QWidget] = []
+
+    def add_hover_only(self, widget: QWidget) -> None:
+        policy = widget.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        widget.setSizePolicy(policy)
+        widget.setVisible(False)
+        self._hover_only.append(widget)
+
+    def enterEvent(self, event) -> None:
+        for w in self._hover_only:
+            w.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        for w in self._hover_only:
+            w.setVisible(False)
+        super().leaveEvent(event)
+
+
 class _SimilarSection(QWidget):
     """Collapsible 'Similar Titles' section showing fuzzy-matched content."""
 
@@ -115,7 +151,7 @@ class _SimilarSection(QWidget):
         year_str = v.detected_year or ""
         prefix = v.detected_prefix
 
-        row_w = QWidget()
+        row_w = _HoverRow()
         row = QHBoxLayout(row_w)
         row.setContentsMargins(0, 1, 0, 1)
         row.setSpacing(4)
@@ -130,6 +166,11 @@ class _SimilarSection(QWidget):
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
+        # Pointer-only. Favourite and Queue deliberately do NOT join it: a gold
+        # star or a filled queue icon is STATE, and hiding state until you hover
+        # the row it belongs to means you cannot see it without going looking.
+        # Play is the only one of the three that says nothing about the title.
+        row_w.add_hover_only(play_btn)
 
         # 2. Media type icon (🎬/📺/📡)
         type_icon = {
