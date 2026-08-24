@@ -69,8 +69,12 @@ mpv-shot*.jpg
 # Claude Code agent worktrees (transient — never commit)
 .claude/worktrees/
 
-# Local scratch / personal notes accidentally committed once in #128
-design/
+# Local scratch / personal notes accidentally committed once in #128.
+# LEADING SLASH IS LOAD-BEARING: a bare "design/" matches a directory of that
+# name at ANY depth, so it also swallowed docs/design/ — the two V3 design
+# artifacts were "added" and committed with git reporting success and staging
+# nothing. Anchor scratch-dir ignores to the root.
+/design/
 open issues notes
 
 # Generated per build by the release workflow (see build_info.build_id)
