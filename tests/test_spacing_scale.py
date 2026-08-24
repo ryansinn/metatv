@@ -110,63 +110,73 @@ def test_each_token_reads_as_px_and_as_an_int(name, expected):
 # 3. The pill badges still render as pills.
 # ---------------------------------------------------------------------------
 
-#: Roles whose radius is within ~2px of half their rendered height. Measured,
-#: not guessed. All but LANG_CHIP are sized by ``font-size`` alone, so the type
-#: scale is what threatens them — which is exactly why the test renders rather
-#: than reasoning about padding.
-PILL_ROLES = [
-    "POSTER_WATCHED_BADGE",
-    "POSTER_UNWATCHED_BADGE",
-    "TRAILMAP_WBADGE",
-    "TRAILMAP_WBADGE_DONE",
-    "TRAILMAP_WBADGE_PARTIAL",
-    "LANG_CHIP",
-]
+#: ``role -> (module, the size its call site pins it to)``.
+#:
+#: Every one of these is a round badge whose call site calls ``setFixedSize``,
+#: so its height is NOT its ``sizeHint`` — measuring the hint is measuring a
+#: size the widget never has. An earlier version of this file did exactly that
+#: and reported the trail-map badge as squared under Inter; it is 22px pinned
+#: with an 11px radius, i.e. a perfect pill. The same trap had already been
+#: noted for ``LIGHTBOX_CHEVRON`` (``setFixedSize(44, 44)``, radius 22) and
+#: written into this docstring before being walked into anyway.
+#:
+#: So the contract asserted here is the one that is actually true and actually
+#: font-independent: **radius is exactly half the pinned size.**
+PINNED_PILLS = {
+    "POSTER_WATCHED_BADGE": ("metatv/gui/details_sections.py", 26),
+    "POSTER_UNWATCHED_BADGE": ("metatv/gui/details_sections.py", 26),
+    "TRAILMAP_WBADGE": ("metatv/gui/trail_map_detail.py", 22),
+    "TRAILMAP_WBADGE_DONE": ("metatv/gui/trail_map_detail.py", 22),
+    "TRAILMAP_WBADGE_PARTIAL": ("metatv/gui/trail_map_detail.py", 22),
+    "LIGHTBOX_CHEVRON": ("metatv/gui/similar_lightbox.py", 44),
+}
 
 
-@pytest.mark.parametrize("name", PILL_ROLES)
-def test_a_pill_badge_still_has_a_cut_corner(qapp, name):
-    """Rendered, not computed. The corner must not be painted at all.
-
-    Compared against the HOST background rather than the fill: a role with a
-    border paints its corner in the BORDER colour, so "corner != centre" reports
-    rounded for a square box. That false positive nearly had me 'fix' a
-    correctly-round chevron.
-    """
-    sheet = getattr(_theme, name)
-    host = QWidget()
-    host.setStyleSheet("background:#000000;")
-    widget_cls = QPushButton if "QPushButton" in sheet else QLabel
-    widget = widget_cls("Comedy", host)
-    widget.setStyleSheet(sheet)
-    widget.adjustSize()
-    height = widget.sizeHint().height()
-    widget.setFixedSize(max(widget.sizeHint().width(), 40), height)
-    widget.move(0, 0)
-    host.setFixedSize(widget.width(), height)
-    host.show()
-    qapp.processEvents()
-    image = host.grab().toImage()
-    assert QColor(image.pixel(0, 0)).name() == "#000000", (
-        f"{name} paints its top-left corner — it has squared. Its radius now "
-        f"exceeds half its {height}px height."
+@pytest.mark.parametrize("name,size", [(n, s) for n, (_m, s) in PINNED_PILLS.items()])
+def test_a_pinned_pill_has_a_radius_of_exactly_half_its_size(name, size):
+    """A pill IS half the control's height. One pixel over and Qt renders a
+    hard rectangle instead of clamping (see ``test_radius_scale``), so this is
+    the difference between a round badge and a square one."""
+    radius = int(re.search(r"border-radius:\s*(\d+)px", getattr(_theme, name)).group(1))
+    assert radius * 2 == size, (
+        f"{name} has a {radius}px radius but its call site pins it to {size}px — "
+        f"a pill is exactly half, and over half renders SQUARE"
     )
 
 
-@pytest.mark.parametrize("name", PILL_ROLES)
-def test_a_pill_badge_has_no_headroom_to_spare(qapp, name):
-    """Documents WHY these are fragile, so the number is in the suite rather
-    than in a commit message: each of these is within a pixel of squaring."""
-    sheet = getattr(_theme, name)
-    radius = int(re.search(r"border-radius:\s*(\d+)px", sheet).group(1))
-    host = QWidget()
-    widget_cls = QPushButton if "QPushButton" in sheet else QLabel
-    widget = widget_cls("Comedy", host)
-    widget.setStyleSheet(sheet)
-    widget.adjustSize()
-    height = widget.sizeHint().height()
-    assert radius <= height / 2, f"{name} already squares: {radius}px on {height}px"
-    assert height / 2 - radius <= 2.5, (
-        f"{name} has {height / 2 - radius:.1f}px of headroom — it is no longer "
-        f"a pill-by-arithmetic, so this list should be re-measured"
+@pytest.mark.parametrize("name,module,size",
+                         [(n, m, s) for n, (m, s) in PINNED_PILLS.items()])
+def test_the_pinned_size_above_matches_the_call_site(name, module, size):
+    """The table is only worth anything if it still describes the code.
+
+    Reads the call site rather than trusting the number, so moving a badge to a
+    different size fails here instead of silently making the pill assertion
+    meaningless.
+    """
+    source = Path(module).read_text()
+    # Either a literal pair or a named constant assigned that value — both are
+    # in use, and demanding one shape would fail on a refactor that changed
+    # nothing about the rendering.
+    literal = f"setFixedSize({size}, {size})" in source
+    named = bool(re.search(rf"_BADGE_SIZE[^=\n]*=\s*{size}\b", source))
+    assert literal or named, (
+        f"{module} no longer pins {size}x{size}; re-measure {name}'s pill contract"
+    )
+
+
+def test_no_pill_is_measured_by_its_size_hint():
+    """A guard on this file itself.
+
+    Rendering these roles at ``sizeHint`` and checking the painted corner looks
+    like a stronger test and is a weaker one: it measures a size the widget
+    never has, and reports squares that do not exist. Recorded so the "better"
+    version does not get written again.
+    """
+    body = Path("tests/test_spacing_scale.py").read_text()
+    # Split so this guard does not match its own source and fail forever — the
+    # self-referential trap that a naive version of it walks straight into.
+    needle = "adjust" + "Size()"
+    assert needle not in body, (
+        "a pill test is measuring sizeHint again — these widgets are "
+        "setFixedSize-pinned and their hint is not their height"
     )

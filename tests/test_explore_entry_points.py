@@ -464,8 +464,9 @@ def _nav_host(key: str):
     # _hide_all_content_views() resets the channel-render banners, which
     # live outside every view; this skeleton host is not a full MainWindow
     # so it needs that method wired in (shared factory — see conftest).
-    from tests.conftest import wire_hide_channel_banners
+    from tests.conftest import wire_header_search_sync, wire_hide_channel_banners
     wire_hide_channel_banners(host)
+    wire_header_search_sync(host)
     for name in (
         "epg_view", "discover_view", "preferences_view", "channels_list",
         "series_tree", "provider_editor", "search_controls", "_hidden_banner",

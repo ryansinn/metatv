@@ -7,6 +7,8 @@ Verifies:
 """
 
 import pytest
+
+from tests.conftest import wire_header_search_sync
 from unittest.mock import MagicMock, patch, call
 
 
@@ -24,6 +26,7 @@ def _build_mock_window():
     win.discover_view          = MagicMock()
     win.provider_editor        = MagicMock()
     win.search_controls        = MagicMock()
+    wire_header_search_sync(win)
     win._hidden_banner         = MagicMock()
     win.back_button            = MagicMock()
     win.breadcrumb_label       = MagicMock()

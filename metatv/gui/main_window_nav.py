@@ -111,6 +111,7 @@ class _NavMixin:
             for view in self.explore_views.values():
                 view.setVisible(False)
         self.search_controls.setVisible(False)
+        self._sync_header_search_visibility(False)
         self._hidden_banner.setVisible(False)
         # The channel-render banners live in _list_layout, not in any view, so
         # blanking the views never touched them: switching from the channel list
@@ -178,6 +179,7 @@ class _NavMixin:
 
         self.channels_list.setVisible(True)
         self.search_controls.setVisible(True)
+        self._sync_header_search_visibility(True)
         if hasattr(self, "filter_panel"):
             self.filter_panel.setVisible(True)
         self.search_input.setEnabled(True)
@@ -533,6 +535,7 @@ class _NavMixin:
                 self._hide_all_content_views()
                 self.channels_list.setVisible(True)
                 self.search_controls.setVisible(True)
+                self._sync_header_search_visibility(True)
         else:
             self.view_mode = "list"
             self._hidden_banner.setVisible(False)

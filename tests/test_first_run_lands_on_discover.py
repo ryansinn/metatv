@@ -53,14 +53,22 @@ class _FakeLabel:
     def setPlaceholderText(self, _t: str) -> None:
         pass
 
+    def setVisible(self, visible: bool) -> None:
+        # The V3 header owns the search box and hides it on views it cannot
+        # filter, so every stand-in for it has to answer setVisible.
+        self.visible = visible
+
+    def isHidden(self) -> bool:
+        return not getattr(self, "visible", True)
+
 
 def _nav_host() -> _NavMixin:
     """Minimal real ``_NavMixin`` — the switchers under test are the real ones."""
-    from tests.conftest import wire_hide_channel_banners
+    from tests.conftest import wire_header_search_sync, wire_hide_channel_banners
 
     host = _NavMixin.__new__(_NavMixin)
     wire_hide_channel_banners(host)
-
+    wire_header_search_sync(host)
     for name in (
         "channels_list", "series_tree", "epg_view", "preferences_view",
         "discover_view", "provider_editor", "search_controls", "_hidden_banner",

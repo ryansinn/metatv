@@ -48,6 +48,9 @@ play_from_beginning_icon: str = "▶"  # U+25B6 play triangle — force start fr
 resume_from_icon: str = "⏩"  # U+23E9 BLACK RIGHT-POINTING DOUBLE TRIANGLE — resume from saved position
 diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
 split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams toggle (one window per source)
+tools_icon: str = "⚒"       # U+2692 HAMMER AND PICK — the header's Tools menu button.
+                            # Monochrome by codepoint, unlike 🔧/🛠 which render as
+                            # colour emoji on most platforms and would ignore the palette.
 new_window_icon: str = "❐"  # U+2750 UPPER-RIGHT DROP-SHADOWED SQUARE — window-over-window (separate per-source window)
 close_icon: str = "×"
 delete_icon: str = "🗑"
