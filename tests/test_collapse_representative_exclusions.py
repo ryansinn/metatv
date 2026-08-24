@@ -198,3 +198,78 @@ def test_groups_are_independent(repo):
 
     reps = {r_.content_key: r_.id for r_ in _collapse(r, session, excluded_prefixes={"DE"})}
     assert reps == {"k1": "k1_en", "k2": "k2_en4k"}
+
+
+# ── Tier 1: visible, but region-tainted ──────────────────────────────────────
+
+def test_a_visible_copy_from_an_excluded_region_is_not_put_forward(repo):
+    """The owner's observation, and it is not the same question as visibility.
+
+    ``is_channel_excluded`` says "language wins over region": a row with an
+    explicit un-excluded prefix stays VISIBLE even when its region is excluded,
+    because excluding German must not hide an English film merely filed under a
+    German category. That rule is right.
+
+    Election is a different question. The real case: ``aladdin|movie|`` elected
+    ``|MULTI| Aladdin 4K`` (prefix MULTI, region DE) while ``|EN| Aladdin 4K``
+    sat beside it at the same quality carrying no excluded code at all — so the
+    German Disney copy represented the title to someone who excludes German.
+    """
+    r, session = repo
+    _add(session, "multi_de", key="k", quality="4K", prefix="MULTI", region="DE")
+    _add(session, "en", key="k", quality="4K", prefix="EN")
+    session.flush()
+
+    rep = _collapse(r, session, excluded_prefixes={"DE"})[0]
+    assert rep.id == "en", (
+        "elected the MULTI/DE copy over an equal-quality copy with no excluded "
+        "code on it — the German copy represents the title to someone who "
+        "excludes German"
+    )
+
+
+def test_a_region_tainted_copy_still_wins_when_it_is_the_only_one(repo):
+    """Tier 1 demotes; it must never hide.
+
+    The row is visible by the exclusion rule and stays visible — losing the
+    slot to nothing would be the vanishing bug all over again.
+    """
+    r, session = repo
+    _add(session, "multi_de", key="k", prefix="MULTI", region="DE")
+    _add(session, "de", key="k", quality="4K", prefix="DE")
+    session.flush()
+
+    reps = _collapse(r, session, excluded_prefixes={"DE"})
+    assert len(reps) == 1
+    assert reps[0].id == "multi_de", (
+        "the only visible copy must still be elected, even region-tainted, "
+        "and even though the excluded copy has better quality"
+    )
+
+
+def test_region_taint_outranks_quality_but_exclusion_outranks_both(repo):
+    """The three tiers, in order, in one group."""
+    r, session = repo
+    _add(session, "excluded_4k", key="k", quality="4K", prefix="DE")
+    _add(session, "tainted_4k", key="k", quality="4K", prefix="MULTI", region="DE")
+    _add(session, "clean_sd", key="k", quality="SD", prefix="EN")
+    session.flush()
+
+    rep = _collapse(r, session, excluded_prefixes={"DE"})[0]
+    assert rep.id == "clean_sd", (
+        "a clean SD copy should out-rank a region-tainted 4K one — putting a "
+        "compromised copy forward is worse than putting a lower-quality one"
+    )
+
+
+def test_taint_only_applies_to_codes_the_user_actually_excluded(repo):
+    """A region is not a problem in itself."""
+    r, session = repo
+    _add(session, "multi_de", key="k", quality="4K", prefix="MULTI", region="DE")
+    _add(session, "en", key="k", prefix="EN")
+    session.flush()
+
+    rep = _collapse(r, session, excluded_prefixes={"NL"})[0]
+    assert rep.id == "multi_de", (
+        "DE is not excluded here, so the 4K copy should win on quality as usual"
+    )

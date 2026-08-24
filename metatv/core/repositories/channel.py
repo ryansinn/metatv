@@ -208,14 +208,39 @@ def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bo
     return normalize_region_code(candidate_region) not in implied
 
 
-def _collapse_deprioritise_criterion(
+def _collapse_rank_penalty(
     *,
     excluded_prefixes=None,
     excluded_user_categories=None,
     excluded_channel_ids=None,
     channel_cls,
 ):
-    """A boolean clause that is TRUE for rows the caller will drop afterwards.
+    """A 3-tier penalty for how good an ambassador a row is for its title.
+
+    Sorted ascending ahead of quality, so a title puts forward the least
+    compromised copy it has:
+
+    ``0`` — untouched by any exclusion.
+    ``1`` — visible, but its ``detected_region`` is a code the user excluded.
+    ``2`` — will be dropped by the caller's Python exclusion pass.
+
+    **Tier 1 is the owner's observation, and it is not the same question as
+    tier 2.** ``is_channel_excluded`` says "language wins over region": a row
+    with an explicit un-excluded prefix stays VISIBLE even when its region is
+    excluded, because excluding German must not hide an English film merely
+    filed under a German category. That rule is right, and it is about
+    visibility.
+
+    Election is a different question. Given several visible copies, the one
+    whose region is a code you excluded is the worst of them to put forward.
+    The real case: ``aladdin|movie|`` elected ``|MULTI| Aladdin 4K``
+    (prefix MULTI, region DE) while ``|EN| Aladdin 4K`` sat beside it at the
+    same quality with no excluded code on it at all — so the German Disney copy
+    represented the title to someone who excludes German.
+
+    Tier 1 changes nothing about what is VISIBLE. A region-tainted row is still
+    shown, still counted, and still wins the slot when it is the only copy
+    there is.
 
     Used only to ORDER the collapse's representative election, never to filter
     — see ``_get_all_collapsed``. Composed from the canonical Global-Exclusion
@@ -227,24 +252,34 @@ def _collapse_deprioritise_criterion(
     Returns None when nothing is excluded, so the caller adds no rank term at
     all and the SQL is byte-for-byte what it was.
     """
-    from sqlalchemy import not_ as _not, or_ as _or
+    from sqlalchemy import case as _case, not_ as _not, or_ as _or
 
     from metatv.core.filter_utils import channel_exclusion_criterion
 
-    clauses = []
+    drop = []
     if excluded_prefixes:
-        # NOT(keep) == excluded, by the twin's own definition.
-        clauses.append(
+        # NOT(keep) == excluded, by the twin's own definition — so the
+        # "language wins over region" rule stays owned by one function.
+        drop.append(
             _not(channel_exclusion_criterion(set(excluded_prefixes), channel_cls))
         )
     if excluded_user_categories:
-        clauses.append(channel_cls.user_category.in_(list(excluded_user_categories)))
+        drop.append(channel_cls.user_category.in_(list(excluded_user_categories)))
     if excluded_channel_ids:
-        clauses.append(channel_cls.id.in_(list(excluded_channel_ids)))
+        drop.append(channel_cls.id.in_(list(excluded_channel_ids)))
 
-    if not clauses:
+    if not drop:
         return None
-    return clauses[0] if len(clauses) == 1 else _or(*clauses)
+    dropped = drop[0] if len(drop) == 1 else _or(*drop)
+
+    branches = [(dropped, 2)]
+    if excluded_prefixes:
+        # Reached only when the row is NOT dropped — CASE takes the first true
+        # branch — so this is exactly "visible, but region-tainted".
+        branches.append(
+            (channel_cls.detected_region.in_(list(excluded_prefixes)), 1)
+        )
+    return _case(*branches, else_=0)
 
 
 class ChannelRepository(_ChannelStatsMixin):
@@ -595,11 +630,11 @@ class ChannelRepository(_ChannelStatsMixin):
         # cartesian product — which it did, turning a 15-row group into a
         # variant count of 7,386,000 before this was caught.
         rank_terms = [rep_rank, inner.c.id]
-        deprioritise = _collapse_deprioritise_criterion(
+        penalty = _collapse_rank_penalty(
             channel_cls=inner.c, **(exclusion_sets or {})
         )
-        if deprioritise is not None:
-            rank_terms.insert(0, _case((deprioritise, 1), else_=0))
+        if penalty is not None:
+            rank_terms.insert(0, penalty)
 
         row_num = _func.row_number().over(
             partition_by=group_key,
