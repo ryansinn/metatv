@@ -208,6 +208,45 @@ def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bo
     return normalize_region_code(candidate_region) not in implied
 
 
+def _collapse_deprioritise_criterion(
+    *,
+    excluded_prefixes=None,
+    excluded_user_categories=None,
+    excluded_channel_ids=None,
+    channel_cls,
+):
+    """A boolean clause that is TRUE for rows the caller will drop afterwards.
+
+    Used only to ORDER the collapse's representative election, never to filter
+    — see ``_get_all_collapsed``. Composed from the canonical Global-Exclusion
+    predicates rather than a hand-rolled ``or_``: ``channel_exclusion_criterion``
+    is the KEEP twin of ``is_channel_excluded`` and owns the "language wins over
+    region" rule, so negating it here keeps one definition of excluded rather
+    than growing a second that can drift from the Python pass it is mirroring.
+
+    Returns None when nothing is excluded, so the caller adds no rank term at
+    all and the SQL is byte-for-byte what it was.
+    """
+    from sqlalchemy import not_ as _not, or_ as _or
+
+    from metatv.core.filter_utils import channel_exclusion_criterion
+
+    clauses = []
+    if excluded_prefixes:
+        # NOT(keep) == excluded, by the twin's own definition.
+        clauses.append(
+            _not(channel_exclusion_criterion(set(excluded_prefixes), channel_cls))
+        )
+    if excluded_user_categories:
+        clauses.append(channel_cls.user_category.in_(list(excluded_user_categories)))
+    if excluded_channel_ids:
+        clauses.append(channel_cls.id.in_(list(excluded_channel_ids)))
+
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else _or(*clauses)
+
+
 class ChannelRepository(_ChannelStatsMixin):
     """Repository for channel data access"""
     
@@ -326,6 +365,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 include_dead: bool = False,
                 excluded_keywords: Optional[List[str]] = None,
                 collapse_variants: bool = False,
+                excluded_prefixes: Optional[Set[str]] = None,
+                excluded_user_categories: Optional[Set[str]] = None,
+                excluded_channel_ids: Optional[Set[str]] = None,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -445,7 +487,14 @@ class ChannelRepository(_ChannelStatsMixin):
         )
 
         if collapse_variants:
-            return self._get_all_collapsed(query, limit=limit, offset=offset)
+            return self._get_all_collapsed(
+                query, limit=limit, offset=offset,
+                exclusion_sets=dict(
+                    excluded_prefixes=excluded_prefixes,
+                    excluded_user_categories=excluded_user_categories,
+                    excluded_channel_ids=excluded_channel_ids,
+                ),
+            )
 
         query = query.order_by(ChannelDB.name)
 
@@ -476,6 +525,7 @@ class ChannelRepository(_ChannelStatsMixin):
 
     def _get_all_collapsed(
         self, filtered_query, *, limit: Optional[int], offset: Optional[int],
+        exclusion_sets=None,
     ) -> List[ChannelDB]:
         """Collapse *filtered_query* (an already-WHERE-filtered ChannelDB query)
         to one representative row per content_key group, in SQL.
@@ -517,9 +567,43 @@ class ChannelRepository(_ChannelStatsMixin):
         ]
         rep_rank = _case(*whens, else_=max_rank - _QUALITY_TIER_RANK_DEFAULT)
 
+        # Rows the caller will drop AFTER this query sort last, whatever their
+        # quality. Without this the representative is elected from ALL variants
+        # and only then filtered — so a title whose best-quality variant happens
+        # to be globally excluded lost its representative and vanished entirely,
+        # taking its perfectly visible variants with it. Measured on the real
+        # library: 18,486 titles disappeared that way, each with at least one
+        # variant the user had not excluded.
+        #
+        # The docstring for ``excluded_provider_ids`` already states this
+        # invariant — "a hidden/expired-provider variant can never be
+        # excluded-from-set-yet-still-win the representative slot" — because
+        # that axis is a WHERE predicate. The Global-Exclusion axes are applied
+        # in Python by the caller, so they needed the same guarantee by another
+        # route.
+        #
+        # DEPRIORITISE, not filter. Filtering here would elect no representative
+        # at all for a fully-excluded group, which is the right outcome — but it
+        # would also silently change ``_variant_count`` (the ×N badge) and
+        # zero out the caller's hidden-by-exclusions diff, which is computed by
+        # comparing row counts either side of its Python pass. Ranking leaves
+        # both intact: a group with any visible variant elects a visible one, a
+        # group with none still elects the row the caller then correctly drops.
+        # Built against ``inner.c``, NOT against ChannelDB. The window runs over
+        # the subquery; a clause referencing the mapped class would add
+        # ``channels`` as a second FROM element and SQLite would answer with a
+        # cartesian product — which it did, turning a 15-row group into a
+        # variant count of 7,386,000 before this was caught.
+        rank_terms = [rep_rank, inner.c.id]
+        deprioritise = _collapse_deprioritise_criterion(
+            channel_cls=inner.c, **(exclusion_sets or {})
+        )
+        if deprioritise is not None:
+            rank_terms.insert(0, _case((deprioritise, 1), else_=0))
+
         row_num = _func.row_number().over(
             partition_by=group_key,
-            order_by=[rep_rank, inner.c.id],
+            order_by=rank_terms,
         ).label("_rn")
         variant_count = _func.count(inner.c.id).over(
             partition_by=group_key,

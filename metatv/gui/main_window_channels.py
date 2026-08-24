@@ -465,6 +465,36 @@ class _ChannelListMixin:
         force_adult_ids = params['force_adult_ids']
         hidden_only = params.get('hidden_only', False)
         _page_size = params.get('page_size', 5_000)
+
+        # ── The Global-Exclusion sets, resolved ONCE and early ─────────────────
+        # Early because ``collapse_variants`` elects one representative per title
+        # inside SQL, and an election that cannot see these sets can crown a row
+        # that the Python pass below then drops — taking the whole title with it,
+        # including variants the user never excluded. Measured on the real
+        # library before this change: 18,486 titles vanished that way.
+        # get_all() uses them to RANK candidates, never to filter; the Python
+        # pass below stays authoritative so the hidden-by-exclusions count and
+        # the ×N variant badge are unaffected.
+        excluded_prefixes = params.get('excluded_prefixes', set())
+        excluded_user_cats = params.get('excluded_user_categories', set())
+        # Content-provenance layer: resolve the excluded content_type slugs to a
+        # channel-id set (bounded, indexed — safe off the UI thread).
+        _excl_ct_slugs = params.get('excluded_tag_content_types') or set()
+        excluded_ct_ids = (
+            repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
+            if _excl_ct_slugs else set()
+        )
+        # The reveal ("show" on the gold bar) must not deprioritise anything, or
+        # the revealed rows would still lose the representative slot.
+        _rank_excl = (
+            {}
+            if params.get('bypass_global_exclusions') or hidden_only
+            else dict(
+                excluded_prefixes=excluded_prefixes or None,
+                excluded_user_categories=excluded_user_cats or None,
+                excluded_channel_ids=excluded_ct_ids or None,
+            )
+        )
         # Canonical provider scoping: hide inactive + expired sources (see
         # ProviderRepository.get_hidden_provider_ids — single source of truth).
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
@@ -539,6 +569,7 @@ class _ChannelListMixin:
                 collapse_variants=params.get('collapse_variants', False),
                 excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
                 limit=_page_size,
+                **_rank_excl,
             )
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
         # below. Paging (has_more + the next OFFSET) must be based on this, not on
@@ -549,20 +580,6 @@ class _ChannelListMixin:
         has_adult = bool(force_adult_ids) or repos.session.query(ChannelDB).filter(
             ChannelDB.is_adult == True
         ).limit(1).count() > 0
-        # Always defined (used by the recounts below); the show-all reveal skips
-        # APPLYING them so hidden matches aren't re-excluded.
-        excluded_prefixes = params.get('excluded_prefixes', set())
-        excluded_user_cats = params.get('excluded_user_categories', set())
-        # Content-provenance layer: resolve the excluded content_type slugs to a
-        # channel-id set (bounded, indexed — safe off the UI thread).  Folded into
-        # the same _apply_python_exclusions pass so it counts into hidden_by_exclusions
-        # and is revealed by the exclusions-bypass exactly like the prefix layer.
-        _excl_ct_slugs = params.get('excluded_tag_content_types') or set()
-        excluded_ct_ids = (
-            repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
-            if _excl_ct_slugs else set()
-        )
-
         # ── Filter layer 1 — Global Exclusions (Python-side) ───────────────────────
         # Capture a before/after count so the gold bar can report exactly how many
         # results THIS layer hides for THIS view.  Skipped entirely when the user has
