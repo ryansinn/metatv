@@ -535,7 +535,14 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
             text = self.header_status()
             label.setText(text)
             label.setVisible(bool(text))
-            colour = _theme.COLOR_ACCENT if self.news() else _theme.COLOR_MUTED
+            # COLOR_ACCENT_BLUE, not COLOR_ACCENT. The distinction is already
+            # documented at PLAY_BTN: COLOR_ACCENT is the accent as a FILL, and
+            # as TEXT on the app surface it is a midtone — 2.61:1 in Graphite.
+            # That made a section WITH news less readable than one without
+            # (news 2.61:1 against plain 3.76:1), which is the signal exactly
+            # backwards. COLOR_ACCENT_BLUE is the accent-as-text member and
+            # clears 7.3:1 or better in every palette, always above MUTED.
+            colour = _theme.COLOR_ACCENT_BLUE if self.news() else _theme.COLOR_MUTED
             return f"color: {colour}; font-size: {_theme.FONT_SM};"
 
         self._status_build = _build

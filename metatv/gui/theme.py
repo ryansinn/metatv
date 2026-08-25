@@ -1510,8 +1510,16 @@ def _build_semantic_constants() -> dict[str, object]:
     # renderer (lightbox strip + trail-map rows, via ``sim_badges.make_sim_badges``) and
     # the trail-map detail strip, so the lang/region badge reads identically everywhere
     # (single source of truth — no per-surface lang style).
+    # COLOR_ACCENT_BLUE, not COLOR_LIGHTBOX_LINK. The LIGHTBOX_* family is the
+    # FIXED-DARK cinema surface's own palette — chosen to be legible on a panel
+    # that is dark in every theme. This chip is not on that panel; it is on the
+    # app surface, which is CREAM in the light themes. The result measured
+    # 1.36:1 in Daylight and 1.23:1 in Gruvbox Light — the sidebar's language
+    # chips have been effectively invisible in the light theme since it shipped.
+    # It reads fine in the results list because that is painted by the row
+    # delegate from its own COLOR_ROW_* tokens and never touches this role.
     LANG_CHIP = (
-        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_LIGHTBOX_LINK + ";"
+        "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE + ";"
         " border-radius: " + RADIUS_MD + "; padding: 1px " + SPACE_SM + "; font-size: " + FONT_MD + ";"
     )
 

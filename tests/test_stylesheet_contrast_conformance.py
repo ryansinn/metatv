@@ -95,8 +95,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
         "2.70 — needs a per-palette Exclusions teal; that colour is the owner's brand mark",
     ("EXCL_CHIP_ACTIVE", "QPushButton:pressed"):
         "2.70 — needs a per-palette Exclusions teal; that colour is the owner's brand mark",
-    ("LANG_CHIP", "<bare>"):
-        "3.77 worst palette",
     ("LIGHTBOX_BACK_BTN", "QPushButton"):
         "sits on the fixed-dark cinema backdrop, not the app surface — wrong-surface measurement",
     ("LIGHTBOX_LENS_LINK", "QPushButton"):

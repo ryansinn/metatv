@@ -35,9 +35,9 @@ Its own module because radix.py is vendored and says DO NOT hand-edit.
 from __future__ import annotations
 
 GRUVNEUTRAL_DARK: tuple[str, ...] = (
-    "#1d2021", "#282828", "#32302f", "#3c3836",
-    "#504945", "#665c54", "#7c6f64", "#928374",
-    "#a89984", "#bdae93", "#d5c4a1", "#ebdbb2",
+    "#0d0e0f", "#1d2021", "#242424", "#282828",
+    "#32302f", "#3c3836", "#504945", "#665c54",
+    "#7c6f64", "#928374", "#bdae93", "#ebdbb2",
 )
 
 GRUVNEUTRAL_A_DARK: tuple[str, ...] = (
@@ -47,9 +47,9 @@ GRUVNEUTRAL_A_DARK: tuple[str, ...] = (
 )
 
 GRUVRED_DARK: tuple[str, ...] = (
-    "#322827", "#3f2726", "#4f2725", "#602724",
-    "#722623", "#872622", "#9e2520", "#b5251f",
-    "#cc241d", "#fb4934", "#fd9c91", "#fec0b9",
+    "#2a0706", "#340907", "#4a0d0b", "#5c100d",
+    "#6c130f", "#841713", "#a71e18", "#d2251e",
+    "#cc241d", "#fb4934", "#fc6250", "#fd8e82",
 )
 
 GRUVRED_A_DARK: tuple[str, ...] = (
@@ -59,9 +59,9 @@ GRUVRED_A_DARK: tuple[str, ...] = (
 )
 
 GRUVGREEN_DARK: tuple[str, ...] = (
-    "#2f2f27", "#383826", "#434325", "#4e4e23",
-    "#5a5a22", "#696820", "#79781e", "#88871c",
-    "#98971a", "#b8bb26", "#d8db4d", "#d8db4d",
+    "#151404", "#1a1904", "#262606", "#303008",
+    "#39380a", "#46450c", "#59590f", "#706f13",
+    "#98971a", "#b8bb26", "#b8bb26", "#b8bb26",
 )
 
 GRUVGREEN_A_DARK: tuple[str, ...] = (
@@ -71,9 +71,9 @@ GRUVGREEN_A_DARK: tuple[str, ...] = (
 )
 
 GRUVYELLOW_DARK: tuple[str, ...] = (
-    "#322f28", "#403827", "#524326", "#644e26",
-    "#775b25", "#8e6a24", "#a67923", "#be8922",
-    "#d79921", "#fabd2f", "#fbcc60", "#fbcc60",
+    "#1a1304", "#211705", "#2f2207", "#3c2a09",
+    "#47330b", "#583f0d", "#705011", "#8d6516",
+    "#d79921", "#fabd2f", "#fabd2f", "#fabd2f",
 )
 
 GRUVYELLOW_A_DARK: tuple[str, ...] = (
@@ -83,9 +83,9 @@ GRUVYELLOW_A_DARK: tuple[str, ...] = (
 )
 
 GRUVBLUE_DARK: tuple[str, ...] = (
-    "#2a2e2e", "#2c3535", "#2f3e3f", "#324849",
-    "#355253", "#395e60", "#3d6b6d", "#41787b",
-    "#458588", "#83a598", "#a6ddc8", "#a6ddc8",
+    "#081616", "#0b1b1c", "#0f2729", "#143334",
+    "#173c3d", "#1d4a4c", "#245d60", "#2e767a",
+    "#458588", "#83a598", "#83a598", "#58bf98",
 )
 
 GRUVBLUE_A_DARK: tuple[str, ...] = (
@@ -95,9 +95,9 @@ GRUVBLUE_A_DARK: tuple[str, ...] = (
 )
 
 GRUVPURPLE_DARK: tuple[str, ...] = (
-    "#302b2e", "#3b3035", "#49363f", "#573c48",
-    "#664252", "#774a5f", "#8b526c", "#9e5a79",
-    "#b16286", "#d3869b", "#e1adbb", "#eccbd4",
+    "#220d16", "#2b101c", "#3d1729", "#4c1d33",
+    "#5b233c", "#702b4a", "#8e365e", "#b44477",
+    "#b16286", "#d3869b", "#d3869b", "#db9cae",
 )
 
 GRUVPURPLE_A_DARK: tuple[str, ...] = (
@@ -107,9 +107,9 @@ GRUVPURPLE_A_DARK: tuple[str, ...] = (
 )
 
 GRUVAQUA_DARK: tuple[str, ...] = (
-    "#2c2f2c", "#313831", "#374438", "#3e503e",
-    "#455d46", "#4d6c4e", "#567c58", "#5f8d61",
-    "#689d6a", "#8ec07c", "#b5dda6", "#b5dda6",
+    "#091709", "#0b1d0b", "#102911", "#143415",
+    "#183e19", "#1d4c1f", "#256127", "#2f7b32",
+    "#689d6a", "#8ec07c", "#8ec07c", "#8ec07c",
 )
 
 GRUVAQUA_A_DARK: tuple[str, ...] = (
@@ -119,14 +119,110 @@ GRUVAQUA_A_DARK: tuple[str, ...] = (
 )
 
 GRUVORANGE_DARK: tuple[str, ...] = (
-    "#322b26", "#402f24", "#523522", "#633a1f",
-    "#76401c", "#8d4719", "#a54e15", "#be5612",
-    "#d65d0e", "#fe8019", "#ffc18f", "#ffc799",
+    "#220f02", "#2a1203", "#3d1a04", "#4d2105",
+    "#5b2706", "#703007", "#8e3d09", "#b34e0c",
+    "#d65d0e", "#fe8019", "#fe8019", "#fe933b",
 )
 
 GRUVORANGE_A_DARK: tuple[str, ...] = (
     "#fe801900", "#fe801909", "#fe801914", "#fe80191d",
     "#fe801925", "#fe801930", "#fe801940", "#fe80195d",
     "#fe80196d", "#fe80197b", "#fe8019b5", "#fe8019ef",
+)
+
+GRUVNEUTRAL_LIGHT: tuple[str, ...] = (
+    "#f9f5d7", "#fbf1c7", "#f2e5bc", "#ebdbb2",
+    "#d5c4a1", "#bdae93", "#a89984", "#928374",
+    "#7c6f64", "#665c54", "#504945", "#3c3836",
+)
+
+GRUVNEUTRAL_A_LIGHT: tuple[str, ...] = (
+    "#3c383600", "#3c383609", "#3c383614", "#3c38361d",
+    "#3c383625", "#3c383630", "#3c383640", "#3c38365d",
+    "#3c38366d", "#3c38367b", "#3c3836b5", "#3c3836ef",
+)
+
+GRUVRED_LIGHT: tuple[str, ...] = (
+    "#faebc2", "#f8e3bb", "#f5d8b3", "#f3cca8",
+    "#efbc9b", "#e89f83", "#e07a64", "#d65142",
+    "#cc241d", "#9d0006", "#9d0006", "#9d0006",
+)
+
+GRUVRED_A_LIGHT: tuple[str, ...] = (
+    "#9d000600", "#9d000609", "#9d000614", "#9d00061d",
+    "#9d000625", "#9d000630", "#9d000640", "#9d00065d",
+    "#9d00066d", "#9d00067b", "#9d0006b5", "#9d0006ef",
+)
+
+GRUVGREEN_LIGHT: tuple[str, ...] = (
+    "#f8eec2", "#f4ebbb", "#efe6b2", "#e9e1a8",
+    "#e1da9a", "#d3cd82", "#c2bd63", "#aeab40",
+    "#98971a", "#79740e", "#736f0d", "#58550a",
+)
+
+GRUVGREEN_A_LIGHT: tuple[str, ...] = (
+    "#79740e00", "#79740e09", "#79740e14", "#79740e1d",
+    "#79740e25", "#79740e30", "#79740e40", "#79740e5d",
+    "#79740e6d", "#79740e7b", "#79740eb5", "#79740eef",
+)
+
+GRUVYELLOW_LIGHT: tuple[str, ...] = (
+    "#faeec2", "#f8ebbb", "#f7e6b3", "#f5e1a9",
+    "#f2da9c", "#edce85", "#e6be67", "#dfac46",
+    "#d79921", "#b57614", "#966111", "#714a0d",
+)
+
+GRUVYELLOW_A_LIGHT: tuple[str, ...] = (
+    "#b5761400", "#b5761409", "#b5761414", "#b576141d",
+    "#b5761425", "#b5761430", "#b5761440", "#b576145d",
+    "#b576146d", "#b576147b", "#b57614b5", "#b57614ef",
+)
+
+GRUVBLUE_LIGHT: tuple[str, ...] = (
+    "#f6eec5", "#eee9c3", "#e5e4bf", "#dadebc",
+    "#ccd5b7", "#b2c6ae", "#91b2a2", "#6d9d96",
+    "#458588", "#076678", "#076678", "#065a6a",
+)
+
+GRUVBLUE_A_LIGHT: tuple[str, ...] = (
+    "#07667800", "#07667809", "#07667814", "#0766781d",
+    "#07667825", "#07667830", "#07667840", "#0766785d",
+    "#0766786d", "#0766787b", "#076678b5", "#076678ef",
+)
+
+GRUVPURPLE_LIGHT: tuple[str, ...] = (
+    "#f9edc5", "#f6e7c2", "#f2e0bf", "#eed7bb",
+    "#e8ccb6", "#ddb8ad", "#d09ea1", "#c18194",
+    "#b16286", "#8f3f71", "#8f3f71", "#873367",
+)
+
+GRUVPURPLE_A_LIGHT: tuple[str, ...] = (
+    "#8f3f7100", "#8f3f7109", "#8f3f7114", "#8f3f711d",
+    "#8f3f7125", "#8f3f7130", "#8f3f7140", "#8f3f715d",
+    "#8f3f716d", "#8f3f717b", "#8f3f71b5", "#8f3f71ef",
+)
+
+GRUVAQUA_LIGHT: tuple[str, ...] = (
+    "#f7eec4", "#f1ebc0", "#e9e7bc", "#e1e2b6",
+    "#d5dbaf", "#c0cfa2", "#a6c091", "#88af7e",
+    "#689d6a", "#427b58", "#2e7a4b", "#235d3a",
+)
+
+GRUVAQUA_A_LIGHT: tuple[str, ...] = (
+    "#427b5800", "#427b5809", "#427b5814", "#427b581d",
+    "#427b5825", "#427b5830", "#427b5840", "#427b585d",
+    "#427b586d", "#427b587b", "#427b58b5", "#427b58ef",
+)
+
+GRUVORANGE_LIGHT: tuple[str, ...] = (
+    "#faedc1", "#f8e7ba", "#f7dfb1", "#f4d6a6",
+    "#f1cb97", "#ecb67d", "#e69b5c", "#de7e37",
+    "#d65d0e", "#af3a03", "#af3a03", "#943103",
+)
+
+GRUVORANGE_A_LIGHT: tuple[str, ...] = (
+    "#af3a0300", "#af3a0309", "#af3a0314", "#af3a031d",
+    "#af3a0325", "#af3a0330", "#af3a0340", "#af3a035d",
+    "#af3a036d", "#af3a037b", "#af3a03b5", "#af3a03ef",
 )
 
