@@ -534,6 +534,9 @@ VECTOR_KEYS: dict[str, str] = {
     "not_interested": "mdi6.cancel",
     "watched": "mdi6.check",
     "unwatched": "mdi6.circle-outline",
+    # The sidebar's "has news" marker — a ring, not a filled dot: an outline
+    # reads as a marker at 9px where a solid disc reads as a bullet point.
+    "news": "mdi6.circle-outline",
     "monitor": "mdi6.bell-outline",
     "monitor_off": "mdi6.bell-off-outline",
     "hide": "mdi6.eye-off-outline",

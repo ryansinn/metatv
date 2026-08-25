@@ -18,7 +18,11 @@ ENTRY = WhatsNewEntry(
         "a restart.",
         "The chips are sized as indicators rather than badges: they now sit "
         "inside the title's line height instead of setting the row's, which is "
-        "where the extra 7px per row came from.",
+        "where the extra 7px per row came from. All three (quality, year, "
+        "language) share one geometry, so they can no longer drift apart.",
+        "A row with news carries a small green ring instead of a blue \"NEW\" "
+        "pill. The pill was a second word competing with the title it sat in "
+        "front of, and the count beside it already says what is new.",
         "History rows carry what tells them apart — the episode you were on (or "
         "the year), and a terse age at the right edge (2h, 1d, 3d). A language "
         "chip would have said the same thing on every row of your own history.",
@@ -27,6 +31,10 @@ ENTRY = WhatsNewEntry(
         "Open the sidebar → each row is a single line: an icon for movie / "
         "series / live, the title, then chips. No row says the words \"Movie\" "
         "or \"Series\" anywhere.",
+        "Watch Queue → an Alerts Matched row shows a small green ring before "
+        "the title and its count (+12 eps) at the right edge — no \"NEW\" pill.",
+        "Compare a year chip against a quality chip in the same row → they are "
+        "the same height and the same padding.",
         "Compare a section against the last build → roughly twice as many "
         "entries fit in the same section height.",
         "Watch Queue → a series you are part-way through shows its episode "

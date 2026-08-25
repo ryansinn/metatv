@@ -73,9 +73,15 @@ _CHIP_ROLES = {
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
 
-#: Row-icon edge length. Sized against the 13px title so the glyph reads as a
-#: sibling of the text rather than a bullet in front of it.
-ICON_PX = 15
+#: Row-icon edge length. Sized UNDER the 13px title so the glyph reads as a
+#: quiet marker beside the text rather than competing with it.
+ICON_PX = 13
+
+#: The news marker's diameter. A ring, not a "NEW" pill: the pill was a second
+#: word competing with the title, and the count beside it ("+12 eps") already
+#: says what is new — so the marker only has to say THAT something is, and a
+#: ring does that at a fraction of the width.
+NEWS_DOT_PX = 9
 
 
 class MiddleElideLabel(QLabel):
@@ -219,17 +225,45 @@ def _icon_label(role: str) -> QLabel | None:
     return label
 
 
+def _news_dot() -> QLabel:
+    """The "this has news" marker — a small ring, painted in the OK colour.
+
+    Never colour alone: the ring is a SHAPE that no other row carries, and the
+    count beside it ("+12 eps", "1 new") is the words. It replaced a "NEW" pill,
+    which was a second piece of text competing with the title it sat in front of.
+    """
+    label = QLabel()
+    label.setFixedWidth(NEWS_DOT_PX)
+    label.setToolTip("New since you last looked")
+
+    def _build() -> str:
+        pixmap = _icon_utils.vector_pixmap(
+            _icons.vector_key("news"), _theme.COLOR_OK, NEWS_DOT_PX
+        )
+        if pixmap is not None and not pixmap.isNull():
+            label.setPixmap(pixmap)
+        return ""
+
+    _theme.style_fn(label, _build)
+    return label
+
+
 def _chip_widget(kind: str, text: str) -> QWidget:
-    """One chip. Quality is a QPushButton — ``QUALITY_CHIP`` is button-scoped."""
-    role = _CHIP_ROLES[kind]
-    if kind == CHIP_QUALITY:
-        chip = QPushButton(text)
-        chip.setFlat(True)
-        chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    else:
-        chip = QLabel(text)
-        chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    _theme.style(chip, role)
+    """One chip — a flat ``QPushButton`` whatever the kind.
+
+    All three kinds are the same widget so they share one box model and one
+    padding. As QLabels the year and language chips looked looser than the
+    quality chip on identical declared padding, because a QLabel's border wraps
+    the font's full line box while a button's hugs content + padding.
+
+    Not interactive: flat, unfocusable and mouse-transparent, so the hosting
+    list item keeps every click even on a row that carries a real button.
+    """
+    chip = QPushButton(text)
+    chip.setFlat(True)
+    chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    _theme.style(chip, _CHIP_ROLES[kind])
     return chip
 
 
@@ -312,9 +346,7 @@ def build_chip_row(
         layout.addWidget(icon_lbl)
 
     if new_badge:
-        new_lbl = QLabel("NEW")
-        _theme.style(new_lbl, "QUEUE_MATCHED_NEW_TAG")
-        layout.addWidget(new_lbl)
+        layout.addWidget(_news_dot())
 
     # COLOR_TEXT_HI, one step brighter than the meta line's COLOR_TEXT: the
     # hierarchy between the two lines IS the design, and both clear 4.5:1 on
