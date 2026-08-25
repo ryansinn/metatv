@@ -15,7 +15,7 @@
     "metatv/gui/epg_watchlist_mixin.py": 1036,
     "metatv/gui/filter_panel.py": 1049,
     "metatv/gui/global_filter_dialog.py": 1745,
-    "metatv/gui/main_window.py": 3021,
+    "metatv/gui/main_window.py": 3025,
     "metatv/gui/main_window_channels.py": 2030,
     "metatv/gui/main_window_favorites.py": 1072,
     "metatv/gui/main_window_providers.py": 1055,
@@ -23,7 +23,7 @@
     "metatv/gui/main_window_streaming.py": 1535,
     "metatv/gui/provider_editor.py": 1005,
     "metatv/gui/qa_checklist_window.py": 2424,
-    "metatv/gui/sidebar/alerts.py": 1279,
+    "metatv/gui/sidebar/alerts.py": 1277,
     "metatv/gui/theme.py": 2296
   },
   "get_session_calls": 79

@@ -942,11 +942,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     def create_sidebar(self) -> QWidget:
         """Create modular sidebar with resizable sections"""
         self.sidebar_splitter = QSplitter(Qt.Orientation.Vertical)
-        # The gap BETWEEN section cards. Each section is now its own rounded
-        # surface (SIDEBAR_SECTION_CARD), and cards that touch read as one long
-        # panel with lines drawn on it — the separation is what makes a section
-        # legible as a group. The handle is also the drag target, and it stays
-        # draggable at this width: allocation is still the user's to override.
+        # The gap BETWEEN section cards: cards that touch read as one long panel
+        # with lines drawn on it. Doubles as the drag target, still draggable at
+        # this width — allocation stays the user's to override.
         self.sidebar_splitter.setHandleWidth(_theme.space_px(_theme.SPACE_SM))
         self.sidebar_sections = {}
 

@@ -108,6 +108,25 @@ def _section_stub():
     return obj
 
 
+def _entry(**over):
+    """One queue entry stub, with EVERY field ``_add_entry_item`` reads.
+
+    Seven inline ``SimpleNamespace``s said the same thing seven ways, and five
+    of them omitted ``season_num``/``episode_num`` — which was fine right up
+    until the row builder started reading them, at which point all five raised
+    ``AttributeError`` at once. A real ``QueueEntry`` defaults them to None;
+    this stub does too, so the double and the thing it stands for agree.
+    """
+    base = dict(
+        is_episode=False, episode_id=None, channel_id="c1", channel_name="Movie",
+        media_type="movie", available=True, search_title="Movie",
+        season_num=None, episode_num=None, episode_title=None,
+        detected_year="", detected_quality="", detected_prefix="",
+    )
+    base.update(over)
+    return types.SimpleNamespace(**base)
+
+
 # ===========================================================================
 # Part 1: UserRole payload harmonization — one shape, every row kind
 # ===========================================================================
@@ -117,11 +136,7 @@ class TestPayloadHarmonization:
     def test_channel_grain_movie_payload_and_tooltip(self, qapp):
         from PyQt6.QtCore import Qt
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=False, channel_id="c1", channel_name="Movie",
-            media_type="movie", available=True, search_title="Movie",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(channel_id="c1")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
         assert item.data(Qt.ItemDataRole.UserRole) == {
@@ -132,11 +147,8 @@ class TestPayloadHarmonization:
     def test_channel_grain_series_payload_and_tooltip(self, qapp):
         from PyQt6.QtCore import Qt
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=False, channel_id="s1", channel_name="Show",
-            media_type="series", available=True, search_title="Show",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(channel_id="s1", channel_name="Show",
+                       media_type="series", search_title="Show")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
         assert item.data(Qt.ItemDataRole.UserRole) == {
@@ -149,11 +161,7 @@ class TestPayloadHarmonization:
         double-click hint must not clobber it."""
         from PyQt6.QtCore import Qt
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=False, channel_id="c1", channel_name="Movie",
-            media_type="movie", available=False, search_title="Movie",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(channel_id="c1", available=False)
         obj._add_entry_item(entry)
         item = obj._list.item(0)
         assert "another source" in item.toolTip()
@@ -165,13 +173,10 @@ class TestPayloadHarmonization:
         layer under an episode)."""
         from PyQt6.QtCore import Qt
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=True, episode_id="e1", channel_id="s1",
-            channel_name="Show", media_type="series", available=True,
-            search_title="Show", season_num=1, episode_num=2,
-            episode_title="Pilot",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(is_episode=True, episode_id="e1", channel_id="s1",
+                       channel_name="Show", media_type="series",
+                       search_title="Show", season_num=1, episode_num=2,
+                       episode_title="Pilot")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
         assert item.data(Qt.ItemDataRole.UserRole) == {
@@ -281,11 +286,7 @@ class TestDoubleClickRouting:
         existing single-signal double-click behavior — no ack signal exists
         for them, so only itemDoubleClicked should fire."""
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=False, channel_id="c9", channel_name="Movie",
-            media_type="movie", available=True, search_title="Movie",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(channel_id="c9")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
 
@@ -296,13 +297,10 @@ class TestDoubleClickRouting:
 
     def test_plain_episode_row_double_click_plays_episode(self, qapp):
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=True, episode_id="e1", channel_id="s1",
-            channel_name="Show", media_type="series", available=True,
-            search_title="Show", season_num=1, episode_num=2,
-            episode_title="Pilot",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(is_episode=True, episode_id="e1", channel_id="s1",
+                       channel_name="Show", media_type="series",
+                       search_title="Show", season_num=1, episode_num=2,
+                       episode_title="Pilot")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
 
@@ -315,11 +313,8 @@ class TestDoubleClickRouting:
         """Regression guard: unavailable-row recovery search must still work
         after the payload-harmonization rewrite."""
         obj = _section_stub()
-        entry = types.SimpleNamespace(
-            is_episode=False, channel_id="c1", channel_name="Movie",
-            media_type="movie", available=False, search_title="Movie Title",
-            detected_year="", detected_quality="", detected_prefix="",
-        )
+        entry = _entry(channel_id="c1", available=False,
+                       search_title="Movie Title")
         obj._add_entry_item(entry)
         item = obj._list.item(0)
 
