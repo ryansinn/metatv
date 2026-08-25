@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
@@ -114,12 +114,15 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             if dto.episode_code:
                 title = f"{title} → {dto.episode_code}"
             trailing_button = self._build_play_next_button(dto) if dto.has_next else None
+            # Year and language move to the meta line rather than staying as
+            # chips: the V3 sidebar render puts circumstantial detail on the
+            # second line, and a row carrying both chips AND a second line says
+            # the same thing twice.
             row = build_chip_row(
                 media_icon=self._media_icon(dto.media_type),
                 title=title,
-                year=dto.detected_year,
                 quality=dto.detected_quality,
-                prefix=dto.detected_prefix,
+                meta=sidebar_meta_line(dto.detected_year, dto.detected_prefix),
                 trailing_button=trailing_button,
             )
             # Width 0 → the item spans the viewport (no sideways scroll); the row's own

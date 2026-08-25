@@ -319,6 +319,16 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self.setMinimumHeight(self.min_expanded_height())  # splitter enforces this while expanded
 
         # Main layout
+        # Each section is a CARD in the V3 render — its own rounded surface,
+        # separated from its neighbours by a gap, rather than a run of flat rows
+        # with only a tinted header strip to tell one section from the next. The
+        # card is what makes "these five rows belong to History" readable at a
+        # glance, which matters most in the section this rail exists to make
+        # scannable.
+        self.setObjectName("sidebarSection")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _theme.style(self, "SIDEBAR_SECTION_CARD")
+
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)

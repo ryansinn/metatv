@@ -9,7 +9,9 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from loguru import logger
 
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import MiddleElideLabel as _MiddleElideLabel, build_chip_row
+from metatv.gui.chip_row import (
+    MiddleElideLabel as _MiddleElideLabel, build_chip_row, sidebar_meta_line,
+)
 from metatv.gui.sidebar.base import CollapsibleSection
 
 # Re-exported for callers/tests that import the title label from this module; the
@@ -260,9 +262,10 @@ class RecommendedSection(CollapsibleSection):
             media_icon=media_icon,
             title=sc.detected_title or sc.channel_name,
             liked=bool(sc.already_liked),
-            year=sc.detected_year or year,
             quality=sc.detected_quality or "",
-            prefix=sc.detected_prefix or "",
+            meta=sidebar_meta_line(
+                sc.detected_year or year, sc.detected_prefix or "",
+            ),
         )
 
     def _on_double_click(self, item: QListWidgetItem) -> None:

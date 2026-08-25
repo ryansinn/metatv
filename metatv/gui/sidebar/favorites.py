@@ -9,7 +9,7 @@ from PyQt6.QtGui import QFont
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 
@@ -187,9 +187,8 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         row = build_chip_row(
             media_icon=self._media_icon(dto.media_type),
             title=dto.search_title or dto.name,
-            year=dto.detected_year,
             quality=dto.detected_quality,
-            prefix=dto.detected_prefix,
+            meta=sidebar_meta_line(dto.detected_year, dto.detected_prefix),
         )
         if not dto.available:
             # A custom item widget ignores the item's foreground role, so dim the whole

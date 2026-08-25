@@ -23,6 +23,8 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     text      = _("COLOR_TEXT")
     accent    = _("COLOR_ACCENT_BLUE")
     radius_sm = _("RADIUS_SM")
+    radius_md = _("RADIUS_MD")
+    line      = _("COLOR_LINE")
     font_md   = _("FONT_MD")
     font_sm   = _("FONT_SM")
 
@@ -66,6 +68,28 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f" font-weight: bold; background: transparent; border: none;"
             f" padding: 0; text-align: left; }}"
             f"QPushButton:hover {{ color: {accent}; }}"
+        ),
+        # ── Sidebar rows (V3) ────────────────────────────────────────────
+        # The second line: episode, how long left, when you watched it. Quiet
+        # enough that a glance reads titles, legible enough that a second look
+        # reads state — so COLOR_TEXT, not one of the pre-token greys, none of
+        # which clears 4.5:1 on any app surface.
+        # The section card. Object-name scoped so it lands on the section frame
+        # and not on every descendant QFrame inside it.
+        "SIDEBAR_SECTION_CARD": (
+            f"QFrame#sidebarSection {{ background: {bg_card};"
+            f" border: 1px solid {line};"
+            f" border-radius: {radius_md}; }}"
+        ),
+        "SIDEBAR_ROW_META": (
+            f"color: {text}; font-size: {font_sm}; background: transparent;"
+        ),
+        # "+9 eps", "1 new" — the accent as TEXT, never as fill. COLOR_ACCENT is
+        # a midtone at text weight (2.61:1 in Graphite), which is what made a
+        # row WITH news quieter than one without.
+        "SIDEBAR_ROW_NEWS": (
+            f"color: {accent}; font-size: {font_sm}; font-weight: bold;"
+            f" background: transparent;"
         ),
         "DETAIL_SECTION_SUMMARY": (
             f"color: {text}; font-size: {font_sm}; background: transparent;"

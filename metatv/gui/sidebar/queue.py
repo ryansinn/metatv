@@ -11,7 +11,8 @@ from loguru import logger
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
+from metatv.gui.token_color import to_qcolor
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 
@@ -560,9 +561,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         row = build_chip_row(
             media_icon=self._media_icon(e.media_type),
             title=title,
-            year=e.detected_year,
             quality=e.detected_quality,
-            prefix=e.detected_prefix,
+            meta=sidebar_meta_line(e.detected_year, e.detected_prefix),
         )
         if not e.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -703,12 +703,27 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             return self.config.live_icon
         return self.config.unknown_icon
 
-    def _add_header(self, text: str) -> QListWidgetItem:
-        item = QListWidgetItem(text)
+    def _add_header(self, text: str, count: int | None = None) -> QListWidgetItem:
+        """A sub-group heading inside a section — "ALERTS MATCHED · 3".
+
+        Small-caps and muted rather than bold body text, per the V3 render: a
+        group heading is a divider, and rendering it at the same weight as the
+        titles beneath it made it compete with the content it was separating.
+        The count rides on the heading because a group's size is context for
+        the rows under it, not news about them.
+        """
+        label = text.upper()
+        if count:
+            label = f"{label}  ·  {count}"
+        item = QListWidgetItem(label)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         font = QFont()
         font.setBold(True)
+        font.setCapitalization(QFont.Capitalization.AllUppercase)
+        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
+        font.setPixelSize(int(_theme.FONT_SM.replace("px", "")))
         item.setFont(font)
+        item.setForeground(to_qcolor(_theme.COLOR_MUTED))
         self._list.addItem(item)
         return item
 

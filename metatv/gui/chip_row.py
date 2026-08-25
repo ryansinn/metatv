@@ -15,7 +15,7 @@ assembles the mouse-transparent row so a ``QListWidget`` item can host it via
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QLabel, QPushButton, QSizePolicy, QWidget, QHBoxLayout,
+    QLabel, QPushButton, QSizePolicy, QWidget, QHBoxLayout, QVBoxLayout,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
@@ -82,6 +82,18 @@ class MiddleElideLabel(QLabel):
         painter.drawText(self.rect(), int(self.alignment().value), elided)
 
 
+def sidebar_meta_line(*parts: str | None) -> str:
+    """Compose a row's second line — ``"S18E01 · 12 min left"``.
+
+    One builder for all four sidebar sections so the separator, the ordering
+    convention (most specific first) and the treatment of missing values cannot
+    drift between them. Empty and ``None`` parts are dropped rather than
+    leaving a dangling separator, which is the whole reason this is a function
+    and not four f-strings.
+    """
+    return " · ".join(str(p) for p in parts if p)
+
+
 def build_chip_row(
     *,
     media_icon: str,
@@ -91,6 +103,7 @@ def build_chip_row(
     quality: str = "",
     prefix: str = "",
     new_badge: bool = False,
+    meta: str = "",
     trailing_button: QPushButton | None = None,
 ) -> QWidget:
     """Build a sidebar content row: ``[icon] [NEW] Title [4K] … [Year] [Lang] [▶]``.
@@ -138,6 +151,10 @@ def build_chip_row(
         new_badge: When True, show a small green "NEW" pill after the icon (e.g.
             the Watch Queue's "Alerts Matched" rows) — the word "NEW" itself is
             the cue, never colour alone.
+        meta: The second line — "S18E01 · 12 min left", "1984 · yesterday",
+            "Series · new episodes". When empty the row stays single-line and is
+            pixel-identical to what it was, so a caller that has nothing to say
+            on a second line does not grow one.
         trailing_button: An optional, already-built, already-styled/tooltipped
             ``QPushButton`` (the caller owns its click wiring) appended as the
             row's rightmost element. When present, the row does NOT get the
@@ -151,9 +168,25 @@ def build_chip_row(
     """
     liked_prefix = f"{_icons.like_icon} " if liked else ""
 
+    # A two-line row when the caller has a meta line, one when it does not.
+    # The V3 sidebar render puts the identifying text on top and the
+    # circumstantial detail — episode, how long left, when you watched it —
+    # underneath in a quieter colour, so a glance reads titles and a second
+    # look reads state. Built as VBox-over-HBox rather than a second widget
+    # type so every existing caller keeps the same function and the same row.
     row = QWidget()
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(4, 1, 8, 1)
+    if meta:
+        outer = QVBoxLayout(row)
+        outer.setContentsMargins(4, 3, 8, 3)
+        outer.setSpacing(1)
+        line = QWidget()
+        outer.addWidget(line)
+        layout = QHBoxLayout(line)
+        layout.setContentsMargins(0, 0, 0, 0)
+    else:
+        outer = None
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(4, 1, 8, 1)
     layout.setSpacing(4)
 
     icon_lbl = QLabel(f"{liked_prefix}{media_icon}")
@@ -201,6 +234,16 @@ def build_chip_row(
 
     if trailing_button is not None:
         layout.addWidget(trailing_button)
+
+    # The second line, added after the title line is complete so the chips above
+    # keep their existing order.
+    if outer is not None:
+        meta_lbl = MiddleElideLabel(meta)
+        _theme.style(meta_lbl, "SIDEBAR_ROW_META")
+        meta_lbl.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        outer.addWidget(meta_lbl)
 
     row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     if trailing_button is None:
