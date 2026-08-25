@@ -43,8 +43,8 @@
       "$description": "pressed / active container"
     },
     "sunk": {
-      "$value": "{neutral.2}",
-      "$description": "placeholder tiles — absence, not content"
+      "$value": "{neutral.1}",
+      "$description": "placeholder tiles — absence, not content. {neutral.1}, the same step the results list paints its rows on (COLOR_BG_DEEP), so a missing poster is a hole rather than an object. Gruvbox's neutral ramp has a wider 1→2 step than Radix's, so inheriting {neutral.2} left the tile standing 1.178:1 off the list surface and announcing itself."
     }
   },
   "on-surface": {

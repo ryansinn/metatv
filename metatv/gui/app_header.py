@@ -43,10 +43,15 @@ def _header_sheet() -> str:
 
 
 def _brand_sheet() -> str:
-    """The wordmark — quiet on purpose; it identifies, it does not compete
-    with the switcher beside it."""
+    """The wordmark. Quiet, but it still has to read as the app's name.
+
+    600 was too light to carry at this size — owner: "MetaTV isn't bold
+    enough". 700 is the weight Inter actually ships a bold face for, so 600 was
+    also being synthesised on platforms without a semibold, which is exactly
+    where it looked weakest.
+    """
     return (f"color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_2XL};"
-            f" font-weight: 600; padding: 0 {_theme.SPACE_XS};")
+            f" font-weight: 700; padding: 0 {_theme.SPACE_XS};")
 
 
 def _search_sheet() -> str:

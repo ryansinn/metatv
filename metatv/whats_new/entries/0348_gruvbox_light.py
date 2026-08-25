@@ -8,6 +8,13 @@ ENTRY = WhatsNewEntry(
     items=(
         "Gruvbox now has a light variant too, so the only light theme is no "
         "longer a cold blue-grey one. Cream background, dark brown text.",
+        "Both Gruvbox themes now keep the palette's actual colour. The first "
+        "cut washed every accent into a pastel; the reds, yellows, greens and "
+        "pinks are the published Gruvbox values again.",
+        "Fixed for every theme, not just Gruvbox: the sidebar's language "
+        "badges were unreadable on a light background (1.36:1 in Daylight, "
+        "since it shipped), and a sidebar section with new content was painted "
+        "FAINTER than one without.",
         "It uses Gruvbox's OWN published light accents — the darker red, green "
         "and blue that exist precisely because the bright ones are unreadable "
         "on cream — rather than being the dark theme turned inside out.",
@@ -28,5 +35,11 @@ ENTRY = WhatsNewEntry(
         "cinema panel it is in every theme, and its text is legible.",
         "Switch between Gruvbox and Gruvbox Light and back → no leftover "
         "patches from either.",
+        "In Daylight AND Gruvbox Light, look at the language badges in the "
+        "sidebar (EN / MULTI / UK) → they are readable, not washed out.",
+        "Find a sidebar section with something new (Watch Alerts with a match, "
+        "or a queue entry with +N eps) → its status text is MORE prominent "
+        "than a section showing only a plain count, in every theme.",
+        "Check the MetaTV wordmark in the header reads as bold.",
     ),
 )

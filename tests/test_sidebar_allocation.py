@@ -241,13 +241,21 @@ def test_the_header_slot_renders_the_news(qapp, config):
     assert section._status_label.isVisible() or not section.isVisible()
 
 
-def test_news_is_painted_in_the_accent(qapp, config):
-    """It is the one thing in a collapsed sidebar worth looking at."""
+def test_news_is_painted_louder_than_a_plain_count(qapp, config):
+    """It is the one thing in a collapsed sidebar worth looking at.
+
+    This asserted ``COLOR_ACCENT`` — and that token was the bug. It is the
+    accent as a FILL; as text it is a midtone, 2.61:1 in Graphite against plain
+    MUTED's 3.76:1, so a section WITH news read QUIETER than one without. The
+    property was always "louder", and pinning the token instead is what let the
+    inversion ship.
+    """
     loud = _Section(config, news_text="1 new")
     quiet = _Section(config)
     quiet._count = 9
-    assert _theme.COLOR_ACCENT in loud._status_label.styleSheet()
-    assert _theme.COLOR_ACCENT not in quiet._status_label.styleSheet()
+    assert _theme.COLOR_ACCENT_BLUE in loud._status_label.styleSheet()
+    assert _theme.COLOR_ACCENT_BLUE not in quiet._status_label.styleSheet()
+    assert _theme.COLOR_MUTED in quiet._status_label.styleSheet()
 
 
 def test_refreshing_the_status_updates_text_and_floor(qapp, config):

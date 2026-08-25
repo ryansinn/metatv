@@ -35,9 +35,9 @@ Its own module because radix.py is vendored and says DO NOT hand-edit.
 from __future__ import annotations
 
 GRUVNEUTRAL_DARK: tuple[str, ...] = (
-    "#1d2021", "#282828", "#32302f", "#3c3836",
-    "#504945", "#665c54", "#7c6f64", "#928374",
-    "#a89984", "#bdae93", "#d5c4a1", "#ebdbb2",
+    "#0d0e0f", "#1d2021", "#242424", "#282828",
+    "#32302f", "#3c3836", "#504945", "#665c54",
+    "#7c6f64", "#928374", "#bdae93", "#ebdbb2",
 )
 
 GRUVNEUTRAL_A_DARK: tuple[str, ...] = (
@@ -47,9 +47,9 @@ GRUVNEUTRAL_A_DARK: tuple[str, ...] = (
 )
 
 GRUVRED_DARK: tuple[str, ...] = (
-    "#322827", "#3f2726", "#4f2725", "#602724",
-    "#722623", "#872622", "#9e2520", "#b5251f",
-    "#cc241d", "#fb4934", "#fd9c91", "#fec0b9",
+    "#2a0706", "#340907", "#4a0d0b", "#5c100d",
+    "#6c130f", "#841713", "#a71e18", "#d2251e",
+    "#cc241d", "#fb4934", "#fc6250", "#fd8e82",
 )
 
 GRUVRED_A_DARK: tuple[str, ...] = (
@@ -59,9 +59,9 @@ GRUVRED_A_DARK: tuple[str, ...] = (
 )
 
 GRUVGREEN_DARK: tuple[str, ...] = (
-    "#2f2f27", "#383826", "#434325", "#4e4e23",
-    "#5a5a22", "#696820", "#79781e", "#88871c",
-    "#98971a", "#b8bb26", "#d8db4d", "#d8db4d",
+    "#151404", "#1a1904", "#262606", "#303008",
+    "#39380a", "#46450c", "#59590f", "#706f13",
+    "#98971a", "#b8bb26", "#b8bb26", "#b8bb26",
 )
 
 GRUVGREEN_A_DARK: tuple[str, ...] = (
@@ -71,9 +71,9 @@ GRUVGREEN_A_DARK: tuple[str, ...] = (
 )
 
 GRUVYELLOW_DARK: tuple[str, ...] = (
-    "#322f28", "#403827", "#524326", "#644e26",
-    "#775b25", "#8e6a24", "#a67923", "#be8922",
-    "#d79921", "#fabd2f", "#fbcc60", "#fbcc60",
+    "#1a1304", "#211705", "#2f2207", "#3c2a09",
+    "#47330b", "#583f0d", "#705011", "#8d6516",
+    "#d79921", "#fabd2f", "#fabd2f", "#fabd2f",
 )
 
 GRUVYELLOW_A_DARK: tuple[str, ...] = (
@@ -83,9 +83,9 @@ GRUVYELLOW_A_DARK: tuple[str, ...] = (
 )
 
 GRUVBLUE_DARK: tuple[str, ...] = (
-    "#2a2e2e", "#2c3535", "#2f3e3f", "#324849",
-    "#355253", "#395e60", "#3d6b6d", "#41787b",
-    "#458588", "#83a598", "#a6ddc8", "#a6ddc8",
+    "#081616", "#0b1b1c", "#0f2729", "#143334",
+    "#173c3d", "#1d4a4c", "#245d60", "#2e767a",
+    "#458588", "#83a598", "#83a598", "#58bf98",
 )
 
 GRUVBLUE_A_DARK: tuple[str, ...] = (
@@ -95,9 +95,9 @@ GRUVBLUE_A_DARK: tuple[str, ...] = (
 )
 
 GRUVPURPLE_DARK: tuple[str, ...] = (
-    "#302b2e", "#3b3035", "#49363f", "#573c48",
-    "#664252", "#774a5f", "#8b526c", "#9e5a79",
-    "#b16286", "#d3869b", "#e1adbb", "#eccbd4",
+    "#220d16", "#2b101c", "#3d1729", "#4c1d33",
+    "#5b233c", "#702b4a", "#8e365e", "#b44477",
+    "#b16286", "#d3869b", "#d3869b", "#db9cae",
 )
 
 GRUVPURPLE_A_DARK: tuple[str, ...] = (
@@ -107,9 +107,9 @@ GRUVPURPLE_A_DARK: tuple[str, ...] = (
 )
 
 GRUVAQUA_DARK: tuple[str, ...] = (
-    "#2c2f2c", "#313831", "#374438", "#3e503e",
-    "#455d46", "#4d6c4e", "#567c58", "#5f8d61",
-    "#689d6a", "#8ec07c", "#b5dda6", "#b5dda6",
+    "#091709", "#0b1d0b", "#102911", "#143415",
+    "#183e19", "#1d4c1f", "#256127", "#2f7b32",
+    "#689d6a", "#8ec07c", "#8ec07c", "#8ec07c",
 )
 
 GRUVAQUA_A_DARK: tuple[str, ...] = (
@@ -119,9 +119,9 @@ GRUVAQUA_A_DARK: tuple[str, ...] = (
 )
 
 GRUVORANGE_DARK: tuple[str, ...] = (
-    "#322b26", "#402f24", "#523522", "#633a1f",
-    "#76401c", "#8d4719", "#a54e15", "#be5612",
-    "#d65d0e", "#fe8019", "#ffc18f", "#ffc799",
+    "#220f02", "#2a1203", "#3d1a04", "#4d2105",
+    "#5b2706", "#703007", "#8e3d09", "#b34e0c",
+    "#d65d0e", "#fe8019", "#fe8019", "#fe933b",
 )
 
 GRUVORANGE_A_DARK: tuple[str, ...] = (

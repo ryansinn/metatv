@@ -14,8 +14,16 @@ from __future__ import annotations
 import colorsys
 
 # ── The published Gruvbox values ────────────────────────────────────────────
-NEUTRAL = ["#1d2021", "#282828", "#32302f", "#3c3836", "#504945", "#665c54",
-           "#7c6f64", "#928374", "#a89984", "#bdae93", "#d5c4a1", "#ebdbb2"]
+# Twelve real Gruvbox values, taking the palette's DARKER low end (dark0 and
+# the "background dark" step) rather than starting at bg0_h. Gruvbox publishes
+# thirteen-plus neutrals and only twelve fit; which twelve is a choice, and this
+# one is forced by contrast rather than taste. Starting at bg0_h put Gruvbox's
+# bg1 (#3c3836) on the row HOVER fill — nearly twice the luminance of
+# Midnight's #272a2d — and purple text could not clear 4.5:1 on it. The
+# alternative was lifting every accent's text step until purple cleared, which
+# is what stripped the palette's colour in the first place.
+NEUTRAL = ["#0d0e0f", "#1d2021", "#242424", "#282828", "#32302f", "#3c3836",
+           "#504945", "#665c54", "#7c6f64", "#928374", "#bdae93", "#ebdbb2"]
 ACCENTS = {
     "GRUVRED":    ("#cc241d", "#fb4934"),
     "GRUVGREEN":  ("#98971a", "#b8bb26"),
@@ -57,7 +65,12 @@ STEP_11_L_LIGHT, STEP_12_L_LIGHT = 0.22, 0.15
 # and 4.43:1 at 0.74 — both under the floor — and clears at 0.78. This is the
 # LOWEST value that passes every gate, which keeps the most headroom under the
 # title's luminance ceiling below.
-STEP_11_L, STEP_12_L = 0.78, 0.86
+# Close to the published *bright* rather than far above it. Gruvbox's brights
+# ARE its text colours — #fb4934 is the red you read — so pushing these to 0.78
+# turned them into pastels (#fd9c91) and stripped the palette's character. With
+# the selection fill now properly dark, they no longer have to be pale to be
+# legible on it.
+STEP_11_LUM, STEP_12_LUM = 0.300, 0.420
 # ...and capped below the title's own luminance, because Gruvbox's olive green
 # lightens into a yellow-green that out-shouted the row title at 12.32:1.
 CEILING_FRACTION = 0.92
@@ -120,9 +133,67 @@ def _lighten(c, target_l):
     return out
 
 
+# Dark-mode lightness ramp for steps 1-8, mirroring what Radix actually does.
+# NOT a lerp from the grey ground toward the colour: that produces muddy
+# mid-tones (gruvblue step 5 came out #364f4d) and, worse, it made
+# COLOR_ROW_SELECTED_FILL a washed #324849 where Midnight's is a deep #003362.
+# A pale selection fill then forced every accent's TEXT step to be lightened
+# until it cleared 4.5:1 on it — and lightening a saturated hue desaturates it,
+# which is how a Gruvbox palette ended up beige with a little forest green.
+# Darkening in HLS keeps the hue saturated while it gets dark, exactly like
+# Radix's own #0d2847 / #003362.
+# Targets are LUMINANCE, not HLS lightness, and that distinction is the whole
+# fix. At equal lightness a teal is far more luminous than a navy — green
+# carries 0.72 of the luminance formula against blue's 0.07 — so a lightness
+# ramp made gruvblue's step 4 (#194143, the row SELECTION fill) measure like a
+# mid-tone while Midnight's #003362 measures genuinely dark. Purple text then
+# could not clear 4.5:1 on it. Solving for luminance makes every hue land at
+# the same visual depth. The ramp starts just above the app ground (#282828,
+# luminance 0.021) and climbs geometrically.
+# Measured off Radix's OWN dark scales — the median luminance of blue, red,
+# green, amber and purple at each of steps 1-8. Matching the ladder the rest of
+# the app was designed against beats inventing one: it is what makes
+# COLOR_ROW_SELECTED_FILL land at the same visual depth as Midnight's #003362,
+# which is what lets the accents stay saturated instead of being lightened
+# until they clear contrast on a fill that was too pale.
+DARK_STEP_LUM = (0.0067, 0.0095, 0.0177, 0.0269, 0.0374, 0.0562, 0.0917, 0.1508)
+
+
+def _at_least_luminance(c, floor_lum):
+    """*c* unchanged when it already measures at or above *floor_lum*."""
+    if _lum(c) >= floor_lum:
+        return c
+    return _at_luminance(c, floor_lum)
+
+
+def _at_luminance(c, target_lum):
+    """The hue, kept saturated, adjusted until it measures *target_lum*."""
+    r, g, b = (v / 255 for v in _hx(c))
+    h, _l, s = colorsys.rgb_to_hls(r, g, b)
+    s = max(s, SAT_FLOOR)
+    lo, hi = 0.0, 1.0
+    out = c
+    for _ in range(40):                      # bisect on lightness
+        mid = (lo + hi) / 2
+        rr, gg, bb = colorsys.hls_to_rgb(h, mid, s)
+        out = _st(round(rr * 255), round(gg * 255), round(bb * 255))
+        if _lum(out) < target_lum:
+            lo = mid
+        else:
+            hi = mid
+    return out
+
+
 def accent_scale(normal, bright):
-    lo = [_lerp(BG, normal, t) for t in (0.06, 0.14, 0.24, 0.34, 0.45, 0.58, 0.72, 0.86)]
-    return lo + [normal, bright, _lighten(bright, STEP_11_L), _lighten(bright, STEP_12_L)]
+    lo = [_at_luminance(normal, t) for t in DARK_STEP_LUM]
+    # A FLOOR, not a target. A single lightness target forces the worst-case
+    # hue's requirement onto every hue: purple needs lifting to clear 4.5:1 on
+    # the selection fill, and applying the same lift to red turned #fb4934 into
+    # #fc7869. Lifting only what falls short leaves the brights that already
+    # clear it exactly as Gruvbox published them.
+    return lo + [normal, bright,
+                 _at_least_luminance(bright, STEP_11_LUM),
+                 _at_least_luminance(bright, STEP_12_LUM)]
 
 
 def accent_scale_light(normal, dark):
