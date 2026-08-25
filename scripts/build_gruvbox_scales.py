@@ -57,7 +57,9 @@ BG_LIGHT = "#fbf1c7"
 FG1_LIGHT = "#3c3836"
 # Mirror of the dark rule: text steps DARKEN, and stay above (i.e. no lighter
 # than) the title's luminance so the row hierarchy holds the same way.
-STEP_11_L_LIGHT, STEP_12_L_LIGHT = 0.22, 0.15
+# Text on the cream ground (#fbf1c7, luminance 0.85) clears 4.5:1 at luminance
+# 0.15, so that is the ceiling rather than a lightness target.
+STEP_11_LUM_LIGHT, STEP_12_LUM_LIGHT = 0.150, 0.085
 
 # ── Tunables, both set by a failing test ────────────────────────────────────
 # High enough that a low-luminance hue still clears 4.5:1 on the SELECTION
@@ -102,6 +104,13 @@ CEIL = _lum(FG1) * CEILING_FRACTION
 # Light mode's floor is the mirror image: an accent used as text must be at
 # least as dark as the title, or it out-shouts it from the other direction.
 FLOOR_LIGHT = _lum(FG1_LIGHT) / CEILING_FRACTION
+
+
+def _at_most_luminance(c, ceiling_lum):
+    """*c* unchanged when it already measures at or below *ceiling_lum*."""
+    if _lum(c) <= ceiling_lum:
+        return c
+    return _at_luminance(c, ceiling_lum)
 
 
 def _darken(c, target_l):
@@ -203,8 +212,14 @@ def accent_scale_light(normal, dark):
     # the light-kind surface guard rejected it outright.
     lo = [_lerp(BG_LIGHT, normal, t) for t in
           (0.03, 0.07, 0.12, 0.18, 0.26, 0.40, 0.58, 0.78)]
+    # A CEILING, mirroring the dark mode's floor — and for the same reason.
+    # Darkening to a fixed lightness took Gruvbox's published light aqua
+    # (#427b58) down to #1b462b, a near-black green: dark enough to read, and
+    # nothing like the colour Gruvbox publishes. A hue that is already dark
+    # enough to clear 4.5:1 on cream is left exactly as published.
     return lo + [normal, dark,
-                 _darken(dark, STEP_11_L_LIGHT), _darken(dark, STEP_12_L_LIGHT)]
+                 _at_most_luminance(dark, STEP_11_LUM_LIGHT),
+                 _at_most_luminance(dark, STEP_12_LUM_LIGHT)]
 
 
 def alpha_scale(solid):

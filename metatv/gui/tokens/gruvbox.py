@@ -145,7 +145,7 @@ GRUVNEUTRAL_A_LIGHT: tuple[str, ...] = (
 GRUVRED_LIGHT: tuple[str, ...] = (
     "#faebc2", "#f8e3bb", "#f5d8b3", "#f3cca8",
     "#efbc9b", "#e89f83", "#e07a64", "#d65142",
-    "#cc241d", "#9d0006", "#850005", "#7f0005",
+    "#cc241d", "#9d0006", "#9d0006", "#9d0006",
 )
 
 GRUVRED_A_LIGHT: tuple[str, ...] = (
@@ -157,7 +157,7 @@ GRUVRED_A_LIGHT: tuple[str, ...] = (
 GRUVGREEN_LIGHT: tuple[str, ...] = (
     "#f8eec2", "#f4ebbb", "#efe6b2", "#e9e1a8",
     "#e1da9a", "#d3cd82", "#c2bd63", "#aeab40",
-    "#98971a", "#79740e", "#65600c", "#454208",
+    "#98971a", "#79740e", "#736f0d", "#58550a",
 )
 
 GRUVGREEN_A_LIGHT: tuple[str, ...] = (
@@ -169,7 +169,7 @@ GRUVGREEN_A_LIGHT: tuple[str, ...] = (
 GRUVYELLOW_LIGHT: tuple[str, ...] = (
     "#faeec2", "#f8ebbb", "#f7e6b3", "#f5e1a9",
     "#f2da9c", "#edce85", "#e6be67", "#dfac46",
-    "#d79921", "#b57614", "#65420b", "#57390a",
+    "#d79921", "#b57614", "#966111", "#714a0d",
 )
 
 GRUVYELLOW_A_LIGHT: tuple[str, ...] = (
@@ -181,7 +181,7 @@ GRUVYELLOW_A_LIGHT: tuple[str, ...] = (
 GRUVBLUE_LIGHT: tuple[str, ...] = (
     "#f6eec5", "#eee9c3", "#e5e4bf", "#dadebc",
     "#ccd5b7", "#b2c6ae", "#91b2a2", "#6d9d96",
-    "#458588", "#076678", "#065a6a", "#054652",
+    "#458588", "#076678", "#076678", "#065a6a",
 )
 
 GRUVBLUE_A_LIGHT: tuple[str, ...] = (
@@ -193,7 +193,7 @@ GRUVBLUE_A_LIGHT: tuple[str, ...] = (
 GRUVPURPLE_LIGHT: tuple[str, ...] = (
     "#f9edc5", "#f6e7c2", "#f2e0bf", "#eed7bb",
     "#e8ccb6", "#ddb8ad", "#d09ea1", "#c18194",
-    "#b16286", "#8f3f71", "#68274f", "#64264d",
+    "#b16286", "#8f3f71", "#8f3f71", "#873367",
 )
 
 GRUVPURPLE_A_LIGHT: tuple[str, ...] = (
@@ -205,7 +205,7 @@ GRUVPURPLE_A_LIGHT: tuple[str, ...] = (
 GRUVAQUA_LIGHT: tuple[str, ...] = (
     "#f7eec4", "#f1ebc0", "#e9e7bc", "#e1e2b6",
     "#d5dbaf", "#c0cfa2", "#a6c091", "#88af7e",
-    "#689d6a", "#427b58", "#1f5132", "#1b462b",
+    "#689d6a", "#427b58", "#2e7a4b", "#235d3a",
 )
 
 GRUVAQUA_A_LIGHT: tuple[str, ...] = (
@@ -217,7 +217,7 @@ GRUVAQUA_A_LIGHT: tuple[str, ...] = (
 GRUVORANGE_LIGHT: tuple[str, ...] = (
     "#faedc1", "#f8e7ba", "#f7dfb1", "#f4d6a6",
     "#f1cb97", "#ecb67d", "#e69b5c", "#de7e37",
-    "#d65d0e", "#af3a03", "#6e2502", "#732602",
+    "#d65d0e", "#af3a03", "#af3a03", "#943103",
 )
 
 GRUVORANGE_A_LIGHT: tuple[str, ...] = (
