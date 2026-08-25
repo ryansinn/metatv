@@ -4,9 +4,14 @@ End-to-end on a real ``Database`` (tmp_path file, not ``:memory:``): a seeded ch
 carries an honest audio-language (``detected_prefix="EN"``) AND a source region
 (``detected_region="DE"``).  For each section we produce the real DTO from the real
 DB, feed it to the section's main-thread ``_populate_rows`` slot, and assert the row
-is a chip-row widget showing the language chip (EN), the year/quality chips, and the
-clean title — and that the source region (DE) is NEVER rendered (the regression the
-Recommended chip work fixed, now shared by every content list).
+is a shared sidebar row showing the clean title over a meta line carrying the honest
+language (EN), the year and the quality — and that the source region (DE) is NEVER
+rendered (the regression the Recommended chip work fixed, now shared by every content
+list).
+
+V3 moved those facts from chips into the meta line; the thing being guarded here is
+unchanged, so these tests were retargeted rather than retired. "Never render the
+region" is the whole point and it outlives any particular row shape.
 """
 
 from __future__ import annotations
@@ -19,8 +24,7 @@ import pytest
 
 from PyQt6.QtWidgets import QLabel, QPushButton
 
-from metatv.gui import theme as _theme
-from metatv.gui.chip_row import MiddleElideLabel
+from metatv.gui.chip_row import row_meta_label, row_title_label
 
 
 @pytest.fixture(scope="module")
@@ -70,21 +74,33 @@ def _texts(row):
     return [w.text() for w in row.findChildren(QLabel) + row.findChildren(QPushButton)]
 
 
-def _assert_honest_chip_row(row):
-    assert row is not None, "content row must be a chip-row widget (setItemWidget)"
+def _meta_parts(row):
+    meta = row_meta_label(row)
+    assert meta is not None, f"no meta line on the row: {_texts(row)}"
+    return [p.strip() for p in meta.text().split("·")]
+
+
+def _assert_clean_title_and_no_region(row):
+    """What every section owes, whatever its meta line says.
+
+    The region check is the one that matters: ``detected_region`` ("DE") is the
+    SOURCE's country, not the content's language, and rendering it told the user
+    a German-dubbed film was on offer when it was not.
+    """
+    assert row is not None, "content row must be a shared row widget (setItemWidget)"
     texts = _texts(row)
-    # Clean title, rendered as the anti-clip MiddleElideLabel.
-    title = row.findChild(MiddleElideLabel)
+    title = row_title_label(row)
     assert title is not None and title.text() == "Cowboy Bebop", texts
-    # Honest language chip (EN) — its own LANG_CHIP-styled QLabel.
-    assert any(w.text() == "EN" and w.styleSheet() == _theme.LANG_CHIP
-               for w in row.findChildren(QLabel)), texts
-    # Year + quality chips render from the stored fields.
-    assert any(w.text() == "1998" and w.styleSheet() == _theme.YEAR_CHIP
-               for w in row.findChildren(QLabel)), texts
-    assert any(b.text() == "4K" for b in row.findChildren(QPushButton)), texts
-    # The source region must NEVER leak anywhere in the row.
     assert not any("DE" in t for t in texts), f"region DE leaked: {texts}"
+
+
+def _assert_honest_chip_row(row):
+    """Favorites / Queue: the meta line carries type, year, honest language, quality."""
+    _assert_clean_title_and_no_region(row)
+    parts = _meta_parts(row)
+    assert "EN" in parts, f"honest language missing: {parts}"
+    assert "1998" in parts, f"year missing: {parts}"
+    assert "4K" in parts, f"quality missing: {parts}"
 
 
 def test_favorites_row_is_honest_chip_row(qapp, tmp_path):
@@ -154,12 +170,25 @@ def test_history_row_is_honest_chip_row(qapp, tmp_path):
     obj.set_empty = lambda *_: None
     obj._populate_rows(dtos)
 
-    _assert_honest_chip_row(_first_chip_row(obj.history_list))
+    # History's meta line is deliberately NOT the other sections': it reads
+    # "1998 · just now" — the identifying fact and then WHEN, because History is
+    # a list ordered by exactly that. Language and quality are not what tells one
+    # history entry from another.
+    row = _first_chip_row(obj.history_list)
+    _assert_clean_title_and_no_region(row)
+    parts = _meta_parts(row)
+    assert parts[0] == "1998", f"the year should lead the line: {parts}"
+    assert len(parts) == 2 and parts[1], f"a time should close the line: {parts}"
     db.close()
 
 
-def test_history_row_keeps_episode_code_in_title(qapp, tmp_path):
-    """A series row appends its episode code to the (elidable) title, keeping it visible."""
+def test_history_row_puts_the_episode_code_on_the_meta_line(qapp, tmp_path):
+    """A series row carries its episode code on the second line, always fully visible.
+
+    It used to be appended to the title as "My Show → S01E02" so middle-elision
+    would preserve it. That worked, and it spent title width to do it; on its own
+    line the code never competes with the name it belongs to.
+    """
     from PyQt6.QtWidgets import QListWidget
     from metatv.core.repositories.dtos import HistoryDTO
     from metatv.gui.sidebar.history import HistorySection
@@ -174,5 +203,8 @@ def test_history_row_keeps_episode_code_in_title(qapp, tmp_path):
     ])
 
     row = _first_chip_row(obj.history_list)
-    title = row.findChild(MiddleElideLabel)
-    assert title.text() == "My Show → S01E02", "episode code kept as a visible title suffix"
+    assert row_title_label(row).text() == "My Show", "the title is just the title now"
+    assert row_meta_label(row).text().startswith("S01E02"), (
+        "the episode code leads the meta line — it is what tells this row from its "
+        f"siblings: {row_meta_label(row).text()!r}"
+    )

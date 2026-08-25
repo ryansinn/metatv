@@ -223,6 +223,10 @@ class HistoryDTO:
     name: str
     media_type: str | None
     episode_code: str | None     # e.g. "S01E02"; None for non-series or no episode yet
+    # When it was last played — the History row's meta line renders this as "2 hours
+    # ago" / "yesterday" (see metatv.gui.relative_time). Eagerly copied off the ORM row
+    # inside the session like every other field here.
+    last_played: datetime | None = None
     # Ingestion-computed display fields — read at render (never re-parse the name), so
     # History rows render as the same chip row as Recommended / Queue / Favorites.
     detected_title: str = ""
@@ -640,6 +644,7 @@ def build_history_dtos(
             name=ch.name,
             media_type=ch.media_type,
             episode_code=episode_code,
+            last_played=ch.last_played,
             # Stored ingestion fields off the ChannelDB row (mapped inside the session)
             # so the sidebar renders the shared chip row without re-parsing the name.
             detected_title=ch.detected_title or "",

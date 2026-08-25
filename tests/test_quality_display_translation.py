@@ -106,16 +106,38 @@ def test_quality_badge_chip_renders_translated_label_and_tooltip(qapp):
     assert make_quality_chip("4k").text() == "4K"
 
 
-def test_sidebar_chip_row_renders_translated_quality(qapp):
-    """chip_row.build_chip_row — Favorites / Queue / History / Recommended rows."""
-    from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.chip_row import build_chip_row
+def test_sidebar_meta_line_renders_translated_quality(qapp):
+    """The sidebar rows — Favorites / Queue / History / Recommended.
 
-    row = build_chip_row(media_icon="🎬", title="Some Movie", quality="RAW", year="1999")
-    chips = [w for w in row.findChildren(QPushButton)]
-    labels = [c.text() for c in chips]
-    assert "Uncompressed" in labels, f"expected translated quality chip, got {labels}"
-    assert "RAW" not in labels
+    V3 moved the quality out of a chip and into the row's meta line. The
+    translation had to move with it: a meta line reading "RAW" tells the viewer
+    the opposite of what the token means.
+    """
+    from metatv.gui.chip_row import quality_word, row_meta_label, sidebar_meta_line, build_chip_row
+
+    assert quality_word("RAW") == "Uncompressed"
+    assert quality_word("4k") == "4K"
+    assert quality_word("") == ""
+
+    row = build_chip_row(
+        title="Some Movie",
+        meta=sidebar_meta_line("Movie", "1999", quality_word("RAW")),
+    )
+    text = row_meta_label(row).text()
+    assert "Uncompressed" in text, f"expected translated quality, got {text!r}"
+    assert "RAW" not in text
+
+
+@pytest.mark.parametrize("module", ["favorites", "queue", "recommended"])
+def test_every_sidebar_section_translates_its_quality(module):
+    """Wired at the call sites, not merely available — three sections, one helper."""
+    import pathlib
+
+    src = pathlib.Path(f"metatv/gui/sidebar/{module}.py").read_text()
+    assert "quality_word(" in src, (
+        f"{module}.py puts a raw quality token on the meta line"
+    )
+    assert "detected_quality,\n" not in src
 
 
 def test_details_pane_quality_chip_translates_but_channel_keeps_token(qapp):

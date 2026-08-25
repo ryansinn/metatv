@@ -1,33 +1,32 @@
-"""Recommended rows: title + hugging 4K chip left, year + language cluster far-right.
+"""Recommended rows: a clean title over "Series · 1998 · EN · 4K".
 
 Regression guard for the "why is an English recommendation badged [DE]?" bug: the
 row used to render ``detected_region`` (the source region, e.g. DE) jammed into the
-title text. The row is: icon, a middle-eliding title, the quality (4K) chip hugging
-the title TEXT, a stretch, then the right-aligned cluster (year chip, then language
-chip). The language chip is the honest ``detected_prefix`` (EN), and the source
-region must NOT appear.
+title text. The facts a row shows are the honest ones — ``detected_prefix`` (EN) for
+language, the year, the quality — and the source region must NOT appear anywhere.
 
-Also guards the polish fixes (PR #344):
-  * the title sizes to its content (Preferred policy, no layout stretch) so the 4K
-    chip hugs the title text; its ``sizeHint`` carries a small anti-clip buffer and it
-    elides in ``paintEvent`` against its FULL ``width()`` (zero contents margins), so a
-    SHORT title ("1983") is NEVER clipped — only a title too long for the row elides.
-    ``text()``/tooltip always stay the full string;
-  * layout order is title → quality (if 4K) → [stretch] → year → language, with the
-    language chip the consistent far-right element;
-  * the year renders as its own ``YEAR_CHIP``-styled chip.
+V3 moved those facts out of right-aligned chips and into the meta line under the
+title. The chip-ORDER tests that pinned the old arrangement went with it; the two
+things they were protecting did not, and are asserted here still:
 
-Calls the row builder with a stub ``self`` (it only needs ``config`` icons), so no
-full section/DB construction is needed — just a QApplication (qtbot).
+  * the source region never renders;
+  * the title sizes to its content (Preferred policy, no layout stretch); its
+    ``sizeHint`` carries a small anti-clip buffer and it elides in ``paintEvent``
+    against its FULL ``width()`` (zero contents margins), so a SHORT title ("1983")
+    is NEVER clipped — only a title too long for the row elides, and ``text()``
+    /tooltip always stay the full string.
+
+Calls the row builder with a stub ``self``, so no full section/DB construction is
+needed — just a QApplication (qtbot).
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy
 
-from metatv.gui import theme as _theme
+from metatv.gui.chip_row import row_meta_label, row_title_label
 from metatv.gui.sidebar.recommended import RecommendedSection, _MiddleElideLabel
 
 
@@ -48,82 +47,73 @@ def _sc(**over):
     return SimpleNamespace(**base)
 
 
+def _row(**over):
+    return RecommendedSection._build_rec_row(_stub_self(), _sc(**over), "1998")
+
+
 def _row_texts(row):
-    # Chips can be QLabel (language/year) or QPushButton (quality); collect both.
     widgets = row.findChildren(QLabel) + row.findChildren(QPushButton)
     return [w.text() for w in widgets] + [w.toolTip() for w in row.findChildren(QLabel)]
 
 
-def _ordered_widgets(row):
-    """Widgets in the row's QHBoxLayout, in left→right order (skips spacers)."""
-    layout = row.layout()
-    out = []
-    for i in range(layout.count()):
-        w = layout.itemAt(i).widget()
-        if w is not None:
-            out.append(w)
-    return out
+def _meta_parts(row):
+    meta = row_meta_label(row)
+    assert meta is not None, f"no meta line: {_row_texts(row)}"
+    return [p.strip() for p in meta.text().split("·")]
 
 
-def _ordered_items(row):
-    """(kind, obj) per layout item in order — kind is 'w' (widget) or 'spacer'."""
-    layout = row.layout()
-    out = []
-    for i in range(layout.count()):
-        it = layout.itemAt(i)
-        if it.widget() is not None:
-            out.append(("w", it.widget()))
-        elif it.spacerItem() is not None:
-            out.append(("spacer", it.spacerItem()))
-    return out
+# ── The honest facts, and the one that must never appear ─────────────────────
 
-
-def _widget_index(items, pred):
-    return next(i for i, (k, obj) in enumerate(items) if k == "w" and pred(obj))
-
-
-def _spacer_index(items):
-    return next(i for i, (k, _obj) in enumerate(items) if k == "spacer")
-
-
-def test_row_shows_language_and_quality_chips_not_region(qtbot):
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
+def test_row_shows_the_honest_facts_and_never_the_region(qtbot):
+    row = _row()
     texts = _row_texts(row)
-    assert any("Cowboy Bebop" in t for t in texts), texts   # title present (label/tooltip)
-    assert "1998" in texts, texts                            # year is its own label
-    assert "EN" in texts, texts                              # honest language chip (prefix)
-    assert "4K" in texts, texts                              # quality chip renders (QUALITY_CHIP button)
+    assert row_title_label(row).text() == "Cowboy Bebop", texts
+    assert _meta_parts(row) == ["Series", "1998", "EN", "4K"], texts
     assert not any("DE" in t for t in texts), f"region DE leaked: {texts}"
 
 
-def test_quality_chip_is_a_button_so_the_badge_style_renders(qtbot):
-    # QUALITY_CHIP is QPushButton-scoped; the quality chip must be a QPushButton or
-    # the '4K' badge silently renders as plain text.
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
-    assert any(b.text() == "4K" for b in row.findChildren(QPushButton)), "4K must be a chip button"
+def test_media_type_leads_the_meta_line_as_a_word(qtbot):
+    assert _meta_parts(_row(media_type="movie"))[0] == "Movie"
+    assert _meta_parts(_row(media_type="series"))[0] == "Series"
 
 
-def test_row_without_quality_has_no_quality_chip(qtbot):
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(detected_quality=""), "1998")
-    assert not any(b.text() == "4K" for b in row.findChildren(QPushButton))
-    assert "EN" in _row_texts(row)  # language chip still there
+def test_missing_facts_drop_out_without_dangling_separators(qtbot):
+    assert _meta_parts(_row(detected_quality="")) == ["Series", "1998", "EN"]
+    assert _meta_parts(_row(detected_prefix="")) == ["Series", "1998", "4K"]
+    assert _meta_parts(_row(detected_quality="", detected_prefix="")) == ["Series", "1998"]
 
 
-def test_row_missing_prefix_shows_no_language_chip_and_no_region(qtbot):
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(detected_prefix=""), "1998")
+def test_row_missing_prefix_shows_no_language_and_no_region(qtbot):
+    row = _row(detected_prefix="")
+    assert "EN" not in _meta_parts(row)
     assert not any("DE" in t for t in _row_texts(row))
 
 
+def test_no_chips_survive_in_a_sidebar_row(qtbot):
+    """V3: chips are a channel-LIST idiom. A sidebar row is two lines of text.
+
+    Three chips stacked against a 260px row's right margin cost the width the
+    title needed; the same facts read better as "Series · 1998 · EN · 4K".
+    """
+    row = _row()
+    assert not row.findChildren(QPushButton), (
+        "a chip (QUALITY_CHIP is QPushButton-scoped) is back in a sidebar row"
+    )
+    labels = [w for w in row.findChildren(QLabel) if not isinstance(w, _MiddleElideLabel)]
+    assert not labels, f"stray chip labels in the row: {[w.text() for w in labels]}"
+
+
+# ── The title label's anti-clip contract (unchanged by V3) ───────────────────
+
 def test_title_sizes_to_content_with_anti_clip_buffer(qtbot):
-    # The title sizes to its content (Preferred policy, NO layout stretch) so the 4K
-    # chip can hug the title TEXT — and its sizeHint carries an anti-clip buffer plus
-    # zero contents margins, so a title that fits is never clipped by sub-pixel rounding.
-    from PyQt6.QtWidgets import QSizePolicy
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
-    title = row.findChild(_MiddleElideLabel)
+    # The title sizes to its content (Preferred policy, NO layout stretch), and its
+    # sizeHint carries an anti-clip buffer plus zero contents margins, so a title
+    # that fits is never clipped by sub-pixel rounding.
+    row = _row()
+    title = row_title_label(row)
     assert title is not None
     assert title.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Preferred
-    layout = row.layout()
+    layout = title.parentWidget().layout()
     idx = next(i for i in range(layout.count()) if layout.itemAt(i).widget() is title)
     assert layout.stretch(idx) == 0, "title sizes to content, not via stretch"
     fm = title.fontMetrics()
@@ -177,39 +167,18 @@ def test_long_title_still_elides_when_too_narrow(qtbot):
     assert elided != long_title and "…" in elided  # middle-elided at this width
 
 
-def test_layout_order_title_quality_stretch_year_language(qtbot):
-    # 4K chip hugs the title TEXT (immediately after it, BEFORE the stretch); the year
-    # and language chips are the right-aligned cluster after the stretch.
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
-    items = _ordered_items(row)
-    title_i = _widget_index(items, lambda w: isinstance(w, _MiddleElideLabel))
-    quality_i = _widget_index(items, lambda w: isinstance(w, QPushButton) and w.text() == "4K")
-    year_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "1998")
-    lang_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "EN")
-    spacer_i = _spacer_index(items)
-    order = [(k, getattr(o, "text", lambda: k)()) for k, o in items]
-    assert title_i < quality_i < spacer_i < year_i < lang_i, order
+def test_the_meta_line_never_widens_the_row(qtbot):
+    """A long meta line elides; it does not push the section wider than its titles.
 
-
-def test_layout_order_title_stretch_year_language_when_no_quality(qtbot):
-    # Quality chip present only when set; without it: title → [stretch] → year → language.
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(detected_quality=""), "1998")
-    items = _ordered_items(row)
-    assert not any(k == "w" and isinstance(o, QPushButton) and o.text() == "4K" for k, o in items)
-    title_i = _widget_index(items, lambda w: isinstance(w, _MiddleElideLabel))
-    year_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "1998")
-    lang_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "EN")
-    spacer_i = _spacer_index(items)
-    assert title_i < spacer_i < year_i < lang_i
-
-
-def test_year_renders_as_year_chip_and_no_region(qtbot):
-    # The year is a bordered chip (its own YEAR_CHIP-styled QLabel), not plain text —
-    # and the source region must not leak anywhere.
-    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
-    year_chips = [
-        w for w in row.findChildren(QLabel)
-        if w.text() == "1998" and w.styleSheet() == _theme.YEAR_CHIP
-    ]
-    assert year_chips, "year must render as its own YEAR_CHIP-styled chip"
-    assert not any("DE" in t for t in _row_texts(row))
+    The title is what the section is FOR — "Series · 1998 · EN · 4K" must never be
+    the thing that decides how much horizontal space History demands.
+    """
+    short = _row(detected_prefix="")
+    long_meta = _row(detected_prefix="EN", detected_quality="4K")
+    assert row_meta_label(long_meta).sizePolicy().horizontalPolicy() == (
+        QSizePolicy.Policy.Ignored
+    )
+    assert long_meta.minimumSizeHint().width() <= max(
+        short.minimumSizeHint().width(),
+        row_title_label(long_meta).minimumSizeHint().width() + 40,
+    ), "the meta line is dictating the row's minimum width"

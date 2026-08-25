@@ -70,26 +70,26 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f"QPushButton:hover {{ color: {accent}; }}"
         ),
         # ── Sidebar rows (V3) ────────────────────────────────────────────
-        # The second line: episode, how long left, when you watched it. Quiet
-        # enough that a glance reads titles, legible enough that a second look
-        # reads state — so COLOR_TEXT, not one of the pre-token greys, none of
-        # which clears 4.5:1 on any app surface.
+        # These two roles carry SIZE and background only. Both labels are
+        # MiddleElideLabel, which paints itself and never consults a stylesheet
+        # `color:` — the pen comes from its `color_token` argument
+        # (COLOR_TEXT_HI for the title, COLOR_TEXT for the meta line). A `color:`
+        # here would look like the source of truth and be silently ignored.
+        "SIDEBAR_ROW_TITLE": (
+            f"font-size: {font_md}; background: transparent;"
+        ),
+        # The second line: episode, how long left, when you watched it. One step
+        # quieter than the title so a glance reads titles and a second look reads
+        # state.
+        "SIDEBAR_ROW_META": (
+            f"font-size: {font_sm}; background: transparent;"
+        ),
         # The section card. Object-name scoped so it lands on the section frame
         # and not on every descendant QFrame inside it.
         "SIDEBAR_SECTION_CARD": (
             f"QFrame#sidebarSection {{ background: {bg_card};"
             f" border: 1px solid {line};"
             f" border-radius: {radius_md}; }}"
-        ),
-        "SIDEBAR_ROW_META": (
-            f"color: {text}; font-size: {font_sm}; background: transparent;"
-        ),
-        # "+9 eps", "1 new" — the accent as TEXT, never as fill. COLOR_ACCENT is
-        # a midtone at text weight (2.61:1 in Graphite), which is what made a
-        # row WITH news quieter than one without.
-        "SIDEBAR_ROW_NEWS": (
-            f"color: {accent}; font-size: {font_sm}; font-weight: bold;"
-            f" background: transparent;"
         ),
         "DETAIL_SECTION_SUMMARY": (
             f"color: {text}; font-size: {font_sm}; background: transparent;"

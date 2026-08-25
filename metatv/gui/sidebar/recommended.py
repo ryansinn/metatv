@@ -10,7 +10,8 @@ from loguru import logger
 
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    MiddleElideLabel as _MiddleElideLabel, build_chip_row, sidebar_meta_line,
+    MiddleElideLabel as _MiddleElideLabel, build_chip_row, media_type_word,
+    quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.base import CollapsibleSection
 
@@ -246,7 +247,7 @@ class RecommendedSection(CollapsibleSection):
             self.set_empty(True)
 
     def _build_rec_row(self, sc, year: str) -> QWidget:
-        """Recommendation row: ``[icon] Title [4K] … [Year] [Lang]``.
+        """Recommendation row: the title over ``"Movie · 1985 · EN · 4K"``.
 
         Thin wrapper over the shared :func:`~metatv.gui.chip_row.build_chip_row`
         (the one canonical row shared by every sidebar content list); this method
@@ -254,17 +255,14 @@ class RecommendedSection(CollapsibleSection):
         ``detected_prefix`` — the honest language, NOT the source ``detected_region``
         that used to leak into the title.
         """
-        media_icon = (
-            self.config.movie_icon if sc.media_type == "movie"
-            else self.config.series_icon
-        )
         return build_chip_row(
-            media_icon=media_icon,
             title=sc.detected_title or sc.channel_name,
             liked=bool(sc.already_liked),
-            quality=sc.detected_quality or "",
             meta=sidebar_meta_line(
-                sc.detected_year or year, sc.detected_prefix or "",
+                media_type_word(sc.media_type),
+                sc.detected_year or year,
+                sc.detected_prefix or "",
+                quality_word(sc.detected_quality),
             ),
         )
 

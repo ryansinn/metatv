@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import QApplication
 
 from metatv.core.config import Config
 from metatv.core.repositories.queue import QueueEntry
-from metatv.gui.chip_row import MiddleElideLabel
+from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
 
 
@@ -81,7 +81,7 @@ def _row_title(section, item) -> str:
     widget = section._list.itemWidget(item)
     if widget is None:
         return item.text()
-    label = widget.findChild(MiddleElideLabel)
+    label = row_title_label(widget)
     return label.text() if label is not None else ""
 
 

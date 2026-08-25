@@ -64,19 +64,28 @@ def _texts(list_widget):
     return [list_widget.item(i).text() for i in range(list_widget.count())]
 
 
-def _chip_icon(list_widget, i):
-    """Icon-label text (first widget) of the chip row at row ``i`` (or None if plain)."""
-    w = list_widget.itemWidget(list_widget.item(i))
-    return None if w is None else w.layout().itemAt(0).widget().text()
+def _chip_meta(list_widget, i):
+    """Meta-line text of the chip row at row ``i`` (or None if it is a plain item).
 
-
-def _chip_title(list_widget, i):
-    """MiddleElideLabel title text of the chip row at row ``i`` (or None if plain)."""
-    from metatv.gui.chip_row import MiddleElideLabel
+    V3 dropped the per-row media-type emoji; the type now travels as a WORD at
+    the head of the meta line ("Movie · 1985"). These tests still assert that
+    each row is told apart by its media type — just read where it now lives.
+    """
+    from metatv.gui.chip_row import row_meta_label
     w = list_widget.itemWidget(list_widget.item(i))
     if w is None:
         return None
-    lbl = w.findChild(MiddleElideLabel)
+    lbl = row_meta_label(w)
+    return lbl.text() if lbl else None
+
+
+def _chip_title(list_widget, i):
+    """Title text of the chip row at row ``i`` (or None if it is a plain item)."""
+    from metatv.gui.chip_row import row_title_label
+    w = list_widget.itemWidget(list_widget.item(i))
+    if w is None:
+        return None
+    lbl = row_title_label(w)
     return lbl.text() if lbl else None
 
 
@@ -168,11 +177,11 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
     # continue-watching sorted by last_played desc (c3 then c2), then never-watched (c1)
     assert _ids(obj.favorites_list) == ["c3", "c2", "c1"]
     assert "Continue Watching" in texts[0]
-    assert _chip_icon(obj.favorites_list, 1) == "L"   # c3 live
+    assert _chip_meta(obj.favorites_list, 1) == "Live"   # c3 live
     assert _chip_title(obj.favorites_list, 1) == "Gamma"
-    assert _chip_icon(obj.favorites_list, 2) == "S"   # c2 series
+    assert _chip_meta(obj.favorites_list, 2) == "Series"   # c2 series
     assert "Never Watched" in texts[3]
-    assert _chip_icon(obj.favorites_list, 4) == "M"   # c1 movie
+    assert _chip_meta(obj.favorites_list, 4) == "Movie"   # c1 movie
     assert _chip_title(obj.favorites_list, 4) == "Alpha"
 
 
@@ -255,7 +264,7 @@ def test_history_bg_refresh_emits_none_on_error():
 
 
 def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
-    """Series rows keep the episode code as a visible title suffix; movies do not."""
+    """Series rows carry the episode code on the meta line; movies have none."""
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.history import HistorySection
 
@@ -271,11 +280,14 @@ def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
     obj._on_data_ready(dtos)
 
     assert _ids(obj.history_list) == ["c1", "c2"]   # history preserves order, no split
-    # Chip rows: icon in the icon label, episode code appended to the (elidable) title.
-    assert _chip_icon(obj.history_list, 0) == "S"
-    assert _chip_title(obj.history_list, 0) == "My Show → S01E03"
-    assert _chip_icon(obj.history_list, 1) == "M"
+    # V3: the episode code moved OFF the title and onto the meta line, where it is
+    # always fully visible instead of competing with the title for width.
+    assert _chip_title(obj.history_list, 0) == "My Show"
+    assert _chip_meta(obj.history_list, 0) == "S01E03"
     assert _chip_title(obj.history_list, 1) == "A Film"
+    # Nothing to say on a second line (no episode, no year, never played) — so the
+    # row does not grow one. A blank meta line would be a row of wasted height.
+    assert _chip_meta(obj.history_list, 1) is None
 
 
 def test_history_on_data_ready_none_shows_error_row(qapp):
@@ -364,10 +376,10 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     texts = _texts(obj._list)
     assert _ids(obj._list) == ["q2", "q1"]   # continue-watching (q2) before never-watched (q1)
     assert "Continue Watching" in texts[0]
-    assert _chip_icon(obj._list, 1) == "S"   # q2 series
+    assert _chip_meta(obj._list, 1) == "Series"   # q2 series
     assert _chip_title(obj._list, 1) == "My Show"
     assert "Never Watched" in texts[2]
-    assert _chip_icon(obj._list, 3) == "M"   # q1 movie
+    assert _chip_meta(obj._list, 3) == "Movie"   # q1 movie
     assert _chip_title(obj._list, 3) == "Film A"
 
 

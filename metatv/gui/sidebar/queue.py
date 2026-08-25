@@ -11,10 +11,13 @@ from loguru import logger
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
+from metatv.gui.chip_row import (
+    build_chip_row, episode_code, media_type_word, quality_word,
+    sidebar_meta_line,
+)
 from metatv.gui.token_color import to_qcolor
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -558,11 +561,18 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             title = e.search_title or e.channel_name
         item.setData(_ROLE_AVAILABLE, e.available)
         item.setData(_ROLE_SEARCH_TITLE, e.search_title)
+        # An episode-grain entry leads with its episode code — that is what
+        # distinguishes it from its siblings; a channel-grain entry leads with
+        # what kind of thing it is.
         row = build_chip_row(
-            media_icon=self._media_icon(e.media_type),
             title=title,
-            quality=e.detected_quality,
-            meta=sidebar_meta_line(e.detected_year, e.detected_prefix),
+            meta=sidebar_meta_line(
+                episode_code(e.season_num, e.episode_num)
+                or media_type_word(e.media_type),
+                e.detected_year,
+                e.detected_prefix,
+                quality_word(e.detected_quality),
+            ),
         )
         if not e.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -618,11 +628,13 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             "channel_id": m.channel_id,
         })
         row = build_chip_row(
-            media_icon=self._media_icon(m.media_type),
             title=m.title,
-            year=m.detected_year,
-            quality=m.detected_quality,
-            prefix=m.detected_prefix,
+            meta=sidebar_meta_line(
+                media_type_word(m.media_type),
+                m.detected_year,
+                m.detected_prefix,
+                quality_word(m.detected_quality),
+            ),
             new_badge=True,
         )
         hint = (
@@ -694,15 +706,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """True when at least one entry in the current list is unavailable."""
         return self._has_unavailable
 
-    def _media_icon(self, media_type: str) -> str:
-        if media_type == "movie":
-            return self.config.movie_icon
-        if media_type == "series":
-            return self.config.series_icon
-        if media_type == "live":
-            return self.config.live_icon
-        return self.config.unknown_icon
-
     def _add_header(self, text: str, count: int | None = None) -> QListWidgetItem:
         """A sub-group heading inside a section — "ALERTS MATCHED · 3".
 
@@ -712,18 +715,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         The count rides on the heading because a group's size is context for
         the rows under it, not news about them.
         """
-        label = text.upper()
-        if count:
-            label = f"{label}  ·  {count}"
+        label = f"{text}  ·  {count}" if count else text
         item = QListWidgetItem(label)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
-        font = QFont()
-        font.setBold(True)
-        font.setCapitalization(QFont.Capitalization.AllUppercase)
-        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
-        font.setPixelSize(int(_theme.FONT_SM.replace("px", "")))
-        item.setFont(font)
-        item.setForeground(to_qcolor(_theme.COLOR_MUTED))
+        style_group_heading(item)
         self._list.addItem(item)
         return item
 
