@@ -12,8 +12,8 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    build_chip_row, episode_code, media_type_word, quality_word,
-    sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, episode_code,
+    media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
@@ -561,17 +561,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setData(_ROLE_AVAILABLE, e.available)
         item.setData(_ROLE_SEARCH_TITLE, e.search_title)
         # An episode-grain entry leads with its episode code — that is what
-        # distinguishes it from its siblings; a channel-grain entry leads with
-        # what kind of thing it is.
+        # distinguishes it from its siblings; a channel-grain entry falls back
+        # to the year. The media TYPE is the icon, never a word.
+        marker = episode_code(e.season_num, e.episode_num) or e.detected_year
+        quality = quality_word(e.detected_quality)
         row = build_chip_row(
             title=title,
-            meta=sidebar_meta_line(
-                episode_code(e.season_num, e.episode_num)
-                or media_type_word(e.media_type),
-                e.detected_year,
-                e.detected_prefix,
-                quality_word(e.detected_quality),
+            icon_role=media_icon_role(e.media_type),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, marker),
+                (CHIP_LANG, e.detected_prefix),
             ),
+            meta=sidebar_meta_line(marker, e.detected_prefix, quality),
+            density=self._row_density(),
         )
         if not e.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -626,14 +629,17 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             "grain": "matched_channel",
             "channel_id": m.channel_id,
         })
+        quality = quality_word(m.detected_quality)
         row = build_chip_row(
             title=m.title,
-            meta=sidebar_meta_line(
-                media_type_word(m.media_type),
-                m.detected_year,
-                m.detected_prefix,
-                quality_word(m.detected_quality),
+            icon_role=media_icon_role(m.media_type),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, m.detected_year),
+                (CHIP_LANG, m.detected_prefix),
             ),
+            meta=sidebar_meta_line(m.detected_year, m.detected_prefix, quality),
+            density=self._row_density(),
             new_badge=True,
         )
         hint = (

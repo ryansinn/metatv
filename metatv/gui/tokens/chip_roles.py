@@ -42,8 +42,36 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     accent     = _("COLOR_ACCENT_BLUE")
     radius_sm  = _("RADIUS_SM")
     font_md    = _("FONT_MD")
+    font_xs    = _("FONT_XS")
+    lang_fill  = _("OVERLAY_BLUE_10")
+    quality    = _("COLOR_WARN")
 
     return {
+        # ── Sidebar row chips ────────────────────────────────────────────
+        # Their own family, NOT the channel list's YEAR_CHIP/LANG_CHIP —
+        # those are sized for a 40px list row (YEAR_CHIP is 15px type, LARGER
+        # than the 13px title beside it) and they inflated a compact sidebar
+        # row to 27px, which is most of the density the compact shape exists
+        # to buy. Owner: "it's not a library book, it's an indicator."
+        #
+        # FONT_XS and near-zero vertical padding put the chip UNDER the
+        # title's own line height, so the title governs the row and the chips
+        # ride along inside it.
+        "SIDEBAR_CHIP_YEAR": (
+            f"color: {text}; border: 1px solid {border};"
+            f" border-radius: {radius_sm}; padding: 0px 5px;"
+            f" font-size: {font_xs}; background: transparent;"
+        ),
+        "SIDEBAR_CHIP_LANG": (
+            f"color: {accent}; background: {lang_fill};"
+            f" border-radius: {radius_sm}; padding: 0px 5px;"
+            f" font-size: {font_xs};"
+        ),
+        "SIDEBAR_CHIP_QUALITY": (
+            f"QPushButton {{ color: {quality}; border: 1px solid {quality};"
+            f" border-radius: {radius_sm}; padding: 0px 5px;"
+            f" font-size: {font_xs}; background: transparent; }}"
+        ),
         # The strip itself. Sits on its own ground so the chips have something
         # to be distinct FROM.
         "FILTER_CHIP_BAR": (

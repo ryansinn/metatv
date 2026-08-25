@@ -106,6 +106,22 @@ def _save_channel_density(combo: QComboBox, config) -> None:
     config.channel_list_density = combo.currentData() or "comfy"
 
 
+def _load_sidebar_density(combo: QComboBox, config) -> None:
+    """Select ``config.sidebar_row_density`` in ``combo`` (falls back to compact).
+
+    Mirrors :func:`_load_channel_density` — factored out so the round-trip is
+    testable against a bare ``QComboBox`` + a minimal fake config.
+    """
+    density = getattr(config, "sidebar_row_density", "compact")
+    idx = combo.findData(density)
+    combo.setCurrentIndex(idx if idx >= 0 else combo.findData("compact"))
+
+
+def _save_sidebar_density(combo: QComboBox, config) -> None:
+    """Write the selected density back to ``config.sidebar_row_density``."""
+    config.sidebar_row_density = combo.currentData() or "compact"
+
+
 def _load_platform_name_style(combo: QComboBox, config) -> None:
     """Select ``config.platform_name_style`` in ``combo`` (falls back to "auto").
 
@@ -461,6 +477,9 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._channel_density_combo.blockSignals(True)
         _load_channel_density(self._channel_density_combo, c)
         self._channel_density_combo.blockSignals(False)
+        self._sidebar_density_combo.blockSignals(True)
+        _load_sidebar_density(self._sidebar_density_combo, c)
+        self._sidebar_density_combo.blockSignals(False)
         self._platform_name_style_combo.blockSignals(True)
         _load_platform_name_style(self._platform_name_style_combo, c)
         self._platform_name_style_combo.blockSignals(False)
@@ -580,6 +599,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
 
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
+        _save_sidebar_density(self._sidebar_density_combo, c)
         _save_platform_name_style(self._platform_name_style_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
         # Written like every other setting; APPLIED by the host on

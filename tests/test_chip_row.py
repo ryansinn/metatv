@@ -27,7 +27,7 @@ from metatv.gui.chip_row import (
     MiddleElideLabel,
     build_chip_row,
     episode_code,
-    media_type_word,
+    media_icon_role,
     row_meta_label,
     row_title_label,
     sidebar_meta_line,
@@ -192,13 +192,16 @@ def test_meta_line_drops_missing_parts_without_dangling_separators():
     assert sidebar_meta_line("3 days ago") == "3 days ago"
 
 
-def test_media_type_word_is_a_word_not_a_glyph():
-    assert media_type_word("movie") == "Movie"
-    assert media_type_word("series") == "Series"
-    assert media_type_word("live") == "Live"
-    assert media_type_word("") == ""
-    assert media_type_word(None) == ""
-    assert media_type_word("nonsense") == ""
+def test_media_icon_role_is_a_glyph_role_not_a_word():
+    """This used to assert the WORD ("Movie"). The owner: "the whole point of
+    the movie, series, live icons reduce the need for all this busy and
+    repetitive text. So rather than using the words, use the icons.""""
+    assert media_icon_role("movie") == "movie"
+    assert media_icon_role("series") == "series"
+    assert media_icon_role("live") == "live"
+    assert media_icon_role("") == ""
+    assert media_icon_role(None) == ""
+    assert media_icon_role("nonsense") == ""
 
 
 def test_episode_code_needs_both_halves():

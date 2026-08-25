@@ -27,6 +27,7 @@ import pytest
 
 from metatv.core.repositories.dtos import FavoriteDTO, HistoryDTO
 from metatv.gui import icons as _icons
+from tests.conftest import sidebar_config
 
 
 # ---------------------------------------------------------------------------
@@ -42,11 +43,8 @@ def qapp():
 
 
 def _icon_config():
-    """A config exposing distinct, recognisable media-icon strings."""
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-    )
+    """Every field a sidebar section reads — see conftest.sidebar_config."""
+    return sidebar_config()
 
 
 def _mock_db():
@@ -357,7 +355,7 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.queue import WatchQueueSection
     from metatv.core.repositories.queue import QueueEntry
-    from tests.conftest import wire_watch_queue_filter
+    from tests.conftest import wire_watch_queue_filter, sidebar_config
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()

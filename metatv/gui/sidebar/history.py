@@ -4,8 +4,10 @@ from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
-from metatv.gui.relative_time import humanize_ago
+from metatv.gui.chip_row import (
+    CHIP_YEAR, build_chip_row, media_icon_role, sidebar_meta_line,
+)
+from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
@@ -118,12 +120,19 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             # you were on, or the year that tells two same-named films apart)
             # and the time closes the line, which is how the render reads:
             # "S18E01 · 2 hours ago", "1984 · yesterday", "3 days ago".
+            # History spends its ONE chip on what tells its rows apart — the
+            # episode you were on, or the year that separates two same-named
+            # films — and its tail on WHEN, because this is a list ordered by
+            # exactly that. The language chip other sections show would say the
+            # same thing on every row of a personal history.
+            marker = dto.episode_code or dto.detected_year
             row = build_chip_row(
                 title=title,
-                meta=sidebar_meta_line(
-                    dto.episode_code or dto.detected_year,
-                    humanize_ago(dto.last_played),
-                ),
+                icon_role=media_icon_role(dto.media_type),
+                chips=((CHIP_YEAR, marker),),
+                tail=humanize_ago_terse(dto.last_played),
+                meta=sidebar_meta_line(marker, humanize_ago(dto.last_played)),
+                density=self._row_density(),
                 trailing_button=trailing_button,
             )
             # Width 0 → the item spans the viewport (no sideways scroll); the row's own

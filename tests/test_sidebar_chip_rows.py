@@ -25,6 +25,7 @@ import pytest
 from PyQt6.QtWidgets import QLabel, QPushButton
 
 from metatv.gui.chip_row import row_meta_label, row_title_label
+from tests.conftest import sidebar_config
 
 
 @pytest.fixture(scope="module")
@@ -34,10 +35,7 @@ def qapp():
 
 
 def _config():
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-    )
+    return sidebar_config()
 
 
 def _seed_db(path: Path):
@@ -138,7 +136,7 @@ def test_queue_row_is_honest_chip_row(qapp, tmp_path):
         entries = RepositoryFactory(session).queue.get_all()
     assert entries and entries[0].detected_prefix == "EN", "entry must carry the stored prefix"
 
-    from tests.conftest import wire_watch_queue_filter
+    from tests.conftest import wire_watch_queue_filter, sidebar_config
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()

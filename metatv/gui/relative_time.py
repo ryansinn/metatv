@@ -67,3 +67,36 @@ def humanize_ago(when: datetime | None, *, now: datetime | None = None) -> str:
         return "last month" if months == 1 else f"{months} months ago"
     years = days // 365
     return "last year" if years == 1 else f"{years} years ago"
+
+
+def humanize_ago_terse(when: datetime | None, *, now: datetime | None = None) -> str:
+    """The same age in as few characters as possible — ``"2h"``, ``"3d"``, ``"2w"``.
+
+    The COMPACT sidebar row has room for a chip-sized fact at its right edge, not
+    for "2 hours ago". History spends that slot on when you watched something,
+    because in a list ordered by recency that is the fact that tells one row from
+    the next — so it has to fit in the space a language chip would have taken.
+
+    Same ladder and same rungs as :func:`humanize_ago`, so a row and its tooltip
+    can never disagree about which bucket something falls in.
+    """
+    if when is None:
+        return ""
+    now = now or datetime.now()
+    secs = (now - when).total_seconds()
+
+    if secs < _MINUTE:
+        return "now"
+    if secs < _HOUR:
+        return f"{int(secs // _MINUTE)}m"
+    if secs < _DAY:
+        return f"{int(secs // _HOUR)}h"
+
+    days = int(secs // _DAY)
+    if days < 7:
+        return f"{days}d"
+    if days < 30:
+        return f"{days // 7}w"
+    if days < 365:
+        return f"{days // 30}mo"
+    return f"{days // 365}y"

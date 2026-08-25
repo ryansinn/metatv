@@ -10,8 +10,8 @@ from loguru import logger
 
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    MiddleElideLabel as _MiddleElideLabel, build_chip_row, media_type_word,
-    quality_word, sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
+    build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.base import CollapsibleSection
 
@@ -255,15 +255,19 @@ class RecommendedSection(CollapsibleSection):
         ``detected_prefix`` — the honest language, NOT the source ``detected_region``
         that used to leak into the title.
         """
+        quality = quality_word(sc.detected_quality)
+        release = sc.detected_year or year
         return build_chip_row(
             title=sc.detected_title or sc.channel_name,
+            icon_role=media_icon_role(sc.media_type),
             liked=bool(sc.already_liked),
-            meta=sidebar_meta_line(
-                media_type_word(sc.media_type),
-                sc.detected_year or year,
-                sc.detected_prefix or "",
-                quality_word(sc.detected_quality),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, release),
+                (CHIP_LANG, sc.detected_prefix or ""),
             ),
+            meta=sidebar_meta_line(release, sc.detected_prefix or "", quality),
+            density=self._row_density(),
         )
 
     def _on_double_click(self, item: QListWidgetItem) -> None:

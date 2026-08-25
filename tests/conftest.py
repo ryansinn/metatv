@@ -352,6 +352,35 @@ def _qt_teardown_guard(request):
         )
 
 
+
+def sidebar_config(**over):
+    """A fake ``Config`` carrying every field a sidebar SECTION reads.
+
+    Seven test files each hand-rolled their own ``SimpleNamespace(live_icon="L",
+    movie_icon="M", …)``, so every new field a section learned to read broke all
+    seven at once — which is exactly what happened when rows gained a density
+    preference. One factory means the next field is added here, once.
+
+    CLAUDE.md: repair a test double at the shared factory, never with a
+    defensive ``getattr`` in production — a ``getattr`` fallback in the section
+    would mask a real missing-config bug for every viewer.
+    """
+    base = dict(
+        # Legacy emoji icon set — sidebar ROWS now use vector roles, but headers
+        # and several menus still read these.
+        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
+        like_icon="+", delete_icon="x", watched_icon="v",
+        expand_icon="v", collapse_icon=">",
+        # Row shape (Settings → Interface → Sidebar rows).
+        sidebar_row_density="compact",
+        # Section behaviour.
+        filter_adult_mode="all",
+        queue_filter_visible=False,
+        sidebar_section_states={},
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     """Summarise what the Qt teardown guard observed (leaky tests, one block)."""
     tr = terminalreporter

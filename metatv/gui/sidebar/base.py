@@ -13,6 +13,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT
 from metatv.gui.token_color import to_qcolor
 
 def style_group_heading(item, column: int | None = None) -> None:
@@ -419,6 +420,20 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
             return headline
         count = self.item_count()
         return "" if count is None else str(count)
+
+    def _row_density(self) -> str:
+        """The viewer's sidebar row density — "compact" or "comfortable".
+
+        One reader for all four content sections, so two sections can never end
+        up rendering different shapes. Read fresh on each row build rather than
+        cached: changing the setting repopulates the sections, and the next
+        build has to see the new value.
+
+        An unrecognised stored value falls back to compact rather than raising —
+        a bad config value should cost the preference, not the sidebar.
+        """
+        density = self.config.sidebar_row_density
+        return density if density in DENSITIES else DENSITY_COMPACT
 
     def min_expanded_height(self) -> int:
         """Smallest height at which this section still shows useful content.

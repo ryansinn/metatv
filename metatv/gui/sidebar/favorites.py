@@ -10,7 +10,8 @@ from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    build_chip_row, media_type_word, quality_word, sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, media_icon_role,
+    quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
@@ -185,14 +186,17 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setData(Qt.ItemDataRole.UserRole, dto.id)
         item.setData(_ROLE_AVAILABLE, dto.available)
         item.setData(_ROLE_SEARCH_TITLE, dto.search_title)
+        quality = quality_word(dto.detected_quality)
         row = build_chip_row(
             title=dto.search_title or dto.name,
-            meta=sidebar_meta_line(
-                media_type_word(dto.media_type),
-                dto.detected_year,
-                dto.detected_prefix,
-                quality_word(dto.detected_quality),
+            icon_role=media_icon_role(dto.media_type),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, dto.detected_year),
+                (CHIP_LANG, dto.detected_prefix),
             ),
+            meta=sidebar_meta_line(dto.detected_year, dto.detected_prefix, quality),
+            density=self._row_density(),
         )
         if not dto.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -227,7 +231,11 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         title = f"{dto.series_name} — {code}" if code else dto.series_name
         if dto.title:
             title += f" {dto.title}"
-        row = build_chip_row(title=title, meta=media_type_word(MediaType.SERIES))
+        row = build_chip_row(
+            title=title,
+            icon_role=media_icon_role(MediaType.SERIES),
+            density=self._row_density(),
+        )
         if not dto.available:
             effect = QGraphicsOpacityEffect(row)
             effect.setOpacity(0.45)

@@ -2317,6 +2317,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.settings_applied.connect(self._apply_channel_list_density)
+        dialog.settings_applied.connect(self._apply_sidebar_row_density)
         dialog.settings_applied.connect(self.refresh_theme)
         dialog.settings_applied.connect(self._apply_collapse_variants_setting)
         # Applies the menu-bar setting AND re-ticks the Tools entry, so the two
@@ -2732,6 +2733,23 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         hooks in this same connect block (they also re-apply unconditionally).
         """
         self.load_channels()
+
+    def _apply_sidebar_row_density(self) -> None:
+        """Rebuild every sidebar section after a row-density change.
+
+        Wired to ``SettingsDialog.settings_applied`` so the choice takes effect
+        without a restart. A rebuild rather than a repaint: the two densities
+        are different widget TREES (chips beside the title vs a second line
+        below it) and every row's ``sizeHint`` changes with them, so there is
+        nothing for a repaint to reuse.
+
+        Every section, unconditionally — the density is one setting for the
+        whole rail, and refreshing only the sections that happen to be expanded
+        would leave a collapsed one holding the old shape for whenever it is
+        opened.
+        """
+        for section in self.sidebar_sections.values():
+            section.refresh()
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""

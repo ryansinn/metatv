@@ -38,6 +38,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import HistoryDTO, build_history_dtos
 from metatv.gui.chip_row import build_chip_row
 from metatv.gui.sidebar.history import HistorySection
+from tests.conftest import sidebar_config
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +60,7 @@ def db(tmp_path: Path):
 
 
 def _config():
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-    )
+    return sidebar_config()
 
 
 def _seed_series(db: Database, name: str = "Breaking Bad", provider_id: str = "p1",
