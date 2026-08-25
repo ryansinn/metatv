@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
@@ -15,7 +15,6 @@ from metatv.gui.chip_row import (
     build_chip_row, episode_code, media_type_word, quality_word,
     sidebar_meta_line,
 )
-from metatv.gui.token_color import to_qcolor
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
 

@@ -5,7 +5,6 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont
 
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
