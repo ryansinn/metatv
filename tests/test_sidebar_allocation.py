@@ -193,8 +193,11 @@ def test_the_boost_is_bounded(qapp, config):
     quiet = _Section(config, news_text="")
     loud = _Section(config, news_text="3 new")
     extra = loud.min_expanded_height() - quiet.min_expanded_height()
-    assert extra == _Section.NEWS_BOOST_ROWS * _Section.ROW_H
-    assert extra <= 3 * _Section.ROW_H
+    # CONTENT_ROW_H, not ROW_H: the boost buys ROWS OF CONTENT, and the two
+    # constants parted company when the V3 row grew a second line (ROW_H is now
+    # the simple "+N more" tail row).
+    assert extra == _Section.NEWS_BOOST_ROWS * _Section.CONTENT_ROW_H
+    assert extra <= 3 * _Section.CONTENT_ROW_H
 
 
 def test_the_boost_relaxes_when_the_news_goes_quiet(qapp, config):

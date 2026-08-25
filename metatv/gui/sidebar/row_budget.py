@@ -115,6 +115,16 @@ class RowBudgetMixin:
         if fits > 0 and used + self.ROW_H > viewport:
             fits -= 1
 
+        # ...but never all of it. A section rendering "+ 6 more →" over an empty
+        # list tells you there is content and shows you none of it, which reads
+        # as a broken section rather than a full one. One real row always wins
+        # over the marker that counts them: the tail may then overflow and be
+        # clipped (scrollbars are off by design), and the header's → is still
+        # the way to the rest. Reachable whenever one row does not leave room
+        # for the tail as well — which the V3 two-line row, at nearly twice the
+        # height of the single-line row it replaced, made ordinary.
+        fits = max(fits, 1)
+
         hidden = total - fits
         for index in range(fits, total):
             list_widget.item(index).setHidden(True)

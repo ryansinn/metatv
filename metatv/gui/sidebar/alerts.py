@@ -22,7 +22,9 @@ from metatv.gui.sidebar.alerts_rows import (
     _name_with_dim_suffix_html,
     _VodAlertRow,
 )
-from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+from metatv.gui.sidebar.base import (
+    CollapsibleSection, _fmt_channel_name, style_group_heading,
+)
 
 # Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
 # rule_created id for keyword-rule rows (existing click/menu code reads it); the
@@ -1106,11 +1108,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         def _section_hdr(text: str) -> None:
             item = QTreeWidgetItem([text])
             item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setForeground(0, QColor(_theme.COLOR_FAINT))
-            f = item.font(0)
-            f.setPointSize(9)
-            f.setBold(True)
-            item.setFont(0, f)
+            style_group_heading(item, column=0)
             self.alerts_tree.addTopLevelItem(item)
 
         def _wire_row(row: _AlertRow, channel_db_id: str) -> None:

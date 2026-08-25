@@ -9,7 +9,10 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from loguru import logger
 
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import MiddleElideLabel as _MiddleElideLabel, build_chip_row
+from metatv.gui.chip_row import (
+    MiddleElideLabel as _MiddleElideLabel, build_chip_row, media_type_word,
+    quality_word, sidebar_meta_line,
+)
 from metatv.gui.sidebar.base import CollapsibleSection
 
 # Re-exported for callers/tests that import the title label from this module; the
@@ -244,7 +247,7 @@ class RecommendedSection(CollapsibleSection):
             self.set_empty(True)
 
     def _build_rec_row(self, sc, year: str) -> QWidget:
-        """Recommendation row: ``[icon] Title [4K] … [Year] [Lang]``.
+        """Recommendation row: the title over ``"Movie · 1985 · EN · 4K"``.
 
         Thin wrapper over the shared :func:`~metatv.gui.chip_row.build_chip_row`
         (the one canonical row shared by every sidebar content list); this method
@@ -252,17 +255,15 @@ class RecommendedSection(CollapsibleSection):
         ``detected_prefix`` — the honest language, NOT the source ``detected_region``
         that used to leak into the title.
         """
-        media_icon = (
-            self.config.movie_icon if sc.media_type == "movie"
-            else self.config.series_icon
-        )
         return build_chip_row(
-            media_icon=media_icon,
             title=sc.detected_title or sc.channel_name,
             liked=bool(sc.already_liked),
-            year=sc.detected_year or year,
-            quality=sc.detected_quality or "",
-            prefix=sc.detected_prefix or "",
+            meta=sidebar_meta_line(
+                media_type_word(sc.media_type),
+                sc.detected_year or year,
+                sc.detected_prefix or "",
+                quality_word(sc.detected_quality),
+            ),
         )
 
     def _on_double_click(self, item: QListWidgetItem) -> None:

@@ -66,6 +66,9 @@ an unbuilt slice on a future sweep.
 | 24 | Series seasons/episode counts on the row meta line | DTO + repo | ❌ not plumbed |
 | 25 | Configurable details layout (Q20) | — | ⏸ own slice |
 | 26 | Similar-titles poster/list toggle | `ChannelVersion` has no poster URL | ⏸ blocked on DTO+hydration |
+| 27 | Sidebar **style** — two-line rows, section cards, small-caps group headings | `chip_row.py`, `sidebar/base.py`, `relative_time.py` | ✅ #457 — items 9–14 were the sidebar's ALLOCATION, not its look; the render's row is two lines of text with **no icon and no chips**, and this is that. Rows carry `title` over `sidebar_meta_line(...)`; History's line ends with a time (`relative_time.humanize_ago`). `style_group_heading()` is the one heading styler (Queue, Favorites and Alerts each had their own). Look a row's labels up with `row_title_label`/`row_meta_label` — `findChild(MiddleElideLabel)` is breadth-first and returns the META label. |
+| 28 | Sidebar allocation retune for the taller row | `sidebar/*` `MIN_ROWS` | ⏸ **owner call** — a two-line row is ~37px against the ~20px it replaced, so `min_expanded_height()` (`HEADER_H + MIN_ROWS × CONTENT_ROW_H`) rose from ~104px to ~145px per expanded section. #457 made the arithmetic honest and left `MIN_ROWS` alone; whether three rows is still the right floor now that a row is worth more is a preference, not a bug. |
+| 29 | Sidebar news-row tint | `sidebar/alerts_rows.py` | ⏸ **owner call** — the render tints a row carrying news and puts "1 new" / "+9 eps" in the accent at its right edge. `_VodAlertRow`'s docstring records that a whole-row tint was *deliberately removed* ("no whole-row green tint"); the render's is blue, not green, so this is close to but not the same as the decision that was made. Not reinstated without a word. |
 
 ---
 

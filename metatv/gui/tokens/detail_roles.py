@@ -23,6 +23,8 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     text      = _("COLOR_TEXT")
     accent    = _("COLOR_ACCENT_BLUE")
     radius_sm = _("RADIUS_SM")
+    radius_md = _("RADIUS_MD")
+    line      = _("COLOR_LINE")
     font_md   = _("FONT_MD")
     font_sm   = _("FONT_SM")
 
@@ -66,6 +68,28 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f" font-weight: bold; background: transparent; border: none;"
             f" padding: 0; text-align: left; }}"
             f"QPushButton:hover {{ color: {accent}; }}"
+        ),
+        # ── Sidebar rows (V3) ────────────────────────────────────────────
+        # These two roles carry SIZE and background only. Both labels are
+        # MiddleElideLabel, which paints itself and never consults a stylesheet
+        # `color:` — the pen comes from its `color_token` argument
+        # (COLOR_TEXT_HI for the title, COLOR_TEXT for the meta line). A `color:`
+        # here would look like the source of truth and be silently ignored.
+        "SIDEBAR_ROW_TITLE": (
+            f"font-size: {font_md}; background: transparent;"
+        ),
+        # The second line: episode, how long left, when you watched it. One step
+        # quieter than the title so a glance reads titles and a second look reads
+        # state.
+        "SIDEBAR_ROW_META": (
+            f"font-size: {font_sm}; background: transparent;"
+        ),
+        # The section card. Object-name scoped so it lands on the section frame
+        # and not on every descendant QFrame inside it.
+        "SIDEBAR_SECTION_CARD": (
+            f"QFrame#sidebarSection {{ background: {bg_card};"
+            f" border: 1px solid {line};"
+            f" border-radius: {radius_md}; }}"
         ),
         "DETAIL_SECTION_SUMMARY": (
             f"color: {text}; font-size: {font_sm}; background: transparent;"

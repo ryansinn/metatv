@@ -5,13 +5,15 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont
 
+from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import (
+    build_chip_row, media_type_word, quality_word, sidebar_meta_line,
+)
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
 
 _ROLE_AVAILABLE    = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -171,11 +173,10 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
             self.set_empty(True)
 
     def _add_header(self, text: str) -> None:
+        """A sub-group heading — styled by the one shared styler, never here."""
         item = QListWidgetItem(text)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
-        font = QFont()
-        font.setBold(True)
-        item.setFont(font)
+        style_group_heading(item)
         self.favorites_list.addItem(item)
 
     def _add_item(self, dto) -> None:
@@ -185,11 +186,13 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setData(_ROLE_AVAILABLE, dto.available)
         item.setData(_ROLE_SEARCH_TITLE, dto.search_title)
         row = build_chip_row(
-            media_icon=self._media_icon(dto.media_type),
             title=dto.search_title or dto.name,
-            year=dto.detected_year,
-            quality=dto.detected_quality,
-            prefix=dto.detected_prefix,
+            meta=sidebar_meta_line(
+                media_type_word(dto.media_type),
+                dto.detected_year,
+                dto.detected_prefix,
+                quality_word(dto.detected_quality),
+            ),
         )
         if not dto.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -224,7 +227,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         title = f"{dto.series_name} — {code}" if code else dto.series_name
         if dto.title:
             title += f" {dto.title}"
-        row = build_chip_row(media_icon=self.config.series_icon, title=title)
+        row = build_chip_row(title=title, meta=media_type_word(MediaType.SERIES))
         if not dto.available:
             effect = QGraphicsOpacityEffect(row)
             effect.setOpacity(0.45)
@@ -237,16 +240,6 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     def has_unavailable(self) -> bool:
         """True when at least one CHANNEL-grain favorite in the current list is unavailable."""
         return self._has_unavailable
-
-    def _media_icon(self, media_type) -> str:
-        from metatv.core.models import MediaType
-        if media_type == MediaType.LIVE:
-            return self.config.live_icon
-        if media_type == MediaType.MOVIE:
-            return self.config.movie_icon
-        if media_type == MediaType.SERIES:
-            return self.config.series_icon
-        return self.config.unknown_icon
 
     def on_favorite_clicked(self, item):
         item_id = item.data(Qt.ItemDataRole.UserRole)

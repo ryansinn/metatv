@@ -256,7 +256,7 @@ class TestChipRowTrailingButton:
     def test_no_trailing_button_row_stays_mouse_transparent(self, qapp):
         """Regression pin: rows WITHOUT a trailing_button are byte-identical to
         every pre-existing caller — still WA_TransparentForMouseEvents."""
-        row = build_chip_row(media_icon="S", title="No Button Here")
+        row = build_chip_row(title="No Button Here")
         assert row.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         assert row.findChild(QPushButton) is None
 
@@ -265,16 +265,19 @@ class TestChipRowTrailingButton:
         supplied — WA_TransparentForMouseEvents on an ancestor hides the button's
         entire subtree from hit-testing, so it would never be clickable."""
         btn = QPushButton(">>")
-        row = build_chip_row(media_icon="S", title="Has A Button", trailing_button=btn)
+        row = build_chip_row(title="Has A Button", trailing_button=btn)
         assert not row.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         assert row.findChild(QPushButton) is btn
 
-    def test_trailing_button_is_the_last_widget_in_the_row(self, qapp):
+    def test_trailing_button_is_the_last_widget_on_the_title_line(self, qapp):
+        """On the TITLE line — a two-line row must not strand it under the meta."""
+        from metatv.gui.chip_row import row_title_label
+
         btn = QPushButton(">>")
         row = build_chip_row(
-            media_icon="S", title="Title", year="1998", prefix="EN", trailing_button=btn,
+            title="Title", meta="1998 · EN", trailing_button=btn,
         )
-        layout = row.layout()
+        layout = row_title_label(row).parentWidget().layout()
         last_widget = None
         for i in range(layout.count()):
             it = layout.itemAt(i)
@@ -293,7 +296,7 @@ class TestChipRowTrailingButton:
         item = QListWidgetItem(lw)
         btn = QPushButton(">>")
         btn.setFixedSize(30, 20)
-        row = build_chip_row(media_icon="S", title="Some Series", trailing_button=btn)
+        row = build_chip_row(title="Some Series", trailing_button=btn)
         item.setSizeHint(row.sizeHint())
         lw.setItemWidget(item, row)
         lw.show()
@@ -315,7 +318,7 @@ class TestChipRowTrailingButton:
         item = QListWidgetItem(lw)
         btn = QPushButton(">>")
         btn.setFixedSize(30, 20)
-        row = build_chip_row(media_icon="S", title="Some Series", trailing_button=btn)
+        row = build_chip_row(title="Some Series", trailing_button=btn)
         item.setSizeHint(row.sizeHint())
         lw.setItemWidget(item, row)
         lw.show()

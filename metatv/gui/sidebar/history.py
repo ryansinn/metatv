@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import build_chip_row, sidebar_meta_line
+from metatv.gui.relative_time import humanize_ago
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
@@ -107,19 +108,22 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         for dto in dtos:
             item = QListWidgetItem(self.history_list)
             item.setData(Qt.ItemDataRole.UserRole, dto.id)
-            # Episode code kept visible as a suffix on the title. Middle-elision
-            # preserves the END of the title, so the "→ S01E02" tail survives even
-            # when the series name is truncated.
             title = dto.detected_title or dto.name
-            if dto.episode_code:
-                title = f"{title} → {dto.episode_code}"
             trailing_button = self._build_play_next_button(dto) if dto.has_next else None
+            # The episode code moves OFF the title and onto the meta line, where
+            # the V3 render puts it. It used to be appended as "→ S01E02" so
+            # middle-elision would preserve it, which worked but spent title
+            # width on it; on its own line it is always fully visible and the
+            # title gets the whole row. The identifying fact leads (the episode
+            # you were on, or the year that tells two same-named films apart)
+            # and the time closes the line, which is how the render reads:
+            # "S18E01 · 2 hours ago", "1984 · yesterday", "3 days ago".
             row = build_chip_row(
-                media_icon=self._media_icon(dto.media_type),
                 title=title,
-                year=dto.detected_year,
-                quality=dto.detected_quality,
-                prefix=dto.detected_prefix,
+                meta=sidebar_meta_line(
+                    dto.episode_code or dto.detected_year,
+                    humanize_ago(dto.last_played),
+                ),
                 trailing_button=trailing_button,
             )
             # Width 0 → the item spans the viewport (no sideways scroll); the row's own
@@ -151,16 +155,6 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         episode_id = dto.next_episode_id
         next_btn.clicked.connect(lambda: self.playNextClicked.emit(episode_id))
         return next_btn
-
-    def _media_icon(self, media_type) -> str:
-        from metatv.core.models import MediaType
-        if media_type == MediaType.LIVE:
-            return self.config.live_icon
-        if media_type == MediaType.MOVIE:
-            return self.config.movie_icon
-        if media_type == MediaType.SERIES:
-            return self.config.series_icon
-        return self.config.unknown_icon
 
     def on_history_item_clicked(self, item):
         channel_id = item.data(Qt.ItemDataRole.UserRole)

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFrame, QSizePolicy, QTreeWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QFont, QMouseEvent
 from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
@@ -13,6 +13,39 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.token_color import to_qcolor
+
+def style_group_heading(item, column: int | None = None) -> None:
+    """Style a sub-group heading INSIDE a section — "NEVER WATCHED", "EPG".
+
+    Small-caps and muted rather than bold body text, per the V3 render. A group
+    heading is a divider: rendered at the same weight and colour as the titles
+    beneath it, it competed with the content it was there to separate, and three
+    sections had each grown their own copy of that same wrong three lines.
+
+    The capitals come from ``QFont.Capitalization``, which renders uppercase
+    WITHOUT touching ``item.text()`` — the heading's text stays the sentence-case
+    string the section computed ("Never Watched (2 of 3)"), so filter counts and
+    the tests that read them are unaffected by a purely visual choice.
+
+    Args:
+        item: A ``QListWidgetItem`` or ``QTreeWidgetItem``.
+        column: The column, for a ``QTreeWidgetItem``; ``None`` for a list item,
+            whose font/foreground setters take no column.
+    """
+    font = item.font(column) if column is not None else item.font()
+    font.setBold(True)
+    font.setCapitalization(QFont.Capitalization.AllUppercase)
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
+    font.setPixelSize(int(_theme.FONT_SM.replace("px", "")))
+    colour = to_qcolor(_theme.COLOR_MUTED)
+    if column is not None:
+        item.setFont(column, font)
+        item.setForeground(column, colour)
+    else:
+        item.setFont(font)
+        item.setForeground(colour)
+
 
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
 # The splitter enforces this so the user cannot drag an expanded section below it.
@@ -281,7 +314,17 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
     # whatever order the panes happened to be resized in.  Sections override
     # this when their rows carry more (Alerts nests three sub-groups) or less.
     MIN_ROWS: int = 3
-    ROW_H: int = 24        # one content row, incl. its sub-line
+    #: Height of a SIMPLE list row — the "+N more" tail, a group heading, an
+    #: empty-state line. Used by the row budget for the space the tail costs.
+    ROW_H: int = 24
+    #: Height of a two-line CONTENT row (title over meta line) as built by
+    #: :func:`~metatv.gui.chip_row.build_chip_row`. A separate constant because
+    #: the two were one, meaning both "the tail costs this" and "a section needs
+    #: three of these" — and when V3's second line took the content row from
+    #: ~20px to ~37px, the single constant could only be right about one of
+    #: them. ``tests/test_sidebar_v3_row_style.py`` measures a real row against
+    #: this so the number cannot drift from the widget it describes.
+    CONTENT_ROW_H: int = 37
     HEADER_H: int = 26
 
     #: Extra rows a section is allowed while it has NEWS. Bounded on purpose —
@@ -319,6 +362,16 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self.setMinimumHeight(self.min_expanded_height())  # splitter enforces this while expanded
 
         # Main layout
+        # Each section is a CARD in the V3 render — its own rounded surface,
+        # separated from its neighbours by a gap, rather than a run of flat rows
+        # with only a tinted header strip to tell one section from the next. The
+        # card is what makes "these five rows belong to History" readable at a
+        # glance, which matters most in the section this rail exists to make
+        # scannable.
+        self.setObjectName("sidebarSection")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _theme.style(self, "SIDEBAR_SECTION_CARD")
+
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
@@ -379,7 +432,7 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         widens exactly when it has something to say.
         """
         rows = self.MIN_ROWS + (self.NEWS_BOOST_ROWS if self._news_active else 0)
-        return max(_MIN_EXPANDED, self.HEADER_H + rows * self.ROW_H + 8)
+        return max(_MIN_EXPANDED, self.HEADER_H + rows * self.CONTENT_ROW_H + 8)
 
     def _build_clickable_header(self) -> "_ClickableHeader":
         """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.
