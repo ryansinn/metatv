@@ -506,10 +506,6 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_MUTED_2 + "; text-decoration: line-through;"
     )
 
-    # VOD watch-for rule row (Alerts sidebar) — legible name + right-aligned count.
-    # The name stays COLOR_TEXT (never tinted); the count goes green only when there
-    # are unviewed matches, muted otherwise.  Colour-only (font-size inherits the list).
-    VOD_ALERT_NAME       = "color: " + COLOR_TEXT + ";"
     # Year chip sitting right after a list-row title: a subtle bordered pill (neutral,
     # QLabel-friendly like LANG_CHIP) so the year reads as a facet chip rather than body
     # text — dim text, a faint border, no fill. Composed from tokens only.
@@ -517,8 +513,6 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_TEXT_LOW + "; border: 1px solid " + COLOR_BORDER + ";"
         " border-radius: " + RADIUS_MD + "; padding: 1px " + SPACE_SM + "; font-size: " + FONT_LG + ";"
     )
-    VOD_ALERT_COUNT_NEW  = "color: " + COLOR_OK + ";"
-    VOD_ALERT_COUNT_IDLE = "color: " + COLOR_TEXT + ";"
 
     # Watch Queue pinned "new matches from your alerts" line — a single clickable GREEN
     # row at the top of the queue.  GREEN fill + the 🚨 glyph + the count text = the

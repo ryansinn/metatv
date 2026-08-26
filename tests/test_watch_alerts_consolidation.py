@@ -208,11 +208,22 @@ class TestRefreshMoviesSeries:
         assert _theme.COLOR_OK in sheet, sheet
         assert "background" in sheet, "the new count should be a filled pill"
 
-        # idle series row (item 2) shows no count and the idle style.
+        # idle series row (item 2) shows no count at all.
+        #
+        # This used to assert the last label's sheet equalled
+        # VOD_ALERT_COUNT_IDLE, which passed for the wrong reason: an idle row
+        # has never HAD a count chip, so the label being measured was the
+        # title — and VOD_ALERT_NAME and VOD_ALERT_COUNT_IDLE were the same
+        # string ("color: <COLOR_TEXT>;"), so an assertion about the count
+        # was satisfied by the name. Both roles are gone; assert the absence
+        # the test is named for instead.
         idle_row = lst.itemWidget(lst.item(2))
         idle_texts = [w.text() for w in _row_labels(idle_row)]
         assert any("Zebra" in t for t in idle_texts), idle_texts
-        assert _row_labels(idle_row)[-1].styleSheet() == _theme.VOD_ALERT_COUNT_IDLE
+        assert not any(t.startswith("+") for t in idle_texts), idle_texts
+        assert len(_row_labels(idle_row)) < len(labels), (
+            "an idle row should carry fewer widgets than one with a count"
+        )
 
     def test_rules_render_before_series_divider(self, qapp):
         cfg = _FakeConfig()

@@ -1,27 +1,34 @@
 """Row widgets the Watch Alerts section renders.
 
-Extracted because ``alerts.py`` carries a shrink-only ratchet and an owed
-split, and because these two are genuinely separable: each takes plain values
-and returns a widget, touching no section state. ``_name_with_dim_suffix_html``
-comes with them — it exists for ``_AlertRow``'s title.
+Both are thin shells over :func:`metatv.gui.chip_row.build_chip_row`, the one
+builder every other sidebar section already uses. They own only what a shared
+builder cannot: the left slot's PAINTING (which marker applies right now), the
+clock tick that rewrites their own time text, and — for :class:`_AlertRow` —
+mouse handling, since it is the only sidebar row that is itself interactive.
+
+Everything about their APPEARANCE now comes from the builder. That is the
+point. Watch Alerts was the last section still hand-assembling a QHBoxLayout,
+which is why its titles CLIPPED where every other list middle-elides, why its
+chips were built from copied stylesheet strings that went stale on a theme
+switch (``setStyleSheet`` renders once; ``theme.style_fn`` re-renders), and why
+its spacing had to be re-derived by hand every time the design moved.
 """
 
 from __future__ import annotations
 
-import html
-
 from datetime import datetime
 
-from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
-)
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from metatv.core.epg_utils import is_local_today, now_utc, to_local
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.chip_row import (
+    CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
+)
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 
@@ -43,124 +50,106 @@ SLOT_ICON_PX = 14
 ROW_PAD_Y = 5
 
 
-def news_chip_sheet() -> str:
-    """A FILLED pill for a "+N new" count.
+def _slot_label() -> QLabel:
+    """The fixed left column every Watch Alerts row aligns against.
 
-    Filled, not tinted text: it is the one thing on a row you are meant to
-    notice, and the design's loudest element. The foreground comes from
-    ``theme.on_fill`` rather than a hardcoded white — the fill carries the
-    palette, so the legible foreground flips with the FILL, not the theme.
+    Fixed width IS the feature. The play affordance used to be a button at the
+    right edge shown on hover, so it shoved the progress bar sideways whenever
+    the pointer crossed a row. A reserved column cannot reflow, whether it
+    currently holds a marker or not — which is also what gives EPG, Movies and
+    Series rows a single left edge.
     """
-    fill = _theme.COLOR_OK
-    return (
-        f"QPushButton {{ color: {_theme.on_fill(fill)}; background: {fill};"
-        f" border: 1px solid {fill}; border-radius: {_theme.RADIUS_SM};"
-        f" padding: 0px 5px; font-size: {_theme.FONT_XS}; font-weight: bold; }}"
-    )
+    slot = QLabel()
+    slot.setFixedWidth(SLOT_W)
+    slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    return slot
 
 
-def _chip(text: str, sheet: str) -> QPushButton:
-    """A trailing chip — flat, mouse-transparent, same box model as the row
-    chips everywhere else in the sidebar (see ``chip_row``)."""
-    chip = QPushButton(text)
-    chip.setFlat(True)
-    chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-    chip.setStyleSheet(sheet)
-    return chip
+class _RowShell(QWidget):
+    """What a Watch Alerts row is, minus what it shows.
 
-
-def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
-    """Rich-text ``title`` with an optional dim, smaller disambiguator suffix.
-
-    The suffix (a collision disambiguator — see
-    :func:`metatv.gui.series_alert_identity.disambiguation_suffixes`) is rendered
-    in the muted/smaller theme tokens so it reads as secondary text next to the
-    title.  Colour is paired with the always-on tooltip, so this is text-only (no
-    colour-alone state).  Both fragments are HTML-escaped.
-
-    Args:
-        text: The (cleaned) title.
-        suffix: The disambiguator suffix, or ``""`` for none.
-
-    Returns:
-        An HTML string for a rich-text ``QLabel``.
-    """
-    return (
-        f"{html.escape(text)} "
-        f'<span style="color:{_theme.COLOR_TEXT}; font-size:{_theme.FONT_SM}">'
-        f"{html.escape(suffix)}</span>"
-    )
-
-
-class _VodAlertRow(QWidget):
-    """Watch-for rule row: [type icon]  [name (legible)]  [right-aligned count].
-
-    Mirrors :class:`_AlertRow` — a custom widget set via ``setItemWidget`` so the
-    row reads cleanly (breathing room right of the type icon, no whole-row green
-    tint).  Transparent for mouse events so the host ``QListWidget`` keeps
-    receiving clicks / double-clicks / context-menu requests on the item.
+    Both rows are a ``build_chip_row`` widget mounted at zero inset, sized to
+    the section's row height, and willing to be as narrow as the list makes
+    them. That last part is the one that had to be stated: a row is laid out by
+    ``setItemWidget``, and the list sizes it from the ITEM's size hint — so a
+    row reporting its natural width (462px for a long rule name, against a
+    300px sidebar) widens the list instead of eliding inside it. Reporting the
+    minimum instead is what lets ``MiddleElideLabel`` do its job; it is why
+    Watch Alerts titles clipped for as long as the section built its own rows.
     """
 
-    def __init__(self, type_icon: str, text: str, count_text: str,
-                 count_style: str, parent=None, *, suffix: str = "",
-                 is_new: bool = False, marker: str = ""):
+    def _mount(self, inner: QWidget) -> None:
+        """Put the built row inside this one at zero inset.
+
+        Zero margins matter beyond tidiness: ``_AlertRow`` maps child geometry
+        into its own coordinates to hit-test the slot, and any inset here would
+        put the two coordinate systems permanently out of step.
+        """
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(inner)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # From the font's OWN line box (ascent + descent + leading), so a
+        # descender can never be clipped by a row sized to its children —
+        # "Stargate SG-1" lost the tail of its g this way.
+        self.setMinimumHeight(
+            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y + 2
+        )
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        """Full row height, minimum width.
+
+        The height is the section's, not the inner chip row's tighter one; the
+        width is the narrowest the row can be drawn at, so the hosting list
+        never grows a horizontal scroll range and the title elides instead.
+        """
+        hint = super().sizeHint()
+        return QSize(
+            super().minimumSizeHint().width(),
+            max(hint.height(), self.minimumHeight()),
+        )
+
+
+class _VodAlertRow(_RowShell):
+    """A Movies / Series row: keyword rule or monitored series.
+
+    Rendered by ``build_chip_row``; this class exists only to hold the slot and
+    keep the widget mouse-transparent so the hosting ``QListWidget`` item keeps
+    click / double-click / context-menu.
+    """
+
+    def __init__(self, text: str, count_text: str, parent=None, *,
+                 suffix: str = "", is_new: bool = False, marker: str = ""):
         """
         Args:
-            type_icon: Legacy leading glyph; empty in the V3 row.
             text: The title.
-            count_text: The trailing count, rendered as a chip.
-            count_style: Sheet for the count chip.
+            count_text: The trailing count.
             parent: Qt parent.
             suffix: Collision disambiguator, shown dim after the title.
-            is_new: Draws the green dot in the left slot — the same column and
-                the same marker the EPG rows use, so "new" reads identically
-                wherever it appears.
-            marker: An episode code ("S05E03") or year, drawn as a chip beside
-                the title. A claim about THIS title, so it travels with it
-                rather than sitting in the right rail.
+            is_new: Draws the green dot in the left slot, and makes the count a
+                filled pill rather than an outlined chip — one decision in one
+                place, instead of every call site computing its own sheet — the same column and the same markers the EPG rows
+                use, so "new" reads identically wherever it appears.
+            marker: An episode code ("S05E03") or year, chipped beside the
+                title. A claim about THIS title, so it travels with it rather
+                than sitting in the right rail.
         """
         super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, ROW_PAD_Y, 4, ROW_PAD_Y)
-        layout.setSpacing(5)
 
-        # The same fixed left column the EPG rows use, so titles across the
-        # whole section share one left edge whether or not a row is marked.
-        slot = QLabel()
-        slot.setFixedWidth(SLOT_W)
-        slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        slot = _slot_label()
         if is_new:
             slot.setPixmap(_icon_utils.vector_pixmap(
                 _icons.vector_key("new_dot"), _theme.COLOR_OK, SLOT_ICON_PX))
             slot.setToolTip("New since you last looked")
-        layout.addWidget(slot)
 
-        if type_icon:
-            layout.addWidget(QLabel(type_icon))
-
-        name_lbl = QLabel()
-        _theme.style(name_lbl, "VOD_ALERT_NAME")  # COLOR_TEXT — never tinted
-        if suffix:
-            # Collision disambiguator: title + a dim, smaller suffix inline (rich
-            # text so it flows immediately after the title, not at the far margin).
-            name_lbl.setTextFormat(Qt.TextFormat.RichText)
-            name_lbl.setText(_name_with_dim_suffix_html(text, suffix))
-        else:
-            name_lbl.setText(text)
-        layout.addWidget(name_lbl)
-
-        if marker:
-            layout.addWidget(_chip(marker, _theme.SIDEBAR_CHIP_YEAR))
-        layout.addStretch(1)
-
-        if count_text:
-            # A chip, not bare text: every other trailing fact in this section
-            # is one, and a naked number beside a chipped neighbour reads as a
-            # different KIND of thing.
-            layout.addWidget(_chip(count_text, count_style))
-
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._mount(build_chip_row(
+            title=text,
+            title_suffix=suffix,
+            title_chips=((CHIP_YEAR, marker),),
+            chips=((CHIP_NEWS if is_new else CHIP_YEAR, count_text),),
+            leading_slot=slot,
+        ))
         # The item (not this widget) owns click/double-click/context-menu, so let
         # events pass through to the QListWidget viewport.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -205,8 +194,13 @@ class _ProgressBar(QWidget):
                        self._pct)
 
 
-class _AlertRow(QWidget):
-    """Channel row widget for Watch Alerts: name + right-aligned time + hover play button."""
+class _AlertRow(_RowShell):
+    """An EPG programme or one of its airings.
+
+    The section's only interactive row: it emits its own signals and paints its
+    own left slot. The visible row is a ``build_chip_row`` widget mounted
+    inside it.
+    """
 
     play_clicked = pyqtSignal()
     row_clicked  = pyqtSignal()  # single click anywhere except the play button
@@ -220,7 +214,8 @@ class _AlertRow(QWidget):
         Args:
             ch_name: The channel/title text for the row.
             time_str: The time text as of now — see :meth:`refresh_time`.
-            config: The app config (supplies the play glyph).
+            config: The app config. Unused since the play glyph moved to the
+                slot's vector icon; kept so call sites and tests are unchanged.
             parent: Qt parent.
             when: The programme's ``stop_time`` (live rows) or ``start_time``
                 (upcoming rows), UTC-naive. Kept so the row can recompute its
@@ -228,9 +223,9 @@ class _AlertRow(QWidget):
                 is right for rows whose text is not time-derived.
             live: True for a row counting DOWN to a programme's end, False for
                 one counting up to its start. Picks the formatter.
-            quality: A quality token ("RAW", "4K") drawn as a chip beside the
-                title — a claim about THIS copy, so it travels with the title
-                rather than sitting in the right rail.
+            quality: A quality token ("RAW", "4K") chipped beside the title — a
+                claim about THIS copy, so it travels with the title rather than
+                sitting in the right rail.
             indent: Left inset for a child row. The TREE used to supply this
                 via setIndentation, which also indented top-level rows — so EPG
                 titles started further right than Movies and Series ones and the
@@ -239,9 +234,9 @@ class _AlertRow(QWidget):
                 caret. Replaces the tree's native indicator, which lived in its
                 own column and could not share the slot with play and new.
             expanded: Which way the caret points.
-            chip_time: Render the time text as a chip rather than plain dim
-                text. Used by a programme row, whose time is a fact about the
-                programme rather than a column of the list.
+            chip_time: Render the time text as a chip rather than as the row's
+                muted tail. Used by a programme row, whose time is a fact about
+                the programme rather than a column of the list.
             started_at: The programme's start, for a live row. With ``when``
                 (its end) this gives the DURATION, which is what turns "13m
                 left" into a proportion. Without it the row falls back to
@@ -256,33 +251,8 @@ class _AlertRow(QWidget):
         self._hovered = False
         self._expandable = expandable
         self._expanded = expanded
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4 + indent, ROW_PAD_Y, 4, ROW_PAD_Y)
-        layout.setSpacing(5)
 
-        # ── the left slot ────────────────────────────────────────────────
-        # ONE fixed-width column, absolute left of the title, shared by every
-        # marker a row can carry. Fixed width is the point: the play affordance
-        # used to be a button at the RIGHT edge that appeared on hover, so it
-        # shoved the progress bar sideways whenever the pointer crossed a row.
-        # A reserved column cannot reflow, whether it holds anything or not.
-        self._slot = QLabel()
-        self._slot.setFixedWidth(SLOT_W)
-        self._slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._slot)
-
-        name_lbl = QLabel(ch_name)
-        layout.addWidget(name_lbl)
-        if quality:
-            from metatv.gui.badge_utils import quality_outline_color
-            hue = quality_outline_color(quality)
-            layout.addWidget(_chip(quality, (
-                f"QPushButton {{ color: {hue};"
-                f" border: 1px solid {_theme.COLOR_BORDER};"
-                f" background: transparent; border-radius: {_theme.RADIUS_SM};"
-                f" padding: 0px 5px; font-size: {_theme.FONT_XS}; }}"
-            )))
-        layout.addStretch(1)
+        self._slot = _slot_label()
 
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
@@ -294,39 +264,34 @@ class _AlertRow(QWidget):
             live and when is not None and started_at is not None and not chip_time
         )
 
-        # A row shows EITHER a bar or a time chip. Plain dim text was the old
-        # right-hand column; a chip is what every other trailing fact in this
-        # section is, and a naked string beside them reads as a different kind
-        # of thing.
-        if chip_time or not self._show_bar:
-            self.time_lbl = _chip(time_str, _theme.SIDEBAR_CHIP_YEAR)
-        else:
-            self.time_lbl = QLabel(time_str)
-            _theme.style(self.time_lbl, "CHANNEL_NAME_DIM")
-            self.time_lbl.setAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-        self.time_lbl.setVisible(not self._show_bar)
-        layout.addWidget(self.time_lbl)
-
         # Built at its REAL fill, not at zero. It used to start empty and only
         # correct on the first 30s tick, so every bar rendered as a sliver for
         # up to half a minute and then jumped — which reads as the app being
         # wrong rather than as the programme progressing.
         self.progress = None
         if self._show_bar:
-            self.progress = _ProgressBar(
-                elapsed_pct(started_at, when, now_utc())
-            )
+            self.progress = _ProgressBar(elapsed_pct(started_at, when, now_utc()))
             self.progress.setToolTip(time_str)
-            layout.addWidget(self.progress)
 
-        # A minimum from the font's OWN line box (ascent + descent + leading),
-        # so a descender can never be clipped by a row sized to its children.
-        self.setMinimumHeight(
-            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y + 2
-        )
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # A row shows EITHER a bar or its time, never both: the bar already
+        # encodes the remaining time as a proportion and carries the words in
+        # its tooltip. The time is a chip because every other trailing fact in
+        # this section is one, and a naked string beside them reads as a
+        # different KIND of thing.
+        #
+        # Built here rather than declared as `chips=` so the row keeps a direct
+        # reference for `refresh_time`. Fishing it back out of the assembled row
+        # by matching text would return the wrong widget the moment a title
+        # equalled a time string.
+        self.time_lbl = None if self._show_bar else chip_widget(CHIP_YEAR, time_str)
+
+        self._mount(build_chip_row(
+            title=ch_name,
+            title_chips=((CHIP_QUALITY, quality),),
+            tail_widget=self.progress if self._show_bar else self.time_lbl,
+            leading_slot=self._slot,
+            indent=indent,
+        ))
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
         self._paint_slot()
@@ -399,16 +364,6 @@ class _AlertRow(QWidget):
         )
         self._slot.setToolTip(tip)
 
-    def set_extra_count(self, extra: int) -> None:
-        """Add a "+N" chip for the airings folded under this row.
-
-        Was appended to the row's TEXT as "  +2" behind a "·". A count is a
-        distinct fact, not more title.
-        """
-        if extra <= 0:
-            return
-        self.layout().addWidget(_chip(f"+{extra}", _theme.SIDEBAR_CHIP_YEAR))
-
     def refresh_time(self, now: datetime) -> None:
         """Recompute this row's time text against ``now``.
 
@@ -431,7 +386,7 @@ class _AlertRow(QWidget):
             else humanize_until(self._when, now,
                                 to_local=to_local, is_local_today=is_local_today)
         )
-        if text != self.time_lbl.text():
+        if self.time_lbl is not None and text != self.time_lbl.text():
             self.time_lbl.setText(text)
         if self.progress is not None:
             # The bar advances on the same tick, from the same instant, so the
@@ -440,10 +395,19 @@ class _AlertRow(QWidget):
                 elapsed_pct(self._started_at, self._when, now), tooltip=text
             )
 
+    def _slot_rect(self) -> QRect:
+        """The slot's geometry in THIS widget's coordinates.
+
+        The slot lives inside the built row now, so its own ``geometry()`` is
+        relative to that child and not to the row the click arrived on.
+        """
+        top_left = self._slot.mapTo(self, QPoint(0, 0))
+        return QRect(top_left, self._slot.size())
+
     def mousePressEvent(self, event):
         # The slot IS the play control while it is offering to play — clicking
         # the triangle starts it, clicking anywhere else selects the row.
-        if self._slot.geometry().contains(event.pos()) and (
+        if self._slot_rect().contains(event.pos()) and (
             self._playing or (self._hovered and self._offers_play())
         ):
             self.play_clicked.emit()
