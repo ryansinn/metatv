@@ -38,6 +38,12 @@ class _FakeConfig:
     ``refresh_vod_rules`` render path runs unmodified.
     """
 
+    #: These tests assert how a row RENDERS and how a click routes, not
+    #: which entries are eligible to be listed. The section now lists only
+    #: firing entries by default, so they opt into the full list — the
+    #: filter itself is covered by tests/test_alerts_new_only.py.
+    alerts_show_idle_items = True
+
     expand_icon = ">"
     collapse_icon = "v"
 
@@ -436,17 +442,35 @@ class TestRealSectionConstruction:
             sec.refresh_vod_rules()
             assert sec._vod_list.count() == 0
 
-            # A new-episode series + an idle one → divider + 2 rows, new one pinned.
+            # A new-episode series + an idle one. By DEFAULT the section is a
+            # noticeboard, so only the one with new episodes is listed —
+            # heading + 1 row.
             cfg.monitored_series = [
                 _series("a", "EN - Rick And Morty (2013)", 3, "Rick and Morty"),
                 _series("b", "EN - The Wire (2002)", 0, "The Wire"),
             ]
             sec.refresh_vod_rules()
-            kinds = [
-                sec._vod_list.item(i).data(_ROLE_KIND)
+
+            def _kinds():
+                return [
+                    sec._vod_list.item(i).data(_ROLE_KIND)
+                    for i in range(sec._vod_list.count())
+                ]
+
+            assert _kinds() == ["heading", "series"], _kinds()
+            first = sec._vod_list.itemWidget(sec._vod_list.item(1))
+            assert any("Rick and Morty" in w.text() for w in _row_labels(first))
+            assert not any(
+                "The Wire" in w.text()
                 for i in range(sec._vod_list.count())
-            ]
-            assert kinds == ["heading", "series", "series"]
+                for w in _row_labels(sec._vod_list.itemWidget(sec._vod_list.item(i)))
+                if sec._vod_list.itemWidget(sec._vod_list.item(i)) is not None
+            ), "an idle series was listed by default"
+
+            # ...and with the setting on, both render, the new one pinned first.
+            cfg.alerts_show_idle_items = True
+            sec.refresh_vod_rules()
+            assert _kinds() == ["heading", "series", "series"], _kinds()
             first = sec._vod_list.itemWidget(sec._vod_list.item(1))
             assert any("Rick and Morty" in w.text() for w in _row_labels(first))
         finally:

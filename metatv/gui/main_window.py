@@ -2409,6 +2409,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_sidebar_row_density)
         dialog.settings_applied.connect(self.refresh_theme)
         dialog.settings_applied.connect(self._apply_collapse_variants_setting)
+        # alerts_show_idle_items changes WHICH rows the section lists, so it has
+        # to re-render; the existing alert-visibility chokepoint already does it.
+        dialog.settings_applied.connect(self._refresh_vod_alerts_section)
         # Applies the menu-bar setting AND re-ticks the Tools entry, so the two
         # surfaces cannot disagree after an OK.
         dialog.settings_applied.connect(self._apply_menu_bar_setting)

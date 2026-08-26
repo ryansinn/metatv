@@ -677,6 +677,8 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._sidebar_density_combo.currentData.return_value = "compact"
     dlg._show_more_row_check = MagicMock()
     dlg._show_more_row_check.isChecked.return_value = False
+    dlg._alerts_show_idle_check = MagicMock()
+    dlg._alerts_show_idle_check.isChecked.return_value = False
     dlg._platform_name_style_combo = MagicMock()
     dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
@@ -763,6 +765,8 @@ def wire_settings_density_widget(dlg) -> None:
         dlg._sidebar_density_combo.addItem(label, value)
     dlg._show_more_row_check = QCheckBox()
     dlg._show_more_row_check.setChecked(False)
+    dlg._alerts_show_idle_check = QCheckBox()
+    dlg._alerts_show_idle_check.setChecked(False)
     dlg._platform_name_style_combo = QComboBox()
     for label, value in _PLATFORM_NAME_STYLE_CHOICES:
         dlg._platform_name_style_combo.addItem(label, value)
@@ -855,6 +859,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_collapse_variants_setting",
     "_sync_split_toggle",
     "_apply_menu_bar_setting",
+    "_refresh_vod_alerts_section",
 )
 
 

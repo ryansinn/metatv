@@ -141,8 +141,54 @@ class MoviesSeriesMixin:
         self._keyword_collapsed = not self._keyword_collapsed
         self.refresh_vod_rules()
 
+    def _show_idle_only_notice(self, watching: int) -> None:
+        """One muted line for "you have alerts, none of them is firing".
+
+        The alternative — an empty section — is indistinguishable from a broken
+        one, which is the lesson EPG learned in #480.
+        """
+        from metatv.gui import icons as _icons
+
+        item = QListWidgetItem(
+            f"  {_icons.info_icon}  Nothing new from {watching} "
+            f"alert{'s' if watching != 1 else ''}"
+        )
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setData(_ROLE_KIND, "heading")
+        item.setToolTip(
+            f"You are watching for {watching} thing"
+            f"{'s' if watching != 1 else ''}; none has anything new.\n"
+            "Settings \u2192 Watch Alerts, or Manage Watch Alerts, can show "
+            "them all."
+        )
+        self._vod_list.addItem(item)
+        self._update_vod_toggle_label(0)
+        self._vod_list.show()
+        # Through the existing chokepoint, not a bare set_empty: it reads the
+        # list's real contents (this notice counts) AND carries the guard for a
+        # __new__'d test double, where set_empty raises RuntimeError.
+        self._recompute_empty()
+
+    def _hidden_note(self) -> str:
+        """" · N not showing", when idle entries are being filtered out.
+
+        A group heading reading "SERIES 2" with seven monitored series behind it
+        is honest about what it lists and silent about what it does not. The
+        count stays what is SHOWN — that is what a heading counts — and the
+        difference goes in the tooltip, where it can say what to do about it.
+        """
+        hidden = self.__dict__.get("_idle_hidden", 0)
+        if not hidden:
+            return ""
+        return (
+            f"\n\n{hidden} with nothing new "
+            f"{'is' if hidden == 1 else 'are'} not shown — turn on "
+            '"Show alerts with nothing new" in Settings \u2192 Watch Alerts '
+            "or in Manage Watch Alerts."
+        )
+
     def _add_group_heading(self, text: str, count: int | None = None, *,
-                           on_click=None, tooltip: str = "") -> None:
+                           news: int = 0, on_click=None, tooltip: str = "") -> None:
         """Add one sub-group heading to the VOD list.
 
         The item is always ``NoItemFlags`` — a heading is chrome, so the row
@@ -161,7 +207,8 @@ class MoviesSeriesMixin:
         item.setData(_ROLE_KIND, "heading")
         self._vod_list.addItem(item)
         heading = GroupHeading(
-            text, count, interactive=on_click is not None, tooltip=tooltip
+            text, count, interactive=on_click is not None,
+            tooltip=tooltip + self._hidden_note(), news=news,
         )
         if on_click is not None:
             heading.clicked.connect(on_click)
@@ -199,6 +246,35 @@ class MoviesSeriesMixin:
             _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
         self._firing_count = _rules_firing  # read by _update_vod_toggle_label
         self._series_new_count = sum(1 for s in series if s["unseen"] > 0)
+
+        # Counted from the FULL sets above, then filtered for display. The
+        # section is a noticeboard: by default it lists what has ARRIVED, not
+        # the standing watchlist — that is Manage Watch Alerts' job, and for
+        # EPG keywords the EPG view's Watch tab. The badge and the "N watching"
+        # line still know about everything.
+        _unviewed_for = getattr(
+            self.config, "get_vod_rule_unviewed_count", lambda _c: 0
+        )
+
+        def _rule_is_firing(rule: dict) -> bool:
+            """Whether this keyword rule has anything unseen, AVAILABLE-only.
+
+            Same resolution order the rows use below: the re-validated count
+            when a DB is wired, the raw config count otherwise. Reading it any
+            other way would let a rule matched only on a disabled source count
+            as firing here while its row said zero.
+            """
+            created = rule.get("created")
+            if avail is not None:
+                return avail.per_rule_unviewed.get(created, 0) > 0
+            return _unviewed_for(created) > 0
+
+        watching_total = len(rules) + len(series)
+        if not getattr(self.config, "alerts_show_idle_items", False):
+            rules = [r for r in rules if _rule_is_firing(r)]
+            series = [e for e in series if e["unseen"] > 0]
+        self._idle_hidden = watching_total - (len(rules) + len(series))
+
         # Group sizes, for pressure_groups: an EMPTY group folds before one
         # that would actually lose rows.
         self._rules_count = len(rules)
@@ -214,13 +290,15 @@ class MoviesSeriesMixin:
         )
 
         if not rules and not series:
-            self._vod_list.hide()
-            self._recompute_empty()
+            if self._idle_hidden:
+                # Alerts ARE configured; none of them is firing. Hiding the
+                # group here would repeat exactly the bug #480 fixed for EPG:
+                # a working feature rendering as an absent one.
+                self._show_idle_only_notice(watching_total)
+            else:
+                self._vod_list.hide()
+                self._recompute_empty()
             return
-
-        _unviewed_for = getattr(
-            self.config, "get_vod_rule_unviewed_count", lambda _c: 0
-        )
 
         # ── "Watching for" group heading ───────────────────────────────────
         # Only shown when BOTH groups are present — with a single group the
@@ -228,8 +306,12 @@ class MoviesSeriesMixin:
         # It is a collapse toggle like every other group heading; it used to be
         # NoItemFlags and inert while looking identical to the Series one.
         if rules and series:
+            # The pill only when the group is CLOSED: expanded, each firing
+            # row already carries its own green marker, and a pill on the
+            # heading would say the same thing twice.
             self._add_group_heading(
                 "Movies", len(rules),
+                news=self._firing_count if self._keyword_collapsed else 0,
                 on_click=self._toggle_keyword_group,
                 tooltip="Titles you are watching for — click to collapse or expand",
             )
@@ -278,6 +360,7 @@ class MoviesSeriesMixin:
         if series:
             self._add_group_heading(
                 "Series", len(series),
+                news=self._series_new_count if self._series_collapsed else 0,
                 on_click=self._toggle_series_group,
                 tooltip=("Series you're monitoring for new episodes — "
                          "click to collapse or expand"),
