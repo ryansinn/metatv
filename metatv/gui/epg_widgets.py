@@ -24,6 +24,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt
+
+from metatv.gui.progress_paint import paint_progress
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -60,24 +62,13 @@ class _ProgressBarDelegate(QStyledItemDelegate):
     """Paints a compact horizontal progress bar in the Remaining column."""
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
-        from PyQt6.QtGui import QColor
         pct = index.data(_PROGRESS_ROLE)
         if pct is None:
             super().paint(painter, option, index)
             return
-        painter.save()
-        r = option.rect.adjusted(4, 6, -4, -6)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(55, 55, 55))
-        painter.drawRoundedRect(r, 2, 2)
-        fill_w = max(4, int(r.width() * pct / 100))
-        # hue: 55 (yellow) at start → 30 (orange) near end
-        hue = int(55 - (pct / 100) * 25)
-        painter.setBrush(QColor.fromHsv(hue, 200, 210, 200))
-        from PyQt6.QtCore import QRect
-        fill_r = QRect(r.x(), r.y(), fill_w, r.height())
-        painter.drawRoundedRect(fill_r, 2, 2)
-        painter.restore()
+        # Was four hardcoded colour literals and an HSV ramp, which the theme
+        # layer could not see and which did not match the agenda strip's bar.
+        paint_progress(painter, option.rect.adjusted(4, 6, -4, -6), pct)
 
     def sizeHint(self, option, index):  # noqa: N802
         from PyQt6.QtCore import QSize

@@ -225,19 +225,14 @@ class _ProgressBar(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        from PyQt6.QtGui import QColor, QPainter
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w = self.width()
-        h = self.height()
-        # Track
-        p.setBrush(QColor(60, 60, 60))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(0, 0, w, h, 2, 2)
-        # Fill
-        fill_w = max(4, int(w * self._pct / 100))
-        p.setBrush(QColor(255, 200, 0, 200))
-        p.drawRoundedRect(0, 0, fill_w, h, 2, 2)
+        from PyQt6.QtCore import QRect
+        from PyQt6.QtGui import QPainter
+        from metatv.gui.progress_paint import paint_progress
+
+        # Was its own track/fill literals, a different grey and a different
+        # amber from the EPG delegate's — two bars for one idea.
+        paint_progress(QPainter(self), QRect(0, 0, self.width(), self.height()),
+                       self._pct)
         p.end()
 
 
