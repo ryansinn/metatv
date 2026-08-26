@@ -183,6 +183,35 @@ from metatv.gui.sidebar.section_pressure import (  # noqa: F401
 
 
 
+class SectionAction(NamedTuple):
+    """One entry in a section's ⋯ menu.
+
+    A record rather than a bare tuple because two of these fields decide
+    whether the action is SHOWN as a header button or hidden behind the menu,
+    and a positional flag is exactly the thing that gets passed wrong once and
+    then silently deletes someone's history.
+
+    Attributes:
+        label: Menu text, glyph included.
+        tooltip: Hover text; reused on the button when promoted.
+        run: The callable.
+        icon: An ``icons.vector_key`` name. Only an action WITH one can be
+            promoted to a direct header button — declaring an icon is how a
+            section opts in.
+        destructive: This action destroys data. **Never promoted**, whatever
+            else is true. The ⋯ is the deliberate step that stops a curious
+            click and the confirmation dialog is the second; owner, on the
+            Clear History button sitting a quarter-inch from the count:
+            "wouldn't be hard to accidently click it".
+    """
+
+    label: str
+    tooltip: str
+    run: "Callable[[], None]"
+    icon: str = ""
+    destructive: bool = False
+
+
 def make_seamless(view) -> None:
     """Strip a view's frame and ground so it reads as part of its section.
 
@@ -669,9 +698,9 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         # shows itself, and the ⋯ appears the moment there are two. The SLOT is
         # what stays consistent between sections, not the glyph in it; Watch
         # Alerts already puts direct actions here.
-        if len(actions) == 1:
-            label, tooltip, slot, *rest = actions[0]
-            key = rest[0] if rest else "more"
+        only = actions[0] if len(actions) == 1 else None
+        if only is not None and only.icon and not only.destructive:
+            label, tooltip, slot, key = only.label, only.tooltip, only.run, only.icon
             self._overflow_btn.setText("")
             self._overflow_btn.setIcon(_icon_utils.resolve_icon(
                 _icons.vector_key(key), _theme.COLOR_TEXT
@@ -683,10 +712,10 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
             return self._overflow_btn
 
         self._overflow_menu = QMenu(self._overflow_btn)
-        for label, tooltip, slot, *_ in actions:
-            action = self._overflow_menu.addAction(label)
-            action.setToolTip(tooltip)
-            action.triggered.connect(slot)
+        for entry in actions:
+            action = self._overflow_menu.addAction(entry.label)
+            action.setToolTip(entry.tooltip)
+            action.triggered.connect(entry.run)
         self._overflow_btn.clicked.connect(self._show_overflow_menu)
 
         # NOT returned as a content row any more — the caller puts it in the

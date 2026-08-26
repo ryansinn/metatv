@@ -436,6 +436,23 @@ class _FavoritesMixin:
             self._refresh_queue_section()
 
     def _clear_watched_queue(self) -> None:
+        # Confirms, like its two siblings did and this one did not. It is
+        # behind the ⋯ so it already takes two clicks, but it deletes without
+        # asking and the other clears do not — an inconsistency nobody would
+        # predict from the menu.
+        from PyQt6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self,
+            "Clear Watched",
+            "Remove every finished item from the watch queue?\n\n"
+            "Partially watched titles stay.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
         count = 0
         with self.db.session_scope() as session:
             count = RepositoryFactory(session).queue.clear_watched()
@@ -641,6 +658,38 @@ class _FavoritesMixin:
             self.status_bar.showMessage(f"Removed {channel_name} from history")
             logger.info(f"Removed {channel_name} from history")
             self.load_history()
+
+    def clear_history_older_than(self, days: int) -> None:
+        """Forget playback older than ``days``, keeping everything since.
+
+        Same confirmation as the full clear — it is still destructive, just
+        narrower — but it names what SURVIVES, which is the whole reason to
+        offer it.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self,
+            "Clear Old History",
+            f"Forget everything you played more than {days} days ago?\n\n"
+            "Anything played since then is kept, as are favorites.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            with self.db.session_scope() as session:
+                count = RepositoryFactory(session).channels.clear_history_older_than(days)
+            self.status_bar.showMessage(
+                f"Cleared {count} item(s) older than {days} days"
+                if count else "Nothing was older than that"
+            )
+            self.load_history()
+            self.load_favorites()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to clear old history: {e}")
+            self.status_bar.showMessage(f"Error clearing history: {e}")
 
     def clear_history(self):
         """Clear all history"""

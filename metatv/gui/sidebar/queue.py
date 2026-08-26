@@ -17,7 +17,7 @@ from metatv.gui.chip_row import (
     media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading, make_seamless
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -148,12 +148,16 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def overflow_actions(self):
         return [
-            (f"{self.config.watched_icon} Clear Watched",
-             "Remove finished items — partially watched titles stay",
-             self.clearWatchedClicked.emit),
-            (f"{self.config.delete_icon} Clear All",
-             "Remove everything from the queue",
-             self.clearQueueClicked.emit),
+            SectionAction(
+                f"{self.config.watched_icon} Clear Watched",
+                "Remove finished items — partially watched titles stay",
+                self.clearWatchedClicked.emit, destructive=True,
+            ),
+            SectionAction(
+                f"{self.config.delete_icon} Clear All",
+                "Remove everything from the queue",
+                self.clearQueueClicked.emit, destructive=True,
+            ),
         ]
 
     def create_content(self):

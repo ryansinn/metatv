@@ -1224,6 +1224,35 @@ class ChannelRepository(_ChannelStatsMixin):
         logger.info(f"Cleared history for {count} channels")
         return count
     
+    def clear_history_older_than(self, days: int) -> int:
+        """Forget playback older than ``days``, keeping everything since.
+
+        The blunt :meth:`clear_history` is all-or-nothing, which makes tidying
+        up an all-or-nothing decision too — owner: "people aren't wiping
+        history daily ... maybe add a second wipe history option that wipes
+        history older than a month or older than two weeks."
+
+        Args:
+            days: Age threshold. Rows last played strictly before this many
+                days ago are cleared.
+
+        Returns:
+            How many channels were cleared.
+        """
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        count = self.session.query(ChannelDB).filter(
+            ChannelDB.last_played.isnot(None),
+            ChannelDB.last_played < cutoff,
+        ).update({
+            ChannelDB.last_played: None,
+            ChannelDB.play_count: 0,
+        }, synchronize_session=False)
+        self.session.commit()
+        logger.info(f"Cleared history older than {days}d for {count} channels")
+        return count
+
     def remove_from_history(self, channel_id: str) -> bool:
         """Remove single channel from history"""
         channel = self.get_by_id(channel_id)

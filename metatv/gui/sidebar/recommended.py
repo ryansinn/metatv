@@ -13,7 +13,7 @@ from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
     build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
 )
-from metatv.gui.sidebar.base import CollapsibleSection, make_seamless
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
 
 # Re-exported for callers/tests that import the title label from this module; the
 # canonical definition now lives in ``metatv.gui.chip_row`` (shared by every
@@ -82,9 +82,11 @@ class RecommendedSection(CollapsibleSection):
 
     def overflow_actions(self):
         return [
-            (f"{self.config.refresh_icon} Refresh recommendations",
-             "Recompute recommendations from your ratings and history",
-             self.refresh, "refresh"),
+            SectionAction(
+                f"{self.config.refresh_icon} Refresh recommendations",
+                "Recompute recommendations from your ratings and history",
+                self.refresh, icon="refresh",
+            ),
         ]
 
     def create_content(self):

@@ -9,7 +9,7 @@ from metatv.gui.chip_row import (
 )
 from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, make_seamless
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -56,6 +56,8 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
+    #: Age-scoped clear; carries the day threshold.
+    clearOldHistoryClicked = pyqtSignal(int)
     playNextClicked     = pyqtSignal(str)  # episode_id — the row's ">>" "Play Next Episode" button
     # "Explore →" (open the Watch-History trail-map) is the shared base-class
     # ``exploreClicked`` signal — see CollapsibleSection._add_explore_link.
@@ -72,9 +74,24 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def overflow_actions(self):
         return [
-            (f"{self.config.delete_icon} Clear History",
-             "Remove every entry from your history",
-             self.clearHistoryClicked.emit, "clear_all"),
+            # Both destructive, so both stay behind the ⋯ however few there
+            # are. The older-than option exists because all-or-nothing made
+            # tidying up an all-or-nothing decision — owner: "people aren't
+            # wiping history daily ... add a second wipe history option that
+            # wipes history older than a month".
+            SectionAction(
+                f"{self.config.delete_icon} Clear history older than 30 days",
+                "Forget what you played more than a month ago, keeping "
+                "everything since",
+                lambda: self.clearOldHistoryClicked.emit(30),
+                destructive=True,
+            ),
+            SectionAction(
+                f"{self.config.delete_icon} Clear all history",
+                "Remove every entry from your history",
+                self.clearHistoryClicked.emit,
+                destructive=True,
+            ),
         ]
 
     def create_content(self):
