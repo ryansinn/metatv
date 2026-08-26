@@ -114,3 +114,45 @@ def test_the_label_no_longer_says_checking(qapp, tmp_path):
     assert "checking" not in section._vod_toggle.text().lower(), (
         f"the header still spells it out: {section._vod_toggle.text()!r}"
     )
+
+
+def test_the_news_count_is_right_aligned_and_left_of_the_spinner(qapp, tmp_path):
+    """Owner: "get rid of the dot separator... make the New count align right,
+    but to the left of the spinner when the spinner is active."
+
+    Asserted on painted GEOMETRY, because the count used to be part of the
+    button's TEXT ("Movies & Series (5)  ·  3 new") — where it cannot be
+    positioned at all, and the "·" was doing the work a layout should.
+    """
+    from metatv.core.config import Config
+    from metatv.gui.sidebar.alerts import WatchAlertsSection
+
+    section = WatchAlertsSection(Config(config_dir=tmp_path), db=None)
+    container = section._vod_hdr_container
+    container.show()
+    container.resize(290, 24)
+    section._firing_count = 2
+    section._series_new_count = 0
+    section._update_vod_toggle_label(5)
+    section.set_series_checking(True)
+    container.layout().activate()
+
+    def left(w):
+        return w.mapTo(container, w.rect().topLeft()).x()
+
+    toggle_x = left(section._vod_toggle)
+    news_x = left(section._vod_news_lbl)
+    spinner_x = left(section._series_spinner)
+
+    assert toggle_x < news_x < spinner_x, (
+        f"order is toggle → count → spinner; got {toggle_x}, {news_x}, {spinner_x}"
+    )
+    assert news_x > container.width() * 0.6, (
+        f"the count is not right-aligned (x={news_x} of {container.width()})"
+    )
+    assert "·" not in section._vod_toggle.text(), (
+        f"the dot separator is back: {section._vod_toggle.text()!r}"
+    )
+    assert "new" not in section._vod_toggle.text().lower(), (
+        f"the count is back in the button text: {section._vod_toggle.text()!r}"
+    )
