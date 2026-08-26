@@ -25,7 +25,7 @@ separable concern: it takes a widget and a height and returns a count.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import QListWidgetItem, QTreeWidgetItem
 
 #: The role the "+N more" marker lives in — **not** ``UserRole``.
@@ -138,39 +138,59 @@ class RowBudgetMixin:
         # somewhere else", which is what the header's Explore → does; this one
         # grows the section in place. Two affordances that looked and behaved
         # the same were a duplicate, not a choice.
-        tail = QListWidgetItem(f"Show {hidden} more")
-        tail.setData(_MORE_ROLE, _MORE_ROW)
-        # Clickable but NOT selectable: it is a link, not a row you can be "on",
-        # and leaving it selectable also means every selection handler has to
-        # cope with the current item having no payload.
-        tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        tail.setToolTip(
-            f"{hidden} more — make this section taller to show them"
-        )
-        list_widget.addItem(tail)
+        #
+        # Its audience is specifically people WITHOUT a scroll wheel — wheeling
+        # the list is the primary way to reveal more (see eventFilter). That is
+        # why it keeps the link colour instead of being muted as secondary
+        # chrome: de-emphasising it would hide the accessible path from exactly
+        # the people who depend on it.
+        if self._wants_more_row():
+            label, tip = self._tail_text(hidden)
+            tail = QListWidgetItem(label)
+            tail.setData(_MORE_ROLE, _MORE_ROW)
+            # Clickable but NOT selectable: it is a link, not a row you can be
+            # "on", and leaving it selectable also means every selection handler
+            # has to cope with the current item having no payload.
+            tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            tail.setToolTip(tip)
+            list_widget.addItem(tail)
 
-        # The tail costs whatever the tail ACTUALLY costs. This used to reserve
-        # ``ROW_H`` up front, which is the SIMPLE-row constant (24px) while a
-        # rendered tail draws ~17 — so the section quietly gave away up to a row
-        # of content to space it never used. Measuring after the fact is exact,
-        # and it is the only way to be exact: a plain QListWidgetItem has no
-        # size hint until a list has laid it out.
-        while fits > 1:
-            rect = list_widget.visualItemRect(tail)
-            if rect.height() <= 0 or rect.bottom() <= viewport:
-                break
-            fits -= 1
-            list_widget.item(fits).setHidden(True)
-            hidden += 1
-            tail.setText(f"+ {hidden} more  →")
-            tail.setToolTip(f"{hidden} more — open the full view")
+            # The tail costs whatever the tail ACTUALLY costs. This used to
+            # reserve ``ROW_H`` up front, which is the SIMPLE-row constant
+            # (24px) while a rendered tail draws ~17 — so the section quietly
+            # gave away up to a row of content to space it never used.
+            # Measuring after the fact is exact, and it is the only way to be
+            # exact: a plain QListWidgetItem has no size hint until a list has
+            # laid it out.
+            while fits > 1:
+                rect = list_widget.visualItemRect(tail)
+                if rect.height() <= 0 or rect.bottom() <= viewport:
+                    break
+                fits -= 1
+                list_widget.item(fits).setHidden(True)
+                hidden += 1
+                # Re-label through _tail_text, never with a literal. This loop
+                # used to hardcode the old "+ N more  →" string, so a tail that
+                # was rendered correctly reverted to the old label — and the old
+                # ACTION's promise — the moment the budget shrank it by a row.
+                # That is the "second Show more launched the explorer" report.
+                label, tip = self._tail_text(hidden)
+                tail.setText(label)
+                tail.setToolTip(tip)
 
+        # Wiring happens whether or not the tail was drawn: the WHEEL is the
+        # primary way to reveal more, and gating it on a row that exists to
+        # serve people who cannot use the wheel would be exactly backwards.
         self._more_handler = on_more or self.exploreClicked.emit
         try:
             list_widget.itemClicked.disconnect(self._on_more_row_clicked)
         except TypeError:
             pass
         list_widget.itemClicked.connect(self._on_more_row_clicked)
+        # Wheeling down a truncated list reveals more, the same way clicking
+        # the tail does. Installed on the VIEWPORT: a QListWidget delivers
+        # wheel events there, not to the widget itself.
+        list_widget.viewport().installEventFilter(self)
         return hidden
 
     def apply_tree_row_budget(self, tree) -> int:
@@ -228,10 +248,13 @@ class RowBudgetMixin:
                 group.child(index).setHidden(True)
             hidden = total - keep
             hidden_total += hidden
-            tail = QTreeWidgetItem([f"+ {hidden} more"])
+            if not self._wants_more_row():
+                continue
+            label, tip = self._tail_text(hidden)
+            tail = QTreeWidgetItem([label])
             tail.setData(0, _MORE_ROLE, _MORE_ROW)
             tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            tail.setToolTip(0, f"{hidden} more in this group")
+            tail.setToolTip(0, tip)
             group.addChild(tail)
         return hidden_total
 
@@ -296,6 +319,73 @@ class RowBudgetMixin:
         super().resizeEvent(event)
         QTimer.singleShot(0, self.reapply_row_budget)
 
+    #: Rows revealed per wheel notch. Small enough to read as scrolling rather
+    #: than as the section jumping to full height, which is what clicking the
+    #: tail is for.
+    WHEEL_REVEAL_ROWS = 3
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
+        """Wheeling down a truncated list grows the section a few rows.
+
+        These lists cannot scroll — scrollbars are off by design, because a
+        scroll area inside the sidebar's own was the jam this budget exists to
+        remove — so a wheel gesture over one currently does nothing at all,
+        which reads as the list being broken rather than as it being complete.
+
+        Only DOWNWARD wheels over a list with something hidden are consumed.
+        Everything else propagates untouched, so a wheel over a list showing
+        all its rows still reaches whatever wants it.
+        """
+        if event.type() != QEvent.Type.Wheel:
+            return super().eventFilter(obj, event)
+        list_widget = getattr(obj, "parent", lambda: None)()
+        if list_widget is None or self.rows_hidden(list_widget) <= 0:
+            return super().eventFilter(obj, event)
+        if event.angleDelta().y() >= 0:      # scrolling up, or sideways
+            return super().eventFilter(obj, event)
+        grow = self.__dict__.get("grow_request")
+        if grow is None:
+            return super().eventFilter(obj, event)
+        return bool(grow(self, self.WHEEL_REVEAL_ROWS))
+
+    def _wants_more_row(self) -> bool:
+        """Whether to draw the "Show N more" tail at all.
+
+        Off by default. Wheeling the list reveals more (see :meth:`eventFilter`),
+        so for anyone with a scroll wheel the row is a standing distraction
+        advertising something they would do anyway. It stays available as a
+        setting for pointing devices that cannot scroll — the rows are still
+        hidden either way, and the budget still reports them.
+        """
+        return bool(getattr(self.config, "sidebar_show_more_row", False))
+
+    def _can_grow(self) -> bool:
+        """Whether asking for room would actually get any."""
+        grow = self.__dict__.get("grow_request")
+        if grow is None:
+            return False
+        try:
+            return bool(grow(self, None, probe=True))
+        except TypeError:
+            # A host wired before probe existed. Assume it can, and let the
+            # click find out — the fallback still catches it.
+            return True
+
+    def _tail_text(self, hidden: int) -> tuple[str, str]:
+        """The tail's label and tooltip, matching what clicking it will DO.
+
+        Two different actions need two different labels. "Show N more" grows the
+        section in place; when there is no room left to take, the only way to
+        see the rest is the full view, and the row says so with an arrow rather
+        than promising one thing and doing another.
+        """
+        if self._can_grow():
+            return (f"Show {hidden} more",
+                    f"{hidden} more — make this section taller to show them")
+        return (f"See all {hidden} more  →",
+                f"{hidden} more — this section is as tall as it can get, so "
+                f"this opens the full view")
+
     def rows_hidden(self, list_widget) -> int:
         """How many rows the budget is currently withholding from ``list_widget``."""
         return sum(
@@ -340,7 +430,7 @@ class RowBudgetMixin:
         if item is None or item.data(_MORE_ROLE) != _MORE_ROW:
             return
         grow = self.__dict__.get("grow_request")
-        if grow is not None and grow(self):
+        if grow is not None and grow(self, None):   # None = every hidden row
             return
         handler = self.__dict__.get("_more_handler")
         if handler is not None:

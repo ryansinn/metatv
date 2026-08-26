@@ -480,6 +480,9 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._sidebar_density_combo.blockSignals(True)
         _load_sidebar_density(self._sidebar_density_combo, c)
         self._sidebar_density_combo.blockSignals(False)
+        self._show_more_row_check.setChecked(
+            getattr(c, "sidebar_show_more_row", False)
+        )
         self._platform_name_style_combo.blockSignals(True)
         _load_platform_name_style(self._platform_name_style_combo, c)
         self._platform_name_style_combo.blockSignals(False)
@@ -600,6 +603,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
         _save_sidebar_density(self._sidebar_density_combo, c)
+        c.sidebar_show_more_row = self._show_more_row_check.isChecked()
         _save_platform_name_style(self._platform_name_style_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
         # Written like every other setting; APPLIED by the host on

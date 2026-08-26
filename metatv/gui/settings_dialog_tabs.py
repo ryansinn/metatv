@@ -883,6 +883,22 @@ class SettingsTabsMixin:
             "Applies immediately when you click OK or Apply."
         )
         density_form.addRow("Row density:", self._sidebar_density_combo)
+
+        # Sidebar-only: these lists deliberately have no scrollbar (a scroll
+        # area inside the sidebar's own was the jam the row budget exists to
+        # remove), so wheeling one grows its section instead. The main results
+        # list has a real scrollbar and is unaffected.
+        self._show_more_row_check = QCheckBox(
+            'Show a "Show N more" row when a section is truncated'
+        )
+        self._show_more_row_check.setToolTip(
+            "Sidebar sections show the entries that fit and hide the rest.\n"
+            "Scrolling a section reveals more, so this row is off by default —\n"
+            "it advertises something a scroll wheel already does.\n"
+            "Turn it on if your pointing device cannot scroll: the row does\n"
+            "the same thing as a control you can click."
+        )
+        density_form.addRow("", self._show_more_row_check)
         sidebar_layout.addLayout(density_form)
 
         hint = QLabel(
