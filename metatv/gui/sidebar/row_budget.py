@@ -134,13 +134,19 @@ class RowBudgetMixin:
         for index in range(fits, total):
             list_widget.item(index).setHidden(True)
 
-        tail = QListWidgetItem(f"+ {hidden} more  →")
+        # "Show N more", not "+ N more →". The arrow said "this leaves for
+        # somewhere else", which is what the header's Explore → does; this one
+        # grows the section in place. Two affordances that looked and behaved
+        # the same were a duplicate, not a choice.
+        tail = QListWidgetItem(f"Show {hidden} more")
         tail.setData(_MORE_ROLE, _MORE_ROW)
         # Clickable but NOT selectable: it is a link, not a row you can be "on",
         # and leaving it selectable also means every selection handler has to
         # cope with the current item having no payload.
         tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        tail.setToolTip(f"{hidden} more — open the full view")
+        tail.setToolTip(
+            f"{hidden} more — make this section taller to show them"
+        )
         list_widget.addItem(tail)
 
         # The tail costs whatever the tail ACTUALLY costs. This used to reserve
@@ -290,9 +296,52 @@ class RowBudgetMixin:
         super().resizeEvent(event)
         QTimer.singleShot(0, self.reapply_row_budget)
 
+    def rows_hidden(self, list_widget) -> int:
+        """How many rows the budget is currently withholding from ``list_widget``."""
+        return sum(
+            1 for index in range(list_widget.count())
+            if list_widget.item(index).isHidden()
+        )
+
+    def rows_hidden_total(self) -> int:
+        """Rows withheld across every list this section budgets.
+
+        A section can budget more than one list — Watch Alerts budgets its VOD
+        rules and its stream-retry list as well as the EPG tree — so "how much
+        taller do I need to be" is the sum, not whichever list was clicked.
+        """
+        total = 0
+        primary = self.budgeted_list()
+        if primary is not None:
+            total += self.rows_hidden(primary)
+        for extra, _on_more in self.extra_budgeted_lists():
+            if extra is not None:
+                total += self.rows_hidden(extra)
+        return total
+
     def _on_more_row_clicked(self, item) -> None:
-        """Route a click on the ``+N more`` tail to the section's full view."""
-        if item is not None and item.data(_MORE_ROLE) == _MORE_ROW:
-            handler = self.__dict__.get("_more_handler")
-            if handler is not None:
-                handler()
+        """Grow the section so the hidden rows fit — that is what "more" means.
+
+        This used to fire ``exploreClicked``, which is exactly what the header's
+        ``Explore →`` button already does: two controls, same action, one of them
+        hidden at the bottom of a list. Owner spotted it.
+
+        The rows are not capped, only unallocated — ``apply_row_budget``'s
+        docstring has always said "drag the section taller and it renders more
+        rows". That was true and completely undiscoverable, so this makes the
+        drag clickable rather than inventing a new mechanism. The sub-lists
+        cannot scroll (nested scrollbars are the jam this whole budget exists to
+        remove), which is why growing the section is the only way to reveal
+        them in place.
+
+        Falls back to the section's own handler when there is no room left to
+        take — every sibling already at its floor — so the click is never dead.
+        """
+        if item is None or item.data(_MORE_ROLE) != _MORE_ROW:
+            return
+        grow = self.__dict__.get("grow_request")
+        if grow is not None and grow(self):
+            return
+        handler = self.__dict__.get("_more_handler")
+        if handler is not None:
+            handler()
