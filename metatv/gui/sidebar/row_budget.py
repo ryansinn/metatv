@@ -225,14 +225,8 @@ class RowBudgetMixin:
         Returns:
             Total children hidden across all groups.
         """
-        if not self._wants_more_row():
-            for group in groups:
-                for index in range(group.childCount()):
-                    group.child(index).setHidden(False)
-            tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            return 0
-        tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
+        # Collect the groups and strip any previous tails FIRST: both branches
+        # below need them, and the early return read `groups` before this ran.
         groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
         for group in groups:
             for index in reversed(range(group.childCount())):
@@ -240,6 +234,14 @@ class RowBudgetMixin:
                     group.takeChild(index)
         if not groups:
             return 0
+
+        if not self._wants_more_row():
+            for group in groups:
+                for index in range(group.childCount()):
+                    group.child(index).setHidden(False)
+            tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            return 0
+        tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         viewport = tree.viewport().height()
         if viewport <= 0:
