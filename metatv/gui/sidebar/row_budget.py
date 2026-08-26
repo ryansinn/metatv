@@ -111,18 +111,11 @@ class RowBudgetMixin:
         if fits >= total:
             return 0
 
-        # The tail row costs a row, so it displaces one more piece of content.
-        if fits > 0 and used + self.ROW_H > viewport:
-            fits -= 1
-
         # ...but never all of it. A section rendering "+ 6 more →" over an empty
         # list tells you there is content and shows you none of it, which reads
         # as a broken section rather than a full one. One real row always wins
-        # over the marker that counts them: the tail may then overflow and be
-        # clipped (scrollbars are off by design), and the header's → is still
-        # the way to the rest. Reachable whenever one row does not leave room
-        # for the tail as well — which the V3 two-line row, at nearly twice the
-        # height of the single-line row it replaced, made ordinary.
+        # over the marker that counts them, and the header's → is still the way
+        # to the rest.
         fits = max(fits, 1)
 
         hidden = total - fits
@@ -137,6 +130,23 @@ class RowBudgetMixin:
         tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         tail.setToolTip(f"{hidden} more — open the full view")
         list_widget.addItem(tail)
+
+        # The tail costs whatever the tail ACTUALLY costs. This used to reserve
+        # ``ROW_H`` up front, which is the SIMPLE-row constant (24px) while a
+        # rendered tail draws ~17 — so the section quietly gave away up to a row
+        # of content to space it never used. Measuring after the fact is exact,
+        # and it is the only way to be exact: a plain QListWidgetItem has no
+        # size hint until a list has laid it out.
+        while fits > 1:
+            rect = list_widget.visualItemRect(tail)
+            if rect.height() <= 0 or rect.bottom() <= viewport:
+                break
+            fits -= 1
+            list_widget.item(fits).setHidden(True)
+            hidden += 1
+            tail.setText(f"+ {hidden} more  →")
+            tail.setToolTip(f"{hidden} more — open the full view")
+
         self._more_handler = on_more or self.exploreClicked.emit
         try:
             list_widget.itemClicked.disconnect(self._on_more_row_clicked)

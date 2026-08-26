@@ -228,6 +228,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         action_host.setLayout(self.build_action_row())
         action_host.setSizePolicy(QSizePolicy.Policy.Preferred,
                                   QSizePolicy.Policy.Fixed)
+        # Pinned to its own content height. Fixed is a POLICY, not a size: the
+        # widget still takes the height the cell offers it, which in a section
+        # whose sub-lists all carry stretch=1 left the strip floating in a band
+        # of its own. This makes the height its layout's hint and nothing more.
+        action_host.setFixedHeight(action_host.sizeHint().height())
         self.content_layout.addWidget(action_host, 0, Qt.AlignmentFlag.AlignTop)
 
         # ── EPG sub-section ────────────────────────────────────────────────
@@ -259,6 +264,13 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._epg_hdr_container)
 
         self.alerts_tree = QTreeWidget()
+        # R13 mechanism 1, same as the two sub-lists below: the EPG group is
+        # budgeted (apply_tree_row_budget) and must never scroll inside the
+        # sidebar's own scroll area.
+        self.alerts_tree.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.alerts_tree.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.alerts_tree.setHeaderHidden(True)
         self.alerts_tree.setColumnCount(1)
         self.alerts_tree.setIndentation(12)
@@ -303,6 +315,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._vod_hdr_container)
 
         self._vod_list = QListWidget()
+        # R13 mechanism 1 — no nested scrollbars. This sub-list still had one:
+        # a scroll area inside the sidebar's own, in a band ~35px tall, which is
+        # a window too small to read through. It now shows what fits and ends
+        # with "+N more", like every other list in the rail.
+        self._vod_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._vod_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         # Equal stretch with the EPG tree so Movies & Series always gets its fair share
         # of the section's height (never starved to a sliver) and grows to help fill the
@@ -351,6 +369,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._retry_hdr_container)
 
         self._retry_list = QListWidget()
+        # R13 mechanism 1 — no nested scrollbars. This sub-list still had one:
+        # a scroll area inside the sidebar's own, in a band ~35px tall, which is
+        # a window too small to read through. It now shows what fits and ends
+        # with "+N more", like every other list in the rail.
+        self._retry_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._retry_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         # Matching Expanding + equal stretch so Stream Monitoring shares the pane on the
         # same footing as the other two sub-lists.
@@ -709,6 +733,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_hdr_container.show()
         if not self._vod_collapsed:
             self._vod_list.show()
+        # Show what fits and end with "+N more" instead of scrolling inside a
+        # ~35px band. Deferred: the list has just been repopulated and the
+        # budget needs a laid-out viewport to measure against.
+        QTimer.singleShot(0, lambda: self.apply_row_budget(
+            self._vod_list, on_more=self.manageWatchForClicked.emit
+        ))
         self._recompute_empty()
 
     def update_new_match_badge(
@@ -1264,6 +1294,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_hdr_container.show()
         if not self._retry_collapsed:
             self._retry_list.show()
+        QTimer.singleShot(0, lambda: self.apply_row_budget(
+            self._retry_list, on_more=self.manageWatchForClicked.emit
+        ))
         self._recompute_empty()
 
     def _on_retry_double_clicked(self, item: "QListWidgetItem") -> None:

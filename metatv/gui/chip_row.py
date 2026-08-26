@@ -73,9 +73,13 @@ _CHIP_ROLES = {
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
 
-#: Row-icon edge length. Sized UNDER the 13px title so the glyph reads as a
-#: quiet marker beside the text rather than competing with it.
-ICON_PX = 13
+#: Row-icon edge length, sized against the title's CAP HEIGHT rather than its
+#: font size. A 13px font draws ~9px of capital, but a 13px icon is 13px of
+#: visible glyph — so an icon nominally the same size as the text reads ~44%
+#: bigger than the letters beside it, which is what "the type icons are still
+#: too large" was seeing. 11px sits just above cap height, the usual
+#: relationship between a glyph and the type it sits in.
+ICON_PX = 11
 
 #: The news marker's diameter. A ring, not a "NEW" pill: the pill was a second
 #: word competing with the title, and the count beside it ("+12 eps") already
