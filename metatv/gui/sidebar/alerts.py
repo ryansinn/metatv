@@ -314,7 +314,34 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         _theme.style(self._vod_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
         self._vod_toggle.clicked.connect(self._toggle_vod_watching)
         vod_hdr_row.addWidget(self._vod_toggle)
+
+        # A genuinely spinning indicator, not the words "⟳ checking…" appended
+        # to the label. A static glyph is a still picture of motion, and the
+        # word was doing the work the motion should — in a header that already
+        # carries a title, a count and a news total.
+        self._series_spinner = _icon_utils.busy_spinner(
+            self._vod_toggle, color=_theme.COLOR_TEXT
+        )
+
+        # AFTER the stretch, so it rides the RIGHT edge. Beside the toggle it
+        # sat against the label and read as part of it — a status indicator
+        # belongs at the margin where the eye looks for state, not inline with
+        # the thing it is reporting on.
         vod_hdr_row.addStretch()
+
+        # The news count as its OWN widget, right-aligned — it was appended to
+        # the button's TEXT as "  ·  2 new", which cannot be positioned and
+        # made the separator carry work a layout should. Sits LEFT of the
+        # spinner so the two never trade places when a check starts.
+        self._vod_news_lbl = QLabel()
+        _theme.style(self._vod_news_lbl, "SIDEBAR_ROW_NEWS")
+        self._vod_news_lbl.hide()
+        vod_hdr_row.addWidget(self._vod_news_lbl)
+
+        if self._series_spinner is not None:
+            self._series_spinner.setToolTip("Checking monitored series for new episodes…")
+            self._series_spinner.hide()
+            vod_hdr_row.addWidget(self._series_spinner)
 
         self._vod_hdr_container = QWidget()
         self._vod_hdr_container.setLayout(vod_hdr_row)
@@ -447,8 +474,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         label = "Movies && Series"
         if count:
             label += f"  ({count})"
-        # Surface firing alerts on the toggle itself (plain text — the header dot
-        # carries the colour): "Movies & Series (5)  ·  3 new".  Combines firing
+        # Firing alerts are surfaced by _vod_news_lbl at the RIGHT edge, not
+        # appended here. Combines firing
         # keyword rules (AVAILABLE-only, stashed by the last refresh) with the
         # number of monitored series that have unseen new episodes.  Read via
         # __dict__ (not getattr) so a __new__'d test stub — whose Qt C++ side was
@@ -456,11 +483,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         firing = self.__dict__.get("_firing_count")
         if firing is None:
             firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+        # The count lives in _vod_news_lbl, right-aligned — not appended here
+        # behind a "·". A separator between a title and a status is the layout
+        # asking text to do its job.
         new_total = firing + self.__dict__.get("_series_new_count", 0)
-        if new_total > 0:
-            label += f"  ·  {new_total} new"
-        if self.__dict__.get("_series_checking"):
-            label += f"  {_icons.loading_icon} checking…"
+        news_lbl = self.__dict__.get("_vod_news_lbl")
+        if news_lbl is not None:
+            news_lbl.setText(f"{new_total} new" if new_total > 0 else "")
+            news_lbl.setVisible(new_total > 0)
         self._vod_toggle.setText(f"{arrow}  {label}")
 
     def budgeted_tree(self):
@@ -489,12 +519,17 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         Wired to ``SeriesMonitorManager.checking_started``/``checking_finished``
         so a startup, recurring-timer, or post-provider-refresh recheck pass is
-        visible instead of silently changing state underfoot. Same
-        ``icons.loading_icon`` idiom as the per-row spinners in
-        ``sidebar/sources.py`` (``set_busy``/``set_epg_refreshing``), applied to
-        this section's sub-header instead of a per-row button.
+        visible instead of silently changing state underfoot.
+
+        A real spinning widget (``icon_utils.busy_spinner``) rather than the
+        static ``⟳`` plus the word "checking…" this used to append to the
+        label. ``sidebar/sources.py``'s ``set_busy``/``set_epg_refreshing``
+        still use the static idiom and should move to the same helper.
         """
         self._series_checking = busy
+        spinner = self.__dict__.get("_series_spinner")
+        if spinner is not None:
+            spinner.setVisible(busy)
         self._update_vod_toggle_label(self._vod_list.count())
 
     def _series_display_entries(self) -> list[dict]:

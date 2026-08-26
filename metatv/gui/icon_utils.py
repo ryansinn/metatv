@@ -11,6 +11,7 @@ fallback keys are tried in order before giving up.
 from __future__ import annotations
 
 from PyQt6.QtCore import QBuffer, QIODevice
+from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
 
 from metatv.gui import theme as _theme
@@ -92,6 +93,64 @@ def inline_icon_html(icon_key: str, color: str = _theme.COLOR_TEXT,
 # paint (that is how the whole file already works), so a new palette produces a
 # new key and a fresh render, while the old entries simply go unused.
 _VECTOR_PIXMAP_CACHE: dict[tuple[str, str, int, float], object] = {}
+
+
+#: Spinner rotation. qtawesome's default step is 1°/tick, which does not read
+#: as motion at sidebar sizes.
+SPIN_INTERVAL_MS = 40
+SPIN_STEP_DEG = 12
+
+
+def busy_spinner(parent=None, icon_key: str = "mdi6.loading",
+                 color: str | None = None, size: int = 13):
+    """A genuinely SPINNING busy indicator, or ``None`` if the pack is missing.
+
+    The codebase's busy hint has been a static ``⟳`` glyph beside the word
+    "checking…" (``icons.loading_icon``) — a still picture of motion plus a
+    label doing the work the motion should. Owner: *"isn't there some animated
+    icon rather than the word? something spinning?"*
+
+    qtawesome animates by repainting a widget, so this returns a widget rather
+    than a QIcon or a QPixmap: an animated QIcon assigned to a QLabel never
+    moves, because nothing repaints it. The animation is owned by the returned
+    widget and stops when it is destroyed.
+
+    This module is the only place that imports qtawesome, which is why the
+    helper lives here rather than beside its first caller.
+
+    Args:
+        parent: Parent widget, if any.
+        icon_key: The glyph to spin. ``mdi6.loading`` is a partial ring, which
+            reads as motion at 13px where a full circle does not.
+        color: Any CSS colour; defaults to the current ``COLOR_TEXT``.
+        size: Logical edge length in px.
+
+    Returns:
+        A ``qtawesome.IconWidget`` sized to *size*, or ``None`` when qtawesome
+        is unavailable — callers fall back to their existing static hint rather
+        than losing the indicator entirely.
+    """
+    try:
+        import qtawesome as qta
+    except ImportError:
+        return None
+
+    widget = qta.IconWidget(parent=parent)
+    widget.setIconSize(QSize(size, size))
+    widget.setFixedSize(size, size)
+    try:
+        # An explicit step, because qtawesome's default advances ONE DEGREE per
+        # tick — at 13px that is invisible, and a "spinner" nobody can see spin
+        # is worse than the word it replaced. 12° every 40ms is ~0.8 turns a
+        # second: unmistakably moving, not distractingly fast.
+        widget.setIcon(qta.icon(
+            icon_key,
+            color=color or _theme.COLOR_TEXT,
+            animation=qta.Spin(widget, interval=SPIN_INTERVAL_MS, step=SPIN_STEP_DEG),
+        ))
+    except Exception:
+        return None
+    return widget
 
 
 def vector_pixmap(icon_key: str, color: str, size: int = 16) -> object:
