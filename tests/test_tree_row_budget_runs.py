@@ -31,7 +31,7 @@ def _section(tmp_path, *, groups=3, children=6):
     return section, tree
 
 
-def test_a_subdividing_section_always_budgets(qapp, tmp_path):
+def test_the_tree_shows_everything_and_lets_the_section_scroll(qapp, tmp_path):
     """Watch Alerts splits its panel three ways, so its views cannot scroll.
 
     The setting governs a section whose single list fills it. Here a scrollbar
@@ -41,13 +41,18 @@ def test_a_subdividing_section_always_budgets(qapp, tmp_path):
     """
     section, tree = _section(tmp_path)
     assert section.config.sidebar_show_more_row is False
-    assert section._subdivides() is True
-    assert section._wants_more_row() is True, (
-        "a section whose sub-views cannot scroll must keep its tail rows"
+    assert section._wants_more_row() is False, (
+        "budgeting is opt-in: the SECTION owns a scroll area now, so overflow "
+        "has somewhere to go and no view needs truncating"
     )
 
     section.apply_tree_row_budget(tree)      # must not raise
+    # The tree never scrolls itself — one scrolling surface, at the section.
     assert tree.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    for i in range(tree.topLevelItemCount()):
+        group = tree.topLevelItem(i)
+        for j in range(group.childCount()):
+            assert not group.child(j).isHidden(), "a child was hidden with no tail to reveal it"
 
 
 def test_it_runs_with_the_setting_on(qapp, tmp_path):

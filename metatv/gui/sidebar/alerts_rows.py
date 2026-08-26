@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from metatv.core.epg_utils import is_local_today, to_local
+from metatv.core.epg_utils import is_local_today, now_utc, to_local
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
@@ -294,8 +294,15 @@ class _AlertRow(QWidget):
         self.time_lbl.setVisible(not self._show_bar)
         layout.addWidget(self.time_lbl)
 
-        self.progress = _ProgressBar() if self._show_bar else None
-        if self.progress is not None:
+        # Built at its REAL fill, not at zero. It used to start empty and only
+        # correct on the first 30s tick, so every bar rendered as a sliver for
+        # up to half a minute and then jumped — which reads as the app being
+        # wrong rather than as the programme progressing.
+        self.progress = None
+        if self._show_bar:
+            self.progress = _ProgressBar(
+                elapsed_pct(started_at, when, now_utc())
+            )
             self.progress.setToolTip(time_str)
             layout.addWidget(self.progress)
 

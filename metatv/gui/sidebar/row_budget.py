@@ -90,11 +90,7 @@ class RowBudgetMixin:
             How many rows were hidden behind the tail (0 when everything fit).
         """
         if not self._wants_more_row():
-            for index in range(list_widget.count()):
-                list_widget.item(index).setHidden(False)
-            list_widget.setVerticalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAsNeeded
-            )
+            self._show_all_rows(list_widget)
             return 0
         list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -239,7 +235,9 @@ class RowBudgetMixin:
             for group in groups:
                 for index in range(group.childCount()):
                     group.child(index).setHidden(False)
-            tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            # The SECTION scrolls, never the tree — one scrolling surface.
+            tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.fit_to_rows(tree)
             return 0
         tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -342,21 +340,38 @@ class RowBudgetMixin:
         super().resizeEvent(event)
         QTimer.singleShot(0, self.reapply_row_budget)
 
-    def _subdivides(self) -> bool:
-        """Whether this section splits its height between several row areas.
+    def _show_all_rows(self, view) -> None:
+        """Show every row at full height and let the SECTION scroll.
 
-        Watch Alerts does: an EPG tree, a rules/series list and a retry list
-        sharing one panel. That is the case R13 actually names — 173px split
-        four ways, each part scrolling in about 35px, a window too small to read
-        through. A scrollbar there is unusable, so such a section keeps
-        budgeting and keeps its tail rows no matter what the setting says.
+        The view itself must not scroll: the section owns one scroll area
+        (``CollapsibleSection.content_scroll``), and a view scrolling inside it
+        is the nested scrollbar R13 forbids — a ~35px window nobody can read
+        through. So the view takes the height its rows need, and the surplus
+        becomes the section's scroll range.
 
-        Everything else is one list filling one section, where a scrollbar is
-        just a scrollbar.
+        Sizing it here rather than leaving it to Qt matters: a view asks for a
+        DEFAULT viewport, not for its contents, so an unsized one both clips its
+        own rows and draws over whatever follows it — which is how Stream
+        Monitoring ended up printed across the Series rows.
         """
-        if self.budgeted_tree() is not None:
-            return True
-        return any(extra is not None for extra, _cb in self.extra_budgeted_lists())
+        for index in range(view.count()):
+            view.item(index).setHidden(False)
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.fit_to_rows(view)
+
+    @staticmethod
+    def fit_to_rows(view) -> None:
+        """Set a view's height to exactly what its contents need.
+
+        Qt's own ``viewportSizeHint()`` — the ideal viewport for the current
+        contents. Two hand-rolled versions got this wrong differently:
+        ``visualItemRect`` is (0,0,0,0) before layout, and
+        ``sizeHint().height()`` returns **-1** when unset, which poisons a sum.
+        Qt already knows the number.
+        """
+        view.updateGeometries()
+        hint = view.viewportSizeHint().height()
+        view.setFixedHeight(max(0, hint) + 2 * view.frameWidth())
 
     def _wants_more_row(self) -> bool:
         """Whether to draw the "Show N more" tail at all.
@@ -367,13 +382,15 @@ class RowBudgetMixin:
         setting for pointing devices that cannot scroll — the rows are still
         hidden either way, and the budget still reports them.
         """
-        if self._subdivides():
-            # Not optional here: these sub-lists cannot offer a scrollbar, so
-            # the tail is the ONLY way to reveal what is hidden. Turning it off
-            # would leave a truncated list with no way out — and turning
-            # scrollbars ON gave a 35px scrolling band, which is what the owner
-            # hit ("what is this shit??").
-            return True
+        # No longer forced on for a subdividing section. That was true while
+        # each of its views had to fit inside the panel: a scrollbar there would
+        # have been a ~35px band, so a tail row was the only way out. The
+        # section owns ONE scroll area now, so overflow has somewhere to go and
+        # every view can simply be its full height.
+        #
+        # Forcing it also broke collapsing: with budgeting on, collapsing the
+        # Series group let the budget swallow the group's heading and replace
+        # everything with "See all 11 more →".
         return bool(getattr(self.config, "sidebar_show_more_row", False))
 
     def _can_grow(self) -> bool:

@@ -340,28 +340,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                      self.__dict__.get("_vod_list"),
                      self.__dict__.get("_retry_list")):
             if view is not None:
-                self._fit_to_rows(view)
-
-    @staticmethod
-    def _fit_to_rows(view) -> None:
-        """Set a view's height to exactly what its contents need.
-
-        Uses Qt's own ``viewportSizeHint()`` — the ideal viewport size for the
-        current contents — rather than summing rows by hand. Two hand-rolled
-        attempts got this wrong in different ways: ``visualItemRect`` is
-        (0,0,0,0) for anything not yet laid out, and ``sizeHint().height()``
-        returns **-1** when no hint was set, which quietly poisoned the total.
-        Qt already knows this number; asking it is both shorter and correct.
-
-        Without it, three views each holding an equal expanding share of the
-        panel left ~150px of dead space between EPG and Movies whenever one was
-        short — they read as ONE list, so each takes the height its rows need
-        and the column packs upward.
-        """
-        view.updateGeometries()
-        hint = view.viewportSizeHint().height()
-        frame = 2 * view.frameWidth()
-        view.setFixedHeight(max(0, hint) + frame)
+                self.fit_to_rows(view)
 
     @staticmethod
     def _make_seamless(view) -> None:
@@ -379,10 +358,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         view.setFrameShape(QFrame.Shape.NoFrame)
         view.viewport().setAutoFillBackground(False)
+        # LIST_SELECTION_QSS is APPENDED, not replaced. style_fn hands Qt one
+        # sheet, so returning only the seamless rules wiped the selection rules
+        # apply_list_selection had put there — leaving Qt's raw blue highlight
+        # with unreadable text on it. Composing both is the whole job here.
         _theme.style_fn(view, lambda: (
             f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
             f" background: transparent; border: none;"
             f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
+            + _theme.LIST_SELECTION_QSS
         ))
 
     def create_content(self):
