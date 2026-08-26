@@ -330,7 +330,7 @@ class WatchAlertsSection(
         self._epg_has_rows = False
 
         epg_hdr_row = QHBoxLayout()
-        epg_hdr_row.setContentsMargins(0, 4, 0, 2)
+        epg_hdr_row.setContentsMargins(0, 2, 0, 1)
         epg_hdr_row.setSpacing(4)
 
         # The SAME heading widget the groups inside this section use. It was a
@@ -433,7 +433,7 @@ class WatchAlertsSection(
         self._retry_collapsed = False
 
         retry_hdr_row = QHBoxLayout()
-        retry_hdr_row.setContentsMargins(0, 4, 0, 2)
+        retry_hdr_row.setContentsMargins(0, 2, 0, 1)
         retry_hdr_row.setSpacing(4)
 
         # The standalone "i" glyph is gone: it was a control that did nothing

@@ -65,10 +65,11 @@ class GroupHeading(QWidget):
         super().__init__(parent)
         self._interactive = interactive
         row = QHBoxLayout(self)
-        # 10 above, 2 below: a heading belongs to what comes AFTER it, so the
+        # Above, not below: a heading belongs to what comes AFTER it, so the
         # gap that separates groups sits above the heading rather than being
-        # split evenly around it.
-        row.setContentsMargins(4, 10, 4, 2)
+        # split evenly around it. Halved with the rows it sits over — 10px of
+        # lead-in over a 17px label was reading as a blank row of its own.
+        row.setContentsMargins(4, 5, 4, 1)
         row.setSpacing(0)
 
         self.label = QLabel(text)
@@ -172,25 +173,14 @@ from metatv.gui.sidebar.row_budget import (  # noqa: F401
     _MORE_ROW,
     RowBudgetMixin,
 )
+# Re-exported: sections import PressureGroup from here because this is where
+# the class they mix it into lives, and the split should be invisible to them.
+from metatv.gui.sidebar.section_pressure import (  # noqa: F401
+    PressureGroup,
+    SectionPressureMixin,
+)
 
 
-class PressureGroup(NamedTuple):
-    """One foldable group inside a section, as the pressure pass sees it.
-
-    A plain record rather than a widget handle: sections keep their group state
-    in their own way (Watch Alerts holds four ``_*_collapsed`` booleans and four
-    toggles), and the pass only needs to ask "is it closed?" and say "close it".
-
-    Attributes:
-        key: Stable identity, used to remember what was folded automatically.
-        collapsed: Whether it is closed right now, for any reason.
-        set_collapsed: Closes or opens it — the section's own toggle, so the
-            heading caret and the count follow along for free.
-    """
-
-    key: str
-    collapsed: bool
-    set_collapsed: "Callable[[bool], None]"
 
 
 def _floor_of(widget) -> int:
@@ -437,7 +427,8 @@ class InPlaceRowMixin:
                 list_widget.takeItem(index)
 
 
-class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin, QFrame):
+class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
+                         ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
     # Signal when section wants to update its size
@@ -665,116 +656,10 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         density = self.config.sidebar_row_density
         return density if density in DENSITIES else DENSITY_COMPACT
 
-    #: Headroom a folded group must see before it re-opens, on top of the space
-    #: it needs. Without it a group sits exactly at the threshold and folds and
-    #: unfolds on every pixel of drag, because folding CHANGES the height being
-    #: measured — the classic feedback flicker.
-    PRESSURE_HYSTERESIS: int = 28
 
-    def pressure_groups(self) -> list["PressureGroup"]:
-        """The groups this section may fold when it runs out of room.
 
-        Ordered LEAST important first: the first entry is the first to go. A
-        flat section has none and returns the default empty list, which is the
-        right answer — with nothing to fold it simply scrolls, which it already
-        did.
 
-        Returns:
-            Ordered ``PressureGroup`` records. Rebuilt on each pass rather than
-            cached, because a group's importance changes with its contents.
-        """
-        return []
 
-    def _apply_pressure(self) -> None:
-        """Fold or unfold groups so the content fits the height available.
-
-        Folding is a LOAN, never a decision: every group folded here is recorded
-        in ``_auto_folded`` and is the only kind this method will re-open. A
-        group the user collapsed is skipped entirely — it is already closed, and
-        nothing here may open it.
-
-        Runs on resize, so it must not recurse: folding a group changes the
-        content height, which resizes the scroll area, which would re-enter.
-        """
-        if self._in_pressure or self.is_collapsed:
-            return
-        groups = self.pressure_groups()
-        if not groups:
-            return
-
-        self._in_pressure = True
-        try:
-            available = max(0, self.height() - self.HEADER_H)
-
-            # Fold, least important first, until it fits — but never the LAST
-            # one. Folding every group leaves a stack of headings and a lot of
-            # dead space under them; leaving the most important one open lets it
-            # take the leftover room and scroll, which shows every heading AND
-            # some rows. Strictly more, and nothing is hidden that was not
-            # already going to be.
-            for group in groups[:-1]:
-                if self._content_height() <= available:
-                    break
-                if group.collapsed:
-                    continue          # already closed, by us or by the user
-                group.set_collapsed(True)
-                self._auto_folded.add(group.key)
-
-            # Unfold, most important first, while the space is comfortably there.
-            for group in reversed(groups):
-                if group.key not in self._auto_folded:
-                    continue          # the user closed this one; not ours to open
-                group.set_collapsed(False)
-                if self._content_height() + self.PRESSURE_HYSTERESIS > available:
-                    group.set_collapsed(True)   # it did not fit after all
-                    break
-                self._auto_folded.discard(group.key)
-        finally:
-            self._in_pressure = False
-
-    def _content_height(self) -> int:
-        """What the content wants right now — after ALL pending sizing.
-
-        The row budget is what gives each inner view its height, and a group
-        toggle defers it to a ``singleShot``. Measuring before it runs reads
-        the height the content had BEFORE the group opened, so the fit check
-        cannot see the thing it is checking: two groups re-opened at once on a
-        zero-pixel fit, which is precisely the flicker the hysteresis exists to
-        prevent. Running it here makes the measurement honest.
-
-        Safe to force: the pass is debounced and re-entrancy-guarded, so this
-        runs a handful of times per drag, not per frame.
-        """
-        budget = getattr(self, "reapply_row_budget", None)
-        if callable(budget):
-            budget()
-        layout = self.content_widget.layout()
-        if layout is not None:
-            layout.activate()
-        return self.content_widget.sizeHint().height()
-
-    #: Quiet period before a resize is acted on. Folding a group can mean a
-    #: full re-render of its list, and a splitter drag emits a resize per frame
-    #: — running the pass synchronously would rebuild the Movies and Series
-    #: list sixty times a second. Coalescing also means a drag THROUGH a
-    #: threshold costs one fold rather than one per pixel.
-    PRESSURE_DEBOUNCE_MS: int = 60
-
-    def resizeEvent(self, event):  # noqa: N802 (Qt override)
-        super().resizeEvent(event)
-        self._schedule_pressure()
-
-    def _schedule_pressure(self) -> None:
-        """Queue a pressure pass, coalescing the ones already queued."""
-        if self._in_pressure:
-            return
-        timer = self.__dict__.get("_pressure_timer")
-        if timer is None:
-            timer = QTimer(self)
-            timer.setSingleShot(True)
-            timer.timeout.connect(self._apply_pressure)
-            self._pressure_timer = timer
-        timer.start(self.PRESSURE_DEBOUNCE_MS)
 
     def preferred_expanded_height(self) -> int:
         """The height this section WANTS when the sidebar has room to give.

@@ -41,13 +41,26 @@ from metatv.gui.relative_time import humanize_remaining, humanize_until
 SLOT_W = 18
 SLOT_ICON_PX = 14
 
-#: Vertical padding per row. 1px was the pre-V3 value and rendered ~18px rows
-#: against the design's ~28px, which is what made the section look cramped.
+#: How far a child airing insets from its programme row — and, necessarily, how
+#: wide the programme row's source-marker column is. ONE constant because the
+#: two have to be equal: the marker is what pushes the parent's play slot into
+#: the same column as its children's, so the play affordances form one
+#: continuous line down the group. Two numbers that must match are one number.
+_CHILD_INDENT = 14
+
+#: Vertical padding per row, one side.
 #:
-#: A row also has to clear the font's DESCENDER. At 4px the tail of a "g" was
-#: being clipped ("Stargate SG-1"), because a row's height came from its
-#: tallest child rather than from the font's full line box.
-ROW_PAD_Y = 5
+#: The history is worth keeping because both ends were wrong. 1px rendered
+#: ~18px rows against the design's ~28px and read as cramped; 5px put 12px of
+#: padding around a 17px line box, and the owner read the surplus as a whole
+#: wasted row between every entry: "the space between each item is a wasted
+#: row ... spacing between rows should be cut in half".
+#:
+#: 2px is that halving — 6px of padding, 23px rows. The descender is safe at
+#: any value here: clipping came from sizing a row to its tallest CHILD, and
+#: the fix was measuring the font's full line box (ascent + descent + leading)
+#: in :meth:`_RowShell._mount`, which this padding is merely added to.
+ROW_PAD_Y = 2
 
 
 def _slot_label() -> QLabel:
@@ -204,6 +217,13 @@ class _AlertRow(_RowShell):
 
     play_clicked = pyqtSignal()
     row_clicked  = pyqtSignal()  # single click anywhere except the play button
+    #: An expandable row was clicked anywhere that is not its play button.
+    #: Expansion used to be wired to ``play_clicked``, which meant the row had
+    #: to count as PLAYABLE to expand at all — so its marker column drew a play
+    #: triangle on hover and only that 18px strip responded. Owner: "clicking
+    #: the show title ... does not expand the row", and "the carot turns into a
+    #: play icon ... but it shouldn't because it is expanding or collapsing".
+    expand_clicked = pyqtSignal()
 
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
@@ -252,7 +272,26 @@ class _AlertRow(_RowShell):
         self._expandable = expandable
         self._expanded = expanded
 
+        # An expandable row carries TWO leading columns, and the widths are
+        # what make them line up: the marker takes exactly _CHILD_INDENT, so
+        # the play slot beside it starts at the same x as a CHILD row's slot.
+        # The play affordances then form one continuous column down the group,
+        # and the parent's title sits on the same left edge as its sources'.
         self._slot = _slot_label()
+        self._marker = None
+        if expandable:
+            self._marker = QLabel()
+            self._marker.setFixedWidth(_CHILD_INDENT)
+            self._marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._marker.setToolTip("Several sources — click to show them")
+            leading = QWidget()
+            lay = QHBoxLayout(leading)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+            lay.addWidget(self._marker)
+            lay.addWidget(self._slot)
+        else:
+            leading = self._slot
 
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
@@ -289,7 +328,7 @@ class _AlertRow(_RowShell):
             title=ch_name,
             title_chips=((CHIP_QUALITY, quality),),
             tail_widget=self.progress if self._show_bar else self.time_lbl,
-            leading_slot=self._slot,
+            leading_slot=leading,
             indent=indent,
         ))
         self.setMouseTracking(True)
@@ -339,19 +378,27 @@ class _AlertRow(_RowShell):
         ``COLOR_PLAYBACK_IN_PROGRESS`` is ORANGE and means *resumable*, which is
         a different claim entirely.
         """
+        # The marker is a column of its own, so it no longer competes with the
+        # play affordance for the one slot — which is what made an expandable
+        # row draw a play triangle where its disclosure control should be.
+        if self._marker is not None:
+            self._marker.setPixmap(_icon_utils.vector_pixmap(
+                _icons.vector_key(
+                    "sources_open" if self._expanded else "sources_closed"),
+                _theme.COLOR_OK if self._is_new else _theme.COLOR_TEXT,
+                SLOT_ICON_PX - 2,
+            ))
+            self._marker.setToolTip(
+                "Hide the other sources" if self._expanded
+                else "Several sources — click to show them"
+            )
+
         if self._playing:
             self._set_slot_icon("play", _theme.COLOR_OK, "Playing now")
         elif self._hovered and self._offers_play():
-            self._set_slot_icon("play", _theme.COLOR_ACCENT, "Play")
-        elif self._expandable:
-            # Below new, above nothing: a caret is a permanent property of the
-            # row, so a transient "this just arrived" outranks it — but it still
-            # has to be visible, which is why the dot wins only while it lasts.
-            self._set_slot_icon(
-                "expand" if self._expanded else "collapse",
-                _theme.COLOR_OK if self._is_new else _theme.COLOR_TEXT,
-                "Show the other airings",
-            )
+            self._set_slot_icon("play", _theme.COLOR_ACCENT,
+                                "Play the first available source"
+                                if self._expandable else "Play")
         elif self._is_new:
             self._set_slot_icon("new_dot", _theme.COLOR_OK, "New since you last looked")
         else:
@@ -406,11 +453,16 @@ class _AlertRow(_RowShell):
 
     def mousePressEvent(self, event):
         # The slot IS the play control while it is offering to play — clicking
-        # the triangle starts it, clicking anywhere else selects the row.
+        # the triangle starts it. Everything else on the row goes to the row's
+        # own action, which for an expandable row is to open it: the title, the
+        # time, the marker and the empty space all expand, so the gesture is
+        # the whole row rather than one 18px strip of it.
         if self._slot_rect().contains(event.pos()) and (
             self._playing or (self._hovered and self._offers_play())
         ):
             self.play_clicked.emit()
+        elif self._expandable:
+            self.expand_clicked.emit()
         else:
             self.row_clicked.emit()
         super().mousePressEvent(event)

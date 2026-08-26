@@ -395,7 +395,7 @@ class EpgGroupMixin:
             )
 
         def _add_parent(title, time_str, _extra=0, when=None, live=False,
-                        started_at=None) -> "QTreeWidgetItem":
+                        started_at=None, first_source=None) -> "QTreeWidgetItem":
             """The programme row that expands to its airings.
 
             A real row widget, not a text item reading
@@ -412,13 +412,27 @@ class EpgGroupMixin:
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
                             started_at=started_at, chip_time=True,
                             expandable=True, expanded=hdr.isExpanded())
-            row.play_clicked.connect(
-                lambda _=False, i=hdr, r=row: (
-                    i.setExpanded(not i.isExpanded()),
-                    r.set_expanded(i.isExpanded()),
-                    self.fit_to_rows(self.alerts_tree),
+
+            def _toggle(_=False, i=hdr, r=row):
+                i.setExpanded(not i.isExpanded())
+                r.set_expanded(i.isExpanded())
+                self.fit_to_rows(self.alerts_tree)
+
+            # The ROW opens the row — the title, the time, the marker, the empty
+            # space. This used to hang off play_clicked, so only the 18px slot
+            # responded and the row had to count as playable to open at all.
+            row.expand_clicked.connect(_toggle)
+
+            # ...and the play button plays, without making anyone open the row
+            # first. Owner: "user doesn't typically care about row". Which
+            # source it picks is the first LIVE airing as the group is ordered;
+            # a real preference is roadmapped.
+            if first_source:
+                row.play_clicked.connect(
+                    lambda _=False, cid=first_source: self.alertClicked.emit(cid)
                 )
-            )
+            else:
+                row.play_clicked.connect(_toggle)
             hdr.setSizeHint(0, QSize(0, row.sizeHint().height()))
             self.alerts_tree.setItemWidget(hdr, 0, row)
             return hdr
@@ -466,6 +480,7 @@ class EpgGroupMixin:
                     hdr = _add_parent(
                         title, lead[1], len(all_items) - 1,
                         when=_when(lead), live=True, started_at=_started_at(lead),
+                        first_source=lead[3],
                     )
                     for a in live_items[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
@@ -485,6 +500,8 @@ class EpgGroupMixin:
                     _add_direct(a[2], a[1], a[3], title, _when(a), live=False)
                 else:
                     lead = airings[0]
+                    # No first_source: every airing here is in the FUTURE, so
+                    # the row is not live and never offers a play button.
                     hdr = _add_parent(
                         title, lead[1], len(airings) - 1, when=_when(lead),
                     )

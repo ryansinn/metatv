@@ -108,6 +108,15 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
                 ("SIDEBAR_CHIP_LANG",
                  f"color: {accent}; background: {lang_fill};"
                  f" border: 1px solid transparent;"),
+                # The only chip in the family that is a CONTROL. Accent on an
+                # accent hairline: blue already means interactive everywhere
+                # else in this app, and an outline rather than a fill keeps it
+                # quieter than the "+N" pill, which is news and outranks it.
+                # In the family so it inherits the one geometry — a control
+                # that sits in a row of chips has to BE chip-shaped.
+                ("SIDEBAR_CHIP_ACTION",
+                 f"color: {accent}; background: transparent;"
+                 f" border: 1px solid {accent};"),
             )
         },
         # The strip itself. Sits on its own ground so the chips have something
