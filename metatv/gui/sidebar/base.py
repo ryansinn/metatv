@@ -67,7 +67,8 @@ class GroupHeading(QWidget):
 
         self.label = QLabel(text)
         font = self.label.font()
-        font.setBold(True)
+        # Weight comes from SIDEBAR_GROUP_HEADING; caps and tracking cannot —
+        # Qt stylesheets have no letter-spacing and no capitalisation.
         font.setCapitalization(QFont.Capitalization.AllUppercase)
         font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
         self.label.setFont(font)
