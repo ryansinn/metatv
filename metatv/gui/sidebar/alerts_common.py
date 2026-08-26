@@ -14,7 +14,7 @@ from typing import NamedTuple
 from PyQt6.QtCore import Qt
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.sidebar.alerts_rows import _AlertRow
+from metatv.gui.sidebar.alerts_rows import _AlertRow, _CHILD_INDENT  # noqa: F401
 
 
 # Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
@@ -25,10 +25,6 @@ _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "heading" | "series"
 #: a plain text item rather than one carrying a widget.
 _ROW_FALLBACK_H = 22
 
-#: How far a child airing insets from its programme row. The row does
-#: this itself now — the tree's own indentation also moved TOP-LEVEL
-#: rows, which is what gave the section two left edges.
-_CHILD_INDENT = 14
 
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
@@ -36,6 +32,11 @@ _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series row
 def _quality(airing) -> str:
     """The airing's quality token, or "" — sibling of :func:`_when`."""
     return airing[6] if len(airing) > 6 else ""
+
+
+def _region(airing) -> str:
+    """The airing's region/language token, or "" — sibling of :func:`_quality`."""
+    return airing[7] if len(airing) > 7 else ""
 
 
 def _started_at(airing) -> "datetime | None":
@@ -90,6 +91,7 @@ class _Airing(NamedTuple):
     when: "datetime | None" = None
     started_at: "datetime | None" = None
     quality: str = ""
+    region: str = ""
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:

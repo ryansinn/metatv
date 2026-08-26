@@ -236,6 +236,43 @@ collapsed**: expanded, every firing row already carries its own green marker and
 a pill on the heading would say it twice; collapsed, the rows are gone and the
 heading is the only thing left that can tell you something arrived.
 
+## The programme row: two leading columns
+
+A programme on several sources has a **source-stack marker** hanging in the
+left margin at exactly `_CHILD_INDENT` wide, then its **play slot**. That width
+is load-bearing: it pushes the parent's play slot into the same column as its
+children's, so the play affordances form one continuous line down the group and
+the parent's title shares its left edge with its sources'. One constant, in
+`alerts_rows`, because two numbers that must be equal are one number.
+
+Three owner reports, one cause — expansion was wired to `play_clicked`, which
+fires only on the 18px slot AND only when the row counts as playable, so an
+expandable row had to claim it was playable to open at all:
+
+* clicking the title did nothing; only the marker strip responded
+* the marker drew a play triangle on hover, on a control that expands
+* "carot and play buttons look way too similar" — true at 14px
+
+Now `expand_clicked` fires from anywhere that is not the play button, and the
+marker is `sources_closed`/`sources_open` (two stacked boxes, outline → filled),
+NOT the app-wide `expand`/`collapse` chevrons, which keep their own keys for
+every other disclosure in the app.
+
+Play on the parent plays the **first live airing as the group is ordered**. That
+is a placeholder, and it is on the roadmap as "preferred playback source for a
+watched show" — owner: "user doesn't typically care about row".
+
+## Row density
+
+`ROW_PAD_Y` 5 → 2 and the group heading's lead-in 10 → 5. That is a halving of
+the padding, not of the row: 12px around a 17px line box became 6px, so rows are
+23px rather than 29px. Owner: "the space between each item is a wasted row ...
+spacing between rows should be cut in half".
+
+The descender is safe at any padding here — the clipping that produced the 5px
+value came from sizing a row to its tallest CHILD, and the fix was measuring the
+font's full line box in `_RowShell._mount`, which the padding is merely added to.
+
 ## Left to do
 
 Ledger F1 (migrate Favorites/Queue off `style_group_heading`, then delete it);

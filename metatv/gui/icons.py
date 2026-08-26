@@ -569,6 +569,14 @@ VECTOR_KEYS: dict[str, str] = {
     "split": "mdi6.view-split-vertical",
     "expand": "mdi6.chevron-down",
     "collapse": "mdi6.chevron-right",
+    # "this programme is on several sources" — NOT the expand/collapse chevron.
+    # A chevron at 14px is very nearly a play triangle, and on the EPG
+    # programme row the two sat in the same column: owner, "carot and play
+    # buttons look way too similar". Two stacked boxes says "a list of
+    # sources", which is what opening the row actually shows. Outline closed,
+    # filled open — one shape, two states.
+    "sources_closed": "mdi6.view-agenda-outline",
+    "sources_open": "mdi6.view-agenda",
     "more": "mdi6.dots-horizontal",
     "close": "mdi6.close",
     "add": "mdi6.plus",

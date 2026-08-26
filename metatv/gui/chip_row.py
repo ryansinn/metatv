@@ -60,6 +60,7 @@ CHIP_QUALITY = "quality"
 CHIP_YEAR = "year"
 CHIP_LANG = "lang"
 CHIP_NEWS = "news"
+CHIP_ACTION = "action"
 #: Quality and news are absent on purpose: both sheets are COMPOSED at build
 #: time — quality per tier (see :func:`_quality_chip_style`), news from
 #: ``theme.on_fill`` (:func:`_news_chip_style`) — so neither has a single
@@ -67,6 +68,7 @@ CHIP_NEWS = "news"
 _CHIP_ROLES = {
     CHIP_YEAR: "SIDEBAR_CHIP_YEAR",
     CHIP_LANG: "SIDEBAR_CHIP_LANG",
+    CHIP_ACTION: "SIDEBAR_CHIP_ACTION",
 }
 
 #: Object names for the row's two labels. A row has two ``MiddleElideLabel``

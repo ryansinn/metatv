@@ -27,7 +27,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
+    CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
 )
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -41,13 +41,36 @@ from metatv.gui.relative_time import humanize_remaining, humanize_until
 SLOT_W = 18
 SLOT_ICON_PX = 14
 
-#: Vertical padding per row. 1px was the pre-V3 value and rendered ~18px rows
-#: against the design's ~28px, which is what made the section look cramped.
+#: How far a child airing insets from its programme row — and, necessarily, how
+#: wide the programme row's source-marker column is. ONE constant because the
+#: two have to be equal: the marker is what pushes the parent's play slot into
+#: the same column as its children's, so the play affordances form one
+#: continuous line down the group. Two numbers that must match are one number.
+_CHILD_INDENT = 14
+
+#: Vertical padding per row, one side.
 #:
-#: A row also has to clear the font's DESCENDER. At 4px the tail of a "g" was
-#: being clipped ("Stargate SG-1"), because a row's height came from its
-#: tallest child rather than from the font's full line box.
-ROW_PAD_Y = 5
+#: The history is worth keeping because both ends were wrong. 1px rendered
+#: ~18px rows against the design's ~28px and read as cramped; 5px put 12px of
+#: padding around a 17px line box, and the owner read the surplus as a whole
+#: wasted row between every entry: "the space between each item is a wasted
+#: row ... spacing between rows should be cut in half".
+#:
+#: Halved twice, at the owner's word each time: 12px of padding around a 17px
+#: line box, then 6px, now 3px — "the spacing between the items (subheader
+#: content rows) could still be halved again". Rows are 20px.
+#:
+#: **20px is the floor**, not a preference. The inner ``chip_row`` keeps 1px
+#: above and below its 17px content, so no combination of this constant and the
+#: line-box term goes lower; measured, all four candidates bottom out there.
+#: Anything tighter needs a smaller type scale or shorter chips, which is a
+#: different decision.
+#:
+#: The descender is safe at any value here: clipping came from sizing a row to
+#: its tallest CHILD, and the fix was measuring the font's full line box
+#: (ascent + descent + leading) in :meth:`_RowShell._mount`, which this is
+#: merely added to.
+ROW_PAD_Y = 1
 
 
 def _slot_label() -> QLabel:
@@ -92,9 +115,12 @@ class _RowShell(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # From the font's OWN line box (ascent + descent + leading), so a
         # descender can never be clipped by a row sized to its children —
-        # "Stargate SG-1" lost the tail of its g this way.
+        # "Stargate SG-1" lost the tail of its g this way. No slack term on top:
+        # the line box already contains the descent, and the two pixels that
+        # used to be added here were the last of the surplus the owner read as
+        # a wasted row.
         self.setMinimumHeight(
-            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y + 2
+            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y
         )
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
@@ -204,12 +230,21 @@ class _AlertRow(_RowShell):
 
     play_clicked = pyqtSignal()
     row_clicked  = pyqtSignal()  # single click anywhere except the play button
+    #: An expandable row was clicked anywhere that is not its play button.
+    #: Expansion used to be wired to ``play_clicked``, which meant the row had
+    #: to count as PLAYABLE to expand at all — so its marker column drew a play
+    #: triangle on hover and only that 18px strip responded. Owner: "clicking
+    #: the show title ... does not expand the row", and "the carot turns into a
+    #: play icon ... but it shouldn't because it is expanding or collapsing".
+    expand_clicked = pyqtSignal()
 
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
                  started_at: datetime | None = None, quality: str = "",
-                 chip_time: bool = False, indent: int = 0,
-                 expandable: bool = False, expanded: bool = False):
+                 region: str = "",
+                 indent: int = 0, bar_source: str = "",
+                 expandable: bool = False, expanded: bool = False,
+                 marker_column: bool | None = None):
         """
         Args:
             ch_name: The channel/title text for the row.
@@ -226,6 +261,11 @@ class _AlertRow(_RowShell):
             quality: A quality token ("RAW", "4K") chipped beside the title — a
                 claim about THIS copy, so it travels with the title rather than
                 sitting in the right rail.
+            region: The source's region/language ("DE", "US"), chipped for the
+                same reason. It used to be baked into the channel NAME as
+                "[DE]", which left the programme row — the one whose play
+                button starts a source without opening anything — unable to say
+                what language you were about to get.
             indent: Left inset for a child row. The TREE used to supply this
                 via setIndentation, which also indented top-level rows — so EPG
                 titles started further right than Movies and Series ones and the
@@ -233,10 +273,17 @@ class _AlertRow(_RowShell):
             expandable: This row has children, so its slot shows a disclosure
                 caret. Replaces the tree's native indicator, which lived in its
                 own column and could not share the slot with play and new.
-            expanded: Which way the caret points.
-            chip_time: Render the time text as a chip rather than as the row's
-                muted tail. Used by a programme row, whose time is a fact about
-                the programme rather than a column of the list.
+            expanded: Whether the source list is currently open.
+            marker_column: Reserve the source-marker column. ``None`` means
+                "whenever the row is expandable", which is the sensible default
+                for a child row (no) and a bundled programme (yes). A
+                SINGLE-source programme passes ``True`` explicitly: it has no
+                sources to disclose but it is still a top-level row, and its
+                title has to start where its neighbours' do.
+            bar_source: The channel this row's progress bar belongs to, named
+                in the bar's tooltip. A programme row's bar is not an abstract
+                "the programme" — it is the progress of the ONE source its play
+                button will start, so the tooltip says which.
             started_at: The programme's start, for a live row. With ``when``
                 (its end) this gives the DURATION, which is what turns "13m
                 left" into a proportion. Without it the row falls back to
@@ -251,18 +298,55 @@ class _AlertRow(_RowShell):
         self._hovered = False
         self._expandable = expandable
         self._expanded = expanded
+        marker_column = expandable if marker_column is None else marker_column
 
+        # An expandable row carries TWO leading columns, and the widths are
+        # what make them line up: the marker takes exactly _CHILD_INDENT, so
+        # the play slot beside it starts at the same x as a CHILD row's slot.
+        # The play affordances then form one continuous column down the group,
+        # and the parent's title sits on the same left edge as its sources'.
         self._slot = _slot_label()
+        self._marker = None
+        if marker_column:
+            # RESERVED, not conditional. A top-level EPG row keeps this column
+            # whether or not it has sources to disclose, so a single-source
+            # programme's title lands on the same left edge as a bundled one's.
+            # Owner: "single item spacing needs to leave space for the play
+            # button even if it's not there (so basically hold space for the
+            # playlist icon, and the play button)". Reserving is the same
+            # reasoning that gave the play slot its own fixed width — a column
+            # that appears and disappears moves everything beside it.
+            self._marker = QLabel()
+            self._marker.setFixedWidth(_CHILD_INDENT)
+            self._marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if expandable:
+                self._marker.setToolTip("Several sources — click to show them")
+            leading = QWidget()
+            lay = QHBoxLayout(leading)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+            lay.addWidget(self._marker)
+            lay.addWidget(self._slot)
+        else:
+            leading = self._slot
 
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
         # provider gave no start_time has no denominator.
-        # A row that chips its time is a PROGRAMME row: it reports one fact and
-        # its airings carry the bars underneath it. Two progress bars in a
-        # parent/child pair measure the same thing twice.
+        #
+        # A programme row gets one too. It used to chip its time instead, on the
+        # reasoning that its airings carried the bars and a parent/child pair
+        # would measure the same thing twice — but that only holds while the row
+        # is OPEN, and closed is the default. Collapsed, the programme row is
+        # the only thing on screen, so it is the row that most needs the
+        # proportion the bar exists to show. Owner: "the bundled results ...
+        # should use progress bars corresponding to the source attached to the
+        # play button." Which is exactly what it now shows: the parent is built
+        # from the same airing its play button starts.
         self._show_bar = bool(
-            live and when is not None and started_at is not None and not chip_time
+            live and when is not None and started_at is not None
         )
+        self._bar_source = bar_source
 
         # Built at its REAL fill, not at zero. It used to start empty and only
         # correct on the first 30s tick, so every bar rendered as a sliver for
@@ -271,7 +355,7 @@ class _AlertRow(_RowShell):
         self.progress = None
         if self._show_bar:
             self.progress = _ProgressBar(elapsed_pct(started_at, when, now_utc()))
-            self.progress.setToolTip(time_str)
+            self.progress.setToolTip(self._bar_tip(time_str))
 
         # A row shows EITHER a bar or its time, never both: the bar already
         # encodes the remaining time as a proportion and carries the words in
@@ -288,13 +372,29 @@ class _AlertRow(_RowShell):
         self._mount(build_chip_row(
             title=ch_name,
             title_chips=((CHIP_QUALITY, quality),),
+            # Language in the RIGHT rail, not with the title: hugging the title
+            # put every row's chip at a different x, since it lands wherever the
+            # name happens to end. Owner: "the alignment of the language chips
+            # should be align right immediately to the left of the progress bar
+            # or upcoming play time chip." Quality stays with the title — that
+            # was settled separately and for the opposite reason.
+            chips=((CHIP_LANG, region),),
             tail_widget=self.progress if self._show_bar else self.time_lbl,
-            leading_slot=self._slot,
+            leading_slot=leading,
             indent=indent,
         ))
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
         self._paint_slot()
+
+    def _bar_tip(self, time_text: str) -> str:
+        """The bar's hover text, naming the source it measures.
+
+        A programme row's bar is one channel's progress — the channel its play
+        button starts — so saying which is what stops the bar reading as a
+        claim about the programme in the abstract.
+        """
+        return f"{time_text} · {self._bar_source}" if self._bar_source else time_text
 
     # ── the left slot ────────────────────────────────────────────────────
     def set_playing(self, playing: bool) -> None:
@@ -339,19 +439,27 @@ class _AlertRow(_RowShell):
         ``COLOR_PLAYBACK_IN_PROGRESS`` is ORANGE and means *resumable*, which is
         a different claim entirely.
         """
+        # The marker is a column of its own, so it no longer competes with the
+        # play affordance for the one slot — which is what made an expandable
+        # row draw a play triangle where its disclosure control should be.
+        if self._marker is not None and self._expandable:
+            self._marker.setPixmap(_icon_utils.vector_pixmap(
+                _icons.vector_key(
+                    "sources_open" if self._expanded else "sources_closed"),
+                _theme.COLOR_OK if self._is_new else _theme.COLOR_TEXT,
+                SLOT_ICON_PX - 2,
+            ))
+            self._marker.setToolTip(
+                "Hide the other sources" if self._expanded
+                else "Several sources — click to show them"
+            )
+
         if self._playing:
             self._set_slot_icon("play", _theme.COLOR_OK, "Playing now")
         elif self._hovered and self._offers_play():
-            self._set_slot_icon("play", _theme.COLOR_ACCENT, "Play")
-        elif self._expandable:
-            # Below new, above nothing: a caret is a permanent property of the
-            # row, so a transient "this just arrived" outranks it — but it still
-            # has to be visible, which is why the dot wins only while it lasts.
-            self._set_slot_icon(
-                "expand" if self._expanded else "collapse",
-                _theme.COLOR_OK if self._is_new else _theme.COLOR_TEXT,
-                "Show the other airings",
-            )
+            self._set_slot_icon("play", _theme.COLOR_ACCENT,
+                                "Play the first available source"
+                                if self._expandable else "Play")
         elif self._is_new:
             self._set_slot_icon("new_dot", _theme.COLOR_OK, "New since you last looked")
         else:
@@ -392,7 +500,8 @@ class _AlertRow(_RowShell):
             # The bar advances on the same tick, from the same instant, so the
             # fill and the tooltip can never disagree about the time.
             self.progress.set_pct(
-                elapsed_pct(self._started_at, self._when, now), tooltip=text
+                elapsed_pct(self._started_at, self._when, now),
+                tooltip=self._bar_tip(text),
             )
 
     def _slot_rect(self) -> QRect:
@@ -406,11 +515,16 @@ class _AlertRow(_RowShell):
 
     def mousePressEvent(self, event):
         # The slot IS the play control while it is offering to play — clicking
-        # the triangle starts it, clicking anywhere else selects the row.
+        # the triangle starts it. Everything else on the row goes to the row's
+        # own action, which for an expandable row is to open it: the title, the
+        # time, the marker and the empty space all expand, so the gesture is
+        # the whole row rather than one 18px strip of it.
         if self._slot_rect().contains(event.pos()) and (
             self._playing or (self._hovered and self._offers_play())
         ):
             self.play_clicked.emit()
+        elif self._expandable:
+            self.expand_clicked.emit()
         else:
             self.row_clicked.emit()
         super().mousePressEvent(event)
