@@ -1336,7 +1336,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         been discoverable, so the "Show N more" row performs that drag.
 
         Space is taken from the siblings with the most to spare, and never below
-        their own ``min_expanded_height()`` — growing one section by starving
+        their own ``preferred_expanded_height()`` — growing one section by starving
         another into uselessness trades one truncated list for two.
 
         Args:
@@ -1380,8 +1380,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 spare.append(0)
                 continue
             floor = (
-                widget.min_expanded_height()
-                if hasattr(widget, "min_expanded_height") else 0
+                widget.preferred_expanded_height()
+                if hasattr(widget, "preferred_expanded_height") else 0
             )
             spare.append(max(0, sizes[i] - floor))
 

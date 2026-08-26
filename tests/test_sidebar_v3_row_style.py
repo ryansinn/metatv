@@ -213,14 +213,23 @@ def test_content_row_height_matches_a_real_two_line_row(qapp):
     )
 
 
-def test_min_expanded_height_is_derived_from_the_content_row(qapp, tmp_path):
+def test_preferred_height_is_derived_from_the_content_row(qapp, tmp_path):
+    """The MIN_ROWS-derived height is what a section ASKS for.
+
+    It used to be ``min_expanded_height()`` and the splitter enforced it as a
+    wall, which is why Watch Alerts could not be dragged below 367px. The
+    arithmetic is unchanged; only which of the two limits it answers.
+    """
     from metatv.core.config import Config
     from metatv.gui.sidebar.base import CollapsibleSection
 
     sec = CollapsibleSection("History", "H", Config(config_dir=tmp_path))
-    assert sec.min_expanded_height() >= (
+    assert sec.preferred_expanded_height() >= (
         sec.HEADER_H + sec.MIN_ROWS * sec.CONTENT_ROW_H
-    ), "a section's floor no longer fits MIN_ROWS of the row it actually renders"
+    ), "a section's preferred height no longer fits MIN_ROWS of its real row"
+    # ...and it is a preference, not a floor: the user can still drag past it,
+    # down to a height with room for the header and nothing else.
+    assert sec.min_expanded_height() < sec.HEADER_H + sec.CONTENT_ROW_H
 
 
 def test_a_section_never_shows_a_more_marker_over_an_empty_list(qapp, tmp_path):
