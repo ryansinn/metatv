@@ -231,9 +231,15 @@ class _ProgressBar(QWidget):
 
         # Was its own track/fill literals, a different grey and a different
         # amber from the EPG delegate's — two bars for one idea.
-        paint_progress(QPainter(self), QRect(0, 0, self.width(), self.height()),
+        #
+        # The painter is BOUND and explicitly ended rather than passed as a
+        # temporary: a QPainter that outlives its paintEvent warns, and one
+        # whose lifetime depends on when a temporary is collected is a bug
+        # waiting for a different interpreter.
+        painter = QPainter(self)
+        paint_progress(painter, QRect(0, 0, self.width(), self.height()),
                        self._pct)
-        p.end()
+        painter.end()
 
 
 def _divider() -> QFrame:
