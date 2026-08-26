@@ -12,7 +12,7 @@ aired. Owner: "how can it play anything in future... no time machine."
 from datetime import datetime, timedelta
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QEnterEvent, QMouseEvent
 
 from metatv.core.config import Config
 from metatv.gui import theme as _theme
@@ -36,6 +36,16 @@ def _upcoming(tmp_path):
                      when=NOW + timedelta(minutes=27), live=False)
 
 
+def _enter(row) -> None:
+    """Qt6 types enterEvent as taking a QEnterEvent specifically, not a QEvent."""
+    pos = QPointF(4, 4)
+    row.enterEvent(QEnterEvent(pos, pos, pos))
+
+
+def _leave(row) -> None:
+    row.leaveEvent(QEvent(QEvent.Type.Leave))
+
+
 def _has_marker(row) -> bool:
     pixmap = row._slot.pixmap()
     return not pixmap.isNull()
@@ -56,7 +66,7 @@ def test_hover_does_not_move_anything(qapp, tmp_path):
     title = row.layout().itemAt(1).widget()
     before = (title.geometry(), row.progress.geometry())
 
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
     qapp.processEvents()
     after = (title.geometry(), row.progress.geometry())
 
@@ -76,10 +86,10 @@ def test_the_slot_reserves_its_width_even_when_empty(qapp, tmp_path):
 # ── what the slot shows, and in what order ─────────────────────────────
 def test_hovering_a_live_row_offers_play(qapp, tmp_path):
     row = _live(tmp_path)
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
     assert _has_marker(row)
     assert row._slot.toolTip() == "Play"
-    row.leaveEvent(QEvent(QEvent.Type.Leave))
+    _leave(row)
     assert not _has_marker(row)
 
 
@@ -87,7 +97,7 @@ def test_an_upcoming_row_never_offers_play(qapp, tmp_path):
     """No time machine. Hovering must change nothing."""
     row = _upcoming(tmp_path)
     assert not _has_marker(row)
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
     assert not _has_marker(row), "an upcoming row offered to play a future programme"
     assert row._slot.toolTip() == ""
 
@@ -98,7 +108,7 @@ def test_playing_outranks_hover_and_new(qapp, tmp_path):
     row.set_new(True)
     assert row._slot.toolTip() == "New since you last looked"
 
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
     assert row._slot.toolTip() == "Play", "hover must outrank the new marker"
 
     row.set_playing(True)
@@ -129,7 +139,7 @@ def test_clicking_the_slot_plays_and_clicking_the_row_selects(qapp, tmp_path):
     row.setFixedWidth(280)
     row.show()
     qapp.processEvents()
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
 
     played, selected = [], []
     row.play_clicked.connect(lambda: played.append(1))
@@ -148,7 +158,7 @@ def test_clicking_the_slot_of_an_upcoming_row_selects_rather_than_plays(qapp, tm
     row.setFixedWidth(280)
     row.show()
     qapp.processEvents()
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    _enter(row)
 
     played, selected = [], []
     row.play_clicked.connect(lambda: played.append(1))
