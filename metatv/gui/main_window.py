@@ -1326,8 +1326,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # VOD watch-alert helpers
     # ------------------------------------------------------------------
 
-    def _grow_sidebar_section(self, section) -> bool:
-        """Give ``section`` enough height to show the rows its budget is hiding.
+    def _grow_sidebar_section(self, section, rows: int | None = None, *,
+                              probe: bool = False) -> bool:
+        """Give ``section`` enough height to show more of the rows it is hiding.
 
         The rows were never capped, only unallocated: ``apply_row_budget``'s
         contract is "show what fits, and re-render more when the section gets
@@ -1340,6 +1341,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         Args:
             section: The sidebar section asking for room.
+            rows: How many rows' worth of height to ask for. ``None`` means
+                every hidden row — what clicking "Show N more" asks for.
+                A wheel notch asks for a few, so the section grows the way a
+                list scrolls rather than jumping to full height.
+            probe: Answer whether it COULD grow, and change nothing. The tail
+                row asks this while rendering so its label can promise what
+                will actually happen — a row saying "Show N more" that opens
+                another view instead is worse than either action alone.
 
         Returns:
             True when the section actually grew. False when every sibling is
@@ -1354,7 +1363,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             return False
 
         sizes = splitter.sizes()
-        wanted = section.rows_hidden_total() * section.CONTENT_ROW_H
+        hidden = section.rows_hidden_total()
+        wanted = min(rows, hidden) if rows is not None else hidden
+        wanted *= section.CONTENT_ROW_H
         if wanted <= 0:
             return False
 
@@ -1384,6 +1395,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # what is actually removed rather than assumed equal to `take`, so the
         # section can only ever grow by exactly what the siblings gave up —
         # rounding cannot invent or lose pixels.
+        if probe:
+            return True
         taken = 0
         for i, can_give in enumerate(spare):
             if can_give <= 0:
