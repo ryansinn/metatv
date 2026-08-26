@@ -170,7 +170,11 @@ def test_the_header_carries_no_caret(qapp):
     header = section._build_clickable_header()
     section.main_layout.addWidget(header)
 
-    assert not hasattr(section, "toggle_btn"), (
+    # __dict__, not hasattr: this section is built via __new__, and PyQt raises
+    # RuntimeError for a missing attribute on one — which hasattr does NOT
+    # absorb, so the guard itself explodes. CLAUDE.md says exactly this, and I
+    # wrote hasattr anyway while writing a test about the caret.
+    assert "toggle_btn" not in section.__dict__, (
         "the caret is back — the header is the control"
     )
     glyphs = {b.text() for b in header.findChildren(QPushButton)}
