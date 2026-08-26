@@ -12,8 +12,8 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    build_chip_row, episode_code, media_type_word, quality_word,
-    sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, episode_code,
+    media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
@@ -176,39 +176,23 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         _theme.apply_list_selection(self._list)
         self.content_layout.addWidget(self._list)
 
-        btn_row = QHBoxLayout()
-        self._clear_watched_btn = QPushButton(f"{self.config.watched_icon} Clear Watched")
-        self._clear_watched_btn.setToolTip("Remove finished items — partially watched titles stay")
-        self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
-        btn_row.addWidget(self._clear_watched_btn)
-
-        # "Clear All" is demoted from an always-visible button into a compact ⋯
-        # overflow menu — the destructive bulk action is one step removed.
-        from PyQt6.QtWidgets import QMenu
-        self._overflow_btn = QPushButton(_icons.overflow_icon)
-        self._overflow_btn.setFlat(True)
-        self._overflow_btn.setFixedWidth(28)  # structural
-        self._overflow_btn.setToolTip("More…")
-        self._overflow_menu = QMenu(self._overflow_btn)
-        clear_all_action = self._overflow_menu.addAction(
-            f"{self.config.delete_icon} Clear All"
-        )
-        clear_all_action.setToolTip("Remove everything from the queue")
-        clear_all_action.triggered.connect(self.clearQueueClicked.emit)
-        self._overflow_btn.clicked.connect(self._show_overflow_menu)
-        btn_row.addWidget(self._overflow_btn)
-        self.content_layout.addLayout(btn_row)
+        # Both bulk actions live in the ⋯ overflow. "Clear Watched" used to be a
+        # full-width button, which cost ~29px — more than a compact row — in
+        # every session, whether or not there was anything to clear.
+        self.content_layout.addLayout(self.build_overflow_row([
+            (f"{self.config.watched_icon} Clear Watched",
+             "Remove finished items — partially watched titles stay",
+             self.clearWatchedClicked.emit),
+            (f"{self.config.delete_icon} Clear All",
+             "Remove everything from the queue",
+             self.clearQueueClicked.emit),
+        ]))
 
         # Filter bookkeeping — rebuilt by every _populate_rows.
         self._groups: list[_FilterGroup] = []
         self._no_match_item = None
 
         self.set_empty(True)
-
-    def _show_overflow_menu(self) -> None:
-        """Pop the ⋯ overflow menu just below the button."""
-        below = self._overflow_btn.rect().bottomLeft()
-        self._overflow_menu.exec(self._overflow_btn.mapToGlobal(below))
 
     def budgeted_list(self):
         """The rows this section fits to its height (see
@@ -561,17 +545,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setData(_ROLE_AVAILABLE, e.available)
         item.setData(_ROLE_SEARCH_TITLE, e.search_title)
         # An episode-grain entry leads with its episode code — that is what
-        # distinguishes it from its siblings; a channel-grain entry leads with
-        # what kind of thing it is.
+        # distinguishes it from its siblings; a channel-grain entry falls back
+        # to the year. The media TYPE is the icon, never a word.
+        marker = episode_code(e.season_num, e.episode_num) or e.detected_year
+        quality = quality_word(e.detected_quality)
         row = build_chip_row(
             title=title,
-            meta=sidebar_meta_line(
-                episode_code(e.season_num, e.episode_num)
-                or media_type_word(e.media_type),
-                e.detected_year,
-                e.detected_prefix,
-                quality_word(e.detected_quality),
+            icon_role=media_icon_role(e.media_type),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, marker),
+                (CHIP_LANG, e.detected_prefix),
             ),
+            meta=sidebar_meta_line(marker, e.detected_prefix, quality),
+            density=self._row_density(),
         )
         if not e.available:
             # A custom item widget ignores the item's foreground role, so dim the whole
@@ -606,7 +593,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """Render the Alerts Matched header + rows (no-op when both are empty)."""
         if not matched and not series_new:
             return
-        label = f"{_icons.alert_icon} Alerts Matched"
+        # No emoji: the render's group headings are text. The glyph was baked
+        # into the label STRING, so styling the heading uppercased it and the
+        # emoji rode along untouched.
+        label = "Alerts Matched"
         group = _FilterGroup(self._add_header(label), label, False)
         for m in matched:
             group.rows.append((
@@ -626,14 +616,17 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             "grain": "matched_channel",
             "channel_id": m.channel_id,
         })
+        quality = quality_word(m.detected_quality)
         row = build_chip_row(
             title=m.title,
-            meta=sidebar_meta_line(
-                media_type_word(m.media_type),
-                m.detected_year,
-                m.detected_prefix,
-                quality_word(m.detected_quality),
+            icon_role=media_icon_role(m.media_type),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, m.detected_year),
+                (CHIP_LANG, m.detected_prefix),
             ),
+            meta=sidebar_meta_line(m.detected_year, m.detected_prefix, quality),
+            density=self._row_density(),
             new_badge=True,
         )
         hint = (
@@ -651,9 +644,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return item
 
     def _add_matched_series_item(self, entry: dict) -> QListWidgetItem:
-        """One monitored-series-with-new-episodes row (distinct 🆕 icon + count)."""
-        from metatv.gui.sidebar.alerts import _VodAlertRow  # local: avoid a top-level cycle
+        """One monitored-series-with-new-episodes row.
 
+        Built by the SHARED row builder, like every other row in this section.
+        It used to be a ``_VodAlertRow`` — a second widget for the same visual
+        row, carrying an emoji type icon and an emoji "NEW" badge — so it sat
+        out every change made to the real rows around it and ended up the only
+        row in the sidebar still wearing the old look.
+        """
         cid = entry.get("series_channel_id", "")
         title = entry.get("display_title") or entry.get("title") or "Unknown series"
         unseen = entry.get("unseen_new") or 0
@@ -667,9 +665,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setToolTip(
             f"{title}: +{unseen} new {ep_word} — double-click to browse the series"
         )
-        row = _VodAlertRow(
-            _icons.new_episodes_icon, title, f"+{unseen} {ep_word}",
-            _theme.VOD_ALERT_COUNT_NEW,
+        row = build_chip_row(
+            title=title,
+            icon_role=media_icon_role("series"),
+            news_text=f"+{unseen} {ep_word}",
+            new_badge=True,
+            density=self._row_density(),
         )
         item.setSizeHint(row.sizeHint())
         self._list.addItem(item)

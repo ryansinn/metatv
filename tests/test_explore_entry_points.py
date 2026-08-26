@@ -630,7 +630,12 @@ class TestSidebarExploreLinks:
         # word "Explore" four times, which stops being read and just crowds the
         # header. The tooltip is now the ONLY place the name appears, so it is
         # load-bearing rather than decorative.
-        assert btn.text() == _icons.explore_columns_icon, \
+        # One shared glyph across every entry point — still the invariant, but
+        # it is now a vector ICON (the "explore" role, mdi6.arrow-right) rather
+        # than glyph TEXT. Spec item 14 calls this "→ escalation"; the old ⤢
+        # described the destination's layout instead of the action.
+        assert btn.text() == "", "the explore link should carry an icon, not text"
+        assert not btn.icon().isNull(), \
             "one shared glyph across every entry point"
         assert btn.text() != section.config.expand_icon, (
             "the collapse toggle in this same header renders expand_icon — two "

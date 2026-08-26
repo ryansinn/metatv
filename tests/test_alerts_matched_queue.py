@@ -30,6 +30,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import sidebar_config
 
 
 @pytest.fixture(scope="module")
@@ -238,9 +239,7 @@ class TestAlertsMatchedSectionRendering:
 
         obj = WatchQueueSection.__new__(WatchQueueSection)
         obj._list = QListWidget()
-        obj.config = SimpleNamespace(
-            live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        )
+        obj.config = sidebar_config()
         obj.set_empty = MagicMock()
         obj._has_unavailable = False
         obj.alertsMatchedClicked = MagicMock()

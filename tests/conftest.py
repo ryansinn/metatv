@@ -352,6 +352,35 @@ def _qt_teardown_guard(request):
         )
 
 
+
+def sidebar_config(**over):
+    """A fake ``Config`` carrying every field a sidebar SECTION reads.
+
+    Seven test files each hand-rolled their own ``SimpleNamespace(live_icon="L",
+    movie_icon="M", …)``, so every new field a section learned to read broke all
+    seven at once — which is exactly what happened when rows gained a density
+    preference. One factory means the next field is added here, once.
+
+    CLAUDE.md: repair a test double at the shared factory, never with a
+    defensive ``getattr`` in production — a ``getattr`` fallback in the section
+    would mask a real missing-config bug for every viewer.
+    """
+    base = dict(
+        # Legacy emoji icon set — sidebar ROWS now use vector roles, but headers
+        # and several menus still read these.
+        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
+        like_icon="+", delete_icon="x", watched_icon="v",
+        expand_icon="v", collapse_icon=">",
+        # Row shape (Settings → Interface → Sidebar rows).
+        sidebar_row_density="compact",
+        # Section behaviour.
+        filter_adult_mode="all",
+        queue_filter_visible=False,
+        sidebar_section_states={},
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     """Summarise what the Qt teardown guard observed (leaky tests, one block)."""
     tr = terminalreporter
@@ -644,6 +673,8 @@ def mock_settings_density_widget(dlg) -> None:
 
     dlg._channel_density_combo = MagicMock()
     dlg._channel_density_combo.currentData.return_value = "comfy"
+    dlg._sidebar_density_combo = MagicMock()
+    dlg._sidebar_density_combo.currentData.return_value = "compact"
     dlg._platform_name_style_combo = MagicMock()
     dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
@@ -676,12 +707,21 @@ def wire_settings_density_widget(dlg) -> None:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
     from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
-    from metatv.gui.settings_dialog_tabs import _PLATFORM_NAME_STYLE_CHOICES
+    from metatv.gui.settings_dialog_tabs import (
+        _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
+    )
     from PyQt6.QtWidgets import QCheckBox, QComboBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:
         dlg._channel_density_combo.addItem(label, value)
+    # Sidebar row density (Settings -> Interface -> Sidebar). Here rather than
+    # in nine test files, which is what this factory's docstring promises and
+    # what adding it anywhere else costs: one widget on the dialog and not on
+    # the double broke 43 tests across 9 files at once.
+    dlg._sidebar_density_combo = QComboBox()
+    for label, value in _SIDEBAR_DENSITY_CHOICES:
+        dlg._sidebar_density_combo.addItem(label, value)
     dlg._platform_name_style_combo = QComboBox()
     for label, value in _PLATFORM_NAME_STYLE_CHOICES:
         dlg._platform_name_style_combo.addItem(label, value)
@@ -769,6 +809,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_sidebar_visibility",
     "_refresh_recommendation_views",
     "_apply_channel_list_density",
+    "_apply_sidebar_row_density",
     "refresh_theme",
     "_apply_collapse_variants_setting",
     "_sync_split_toggle",

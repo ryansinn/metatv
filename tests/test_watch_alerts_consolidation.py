@@ -384,8 +384,12 @@ class TestRealSectionConstruction:
         cfg, _ = Config.load()  # isolated to a tmp HOME by the autouse fixture
         sec = WatchAlertsSection(cfg, db)
         try:
-            # Header "Manage" affordance must exist (always reachable).
-            assert sec._manage_btn.text() == "Manage"
+            # The Manage affordance must exist. Icon-only now (the three-slider
+            # "tune" glyph): as a text button it did not fit on the group-heading
+            # line it shares, truncating "Movies & Series (6) · 2 new". The
+            # tooltip carries the word.
+            assert sec._manage_btn.toolTip(), "Manage needs a tooltip — it is icon-only"
+            assert not sec._manage_btn.icon().isNull(), "Manage has no glyph"
 
             # Empty: header-only, no Movies & Series rows.
             sec.refresh_vod_rules()

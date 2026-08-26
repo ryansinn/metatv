@@ -36,8 +36,9 @@ from PyQt6.QtWidgets import QApplication, QLabel, QListWidget, QListWidgetItem, 
 from metatv.core.database import Database, ChannelDB, EpisodeDB, SeasonDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import HistoryDTO, build_history_dtos
-from metatv.gui.chip_row import build_chip_row
+from metatv.gui.chip_row import build_chip_row, row_trailing_button
 from metatv.gui.sidebar.history import HistorySection
+from tests.conftest import sidebar_config
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +60,7 @@ def db(tmp_path: Path):
 
 
 def _config():
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-    )
+    return sidebar_config()
 
 
 def _seed_series(db: Database, name: str = "Breaking Bad", provider_id: str = "p1",
@@ -258,7 +256,7 @@ class TestChipRowTrailingButton:
         every pre-existing caller — still WA_TransparentForMouseEvents."""
         row = build_chip_row(title="No Button Here")
         assert row.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        assert row.findChild(QPushButton) is None
+        assert row_trailing_button(row) is None
 
     def test_trailing_button_row_is_not_mouse_transparent(self, qapp):
         """The row-wide transparency is dropped ONLY when a trailing_button is
@@ -267,7 +265,7 @@ class TestChipRowTrailingButton:
         btn = QPushButton(">>")
         row = build_chip_row(title="Has A Button", trailing_button=btn)
         assert not row.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        assert row.findChild(QPushButton) is btn
+        assert row_trailing_button(row) is btn
 
     def test_trailing_button_is_the_last_widget_on_the_title_line(self, qapp):
         """On the TITLE line — a two-line row must not strand it under the meta."""
@@ -348,7 +346,7 @@ class TestHistorySectionPlayNextButton:
 
         rows = [section.history_list.itemWidget(section.history_list.item(i))
                 for i in range(section.history_list.count())]
-        buttons = [row.findChild(QPushButton) for row in rows]
+        buttons = [row_trailing_button(row) for row in rows]
 
         assert buttons[0] is not None, "has_next row must show the >> button"
         assert buttons[1] is None, "row with has_next=False must not show a button"
@@ -362,7 +360,7 @@ class TestHistorySectionPlayNextButton:
         ]
         section = _new_history_section(dtos)
         row = _first_chip_row(section.history_list)
-        btn = row.findChild(QPushButton)
+        btn = row_trailing_button(row)
         assert "S02E05" in btn.toolTip()
 
     def test_button_click_emits_play_next_clicked_with_episode_id(self, qapp, db):
@@ -373,7 +371,7 @@ class TestHistorySectionPlayNextButton:
         ]
         section = _real_history_section(db, dtos)
         row = _first_chip_row(section.history_list)
-        btn = row.findChild(QPushButton)
+        btn = row_trailing_button(row)
 
         emitted = []
         section.playNextClicked.connect(lambda eid: emitted.append(eid))
@@ -402,7 +400,7 @@ class TestPlayNextRoutesThroughPlayEpisodeById:
         ]
         section = _real_history_section(db, dtos)
         row = _first_chip_row(section.history_list)
-        btn = row.findChild(QPushButton)
+        btn = row_trailing_button(row)
 
         emitted = []
         section.playNextClicked.connect(lambda eid: emitted.append(eid))

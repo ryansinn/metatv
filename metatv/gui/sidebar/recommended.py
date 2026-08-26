@@ -10,8 +10,8 @@ from loguru import logger
 
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    MiddleElideLabel as _MiddleElideLabel, build_chip_row, media_type_word,
-    quality_word, sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
+    build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.base import CollapsibleSection
 
@@ -74,23 +74,11 @@ class RecommendedSection(CollapsibleSection):
     def get_section_id(self):
         return "recommended"
 
-    def create_header(self):
-        header = self._build_clickable_header()
-        hl = header.layout()
-
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-
-        refresh_btn = QPushButton(self.config.refresh_icon)
-        refresh_btn.setFixedSize(22, 20)
-        refresh_btn.setToolTip("Refresh recommendations")
-        refresh_btn.clicked.connect(self.refresh)
-        hl.addWidget(refresh_btn)
-
-        self.main_layout.addWidget(header)
+    # No create_header override. It existed only to append a refresh button,
+    # and carrying a divergent copy of the title / stretch / status / explore
+    # wiring for one control is exactly what _add_header_actions exists to
+    # avoid. Refresh now lives in the ⋯ overflow with every other section's
+    # occasional action, so the base header serves this section unchanged.
 
     def create_content(self):
         self._list = QListWidget()
@@ -108,6 +96,11 @@ class RecommendedSection(CollapsibleSection):
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         _theme.apply_list_selection(self._list)
         self.content_layout.addWidget(self._list)
+        self.content_layout.addLayout(self.build_overflow_row([
+            (f"{self.config.refresh_icon} Refresh recommendations",
+             "Recompute recommendations from your ratings and history",
+             self.refresh),
+        ]))
         self.set_empty(True)
 
     def refresh(self):
@@ -255,15 +248,19 @@ class RecommendedSection(CollapsibleSection):
         ``detected_prefix`` — the honest language, NOT the source ``detected_region``
         that used to leak into the title.
         """
+        quality = quality_word(sc.detected_quality)
+        release = sc.detected_year or year
         return build_chip_row(
             title=sc.detected_title or sc.channel_name,
+            icon_role=media_icon_role(sc.media_type),
             liked=bool(sc.already_liked),
-            meta=sidebar_meta_line(
-                media_type_word(sc.media_type),
-                sc.detected_year or year,
-                sc.detected_prefix or "",
-                quality_word(sc.detected_quality),
+            chips=(
+                (CHIP_QUALITY, quality),
+                (CHIP_YEAR, release),
+                (CHIP_LANG, sc.detected_prefix or ""),
             ),
+            meta=sidebar_meta_line(release, sc.detected_prefix or "", quality),
+            density=self._row_density(),
         )
 
     def _on_double_click(self, item: QListWidgetItem) -> None:

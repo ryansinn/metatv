@@ -1,27 +1,38 @@
-"""Shared sidebar row widget: a title over a quiet meta line.
+"""Shared sidebar row widget — one builder, two densities.
 
-One canonical builder for every sidebar content list (Recommended, Watch Queue,
-Favorites, History), so the rows read identically.
+Every sidebar content list (Recommended, Watch Queue, Favorites, History) renders
+through :func:`build_chip_row`, in one of two shapes the viewer chooses at
+``Settings → Interface → Sidebar rows``:
 
-**V3 changed the shape of this row.** It used to be a single line carrying an
-icon and a right-aligned cluster of chips — ``[icon] Title [4K] … [Year] [Lang]``
-— and it is now two lines of text: the title, and underneath it the
-circumstantial detail in a quieter colour. Chips are a *channel-list* idiom in
-V3, where a row is 40+px tall and the eye is comparing versions of one title; in
-a 260px sidebar they cost the width the title needed, and three of them stacked
-against the right margin turned every section into a column of badges with
-titles behind them. The facts they carried are not lost — they compose into the
-meta line via :func:`sidebar_meta_line`, where "Movie · 1985 · EN" says what
-three chips said, in reading order, for less width.
+**Compact** (the default) — one line::
 
-``MiddleElideLabel`` is the anti-clip label both lines use; ``build_chip_row``
-assembles the mouse-transparent row so a ``QListWidget`` item can host it via
-``setItemWidget``. Look a label up with :func:`row_title_label` /
-:func:`row_meta_label` rather than ``findChild`` — see their docstrings for the
-trap that motivates them.
+    [icon] Title …………………………… [4K] [1985] [EN]
+
+**Comfortable** — two lines, the second quieter::
+
+    [icon] Title
+           S05E03 · 2 hours ago
+
+Compact is the default because the sidebar's scarcest resource is vertical
+space: at ~20px against comfortable's ~37px it shows roughly twice the entries
+in the same allocation, which is the whole point of a rail you scan.
+
+**The media type is an ICON, never a word.** ``icon_role`` takes a semantic role
+("movie"/"series"/"live") and paints the vector glyph for it. A row that spells
+out "Movie · " on every line is repetition a glyph already handles for free, and
+it costs the width the title needed — the icons exist precisely to avoid it.
+
+Callers pass BOTH ``chips`` and ``meta`` and let the density decide which is
+drawn, so switching density is one config read here rather than a branch in
+every section.
+
+Look a row's labels up with :func:`row_title_label` / :func:`row_meta_label`
+rather than ``findChild`` — see their docstrings for the trap.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 from PyQt6.QtWidgets import (
     QLabel, QPushButton, QSizePolicy, QWidget, QHBoxLayout, QVBoxLayout,
@@ -30,18 +41,57 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 
 from metatv.core.channel_name_utils import quality_display
-from metatv.core.models import MediaType
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
+
+#: The two row shapes. Stored at ``Config.sidebar_row_density``.
+DENSITY_COMPACT = "compact"
+DENSITY_COMFORTABLE = "comfortable"
+DENSITIES = (DENSITY_COMPACT, DENSITY_COMFORTABLE)
+
+#: Chip kinds a caller may put in ``chips``, mapped to their theme role. These
+#: are the SIDEBAR_CHIP_* family, not the channel list's YEAR_CHIP/LANG_CHIP:
+#: those are sized for a 40px list row (YEAR_CHIP is 15px type, larger than the
+#: 13px title beside it) and inflated a compact row to 27px. Quality is a
+#: ``QPushButton`` because its role is QPushButton-scoped — as a QLabel the
+#: badge silently renders as plain text.
+CHIP_QUALITY = "quality"
+CHIP_YEAR = "year"
+CHIP_LANG = "lang"
+_CHIP_ROLES = {
+    CHIP_QUALITY: "SIDEBAR_CHIP_QUALITY",
+    CHIP_YEAR: "SIDEBAR_CHIP_YEAR",
+    CHIP_LANG: "SIDEBAR_CHIP_LANG",
+}
 
 #: Object names for the row's two labels. A row has two ``MiddleElideLabel``
 #: children and ``QObject.findChild`` searches breadth-first, so it returns the
-#: META label (a direct child) and not the title (one level deeper, inside the
-#: title line). Every lookup goes through :func:`row_title_label` /
-#: :func:`row_meta_label`; a drift-guard test fails the suite on a bare
-#: ``findChild(MiddleElideLabel)``.
+#: META label and not the title. Every lookup goes through
+#: :func:`row_title_label` / :func:`row_meta_label`; a drift-guard test fails the
+#: suite on a bare ``findChild(MiddleElideLabel)``.
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
+
+#: The caller-supplied interactive button (History's "play next episode"). It
+#: needs a name for the same reason the labels do: chips are ``QPushButton`` too
+#: since they were unified onto one box model, so ``findChild(QPushButton)``
+#: returns a CHIP — the row's quality badge — not the control the caller wired.
+TRAILING_OBJECT_NAME = "chipRowTrailing"
+
+#: Row-icon edge length, sized against the title's CAP HEIGHT rather than its
+#: font size. A 13px font draws ~9px of capital, but a 13px icon is 13px of
+#: visible glyph — so an icon nominally the same size as the text reads ~44%
+#: bigger than the letters beside it, which is what "the type icons are still
+#: too large" was seeing. 11px sits just above cap height, the usual
+#: relationship between a glyph and the type it sits in.
+ICON_PX = 11
+
+#: The news marker's diameter. A ring, not a "NEW" pill: the pill was a second
+#: word competing with the title, and the count beside it ("+12 eps") already
+#: says what is new — so the marker only has to say THAT something is, and a
+#: ring does that at a fraction of the width.
+NEWS_DOT_PX = 9
 
 
 class MiddleElideLabel(QLabel):
@@ -54,21 +104,17 @@ class MiddleElideLabel(QLabel):
     chopped even short titles ("1983" → "1…3"). Zero contents margins + eliding against
     the label's FULL ``width()`` in ``paintEvent`` (drawing in ``rect()``, not a
     margin-shrunk ``contentsRect()``) keeps the elide threshold identical to the draw
-    area, so a title exactly as wide as its box still renders in full. Only when the row
-    is too narrow does the label shrink toward ``minimumSizeHint`` (width of "…") and the
-    title middle-elide. Keeps the full text as the tooltip and as ``text()``.
+    area. Keeps the full text as the tooltip and as ``text()``.
 
     The pen comes from ``color_token``, resolved **by name at paint time** so a
-    theme switch repaints in the new palette without re-instantiating the label.
-    It is a constructor argument rather than a stylesheet ``color:`` because this
-    class paints itself: a role applied with ``theme.style()`` still governs the
-    label's font and background, but its ``color`` is never consulted by the
-    overridden ``paintEvent``, so a two-line row styled that way rendered both
-    lines in the same colour and the visual hierarchy silently did not exist.
+    theme switch repaints in the new palette. It is a constructor argument rather
+    than a stylesheet ``color:`` because this class paints itself: a role applied
+    with ``theme.style()`` still governs font and background, but its ``color`` is
+    never consulted by the overridden ``paintEvent``, so a two-line row styled
+    that way rendered both lines in the same colour and the hierarchy silently did
+    not exist.
     """
 
-    # Slack added to the preferred width so a title that fits is never clipped by
-    # sub-pixel layout rounding (guards the "1983" → "1…3" regression).
     _HINT_BUFFER_PX = 8
 
     def __init__(self, text: str = "", parent=None, *, color_token: str = "COLOR_TEXT"):
@@ -76,19 +122,16 @@ class MiddleElideLabel(QLabel):
         self._full = text or ""
         self._color_token = color_token
         self.setTextFormat(Qt.TextFormat.PlainText)
-        self.setContentsMargins(0, 0, 0, 0)  # elide/draw width == the label's full width
+        self.setContentsMargins(0, 0, 0, 0)
         self.setToolTip(self._full)
-        # Keep QLabel's own text set to the full string so its size-hint height stays
-        # correct; the overridden paintEvent draws the elided form, so QLabel's default
-        # (full-text) painter never runs.
         super().setText(self._full)
 
-    def setText(self, text: str) -> None:  # keep _full authoritative if reused
+    def setText(self, text: str) -> None:
         self._full = text or ""
         self.setToolTip(self._full)
-        super().setText(self._full)  # updates height hints + text(); paintEvent re-elides
+        super().setText(self._full)
 
-    def text(self) -> str:  # authoritative full text (not the elided paint)
+    def text(self) -> str:
         return self._full
 
     def minimumSizeHint(self) -> QSize:
@@ -106,7 +149,7 @@ class MiddleElideLabel(QLabel):
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
         painter = QPainter(self)
-        painter.setPen(self.pen_color())  # token, never a literal
+        painter.setPen(self.pen_color())
         elided = self.fontMetrics().elidedText(
             self._full, Qt.TextElideMode.ElideMiddle, self.width()
         )
@@ -125,35 +168,29 @@ def row_title_label(row: QWidget) -> MiddleElideLabel | None:
 
 
 def row_meta_label(row: QWidget) -> MiddleElideLabel | None:
-    """The row's META (second-line) label, or ``None`` on a single-line row."""
+    """The row's META (second-line) label — ``None`` on a compact row."""
     return row.findChild(MiddleElideLabel, META_OBJECT_NAME)
 
 
-def media_type_word(media_type: str | None) -> str:
-    """"Movie" / "Series" / "Live" — the media type as a WORD for the meta line.
+def row_trailing_button(row: QWidget) -> QPushButton | None:
+    """The row's interactive trailing button, or ``None``.
 
-    V3 drops the per-row media-type emoji, so the type now travels as the first
-    part of the meta line ("Movie · 1985"). A word also satisfies the project's
-    never-colour-or-glyph-alone rule outright, which a 🎬 never did.
+    Not ``findChild(QPushButton)``: the chips are flat QPushButtons too — they
+    were unified onto one box model so their padding could not drift — so the
+    bare lookup returns whichever chip Qt reaches first. A test asking "does
+    this row have a play-next button" got a "4K" badge and passed.
     """
-    return {
-        MediaType.MOVIE: "Movie",
-        MediaType.SERIES: "Series",
-        MediaType.LIVE: "Live",
-    }.get(media_type or "", "")
+    return row.findChild(QPushButton, TRAILING_OBJECT_NAME)
 
 
-def quality_word(quality: str | None) -> str:
-    """``"RAW"`` → ``"Uncompressed"`` — the quality token as the meta line shows it.
+def media_icon_role(media_type: str | None) -> str:
+    """``"movie"`` / ``"series"`` / ``"live"`` — the icon role for a media type.
 
-    Routes through :func:`~metatv.core.channel_name_utils.quality_display`, the
-    one chokepoint that turns a stored token into a viewer-facing label. The
-    quality chip did this and the meta line that replaced it has to as well, or
-    the sidebar quietly starts showing "RAW" to mean "uncompressed" — which
-    reads as the opposite of what it is. Uppercased first, per that function's
-    contract for the badge-tier convention.
+    Returns ``""`` for an unknown type, which draws no glyph rather than a
+    placeholder: an unknown row loses its icon, never its row.
     """
-    return quality_display(quality.upper()) if quality else ""
+    role = (media_type or "").strip().lower()
+    return role if role in ("movie", "series", "live") else ""
 
 
 def episode_code(season_num: int | None, episode_num: int | None) -> str:
@@ -163,85 +200,157 @@ def episode_code(season_num: int | None, episode_num: int | None) -> str:
     return f"S{season_num:02d}E{episode_num:02d}"
 
 
-def sidebar_meta_line(*parts: str | None) -> str:
-    """Compose a row's second line — ``"S18E01 · 2 hours ago"``.
+def quality_word(quality: str | None) -> str:
+    """``"RAW"`` → ``"Uncompressed"`` — the quality token as a viewer sees it.
 
-    One builder for all four sidebar sections so the separator, the ordering
-    convention (most specific first) and the treatment of missing values cannot
-    drift between them. Empty and ``None`` parts are dropped rather than
-    leaving a dangling separator, which is the whole reason this is a function
-    and not four f-strings — a live channel has no year and no language, and its
-    meta line has to read "3 days ago", never "· · 3 days ago".
+    Routes through :func:`~metatv.core.channel_name_utils.quality_display`, the
+    one chokepoint that turns a stored token into a label, so the sidebar never
+    shows "RAW" to mean "uncompressed" — which reads as its opposite.
+    """
+    return quality_display(quality.upper()) if quality else ""
+
+
+def sidebar_meta_line(*parts: str | None) -> str:
+    """Compose a comfortable row's second line — ``"S18E01 · 2 hours ago"``.
+
+    One builder for all four sections so the separator, the ordering convention
+    (most specific first) and the treatment of missing values cannot drift.
+    Empty and ``None`` parts are dropped rather than leaving a dangling
+    separator — a live channel has no year and no language, and its meta line
+    has to read "3 days ago", never "· · 3 days ago".
     """
     return " · ".join(str(p) for p in parts if p)
+
+
+def _icon_label(role: str) -> QLabel | None:
+    """A theme-tracking QLabel holding the vector glyph for *role*.
+
+    Registered through ``theme.style_fn`` because an already-rasterised pixmap
+    cannot change colour on its own — the builder re-renders it on every palette
+    switch, which is the same mechanism the section headers use.
+    """
+    if not role:
+        return None
+    label = QLabel()
+    label.setFixedWidth(ICON_PX)
+
+    def _build() -> str:
+        pixmap = _icon_utils.vector_pixmap(
+            _icons.vector_key(role), _theme.COLOR_TEXT, ICON_PX
+        )
+        if pixmap is not None and not pixmap.isNull():
+            label.setPixmap(pixmap)
+        return ""      # the label carries no sheet of its own
+
+    _theme.style_fn(label, _build)
+    return label
+
+
+def _news_dot() -> QLabel:
+    """The "this has news" marker — a small ring, painted in the OK colour.
+
+    Never colour alone: the ring is a SHAPE that no other row carries, and the
+    count beside it ("+12 eps", "1 new") is the words. It replaced a "NEW" pill,
+    which was a second piece of text competing with the title it sat in front of.
+    """
+    label = QLabel()
+    label.setFixedWidth(NEWS_DOT_PX)
+    label.setToolTip("New since you last looked")
+
+    def _build() -> str:
+        pixmap = _icon_utils.vector_pixmap(
+            _icons.vector_key("news"), _theme.COLOR_OK, NEWS_DOT_PX
+        )
+        if pixmap is not None and not pixmap.isNull():
+            label.setPixmap(pixmap)
+        return ""
+
+    _theme.style_fn(label, _build)
+    return label
+
+
+def _chip_widget(kind: str, text: str) -> QWidget:
+    """One chip — a flat ``QPushButton`` whatever the kind.
+
+    All three kinds are the same widget so they share one box model and one
+    padding. As QLabels the year and language chips looked looser than the
+    quality chip on identical declared padding, because a QLabel's border wraps
+    the font's full line box while a button's hugs content + padding.
+
+    Not interactive: flat, unfocusable and mouse-transparent, so the hosting
+    list item keeps every click even on a row that carries a real button.
+    """
+    chip = QPushButton(text)
+    chip.setFlat(True)
+    chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    _theme.style(chip, _CHIP_ROLES[kind])
+    return chip
 
 
 def build_chip_row(
     *,
     title: str,
+    icon_role: str = "",
+    chips: Sequence[tuple[str, str]] = (),
+    tail: str = "",
+    news_text: str = "",
     meta: str = "",
+    density: str = DENSITY_COMPACT,
     liked: bool = False,
     new_badge: bool = False,
     trailing_button: QPushButton | None = None,
 ) -> QWidget:
-    """Build a sidebar content row: a title, and optionally a meta line under it.
+    """Build a sidebar content row in the caller's chosen density.
 
-    The canonical row shared by Recommended, Watch Queue, Favorites and History.
     Mirrors the mouse-transparent ``setItemWidget`` pattern: the row is
     ``WA_TransparentForMouseEvents`` so the hosting ``QListWidget`` item keeps
     ownership of click / double-click / context-menu / selection.
 
-    Layout: an optional 👍 like glyph and an optional "NEW" pill, then the
-    middle-eliding title sized to its content (Preferred policy, no stretch,
-    buffered ``sizeHint`` — see :class:`MiddleElideLabel` — so a title that fits
-    is never clipped), then a stretch, then an optional interactive
-    ``trailing_button`` (e.g. History's "Play next episode" ``>>``). When ``meta``
-    is given, a second, quieter line is added beneath that whole first line.
-
     ``trailing_button`` and row-wide transparency are mutually exclusive: a
-    ``QPushButton`` consumes its own mouse press (it never bubbles up, unlike a
-    plain unhandled ``QLabel``, which ignores the event and lets it bubble to the
-    hosting ``QListWidget`` for selection) — but ``WA_TransparentForMouseEvents``
-    on an ANCESTOR hides its entire subtree from hit-testing, including any
-    non-transparent button inside it, so a button embedded in the current
-    all-or-nothing transparent row would never receive a click at all. So when
-    ``trailing_button`` is given, the row is left at Qt's default (untransparent)
-    instead: every plain label still bubbles unhandled clicks up to the list item
-    exactly as before, while the button — landed on directly — consumes its own
-    click, which is exactly what makes it independently clickable.
+    ``QPushButton`` consumes its own mouse press, but
+    ``WA_TransparentForMouseEvents`` on an ANCESTOR hides its entire subtree from
+    hit-testing — so a button in a transparent row would never receive a click at
+    all. When one is given the row is left untransparent instead: plain labels
+    still bubble unhandled clicks to the item exactly as before, while the button
+    consumes its own, which is what makes it independently clickable.
 
     Args:
         title: The display title (already the clean ``detected_title`` / name).
-        meta: The second line — "S18E01 · 12 min left", "1984 · yesterday",
-            "Movie · 1985 · EN". Compose it with :func:`sidebar_meta_line` so
-            missing parts drop cleanly. When empty the row stays single-line, so
-            a caller with nothing to say on a second line does not grow one.
-        liked: When True, prefix the title with the 👍 like glyph.
-        new_badge: When True, show a small "NEW" pill before the title (e.g. the
-            Watch Queue's "Alerts Matched" rows) — the word "NEW" itself is the
-            cue, never colour alone.
-        trailing_button: An optional, already-built, already-styled/tooltipped
-            ``QPushButton`` (the caller owns its click wiring) appended as the
-            first line's rightmost element. When present, the row does NOT get
-            the blanket ``WA_TransparentForMouseEvents`` treatment (see above) so
-            the button stays clickable.
+        icon_role: ``"movie"`` / ``"series"`` / ``"live"`` — resolve it with
+            :func:`media_icon_role`. Empty draws no glyph.
+        chips: ``[(CHIP_QUALITY, "4K"), (CHIP_YEAR, "1985"), (CHIP_LANG, "EN")]``
+            — drawn right-aligned in the given order, COMPACT density only.
+            Each is skipped when its text is empty.
+        tail: Terse muted text pinned to the right edge ("2h", "329m"), after the
+            chips. Compact density only — it is where History spends the slot the
+            language chip would otherwise take.
+        news_text: The count on a row that has news ("+12 eps", "1 new"), drawn
+            at the right edge in the OK colour. Pairs with ``new_badge``: the
+            ring says THAT there is news, this says how much. Shown in BOTH
+            densities — a count is the reason the row is worth looking at, so
+            it is not something the compact shape trades away.
+        meta: The second line ("S18E01 · 2 hours ago"), COMFORTABLE density only.
+            Compose it with :func:`sidebar_meta_line`.
+        density: :data:`DENSITY_COMPACT` or :data:`DENSITY_COMFORTABLE`. An
+            unknown value falls back to compact rather than raising — a bad
+            config value should cost the preference, not the sidebar.
+        liked: When True, prefix the row with the 👍 like glyph.
+        new_badge: When True, show a small "NEW" pill before the title — the word
+            itself is the cue, never colour alone.
+        trailing_button: An already-built, already-styled ``QPushButton`` (the
+            caller owns its click wiring) appended as the row's last element.
 
     Returns:
-        A ``QWidget`` ready for ``QListWidget.setItemWidget`` — mouse-transparent
-        when ``trailing_button`` is ``None`` (the default), otherwise left
-        untransparent so the trailing button can receive clicks.
+        A ``QWidget`` ready for ``QListWidget.setItemWidget``.
     """
-    # A two-line row when the caller has a meta line, one when it does not. The
-    # title line is built inside its own container widget in the two-line case so
-    # the meta label sits UNDER the whole line (title, badges and button), not
-    # beside the title inside it.
+    comfortable = density == DENSITY_COMFORTABLE and bool(meta)
+
     row = QWidget()
-    if meta:
+    if comfortable:
         outer = QVBoxLayout(row)
         # Tight, deliberately: a two-line row costs the sidebar its scarcest
-        # resource, so every pixel of padding is a row someone does not get to
-        # see. At these margins the row is ~34px against the single-line row's
-        # ~20 — see CollapsibleSection.CONTENT_ROW_H, which is derived from it.
+        # resource, so every pixel of padding is a row someone does not see.
         outer.setContentsMargins(4, 1, 8, 1)
         outer.setSpacing(0)
         title_line = QWidget()
@@ -252,53 +361,73 @@ def build_chip_row(
         outer = None
         layout = QHBoxLayout(row)
         layout.setContentsMargins(4, 1, 8, 1)
-    layout.setSpacing(4)
+    layout.setSpacing(5)
 
     if liked:
         like_lbl = QLabel(_icons.like_icon)
         like_lbl.setToolTip("You liked this")
         layout.addWidget(like_lbl)
 
+    icon_lbl = _icon_label(icon_role)
+    if icon_lbl is not None:
+        layout.addWidget(icon_lbl)
+
     if new_badge:
-        new_lbl = QLabel("NEW")
-        _theme.style(new_lbl, "QUEUE_MATCHED_NEW_TAG")
-        layout.addWidget(new_lbl)
+        layout.addWidget(_news_dot())
 
     # COLOR_TEXT_HI, one step brighter than the meta line's COLOR_TEXT: the
-    # hierarchy between the two lines IS the design, and both tokens clear 4.5:1
-    # on every card surface, so the quiet line is quiet without being dim.
+    # hierarchy between the two lines IS the design, and both clear 4.5:1 on
+    # every card surface.
     title_lbl = MiddleElideLabel(title, color_token="COLOR_TEXT_HI")
     title_lbl.setObjectName(TITLE_OBJECT_NAME)
     _theme.style(title_lbl, "SIDEBAR_ROW_TITLE")
-    # Preferred + no stretch: the title sizes to its content. MiddleElideLabel's
-    # buffered sizeHint keeps a title that fits from being clipped; only a title
-    # too long for the row elides.
     title_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
     layout.addWidget(title_lbl)
 
     layout.addStretch(1)
 
+    if not comfortable:
+        # The right-aligned cluster. Chips carry what distinguishes THIS
+        # section's rows — see each section for which it spends them on.
+        for kind, text in chips:
+            if text:
+                layout.addWidget(_chip_widget(kind, text))
+        if tail:
+            tail_lbl = QLabel(tail)
+            _theme.style(tail_lbl, "SIDEBAR_ROW_TAIL")
+            layout.addWidget(tail_lbl)
+
+    if news_text:
+        news_lbl = QLabel(news_text)
+        _theme.style(news_lbl, "SIDEBAR_ROW_NEWS")
+        layout.addWidget(news_lbl)
+
     if trailing_button is not None:
+        trailing_button.setObjectName(TRAILING_OBJECT_NAME)
         layout.addWidget(trailing_button)
 
-    if outer is not None:
+    if comfortable:
         meta_lbl = MiddleElideLabel(meta, color_token="COLOR_TEXT")
         meta_lbl.setObjectName(META_OBJECT_NAME)
         _theme.style(meta_lbl, "SIDEBAR_ROW_META")
-        # Ignored horizontally: the meta line never widens the row. It is the
-        # subordinate line — a long "Movie · 1985 · EN" elides rather than
-        # forcing the section wider than the titles need.
-        meta_lbl.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
-        outer.addWidget(meta_lbl)
+        # Ignored horizontally: the meta line never widens the row. A long
+        # "S05E03 · 2 hours ago" elides rather than forcing the section wider
+        # than the titles need.
+        meta_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        if icon_lbl is not None:
+            # Indent under the title, not under the icon — the second line is
+            # subordinate to the TITLE, and hanging it below the glyph reads as
+            # a second row rather than a continuation.
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(ICON_PX + 5, 0, 0, 0)
+            hl.setSpacing(0)
+            hl.addWidget(meta_lbl)
+            outer.addWidget(holder)
+        else:
+            outer.addWidget(meta_lbl)
 
     row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     if trailing_button is None:
-        # The item (not this widget) owns click/double-click/context-menu — let mouse
-        # events pass through to the QListWidget viewport. Skipped when a
-        # trailing_button is present — see the docstring: this attribute would hide
-        # the button's whole subtree from hit-testing too, so it would never be
-        # clickable.
         row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
     return row

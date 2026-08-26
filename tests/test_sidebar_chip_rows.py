@@ -25,6 +25,7 @@ import pytest
 from PyQt6.QtWidgets import QLabel, QPushButton
 
 from metatv.gui.chip_row import row_meta_label, row_title_label
+from tests.conftest import sidebar_config
 
 
 @pytest.fixture(scope="module")
@@ -34,10 +35,7 @@ def qapp():
 
 
 def _config():
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-    )
+    return sidebar_config()
 
 
 def _seed_db(path: Path):
@@ -75,9 +73,31 @@ def _texts(row):
 
 
 def _meta_parts(row):
+    """The facts a row shows, whichever density it is rendered at.
+
+    Compact puts them in chips; comfortable puts them on a meta line. The
+    thing these tests guard — the honest language, and never the source
+    region — is the same either way, so read whichever is present.
+    """
     meta = row_meta_label(row)
-    assert meta is not None, f"no meta line on the row: {_texts(row)}"
-    return [p.strip() for p in meta.text().split("·")]
+    if meta is not None:
+        return [p.strip() for p in meta.text().split("·")]
+    from PyQt6.QtWidgets import QLabel, QPushButton
+    from metatv.gui.chip_row import row_title_label
+    chips = [b.text() for b in row.findChildren(QPushButton) if b.text()]
+    # ...plus the right-edge tail, which is a plain QLabel and is where History
+    # keeps its terse age ("2h"). It is a fact the row shows, so it counts.
+    title = row_title_label(row)
+    # `.isNull()`, not `is None`: PyQt6's QLabel.pixmap() returns a NULL
+    # QPixmap for a label with no pixmap, never None — so `is None` is always
+    # False and this list silently came back empty.
+    tail = [
+        l.text() for l in row.findChildren(QLabel)
+        if l.text() and l is not title and l.pixmap().isNull()
+    ]
+    facts = chips + tail
+    assert facts, f"row shows neither chips nor a meta line: {_texts(row)}"
+    return facts
 
 
 def _assert_clean_title_and_no_region(row):
@@ -138,7 +158,7 @@ def test_queue_row_is_honest_chip_row(qapp, tmp_path):
         entries = RepositoryFactory(session).queue.get_all()
     assert entries and entries[0].detected_prefix == "EN", "entry must carry the stored prefix"
 
-    from tests.conftest import wire_watch_queue_filter
+    from tests.conftest import wire_watch_queue_filter, sidebar_config
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
@@ -204,7 +224,9 @@ def test_history_row_puts_the_episode_code_on_the_meta_line(qapp, tmp_path):
 
     row = _first_chip_row(obj.history_list)
     assert row_title_label(row).text() == "My Show", "the title is just the title now"
-    assert row_meta_label(row).text().startswith("S01E02"), (
-        "the episode code leads the meta line — it is what tells this row from its "
-        f"siblings: {row_meta_label(row).text()!r}"
+    # Compact keeps it in a chip; comfortable would put it on the meta line.
+    # Either way it is off the TITLE, which is the point.
+    assert "S01E02" in _meta_parts(row), (
+        f"the episode code is what tells this row from its siblings: "
+        f"{_meta_parts(row)}"
     )

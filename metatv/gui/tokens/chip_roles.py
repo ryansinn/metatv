@@ -42,8 +42,48 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     accent     = _("COLOR_ACCENT_BLUE")
     radius_sm  = _("RADIUS_SM")
     font_md    = _("FONT_MD")
+    font_xs    = _("FONT_XS")
+    lang_fill  = _("OVERLAY_BLUE_10")
+    quality    = _("COLOR_WARN")
+    # The one sidebar-chip geometry. Every chip role below interpolates it,
+    # so a padding change is one edit and cannot land on two of three.
+    chip_geom  = (
+        f"border-radius: {radius_sm}; padding: 0px 5px;"
+        f" font-size: {font_xs};"
+    )
 
     return {
+        # ── Sidebar row chips ────────────────────────────────────────────
+        # Their own family, NOT the channel list's YEAR_CHIP/LANG_CHIP —
+        # those are sized for a 40px list row (YEAR_CHIP is 15px type, LARGER
+        # than the 13px title beside it) and they inflated a compact sidebar
+        # row to 27px, which is most of the density the compact shape exists
+        # to buy. Owner: "it's not a library book, it's an indicator."
+        #
+        # All three share ONE geometry string and are all QPushButton-scoped,
+        # so there is exactly one padding to maintain. That is not tidiness:
+        # the year/language chips WERE QLabels with the same declared padding
+        # and still looked looser, because a QLabel's border wraps the font's
+        # whole line box (ascent + descent + leading) while a QPushButton's
+        # hugs content + padding. Same number, different box model, and the
+        # quality chip was the only one that looked right. Owner: "seems crazy
+        # to manage two different paddings this way."
+        **{
+            role: f"QPushButton {{ {fill} {chip_geom} }}"
+            for role, fill in (
+                ("SIDEBAR_CHIP_YEAR",
+                 f"color: {text}; border: 1px solid {border}; background: transparent;"),
+                # A TRANSPARENT border, not `none`: the border is part of the
+                # box, so a chip without one is 2px shorter than its neighbours
+                # and the row's chips stop lining up. Keeps the fill-only look
+                # with identical metrics.
+                ("SIDEBAR_CHIP_LANG",
+                 f"color: {accent}; background: {lang_fill};"
+                 f" border: 1px solid transparent;"),
+                ("SIDEBAR_CHIP_QUALITY",
+                 f"color: {quality}; border: 1px solid {quality}; background: transparent;"),
+            )
+        },
         # The strip itself. Sits on its own ground so the chips have something
         # to be distinct FROM.
         "FILTER_CHIP_BAR": (

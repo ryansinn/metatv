@@ -195,8 +195,10 @@ def test_content_row_height_matches_a_real_two_line_row(qapp):
     """
     from metatv.gui.sidebar.base import CollapsibleSection
 
+    from metatv.gui.chip_row import DENSITY_COMFORTABLE
     real = build_chip_row(
-        title="Star Trek: Deep Space Nine", meta="S03E11 · 1993 · EN"
+        title="Star Trek: Deep Space Nine", meta="S03E11 · 1993 · EN",
+        density=DENSITY_COMFORTABLE,
     ).sizeHint().height()
     assert CollapsibleSection.CONTENT_ROW_H >= real, (
         f"CONTENT_ROW_H is {CollapsibleSection.CONTENT_ROW_H} but a real row is "

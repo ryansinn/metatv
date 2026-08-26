@@ -111,19 +111,24 @@ class RowBudgetMixin:
         if fits >= total:
             return 0
 
-        # The tail row costs a row, so it displaces one more piece of content.
-        if fits > 0 and used + self.ROW_H > viewport:
-            fits -= 1
-
         # ...but never all of it. A section rendering "+ 6 more →" over an empty
         # list tells you there is content and shows you none of it, which reads
         # as a broken section rather than a full one. One real row always wins
-        # over the marker that counts them: the tail may then overflow and be
-        # clipped (scrollbars are off by design), and the header's → is still
-        # the way to the rest. Reachable whenever one row does not leave room
-        # for the tail as well — which the V3 two-line row, at nearly twice the
-        # height of the single-line row it replaced, made ordinary.
-        fits = max(fits, 1)
+        # over the marker that counts them, and the header's → is still the way
+        # to the rest.
+        #
+        # And the row it keeps must be CONTENT. Group headings and dividers
+        # carry NoItemFlags, and a floor of 1 that lands on one of those renders
+        # a label, a separator, and a count of things it is not showing —
+        # exactly what Movies & Series did with "──── Watching for ────" over
+        # "+ 12 more →".
+        first_content = next(
+            (i for i in range(total)
+             if list_widget.item(i).flags() != Qt.ItemFlag.NoItemFlags),
+            None,
+        )
+        floor = 1 if first_content is None else first_content + 1
+        fits = min(max(fits, floor), total)
 
         hidden = total - fits
         for index in range(fits, total):
@@ -137,6 +142,23 @@ class RowBudgetMixin:
         tail.setFlags(tail.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         tail.setToolTip(f"{hidden} more — open the full view")
         list_widget.addItem(tail)
+
+        # The tail costs whatever the tail ACTUALLY costs. This used to reserve
+        # ``ROW_H`` up front, which is the SIMPLE-row constant (24px) while a
+        # rendered tail draws ~17 — so the section quietly gave away up to a row
+        # of content to space it never used. Measuring after the fact is exact,
+        # and it is the only way to be exact: a plain QListWidgetItem has no
+        # size hint until a list has laid it out.
+        while fits > 1:
+            rect = list_widget.visualItemRect(tail)
+            if rect.height() <= 0 or rect.bottom() <= viewport:
+                break
+            fits -= 1
+            list_widget.item(fits).setHidden(True)
+            hidden += 1
+            tail.setText(f"+ {hidden} more  →")
+            tail.setToolTip(f"{hidden} more — open the full view")
+
         self._more_handler = on_more or self.exploreClicked.emit
         try:
             list_widget.itemClicked.disconnect(self._on_more_row_clicked)
@@ -220,6 +242,24 @@ class RowBudgetMixin:
         """
         return None
 
+    def extra_budgeted_lists(self):
+        """Further lists this section budgets, as ``[(list, on_more), …]``.
+
+        For a section built from SEVERAL lists — Watch Alerts has Movies &
+        Series and Stream Monitoring alongside its EPG tree. They have to be
+        re-budgeted from the same seam as everything else, because a budget
+        applied once at populate is computed against a viewport that has not
+        been laid out yet: Movies & Series rendered a divider and
+        "+ 12 more →" inside a box with room for five rows, and nothing ever
+        recomputed it when the section reached its real height.
+
+        Returns:
+            An iterable of ``(QListWidget, on_more callable)``. Empty by
+            default — most sections have one list and use
+            :meth:`budgeted_list`.
+        """
+        return ()
+
     def reapply_row_budget(self) -> None:
         """Re-fit the rows to the section's CURRENT height.
 
@@ -231,6 +271,9 @@ class RowBudgetMixin:
         lst = self.budgeted_list()
         if lst is not None:
             self.apply_row_budget(lst)
+        for extra, on_more in self.extra_budgeted_lists():
+            if extra is not None and extra.isVisible():
+                self.apply_row_budget(extra, on_more=on_more)
         tree = self.budgeted_tree()
         if tree is not None:
             self.apply_tree_row_budget(tree)

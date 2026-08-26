@@ -870,6 +870,13 @@ class Config(BaseModel):
     # middle plot line — collapses to comfy's two lines when a row has no
     # plot). One global key — not per-view.
     channel_list_density: str = "comfy"
+
+    # Sidebar row density (Settings → Interface → Sidebar rows): "compact" (one
+    # line — icon, title, chips) or "comfortable" (two lines, the second a quiet
+    # meta line). Compact is the default because the sidebar's scarcest resource
+    # is vertical space: ~20px against ~37px is roughly twice the entries in the
+    # same allocation. See metatv.gui.chip_row.
+    sidebar_row_density: str = "compact"
     # Show poster thumbnails at the left of comfy/comfy_plus channel-list rows
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.

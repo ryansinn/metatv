@@ -39,6 +39,15 @@ _CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
     ("Compact (one line)", "compact"),
 )
 
+# Sidebar row shape — see metatv.gui.chip_row. Compact is first AND the default
+# because the sidebar's scarcest resource is vertical space: a compact row is
+# ~20px against comfortable's ~37px, so it shows roughly twice the entries in
+# the same allocation.
+_SIDEBAR_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
+    ("Compact (one line, with chips)", "compact"),
+    ("Comfortable (two lines)", "comfortable"),
+)
+
 # Platform chip name style (#257) — single source of truth, re-exported by
 # settings_dialog for the same reason _CHANNEL_DENSITY_CHOICES is.
 _PLATFORM_NAME_STYLE_CHOICES: tuple[tuple[str, str], ...] = (
@@ -856,6 +865,25 @@ class SettingsTabsMixin:
         sidebar_group = QGroupBox("Sidebar")
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
+
+        # A QFormLayout, like every other settings group: a hand-rolled
+        # label+combo QHBoxLayout puts the control at a different x from the
+        # form-managed ones, and the page's controls stop sharing a left edge
+        # (tests/test_settings_form_alignment).
+        density_form = QFormLayout()
+        density_form.setSpacing(8)
+        self._sidebar_density_combo = QComboBox()
+        for label, value in _SIDEBAR_DENSITY_CHOICES:
+            self._sidebar_density_combo.addItem(label, value)
+        self._sidebar_density_combo.setToolTip(
+            "Compact fits each entry on one line — an icon for the media type,\n"
+            "the title, then chips for quality, year and language. Comfortable\n"
+            "puts the title on its own line with the detail underneath, which\n"
+            "reads more easily but shows about half as many entries.\n"
+            "Applies immediately when you click OK or Apply."
+        )
+        density_form.addRow("Row density:", self._sidebar_density_combo)
+        sidebar_layout.addLayout(density_form)
 
         hint = QLabel(
             "Check sections to show them. Use the arrows to reorder.\n"

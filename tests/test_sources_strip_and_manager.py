@@ -93,7 +93,9 @@ class TestSourcesStatusStrip:
         strip = SourcesStatusStrip(SimpleNamespace(), db)
 
         text = strip._summary_lbl.text()
-        assert "1 active" in text
+        # ONE fact, worst first (no sources / none active / N expiring / N
+        # active) — the rule every other section header already follows.
+        assert "1 expiring" in text
         assert "1 expiring" in text
 
     def test_refresh_all_button_emits_refresh_all_clicked(self, qapp, db):
