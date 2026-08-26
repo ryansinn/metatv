@@ -22,6 +22,7 @@ from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 from metatv.gui.sidebar.alerts_rows import (
+    news_chip_sheet,
     _AlertRow,
     _name_with_dim_suffix_html,
     _VodAlertRow,
@@ -142,11 +143,12 @@ def _alerts_title_html(title: str, count: int) -> str:
 def _vod_count_label(unviewed: int, count: int) -> str:
     """Right-aligned count text for a watch-for rule row.
 
-    The green tint on the count (and the header dot) already conveys "new", so the
-    word is dropped from the text:
+    The count is a CHIP, so it carries no leading "·". That dot was a separator
+    from when the count was loose text sharing a line with the title — inside a
+    chip it reads as part of the number.
 
-        - unviewed > 0:             "{unviewed} of {count}"  (e.g. "5 of 20")
-        - unviewed == 0, count > 0: "· {count}"
+        - unviewed > 0:             "+{unviewed}"  (a filled news pill)
+        - unviewed == 0, count > 0: "{count}"
         - count == 0:               ""
 
     Args:
@@ -157,9 +159,11 @@ def _vod_count_label(unviewed: int, count: int) -> str:
         The count label text (possibly empty).
     """
     if unviewed > 0:
-        return f"{unviewed} of {count}"
+        # "+5", not "5 of 20": the chip is narrow, and how many are NEW is the
+        # fact worth the space. The total is in the row's tooltip.
+        return f"+{unviewed}"
     if count > 0:
-        return f"· {count}"
+        return str(count)
     return ""
 
 
@@ -321,6 +325,22 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             (self.__dict__.get("_vod_list"), self.manageWatchForClicked.emit),
             (self.__dict__.get("_retry_list"), self.manageWatchForClicked.emit),
         )
+
+    def reapply_row_budget(self) -> None:
+        """Budget as the base class does, then size each view to its rows.
+
+        The fit has to happen HERE rather than only at populate time. This hook
+        is called from a zero-timer after a resize, so the views have actually
+        been laid out — measuring at populate time reads a viewport that does
+        not exist yet and locks in a wrong fixed height, which is how rows
+        ended up drawn over each other.
+        """
+        super().reapply_row_budget()
+        for view in (self.__dict__.get("alerts_tree"),
+                     self.__dict__.get("_vod_list"),
+                     self.__dict__.get("_retry_list")):
+            if view is not None:
+                self._fit_to_rows(view)
 
     @staticmethod
     def _fit_to_rows(view) -> None:
@@ -854,11 +874,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             # The far-left type icon already conveys the type, so the leading
             # second 🚨 and the "  (type)" suffix are dropped.  Only the count is
             # tinted green (unviewed) — the name stays fully legible.
-            type_icon = type_icons.get(match_type, "")
+            # No leading emoji: the GROUP heading above already says what these
+            # are, and a glyph repeated on every row is the redundancy the type
+            # icons were supposed to remove, not add.
             count_text = _vod_count_label(unviewed, count)
             count_style = (
-                _theme.VOD_ALERT_COUNT_NEW if unviewed > 0
-                else _theme.VOD_ALERT_COUNT_IDLE
+                news_chip_sheet() if unviewed > 0 else _theme.SIDEBAR_CHIP_YEAR
             )
 
             item = QListWidgetItem()
@@ -870,7 +891,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 f"Watching for: {text}\nType: {match_type}\n{count_tip}{new_tip}"
             )
             self._vod_list.addItem(item)
-            row = _VodAlertRow(type_icon, text, count_text, count_style)
+            row = _VodAlertRow("", text, count_text, count_style,
+                               is_new=unviewed > 0)
             item.setSizeHint(row.sizeHint())
             self._vod_list.setItemWidget(item, row)
 
@@ -892,12 +914,13 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     has_new = unseen > 0
                     # New-episode series get 🆕 + a green "+N eps" count (colour PLUS
                     # the icon/count, never colour alone); idle ones show 📺, no count.
-                    type_icon = _icons.new_episodes_icon if has_new else _icons.series_icon
                     ep_word = "ep" if unseen == 1 else "eps"
-                    count_text = f"+{unseen} {ep_word}" if has_new else ""
+                    # "+3", not "+3 eps": the chip is narrow and the group it
+                    # sits under is called Series, so the unit is already said.
+                    # The tooltip still spells it out.
+                    count_text = f"+{unseen}" if has_new else ""
                     count_style = (
-                        _theme.VOD_ALERT_COUNT_NEW if has_new
-                        else _theme.VOD_ALERT_COUNT_IDLE
+                        news_chip_sheet() if has_new else _theme.SIDEBAR_CHIP_YEAR
                     )
                     item = QListWidgetItem()
                     item.setData(_ROLE_KIND, "series")
@@ -928,15 +951,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     self._vod_list.addItem(item)
                     # A dim inline suffix only when this cleaned title collides.
                     row = _VodAlertRow(
-                        type_icon, title, count_text, count_style,
-                        suffix=s.get("suffix", ""),
+                        "", title, count_text, count_style,
+                        suffix=s.get("suffix", ""), is_new=has_new,
+                        marker=s.get("episode_code", ""),
                     )
                     item.setSizeHint(row.sizeHint())
                     self._vod_list.setItemWidget(item, row)
 
         self._update_vod_toggle_label(len(rules) + len(series))
-        self._fit_to_rows(self._vod_list)
         self._vod_list.show()
+        QTimer.singleShot(0, self.reapply_row_budget)
         self._recompute_empty()
 
     def update_new_match_badge(
@@ -1205,7 +1229,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
-        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
 
@@ -1220,7 +1243,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.loading_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
-        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
 
@@ -1505,10 +1527,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
                                    quality=_quality(a))
 
-        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
         QTimer.singleShot(0, self._apply_expansion)
+        QTimer.singleShot(0, self.reapply_row_budget)
         self._schedule_boundary(live_groups, upcoming_only)
 
     #: How often the visible rows recompute their own time text. Cheap by

@@ -197,10 +197,16 @@ class TestRefreshMoviesSeries:
         labels = _row_labels(first_row)
         texts = [w.text() for w in labels]
         assert any("Apple" in t for t in texts), texts          # pinned new one first
-        assert any("+3 eps" in t for t in texts), texts         # non-colour cue (count)
-        # count label carries the green "new" style (colour paired with the count).
-        count_lbl = labels[-1]
-        assert count_lbl.styleSheet() == _theme.VOD_ALERT_COUNT_NEW
+        # "+3", not "+3 eps": the count is a narrow CHIP now, and the group it
+        # sits under is called Series, so the unit is already said. The tooltip
+        # still spells it out.
+        assert any("+3" in t for t in texts), texts             # non-colour cue (count)
+        # The chip is FILLED with COLOR_OK rather than tinted text — colour
+        # paired with the count, never colour alone.
+        count_chip = labels[-1]
+        sheet = count_chip.styleSheet()
+        assert _theme.COLOR_OK in sheet, sheet
+        assert "background" in sheet, "the new count should be a filled pill"
 
         # idle series row (item 2) shows no count and the idle style.
         idle_row = lst.itemWidget(lst.item(2))
