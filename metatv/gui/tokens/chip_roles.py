@@ -38,10 +38,12 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     border     = _("COLOR_BORDER")
     text_hi    = _("COLOR_TEXT_HI")
     text       = _("COLOR_TEXT")
+    muted      = _("COLOR_MUTED")
     warn       = _("COLOR_WARN")
     accent     = _("COLOR_ACCENT_BLUE")
     radius_sm  = _("RADIUS_SM")
     font_md    = _("FONT_MD")
+    font_sm    = _("FONT_SM")
     font_xs    = _("FONT_XS")
     lang_fill  = _("OVERLAY_BLUE_10")
     # The one sidebar-chip geometry. Every chip role below interpolates it,
@@ -52,6 +54,22 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     )
 
     return {
+        # ── Sidebar group headings ───────────────────────────────────────
+        # The label is the CONSTANT (it always says SERIES); the count is the
+        # VARIABLE. So the count carries the emphasis — row-title size, bold,
+        # on the bright ramp — while the label stays muted and small-caps and
+        # does not compete with the rows it governs.
+        #
+        # No hue on the count: green already means "new" here (the +N badge)
+        # and blue already means "interactive", so a coloured count would claim
+        # a meaning it does not have. Size and value do the work instead.
+        "SIDEBAR_GROUP_HEADING": (
+            f"color: {muted}; font-size: {font_sm}; background: transparent;"
+        ),
+        "SIDEBAR_GROUP_HEADING_COUNT": (
+            f"color: {text_hi}; font-size: {font_md}; font-weight: bold;"
+            f" background: transparent;"
+        ),
         # ── Sidebar row chips ────────────────────────────────────────────
         # Their own family, NOT the channel list's YEAR_CHIP/LANG_CHIP —
         # those are sized for a 40px list row (YEAR_CHIP is 15px type, LARGER
