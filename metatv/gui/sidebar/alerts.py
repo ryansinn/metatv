@@ -41,6 +41,11 @@ _ROW_FALLBACK_H = 22
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
 
+def _quality(airing) -> str:
+    """The airing's quality token, or "" — sibling of :func:`_when`."""
+    return airing[6] if len(airing) > 6 else ""
+
+
 def _started_at(airing) -> "datetime | None":
     """The airing's start, or ``None`` — sibling of :func:`_when`.
 
@@ -92,6 +97,7 @@ class _Airing(NamedTuple):
     channel_db_id: str
     when: "datetime | None" = None
     started_at: "datetime | None" = None
+    quality: str = ""
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:
@@ -421,7 +427,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # each takes the height its rows need and the column packs upward.
         self.alerts_tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.alerts_tree.hide()
-        self.content_layout.addWidget(self.alerts_tree, 1)
+        self.content_layout.addWidget(self.alerts_tree)
 
         self._update_epg_toggle_label(0)
         # ── end EPG sub-section ────────────────────────────────────────────
@@ -460,7 +466,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._vod_list.customContextMenuRequested.connect(self._on_vod_context_menu)
         self._vod_list.hide()
-        self.content_layout.addWidget(self._vod_list, 1)
+        self.content_layout.addWidget(self._vod_list)
 
         self._update_vod_toggle_label(0)
         # ── end Movies & Series sub-section ────────────────────────────────
@@ -514,19 +520,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
         self._retry_list.hide()
 
-        # Everything packs to the TOP. Without this the layout distributes
-        # slack between the three views again, which is the gap this whole
-        # sizing change exists to close.
-        self.content_layout.addStretch(1)
-        self.content_layout.addWidget(self._retry_list, 1)
+        self.content_layout.addWidget(self._retry_list)
 
         self._update_retry_toggle_label(0)
 
-        # NO trailing stretch: the three sub-lists carry equal layout stretch and an
-        # Expanding vertical policy, so the section's surplus height is shared among the
-        # visible lists (each grows to help fill the pane) instead of pooling as a blank
-        # gap at the bottom.  When a list is hidden its stretch drops out and the
-        # remaining visible list(s) take the space.
+        # ONE trailing stretch, and the views carry none. They used to share the
+        # surplus equally with an Expanding policy, which was right while they
+        # were three visibly separate boxes — as one flat list it left ~150px of
+        # dead space between EPG and Movies whenever a view was short. Each view
+        # sizes to its rows (_fit_to_rows) and the slack collects here.
+        self.content_layout.addStretch(1)
         self.set_empty(True)
 
     # ------------------------------------------------------------------
@@ -1320,17 +1323,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             def _title_key(title: str) -> str:
                 return " ".join(title.casefold().replace("&", "and").split())
 
-            def _channel_display(prog) -> str:
+            def _channel_display(prog) -> tuple[str, str]:
+                """The row's channel text, and its quality token separately.
+
+                The quality is pulled OUT of the formatted name so the row can
+                draw it as a chip beside the title — a claim about this copy —
+                rather than leaving "[RAW]" inside the string.
+                """
                 rec = channel_names.get(prog.channel_db_id)
                 if rec is None:
-                    return _fmt_channel_name(prog.channel_epg_id or "Unknown")
+                    return _fmt_channel_name(prog.channel_epg_id or "Unknown"), ""
+                quality = rec["detected_quality"] or ""
                 return _fmt_channel_name(
                     rec["name"],
                     detected_title=rec["detected_title"],
                     detected_year=rec["detected_year"],
                     detected_region=rec["detected_region"],
-                    detected_quality=rec["detected_quality"],
-                )
+                    detected_quality=None,       # drawn as a chip instead
+                ), quality
 
             # Unified per-title groups — upcoming for a live title folds under WATCH NOW,
             # preventing the same show from appearing in both sections simultaneously.
@@ -1341,7 +1351,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
             for _pattern, progs in live_data.items():
                 for prog in progs:
-                    ch_display = _channel_display(prog)
+                    ch_display, ch_quality = _channel_display(prog)
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
                     time_str = humanize_remaining(prog.stop_time, now)
                     key = _title_key(prog.title)
@@ -1353,12 +1363,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     live_groups[key]['live'].append(
                         _Airing(mins_left, time_str, ch_display,
                                 prog.channel_db_id, prog.stop_time,
-                                prog.start_time)
+                                prog.start_time, ch_quality)
                     )
 
             for _pattern, progs in upcoming_data.items():
                 for prog in progs:
-                    ch_display = _channel_display(prog)
+                    ch_display, ch_quality = _channel_display(prog)
                     time_str = humanize_until(
                         prog.start_time, now,
                         to_local=_to_local, is_local_today=_is_local_today,
@@ -1368,14 +1378,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     if key in live_groups:
                         live_groups[key]['upcoming'].append(
                             _Airing(ts, time_str, ch_display,
-                                    prog.channel_db_id, prog.start_time)
+                                    prog.channel_db_id, prog.start_time,
+                                    None, ch_quality)
                         )
                     else:
                         if key not in upcoming_only:
                             upcoming_only[key] = {'airings': [], 'title': prog.title}
                         upcoming_only[key]['airings'].append(
                             _Airing(ts, time_str, ch_display,
-                                    prog.channel_db_id, prog.start_time)
+                                    prog.channel_db_id, prog.start_time,
+                                    None, ch_quality)
                         )
 
         return {"live_groups": live_groups, "upcoming_only": upcoming_only}
@@ -1404,19 +1416,42 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 lambda cid=channel_db_id: self.channel_selected.emit(cid)
             )
 
+        def _add_parent(title, time_str, _extra=0, when=None, live=False,
+                        started_at=None) -> "QTreeWidgetItem":
+            """The programme row that expands to its airings.
+
+            A real row widget, not a text item reading
+            "Title  ·  3m left  +2". The dot was a separator asked to do a
+            layout's job, and a text item cannot carry a chip, a progress bar
+            or the left slot every other row in this section has.
+            """
+            hdr = QTreeWidgetItem()
+            hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.alerts_tree.addTopLevelItem(hdr)
+            # No "+N" chip. The caret already says the row expands, and the
+            # count of what is behind it is the one fact you get for free by
+            # opening it — the approved render carries only the time.
+            row = _AlertRow(title, time_str, self.config, when=when, live=live,
+                            started_at=started_at, chip_time=True)
+            hdr.setSizeHint(0, QSize(0, row.sizeHint().height()))
+            self.alerts_tree.setItemWidget(hdr, 0, row)
+            return hdr
+
         def _add_child(parent_item, ch_name, time_str, channel_db_id, title,
-                       when=None, live=False, started_at=None) -> None:
+                       when=None, live=False, started_at=None,
+                       quality="") -> None:
             child = QTreeWidgetItem()
             child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
             row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
-                            started_at=started_at)
+                            started_at=started_at, quality=quality)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(child, 0, row)
 
         def _add_direct(ch_name, time_str, channel_db_id, title,
-                        when=None, live=False, started_at=None) -> None:
+                        when=None, live=False, started_at=None,
+                       quality="") -> None:
             """Single-channel item: header IS the row — no expand arrow.
             Shows the show title; channel name is the tooltip."""
             item = QTreeWidgetItem()
@@ -1424,7 +1459,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
-                            started_at=started_at)
+                            started_at=started_at, quality=quality)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
 
@@ -1440,16 +1475,18 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     _add_direct(a[2], a[1], a[3], title, _when(a),
                                 live=a in live_items, started_at=_started_at(a))
                 else:
-                    rep_time = live_items[0][1]
-                    count_badge = f"  +{len(all_items) - 1}"
-                    hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
-                    hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                    self.alerts_tree.addTopLevelItem(hdr)
+                    lead = live_items[0]
+                    hdr = _add_parent(
+                        title, lead[1], len(all_items) - 1,
+                        when=_when(lead), live=True, started_at=_started_at(lead),
+                    )
                     for a in live_items[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
-                                   started_at=_started_at(a))
+                                   started_at=_started_at(a),
+                                   quality=_quality(a))
                     for a in up_items[:5]:
-                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
+                                   quality=_quality(a))
 
         if upcoming_only:
             for key, grp in sorted(upcoming_only.items(),
@@ -1460,13 +1497,13 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     a = airings[0]
                     _add_direct(a[2], a[1], a[3], title, _when(a), live=False)
                 else:
-                    rep_time = airings[0][1]
-                    count_badge = f"  +{len(airings) - 1}"
-                    hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
-                    hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                    self.alerts_tree.addTopLevelItem(hdr)
+                    lead = airings[0]
+                    hdr = _add_parent(
+                        title, lead[1], len(airings) - 1, when=_when(lead),
+                    )
                     for a in airings[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
+                                   quality=_quality(a))
 
         self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()

@@ -31,17 +31,23 @@ def _section(tmp_path, *, groups=3, children=6):
     return section, tree
 
 
-def test_it_runs_with_the_setting_off(qapp, tmp_path):
-    """The branch that crashed."""
+def test_a_subdividing_section_always_budgets(qapp, tmp_path):
+    """Watch Alerts splits its panel three ways, so its views cannot scroll.
+
+    The setting governs a section whose single list fills it. Here a scrollbar
+    would be ~35px tall — the R13 jam — so budgeting and its tail rows are not
+    optional whatever the setting says. This branch is also the one that
+    crashed with an UnboundLocalError, so it must actually RUN.
+    """
     section, tree = _section(tmp_path)
     assert section.config.sidebar_show_more_row is False
+    assert section._subdivides() is True
+    assert section._wants_more_row() is True, (
+        "a section whose sub-views cannot scroll must keep its tail rows"
+    )
 
-    assert section.apply_tree_row_budget(tree) == 0
-    assert tree.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
-    for i in range(tree.topLevelItemCount()):
-        group = tree.topLevelItem(i)
-        for j in range(group.childCount()):
-            assert not group.child(j).isHidden(), "a child stayed hidden with a scrollbar"
+    section.apply_tree_row_budget(tree)      # must not raise
+    assert tree.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
 
 def test_it_runs_with_the_setting_on(qapp, tmp_path):

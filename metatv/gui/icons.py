@@ -543,6 +543,10 @@ VECTOR_KEYS: dict[str, str] = {
     # rightly refuses two roles one glyph, because the viewer cannot tell them
     # apart and they mean different things on rows that sit inches away.
     "news": "mdi6.record-circle-outline",
+    # A small FILLED dot for a row marker. The outline ring above is a
+    # header affordance; at row scale it reads as a control you can click
+    # rather than a mark on the row.
+    "new_dot": "mdi6.circle-medium",
     "monitor": "mdi6.bell-outline",
     "monitor_off": "mdi6.bell-off-outline",
     "hide": "mdi6.eye-off-outline",

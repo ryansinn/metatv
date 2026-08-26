@@ -43,7 +43,12 @@ def _now_iso() -> str:
 def _row_label_texts(row) -> list[str]:
     """Return the text of every QLabel in a _VodAlertRow (icon / name / count)."""
     from PyQt6.QtWidgets import QLabel
-    return [w.text() for w in row.findChildren(QLabel)]
+    # QLabel AND QPushButton: a row's trailing count and its episode/quality
+    # markers are chips now (flat QPushButtons), so a label-only sweep reads
+    # the title and nothing else.
+    from PyQt6.QtWidgets import QPushButton
+
+    return [w.text() for w in row.findChildren((QLabel, QPushButton))]
 
 
 class _FakeConfig:

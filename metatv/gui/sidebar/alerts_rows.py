@@ -14,7 +14,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from metatv.core.epg_utils import is_local_today, to_local
@@ -33,6 +33,37 @@ from metatv.gui.relative_time import humanize_remaining, humanize_until
 #: own column, and at 11px it read as half the size it should be.
 SLOT_W = 18
 SLOT_ICON_PX = 14
+
+#: Vertical padding per row. 1px was the pre-V3 value and rendered ~18px rows
+#: against the design's ~28px, which is what made the section look cramped.
+ROW_PAD_Y = 4
+
+
+def news_chip_sheet() -> str:
+    """A FILLED pill for a "+N new" count.
+
+    Filled, not tinted text: it is the one thing on a row you are meant to
+    notice, and the design's loudest element. The foreground comes from
+    ``theme.on_fill`` rather than a hardcoded white — the fill carries the
+    palette, so the legible foreground flips with the FILL, not the theme.
+    """
+    fill = _theme.COLOR_OK
+    return (
+        f"QPushButton {{ color: {_theme.on_fill(fill)}; background: {fill};"
+        f" border: 1px solid {fill}; border-radius: {_theme.RADIUS_SM};"
+        f" padding: 0px 5px; font-size: {_theme.FONT_XS}; font-weight: bold; }}"
+    )
+
+
+def _chip(text: str, sheet: str) -> QPushButton:
+    """A trailing chip — flat, mouse-transparent, same box model as the row
+    chips everywhere else in the sidebar (see ``chip_row``)."""
+    chip = QPushButton(text)
+    chip.setFlat(True)
+    chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    chip.setStyleSheet(sheet)
+    return chip
 
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
@@ -68,14 +99,41 @@ class _VodAlertRow(QWidget):
     """
 
     def __init__(self, type_icon: str, text: str, count_text: str,
-                 count_style: str, parent=None, *, suffix: str = ""):
+                 count_style: str, parent=None, *, suffix: str = "",
+                 is_new: bool = False, marker: str = ""):
+        """
+        Args:
+            type_icon: Legacy leading glyph; empty in the V3 row.
+            text: The title.
+            count_text: The trailing count, rendered as a chip.
+            count_style: Sheet for the count chip.
+            parent: Qt parent.
+            suffix: Collision disambiguator, shown dim after the title.
+            is_new: Draws the green dot in the left slot — the same column and
+                the same marker the EPG rows use, so "new" reads identically
+                wherever it appears.
+            marker: An episode code ("S05E03") or year, drawn as a chip beside
+                the title. A claim about THIS title, so it travels with it
+                rather than sitting in the right rail.
+        """
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 1, 4, 1)
-        layout.setSpacing(6)  # breathing room to the right of the type icon
+        layout.setContentsMargins(4, ROW_PAD_Y, 4, ROW_PAD_Y)
+        layout.setSpacing(5)
 
-        icon_lbl = QLabel(type_icon)
-        layout.addWidget(icon_lbl)
+        # The same fixed left column the EPG rows use, so titles across the
+        # whole section share one left edge whether or not a row is marked.
+        slot = QLabel()
+        slot.setFixedWidth(SLOT_W)
+        slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if is_new:
+            slot.setPixmap(_icon_utils.vector_pixmap(
+                _icons.vector_key("new_dot"), _theme.COLOR_OK, SLOT_ICON_PX))
+            slot.setToolTip("New since you last looked")
+        layout.addWidget(slot)
+
+        if type_icon:
+            layout.addWidget(QLabel(type_icon))
 
         name_lbl = QLabel()
         _theme.style(name_lbl, "VOD_ALERT_NAME")  # COLOR_TEXT — never tinted
@@ -86,14 +144,17 @@ class _VodAlertRow(QWidget):
             name_lbl.setText(_name_with_dim_suffix_html(text, suffix))
         else:
             name_lbl.setText(text)
-        layout.addWidget(name_lbl, 1)
+        layout.addWidget(name_lbl)
 
-        count_lbl = QLabel(count_text)
-        count_lbl.setStyleSheet(count_style)
-        count_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        layout.addWidget(count_lbl)
+        if marker:
+            layout.addWidget(_chip(marker, _theme.SIDEBAR_CHIP_YEAR))
+        layout.addStretch(1)
+
+        if count_text:
+            # A chip, not bare text: every other trailing fact in this section
+            # is one, and a naked number beside a chipped neighbour reads as a
+            # different KIND of thing.
+            layout.addWidget(_chip(count_text, count_style))
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # The item (not this widget) owns click/double-click/context-menu, so let
@@ -148,7 +209,8 @@ class _AlertRow(QWidget):
 
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
-                 started_at: datetime | None = None):
+                 started_at: datetime | None = None, quality: str = "",
+                 chip_time: bool = False):
         """
         Args:
             ch_name: The channel/title text for the row.
@@ -161,6 +223,12 @@ class _AlertRow(QWidget):
                 is right for rows whose text is not time-derived.
             live: True for a row counting DOWN to a programme's end, False for
                 one counting up to its start. Picks the formatter.
+            quality: A quality token ("RAW", "4K") drawn as a chip beside the
+                title — a claim about THIS copy, so it travels with the title
+                rather than sitting in the right rail.
+            chip_time: Render the time text as a chip rather than plain dim
+                text. Used by a programme row, whose time is a fact about the
+                programme rather than a column of the list.
             started_at: The programme's start, for a live row. With ``when``
                 (its end) this gives the DURATION, which is what turns "13m
                 left" into a proportion. Without it the row falls back to
@@ -174,8 +242,8 @@ class _AlertRow(QWidget):
         self._is_new = False
         self._hovered = False
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 1, 4, 1)
-        layout.setSpacing(4)
+        layout.setContentsMargins(4, ROW_PAD_Y, 4, ROW_PAD_Y)
+        layout.setSpacing(5)
 
         # ── the left slot ────────────────────────────────────────────────
         # ONE fixed-width column, absolute left of the title, shared by every
@@ -189,16 +257,40 @@ class _AlertRow(QWidget):
         layout.addWidget(self._slot)
 
         name_lbl = QLabel(ch_name)
-        layout.addWidget(name_lbl, 1)
+        layout.addWidget(name_lbl)
+        if quality:
+            from metatv.gui.badge_utils import quality_outline_color
+            hue = quality_outline_color(quality)
+            layout.addWidget(_chip(quality, (
+                f"QPushButton {{ color: {hue};"
+                f" border: 1px solid {_theme.COLOR_BORDER};"
+                f" background: transparent; border-radius: {_theme.RADIUS_SM};"
+                f" padding: 0px 5px; font-size: {_theme.FONT_XS}; }}"
+            )))
+        layout.addStretch(1)
 
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
         # provider gave no start_time has no denominator.
-        self._show_bar = bool(live and when is not None and started_at is not None)
+        # A row that chips its time is a PROGRAMME row: it reports one fact and
+        # its airings carry the bars underneath it. Two progress bars in a
+        # parent/child pair measure the same thing twice.
+        self._show_bar = bool(
+            live and when is not None and started_at is not None and not chip_time
+        )
 
-        self.time_lbl = QLabel(time_str)
-        _theme.style(self.time_lbl, "CHANNEL_NAME_DIM")
-        self.time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # A row shows EITHER a bar or a time chip. Plain dim text was the old
+        # right-hand column; a chip is what every other trailing fact in this
+        # section is, and a naked string beside them reads as a different kind
+        # of thing.
+        if chip_time or not self._show_bar:
+            self.time_lbl = _chip(time_str, _theme.SIDEBAR_CHIP_YEAR)
+        else:
+            self.time_lbl = QLabel(time_str)
+            _theme.style(self.time_lbl, "CHANNEL_NAME_DIM")
+            self.time_lbl.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
         self.time_lbl.setVisible(not self._show_bar)
         layout.addWidget(self.time_lbl)
 
@@ -254,7 +346,7 @@ class _AlertRow(QWidget):
         elif self._hovered and self._offers_play():
             self._set_slot_icon("play", _theme.COLOR_ACCENT, "Play")
         elif self._is_new:
-            self._set_slot_icon("news", _theme.COLOR_OK, "New since you last looked")
+            self._set_slot_icon("new_dot", _theme.COLOR_OK, "New since you last looked")
         else:
             self._slot.clear()
             self._slot.setToolTip("")
@@ -264,6 +356,16 @@ class _AlertRow(QWidget):
             _icon_utils.vector_pixmap(_icons.vector_key(key), colour, SLOT_ICON_PX)
         )
         self._slot.setToolTip(tip)
+
+    def set_extra_count(self, extra: int) -> None:
+        """Add a "+N" chip for the airings folded under this row.
+
+        Was appended to the row's TEXT as "  +2" behind a "·". A count is a
+        distinct fact, not more title.
+        """
+        if extra <= 0:
+            return
+        self.layout().addWidget(_chip(f"+{extra}", _theme.SIDEBAR_CHIP_YEAR))
 
     def refresh_time(self, now: datetime) -> None:
         """Recompute this row's time text against ``now``.
