@@ -503,10 +503,21 @@ def test_refitting_a_tree_twice_does_not_stack_tails(qapp, config):
 
 
 def test_the_alerts_section_declares_its_tree():
-    """The section R13 names is the one a list-shaped budget could not reach."""
-    from metatv.gui.sidebar.alerts import WatchAlertsSection
+    """The section R13 names is the one a list-shaped budget could not reach.
 
-    assert "budgeted_tree" in vars(WatchAlertsSection)
+    Asserted as "the section RESOLVES to an override", not as
+    ``"budgeted_tree" in vars(...)``: ``vars`` reads one class's own dict, so
+    that version broke the moment the method moved to a mixin — while the
+    behaviour it was written to protect had not changed at all. What matters is
+    that the section does not fall through to the base's ``None``.
+    """
+    from metatv.gui.sidebar.alerts import WatchAlertsSection
+    from metatv.gui.sidebar.row_budget import RowBudgetMixin
+
+    assert WatchAlertsSection.budgeted_tree is not RowBudgetMixin.budgeted_tree, (
+        "the section inherits the base's tree-less budget"
+    )
+    assert callable(WatchAlertsSection.budgeted_tree)
 
 
 # ---------------------------------------------------------------------------

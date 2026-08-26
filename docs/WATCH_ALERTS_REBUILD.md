@@ -143,19 +143,63 @@ with the loop guards thought through, not a drive-by edit on a UI branch.
 
 ---
 
+## Rows onto the shared builder (done)
+
+Watch Alerts was the last section hand-assembling a `QHBoxLayout` while History,
+Favorites, Queue and Recommended all used `chip_row.build_chip_row()`. Three
+symptoms, one cause: titles CLIPPED where every other list middle-elides; chips
+were rebuilt from copied stylesheet strings applied with `setStyleSheet`, which
+renders once and so went stale on a theme switch; and spacing had to be
+re-derived by hand every time the design moved.
+
+Both rows are now shells over the builder. What stayed behind is what a shared
+builder cannot own: the left slot's *painting* (which marker applies right now),
+the clock tick, and `_AlertRow`'s mouse handling.
+
+**Four slots were added to `build_chip_row` rather than trimmed off a copy** —
+each a real grammar element, now available to every section:
+
+| slot | what it is |
+|---|---|
+| `leading_slot` | a caller-owned fixed-width column at the absolute left. Reserving the column is the point: a marker appearing on hover cannot shove the row |
+| `title_chips` | chips that travel WITH the title (quality, episode code) as against `chips`, which are facts about the row's place in the list |
+| `title_suffix` | the dim disambiguator. Takes `SIDEBAR_ROW_TAIL`, the existing "terse and subordinate" role — not a second definition of the same idea |
+| `tail_widget` | a right-cluster fact that cannot be a string. The progress bar |
+
+Plus `indent`, and `CHIP_NEWS` — the filled `+N` pill, moved out of
+`alerts_rows` so one place owns it.
+
+**Two traps this hit, both about sizing.** A row built by the shared builder
+reports the builder's tighter height, so `item.setSizeHint(row.sizeHint())` gave
+20px rows where the section wants 29 — and it reports its NATURAL width (462px
+for a long rule name against a 300px sidebar), which widens the list instead of
+eliding inside it. `_RowShell.sizeHint()` fixes both: full row height, minimum
+width. The width half is why Watch Alerts titles clipped for as long as the
+section built its own rows.
+
+## The file split (done)
+
+`alerts.py` had reached ~1800 lines against the 1000-line standard. Split along
+the four groups the design already names, not by line count:
+
+| module | lines | what |
+|---|---|---|
+| `alerts.py` | ~530 | the section shell — header, content, empty state, budget |
+| `alerts_epg.py` | ~650 | `EpgGroupMixin` — the query, the render, the clock |
+| `alerts_vod.py` | ~540 | `MoviesSeriesMixin` — keyword rules and monitored series |
+| `alerts_monitor.py` | ~90 | `StreamMonitoringMixin` — retried streams |
+| `alerts_common.py` | ~150 | constants, `_Airing`, its tolerant accessors |
+
+The mixins hold no state; they reach the widgets `create_content` builds through
+`self`. `alerts.py` re-exports the shared names, so the split is invisible from
+outside — every existing `from ...alerts import _ROLE_KIND` still works.
+
+Found while splitting: `_toggle_series_group`, `_toggle_keyword_group` and
+`_add_group_heading` were each defined **twice**, a verbatim 42-line block
+(identical MD5). The second copy silently won; the first was dead. Removed.
+
 ## Left to do
 
-**Rows onto `chip_row.build_chip_row()`.** Watch Alerts still has its own
-`_AlertRow` / `_VodAlertRow` where History, Favorites, Queue and Recommended all
-use the shared builder. That is why its rows do not middle-elide (long titles
-CLIP where every other list elides with a tooltip) and why chips, the left slot
-and spacing each had to be hand-added. Folding them in deletes most of
-`alerts_rows.py` and makes the section structurally identical to its siblings.
-
-Open questions when that lands: the EPG parent row needs a disclosure caret in
-the same left slot as play/new (it currently uses the tree's native indicator),
-and `chip_row` has no progress-bar tail yet.
-
-**Also owed:** `alerts.py` is over the 1000-line standard; ledger F1 (migrate
-Favorites/Queue off `style_group_heading`, then delete it); ledger F6 (selection
-audit).
+Ledger F1 (migrate Favorites/Queue off `style_group_heading`, then delete it);
+ledger F6 (selection audit); ledger F8 (a dead guide is not detected as
+expired).
