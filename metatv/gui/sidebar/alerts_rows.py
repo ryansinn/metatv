@@ -12,7 +12,7 @@ import html
 
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.epg_utils import is_local_today, to_local
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 
 
@@ -89,6 +90,45 @@ class _VodAlertRow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
 
+class _ProgressBar(QWidget):
+    """How far through a live programme is, as a bar rather than as words.
+
+    Owner's reasoning, and it is the whole point: "30 minutes left on a 30
+    minute show is different than 30 minutes left on a 3 hour show." The words
+    cannot say that; a proportion can. The remaining time moves to the tooltip,
+    where it is available on demand without spending a row's width on it.
+
+    Painting is :func:`metatv.gui.progress_paint.paint_progress` — the same
+    function the EPG tree's Remaining column and the agenda strip use, so all
+    three bars are one bar.
+    """
+
+    _W, _H = 44, 8
+
+    def __init__(self, pct: float = 0.0, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(self._W, self._H)
+        self._pct = pct
+
+    def set_pct(self, pct: float, tooltip: str = "") -> None:
+        """Update the fill, repainting only when it actually moved."""
+        pct = max(0.0, min(100.0, float(pct)))
+        if tooltip:
+            self.setToolTip(tooltip)
+        if abs(pct - self._pct) < 0.5:
+            return
+        self._pct = pct
+        self.update()
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return QSize(self._W, self._H)
+
+    def paintEvent(self, event):  # noqa: N802 (Qt override)
+        from PyQt6.QtGui import QPainter
+        paint_progress(QPainter(self), QRect(0, 0, self.width(), self.height()),
+                       self._pct)
+
+
 class _AlertRow(QWidget):
     """Channel row widget for Watch Alerts: name + right-aligned time + hover play button."""
 
@@ -96,7 +136,8 @@ class _AlertRow(QWidget):
     row_clicked  = pyqtSignal()  # single click anywhere except the play button
 
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
-                 when: datetime | None = None, live: bool = False):
+                 when: datetime | None = None, live: bool = False,
+                 started_at: datetime | None = None):
         """
         Args:
             ch_name: The channel/title text for the row.
@@ -109,10 +150,15 @@ class _AlertRow(QWidget):
                 is right for rows whose text is not time-derived.
             live: True for a row counting DOWN to a programme's end, False for
                 one counting up to its start. Picks the formatter.
+            started_at: The programme's start, for a live row. With ``when``
+                (its end) this gives the DURATION, which is what turns "13m
+                left" into a proportion. Without it the row falls back to
+                words — an upcoming row has no elapsed share to show.
         """
         super().__init__(parent)
         self._when = when
         self._live = live
+        self._started_at = started_at
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 1, 4, 1)
         layout.setSpacing(4)
@@ -120,10 +166,21 @@ class _AlertRow(QWidget):
         name_lbl = QLabel(ch_name)
         layout.addWidget(name_lbl, 1)
 
+        # A live row with a known duration shows the bar; everything else keeps
+        # the words. An upcoming row has no elapsed share, and a live row whose
+        # provider gave no start_time has no denominator.
+        self._show_bar = bool(live and when is not None and started_at is not None)
+
         self.time_lbl = QLabel(time_str)
         _theme.style(self.time_lbl, "CHANNEL_NAME_DIM")
         self.time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.time_lbl.setVisible(not self._show_bar)
         layout.addWidget(self.time_lbl)
+
+        self.progress = _ProgressBar() if self._show_bar else None
+        if self.progress is not None:
+            self.progress.setToolTip(time_str)
+            layout.addWidget(self.progress)
 
         self.play_btn = QPushButton(config.play_icon)
         self.play_btn.setFixedSize(20, 18)
@@ -162,6 +219,12 @@ class _AlertRow(QWidget):
         )
         if text != self.time_lbl.text():
             self.time_lbl.setText(text)
+        if self.progress is not None:
+            # The bar advances on the same tick, from the same instant, so the
+            # fill and the tooltip can never disagree about the time.
+            self.progress.set_pct(
+                elapsed_pct(self._started_at, self._when, now), tooltip=text
+            )
 
     def mousePressEvent(self, event):
         # row_clicked fires only when clicking outside the play button area

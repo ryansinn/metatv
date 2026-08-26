@@ -37,6 +37,14 @@ _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "heading" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
 
+def _started_at(airing) -> "datetime | None":
+    """The airing's start, or ``None`` — sibling of :func:`_when`.
+
+    Same tolerance for a hand-built short tuple from a test seam.
+    """
+    return airing[5] if len(airing) > 5 else None
+
+
 def _when(airing) -> "datetime | None":
     """The airing's timestamp, or ``None`` for a record that predates the field.
 
@@ -67,6 +75,11 @@ class _Airing(NamedTuple):
         when: ``stop_time`` for a live airing, ``start_time`` for an upcoming
             one, UTC-naive. This is what makes the row refreshable and what
             ``_schedule_boundary`` aims its timer at.
+        started_at: ``start_time`` for a LIVE airing, so the row can show how
+            far through the programme is. ``when`` alone gives the end but not
+            the duration, and 30 minutes left means something different on a
+            half-hour show than on a three-hour one. ``None`` on upcoming rows,
+            which have not started.
     """
 
     sort_key: float
@@ -74,6 +87,7 @@ class _Airing(NamedTuple):
     channel: str
     channel_db_id: str
     when: "datetime | None" = None
+    started_at: "datetime | None" = None
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:
@@ -1280,7 +1294,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     # only ever correct for the instant it was built.
                     live_groups[key]['live'].append(
                         _Airing(mins_left, time_str, ch_display,
-                                prog.channel_db_id, prog.stop_time)
+                                prog.channel_db_id, prog.stop_time,
+                                prog.start_time)
                     )
 
             for _pattern, progs in upcoming_data.items():
@@ -1346,24 +1361,26 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             )
 
         def _add_child(parent_item, ch_name, time_str, channel_db_id, title,
-                       when=None, live=False) -> None:
+                       when=None, live=False, started_at=None) -> None:
             child = QTreeWidgetItem()
             child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
-            row = _AlertRow(ch_name, time_str, self.config, when=when, live=live)
+            row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
+                            started_at=started_at)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(child, 0, row)
 
         def _add_direct(ch_name, time_str, channel_db_id, title,
-                        when=None, live=False) -> None:
+                        when=None, live=False, started_at=None) -> None:
             """Single-channel item: header IS the row — no expand arrow.
             Shows the show title; channel name is the tooltip."""
             item = QTreeWidgetItem()
             item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
-            row = _AlertRow(title, time_str, self.config, when=when, live=live)
+            row = _AlertRow(title, time_str, self.config, when=when, live=live,
+                            started_at=started_at)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
 
@@ -1378,7 +1395,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 if len(all_items) == 1:
                     a = all_items[0]
                     _add_direct(a[2], a[1], a[3], title, _when(a),
-                                live=a in live_items)
+                                live=a in live_items, started_at=_started_at(a))
                 else:
                     rep_time = live_items[0][1]
                     count_badge = f"  +{len(all_items) - 1}"
@@ -1386,7 +1403,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                     self.alerts_tree.addTopLevelItem(hdr)
                     for a in live_items[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
+                                   started_at=_started_at(a))
                     for a in up_items[:5]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 

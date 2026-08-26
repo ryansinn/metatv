@@ -19,6 +19,36 @@ files — without changing user-visible behavior except where a task explicitly 
 
 ---
 
+## Running duplication ledger (append as found)
+
+Started 2026-08-26. The rule the owner set: **every duplicate found gets fixed
+or flagged here — never dropped.** These are found incidentally while building
+something else, which is exactly why they need a written home; the alternative
+is rediscovering the same three "in N minutes" formatters next quarter.
+
+Each entry says where the copies are, what actually differs (a pure duplicate
+and a policy difference need different fixes), and whether it is done.
+
+### DONE
+
+| # | What was duplicated | Copies | Resolution |
+|---|---|---|---|
+| D1 | Quality token → colour | `chip_roles.SIDEBAR_CHIP_QUALITY` painted every tier one flat `COLOR_WARN`, while `badge_utils` has owned the per-tier map since #257 | `badge_utils.quality_outline_color()` made public; the sidebar chip reads it; the orphaned role deleted (#462) |
+| D2 | Sub-group headings | THREE mechanisms in one section: styled `QTreeWidgetItem`s (EPG), and two em-dash divider rows in the VOD list that looked identical but behaved differently | `GroupHeading` widget in `sidebar/base.py`; all four Watch Alerts groups use it (#463) |
+| D3 | Programme progress bar | TWO painters that did not match — `epg_widgets` delegate (`QColor(55,55,55)` + HSV ramp) and `epg_agenda_widget` (`QColor(60,60,60)` + flat amber) — plus 4 hardcoded colour literals | `gui/progress_paint.py` — one `paint_progress()`, token-coloured; both migrated, Watch Alerts rows are the third caller |
+
+### FLAGGED — not yet done
+
+| # | What | Where | Why not done yet |
+|---|---|---|---|
+| F1 | `style_group_heading` vs `GroupHeading` | `sidebar/favorites.py:180`, `sidebar/queue.py:721` | Mechanical, but touches two sections outside the Watch Alerts slice. Migrate, then **delete `style_group_heading`**. Owner asked for this explicitly. |
+| F2 | Forward relative-time strings | `relative_time.humanize_until` (new) vs `epg_watchlist_mixin.py:750` | **Not a pure duplicate — a policy difference.** The mixin switches to a clock time at 120 min (the shared one at 60), says `"in N min"` not `"in Nm"`, and renders `"Today 2:44 PM"` / `"Wed 2:44 PM"`. Unifying means choosing one wording and changing how the EPG watchlist looks, which is a design call on a surface not yet reviewed. |
+| F3 | `_remaining_str` | Defined in `epg_agenda_widget.py:18`, imported by `epg_watchlist_mixin` | Already single-definition, just living in the wrong module — it belongs beside `humanize_remaining` in `relative_time.py`. Safe pure move. |
+| F4 | Region alpha-3 gaps | `channel_name_utils.REGION_FULL_NAMES` | `DNK` was missing while `DEN` (the IOC/FIFA code) was present, so real provider data matched nothing. Only `DNK` was added — **the table likely has other ISO-vs-IOC pairs with the same gap** and deserves one systematic pass rather than a fix per owner report. |
+| F5 | `alerts.py` over the file-size standard | `sidebar/alerts.py`, ~1340 lines vs the 1000-line rule | Pre-existing; the Watch Alerts rework keeps touching it. Split once the rework settles, so the split is along the shape it ends up with rather than the one it is passing through. See [[docs/CHANNEL_REPOSITORY_SPLIT.md]] for the pattern. |
+
+---
+
 ## Priority 0 — Correctness-adjacent violations (do first)
 
 ### P0-1 — `provider_loader.py` uses `with session` (session leak)
