@@ -27,6 +27,16 @@ What's left to build. Completed features live in git history.
 
 ## Playback & Queue
 
+- [ ] **A queue that actually plays through it** — *(owner, 2026-08-26; scope-crept out of the Watch Alerts rework and parked here deliberately)*. Today the Watch Queue is a **list you pick from**; the ask is a queue that **plays each item in turn, unattended** — finish one, start the next. Three requests converge on it:
+  - **Sequential airings.** When a live programme ends, mpv exits and nothing advances. The owner hit this on consecutive ORF 2 airings and had to start the next by hand.
+  - **Play-when-it-airs.** An upcoming Watch Alerts row cannot offer ▶ (no time machine — the play affordance is now correctly absent there), but it *could* offer "start this when it airs", which turns Upcoming into a **queued-to-play** list.
+  - **Announce vs interrupt.** When a queued item starts, is that a passive notice, a **pop-up**, or silent auto-play? The owner floated all three; it is a real setting, not a default to guess at. Bears on the ambient-companion thesis (PRODUCT_VISION) — a corner companion that grabs focus is a different product from one that does not.
+
+  **The mechanism already exists — do not build a second one.** #462 added a *single-shot timer at the next programme boundary* to `sidebar/alerts.py` (`_schedule_boundary`), which fires at exactly the instant a programme starts or ends, computed from EPG data already in memory. That is the same instant a queue would need to advance on. Wire the action to that signal rather than adding a poll or a second scheduler.
+
+  **Constraint:** auto-starting playback consumes a **source connection**, so this is a fourth consumer of the one `provider_max_connections` accountant alongside playback, downloads and DVR — consult it, never add a parallel counter. And auto-play must never start playback the user did not ask for: the boundary handler in #462 already advances **only if the finishing row was the one playing**, which is the conservative default to keep.
+
+
 - [ ] **Ambient mini-player mode** — **NOT BUILT** (verified 2026-08-02: no `mini_player`/PIP/always-on-top playback code exists). Named in the Wave 5 plan; never written. Low-chrome, always-on-top / PIP corner window that expands to fullscreen; the "media in the corner while working ↔ relax fullscreen" continuum (see PRODUCT_VISION.md ambient-companion thesis)
 - [ ] **Global playback hotkeys** — **NOT BUILT** (verified 2026-08-02: no global/media-key handler anywhere). Named in the Wave 5 plan; never written. Control play/pause/next/seek without focusing the player window (essential for the corner-companion loop)
 - [ ] **Music as a first-class media type** — treat audio/music alongside video in management, queue, and playback (MetaTV is a media *and* music player)

@@ -14,14 +14,21 @@ from datetime import datetime
 
 from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from metatv.core.epg_utils import is_local_today, to_local
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
+
+
+#: The left slot's reserved width, and the marker size within it.
+SLOT_W = 14
+SLOT_ICON_PX = 11
 
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
@@ -159,9 +166,23 @@ class _AlertRow(QWidget):
         self._when = when
         self._live = live
         self._started_at = started_at
+        self._playing = False
+        self._is_new = False
+        self._hovered = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 1, 4, 1)
         layout.setSpacing(4)
+
+        # ── the left slot ────────────────────────────────────────────────
+        # ONE fixed-width column, absolute left of the title, shared by every
+        # marker a row can carry. Fixed width is the point: the play affordance
+        # used to be a button at the RIGHT edge that appeared on hover, so it
+        # shoved the progress bar sideways whenever the pointer crossed a row.
+        # A reserved column cannot reflow, whether it holds anything or not.
+        self._slot = QLabel()
+        self._slot.setFixedWidth(SLOT_W)
+        self._slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._slot)
 
         name_lbl = QLabel(ch_name)
         layout.addWidget(name_lbl, 1)
@@ -182,18 +203,63 @@ class _AlertRow(QWidget):
             self.progress.setToolTip(time_str)
             layout.addWidget(self.progress)
 
-        self.play_btn = QPushButton(config.play_icon)
-        self.play_btn.setFixedSize(20, 18)
-        self.play_btn.setFlat(True)
-        self.play_btn.setToolTip("Play")
-        _theme.style(self.play_btn, "PLAY_BTN_SMALL")
-        self.play_btn.clicked.connect(self.play_clicked)
-        self.play_btn.hide()
-        layout.addWidget(self.play_btn)
-
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
+        self._paint_slot()
+
+    # ── the left slot ────────────────────────────────────────────────────
+    def set_playing(self, playing: bool) -> None:
+        """Mark this row as the thing currently playing."""
+        if playing != self._playing:
+            self._playing = playing
+            self._paint_slot()
+
+    def set_new(self, is_new: bool) -> None:
+        """Mark this row as new since the viewer last looked."""
+        if is_new != self._is_new:
+            self._is_new = is_new
+            self._paint_slot()
+
+    def _offers_play(self) -> bool:
+        """Whether this row can be played at all.
+
+        Only a LIVE row can. Offering ▶ on an upcoming programme promises
+        something the app cannot do — owner: "how can it play anything in
+        future... no time machine." An upcoming row's useful action is opening
+        it, which the row click already does.
+        """
+        return self._live
+
+    def _paint_slot(self) -> None:
+        """Draw whichever marker applies, most urgent first.
+
+        Playing beats hover beats new: what is on screen right now outranks an
+        offer to start it, which outranks a note that this arrived recently.
+        Only one shows, which is what lets them share one column.
+
+        Green carries both "playing" and "new", but as different SHAPES — a
+        triangle and a dot — so neither state rests on colour alone. Green for
+        playing is the convention the details pane already uses
+        (``DETAIL_PLAY_BTN_PLAYING``); the similarly-named
+        ``COLOR_PLAYBACK_IN_PROGRESS`` is ORANGE and means *resumable*, which is
+        a different claim entirely.
+        """
+        if self._playing:
+            self._set_slot_icon("play", _theme.COLOR_OK, "Playing now")
+        elif self._hovered and self._offers_play():
+            self._set_slot_icon("play", _theme.COLOR_ACCENT, "Play")
+        elif self._is_new:
+            self._set_slot_icon("news", _theme.COLOR_OK, "New since you last looked")
+        else:
+            self._slot.clear()
+            self._slot.setToolTip("")
+
+    def _set_slot_icon(self, key: str, colour: str, tip: str) -> None:
+        self._slot.setPixmap(
+            _icon_utils.vector_pixmap(_icons.vector_key(key), colour, SLOT_ICON_PX)
+        )
+        self._slot.setToolTip(tip)
 
     def refresh_time(self, now: datetime) -> None:
         """Recompute this row's time text against ``now``.
@@ -227,14 +293,22 @@ class _AlertRow(QWidget):
             )
 
     def mousePressEvent(self, event):
-        # row_clicked fires only when clicking outside the play button area
-        self.row_clicked.emit()
+        # The slot IS the play control while it is offering to play — clicking
+        # the triangle starts it, clicking anywhere else selects the row.
+        if self._slot.geometry().contains(event.pos()) and (
+            self._playing or (self._hovered and self._offers_play())
+        ):
+            self.play_clicked.emit()
+        else:
+            self.row_clicked.emit()
         super().mousePressEvent(event)
 
     def enterEvent(self, event):
-        self.play_btn.show()
+        self._hovered = True
+        self._paint_slot()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.play_btn.hide()
+        self._hovered = False
+        self._paint_slot()
         super().leaveEvent(event)
