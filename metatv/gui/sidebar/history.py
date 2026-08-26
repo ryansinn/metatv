@@ -10,6 +10,8 @@ from metatv.gui.chip_row import (
 from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -147,7 +149,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             self.set_empty(True)
 
     def _build_play_next_button(self, dto) -> QPushButton:
-        """Build the row's ">>" "Play Next Episode" button (Wave 5).
+        """Build the row's "Play Next Episode" button (Wave 5).
 
         Only called for rows where ``dto.has_next`` is True (a series with a
         resolved smart-ladder resume target — see
@@ -156,11 +158,25 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         existing :meth:`~metatv.gui.main_window_series.play_episode_by_id`
         chokepoint, so this row never grows its own play path.
         """
-        next_btn = QPushButton(">>")
-        next_btn.setFixedSize(30, 20)
+        next_btn = QPushButton()
+        next_btn.setFixedSize(26, 18)
         next_btn.setToolTip(f"Play next episode: {dto.next_episode_code}")
         next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         _theme.style(next_btn, "HISTORY_PLAY_NEXT_BUTTON")
+
+        # The skip-next transport glyph, not ">>": that is fast-forward, and it
+        # means "speed up" rather than "skip ahead". Re-rendered on every palette
+        # switch — an already-rasterised pixmap cannot recolour itself.
+        def _paint_glyph() -> str:
+            next_btn.setIcon(
+                _icon_utils.resolve_icon(
+                    _icons.vector_key("next_episode"), _theme.COLOR_TEXT
+                )
+            )
+            next_btn.setIconSize(QSize(14, 14))
+            return _theme.HISTORY_PLAY_NEXT_BUTTON
+
+        _theme.style_fn(next_btn, _paint_glyph)
         episode_id = dto.next_episode_id
         next_btn.clicked.connect(lambda: self.playNextClicked.emit(episode_id))
         return next_btn

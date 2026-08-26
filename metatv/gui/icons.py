@@ -523,7 +523,11 @@ VECTOR_KEYS: dict[str, str] = {
     # beats "satellite-variant" for live, which collapses into noise at 15px.
     "live": "mdi6.access-point",
     "movie": "mdi6.movie-open-outline",
-    "series": "mdi6.television-classic",
+    # Owner's pick (P1, 2026-08-25). "television-classic" and the movie clapper
+    # are both small boxes at the 13px sidebar size and were near
+    # indistinguishable side by side; the plain television reads as its own
+    # shape against the clapper's diagonal.
+    "series": "mdi6.television",
     "season": "mdi6.folder-outline",
     "episode": "mdi6.play-circle-outline",
     # judgement / state
@@ -563,6 +567,9 @@ VECTOR_KEYS: dict[str, str] = {
     "history": "mdi6.history",
     "sources": "mdi6.package-variant-closed",
     "play": "mdi6.play",
+    # "Play the next episode" — the transport control for skipping AHEAD, not
+    # ">>", which is the fast-forward glyph and means "speed up".
+    "next_episode": "mdi6.skip-next",
     "as_grid": "mdi6.view-grid-outline",
     "as_list": "mdi6.view-list-outline",
 }

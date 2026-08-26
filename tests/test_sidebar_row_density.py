@@ -120,7 +120,7 @@ def test_comfortable_draws_a_second_line_and_no_chips(qtbot):
     qtbot.addWidget(row)
     assert row_meta_label(row) is not None
     assert row_meta_label(row).text() == "1985 · EN · 4K"
-    assert not row.findChildren(QPushButton), "a quality chip survived into comfortable"
+    assert not row.findChildren(QPushButton), "chips survived into comfortable"
     texts = _all_text(row)
     assert "1985" not in texts or texts.count("1985") == 0, (
         f"a year chip is drawn alongside the meta line that already says it: {texts}"
@@ -162,24 +162,35 @@ def test_an_unknown_density_falls_back_to_compact(qtbot):
 def test_an_empty_chip_draws_nothing(qtbot):
     row = _row(chips=((CHIP_QUALITY, ""), (CHIP_YEAR, "1985"), (CHIP_LANG, "")))
     qtbot.addWidget(row)
-    texts = _all_text(row)
-    assert "1985" in texts
-    assert not row.findChildren(QPushButton), "an empty quality chip still drew a button"
+    chips = [b.text() for b in row.findChildren(QPushButton)]
+    assert chips == ["1985"], (
+        f"a chip with no value still drew a box: {chips}"
+    )
 
 
-def test_the_quality_chip_is_a_button_so_its_badge_style_renders(qtbot):
-    """QUALITY_CHIP is QPushButton-scoped — as a QLabel it silently goes plain."""
+def test_every_chip_is_the_same_widget_kind(qtbot):
+    """One box model, so one padding.
+
+    They were QLabel (year, language) and QPushButton (quality) on IDENTICAL
+    declared padding and still looked different: a QLabel's border wraps the
+    font's whole line box, a button's hugs content + padding. Owner: "quality
+    chips on the sidebar have the right padding" / "seems crazy to manage two
+    different paddings this way."
+    """
     row = _row()
     qtbot.addWidget(row)
-    assert any(b.text() == "4K" for b in row.findChildren(QPushButton))
+    chips = sorted(b.text() for b in row.findChildren(QPushButton))
+    assert chips == ["1985", "4K", "EN"], f"not every chip is a button: {chips}"
+    heights = {b.sizeHint().height() for b in row.findChildren(QPushButton)}
+    assert len(heights) == 1, f"chips disagree about their height: {heights}"
 
 
 def test_the_chips_keep_their_distinct_styles(qtbot):
     """Year outlined, language filled — "years with an outline" was the ask."""
     row = _row()
     qtbot.addWidget(row)
-    year = next(w for w in row.findChildren(QLabel) if w.text() == "1985")
-    lang = next(w for w in row.findChildren(QLabel) if w.text() == "EN")
+    year = next(w for w in row.findChildren(QPushButton) if w.text() == "1985")
+    lang = next(w for w in row.findChildren(QPushButton) if w.text() == "EN")
     assert year.styleSheet() == _theme.SIDEBAR_CHIP_YEAR
     assert lang.styleSheet() == _theme.SIDEBAR_CHIP_LANG
     assert year.styleSheet() != lang.styleSheet()
@@ -337,3 +348,68 @@ def test_changing_the_setting_rebuilds_every_section(qapp):
     MainWindow._apply_sidebar_row_density(host)
     for name, section in host.sidebar_sections.items():
         section.refresh.assert_called_once_with(), f"{name} was not rebuilt"
+
+
+# ── The glyphs themselves ────────────────────────────────────────────────────
+
+def test_movie_and_series_do_not_draw_the_same_shape(qapp):
+    """They did. `movie-open-outline` and `television-classic` are both small
+    boxes at 13px and were near indistinguishable in a list — you could only
+    tell them apart if you already knew which was which.
+
+    Compares the PAINTED pixels, not the role names: two different mdi keys
+    that happen to rasterise alike would pass a name check and fail a reader.
+    """
+    from metatv.gui import icon_utils as _icon_utils
+    from metatv.gui import icons as _icons
+    from metatv.gui.chip_row import ICON_PX
+
+    shapes = {}
+    for role in ("movie", "series", "live"):
+        pixmap = _icon_utils.vector_pixmap(
+            _icons.vector_key(role), _theme.COLOR_TEXT, ICON_PX
+        )
+        assert pixmap is not None and not pixmap.isNull(), f"{role} resolved to nothing"
+        img = pixmap.toImage()
+        shapes[role] = tuple(
+            img.pixelColor(x, y).alpha() > 40
+            for y in range(img.height()) for x in range(img.width())
+        )
+
+    assert shapes["movie"] != shapes["series"], (
+        "movie and series rasterise to the same shape — the icon tells you "
+        "nothing the row does not already say"
+    )
+    assert shapes["live"] != shapes["series"]
+    assert shapes["live"] != shapes["movie"]
+
+    differing = sum(a != b for a, b in zip(shapes["movie"], shapes["series"]))
+    assert differing >= 12, (
+        f"movie and series differ in only {differing} of "
+        f"{len(shapes['movie'])} pixels — too close to read apart at {ICON_PX}px"
+    )
+
+
+def test_play_next_uses_the_skip_glyph_not_fast_forward(qapp):
+    """">>" is the FAST-FORWARD glyph: it means "speed up", not "skip ahead"."""
+    from types import SimpleNamespace
+    from metatv.gui.sidebar.history import HistorySection
+
+    obj = HistorySection.__new__(HistorySection)
+    obj.playNextClicked = SimpleNamespace(emit=lambda *_: None)
+    btn = HistorySection._build_play_next_button(
+        obj, SimpleNamespace(next_episode_code="S01E18", next_episode_id="e1")
+    )
+
+    assert btn.text() == "", f"the button still renders text: {btn.text()!r}"
+    assert not btn.icon().isNull(), "no glyph on the play-next button"
+    assert "S01E18" in btn.toolTip(), "the tooltip must name the episode it plays"
+
+    # Painted, not merely assigned: an icon that resolves to nothing leaves a
+    # blank button that still passes every check above.
+    img = btn.grab().toImage()
+    lit = sum(
+        1 for y in range(img.height()) for x in range(img.width())
+        if img.pixelColor(x, y).lightness() > 90
+    )
+    assert lit > 20, f"the play-next glyph drew {lit} lit pixels — it is blank"

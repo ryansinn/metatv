@@ -26,6 +26,12 @@ ENTRY = WhatsNewEntry(
         "A row with news carries a small green ring instead of a blue \"NEW\" "
         "pill. The pill was a second word competing with the title it sat in "
         "front of, and the count beside it already says what is new.",
+        "The series icon is a television rather than a TV-shaped box: it and the "
+        "movie clapper were near indistinguishable at row size, so the icon was "
+        "telling you nothing the row did not already say.",
+        "\"Play next episode\" uses the skip-next transport glyph instead of "
+        "\">>\", which is fast-forward — it means \"speed up\", not \"skip "
+        "ahead\".",
         "History rows carry what tells them apart — the episode you were on (or "
         "the year), and a terse age at the right edge (2h, 1d, 3d). A language "
         "chip would have said the same thing on every row of your own history.",
@@ -49,6 +55,10 @@ ENTRY = WhatsNewEntry(
         "icon is still an icon on the first line.",
         "Switch back to Compact → OK → the rows return to one line.",
         "Hover a title that is too long to fit → the tooltip shows it in full.",
+        "Put a movie and a series next to each other → their icons are clearly "
+        "different shapes, not two similar boxes.",
+        "History → a part-watched series shows a ▶| button at the right; hover "
+        "it and the tooltip names the episode it will play.",
         "Switch themes (Midnight, Graphite, Daylight, Gruvbox, Gruvbox Light) → "
         "the chips stay legible and the year chip keeps its outline in each.",
     ),

@@ -73,8 +73,13 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             for role, fill in (
                 ("SIDEBAR_CHIP_YEAR",
                  f"color: {text}; border: 1px solid {border}; background: transparent;"),
+                # A TRANSPARENT border, not `none`: the border is part of the
+                # box, so a chip without one is 2px shorter than its neighbours
+                # and the row's chips stop lining up. Keeps the fill-only look
+                # with identical metrics.
                 ("SIDEBAR_CHIP_LANG",
-                 f"color: {accent}; background: {lang_fill}; border: none;"),
+                 f"color: {accent}; background: {lang_fill};"
+                 f" border: 1px solid transparent;"),
                 ("SIDEBAR_CHIP_QUALITY",
                  f"color: {quality}; border: 1px solid {quality}; background: transparent;"),
             )
