@@ -116,7 +116,10 @@ def _make_section(config):
 
 def _row_labels(row):
     from PyQt6.QtWidgets import QLabel
-    return row.findChildren(QLabel)
+    # QLabel AND QPushButton — see the note in test_vod_watch_alerts.
+    from PyQt6.QtWidgets import QPushButton
+
+    return row.findChildren((QLabel, QPushButton))
 
 
 # ===========================================================================

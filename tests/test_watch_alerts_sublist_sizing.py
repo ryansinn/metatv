@@ -74,44 +74,6 @@ def full_section(qapp, tmp_path_factory):
 class TestSubListStretchSharing:
     """The three sub-lists share the section's surplus via equal, Expanding stretch."""
 
-    def test_no_trailing_dead_stretch(self, full_section):
-        """The last content item is a real widget, never a bare trailing spacer.
-
-        PR #340 added a trailing ``content_layout.addStretch()`` that pooled ALL surplus
-        space into a blank gap at the bottom. Re-adding it makes the last layout item a
-        spacer and fails this test.
-        """
-        layout = full_section.content_layout
-        last = layout.itemAt(layout.count() - 1)
-        assert last is not None
-        assert last.spacerItem() is None, (
-            "the last content_layout item must NOT be a trailing stretch/spacer — that "
-            "pools the section's surplus space into a dead gap at the bottom"
-        )
-        assert last.widget() is full_section._retry_list, (
-            "the last content item should be a sub-list (the retry list), so surplus "
-            "space is shared by the lists, not stranded below them"
-        )
-
-    def test_three_sublists_share_equal_nonzero_stretch(self, full_section):
-        """EPG tree, Movies & Series and Stream Monitoring all carry the same stretch>0.
-
-        Equal, non-zero stretch is what distributes the section's surplus height evenly
-        instead of funnelling it into one ballooning list. On ``main`` all three had the
-        default stretch 0 (surplus funnelled to the uncapped EPG tree); this fails then.
-        """
-        layout = full_section.content_layout
-
-        s_tree = layout.stretch(_index_of(layout, full_section.alerts_tree))
-        s_vod = layout.stretch(_index_of(layout, full_section._vod_list))
-        s_retry = layout.stretch(_index_of(layout, full_section._retry_list))
-
-        assert s_tree > 0, "the EPG tree must carry a non-zero stretch to share the pane"
-        assert s_tree == s_vod == s_retry, (
-            f"all three sub-lists must share equally (tree={s_tree}, vod={s_vod}, "
-            f"retry={s_retry}) so none balloons and none is starved"
-        )
-
     def test_headers_do_not_take_stretch(self, full_section):
         """The sub-section header rows carry no stretch, so surplus goes to the lists."""
         layout = full_section.content_layout
@@ -119,16 +81,54 @@ class TestSubListStretchSharing:
                     full_section._retry_hdr_container):
             assert layout.stretch(_index_of(layout, hdr)) == 0
 
-    def test_sublists_are_expanding_vertically(self, full_section):
-        """Each sub-list has an Expanding vertical policy so it grows to fill/share."""
+    def test_sublists_size_to_their_content(self, full_section):
+        """Each view takes the height its rows need — it does NOT claim a share.
+
+        This asserted ``Expanding`` and "surplus sharing", which was right while
+        the three views were three visibly separate boxes. They read as ONE flat
+        list now, and three views each claiming a third of the panel left ~150px
+        of dead space between EPG and Movies whenever one was short. Owner: "that
+        doesn't look like the design we planned."
+
+        The surplus goes to a single trailing stretch instead, so the column
+        packs to the top.
+        """
         from PyQt6.QtWidgets import QSizePolicy
 
         for w in (full_section.alerts_tree,
                   full_section._vod_list,
                   full_section._retry_list):
-            assert w.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding, (
-                f"{w} must be vertically Expanding to participate in surplus sharing"
+            assert w.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Maximum, (
+                f"{w} is claiming a share of the panel instead of sizing to its "
+                f"rows — that is the dead gap between groups"
             )
+
+    def test_the_views_carry_no_layout_stretch(self, full_section):
+        """Surplus belongs to ONE trailing stretch, not split between views.
+
+        Replaces test_three_sublists_share_equal_nonzero_stretch and
+        test_no_trailing_dead_stretch, which asserted the opposite: equal
+        non-zero stretch on each view and no trailing spacer. That was correct
+        while the three views were three visibly separate boxes. As one flat
+        list it is what put ~150px of dead space between EPG and Movies.
+        """
+        layout = full_section.content_layout
+        for w in (full_section.alerts_tree,
+                  full_section._vod_list,
+                  full_section._retry_list):
+            assert layout.stretch(_index_of(layout, w)) == 0, (
+                f"{w} carries stretch — it will claim panel height instead of "
+                f"sizing to its rows"
+            )
+
+    def test_the_column_packs_to_the_top(self, full_section):
+        """A trailing stretch absorbs the surplus, so nothing floats mid-panel."""
+        layout = full_section.content_layout
+        last = layout.itemAt(layout.count() - 1)
+        assert last is not None and last.spacerItem() is not None, (
+            "no trailing stretch — the layout will distribute slack between the "
+            "views again"
+        )
 
     def test_epg_tree_is_bounded_by_stretch_not_a_hard_cap(self, full_section):
         """The EPG tree has NO hard maximumHeight — its bound is its stretch share.

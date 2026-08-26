@@ -342,6 +342,22 @@ class RowBudgetMixin:
         super().resizeEvent(event)
         QTimer.singleShot(0, self.reapply_row_budget)
 
+    def _subdivides(self) -> bool:
+        """Whether this section splits its height between several row areas.
+
+        Watch Alerts does: an EPG tree, a rules/series list and a retry list
+        sharing one panel. That is the case R13 actually names — 173px split
+        four ways, each part scrolling in about 35px, a window too small to read
+        through. A scrollbar there is unusable, so such a section keeps
+        budgeting and keeps its tail rows no matter what the setting says.
+
+        Everything else is one list filling one section, where a scrollbar is
+        just a scrollbar.
+        """
+        if self.budgeted_tree() is not None:
+            return True
+        return any(extra is not None for extra, _cb in self.extra_budgeted_lists())
+
     def _wants_more_row(self) -> bool:
         """Whether to draw the "Show N more" tail at all.
 
@@ -351,6 +367,13 @@ class RowBudgetMixin:
         setting for pointing devices that cannot scroll — the rows are still
         hidden either way, and the budget still reports them.
         """
+        if self._subdivides():
+            # Not optional here: these sub-lists cannot offer a scrollbar, so
+            # the tail is the ONLY way to reveal what is hidden. Turning it off
+            # would leave a truncated list with no way out — and turning
+            # scrollbars ON gave a 35px scrolling band, which is what the owner
+            # hit ("what is this shit??").
+            return True
         return bool(getattr(self.config, "sidebar_show_more_row", False))
 
     def _can_grow(self) -> bool:
