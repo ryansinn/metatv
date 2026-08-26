@@ -802,6 +802,45 @@ class EpgRepository:
             .all()
         )
 
+    def has_future_programmes(
+        self,
+        provider_ids: list[str],
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+    ) -> bool:
+        """True iff any scoped programme has yet to START.
+
+        The honest test for "this guide still has something to say". It is
+        deliberately NOT ``ProviderDB.epg_data_end``, which reads the max
+        stop_time and so a single multi-day filler block inflates to a date days
+        out while the last real programme started this morning — the exact state
+        that made a watchlist look broken rather than out of data. Sibling of
+        ``get_programs_starting_soon`` with the same matched-channel and scoping
+        rules, reduced to an EXISTS.
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: Channel-side scoping — drop programmes
+                whose matched ChannelDB row belongs to a hidden provider.
+
+        Returns:
+            True when at least one in-scope programme starts after now.
+        """
+        if not provider_ids:
+            return False
+        now = _now_utc()
+        query = self.session.query(EpgProgramDB.id).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.start_time > now,
+            EpgProgramDB.channel_db_id.isnot(None),
+        )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        return query.first() is not None
+
     def has_unmatched_epg(self, provider_id: str) -> bool:
         """Return True iff the provider has EPG rows but none are matched to a channel.
 

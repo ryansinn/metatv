@@ -103,6 +103,46 @@ heading and replaced it with "See all N more →", which opened the manage dialo
 
 ---
 
+## An empty group must not read as a missing feature
+
+Reported as "epg section is totally missing from alert watch now", then "it
+appears when making changes to epg watch items and then disappears
+immediately". Nothing was broken: seven alerts were configured, the query was
+correct, and the source's guide had simply run out of programmes to START — the
+last one began at 10:38 that morning. `_populate_rows` answered an empty payload
+by calling `_hide_epg_subsection()`, so the loading row revealed the group and
+the empty result hid it again.
+
+**The rule that came out of it:** a group disappears only when there is nothing
+to hold a place for. No patterns and no EPG source are silent
+(`EPG_EMPTY_SILENT`); a CONFIGURED watchlist with nothing airing keeps its
+heading and names which nothing it is. Rendering "you have not set this up" and
+"your setup is fine and quiet" identically — as absence — is what turns a
+working feature into a bug report.
+
+The notice is not a programme: `_reveal_epg_subsection(count=0)` and a
+remembered `_epg_count` keep the heading chip empty, including across a
+collapse, where re-deriving from `topLevelItemCount()` would resurrect a "1"
+next to the words "Nothing airing".
+
+### The trap underneath: coverage is measured by STARTS, not ends
+
+`ProviderDB.epg_data_end` is the max `stop_time` of non-filler programmes. A
+guide whose final entries run long reports coverage hours past the point where
+anything new can begin — here it read 22:00 while the last start was 10:38. For
+"On Now" that is harmless (something IS on). For a watchlist it is wrong: an
+alert can only fire on a programme that starts. Hence
+`EpgRepository.has_future_programmes()`, an EXISTS on `start_time > now`.
+
+**Known, not fixed here:** `EpgManager.needs_refresh()`'s expiry floor keys off
+that same `epg_data_end`, so a guide that has stopped producing new programmes
+is not considered expired and no refresh is triggered — in the reported case,
+for about six hours. Fixing it means changing convergence heuristics that have
+been repaired twice for re-fetch loops (#285, #320), so it wants its own slice
+with the loop guards thought through, not a drive-by edit on a UI branch.
+
+---
+
 ## Left to do
 
 **Rows onto `chip_row.build_chip_row()`.** Watch Alerts still has its own

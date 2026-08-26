@@ -10,7 +10,7 @@ Pins three invariants:
 
 ``None`` is never returned by ``_load_rows`` for a valid-empty state — the mixin
 reserves ``None`` for real exceptions.  Valid-empty returns
-``{"live_groups": {}, "upcoming_only": {}}``.
+``{"live_groups": {}, "upcoming_only": {}, "empty_reason": <why>}``.
 """
 from __future__ import annotations
 
@@ -128,7 +128,8 @@ def test_load_rows_returns_empty_dict_when_no_patterns(tmp_path):
     result = obj._load_rows()
 
     assert result is not None, "_load_rows must never return None for valid-empty"
-    assert result == {"live_groups": {}, "upcoming_only": {}}
+    assert result == {"live_groups": {}, "upcoming_only": {},
+                      "empty_reason": WatchAlertsSection.EPG_EMPTY_NO_PATTERNS}
     db.close()
 
 
@@ -148,7 +149,8 @@ def test_load_rows_returns_empty_dict_when_no_active_providers(tmp_path):
     result = obj._load_rows()
 
     assert result is not None
-    assert result == {"live_groups": {}, "upcoming_only": {}}
+    assert result == {"live_groups": {}, "upcoming_only": {},
+                      "empty_reason": WatchAlertsSection.EPG_EMPTY_NO_SOURCE}
     db.close()
 
 
