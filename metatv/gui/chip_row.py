@@ -59,8 +59,9 @@ DENSITIES = (DENSITY_COMPACT, DENSITY_COMFORTABLE)
 CHIP_QUALITY = "quality"
 CHIP_YEAR = "year"
 CHIP_LANG = "lang"
+#: Quality is absent on purpose: its sheet is composed per TIER at build time
+#: (see :func:`_quality_chip_style`), so it has no single static role.
 _CHIP_ROLES = {
-    CHIP_QUALITY: "SIDEBAR_CHIP_QUALITY",
     CHIP_YEAR: "SIDEBAR_CHIP_YEAR",
     CHIP_LANG: "SIDEBAR_CHIP_LANG",
 }
@@ -269,6 +270,40 @@ def _news_dot() -> QLabel:
     return label
 
 
+def _quality_chip_style(text: str) -> str:
+    """The quality chip's sheet: tier-coloured text on the NEUTRAL hairline.
+
+    Two things were wrong with the flat role this replaced. It painted every
+    tier one ``COLOR_WARN``, discarding the per-tier hue the ``quality`` tokens
+    define (amber RAW, orange LIVE, cyan HD, purple 4K) — and it drew the border
+    in that same full-strength colour, which is most of what made the chip
+    shout: at ``COLOR_WARN`` on Midnight the ring measures 10.4:1, louder than
+    the title it annotates.
+
+    Splitting the two fixes both. The TEXT keeps the per-tier outline colour,
+    which carries the 4.5:1 floor (guarded by ``test_palette_completeness``);
+    the BORDER drops to ``COLOR_BORDER``, the same hairline the year chip uses,
+    which has no contrast requirement to meet. The tier still reads, the chip
+    stops competing, and every chip in a row now shares one border so they look
+    like a family instead of three unrelated objects.
+
+    Args:
+        text: The quality token as stored ("RAW", "4K", "HD"…).
+
+    Returns:
+        A ``QPushButton``-scoped stylesheet string.
+    """
+    from metatv.gui.badge_utils import quality_outline_color
+
+    return (
+        f"QPushButton {{ color: {quality_outline_color(text)};"
+        f" border: 1px solid {_theme.COLOR_BORDER};"
+        f" background: transparent;"
+        f" border-radius: {_theme.RADIUS_SM}; padding: 0px 5px;"
+        f" font-size: {_theme.FONT_XS}; }}"
+    )
+
+
 def _chip_widget(kind: str, text: str) -> QWidget:
     """One chip — a flat ``QPushButton`` whatever the kind.
 
@@ -284,7 +319,14 @@ def _chip_widget(kind: str, text: str) -> QWidget:
     chip.setFlat(True)
     chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-    _theme.style(chip, _CHIP_ROLES[kind])
+    if kind == CHIP_QUALITY:
+        # Per-TIER hue, from badge_utils — the mapping that already owns
+        # quality→colour. style_fn (not style) because the sheet is composed
+        # from a runtime value, so it must be REBUILT on a palette switch;
+        # a rendered string would go stale.
+        _theme.style_fn(chip, lambda: _quality_chip_style(text))
+    else:
+        _theme.style(chip, _CHIP_ROLES[kind])
     return chip
 
 

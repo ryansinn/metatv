@@ -63,6 +63,25 @@ def _quality_outline_colors() -> dict[str, str]:
     }
 
 
+def quality_outline_color(token: str) -> str:
+    """The outline-chip colour for one quality token — the ONE mapping.
+
+    Public because the sidebar row chips need the same per-tier hue the channel
+    list's outline chip uses. Their role painted every tier a flat
+    ``COLOR_WARN``, which both discarded the tier the tokens define and stood up
+    a second source of truth for a mapping this module has owned since #257.
+
+    Args:
+        token: A quality/codec token ("4K", "RAW", "HD"…), any case.
+
+    Returns:
+        The per-palette outline colour, or ``COLOR_TEXT`` for an unknown token —
+        an unrecognised marker should read as plain text, not borrow a tier's
+        meaning.
+    """
+    return _quality_outline_colors().get(token.upper(), _theme.COLOR_TEXT)
+
+
 def _chip_base() -> str:
     return (
         "border-radius: 3px; padding: 1px 5px; font-size: " + _theme.FONT_SM + ";"
