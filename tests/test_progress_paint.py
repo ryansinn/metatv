@@ -11,6 +11,8 @@ layer.
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from metatv.core.config import Config
 from metatv.gui import theme as _theme
 from metatv.gui.progress_paint import NEARLY_OVER_PCT, elapsed_pct
@@ -22,7 +24,10 @@ NOW = datetime(2026, 8, 26, 12, 0, 0)
 # ── the arithmetic ──────────────────────────────────────────────────────
 def test_elapsed_pct_measures_the_share_not_the_remainder():
     start, stop = NOW - timedelta(minutes=10), NOW + timedelta(minutes=20)
-    assert elapsed_pct(start, stop, NOW) == 100 / 3          # 10 of 30 minutes
+    # approx, not ==: 10/30 is not exactly representable in binary floating
+    # point, and pinning an exact float is a test that fails for arithmetic
+    # reasons rather than behavioural ones.
+    assert elapsed_pct(start, stop, NOW) == pytest.approx(100 / 3)  # 10 of 30 min
 
     # Same 20 minutes remaining, a three-hour programme: nearly done.
     start = NOW - timedelta(minutes=160)
