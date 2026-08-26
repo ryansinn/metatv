@@ -40,7 +40,12 @@ def test_by_default_every_row_is_present_and_the_list_scrolls(qapp, tmp_path):
     section.apply_row_budget(lst)
 
     assert section.rows_hidden(lst) == 0, "rows were hidden with nothing to reveal them"
-    assert lst.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    # The SECTION scrolls, not the list. A list scrolling inside the section's
+    # own scroll area is the nested scrollbar R13 forbids.
+    assert lst.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert section.content_scroll.verticalScrollBarPolicy() == (
+        Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
     assert not _tails(lst), "a tail row appeared without being asked for"
 
 
@@ -61,9 +66,9 @@ def test_previously_hidden_rows_are_restored(qapp, tmp_path):
 
 
 # ── the opt-in ──────────────────────────────────────────────────────────
-def test_turning_it_on_takes_the_scrollbar_away(qapp, tmp_path):
+def test_turning_it_on_hides_rows_behind_a_tail(qapp, tmp_path):
     """The two halves are one switch: rows are only hidden when the tail can
-    reveal them, and the scrollbar only goes away when they are."""
+    reveal them."""
     section, lst = _section(tmp_path)
     section.config.sidebar_show_more_row = True
 

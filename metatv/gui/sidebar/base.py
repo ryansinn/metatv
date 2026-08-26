@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
-    QFrame, QSizePolicy, QTreeWidgetItem,
+    QFrame, QScrollArea, QSizePolicy, QTreeWidgetItem,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QMouseEvent
@@ -465,12 +465,41 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self.create_header()
 
         # Content container — Expanding so it fills the section's splitter allocation
+        # The content scrolls INSIDE the section. A section holding more than it
+        # can show has to put the excess somewhere, and the alternatives are
+        # both worse: hiding rows needs something to reveal them, and letting a
+        # view keep its full height simply draws it over its neighbour — which
+        # is how Stream Monitoring ended up printed across the Series rows.
+        #
+        # This is ONE scrollbar for the section, not the nested-scrollbars R13
+        # forbids: the views inside size to their rows and never scroll
+        # themselves, so there is exactly one scrolling surface here.
         self.content_widget = QWidget()
-        self.content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.content_widget.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                          QSizePolicy.Policy.Preferred)
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(5, 5, 5, 5)
         self.content_layout.setSpacing(4)
-        self.main_layout.addWidget(self.content_widget, 1)
+
+        self.content_scroll = QScrollArea()
+        self.content_scroll.setWidget(self.content_widget)
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.content_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.content_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.content_scroll.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                          QSizePolicy.Policy.Expanding)
+        # Both the area AND its viewport must be transparent, or the viewport
+        # paints its own palette ground straight over the section card.
+        _theme.style_fn(self.content_scroll, lambda: (
+            "QScrollArea, QScrollArea > QWidget > QWidget"
+            " { background: transparent; border: none; }"
+        ))
+        self.content_scroll.viewport().setAutoFillBackground(False)
+        self.content_widget.setAutoFillBackground(False)
+        self.main_layout.addWidget(self.content_scroll, 1)
 
         # Create section-specific content
         self.create_content()
@@ -834,7 +863,7 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
             save: Whether to save state and redistribute splitter space (False during restore).
         """
         self.is_collapsed = collapsed
-        self.content_widget.setVisible(not collapsed)
+        self.content_scroll.setVisible(not collapsed)
 
         if collapsed:
             h = self.height()
