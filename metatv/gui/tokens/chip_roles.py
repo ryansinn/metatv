@@ -44,7 +44,6 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     font_md    = _("FONT_MD")
     font_xs    = _("FONT_XS")
     lang_fill  = _("OVERLAY_BLUE_10")
-    quality    = _("COLOR_WARN")
     # The one sidebar-chip geometry. Every chip role below interpolates it,
     # so a padding change is one edit and cannot land on two of three.
     chip_geom  = (
@@ -80,8 +79,6 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
                 ("SIDEBAR_CHIP_LANG",
                  f"color: {accent}; background: {lang_fill};"
                  f" border: 1px solid transparent;"),
-                ("SIDEBAR_CHIP_QUALITY",
-                 f"color: {quality}; border: 1px solid {quality}; background: transparent;"),
             )
         },
         # The strip itself. Sits on its own ground so the chips have something

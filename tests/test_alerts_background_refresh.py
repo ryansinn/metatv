@@ -175,8 +175,14 @@ def test_load_rows_live_programme_lands_in_live_groups(tmp_path):
     grp = live_groups[key]
     assert grp["title"] == "Breaking Bad"
     assert len(grp["live"]) == 1
-    mins_left, time_str, ch_display, channel_db_id = grp["live"][0]
+    airing = grp["live"][0]
+    time_str, ch_display, channel_db_id = (
+        airing.time_text, airing.channel, airing.channel_db_id
+    )
     assert channel_db_id == "ch1"
+    # The programme's stop_time rides along so the row can recompute its own
+    # countdown on the 30s tick — see test_watch_alerts_staleness.
+    assert airing.when is not None
     # Channel display name resolved from DB (batched lookup)
     assert "BBC One" in ch_display
     # time_str indicates minutes remaining
@@ -207,8 +213,13 @@ def test_load_rows_upcoming_programme_lands_in_upcoming_only(tmp_path):
     grp = upcoming_only[key]
     assert grp["title"] == "The Wire"
     assert len(grp["airings"]) == 1
-    ts, time_str, ch_display, channel_db_id = grp["airings"][0]
+    airing = grp["airings"][0]
+    time_str, ch_display, channel_db_id = (
+        airing.time_text, airing.channel, airing.channel_db_id
+    )
     assert channel_db_id == "ch1"
+    # start_time rides along, for the same reason.
+    assert airing.when is not None
     # Channel display resolved from batched lookup
     assert "CNN" in ch_display
     # ~30 minutes ahead → "in NNm" (exact minute may shift by ±1 due to test timing)

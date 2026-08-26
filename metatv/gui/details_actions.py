@@ -31,6 +31,70 @@ class ChannelActionState:
     is_favorite: bool = False
 
 
+class _SteppedLabelButton(QPushButton):
+    """A button whose label steps down through shorter forms as it narrows.
+
+    The queue button opts OUT of driving the details pane's width
+    (``QSizePolicy.Ignored`` — see ``details_sections.set_action_buttons`` and
+    docs/DETAILS_PANE_DESIGN.md → "Width discipline"), because a
+    ``QHBoxLayout``'s minimum width is the SUM of its children's minimums: a
+    button reporting its true width would floor the whole pane at "Watch Later"
+    plus three chips and clip every other section off the right edge. That trap
+    has recurred roughly five times and the escape hatch must stay.
+
+    Its cost is that Qt CLIPS the label rather than shrinking it, so "Watch
+    Later" rendered as "Watch Lat". Stepping the label keeps the escape hatch
+    and removes the clipping: the button shows the longest form that fits, and
+    "Later" carries the meaning on its own. Owner: "Later is good enough,
+    people will get it."
+
+    The label is only ever stepped from :meth:`resizeEvent`, so a button that
+    has never been laid out keeps its full form — which is what a test reading
+    ``.text()`` without showing the widget sees.
+    """
+
+    #: Slack for the frame and padding that ``fontMetrics`` cannot see.
+    #: Deliberately generous: stepping down one form early is invisible,
+    #: stepping down one form late is the clipped label this exists to prevent.
+    _CHROME_PX = 20
+
+    def __init__(self, labels: tuple[str, ...], parent=None):
+        """
+        Args:
+            labels: Forms longest-first. The last is the floor and is used
+                whenever nothing fits, so it should be something that still
+                reads at any width (an icon alone, typically).
+            parent: Qt parent.
+        """
+        super().__init__(labels[0], parent)
+        self._labels = labels
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._apply_label()
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        # Also on show: a button laid out to its final size before it is first
+        # shown may never receive a resize, and one event is a thin thread to
+        # hang the whole label on.
+        super().showEvent(event)
+        self._apply_label()
+
+    def _apply_label(self) -> None:
+        """Adopt the longest label that fits the current width."""
+        if self.width() <= 0:
+            return          # not laid out yet — the full form stands
+        avail = self.width() - self._CHROME_PX
+        metrics = self.fontMetrics()
+        chosen = self._labels[-1]
+        for text in self._labels:
+            if metrics.horizontalAdvance(text) <= avail:
+                chosen = text
+                break
+        if self.text() != chosen:
+            self.setText(chosen)
+
+
 class _ActionBar(QWidget):
     """Owns every channel action button, its state, and its signals.
 
@@ -147,8 +211,13 @@ class _ActionBar(QWidget):
         # the primary zone (under Play/Resume), NOT an icon in the rail — it is the
         # most-likely follow-up to "not right now".  _PosterSection.set_action_buttons
         # reparents it there; state reads via :checked + tooltip.
-        self.queue_button = QPushButton(
-            f"{self.config.queue_icon} Watch Later", self
+        self.queue_button = _SteppedLabelButton(
+            (
+                f"{self.config.queue_icon} Watch Later",
+                f"{self.config.queue_icon} Later",
+                self.config.queue_icon,
+            ),
+            self,
         )
         self.queue_button.setCheckable(True)
         _theme.style(self.queue_button, "DETAIL_QUEUE_BTN")
