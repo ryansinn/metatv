@@ -245,6 +245,20 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # Icon-only, like the +. As a text button it did not fit beside the
         # group heading it now shares a line with — "Movies & Series (6) · 2
         # new" truncated to "· 2 ne". The tooltip carries the words.
+        # The busy indicator sits with the section's own controls, not on a
+        # sub-group heading. It reports on a check that belongs to the whole
+        # section, and its old home — the "Movies & Series" header — is being
+        # dissolved. Here it also stops being re-parented every refresh.
+        self._series_spinner = _icon_utils.busy_spinner(
+            None, color=_theme.COLOR_TEXT
+        )
+        if self._series_spinner is not None:
+            self._series_spinner.setToolTip(
+                "Checking monitored series for new episodes…"
+            )
+            self._series_spinner.hide()
+            header_layout.addWidget(self._series_spinner)
+
         self._manage_btn = QPushButton()
         self._manage_btn.setFixedSize(24, 20)
         self._manage_btn.setToolTip(
@@ -311,12 +325,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         epg_hdr_row.setContentsMargins(0, 4, 0, 2)
         epg_hdr_row.setSpacing(4)
 
-        self._epg_toggle = QPushButton()
-        self._epg_toggle.setFlat(True)
-        self._epg_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        _theme.style(self._epg_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
-        self._epg_toggle.setToolTip(
-            "Live TV programs and events from your watchlist, airing now or soon."
+        # The SAME heading widget the groups inside this section use. It was a
+        # QPushButton drawing "{caret} EPG ({count})" — a third way of writing a
+        # heading in a section that already had two, and a caret beside a
+        # clickable title is a second affordance for one action.
+        self._epg_toggle = GroupHeading(
+            "EPG", interactive=True,
+            tooltip=("Live TV programs and events from your watchlist, airing "
+                     "now or soon — click to collapse or expand"),
         )
         self._epg_toggle.clicked.connect(self._toggle_epg)
         epg_hdr_row.addWidget(self._epg_toggle)
@@ -355,57 +371,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._update_epg_toggle_label(0)
         # ── end EPG sub-section ────────────────────────────────────────────
 
-        # ── Movies & Series sub-section ────────────────────────────────────
-        # Keyword watch-for rules PLUS monitored series (folded in from the retired
-        # New Episodes section).  Management is the header "Manage" button now.
-        self._vod_collapsed = False
-        self._series_collapsed = False   # the Series group heading toggle
+        # ── Movies & Series ───────────────────────────────────────────────
+        # No wrapper heading. It used to carry one ("Movies & Series (13)"),
+        # which read as a PEER of the "Watching for" and "Series" headings it
+        # actually CONTAINS — same weight, nested meaning. Dissolving it leaves
+        # four groups at one level, which is the approved design: EPG, Watching
+        # for, Series, Stream Monitoring.
+        #
+        # Nothing was lost with it. Its collapse state is now the two inner
+        # headings' own (below); its spinner moved to the section header, which
+        # is what the check actually belongs to; and its "N new" label
+        # duplicated the count the section header badge already shows.
+        self._series_collapsed = False   # the "Series" group heading toggle
         self._keyword_collapsed = False  # the "Watching for" group heading toggle
-
-        vod_hdr_row = QHBoxLayout()
-        vod_hdr_row.setContentsMargins(0, 4, 0, 2)
-        vod_hdr_row.setSpacing(4)
-
-        self._vod_toggle = QPushButton()
-        self._vod_toggle.setFlat(True)
-        self._vod_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        _theme.style(self._vod_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
-        self._vod_toggle.clicked.connect(self._toggle_vod_watching)
-        vod_hdr_row.addWidget(self._vod_toggle)
-
-        # A genuinely spinning indicator, not the words "⟳ checking…" appended
-        # to the label. A static glyph is a still picture of motion, and the
-        # word was doing the work the motion should — in a header that already
-        # carries a title, a count and a news total.
-        self._series_spinner = _icon_utils.busy_spinner(
-            self._vod_toggle, color=_theme.COLOR_TEXT
-        )
-
-        # AFTER the stretch, so it rides the RIGHT edge. Beside the toggle it
-        # sat against the label and read as part of it — a status indicator
-        # belongs at the margin where the eye looks for state, not inline with
-        # the thing it is reporting on.
-        vod_hdr_row.addStretch()
-
-        # The news count as its OWN widget, right-aligned — it was appended to
-        # the button's TEXT as "  ·  2 new", which cannot be positioned and
-        # made the separator carry work a layout should. Sits LEFT of the
-        # spinner so the two never trade places when a check starts.
-        self._vod_news_lbl = QLabel()
-        _theme.style(self._vod_news_lbl, "SIDEBAR_ROW_NEWS")
-        self._vod_news_lbl.hide()
-        vod_hdr_row.addWidget(self._vod_news_lbl)
-
-        if self._series_spinner is not None:
-            self._series_spinner.setToolTip("Checking monitored series for new episodes…")
-            self._series_spinner.hide()
-            vod_hdr_row.addWidget(self._series_spinner)
-
-        self._vod_hdr_container = QWidget()
-        self._vod_hdr_container.setLayout(vod_hdr_row)
-        self._vod_hdr_container.hide()
-        self.content_layout.addWidget(self._vod_hdr_container)
-
         self._vod_list = QListWidget()
         # R13 mechanism 1 — no nested scrollbars. This sub-list still had one:
         # a scroll area inside the sidebar's own, in a band ~35px tall, which is
@@ -438,10 +416,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         retry_hdr_row.setContentsMargins(0, 4, 0, 2)
         retry_hdr_row.setSpacing(4)
 
-        self._retry_toggle = QPushButton()
-        self._retry_toggle.setFlat(True)
-        self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        _theme.style(self._retry_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
+        self._retry_toggle = GroupHeading(
+            "Stream Monitoring", interactive=True,
+            tooltip="Streams being re-checked after a failure — click to "
+                    "collapse or expand",
+        )
         self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
         retry_hdr_row.addWidget(self._retry_toggle)
 
@@ -510,9 +489,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     # ------------------------------------------------------------------
 
     def _update_epg_toggle_label(self, count: int) -> None:
-        arrow = self.config.expand_icon if self._epg_collapsed else self.config.collapse_icon
-        label = f"EPG  ({count})" if count else "EPG"
-        self._epg_toggle.setText(f"{arrow}  {label}")
+        """Refresh the EPG heading's count."""
+        self._epg_toggle.set_count(count or None)
 
     def _toggle_epg(self) -> None:
         self._epg_collapsed = not self._epg_collapsed
@@ -524,32 +502,18 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     # ------------------------------------------------------------------
 
     def _update_vod_toggle_label(self, count: int) -> None:
-        arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
-        # ``_vod_toggle`` is a QPushButton, which treats a lone "&" as a keyboard
-        # mnemonic (rendering "Movies _Series").  Escape it as "&&" so the label
-        # shows a literal ampersand.  (The manage-dialog QLabel sub-header does not
-        # process mnemonics, so it stays a single "&".)
-        label = "Movies && Series"
-        if count:
-            label += f"  ({count})"
-        # Firing alerts are surfaced by _vod_news_lbl at the RIGHT edge, not
-        # appended here. Combines firing
-        # keyword rules (AVAILABLE-only, stashed by the last refresh) with the
-        # number of monitored series that have unseen new episodes.  Read via
-        # __dict__ (not getattr) so a __new__'d test stub — whose Qt C++ side was
-        # never initialised — does not raise instead of returning the default.
+        """Recompute the section-level "new" totals after a VOD refresh.
+
+        Named for a toggle that no longer exists — kept as the one place that
+        recomputes ``_firing_count`` + ``_series_new_count`` for the section
+        header's badge, which every caller already routes through.
+        """
         firing = self.__dict__.get("_firing_count")
         if firing is None:
-            firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
-        # The count lives in _vod_news_lbl, right-aligned — not appended here
-        # behind a "·". A separator between a title and a status is the layout
-        # asking text to do its job.
-        new_total = firing + self.__dict__.get("_series_new_count", 0)
-        news_lbl = self.__dict__.get("_vod_news_lbl")
-        if news_lbl is not None:
-            news_lbl.setText(f"{new_total} new" if new_total > 0 else "")
-            news_lbl.setVisible(new_total > 0)
-        self._vod_toggle.setText(f"{arrow}  {label}")
+            firing = getattr(
+                self.config, "get_rules_with_new_matches_count", lambda: 0
+            )()
+        self._new_total = firing + self.__dict__.get("_series_new_count", 0)
 
     def budgeted_tree(self):
         """Watch Alerts fits its top-level groups, not a flat list.
@@ -701,13 +665,47 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setSizeHint(QSize(0, heading.sizeHint().height()))
         self._vod_list.setItemWidget(item, heading)
 
-    def _toggle_vod_watching(self) -> None:
-        self._vod_collapsed = not self._vod_collapsed
-        if self._vod_collapsed:
-            self._vod_list.hide()
-        else:
-            self._vod_list.show()
-        self._update_vod_toggle_label(self._vod_list.count())
+    def _toggle_series_group(self) -> None:
+        """Collapse/expand the monitored-series group."""
+        self._series_collapsed = not self._series_collapsed
+        self.refresh_vod_rules()
+
+    def _toggle_keyword_group(self) -> None:
+        """Collapse/expand the keyword watch-for group.
+
+        New: this heading used to be ``NoItemFlags`` and inert while the Series
+        heading beside it — visually identical — collapsed on click. One
+        grammar means both behave the same way.
+        """
+        self._keyword_collapsed = not self._keyword_collapsed
+        self.refresh_vod_rules()
+
+    def _add_group_heading(self, text: str, count: int | None = None, *,
+                           on_click=None, tooltip: str = "") -> None:
+        """Add one sub-group heading to the VOD list.
+
+        The item is always ``NoItemFlags`` — a heading is chrome, so the row
+        budget skips it and it can never be selected — and any click comes from
+        the WIDGET's signal rather than from item flags. That split is what
+        removes the old inconsistency: the two em-dash dividers looked
+        identical, but one was clickable because it had flags and the other was
+        not because it did not.
+        """
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        # Tagged so the context-menu handler can recognise a heading. NoItemFlags
+        # alone is not enough: itemAt() still returns it under the cursor, and
+        # without a kind it would fall through to the keyword-rule branch with a
+        # null rule id.
+        item.setData(_ROLE_KIND, "heading")
+        self._vod_list.addItem(item)
+        heading = GroupHeading(
+            text, count, interactive=on_click is not None, tooltip=tooltip
+        )
+        if on_click is not None:
+            heading.clicked.connect(on_click)
+        item.setSizeHint(QSize(0, heading.sizeHint().height()))
+        self._vod_list.setItemWidget(item, heading)
 
     def refresh_vod_rules(self) -> None:
         """Repopulate the Movies & Series sub-list: keyword rules + monitored series.
@@ -751,7 +749,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         )
 
         if not rules and not series:
-            self._vod_hdr_container.hide()
             self._vod_list.hide()
             self._recompute_empty()
             return
@@ -872,12 +869,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     item.setSizeHint(row.sizeHint())
                     self._vod_list.setItemWidget(item, row)
 
-        # Toggle count = keyword rules + monitored series (the divider row is chrome).
         self._update_vod_toggle_label(len(rules) + len(series))
-        self._vod_hdr_container.show()
-        if not self._vod_collapsed:
-            self._vod_list.show()
-            self._recompute_empty()
+        self._vod_list.show()
+        self._recompute_empty()
 
     def update_new_match_badge(
         self, count: int, item_count: int | None = None, *,
@@ -1094,9 +1088,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     # ------------------------------------------------------------------
 
     def _update_retry_toggle_label(self, count: int) -> None:
-        arrow = self.config.expand_icon if self._retry_collapsed else self.config.collapse_icon
-        label = f"Stream Monitoring  ({count})" if count else "Stream Monitoring"
-        self._retry_toggle.setText(f"{arrow}  {label}")
+        """Refresh the Stream Monitoring heading's count."""
+        self._retry_toggle.set_count(count or None)
 
     def _toggle_stream_monitoring(self) -> None:
         self._retry_collapsed = not self._retry_collapsed

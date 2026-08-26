@@ -661,11 +661,10 @@ class TestWatchAlertsSectionVodRules:
 
         section = WatchAlertsSection.__new__(WatchAlertsSection)
         section.config = config
-        section._vod_collapsed = False
+        from tests.conftest import wire_watch_alerts_group_state
+        wire_watch_alerts_group_state(section)
         section._vod_list = QListWidget()
-        # Stub the show/hide helpers — they touch real Qt widgets but we just
-        # need to validate list content.
-        section._vod_hdr_container = MagicMock()
+        # _update_vod_toggle_label only recomputes the badge total; stub it.
         section._update_vod_toggle_label = MagicMock()
         return section
 
@@ -674,7 +673,9 @@ class TestWatchAlertsSectionVodRules:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
         assert section._vod_list.count() == 0, "Empty rule list must leave vod_list empty"
-        section._vod_hdr_container.hide.assert_called()
+        # The 'Movies & Series' wrapper was dissolved; the LIST is what
+        # hides when there is nothing to show.
+        assert section._vod_list.isHidden()
 
     def test_one_rule_renders_one_item(self, qapp):
         cfg = _FakeConfig()
@@ -753,9 +754,9 @@ class TestVodRuleInteractiveActions:
 
         section = WatchAlertsSection.__new__(WatchAlertsSection)
         section.config = config
-        section._vod_collapsed = False
+        from tests.conftest import wire_watch_alerts_group_state
+        wire_watch_alerts_group_state(section)
         section._vod_list = QListWidget()
-        section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
         return section
 

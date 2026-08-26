@@ -122,33 +122,40 @@ class TestIdentityLines:
 
 class TestAmpersandEscaping:
 
-    def test_toggle_label_escapes_ampersand(self, qapp):
-        from PyQt6.QtWidgets import QPushButton
+    def test_new_totals_combine_rules_and_series(self, qapp):
+        """The section badge's total, recomputed after a VOD refresh.
+
+        Replaces two tests that asserted the "Movies && Series" ampersand
+        escape. That escape existed because the label was a QPushButton, which
+        eats a lone "&" as a keyboard mnemonic; the heading is a QLabel now and
+        the wrapper it labelled has been dissolved, so the whole concern is
+        gone rather than merely renamed.
+        """
         from metatv.gui.sidebar.alerts import WatchAlertsSection
 
         section = WatchAlertsSection.__new__(WatchAlertsSection)
-        section.config = SimpleNamespace(expand_icon=">", collapse_icon="v")
-        section._vod_collapsed = False
-        section._vod_toggle = QPushButton()
+        section.config = SimpleNamespace(
+            get_rules_with_new_matches_count=lambda: 2
+        )
+        section._firing_count = 4
+        section._series_new_count = 3
 
+        section._update_vod_toggle_label(13)
+        assert section._new_total == 7, (
+            "the badge total must combine firing keyword rules with series "
+            "holding unseen episodes"
+        )
+
+    def test_new_totals_fall_back_to_the_config_count(self, qapp):
+        """Before a refresh has stashed one, the config's count stands in."""
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+
+        section = WatchAlertsSection.__new__(WatchAlertsSection)
+        section.config = SimpleNamespace(
+            get_rules_with_new_matches_count=lambda: 5
+        )
         section._update_vod_toggle_label(0)
-        # QPushButton eats a lone "&" as a mnemonic; "&&" renders a literal "&".
-        assert "Movies && Series" in section._vod_toggle.text()
-        assert "Movies & Series" not in section._vod_toggle.text().replace("&&", "")
-
-    def test_toggle_label_with_count_still_escaped(self, qapp):
-        from PyQt6.QtWidgets import QPushButton
-        from metatv.gui.sidebar.alerts import WatchAlertsSection
-
-        section = WatchAlertsSection.__new__(WatchAlertsSection)
-        section.config = SimpleNamespace(expand_icon=">", collapse_icon="v")
-        section._vod_collapsed = False
-        section._vod_toggle = QPushButton()
-
-        section._update_vod_toggle_label(3)
-        text = section._vod_toggle.text()
-        assert "Movies && Series" in text
-        assert "(3)" in text
+        assert section._new_total == 5
 
 
 # ===========================================================================
@@ -241,10 +248,10 @@ def _render_section(cfg, qapp):
     from metatv.gui.sidebar.alerts import WatchAlertsSection
     section = WatchAlertsSection.__new__(WatchAlertsSection)
     section.config = cfg
-    section._vod_collapsed = False
+    from tests.conftest import wire_watch_alerts_group_state
+    wire_watch_alerts_group_state(section)
     section._series_collapsed = False
     section._vod_list = QListWidget()
-    section._vod_hdr_container = MagicMock()
     section._update_vod_toggle_label = MagicMock()
     section.update_new_match_badge = MagicMock()
     section.refresh_vod_rules()
