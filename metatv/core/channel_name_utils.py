@@ -1122,6 +1122,11 @@ REGION_FULL_NAMES: dict[str, str] = {
     "US": "United States", "UK": "United Kingdom", "FR": "France",
     "DE": "Germany", "ES": "Spain", "IT": "Italy", "PT": "Portugal",
     "NL": "Netherlands", "SE": "Sweden", "NO": "Norway", "DK": "Denmark",
+    # DNK is the ISO 3166-1 alpha-3 for Denmark. "DEN" (below) is the IOC/FIFA
+    # code and was the only three-letter form here, so a real provider channel
+    # named "KANAL 4 [DNK] [HEVC]" matched nothing and kept the bracket glued
+    # into its title (owner report).
+    "DNK": "Denmark",
     "FI": "Finland", "PL": "Poland", "RO": "Romania", "HU": "Hungary",
     "CZ": "Czech Republic", "GR": "Greece", "TR": "Turkey", "RU": "Russia",
     "UA": "Ukraine", "BR": "Brazil", "MX": "Mexico", "CA": "Canada",

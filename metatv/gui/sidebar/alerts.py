@@ -1176,11 +1176,30 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             channel_names: dict[str, str] = {}
             if all_channel_ids:
                 rows = (
-                    session.query(ChannelDB.id, ChannelDB.name)
+                    session.query(
+                        ChannelDB.id,
+                        ChannelDB.name,
+                        ChannelDB.detected_title,
+                        ChannelDB.detected_year,
+                        ChannelDB.detected_region,
+                        ChannelDB.detected_quality,
+                    )
                     .filter(ChannelDB.id.in_(all_channel_ids))
                     .all()
                 )
-                channel_names = {cid: name for cid, name in rows}
+                # The ingestion-computed fields, not just the raw name. Watch
+                # Alerts was the one sidebar surface still rendering the
+                # provider's string verbatim, which is why a channel showed as
+                # "KANAL 4 [DNK] [HEVC]" — brackets and all — where every other
+                # list renders the bare title with the tags as tags.
+                channel_names = {
+                    r[0]: {
+                        "name": r[1], "detected_title": r[2],
+                        "detected_year": r[3], "detected_region": r[4],
+                        "detected_quality": r[5],
+                    }
+                    for r in rows
+                }
 
             now = _now_utc()
 
@@ -1188,8 +1207,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 return " ".join(title.casefold().replace("&", "and").split())
 
             def _channel_display(prog) -> str:
-                raw_name = channel_names.get(prog.channel_db_id) or (prog.channel_epg_id or "Unknown")
-                return _fmt_channel_name(raw_name)
+                rec = channel_names.get(prog.channel_db_id)
+                if rec is None:
+                    return _fmt_channel_name(prog.channel_epg_id or "Unknown")
+                return _fmt_channel_name(
+                    rec["name"],
+                    detected_title=rec["detected_title"],
+                    detected_year=rec["detected_year"],
+                    detected_region=rec["detected_region"],
+                    detected_quality=rec["detected_quality"],
+                )
 
             # Unified per-title groups — upcoming for a live title folds under WATCH NOW,
             # preventing the same show from appearing in both sections simultaneously.
