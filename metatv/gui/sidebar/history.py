@@ -15,6 +15,13 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
+#: How many history entries to load. A bound on MEMORY, not a product decision
+#: about how much history is worth keeping: 30 was arbitrary from when a section
+#: could only ever show a handful of rows, and once scrolling could reveal more
+#: it became the ceiling a viewer hits rather than a height anyone chose.
+HISTORY_ROW_LIMIT = 300
+
+
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
     def budgeted_list(self):
@@ -106,14 +113,9 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         adult_mode = getattr(self.config, "filter_adult_mode", "all")
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
-            # 30 was an arbitrary cap from when the section could only ever
-            # show a handful of rows. Scrolling now reveals as many as fit and
-            # then some, so the cap became the ceiling a viewer hits instead of
-            # the section's height — which is not a limit anyone chose. 300 is
-            # deep enough to scroll back through a real viewing week and still
-            # one cheap indexed query; it is a bound on MEMORY, not a product
-            # decision about how much history is worth keeping.
-            return build_history_dtos(repos, limit=300, adult_mode=adult_mode)
+            return build_history_dtos(
+                repos, limit=HISTORY_ROW_LIMIT, adult_mode=adult_mode
+            )
 
     def _populate_rows(self, dtos) -> None:
         """Main-thread slot: populate history_list from DTOs."""

@@ -111,10 +111,9 @@ def test_a_rebuild_returns_the_list_to_budgeting(qapp, tmp_path):
 
 def test_history_loads_deep_enough_to_scroll_back_through(qapp):
     """30 rows was the ceiling a viewer hit, not a height anyone chose."""
-    import inspect
+    from metatv.gui.sidebar.history import HISTORY_ROW_LIMIT
 
-    from metatv.gui.sidebar import history
-
-    src = inspect.getsource(history.HistorySection._load_rows)
-    assert "limit=30" not in src
-    assert "limit=300" in src
+    assert HISTORY_ROW_LIMIT >= 200, (
+        "the load cap is shallow enough to be the ceiling a viewer hits while "
+        "scrolling, rather than the section's height"
+    )
