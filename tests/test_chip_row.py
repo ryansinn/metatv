@@ -193,9 +193,12 @@ def test_meta_line_drops_missing_parts_without_dangling_separators():
 
 
 def test_media_icon_role_is_a_glyph_role_not_a_word():
-    """This used to assert the WORD ("Movie"). The owner: "the whole point of
-    the movie, series, live icons reduce the need for all this busy and
-    repetitive text. So rather than using the words, use the icons.""""
+    """This used to assert the WORD ("Movie").
+
+    The owner: "the whole point of the movie, series, live icons reduce the
+    need for all this busy and repetitive text. So rather than using the
+    words, use the icons."
+    """
     assert media_icon_role("movie") == "movie"
     assert media_icon_role("series") == "series"
     assert media_icon_role("live") == "live"
