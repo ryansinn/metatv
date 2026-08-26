@@ -9,6 +9,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
@@ -122,7 +123,15 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         Recommended's refresh button — makes it available without charging rent
         for it.
         """
-        self._filter_btn = QPushButton(_icons.search_icon)
+        # The VECTOR glyph, not the "🔍" emoji as button text. As text it was a
+        # colour emoji drawn at the header's font size inside a 22x20 button —
+        # squeezed and clipped to an unreadable smear. Every other button in
+        # this cluster already draws a vector icon; this one was the exception.
+        self._filter_btn = QPushButton()
+        self._filter_btn.setIcon(_icon_utils.resolve_icon(
+            _icons.vector_key("search"), _theme.COLOR_TEXT
+        ))
+        self._filter_btn.setIconSize(QSize(14, 14))
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
         self._filter_btn.setFlat(True)
