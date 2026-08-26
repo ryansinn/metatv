@@ -105,10 +105,10 @@ def _make_section(config):
 
     section = WatchAlertsSection.__new__(WatchAlertsSection)
     section.config = config
-    section._vod_collapsed = False
+    from tests.conftest import wire_watch_alerts_group_state
+    wire_watch_alerts_group_state(section)
     section._series_collapsed = False
     section._vod_list = QListWidget()
-    section._vod_hdr_container = MagicMock()
     section._update_vod_toggle_label = MagicMock()
     section.update_new_match_badge = MagicMock()
     return section
@@ -177,7 +177,7 @@ class TestRefreshMoviesSeries:
         section.refresh_vod_rules()
 
         # divider + 2 series rows (no keyword rules)
-        assert self._kinds(section) == ["series_divider", "series", "series"]
+        assert self._kinds(section) == ["heading", "series", "series"]
 
     def test_new_series_pinned_and_coloured_green(self, qapp):
         import metatv.gui.theme as _theme
@@ -219,7 +219,7 @@ class TestRefreshMoviesSeries:
         # With BOTH groups present, the keyword group gets a "Watching for" label
         # above its rules, mirroring the Series divider below.
         assert self._kinds(section) == [
-            "keyword_divider", "rule", "series_divider", "series",
+            "heading", "rule", "heading", "series",
         ]
 
     def test_no_keyword_divider_when_only_rules(self, qapp):
@@ -240,7 +240,9 @@ class TestRefreshMoviesSeries:
         section = _make_section(cfg)
         section.refresh_vod_rules()
         assert section._vod_list.count() == 0
-        section._vod_hdr_container.hide.assert_called()
+        # The 'Movies & Series' wrapper was dissolved; the LIST is what
+        # hides when there is nothing to show.
+        assert section._vod_list.isHidden()
 
     def test_series_collapsed_hides_rows_keeps_divider(self, qapp):
         cfg = _FakeConfig()
@@ -252,7 +254,7 @@ class TestRefreshMoviesSeries:
         section.refresh_vod_rules()
 
         # Only the divider row survives when the series block is collapsed.
-        assert self._kinds(section) == ["series_divider"]
+        assert self._kinds(section) == ["heading"]
 
 
 # ===========================================================================
@@ -280,8 +282,27 @@ class TestSeriesClickRouting:
         section.refresh_vod_rules()
         assert section._series_collapsed is False
 
-        section._on_vod_item_clicked(section._vod_list.item(0))  # the divider
+        # The heading's WIDGET owns the click now, not the item. #463 made
+        # every heading a NoItemFlags item carrying a GroupHeading, precisely so
+        # item flags stop doing double duty as "is content" and "is clickable" —
+        # which is what left one divider inert while its identical twin toggled.
+        #
+        # Asserted as "the heading is wired, and the handler works" rather than
+        # by emitting: this section is a __new__'d skeleton, and a signal
+        # connected to a bound method of a QObject whose C++ super-init never
+        # ran REGISTERS but never delivers. Emitting here proves nothing and
+        # fails for a reason unrelated to the behaviour.
+        from metatv.gui.sidebar.base import GroupHeading
+
+        heading = section._vod_list.itemWidget(section._vod_list.item(0))
+        assert isinstance(heading, GroupHeading)
+        assert heading.receivers(heading.clicked) == 1, (
+            "the Series heading is not wired to anything — the inert-divider bug"
+        )
+        section._toggle_series_group()
         assert section._series_collapsed is True
+        section._toggle_series_group()
+        assert section._series_collapsed is False
 
 
 # ===========================================================================
@@ -405,7 +426,7 @@ class TestRealSectionConstruction:
                 sec._vod_list.item(i).data(_ROLE_KIND)
                 for i in range(sec._vod_list.count())
             ]
-            assert kinds == ["series_divider", "series", "series"]
+            assert kinds == ["heading", "series", "series"]
             first = sec._vod_list.itemWidget(sec._vod_list.item(1))
             assert any("Rick and Morty" in w.text() for w in _row_labels(first))
         finally:

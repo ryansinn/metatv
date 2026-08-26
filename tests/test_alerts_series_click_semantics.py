@@ -116,10 +116,10 @@ def _make_section(config):
 
     section = WatchAlertsSection.__new__(WatchAlertsSection)
     section.config = config
-    section._vod_collapsed = False
+    from tests.conftest import wire_watch_alerts_group_state
+    wire_watch_alerts_group_state(section)
     section._series_collapsed = False
     section._vod_list = QListWidget()
-    section._vod_hdr_container = MagicMock()
     section._update_vod_toggle_label = MagicMock()
     section.update_new_match_badge = MagicMock()
     section.seriesClicked = MagicMock()
@@ -166,18 +166,25 @@ class TestSeriesDoubleClick:
         section.seriesClicked.emit.assert_called_once_with("a")
         section.seriesActivated.emit.assert_not_called()
 
-    def test_series_divider_double_click_is_still_a_noop(self, qapp):
+    def test_double_clicking_a_group_heading_does_nothing(self, qapp):
+        """A heading is chrome. Double-clicking it must not open anything.
+
+        The item is NoItemFlags and its widget owns single-click collapse, so a
+        double-click has nowhere to go — which is the point: it used to be an
+        item whose kind the handler had to special-case.
+        """
         cfg = _FakeConfig()
         cfg.add_monitored_series(_series("a", "Apple", 2, "Apple"))
         section = _make_section(cfg)
         section.refresh_vod_rules()
-        section.seriesActivated = MagicMock()
-        section.manageWatchForClicked = MagicMock()
 
-        section._on_vod_item_double_clicked(section._vod_list.item(0))  # divider
+        item = section._vod_list.item(0)
+        from metatv.gui.sidebar.base import GroupHeading
 
-        section.seriesActivated.emit.assert_not_called()
-        section.manageWatchForClicked.emit.assert_not_called()
+        assert isinstance(section._vod_list.itemWidget(item), GroupHeading)
+        section.seriesClicked = MagicMock()
+        section._on_vod_item_double_clicked(item)
+        section.seriesClicked.emit.assert_not_called()
 
     def test_rule_row_double_click_still_opens_manage_dialog(self, qapp):
         """Regression guard: keyword-rule row double-click is untouched by

@@ -116,7 +116,6 @@ class TestSubListStretchSharing:
         """The sub-section header rows carry no stretch, so surplus goes to the lists."""
         layout = full_section.content_layout
         for hdr in (full_section._epg_hdr_container,
-                    full_section._vod_hdr_container,
                     full_section._retry_hdr_container):
             assert layout.stretch(_index_of(layout, hdr)) == 0
 

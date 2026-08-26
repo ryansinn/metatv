@@ -690,6 +690,28 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
+def wire_watch_alerts_group_state(section) -> None:
+    """Give a ``__new__``'d WatchAlertsSection the group-collapse flags.
+
+    ``refresh_vod_rules`` reads ``_keyword_collapsed`` and ``_series_collapsed``
+    to decide whether each group's rows are drawn. On a skeleton built with
+    ``__new__`` those attributes do not exist, and PyQt raises **RuntimeError**
+    for a missing attribute on an object whose C++ super-init never ran — not
+    the AttributeError a ``getattr`` default would absorb. So the guard cannot
+    live in production; it lives here, once, per CLAUDE.md.
+
+    Replaces the hand-rolled ``section._vod_collapsed = False`` that five test
+    files each carried. That flag belonged to the "Movies & Series" wrapper,
+    which was dissolved when it started reading as a peer of the two groups it
+    contained.
+
+    Args:
+        section: A ``WatchAlertsSection`` built via ``__new__``.
+    """
+    section._keyword_collapsed = False
+    section._series_collapsed = False
+
+
 def wire_settings_density_widget(dlg) -> None:
     """Attach the Settings → Interface tab's Channel List group widgets (row
     density combo + "Show thumbnails in lists" checkbox) to a skeleton dialog.
