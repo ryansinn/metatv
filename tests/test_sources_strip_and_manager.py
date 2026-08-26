@@ -74,7 +74,12 @@ class TestSummarizeProviders:
             providers = RepositoryFactory(session).providers.get_all()
             active, expiring = summarize_providers(providers, datetime.now())
 
-        assert active == 1
+        # "soon" is enabled AND near renewal, so it counts in BOTH: "active"
+        # answers *is this source serving?*, "expiring" answers *is its
+        # subscription running out?*. This used to assert active == 1, which
+        # pinned the bug — an install whose sources were all near renewal
+        # reported zero active and the footer read "No active sources".
+        assert active == 2, "an enabled source near renewal is still enabled"
         assert expiring == 1
 
 
@@ -94,9 +99,12 @@ class TestSourcesStatusStrip:
 
         text = strip._summary_lbl.text()
         # ONE fact, worst first (no sources / none active / N expiring / N
-        # active) — the rule every other section header already follows.
-        assert "1 expiring" in text
-        assert "1 expiring" in text
+        # active) — the rule every other section header already follows. Both
+        # sources are enabled and one is near renewal, so the warning wins.
+        assert "1 expiring" in text, text
+        assert "active" not in text, (
+            f"the strip is showing two facts at once again: {text!r}"
+        )
 
     def test_refresh_all_button_emits_refresh_all_clicked(self, qapp, db):
         from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
