@@ -96,12 +96,21 @@ def test_watch_alerts_shows_and_hides_it_with_the_check(qapp, tmp_path):
     section = WatchAlertsSection(Config(config_dir=tmp_path), db=None)
     spinner = section.__dict__.get("_series_spinner")
     assert spinner is not None, "Movies & Series has no spinner"
-    assert not spinner.isVisible(), "the spinner shows before any check starts"
+
+    # ``isHidden``, not ``isVisible``: the spinner's ancestor
+    # ``_vod_hdr_container`` is explicitly hidden until Movies & Series has
+    # rows (alerts.py), and an explicitly-hidden ancestor overrides a shown
+    # child — so ``isVisible()`` is False here however correct the production
+    # code is, and asserting it would fail for a reason that has nothing to do
+    # with this behaviour. ``isHidden()`` is the widget's OWN flag, which is
+    # exactly what ``set_series_checking`` toggles: delete the ``setVisible``
+    # call and this goes red.
+    assert spinner.isHidden(), "the spinner shows before any check starts"
 
     section.set_series_checking(True)
-    assert spinner.isVisible(), "a check started and the spinner stayed hidden"
+    assert not spinner.isHidden(), "a check started and the spinner stayed hidden"
     section.set_series_checking(False)
-    assert not spinner.isVisible(), "the check finished and the spinner kept spinning"
+    assert spinner.isHidden(), "the check finished and the spinner kept spinning"
 
 
 def test_the_label_no_longer_says_checking(qapp, tmp_path):
