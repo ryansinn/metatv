@@ -18,6 +18,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
+from metatv.gui.relative_time import humanize_remaining, humanize_until
 from metatv.gui.sidebar.alerts_rows import (
     _AlertRow,
     _name_with_dim_suffix_html,
@@ -135,6 +136,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.db = db
         super().__init__("Watch Alerts", _icons.alert_icon, config, parent)
         self._init_background_refresh()
+        self._start_clock()
 
     def get_section_id(self):
         return "alerts"
@@ -1158,35 +1160,38 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 for prog in progs:
                     ch_display = _channel_display(prog)
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
-                    time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
+                    time_str = humanize_remaining(prog.stop_time, now)
                     key = _title_key(prog.title)
                     if key not in live_groups:
                         live_groups[key] = {'live': [], 'upcoming': [], 'title': prog.title}
+                    # stop_time rides along so the 30s repaint tick can recompute
+                    # this row's text without a re-query — the string above is
+                    # only ever correct for the instant it was built.
                     live_groups[key]['live'].append(
-                        (mins_left, time_str, ch_display, prog.channel_db_id)
+                        (mins_left, time_str, ch_display, prog.channel_db_id,
+                         prog.stop_time)
                     )
 
             for _pattern, progs in upcoming_data.items():
                 for prog in progs:
                     ch_display = _channel_display(prog)
-                    mins = int((prog.start_time - now).total_seconds() / 60)
-                    if mins < 60:
-                        time_str = f"in {mins}m"
-                    elif _is_local_today(prog.start_time):
-                        time_str = _to_local(prog.start_time).strftime("%-I:%M %p")
-                    else:
-                        time_str = _to_local(prog.start_time).strftime("%a %-I:%M %p")
+                    time_str = humanize_until(
+                        prog.start_time, now,
+                        to_local=_to_local, is_local_today=_is_local_today,
+                    )
                     key = _title_key(prog.title)
                     ts = prog.start_time.timestamp()
                     if key in live_groups:
                         live_groups[key]['upcoming'].append(
-                            (ts, time_str, ch_display, prog.channel_db_id)
+                            (ts, time_str, ch_display, prog.channel_db_id,
+                             prog.start_time)
                         )
                     else:
                         if key not in upcoming_only:
                             upcoming_only[key] = {'airings': [], 'title': prog.title}
                         upcoming_only[key]['airings'].append(
-                            (ts, time_str, ch_display, prog.channel_db_id)
+                            (ts, time_str, ch_display, prog.channel_db_id,
+                             prog.start_time)
                         )
 
         return {"live_groups": live_groups, "upcoming_only": upcoming_only}
@@ -1221,23 +1226,25 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 lambda cid=channel_db_id: self.channel_selected.emit(cid)
             )
 
-        def _add_child(parent_item, ch_name, time_str, channel_db_id, title) -> None:
+        def _add_child(parent_item, ch_name, time_str, channel_db_id, title,
+                       when=None, live=False) -> None:
             child = QTreeWidgetItem()
             child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
-            row = _AlertRow(ch_name, time_str, self.config)
+            row = _AlertRow(ch_name, time_str, self.config, when=when, live=live)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(child, 0, row)
 
-        def _add_direct(ch_name, time_str, channel_db_id, title) -> None:
+        def _add_direct(ch_name, time_str, channel_db_id, title,
+                        when=None, live=False) -> None:
             """Single-channel item: header IS the row — no expand arrow.
             Shows the show title; channel name is the tooltip."""
             item = QTreeWidgetItem()
             item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
-            row = _AlertRow(title, time_str, self.config)
+            row = _AlertRow(title, time_str, self.config, when=when, live=live)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
 
@@ -1251,7 +1258,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 all_items  = live_items + up_items
                 if len(all_items) == 1:
                     a = all_items[0]
-                    _add_direct(a[2], a[1], a[3], title)
+                    _add_direct(a[2], a[1], a[3], title, a[4],
+                                live=a in live_items)
                 else:
                     rep_time = live_items[0][1]
                     count_badge = f"  +{len(all_items) - 1}"
@@ -1259,9 +1267,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                     self.alerts_tree.addTopLevelItem(hdr)
                     for a in live_items[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title)
+                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=True)
                     for a in up_items[:5]:
-                        _add_child(hdr, a[2], a[1], a[3], title)
+                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=False)
 
         if upcoming_only:
             _section_hdr("UPCOMING")
@@ -1271,7 +1279,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 airings = sorted(grp['airings'], key=lambda a: a[0])
                 if len(airings) == 1:
                     a = airings[0]
-                    _add_direct(a[2], a[1], a[3], title)
+                    _add_direct(a[2], a[1], a[3], title, a[4], live=False)
                 else:
                     rep_time = airings[0][1]
                     count_badge = f"  +{len(airings) - 1}"
@@ -1279,11 +1287,91 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                     self.alerts_tree.addTopLevelItem(hdr)
                     for a in airings[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title)
+                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=False)
 
         self._reveal_epg_subsection()
         self.set_empty(False)
         QTimer.singleShot(0, self._apply_expansion)
+        self._schedule_boundary(live_groups, upcoming_only)
+
+    #: How often the visible rows recompute their own time text. Cheap by
+    #: construction: no query, no network, just arithmetic against timestamps
+    #: the rows already hold.
+    TICK_MS = 30_000
+
+    def _start_clock(self) -> None:
+        """Begin the 30-second repaint tick, once.
+
+        Parented to ``self`` so Qt destroys it with the section — a timer is not
+        a background pool and does not want a cleanup-registry entry, but it
+        must not outlive the widget it repaints.
+        """
+        if "_clock" in self.__dict__:
+            return
+        self._clock = QTimer(self)
+        self._clock.setInterval(self.TICK_MS)
+        self._clock.timeout.connect(self._tick)
+        self._clock.start()
+
+    def _tick(self) -> None:
+        """Refresh every visible row's time text against the current instant.
+
+        This is the half of "staying current" that needs no data: a programme's
+        remaining time and a countdown to one starting are pure functions of
+        ``now`` and a timestamp already in memory. Membership — which rows
+        belong at all — is the other half, and it is handled by
+        :meth:`_schedule_boundary` instead of by polling here.
+
+        Skipped entirely while collapsed: repainting rows nobody can see is
+        the one cost this design cannot justify.
+        """
+        # ``is_collapsed`` is an ATTRIBUTE, and read via __dict__ rather than
+        # hasattr: on a test double built with __new__ a missing Qt attribute
+        # raises RuntimeError, which hasattr does not absorb.
+        if self.__dict__.get("is_collapsed") or "alerts_tree" not in self.__dict__:
+            return
+        now = _now_utc()
+        for row in self.alerts_tree.findChildren(_AlertRow):
+            row.refresh_time(now)
+
+    def _schedule_boundary(self, live_groups: dict, upcoming_only: dict) -> None:
+        """Reload once, at the next instant the LIST ITSELF changes.
+
+        A row leaves WATCH NOW when its ``stop_time`` passes and enters when its
+        ``start_time`` arrives. Both instants are already known from the rows
+        just loaded, so the correct thing is a single-shot timer aimed at the
+        earliest of them — not a poll, which either wastes queries or leaves a
+        finished programme on screen for up to a full interval. This is the bug
+        the owner reported: a row reading "in 13m" that was already playing.
+
+        Rescheduled on every populate, so the timer always points at the next
+        boundary rather than a stale one.
+        """
+        now = _now_utc()
+        boundaries = [
+            a[4]
+            for grp in live_groups.values()
+            for a in (*grp["live"], *grp["upcoming"])
+            if len(a) > 4 and a[4] is not None
+        ] + [
+            a[4]
+            for grp in upcoming_only.values()
+            for a in grp["airings"]
+            if len(a) > 4 and a[4] is not None
+        ]
+        future = [b for b in boundaries if b > now]
+        if "_boundary" in self.__dict__:
+            self._boundary.stop()
+        if not future:
+            return
+        secs = max(1.0, (min(future) - now).total_seconds())
+        # Qt's int millisecond ceiling is ~24.8 days; a boundary further out
+        # than that would overflow to a negative interval and fire immediately.
+        secs = min(secs, 6 * 60 * 60)
+        self._boundary = QTimer(self)
+        self._boundary.setSingleShot(True)
+        self._boundary.timeout.connect(self.refresh)
+        self._boundary.start(int(secs * 1000) + 1000)
 
     def refresh_retry(self, entries: list) -> None:
         """Populate the stream retry sub-list from StreamRetryDB entries."""

@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import html
 
+from datetime import datetime
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from metatv.core.epg_utils import is_local_today, to_local
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui.relative_time import humanize_remaining, humanize_until
 
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
@@ -91,8 +95,24 @@ class _AlertRow(QWidget):
     play_clicked = pyqtSignal()
     row_clicked  = pyqtSignal()  # single click anywhere except the play button
 
-    def __init__(self, ch_name: str, time_str: str, config, parent=None):
+    def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
+                 when: datetime | None = None, live: bool = False):
+        """
+        Args:
+            ch_name: The channel/title text for the row.
+            time_str: The time text as of now — see :meth:`refresh_time`.
+            config: The app config (supplies the play glyph).
+            parent: Qt parent.
+            when: The programme's ``stop_time`` (live rows) or ``start_time``
+                (upcoming rows), UTC-naive. Kept so the row can recompute its
+                own text on a clock tick; ``None`` leaves the row frozen, which
+                is right for rows whose text is not time-derived.
+            live: True for a row counting DOWN to a programme's end, False for
+                one counting up to its start. Picks the formatter.
+        """
         super().__init__(parent)
+        self._when = when
+        self._live = live
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 1, 4, 1)
         layout.setSpacing(4)
@@ -117,6 +137,31 @@ class _AlertRow(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
+
+    def refresh_time(self, now: datetime) -> None:
+        """Recompute this row's time text against ``now``.
+
+        Called from the section's 30-second tick. The text is a pure function of
+        ``now`` and a timestamp already held here, so this costs no query and no
+        network — which is the whole reason the row keeps ``when`` instead of
+        only the rendered string it was built with.
+
+        A no-op when the text has not changed, so a tick over a full sidebar
+        does not dirty every row and force a repaint of rows that still read
+        correctly.
+
+        Args:
+            now: The current instant, UTC-naive (``epg_utils.now_utc()``).
+        """
+        if self._when is None:
+            return
+        text = (
+            humanize_remaining(self._when, now) if self._live
+            else humanize_until(self._when, now,
+                                to_local=to_local, is_local_today=is_local_today)
+        )
+        if text != self.time_lbl.text():
+            self.time_lbl.setText(text)
 
     def mousePressEvent(self, event):
         # row_clicked fires only when clicking outside the play button area
