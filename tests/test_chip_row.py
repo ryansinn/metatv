@@ -274,8 +274,12 @@ def test_new_badge_renders_a_ring_marker(qtbot):
     assert marked, "no ring marker painted on a row with news"
     assert marked[0].toolTip(), "the marker needs a tooltip — a ring alone says nothing"
 
+    # Held in a local: building the row inside the comprehension lets Python
+    # drop it mid-iteration and Qt deletes the C++ side under us.
+    quiet = _row()
+    qtbot.addWidget(quiet)
     plain = [
-        w for k, w in _ordered_items(_row())
+        w for k, w in _ordered_items(quiet)
         if isinstance(w, QLabel) and w.pixmap() is not None
         and not w.pixmap().isNull()
     ]

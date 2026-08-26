@@ -66,10 +66,18 @@ def _row_texts(row):
     return [w.text() for w in widgets] + [w.toolTip() for w in row.findChildren(QLabel)]
 
 
-def _meta_parts(row):
+def _facts(row):
+    """The facts the row shows, in order — chips at compact, meta at comfy.
+
+    Recommended renders COMPACT by default (the owner's pick), so these read
+    the chips. What they guard is unchanged: the honest ``detected_prefix``
+    appears and the source ``detected_region`` never does.
+    """
+    from PyQt6.QtWidgets import QPushButton
     meta = row_meta_label(row)
-    assert meta is not None, f"no meta line: {_row_texts(row)}"
-    return [p.strip() for p in meta.text().split("·")]
+    if meta is not None:
+        return [p.strip() for p in meta.text().split("·")]
+    return [b.text() for b in row.findChildren(QPushButton) if b.text()]
 
 
 # ── The honest facts, and the one that must never appear ─────────────────────
@@ -78,39 +86,52 @@ def test_row_shows_the_honest_facts_and_never_the_region(qtbot):
     row = _row()
     texts = _row_texts(row)
     assert row_title_label(row).text() == "Cowboy Bebop", texts
-    assert _meta_parts(row) == ["Series", "1998", "EN", "4K"], texts
+    assert _facts(row) == ["4K", "1998", "EN"], texts
     assert not any("DE" in t for t in texts), f"region DE leaked: {texts}"
 
 
-def test_media_type_leads_the_meta_line_as_a_word(qtbot):
-    assert _meta_parts(_row(media_type="movie"))[0] == "Movie"
-    assert _meta_parts(_row(media_type="series"))[0] == "Series"
+def test_the_media_type_is_an_icon_and_never_a_word(qtbot):
+    """It was briefly the WORD, which is the repetition the icon exists to kill."""
+    from PyQt6.QtWidgets import QLabel
+    for media_type in ("movie", "series"):
+        row = _row(media_type=media_type)
+        qtbot.addWidget(row)
+        painted = [
+            w for w in row.findChildren(QLabel)
+            if w.pixmap() is not None and not w.pixmap().isNull()
+        ]
+        assert painted, f"{media_type}: no type icon painted"
+        joined = " ".join(_row_texts(row))
+        for word in ("Movie", "Series", "Live"):
+            assert word not in joined, f"{media_type}: row spells out {word!r}"
 
 
-def test_missing_facts_drop_out_without_dangling_separators(qtbot):
-    assert _meta_parts(_row(detected_quality="")) == ["Series", "1998", "EN"]
-    assert _meta_parts(_row(detected_prefix="")) == ["Series", "1998", "4K"]
-    assert _meta_parts(_row(detected_quality="", detected_prefix="")) == ["Series", "1998"]
+def test_missing_facts_draw_no_chip_at_all(qtbot):
+    assert _facts(_row(detected_quality="")) == ["1998", "EN"]
+    assert _facts(_row(detected_prefix="")) == ["4K", "1998"]
+    assert _facts(_row(detected_quality="", detected_prefix="")) == ["1998"]
 
 
 def test_row_missing_prefix_shows_no_language_and_no_region(qtbot):
     row = _row(detected_prefix="")
-    assert "EN" not in _meta_parts(row)
+    assert "EN" not in _facts(row)
     assert not any("DE" in t for t in _row_texts(row))
 
 
-def test_no_chips_survive_in_a_sidebar_row(qtbot):
-    """V3: chips are a channel-LIST idiom. A sidebar row is two lines of text.
+def test_the_compact_row_IS_its_chips(qtbot):
+    """This test used to assert the opposite, and was right at the time.
 
-    Three chips stacked against a 260px row's right margin cost the width the
-    title needed; the same facts read better as "Series · 1998 · EN · 4K".
+    #457 removed the chips entirely; the owner asked for them back — "I do like
+    the previous design with the colored chips and single line" — so compact is
+    the default and the chips are how it says anything. Inverted rather than
+    deleted, because "no chips" was a real decision for exactly one release and
+    the reversal should be visible in the history.
     """
+    from PyQt6.QtWidgets import QPushButton
     row = _row()
-    assert not row.findChildren(QPushButton), (
-        "a chip (QUALITY_CHIP is QPushButton-scoped) is back in a sidebar row"
-    )
-    labels = [w for w in row.findChildren(QLabel) if not isinstance(w, _MiddleElideLabel)]
-    assert not labels, f"stray chip labels in the row: {[w.text() for w in labels]}"
+    qtbot.addWidget(row)
+    chips = [b.text() for b in row.findChildren(QPushButton) if b.text()]
+    assert chips == ["4K", "1998", "EN"], chips
 
 
 # ── The title label's anti-clip contract (unchanged by V3) ───────────────────
@@ -178,13 +199,16 @@ def test_long_title_still_elides_when_too_narrow(qtbot):
 
 
 def test_the_meta_line_never_widens_the_row(qtbot):
+    from metatv.gui.chip_row import DENSITY_COMFORTABLE
     """A long meta line elides; it does not push the section wider than its titles.
 
     The title is what the section is FOR — "Series · 1998 · EN · 4K" must never be
     the thing that decides how much horizontal space History demands.
     """
-    short = _row(detected_prefix="")
-    long_meta = _row(detected_prefix="EN", detected_quality="4K")
+    stub = _stub_self()
+    stub._row_density = lambda: DENSITY_COMFORTABLE
+    short = RecommendedSection._build_rec_row(stub, _sc(detected_prefix=""), "1998")
+    long_meta = RecommendedSection._build_rec_row(stub, _sc(), "1998")
     assert row_meta_label(long_meta).sizePolicy().horizontalPolicy() == (
         QSizePolicy.Policy.Ignored
     )

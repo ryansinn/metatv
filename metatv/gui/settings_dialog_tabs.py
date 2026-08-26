@@ -866,9 +866,12 @@ class SettingsTabsMixin:
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
 
-        density_row = QHBoxLayout()
-        density_label = QLabel("Row density:")
-        density_row.addWidget(density_label)
+        # A QFormLayout, like every other settings group: a hand-rolled
+        # label+combo QHBoxLayout puts the control at a different x from the
+        # form-managed ones, and the page's controls stop sharing a left edge
+        # (tests/test_settings_form_alignment).
+        density_form = QFormLayout()
+        density_form.setSpacing(8)
         self._sidebar_density_combo = QComboBox()
         for label, value in _SIDEBAR_DENSITY_CHOICES:
             self._sidebar_density_combo.addItem(label, value)
@@ -879,9 +882,8 @@ class SettingsTabsMixin:
             "reads more easily but shows about half as many entries.\n"
             "Applies immediately when you click OK or Apply."
         )
-        density_row.addWidget(self._sidebar_density_combo)
-        density_row.addStretch(1)
-        sidebar_layout.addLayout(density_row)
+        density_form.addRow("Row density:", self._sidebar_density_combo)
+        sidebar_layout.addLayout(density_form)
 
         hint = QLabel(
             "Check sections to show them. Use the arrows to reorder.\n"

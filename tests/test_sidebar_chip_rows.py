@@ -82,10 +82,19 @@ def _meta_parts(row):
     meta = row_meta_label(row)
     if meta is not None:
         return [p.strip() for p in meta.text().split("·")]
-    from PyQt6.QtWidgets import QPushButton
+    from PyQt6.QtWidgets import QLabel, QPushButton
+    from metatv.gui.chip_row import row_title_label
     chips = [b.text() for b in row.findChildren(QPushButton) if b.text()]
-    assert chips, f"row shows neither chips nor a meta line: {_texts(row)}"
-    return chips
+    # ...plus the right-edge tail, which is a plain QLabel and is where History
+    # keeps its terse age ("2h"). It is a fact the row shows, so it counts.
+    title = row_title_label(row)
+    tail = [
+        l.text() for l in row.findChildren(QLabel)
+        if l.text() and l is not title and l.pixmap() is None
+    ]
+    facts = chips + tail
+    assert facts, f"row shows neither chips nor a meta line: {_texts(row)}"
+    return facts
 
 
 def _assert_clean_title_and_no_region(row):
@@ -212,7 +221,9 @@ def test_history_row_puts_the_episode_code_on_the_meta_line(qapp, tmp_path):
 
     row = _first_chip_row(obj.history_list)
     assert row_title_label(row).text() == "My Show", "the title is just the title now"
-    assert row_meta_label(row).text().startswith("S01E02"), (
-        "the episode code leads the meta line — it is what tells this row from its "
-        f"siblings: {row_meta_label(row).text()!r}"
+    # Compact keeps it in a chip; comfortable would put it on the meta line.
+    # Either way it is off the TITLE, which is the point.
+    assert "S01E02" in _meta_parts(row), (
+        f"the episode code is what tells this row from its siblings: "
+        f"{_meta_parts(row)}"
     )

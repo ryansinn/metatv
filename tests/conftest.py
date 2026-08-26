@@ -809,6 +809,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_sidebar_visibility",
     "_refresh_recommendation_views",
     "_apply_channel_list_density",
+    "_apply_sidebar_row_density",
     "refresh_theme",
     "_apply_collapse_variants_setting",
     "_sync_split_toggle",

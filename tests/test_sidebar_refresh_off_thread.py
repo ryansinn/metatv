@@ -190,11 +190,11 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
     # continue-watching sorted by last_played desc (c3 then c2), then never-watched (c1)
     assert _ids(obj.favorites_list) == ["c3", "c2", "c1"]
     assert "Continue Watching" in texts[0]
-    assert _chip_meta(obj.favorites_list, 1) == _icon_role_key("live")   # c3 live
+    assert _chip_icon_role(obj.favorites_list, 1) == _icon_role_key("live")   # c3 live
     assert _chip_title(obj.favorites_list, 1) == "Gamma"
-    assert _chip_meta(obj.favorites_list, 2) == _icon_role_key("series")   # c2 series
+    assert _chip_icon_role(obj.favorites_list, 2) == _icon_role_key("series")   # c2 series
     assert "Never Watched" in texts[3]
-    assert _chip_meta(obj.favorites_list, 4) == _icon_role_key("movie")   # c1 movie
+    assert _chip_icon_role(obj.favorites_list, 4) == _icon_role_key("movie")   # c1 movie
     assert _chip_title(obj.favorites_list, 4) == "Alpha"
 
 
@@ -389,10 +389,10 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     texts = _texts(obj._list)
     assert _ids(obj._list) == ["q2", "q1"]   # continue-watching (q2) before never-watched (q1)
     assert "Continue Watching" in texts[0]
-    assert _chip_meta(obj._list, 1) == _icon_role_key("series")   # q2 series
+    assert _chip_icon_role(obj._list, 1) == _icon_role_key("series")   # q2 series
     assert _chip_title(obj._list, 1) == "My Show"
     assert "Never Watched" in texts[2]
-    assert _chip_meta(obj._list, 3) == _icon_role_key("movie")   # q1 movie
+    assert _chip_icon_role(obj._list, 3) == _icon_role_key("movie")   # q1 movie
     assert _chip_title(obj._list, 3) == "Film A"
 
 
