@@ -4,11 +4,19 @@
   "$mode": "dark",
   "$scales": {
     "neutral": "midnight",
-    "primary": "blue",
-    "ok": "green",
-    "warn": "amber",
-    "err": "red",
-    "info": "cyan"
+    "primary": "midblue",
+    "ok": "midgreen",
+    "warn": "midamber",
+    "err": "midred",
+    "info": "cyan",
+    "cyan": "midcyan",
+    "green": "midgreen",
+    "orange": "midorange",
+    "purple": "midpurple",
+    "teal": "midteal",
+    "amber": "midamber",
+    "red": "midred",
+    "blue": "midblue"
   },
   "surface": {
     "$type": "color",

@@ -64,7 +64,18 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         # and blue already means "interactive", so a coloured count would claim
         # a meaning it does not have. Size and value do the work instead.
         "SIDEBAR_GROUP_HEADING": (
-            f"color: {muted}; font-size: {font_sm}; background: transparent;"
+            # COLOR_TEXT, not COLOR_MUTED. Muted measured 4.15:1 here and fails
+            # the 4.5 text floor in four of six palettes — a heading is TEXT,
+            # and "quiet" cannot be bought with contrast a reader needs. It
+            # stays secondary the way it should: small-caps, letter-spaced and
+            # a size down from the rows, against a count that is brighter and
+            # larger still.
+            # font-weight lives in the SHEET, not only in the QFont: the
+            # heading is bold and DETAIL_SECTION_SUMMARY is not, so
+            # stating it here is both true and what keeps two roles that
+            # differ from resolving byte-identical.
+            f"color: {text}; font-size: {font_sm}; font-weight: bold;"
+            f" background: transparent;"
         ),
         "SIDEBAR_GROUP_HEADING_COUNT": (
             f"color: {text_hi}; font-size: {font_md}; font-weight: bold;"
