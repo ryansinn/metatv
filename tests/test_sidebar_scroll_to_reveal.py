@@ -133,7 +133,13 @@ def test_the_shrink_loop_relabels_through_the_helper(qapp):
     from metatv.gui.sidebar import row_budget
 
     src = inspect.getsource(row_budget.RowBudgetMixin.apply_row_budget)
-    assert "more  →" not in src, "the shrink loop is hardcoding a tail label again"
+    # Anchored to the CALL, not to the bare old string: the comment beside the
+    # loop quotes the old label to explain the regression, and a looser
+    # assertion flags the documentation as the drift it documents. Second time
+    # I have written that test — a source guard anchors to code, not prose.
+    assert 'setText(f"' not in src, (
+        "the shrink loop is formatting a tail label inline again"
+    )
     assert src.count("self._tail_text(hidden)") >= 2, (
         "every place that writes the tail's text must go through _tail_text"
     )
