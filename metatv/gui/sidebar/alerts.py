@@ -572,14 +572,61 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     # EPG sub-section helpers
     # ------------------------------------------------------------------
 
+    #: Why the EPG group has nothing to list. The distinction earns its keep on
+    #: the first two: an unconfigured watchlist should show nothing, but a
+    #: CONFIGURED one with nothing airing must still hold its place — rendering
+    #: those two states identically is what made a working feature look broken.
+    EPG_EMPTY_NO_PATTERNS = "no_patterns"
+    EPG_EMPTY_NO_SOURCE   = "no_source"
+    EPG_EMPTY_NO_MATCHES  = "no_matches"
+    EPG_EMPTY_GUIDE_ENDED = "guide_ended"
+
+    #: Reasons the group hides rather than explains itself. Both mean the user
+    #: has not set this up — there is no promise outstanding, so a line saying
+    #: nothing is airing would be noise about a feature they never asked for.
+    EPG_EMPTY_SILENT = frozenset({EPG_EMPTY_NO_PATTERNS, EPG_EMPTY_NO_SOURCE})
+
+    def _epg_empty_notice(self, reason: str) -> tuple[str, str, str]:
+        """Icon, sentence and tooltip for an EPG group with nothing to list.
+
+        Monochrome glyphs on both: a colour emoji beside the muted row text
+        reads as an error state rather than a note.
+
+        The guide-ended case takes the warning glyph because it is actionable —
+        the alerts are fine and a guide refresh is what fixes it — while a
+        merely-quiet watchlist takes its own icon and states the count, so the
+        user can see their rules are still loaded.
+        """
+        if reason == self.EPG_EMPTY_GUIDE_ENDED:
+            return (
+                _icons.notification_warning_icon,
+                "Guide data has run out",
+                "This source's guide has no programmes left to start, so no "
+                "alert can match until it is refreshed. It refreshes on its "
+                "own schedule; Settings → EPG can force it sooner.",
+            )
+        count = len(self.config.epg_watchlist_patterns or ())
+        return (
+            _icons.info_icon,
+            f"Nothing airing from {count} alerts",
+            f"Your {count} watch alerts are loaded — none of them is on now or "
+            f"coming up in the next 24 hours.",
+        )
+
     def _update_epg_toggle_label(self, count: int) -> None:
-        """Refresh the EPG heading's count."""
+        """Refresh the EPG heading's count, and remember it.
+
+        Remembering matters because a notice render draws one row that is not a
+        programme: re-deriving the count from ``topLevelItemCount()`` on the
+        next collapse would put a "1" chip next to the words "Nothing airing".
+        """
+        self._epg_count = count
         self._epg_toggle.set_count(count or None)
 
     def _toggle_epg(self) -> None:
         self._epg_collapsed = not self._epg_collapsed
         self.alerts_tree.setVisible(not self._epg_collapsed and self._epg_has_rows)
-        self._update_epg_toggle_label(self.alerts_tree.topLevelItemCount())
+        self._update_epg_toggle_label(self.__dict__.get("_epg_count", 0))
 
     # ------------------------------------------------------------------
     # Movies & Series helpers
@@ -1220,36 +1267,43 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def _loading_message(self) -> str:
         return "Loading alerts…"
 
-    def show_load_error(self, tree, message: str) -> None:
-        """Override for QTreeWidget: render a non-selectable error row.
+    def _show_tree_notice(self, tree, icon: str, message: str,
+                          tooltip: str = "") -> None:
+        """Render ONE non-selectable row in place of the EPG programme rows.
 
-        The base CollapsibleSection.show_load_error uses QListWidgetItem + addItem,
-        which does not exist on QTreeWidget and would crash. This override adds a
-        top-level QTreeWidgetItem instead.
+        The loading, error and nothing-airing states are the same widget problem
+        — the base CollapsibleSection builds them from QListWidgetItem +
+        addItem, which QTreeWidget does not have — so they share one body
+        rather than three that drift. The count is forced to 0: a notice is not
+        a programme, and letting topLevelItemCount() speak would put a "1" chip
+        on the heading beside the words "Nothing airing".
         """
         tree.clear()
-        item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
+        item = QTreeWidgetItem([f"{icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
+        if tooltip:
+            item.setToolTip(0, tooltip)
         tree.addTopLevelItem(item)
-        self._reveal_epg_subsection()
+        self._reveal_epg_subsection(count=0)
         self.set_empty(False)
+
+    def show_load_error(self, tree, message: str) -> None:
+        """Override for QTreeWidget: render a non-selectable error row."""
+        self._show_tree_notice(tree, _icons.notification_warning_icon, message)
 
     def show_loading(self, tree, message: str = "Loading…") -> None:
-        """Override for QTreeWidget: render a transient, non-selectable loading row.
+        """Override for QTreeWidget: render a transient, non-selectable loading row."""
+        self._show_tree_notice(tree, _icons.loading_icon, message)
 
-        The base CollapsibleSection.show_loading uses QListWidgetItem + addItem,
-        which does not exist on QTreeWidget. Mirrors the QTreeWidget show_load_error
-        override but uses icons.loading_icon.
+    def _reveal_epg_subsection(self, count: int | None = None) -> None:
+        """Show the EPG sub-header + tree (loading / error / notice / populated).
+
+        Args:
+            count: Programmes to put on the heading chip. ``None`` counts the
+                tree's own top-level rows, which is right for a populated
+                render; a notice render passes 0, because the one row it drew
+                is a sentence, not a programme.
         """
-        tree.clear()
-        item = QTreeWidgetItem([f"{_icons.loading_icon} {message}"])
-        item.setFlags(Qt.ItemFlag.NoItemFlags)
-        tree.addTopLevelItem(item)
-        self._reveal_epg_subsection()
-        self.set_empty(False)
-
-    def _reveal_epg_subsection(self) -> None:
-        """Show the EPG sub-header + tree (for loading / error / populated states)."""
         # Guarded for __new__ test stubs (no full constructor → no EPG widgets),
         # matching this file's other stub-tolerant helpers.
         if "_epg_hdr_container" not in self.__dict__:
@@ -1257,7 +1311,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._epg_has_rows = True
         self._epg_hdr_container.show()
         self.alerts_tree.setVisible(not self._epg_collapsed)
-        self._update_epg_toggle_label(self.alerts_tree.topLevelItemCount())
+        if count is None:
+            count = self.alerts_tree.topLevelItemCount()
+        self._update_epg_toggle_label(count)
 
     def _hide_epg_subsection(self) -> None:
         """Hide the EPG sub-header + tree, then recompute the section's empty state."""
@@ -1271,25 +1327,30 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def _load_rows(self) -> dict:
         """Worker thread — NO widget access.
 
-        Returns a plain dict with keys 'live_groups' and 'upcoming_only'
-        (never None for valid-empty; None is reserved for real exceptions
-        and emitted only by the mixin's try/except wrapper).
+        Returns a plain dict with keys 'live_groups', 'upcoming_only' and
+        'empty_reason' (never None for valid-empty; None is reserved for real
+        exceptions and emitted only by the mixin's try/except wrapper).
+
+        ``empty_reason`` is what lets the main thread tell "you have not set
+        any alerts up" apart from "your alerts are fine, the guide ran out" —
+        two states that used to render identically, as nothing at all.
         """
         from metatv.core.repositories.epg import EpgRepository
         from metatv.core.repositories import RepositoryFactory
         from metatv.core.database import ChannelDB
 
-        _empty: dict = {"live_groups": {}, "upcoming_only": {}}
+        def _empty(reason: str) -> dict:
+            return {"live_groups": {}, "upcoming_only": {}, "empty_reason": reason}
 
         patterns = self.config.epg_watchlist_patterns
         if not patterns:
-            return _empty
+            return _empty(self.EPG_EMPTY_NO_PATTERNS)
 
         with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
             provider_ids = repos.providers.get_epg_active_provider_ids()
             if not provider_ids:
-                return _empty
+                return _empty(self.EPG_EMPTY_NO_SOURCE)
 
             excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
 
@@ -1414,7 +1475,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                                     None, ch_quality)
                         )
 
-        return {"live_groups": live_groups, "upcoming_only": upcoming_only}
+            # Only asked when there is nothing to show, and only to explain the
+            # nothing: a matched watchlist never pays for this query.
+            reason = ""
+            if not live_groups and not upcoming_only:
+                reason = (
+                    self.EPG_EMPTY_NO_MATCHES
+                    if repo.has_future_programmes(
+                        provider_ids,
+                        excluded_channel_provider_ids=excluded_ch_provider_ids,
+                    )
+                    else self.EPG_EMPTY_GUIDE_ENDED
+                )
+
+        return {
+            "live_groups": live_groups,
+            "upcoming_only": upcoming_only,
+            "empty_reason": reason,
+        }
 
     def _populate_rows(self, data: dict) -> None:
         """Main thread: rebuild the alerts_tree from pre-computed plain data.
@@ -1426,9 +1504,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         upcoming_only = data["upcoming_only"]
 
         if not live_groups and not upcoming_only:
-            # No live/upcoming matches — hide the EPG sub-section entirely, then let
-            # the other sub-sections decide the section's overall empty state.
-            self._hide_epg_subsection()
+            # Nothing to list. The group VANISHING here is what made a working
+            # watchlist read as a broken feature: seven alerts configured, and
+            # the EPG heading simply gone — flashing into view for the loading
+            # row and back out a moment later. It disappears only when there is
+            # genuinely nothing to keep a place for; otherwise it holds its
+            # space and says which nothing this is.
+            reason = data.get("empty_reason", "")
+            # A payload with no stated reason (a direct/legacy caller) falls
+            # through to the notice — but never one that reads "Nothing airing
+            # from 0 alerts", so an unconfigured watchlist stays silent whatever
+            # the payload says.
+            if not self.config.epg_watchlist_patterns:
+                reason = self.EPG_EMPTY_NO_PATTERNS
+            if reason in self.EPG_EMPTY_SILENT:
+                self._hide_epg_subsection()
+            else:
+                icon, text, tip = self._epg_empty_notice(reason)
+                self._show_tree_notice(self.alerts_tree, icon, text, tip)
             return
 
         def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
