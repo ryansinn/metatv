@@ -7,6 +7,9 @@ from PyQt6.QtWidgets import (
     QAbstractScrollArea, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem,
 )
+from datetime import datetime
+from typing import NamedTuple
+
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor
 from loguru import logger
@@ -33,6 +36,45 @@ from metatv.gui.sidebar.base import (
 # extra roles tag the item kind and, for series rows, the series channel id.
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "keyword_divider" | "series_divider" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
+
+
+def _when(airing) -> "datetime | None":
+    """The airing's timestamp, or ``None`` for a record that predates the field.
+
+    Not defensive programming for its own sake: ``_load_rows`` always produces
+    an :class:`_Airing`, but this dict is a documented seam that tests build by
+    hand, and a four-element tuple from one of those should render a row that
+    simply does not self-refresh rather than raise.
+    """
+    return airing[4] if len(airing) > 4 else None
+
+
+class _Airing(NamedTuple):
+    """One airing of one programme on one channel, as ``_load_rows`` hands it on.
+
+    A NamedTuple rather than a bare tuple because this grew a fifth field and
+    the plain-tuple version broke five tests that unpacked it — positional
+    tuples do not survive gaining a member. Index access still works, so the
+    existing ``a[1]`` / ``a[2]`` call sites are untouched, and ``when``
+    defaults so a four-field construction stays legal.
+
+    Attributes:
+        sort_key: Minutes-left for a live airing, epoch seconds for an upcoming
+            one — whichever orders that list.
+        time_text: The rendered time as of load. Correct only for that instant;
+            the row recomputes it on the tick (see ``_AlertRow.refresh_time``).
+        channel: Display name of the channel.
+        channel_db_id: The channel's DB id, for play/select.
+        when: ``stop_time`` for a live airing, ``start_time`` for an upcoming
+            one, UTC-naive. This is what makes the row refreshable and what
+            ``_schedule_boundary`` aims its timer at.
+    """
+
+    sort_key: float
+    time_text: str
+    channel: str
+    channel_db_id: str
+    when: "datetime | None" = None
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:
@@ -1168,8 +1210,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     # this row's text without a re-query — the string above is
                     # only ever correct for the instant it was built.
                     live_groups[key]['live'].append(
-                        (mins_left, time_str, ch_display, prog.channel_db_id,
-                         prog.stop_time)
+                        _Airing(mins_left, time_str, ch_display,
+                                prog.channel_db_id, prog.stop_time)
                     )
 
             for _pattern, progs in upcoming_data.items():
@@ -1183,15 +1225,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     ts = prog.start_time.timestamp()
                     if key in live_groups:
                         live_groups[key]['upcoming'].append(
-                            (ts, time_str, ch_display, prog.channel_db_id,
-                             prog.start_time)
+                            _Airing(ts, time_str, ch_display,
+                                    prog.channel_db_id, prog.start_time)
                         )
                     else:
                         if key not in upcoming_only:
                             upcoming_only[key] = {'airings': [], 'title': prog.title}
                         upcoming_only[key]['airings'].append(
-                            (ts, time_str, ch_display, prog.channel_db_id,
-                             prog.start_time)
+                            _Airing(ts, time_str, ch_display,
+                                    prog.channel_db_id, prog.start_time)
                         )
 
         return {"live_groups": live_groups, "upcoming_only": upcoming_only}
@@ -1258,7 +1300,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 all_items  = live_items + up_items
                 if len(all_items) == 1:
                     a = all_items[0]
-                    _add_direct(a[2], a[1], a[3], title, a[4],
+                    _add_direct(a[2], a[1], a[3], title, _when(a),
                                 live=a in live_items)
                 else:
                     rep_time = live_items[0][1]
@@ -1267,9 +1309,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                     self.alerts_tree.addTopLevelItem(hdr)
                     for a in live_items[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=True)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True)
                     for a in up_items[:5]:
-                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=False)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 
         if upcoming_only:
             _section_hdr("UPCOMING")
@@ -1279,7 +1321,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 airings = sorted(grp['airings'], key=lambda a: a[0])
                 if len(airings) == 1:
                     a = airings[0]
-                    _add_direct(a[2], a[1], a[3], title, a[4], live=False)
+                    _add_direct(a[2], a[1], a[3], title, _when(a), live=False)
                 else:
                     rep_time = airings[0][1]
                     count_badge = f"  +{len(airings) - 1}"
@@ -1287,7 +1329,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                     self.alerts_tree.addTopLevelItem(hdr)
                     for a in airings[:10]:
-                        _add_child(hdr, a[2], a[1], a[3], title, a[4], live=False)
+                        _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 
         self._reveal_epg_subsection()
         self.set_empty(False)
@@ -1349,15 +1391,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         """
         now = _now_utc()
         boundaries = [
-            a[4]
+            _when(a)
             for grp in live_groups.values()
             for a in (*grp["live"], *grp["upcoming"])
-            if len(a) > 4 and a[4] is not None
+            if _when(a) is not None
         ] + [
-            a[4]
+            _when(a)
             for grp in upcoming_only.values()
             for a in grp["airings"]
-            if len(a) > 4 and a[4] is not None
+            if _when(a) is not None
         ]
         future = [b for b in boundaries if b > now]
         if "_boundary" in self.__dict__:
