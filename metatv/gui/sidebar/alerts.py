@@ -7,12 +7,13 @@ from PyQt6.QtWidgets import (
     QAbstractScrollArea, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor
 from loguru import logger
 
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui import theme as _theme
@@ -160,40 +161,74 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clear_all_btn.hide()
         hl.addWidget(self._clear_all_btn)
 
-        # "Manage" — always reachable, even when every sub-section below is empty.
-        # Opens the shared manage dialog (keyword rules + monitored series).  This
-        # is the whole point of the consolidation: management can no longer hide
-        # inside a collapsible/hideable body.
+        self.main_layout.addWidget(header)
+
+    def build_action_row(self) -> QHBoxLayout:
+        """Watch Alerts' Manage / + strip, for the top of the section BODY.
+
+        They used to sit in the header, which gave this one section a shape no
+        other section has — a status dot, its count moved into the title, and
+        two buttons where every other header ends with a count and an arrow.
+        In the body they still read as belonging to Alerts, and the header goes
+        back to the standard shape.
+
+        The trade, stated: when the section is collapsed they are no longer one
+        click away — the header's → is the way in. That was the original reason
+        they were put in the header, so it is a real cost, not an oversight.
+
+        Both are RINGED. The ring is what makes the boundary between two
+        adjacent actions readable; the + carries only its glyph and a tooltip,
+        because the word added nothing a + does not already say.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(9, 4, 9, 2)
+        row.setSpacing(6)
+        row.addStretch(1)
+
         self._manage_btn = QPushButton("Manage")
-        self._manage_btn.setFlat(True)
         self._manage_btn.setToolTip(
             "Manage watch alerts — keyword rules and monitored series"
         )
-        _theme.style(self._manage_btn, "LINK_BTN_SM")
+        _theme.style(self._manage_btn, "SIDEBAR_ACTION_RING")
+        cursor_affordance.set_clickable(self._manage_btn)
         self._manage_btn.clicked.connect(self.manageWatchForClicked.emit)
-        hl.addWidget(self._manage_btn)
+        row.addWidget(self._manage_btn)
 
-        _btn_style = (
-            "QPushButton {{ font-size: {fs}; border: 1px solid {c};"
-            " border-radius: 3px; color: {c}; background: {bg}; }}"
-            "QPushButton:hover {{ background: {hbg}; }}"
-        )
-        add_btn = QPushButton(_icons.add_icon)
-        add_btn.setFixedSize(22, 20)
-        add_btn.setToolTip("Watch for new content…")
-        _theme.style_fn(add_btn, lambda: _btn_style.format(
-            fs=_theme.FONT_LG,
-            c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
-            bg=_theme.OVERLAY_05,
-            hbg=_theme.OVERLAY_15,
-        ))
-        add_btn.clicked.connect(self.addWatchForClicked.emit)
-        hl.addWidget(add_btn)
+        self._add_btn = QPushButton()
+        self._add_btn.setFixedSize(24, 20)
+        self._add_btn.setToolTip("Watch for new content…")
+        _theme.style(self._add_btn, "SIDEBAR_ACTION_RING")
+        cursor_affordance.set_clickable(self._add_btn)
 
-        self.main_layout.addWidget(header)
+        def _paint_add() -> str:
+            self._add_btn.setIcon(_icon_utils.resolve_icon(
+                _icons.vector_key("add"), _theme.COLOR_TEXT
+            ))
+            self._add_btn.setIconSize(QSize(13, 13))
+            return _theme.SIDEBAR_ACTION_RING
+
+        _theme.style_fn(self._add_btn, _paint_add)
+        self._add_btn.clicked.connect(self.addWatchForClicked.emit)
+        row.addWidget(self._add_btn)
+        return row
 
     def create_content(self):
         from PyQt6.QtWidgets import QHeaderView
+
+        # Manage / + first, so they are the top of the body and stay reachable
+        # whatever the sub-sections below are doing.
+        #
+        # In a WIDGET with an explicit Fixed height policy, not a bare layout:
+        # every sub-section below carries stretch=1, and when they are all
+        # hidden (the empty section) Qt distributes the free space around a
+        # bare layout item and the strip ends up centred in the card. A fixed
+        # widget keeps its own height and the slack goes to the stretch items,
+        # visible or not.
+        action_host = QWidget()
+        action_host.setLayout(self.build_action_row())
+        action_host.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                  QSizePolicy.Policy.Fixed)
+        self.content_layout.addWidget(action_host, 0, Qt.AlignmentFlag.AlignTop)
 
         # ── EPG sub-section ────────────────────────────────────────────────
         # Live/upcoming programmes from the EPG watchlist.  Given its own labelled +

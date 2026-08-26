@@ -176,39 +176,23 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         _theme.apply_list_selection(self._list)
         self.content_layout.addWidget(self._list)
 
-        btn_row = QHBoxLayout()
-        self._clear_watched_btn = QPushButton(f"{self.config.watched_icon} Clear Watched")
-        self._clear_watched_btn.setToolTip("Remove finished items — partially watched titles stay")
-        self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
-        btn_row.addWidget(self._clear_watched_btn)
-
-        # "Clear All" is demoted from an always-visible button into a compact ⋯
-        # overflow menu — the destructive bulk action is one step removed.
-        from PyQt6.QtWidgets import QMenu
-        self._overflow_btn = QPushButton(_icons.overflow_icon)
-        self._overflow_btn.setFlat(True)
-        self._overflow_btn.setFixedWidth(28)  # structural
-        self._overflow_btn.setToolTip("More…")
-        self._overflow_menu = QMenu(self._overflow_btn)
-        clear_all_action = self._overflow_menu.addAction(
-            f"{self.config.delete_icon} Clear All"
-        )
-        clear_all_action.setToolTip("Remove everything from the queue")
-        clear_all_action.triggered.connect(self.clearQueueClicked.emit)
-        self._overflow_btn.clicked.connect(self._show_overflow_menu)
-        btn_row.addWidget(self._overflow_btn)
-        self.content_layout.addLayout(btn_row)
+        # Both bulk actions live in the ⋯ overflow. "Clear Watched" used to be a
+        # full-width button, which cost ~29px — more than a compact row — in
+        # every session, whether or not there was anything to clear.
+        self.content_layout.addLayout(self.build_overflow_row([
+            (f"{self.config.watched_icon} Clear Watched",
+             "Remove finished items — partially watched titles stay",
+             self.clearWatchedClicked.emit),
+            (f"{self.config.delete_icon} Clear All",
+             "Remove everything from the queue",
+             self.clearQueueClicked.emit),
+        ]))
 
         # Filter bookkeeping — rebuilt by every _populate_rows.
         self._groups: list[_FilterGroup] = []
         self._no_match_item = None
 
         self.set_empty(True)
-
-    def _show_overflow_menu(self) -> None:
-        """Pop the ⋯ overflow menu just below the button."""
-        below = self._overflow_btn.rect().bottomLeft()
-        self._overflow_menu.exec(self._overflow_btn.mapToGlobal(below))
 
     def budgeted_list(self):
         """The rows this section fits to its height (see
@@ -609,7 +593,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """Render the Alerts Matched header + rows (no-op when both are empty)."""
         if not matched and not series_new:
             return
-        label = f"{_icons.alert_icon} Alerts Matched"
+        # No emoji: the render's group headings are text. The glyph was baked
+        # into the label STRING, so styling the heading uppercased it and the
+        # emoji rode along untouched.
+        label = "Alerts Matched"
         group = _FilterGroup(self._add_header(label), label, False)
         for m in matched:
             group.rows.append((

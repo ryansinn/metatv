@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
     QFrame, QSizePolicy, QTreeWidgetItem,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QMouseEvent
 from loguru import logger
 
@@ -421,6 +421,51 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         count = self.item_count()
         return "" if count is None else str(count)
 
+    def build_overflow_row(self, actions) -> "QHBoxLayout":
+        """A right-aligned ``⋯`` holding a section's destructive bulk actions.
+
+        The V3 render carries no bulk-action buttons in the sidebar at all, and
+        a full-width one costs ~29px — more than a compact row, in the panel
+        whose scarcest resource is vertical space. An overflow is what a rare,
+        destructive action is for, and Watch Queue already had one; this makes
+        it the shared shape so History and Recommended stop each inventing
+        their own.
+
+        Args:
+            actions: ``[(label, tooltip, callable), …]``, in menu order.
+
+        Returns:
+            A ``QHBoxLayout`` (stretch, then the button) to add to the section's
+            content layout. The button is stored as ``self._overflow_btn`` and
+            its menu as ``self._overflow_menu``.
+        """
+        from PyQt6.QtWidgets import QMenu
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 4, 0)
+        row.addStretch(1)
+
+        self._overflow_btn = QPushButton(_icons.overflow_icon)
+        self._overflow_btn.setFixedSize(24, 18)
+        self._overflow_btn.setToolTip("More…")
+        _theme.style(self._overflow_btn, "SIDEBAR_OVERFLOW_BTN")
+        cursor_affordance.set_clickable(self._overflow_btn)
+
+        self._overflow_menu = QMenu(self._overflow_btn)
+        for label, tooltip, slot in actions:
+            action = self._overflow_menu.addAction(label)
+            action.setToolTip(tooltip)
+            action.triggered.connect(slot)
+        self._overflow_btn.clicked.connect(self._show_overflow_menu)
+
+        row.addWidget(self._overflow_btn)
+        return row
+
+    def _show_overflow_menu(self) -> None:
+        """Pop the overflow menu under its button."""
+        button = self._overflow_btn
+        self._overflow_menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
     def _row_density(self) -> str:
         """The viewer's sidebar row density — "compact" or "comfortable".
 
@@ -475,8 +520,12 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
 
+        # A bare glyph, not a bordered box: clicking anywhere on the header
+        # already toggles the section, so drawing a button frame around the
+        # chevron promised a control that was never the only way in.
         self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.setFixedSize(16, 20)
+        _theme.style(self.toggle_btn, "SIDEBAR_TOGGLE_BTN")
         self.toggle_btn.setToolTip("Collapse / expand this section")
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         header_layout.addWidget(self.toggle_btn)
@@ -526,7 +575,14 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         from metatv.gui import icons as _icons
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
-        btn = QPushButton(_icons.explore_columns_icon)
+        # The ARROW, not the columns glyph. Spec item 14 calls this "→
+        # escalation" and the render draws an arrow; `explore_columns_icon` (⤢)
+        # was describing the destination's layout instead of the action.
+        btn = QPushButton()
+        btn.setIcon(_icon_utils.resolve_icon(
+            _icons.vector_key("explore"), _theme.COLOR_ACCENT_BLUE
+        ))
+        btn.setIconSize(QSize(14, 14))
         btn.setFlat(True)
         btn.setFixedSize(22, 20)  # structural — aligns with the other header buttons
         btn.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)

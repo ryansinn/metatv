@@ -74,23 +74,11 @@ class RecommendedSection(CollapsibleSection):
     def get_section_id(self):
         return "recommended"
 
-    def create_header(self):
-        header = self._build_clickable_header()
-        hl = header.layout()
-
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-
-        refresh_btn = QPushButton(self.config.refresh_icon)
-        refresh_btn.setFixedSize(22, 20)
-        refresh_btn.setToolTip("Refresh recommendations")
-        refresh_btn.clicked.connect(self.refresh)
-        hl.addWidget(refresh_btn)
-
-        self.main_layout.addWidget(header)
+    # No create_header override. It existed only to append a refresh button,
+    # and carrying a divergent copy of the title / stretch / status / explore
+    # wiring for one control is exactly what _add_header_actions exists to
+    # avoid. Refresh now lives in the ⋯ overflow with every other section's
+    # occasional action, so the base header serves this section unchanged.
 
     def create_content(self):
         self._list = QListWidget()
@@ -108,6 +96,11 @@ class RecommendedSection(CollapsibleSection):
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         _theme.apply_list_selection(self._list)
         self.content_layout.addWidget(self._list)
+        self.content_layout.addLayout(self.build_overflow_row([
+            (f"{self.config.refresh_icon} Refresh recommendations",
+             "Recompute recommendations from your ratings and history",
+             self.refresh),
+        ]))
         self.set_empty(True)
 
     def refresh(self):

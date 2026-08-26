@@ -64,13 +64,33 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
 
 
 def _summary_text(active: int, expiring: int, total: int) -> str:
-    """Build the one-line summary string (never encodes state by colour alone)."""
+    """The ONE thing worth saying about your sources right now.
+
+    Every other section header follows the rule ``make_status_label`` states —
+    news OR a count, never both, because a header showing "1 new · 13" is
+    inventory with a decoration on it. This footer said up to four things at
+    once ("Sources ● 0 active · ⚠ 2 expiring ⟳"), so it now follows the same
+    rule: the most urgent fact wins and the rest is one click away in the
+    manager.
+
+    The ladder, worst first:
+
+    * **no sources at all** — nothing to show, nothing works;
+    * **none active** — you have sources and the app still has nothing to
+      show, which is an alarm rather than inventory;
+    * **some expiring** — a warning, actionable but not yet broken;
+    * otherwise the plain count, quiet.
+
+    Never colour alone: each rung carries its own words, and the warning rungs
+    keep their glyph.
+    """
     if total == 0:
         return "No sources yet"
-    parts = [f"{_icons.status_dot_icon} {active} active"]
+    if active == 0:
+        return f"{_icons.notification_warning_icon} No active sources"
     if expiring:
-        parts.append(f"{_icons.notification_warning_icon} {expiring} expiring")
-    return "   ·   ".join(parts)
+        return f"{_icons.notification_warning_icon} {expiring} expiring"
+    return f"{_icons.status_dot_icon} {active} active"
 
 
 class SourcesStatusStrip(QWidget):

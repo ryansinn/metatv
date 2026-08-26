@@ -21,6 +21,8 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     border    = _("COLOR_BORDER")
     text_hi   = _("COLOR_TEXT_HI")
     text      = _("COLOR_TEXT")
+    muted     = _("COLOR_MUTED")
+    text_hi   = _("COLOR_TEXT_HI")
     accent    = _("COLOR_ACCENT_BLUE")
     radius_sm = _("RADIUS_SM")
     radius_md = _("RADIUS_MD")
@@ -70,6 +72,31 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f" font-weight: bold; background: transparent; border: none;"
             f" padding: 0; text-align: left; }}"
             f"QPushButton:hover {{ color: {accent}; }}"
+        ),
+        # ── Sidebar chrome (V3) ──────────────────────────────────────────
+        # The collapse chevron: a bare glyph, as in the render. It was a
+        # bordered 20px box, which drew a button around a control that is
+        # already the whole header (clicking anywhere on the header toggles).
+        "SIDEBAR_TOGGLE_BTN": (
+            f"QPushButton {{ color: {muted}; background: transparent;"
+            f" border: none; font-size: {font_sm}; }}"
+            f"QPushButton:hover {{ color: {text_hi}; }}"
+        ),
+        # A ringed header/body action — Watch Alerts' Manage and +. The ring is
+        # what makes the boundary between two adjacent actions readable; the
+        # accent stays reserved for NEWS, which is the one thing in a collapsed
+        # sidebar worth looking at.
+        "SIDEBAR_ACTION_RING": (
+            f"QPushButton {{ color: {text}; background: transparent;"
+            f" border: 1px solid {line}; border-radius: {radius_sm};"
+            f" padding: 1px 8px; font-size: {font_sm}; }}"
+            f"QPushButton:hover {{ color: {text_hi}; border-color: {accent}; }}"
+        ),
+        # The ⋯ that holds a section's destructive bulk actions.
+        "SIDEBAR_OVERFLOW_BTN": (
+            f"QPushButton {{ color: {muted}; background: transparent;"
+            f" border: none; font-size: {font_md}; }}"
+            f"QPushButton:hover {{ color: {text_hi}; }}"
         ),
         # ── Sidebar rows (V3) ────────────────────────────────────────────
         # These two roles carry SIZE and background only. Both labels are

@@ -85,9 +85,14 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         _theme.apply_list_selection(self.history_list)
         self.content_layout.addWidget(self.history_list)
 
-        self.clear_btn = QPushButton(f"{self.config.delete_icon} Clear History")
-        self.clear_btn.clicked.connect(self.clearHistoryClicked.emit)
-        self.content_layout.addWidget(self.clear_btn)
+        # The destructive bulk action lives in the ⋯ overflow, like Watch
+        # Queue's — a full-width button charged ~29px a session for something
+        # you use once in a while.
+        self.content_layout.addLayout(self.build_overflow_row([
+            (f"{self.config.delete_icon} Clear History",
+             "Remove every entry from your history",
+             self.clearHistoryClicked.emit),
+        ]))
 
     # --- BackgroundRefreshMixin hooks ---
     def _refresh_list(self) -> QListWidget:
