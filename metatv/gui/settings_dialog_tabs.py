@@ -928,6 +928,25 @@ class SettingsTabsMixin:
 
         layout.addWidget(sidebar_group)
 
+        alerts_group = QGroupBox("Watch Alerts")
+        alerts_layout = QVBoxLayout(alerts_group)
+        alerts_layout.setSpacing(10)
+        self._alerts_show_idle_check = QCheckBox(
+            "Show alerts with nothing new"
+        )
+        self._alerts_show_idle_check.setToolTip(
+            "Off (default): the Watch Alerts section lists only what has\n"
+            "actually turned up — a keyword rule with new matches, a series\n"
+            "with new episodes. It is a noticeboard.\n"
+            "On: every rule and monitored series is listed whether or not it\n"
+            "is firing.\n\n"
+            "Either way the full list is in Manage Watch Alerts, and EPG\n"
+            "keywords are in the EPG view's Watch tab.\n"
+            "This is the same switch that appears in Manage Watch Alerts."
+        )
+        alerts_layout.addWidget(self._alerts_show_idle_check)
+        layout.addWidget(alerts_group)
+
         layout.addStretch()
         return tab
 

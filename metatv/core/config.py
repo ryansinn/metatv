@@ -884,6 +884,17 @@ class Config(BaseModel):
     #: a truncated list with neither a scrollbar nor a row is just misleading.
     #: Sidebar-only; the main results list always has its scrollbar.
     sidebar_show_more_row: bool = False
+
+    #: Show Watch Alerts entries that have nothing new. Off by default: the
+    #: sidebar section is a NOTICEBOARD, so it lists what has arrived, and a
+    #: standing watchlist of things that have not shown up yet is a different
+    #: question — answered in Manage Watch Alerts and, for EPG keywords, in the
+    #: EPG view's Watch tab. On: every rule and monitored series is listed
+    #: whether or not it is firing, which is the old behaviour.
+    #: Applies to Movies and Series only. EPG already lists what is on now or
+    #: coming up, which is inherently the active set, and Stream Monitoring
+    #: lists streams being retried right now.
+    alerts_show_idle_items: bool = False
     # Show poster thumbnails at the left of comfy/comfy_plus channel-list rows
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.

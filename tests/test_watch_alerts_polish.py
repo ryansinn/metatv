@@ -214,6 +214,12 @@ class _FakeConfig:
     expand_icon = ">"
     collapse_icon = "v"
 
+    #: These tests assert how a row RENDERS and how a click routes, not
+    #: which entries are eligible to be listed. The section now lists only
+    #: firing entries by default, so they opt into the full list — the
+    #: filter itself is covered by tests/test_alerts_new_only.py.
+    alerts_show_idle_items = True
+
     def __init__(self, series):
         self._series = series
 

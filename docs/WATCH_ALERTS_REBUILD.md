@@ -198,6 +198,44 @@ Found while splitting: `_toggle_series_group`, `_toggle_keyword_group` and
 `_add_group_heading` were each defined **twice**, a verbatim 42-line block
 (identical MD5). The second copy silently won; the first was dead. Removed.
 
+## The section is a noticeboard, not the watchlist
+
+`alerts_show_idle_items` (default **off**) filters Movies and Series to entries
+that have something new. The standing list of what you are waiting for is a
+different question, answered in Manage Watch Alerts and — for EPG keywords —
+the EPG view's Watch tab. EPG and Stream Monitoring are unfiltered by
+construction: both already list only what is happening now.
+
+Three things this had to get right:
+
+* **Counted before filtered.** The header badge and `_firing_count` /
+  `_series_new_count` are computed from the FULL sets; only the display is
+  filtered. A filter that changed the counts would make the section disagree
+  with itself.
+* **A heading counts its rows**, so "SERIES 2" with seven monitored is honest
+  about what it lists. What is missing goes in the tooltip via `_hidden_note()`,
+  where there is room to say what to do about it.
+* **Configured-but-quiet is not empty.** `_show_idle_only_notice()` keeps the
+  place with "Nothing new from N alerts" — the same lesson as the EPG group,
+  and for the same reason: an absent feature and a quiet one must not render
+  identically.
+
+**One setting, two switches.** Settings → Interface → Watch Alerts and Manage
+Watch Alerts both read and write `config.alerts_show_idle_items`, so they cannot
+disagree. The manage dialog writes on toggle (it has no OK button) and emits
+`changed`, which the host already routes to `_refresh_vod_alerts_section`; the
+settings dialog goes through `settings_applied`, which now carries that same
+hook.
+
+## A collapsed group wears its new count
+
+`GroupHeading.set_news(n)` draws the filled `+N` pill — `chip_row`'s
+`CHIP_NEWS`, the one definition of that pill, so it matches the section header
+and re-renders on a palette switch. It appears **only while the group is
+collapsed**: expanded, every firing row already carries its own green marker and
+a pill on the heading would say it twice; collapsed, the rows are gone and the
+heading is the only thing left that can tell you something arrived.
+
 ## Left to do
 
 Ledger F1 (migrate Favorites/Queue off `style_group_heading`, then delete it);

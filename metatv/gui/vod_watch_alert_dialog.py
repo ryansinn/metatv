@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -194,6 +194,26 @@ class ManageVodAlertsDialog(QDialog):
         _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
+        # The SAME setting as Settings → Interface → Watch Alerts, not a second
+        # one: both read and write config.alerts_show_idle_items, so they can
+        # never disagree. It belongs here too because this dialog is where you
+        # see the full list, and "why isn't this in the sidebar?" is asked here.
+        self._show_idle_check = QCheckBox(
+            "Show alerts with nothing new in the sidebar"
+        )
+        self._show_idle_check.setToolTip(
+            "Off (default): the Watch Alerts sidebar section lists only what "
+            "has actually turned up.\n"
+            "On: every rule and monitored series is listed there whether or "
+            "not it is firing.\n\n"
+            "The same switch is in Settings \u2192 Interface \u2192 Watch Alerts."
+        )
+        self._show_idle_check.setChecked(
+            bool(getattr(self._config, "alerts_show_idle_items", False))
+        )
+        self._show_idle_check.toggled.connect(self._on_show_idle_toggled)
+        vl.addWidget(self._show_idle_check)
+
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         _theme.style_fn(sep, lambda: f"color: {_theme.COLOR_LINE};")
@@ -211,6 +231,20 @@ class ManageVodAlertsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         vl.addWidget(buttons)
+
+    def _on_show_idle_toggled(self, checked: bool) -> None:
+        """Write the shared setting and tell the host to re-render.
+
+        Saved immediately rather than on Close: this dialog has no OK button,
+        so a deferred write would be lost. ``changed`` is the signal the host
+        already listens to for a rule being removed, so the sidebar refreshes
+        through the path it already had.
+        """
+        self._config.alerts_show_idle_items = bool(checked)
+        save = getattr(self._config, "save", None)
+        if callable(save):
+            save()
+        self.changed.emit()
 
     # ── Data loading ─────────────────────────────────────────────────────────
 

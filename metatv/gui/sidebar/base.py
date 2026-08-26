@@ -45,7 +45,8 @@ class GroupHeading(QWidget):
     clicked = pyqtSignal()
 
     def __init__(self, text: str, count: int | None = None, *,
-                 interactive: bool = False, tooltip: str = "", parent=None):
+                 interactive: bool = False, tooltip: str = "", news: int = 0,
+                 parent=None):
         """
         Args:
             text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
@@ -53,6 +54,9 @@ class GroupHeading(QWidget):
             count: How many items the group holds; ``None`` renders no count.
                 Shown even when the group is collapsed — with the rows hidden it
                 is the only thing describing what is in there.
+            news: How many of those are NEW. Drawn as a filled ``+N`` pill, the
+                same one the section header uses, and only when the group is
+                collapsed — see :meth:`set_news`.
             interactive: Whether clicking toggles the group. Adds the
                 pointing-hand cursor and emits :attr:`clicked`.
             tooltip: Hover text; a sensible default is supplied when interactive.
@@ -82,6 +86,16 @@ class GroupHeading(QWidget):
         row.addWidget(self.count_label)
         self.set_count(count)
 
+        # The same filled pill the section header carries, so "+3" means the
+        # same thing at every level of the sidebar. Built through chip_row's
+        # CHIP_NEWS rather than a local sheet — that is the one definition of
+        # this pill, and it re-renders on a palette switch.
+        from metatv.gui.chip_row import CHIP_NEWS, chip_widget
+        self.news_chip = chip_widget(CHIP_NEWS, "")
+        row.addSpacing(6)
+        row.addWidget(self.news_chip)
+        self.set_news(news)
+
         row.addStretch(1)
 
         if interactive:
@@ -94,6 +108,19 @@ class GroupHeading(QWidget):
         """Show ``count`` beside the label, or nothing when it is ``None``."""
         self.count_label.setText("" if count is None else f"  {count}")
         self.count_label.setVisible(count is not None)
+
+    def set_news(self, news: int) -> None:
+        """Show a filled ``+N`` pill, or hide it when there is nothing new.
+
+        Its job is to survive a COLLAPSE. Expanded, the rows carry their own
+        green dots and a pill on the heading would say the same thing twice;
+        collapsed, the rows are gone and the heading is the only place left
+        that can tell you something arrived. Owner: "when watch alert sections
+        with new alerts are collapsed the collapsed title should get a solid
+        chip with +##".
+        """
+        self.news_chip.setText(f"+{news}" if news > 0 else "")
+        self.news_chip.setVisible(news > 0)
 
     def mousePressEvent(self, event):  # noqa: N802 (Qt override)
         if self._interactive:

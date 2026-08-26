@@ -61,6 +61,10 @@ class _Cfg:
         self.get_unviewed_vod_match_count = lambda: 0
 
     def __getattr__(self, n):
+        # The full list, so there is something to fold: these tests are about
+        # VERTICAL space, not about which entries are eligible.
+        if n == "alerts_show_idle_items":
+            return True
         return getattr(self.__dict__["_b"], n)
 
 
