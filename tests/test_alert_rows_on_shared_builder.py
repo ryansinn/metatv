@@ -105,9 +105,16 @@ class TestALongTitleElidesInsteadOfClipping:
             "the row demands more width than the sidebar has, which is what "
             "defeats elision"
         )
-        assert row.sizeHint().height() >= row.minimumHeight() > 20, (
-            "the row reports the inner chip row's tighter height, so the list "
-            "would draw cramped rows"
+        # The property, not a number: the row must report the SECTION's height
+        # rather than the inner chip row's tighter one, and never less than the
+        # font's line box. Pinning "> 20" turned a deliberate tightening into a
+        # red gate the moment rows went from 23px to 20px.
+        from PyQt6.QtWidgets import QLabel
+
+        line = QLabel().fontMetrics().height()
+        assert row.sizeHint().height() >= row.minimumHeight() >= line, (
+            f"row reports {row.sizeHint().height()}px against a {line}px line "
+            "box — the list would draw clipped rows"
         )
 
     def test_a_short_title_is_left_alone(self, qapp, tmp_path):

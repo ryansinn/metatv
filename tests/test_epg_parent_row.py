@@ -47,7 +47,7 @@ def _parent(qapp, tmp_path, *, live=True, expanded=False):
     row = _AlertRow("Two and a Half Men", "8m left", Config(config_dir=tmp_path),
                     when=NOW + timedelta(minutes=8), live=live,
                     started_at=NOW - timedelta(minutes=22) if live else None,
-                    chip_time=True, expandable=True, expanded=expanded)
+                    bar_source="DTOUR [CA]", expandable=True, expanded=expanded)
     row.setFixedWidth(290)
     row.show()
     qapp.processEvents()
@@ -177,6 +177,60 @@ class TestTheMarkerIsNotAPlayButton:
         _click(row, row._slot_rect().left() + SLOT_W // 2)
         assert got["play"] == 0 and got["expand"] == 1
         row.deleteLater()
+
+
+class TestTheBarMeasuresWhatThePlayButtonStarts:
+    """A programme row's bar is one channel's progress, not the programme's.
+
+    The row used to chip its time instead, on the reasoning that its airings
+    carried the bars and a parent/child pair would measure the same thing twice.
+    That only holds while the row is OPEN, and closed is the default — collapsed,
+    the programme row is the only thing on screen, so it is the row that most
+    needs the proportion. Owner: "the bundled results in EPG on Watch Alerts
+    should use progress bars corresponding to the source attached to the play
+    button."
+    """
+
+    def test_a_live_programme_row_draws_a_bar(self, qapp, tmp_path):
+        row = _parent(qapp, tmp_path, live=True)
+        assert row.progress is not None, "the collapsed programme row has no bar"
+        assert row.time_lbl is None, "a row shows EITHER a bar or its time"
+        row.deleteLater()
+
+    def test_the_bar_names_the_source_it_measures(self, qapp, tmp_path):
+        row = _parent(qapp, tmp_path, live=True)
+        assert "DTOUR [CA]" in row.progress.toolTip(), row.progress.toolTip()
+        row.deleteLater()
+
+    def test_the_clock_tick_keeps_the_source_in_the_tooltip(self, qapp, tmp_path):
+        """The tick rewrites the tooltip, so the source has to be composed in
+        rather than set once at build."""
+        row = _parent(qapp, tmp_path, live=True)
+        row.refresh_time(NOW + timedelta(minutes=4))
+        tip = row.progress.toolTip()
+        assert "DTOUR [CA]" in tip, tip
+        assert "8m left" not in tip, "the time did not advance"
+        row.deleteLater()
+
+    def test_an_upcoming_programme_row_has_no_bar(self, qapp, tmp_path):
+        """Nothing has started, so there is no elapsed share to draw."""
+        row = _parent(qapp, tmp_path, live=False)
+        assert row.progress is None
+        assert row.time_lbl is not None, "it should still say WHEN"
+        row.deleteLater()
+
+    def test_the_parent_is_built_from_the_airing_its_button_plays(self, qapp, tmp_path):
+        """The coupling, at the call site: one airing supplies the row's
+        timings AND its play target, so the bar cannot describe a different
+        source from the one that starts."""
+        import inspect
+
+        from metatv.gui.sidebar import alerts_epg
+
+        src = inspect.getsource(alerts_epg.EpgGroupMixin._populate_rows)
+        assert "first_source=lead[3]" in src
+        assert "first_source_name=lead[2]" in src
+        assert "started_at=_started_at(lead)" in src
 
 
 class TestOneContinuousPlayColumn:

@@ -34,6 +34,11 @@ def _quality(airing) -> str:
     return airing[6] if len(airing) > 6 else ""
 
 
+def _region(airing) -> str:
+    """The airing's region/language token, or "" — sibling of :func:`_quality`."""
+    return airing[7] if len(airing) > 7 else ""
+
+
 def _started_at(airing) -> "datetime | None":
     """The airing's start, or ``None`` — sibling of :func:`_when`.
 
@@ -86,6 +91,7 @@ class _Airing(NamedTuple):
     when: "datetime | None" = None
     started_at: "datetime | None" = None
     quality: str = ""
+    region: str = ""
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:

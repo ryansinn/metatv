@@ -27,7 +27,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
+    CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
 )
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -56,11 +56,21 @@ _CHILD_INDENT = 14
 #: wasted row between every entry: "the space between each item is a wasted
 #: row ... spacing between rows should be cut in half".
 #:
-#: 2px is that halving — 6px of padding, 23px rows. The descender is safe at
-#: any value here: clipping came from sizing a row to its tallest CHILD, and
-#: the fix was measuring the font's full line box (ascent + descent + leading)
-#: in :meth:`_RowShell._mount`, which this padding is merely added to.
-ROW_PAD_Y = 2
+#: Halved twice, at the owner's word each time: 12px of padding around a 17px
+#: line box, then 6px, now 3px — "the spacing between the items (subheader
+#: content rows) could still be halved again". Rows are 20px.
+#:
+#: **20px is the floor**, not a preference. The inner ``chip_row`` keeps 1px
+#: above and below its 17px content, so no combination of this constant and the
+#: line-box term goes lower; measured, all four candidates bottom out there.
+#: Anything tighter needs a smaller type scale or shorter chips, which is a
+#: different decision.
+#:
+#: The descender is safe at any value here: clipping came from sizing a row to
+#: its tallest CHILD, and the fix was measuring the font's full line box
+#: (ascent + descent + leading) in :meth:`_RowShell._mount`, which this is
+#: merely added to.
+ROW_PAD_Y = 1
 
 
 def _slot_label() -> QLabel:
@@ -105,9 +115,12 @@ class _RowShell(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # From the font's OWN line box (ascent + descent + leading), so a
         # descender can never be clipped by a row sized to its children —
-        # "Stargate SG-1" lost the tail of its g this way.
+        # "Stargate SG-1" lost the tail of its g this way. No slack term on top:
+        # the line box already contains the descent, and the two pixels that
+        # used to be added here were the last of the surplus the owner read as
+        # a wasted row.
         self.setMinimumHeight(
-            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y + 2
+            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y
         )
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
@@ -228,7 +241,8 @@ class _AlertRow(_RowShell):
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
                  started_at: datetime | None = None, quality: str = "",
-                 chip_time: bool = False, indent: int = 0,
+                 region: str = "",
+                 indent: int = 0, bar_source: str = "",
                  expandable: bool = False, expanded: bool = False):
         """
         Args:
@@ -246,6 +260,11 @@ class _AlertRow(_RowShell):
             quality: A quality token ("RAW", "4K") chipped beside the title — a
                 claim about THIS copy, so it travels with the title rather than
                 sitting in the right rail.
+            region: The source's region/language ("DE", "US"), chipped for the
+                same reason. It used to be baked into the channel NAME as
+                "[DE]", which left the programme row — the one whose play
+                button starts a source without opening anything — unable to say
+                what language you were about to get.
             indent: Left inset for a child row. The TREE used to supply this
                 via setIndentation, which also indented top-level rows — so EPG
                 titles started further right than Movies and Series ones and the
@@ -254,9 +273,10 @@ class _AlertRow(_RowShell):
                 caret. Replaces the tree's native indicator, which lived in its
                 own column and could not share the slot with play and new.
             expanded: Which way the caret points.
-            chip_time: Render the time text as a chip rather than as the row's
-                muted tail. Used by a programme row, whose time is a fact about
-                the programme rather than a column of the list.
+            bar_source: The channel this row's progress bar belongs to, named
+                in the bar's tooltip. A programme row's bar is not an abstract
+                "the programme" — it is the progress of the ONE source its play
+                button will start, so the tooltip says which.
             started_at: The programme's start, for a live row. With ``when``
                 (its end) this gives the DURATION, which is what turns "13m
                 left" into a proportion. Without it the row falls back to
@@ -296,12 +316,20 @@ class _AlertRow(_RowShell):
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
         # provider gave no start_time has no denominator.
-        # A row that chips its time is a PROGRAMME row: it reports one fact and
-        # its airings carry the bars underneath it. Two progress bars in a
-        # parent/child pair measure the same thing twice.
+        #
+        # A programme row gets one too. It used to chip its time instead, on the
+        # reasoning that its airings carried the bars and a parent/child pair
+        # would measure the same thing twice — but that only holds while the row
+        # is OPEN, and closed is the default. Collapsed, the programme row is
+        # the only thing on screen, so it is the row that most needs the
+        # proportion the bar exists to show. Owner: "the bundled results ...
+        # should use progress bars corresponding to the source attached to the
+        # play button." Which is exactly what it now shows: the parent is built
+        # from the same airing its play button starts.
         self._show_bar = bool(
-            live and when is not None and started_at is not None and not chip_time
+            live and when is not None and started_at is not None
         )
+        self._bar_source = bar_source
 
         # Built at its REAL fill, not at zero. It used to start empty and only
         # correct on the first 30s tick, so every bar rendered as a sliver for
@@ -310,7 +338,7 @@ class _AlertRow(_RowShell):
         self.progress = None
         if self._show_bar:
             self.progress = _ProgressBar(elapsed_pct(started_at, when, now_utc()))
-            self.progress.setToolTip(time_str)
+            self.progress.setToolTip(self._bar_tip(time_str))
 
         # A row shows EITHER a bar or its time, never both: the bar already
         # encodes the remaining time as a proportion and carries the words in
@@ -326,7 +354,7 @@ class _AlertRow(_RowShell):
 
         self._mount(build_chip_row(
             title=ch_name,
-            title_chips=((CHIP_QUALITY, quality),),
+            title_chips=((CHIP_LANG, region), (CHIP_QUALITY, quality)),
             tail_widget=self.progress if self._show_bar else self.time_lbl,
             leading_slot=leading,
             indent=indent,
@@ -334,6 +362,15 @@ class _AlertRow(_RowShell):
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
         self._paint_slot()
+
+    def _bar_tip(self, time_text: str) -> str:
+        """The bar's hover text, naming the source it measures.
+
+        A programme row's bar is one channel's progress — the channel its play
+        button starts — so saying which is what stops the bar reading as a
+        claim about the programme in the abstract.
+        """
+        return f"{time_text} · {self._bar_source}" if self._bar_source else time_text
 
     # ── the left slot ────────────────────────────────────────────────────
     def set_playing(self, playing: bool) -> None:
@@ -439,7 +476,8 @@ class _AlertRow(_RowShell):
             # The bar advances on the same tick, from the same instant, so the
             # fill and the tooltip can never disagree about the time.
             self.progress.set_pct(
-                elapsed_pct(self._started_at, self._when, now), tooltip=text
+                elapsed_pct(self._started_at, self._when, now),
+                tooltip=self._bar_tip(text),
             )
 
     def _slot_rect(self) -> QRect:

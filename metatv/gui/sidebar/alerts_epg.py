@@ -24,6 +24,7 @@ from metatv.gui.sidebar.alerts_common import (
     _CHILD_INDENT,
     _Airing,
     _quality,
+    _region,
     _started_at,
     _when,
     _ALERTS_TREE_AUTOEXPAND_BUDGET,
@@ -269,24 +270,25 @@ class EpgGroupMixin:
             def _title_key(title: str) -> str:
                 return " ".join(title.casefold().replace("&", "and").split())
 
-            def _channel_display(prog) -> tuple[str, str]:
-                """The row's channel text, and its quality token separately.
+            def _channel_display(prog) -> tuple[str, str, str]:
+                """The row's channel text, its quality and its region, apart.
 
-                The quality is pulled OUT of the formatted name so the row can
-                draw it as a chip beside the title — a claim about this copy —
-                rather than leaving "[RAW]" inside the string.
+                Both tokens are pulled OUT of the formatted name so the row can
+                chip them beside the title — each is a claim about THIS copy,
+                not part of what the channel is called. Region left inside the
+                string as "[DE]" is why the programme row could not say what
+                language its play button was about to start.
                 """
                 rec = channel_names.get(prog.channel_db_id)
                 if rec is None:
-                    return _fmt_channel_name(prog.channel_epg_id or "Unknown"), ""
-                quality = rec["detected_quality"] or ""
+                    return _fmt_channel_name(prog.channel_epg_id or "Unknown"), "", ""
                 return _fmt_channel_name(
                     rec["name"],
                     detected_title=rec["detected_title"],
                     detected_year=rec["detected_year"],
-                    detected_region=rec["detected_region"],
+                    detected_region=None,        # drawn as a chip instead
                     detected_quality=None,       # drawn as a chip instead
-                ), quality
+                ), (rec["detected_quality"] or ""), (rec["detected_region"] or "")
 
             # Unified per-title groups — upcoming for a live title folds under WATCH NOW,
             # preventing the same show from appearing in both sections simultaneously.
@@ -297,7 +299,7 @@ class EpgGroupMixin:
 
             for _pattern, progs in live_data.items():
                 for prog in progs:
-                    ch_display, ch_quality = _channel_display(prog)
+                    ch_display, ch_quality, ch_region = _channel_display(prog)
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
                     time_str = humanize_remaining(prog.stop_time, now)
                     key = _title_key(prog.title)
@@ -309,12 +311,12 @@ class EpgGroupMixin:
                     live_groups[key]['live'].append(
                         _Airing(mins_left, time_str, ch_display,
                                 prog.channel_db_id, prog.stop_time,
-                                prog.start_time, ch_quality)
+                                prog.start_time, ch_quality, ch_region)
                     )
 
             for _pattern, progs in upcoming_data.items():
                 for prog in progs:
-                    ch_display, ch_quality = _channel_display(prog)
+                    ch_display, ch_quality, ch_region = _channel_display(prog)
                     time_str = humanize_until(
                         prog.start_time, now,
                         to_local=_to_local, is_local_today=_is_local_today,
@@ -325,7 +327,7 @@ class EpgGroupMixin:
                         live_groups[key]['upcoming'].append(
                             _Airing(ts, time_str, ch_display,
                                     prog.channel_db_id, prog.start_time,
-                                    None, ch_quality)
+                                    None, ch_quality, ch_region)
                         )
                     else:
                         if key not in upcoming_only:
@@ -333,7 +335,7 @@ class EpgGroupMixin:
                         upcoming_only[key]['airings'].append(
                             _Airing(ts, time_str, ch_display,
                                     prog.channel_db_id, prog.start_time,
-                                    None, ch_quality)
+                                    None, ch_quality, ch_region)
                         )
 
             # Only asked when there is nothing to show, and only to explain the
@@ -395,7 +397,8 @@ class EpgGroupMixin:
             )
 
         def _add_parent(title, time_str, _extra=0, when=None, live=False,
-                        started_at=None, first_source=None) -> "QTreeWidgetItem":
+                        started_at=None, first_source=None,
+                        first_source_name="", region="") -> "QTreeWidgetItem":
             """The programme row that expands to its airings.
 
             A real row widget, not a text item reading
@@ -409,8 +412,14 @@ class EpgGroupMixin:
             # No "+N" chip. The caret already says the row expands, and the
             # count of what is behind it is the one fact you get for free by
             # opening it — the approved render carries only the time.
+            # Built from the SAME airing its play button starts, so its
+            # progress bar is that source's progress rather than a claim about
+            # the programme in the abstract — owner: "the bundled results ...
+            # should use progress bars corresponding to the source attached to
+            # the play button."
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
-                            started_at=started_at, chip_time=True,
+                            started_at=started_at, bar_source=first_source_name,
+                            region=region,
                             expandable=True, expanded=hdr.isExpanded())
 
             def _toggle(_=False, i=hdr, r=row):
@@ -439,20 +448,20 @@ class EpgGroupMixin:
 
         def _add_child(parent_item, ch_name, time_str, channel_db_id, title,
                        when=None, live=False, started_at=None,
-                       quality="") -> None:
+                       quality="", region="") -> None:
             child = QTreeWidgetItem()
             child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
             row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
                             started_at=started_at, quality=quality,
-                            indent=_CHILD_INDENT)
+                            region=region, indent=_CHILD_INDENT)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(child, 0, row)
 
         def _add_direct(ch_name, time_str, channel_db_id, title,
                         when=None, live=False, started_at=None,
-                       quality="") -> None:
+                        quality="", region="") -> None:
             """Single-channel item: header IS the row — no expand arrow.
             Shows the show title; channel name is the tooltip."""
             item = QTreeWidgetItem()
@@ -460,7 +469,7 @@ class EpgGroupMixin:
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
-                            started_at=started_at, quality=quality)
+                            started_at=started_at, quality=quality, region=region)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
 
@@ -474,21 +483,23 @@ class EpgGroupMixin:
                 if len(all_items) == 1:
                     a = all_items[0]
                     _add_direct(a[2], a[1], a[3], title, _when(a),
-                                live=a in live_items, started_at=_started_at(a))
+                                live=a in live_items, started_at=_started_at(a),
+                                quality=_quality(a), region=_region(a))
                 else:
                     lead = live_items[0]
                     hdr = _add_parent(
                         title, lead[1], len(all_items) - 1,
                         when=_when(lead), live=True, started_at=_started_at(lead),
-                        first_source=lead[3],
+                        first_source=lead[3], first_source_name=lead[2],
+                        region=_region(lead),
                     )
                     for a in live_items[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
                                    started_at=_started_at(a),
-                                   quality=_quality(a))
+                                   quality=_quality(a), region=_region(a))
                     for a in up_items[:5]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
-                                   quality=_quality(a))
+                                   quality=_quality(a), region=_region(a))
 
         if upcoming_only:
             for key, grp in sorted(upcoming_only.items(),
@@ -497,7 +508,8 @@ class EpgGroupMixin:
                 airings = sorted(grp['airings'], key=lambda a: a[0])
                 if len(airings) == 1:
                     a = airings[0]
-                    _add_direct(a[2], a[1], a[3], title, _when(a), live=False)
+                    _add_direct(a[2], a[1], a[3], title, _when(a), live=False,
+                                quality=_quality(a), region=_region(a))
                 else:
                     lead = airings[0]
                     # No first_source: every airing here is in the FUTURE, so
@@ -507,7 +519,7 @@ class EpgGroupMixin:
                     )
                     for a in airings[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
-                                   quality=_quality(a))
+                                   quality=_quality(a), region=_region(a))
 
         self._reveal_epg_subsection()
         self.set_empty(False)
