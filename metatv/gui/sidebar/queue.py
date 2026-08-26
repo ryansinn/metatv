@@ -125,6 +125,11 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._filter_btn = QPushButton(_icons.search_icon)
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
+        self._filter_btn.setFlat(True)
+        # No box. A bordered, filled button in a header carrying a title, a
+        # count and an arrow reads as the loudest thing on the row for the
+        # least important control on it. Owner: "it looks like ass."
+        _theme.style(self._filter_btn, "PANEL_BTN")
         self._filter_btn.setToolTip("Find in queue")
         self._filter_btn.clicked.connect(self._toggle_filter_box)
         header_layout.addWidget(self._filter_btn)

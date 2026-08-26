@@ -36,7 +36,11 @@ SLOT_ICON_PX = 14
 
 #: Vertical padding per row. 1px was the pre-V3 value and rendered ~18px rows
 #: against the design's ~28px, which is what made the section look cramped.
-ROW_PAD_Y = 4
+#:
+#: A row also has to clear the font's DESCENDER. At 4px the tail of a "g" was
+#: being clipped ("Stargate SG-1"), because a row's height came from its
+#: tallest child rather than from the font's full line box.
+ROW_PAD_Y = 5
 
 
 def news_chip_sheet() -> str:
@@ -210,7 +214,8 @@ class _AlertRow(QWidget):
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
                  started_at: datetime | None = None, quality: str = "",
-                 chip_time: bool = False):
+                 chip_time: bool = False, indent: int = 0,
+                 expandable: bool = False, expanded: bool = False):
         """
         Args:
             ch_name: The channel/title text for the row.
@@ -226,6 +231,14 @@ class _AlertRow(QWidget):
             quality: A quality token ("RAW", "4K") drawn as a chip beside the
                 title — a claim about THIS copy, so it travels with the title
                 rather than sitting in the right rail.
+            indent: Left inset for a child row. The TREE used to supply this
+                via setIndentation, which also indented top-level rows — so EPG
+                titles started further right than Movies and Series ones and the
+                section had two left edges.
+            expandable: This row has children, so its slot shows a disclosure
+                caret. Replaces the tree's native indicator, which lived in its
+                own column and could not share the slot with play and new.
+            expanded: Which way the caret points.
             chip_time: Render the time text as a chip rather than plain dim
                 text. Used by a programme row, whose time is a fact about the
                 programme rather than a column of the list.
@@ -241,8 +254,10 @@ class _AlertRow(QWidget):
         self._playing = False
         self._is_new = False
         self._hovered = False
+        self._expandable = expandable
+        self._expanded = expanded
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, ROW_PAD_Y, 4, ROW_PAD_Y)
+        layout.setContentsMargins(4 + indent, ROW_PAD_Y, 4, ROW_PAD_Y)
         layout.setSpacing(5)
 
         # ── the left slot ────────────────────────────────────────────────
@@ -306,6 +321,11 @@ class _AlertRow(QWidget):
             self.progress.setToolTip(time_str)
             layout.addWidget(self.progress)
 
+        # A minimum from the font's OWN line box (ascent + descent + leading),
+        # so a descender can never be clipped by a row sized to its children.
+        self.setMinimumHeight(
+            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y + 2
+        )
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
@@ -316,6 +336,12 @@ class _AlertRow(QWidget):
         """Mark this row as the thing currently playing."""
         if playing != self._playing:
             self._playing = playing
+            self._paint_slot()
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Point the disclosure caret the other way."""
+        if expanded != self._expanded:
+            self._expanded = expanded
             self._paint_slot()
 
     def set_new(self, is_new: bool) -> None:
@@ -352,6 +378,15 @@ class _AlertRow(QWidget):
             self._set_slot_icon("play", _theme.COLOR_OK, "Playing now")
         elif self._hovered and self._offers_play():
             self._set_slot_icon("play", _theme.COLOR_ACCENT, "Play")
+        elif self._expandable:
+            # Below new, above nothing: a caret is a permanent property of the
+            # row, so a transient "this just arrived" outranks it — but it still
+            # has to be visible, which is why the dot wins only while it lasts.
+            self._set_slot_icon(
+                "expand" if self._expanded else "collapse",
+                _theme.COLOR_OK if self._is_new else _theme.COLOR_TEXT,
+                "Show the other airings",
+            )
         elif self._is_new:
             self._set_slot_icon("new_dot", _theme.COLOR_OK, "New since you last looked")
         else:
