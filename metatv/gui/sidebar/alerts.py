@@ -39,6 +39,11 @@ _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "heading" | "series"
 #: a plain text item rather than one carrying a widget.
 _ROW_FALLBACK_H = 22
 
+#: How far a child airing insets from its programme row. The row does
+#: this itself now — the tree's own indentation also moved TOP-LEVEL
+#: rows, which is what gave the section two left edges.
+_CHILD_INDENT = 14
+
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
 
@@ -273,6 +278,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             # hide() AFTER addWidget: adding a widget to a layout re-parents it,
             # and a re-parented widget takes its new parent's visibility — so
             # hiding first left the indicator showing with nothing running.
+            # Added BEFORE the status pill (create_header adds actions, then
+            # the pill, then the arrow), so a check starting or finishing never
+            # moves the count. Owner: "it disappears so it fucks with the
+            # position and order."
             header_layout.addWidget(self._series_spinner)
             self._series_spinner.hide()
 
@@ -413,7 +422,13 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.alerts_tree.setHeaderHidden(True)
         self.alerts_tree.setColumnCount(1)
-        self.alerts_tree.setIndentation(12)
+        # No tree indentation and no native indicator: both put EPG rows in a
+        # different left column from the Movies/Series rows below, so the
+        # section had two left edges. A child row insets ITSELF (see
+        # _AlertRow(indent=)) and the disclosure caret lives in the row's own
+        # left slot, beside play and new, which is where the design puts it.
+        self.alerts_tree.setIndentation(0)
+        self.alerts_tree.setRootIsDecorated(False)
         self.alerts_tree.header().setStretchLastSection(True)
         self.alerts_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -603,7 +618,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             firing = getattr(self.config, "get_rules_with_new_matches_count",
                              lambda: 0)()
         total = firing + self.__dict__.get("_series_new_count", 0)
-        return f"{total} new" if total else ""
+        # "+2", not "2 new" — the design's header pill. The word is redundant
+        # inside a green pill that only ever appears when something is new, and
+        # it made the pill wide enough to crowd the buttons beside it.
+        return f"+{total}" if total else ""
 
     def set_series_checking(self, busy: bool) -> None:
         """Show/clear a subtle busy hint on the Movies & Series header.
@@ -1438,7 +1456,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             # count of what is behind it is the one fact you get for free by
             # opening it — the approved render carries only the time.
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
-                            started_at=started_at, chip_time=True)
+                            started_at=started_at, chip_time=True,
+                            expandable=True, expanded=hdr.isExpanded())
+            row.play_clicked.connect(
+                lambda _=False, i=hdr, r=row: (
+                    i.setExpanded(not i.isExpanded()),
+                    r.set_expanded(i.isExpanded()),
+                    self.fit_to_rows(self.alerts_tree),
+                )
+            )
             hdr.setSizeHint(0, QSize(0, row.sizeHint().height()))
             self.alerts_tree.setItemWidget(hdr, 0, row)
             return hdr
@@ -1451,7 +1477,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
             row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
-                            started_at=started_at, quality=quality)
+                            started_at=started_at, quality=quality,
+                            indent=_CHILD_INDENT)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(child, 0, row)
 
@@ -1693,6 +1720,23 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         gp = self._retry_list.viewport().mapToGlobal(pos)
         self.retryContextMenuRequested.emit(entry_id, channel_id or "", gp.x(), gp.y())
 
+    def _sync_carets(self) -> None:
+        """Point every parent row's caret at its item's real expanded state.
+
+        Rows are built before expansion is decided (``_apply_expansion`` runs on
+        a zero-timer), so a caret drawn at construction is a guess. This makes it
+        report rather than predict — and it is called again after every
+        expansion change for the same reason.
+        """
+        tree = self.__dict__.get("alerts_tree")
+        if tree is None:
+            return
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            row = tree.itemWidget(item, 0)
+            if isinstance(row, _AlertRow) and item.childCount():
+                row.set_expanded(item.isExpanded())
+
     def _apply_expansion(self) -> None:
         """Expand every group if the fully-expanded list stays compact; else expand none.
 
@@ -1703,6 +1747,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         keeps the "auto-expand only a short watchlist; leave a long one collapsed so it
         scrolls compactly" behaviour stable regardless of how tall the section is dragged.
         """
+        self._sync_carets()
         tree = self.alerts_tree
         n = tree.topLevelItemCount()
         if n == 0:

@@ -59,7 +59,10 @@ class GroupHeading(QWidget):
         super().__init__(parent)
         self._interactive = interactive
         row = QHBoxLayout(self)
-        row.setContentsMargins(4, 5, 4, 2)
+        # 10 above, 2 below: a heading belongs to what comes AFTER it, so the
+        # gap that separates groups sits above the heading rather than being
+        # split evenly around it.
+        row.setContentsMargins(4, 10, 4, 2)
         row.setSpacing(0)
 
         self.label = QLabel(text)
@@ -831,8 +834,14 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self.title_label = self.make_title_label()
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
-        header_layout.addWidget(self.make_status_label())
+        # Actions, THEN the count, then the arrow. The count used to come first,
+        # so a section with an action button pushed its count further left than
+        # one without — Watch Queue's "652" sat inboard of Recommended's "20"
+        # and the counts stopped forming a column down the rail. Owner: "it
+        # breaks the vertical flow." Anchoring the count to the arrow keeps it
+        # in the same place in every section.
         self._add_header_actions(header_layout)
+        header_layout.addWidget(self.make_status_label())
         self._add_explore_link(header_layout)
 
         self.main_layout.addWidget(header)
