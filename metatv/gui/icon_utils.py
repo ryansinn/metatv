@@ -124,8 +124,19 @@ def vector_pixmap(icon_key: str, color: str, size: int = 16) -> object:
     if icon.isNull():
         pixmap = QPixmap()
     else:
-        pixmap = icon.pixmap(int(size * dpr), int(size * dpr))
-        pixmap.setDevicePixelRatio(dpr)
+        # ``size`` LOGICAL, never size * dpr. Qt 6's QIcon.pixmap() is already
+        # device-pixel-ratio aware: on a 2x screen it returns a 2x-denser pixmap
+        # with devicePixelRatio set for whatever logical size you ask for. Asking
+        # for `size * dpr` therefore applied the ratio TWICE — a request for 11px
+        # came back 44px physical at dpr 2, i.e. 22 LOGICAL, and every sidebar
+        # icon rendered at double size on a HiDPI display.
+        #
+        # It hid for so long because the two consumers fail differently. A
+        # delegate paints into an explicit QRect, which scales the oversized
+        # pixmap back down and looks correct; a QLabel draws a pixmap at its own
+        # logical size, so only the label path inflated. Offscreen renders run
+        # at dpr 1, where the double-apply is x1 and invisible.
+        pixmap = icon.pixmap(size, size)
     _VECTOR_PIXMAP_CACHE[cache_key] = pixmap
     return pixmap
 
