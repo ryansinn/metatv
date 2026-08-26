@@ -482,22 +482,22 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         retry_hdr_row.setContentsMargins(0, 4, 0, 2)
         retry_hdr_row.setSpacing(4)
 
+        # The standalone "i" glyph is gone: it was a control that did nothing
+        # but hold a tooltip, sitting beside a heading that already has one.
+        # Its text lives here now, so nothing is lost and there is one fewer
+        # thing on the row to wonder about.
         self._retry_toggle = GroupHeading(
             "Stream Monitoring", interactive=True,
-            tooltip="Streams being re-checked after a failure — click to "
-                    "collapse or expand",
+            tooltip=(
+                "Streams that previously failed to play, re-checked "
+                "periodically.\nYou get a notification when one becomes "
+                "available again.\nDouble-click an entry to retry it now.\n"
+                "Click this heading to collapse or expand."
+            ),
         )
         self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
         retry_hdr_row.addWidget(self._retry_toggle)
 
-        _info_lbl = QLabel(self.config.info_icon)
-        _theme.style_fn(_info_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
-        _info_lbl.setToolTip(
-            "Stream Monitoring periodically re-checks streams that previously\n"
-            "failed to play. When a stream becomes available again you'll\n"
-            "receive a notification. Double-click an entry to retry immediately."
-        )
-        retry_hdr_row.addWidget(_info_lbl)
         retry_hdr_row.addStretch()
 
         self._retry_hdr_container = QWidget()
