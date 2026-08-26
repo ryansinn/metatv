@@ -132,7 +132,10 @@ def _group(stop_or_start):
 
 def test_a_boundary_timer_is_aimed_at_the_next_change(qapp, tmp_path, monkeypatch):
     """Not a poll: one shot, at the instant the list actually changes."""
-    import metatv.gui.sidebar.alerts as mod
+    # _schedule_boundary lives in the EPG group module since the split, so
+    # that is where it reads _now_utc from — patching the section's own
+    # module would set an attribute nothing consults.
+    import metatv.gui.sidebar.alerts_epg as mod
     sec = WatchAlertsSection(Config(config_dir=tmp_path), db=None)
     monkeypatch.setattr(mod, "_now_utc", lambda: NOW)
 
@@ -145,7 +148,10 @@ def test_a_boundary_timer_is_aimed_at_the_next_change(qapp, tmp_path, monkeypatc
 
 
 def test_boundaries_already_past_schedule_nothing(qapp, tmp_path, monkeypatch):
-    import metatv.gui.sidebar.alerts as mod
+    # _schedule_boundary lives in the EPG group module since the split, so
+    # that is where it reads _now_utc from — patching the section's own
+    # module would set an attribute nothing consults.
+    import metatv.gui.sidebar.alerts_epg as mod
     sec = WatchAlertsSection(Config(config_dir=tmp_path), db=None)
     monkeypatch.setattr(mod, "_now_utc", lambda: NOW)
     sec._schedule_boundary(_group(NOW - timedelta(minutes=5)), {})
@@ -155,7 +161,10 @@ def test_boundaries_already_past_schedule_nothing(qapp, tmp_path, monkeypatch):
 
 def test_the_earliest_boundary_wins(qapp, tmp_path, monkeypatch):
     """Several rows, one timer — aimed at whichever changes first."""
-    import metatv.gui.sidebar.alerts as mod
+    # _schedule_boundary lives in the EPG group module since the split, so
+    # that is where it reads _now_utc from — patching the section's own
+    # module would set an attribute nothing consults.
+    import metatv.gui.sidebar.alerts_epg as mod
     sec = WatchAlertsSection(Config(config_dir=tmp_path), db=None)
     monkeypatch.setattr(mod, "_now_utc", lambda: NOW)
     groups = {"k": {"live": [(0, "x", "A", "1", NOW + timedelta(minutes=40)),

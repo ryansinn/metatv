@@ -21,11 +21,23 @@ from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 
 
 class _Panel(QWidget):
-    """A splitter child that reports a floor, like a real section."""
+    """A splitter child that reports a floor, like a real section.
+
+    A section declares TWO limits. ``preferred_expanded_height`` is the one
+    automatic redistribution honours — growing a section must not take a
+    neighbour below what it asks for — and it is what this double is here to
+    model. ``min_expanded_height`` (the header-only hard floor, for user drags)
+    is carried too so the double answers the whole contract; a double missing
+    the preferred one reports a floor of 0 and every sibling looks like it has
+    room to give.
+    """
 
     def __init__(self, floor: int):
         super().__init__()
         self._floor = floor
+
+    def preferred_expanded_height(self) -> int:
+        return self._floor
 
     def min_expanded_height(self) -> int:
         return self._floor

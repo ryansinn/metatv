@@ -193,7 +193,7 @@ def test_an_unlaid_out_list_keeps_every_row(qapp, config):
 def test_a_section_with_news_earns_more_room(qapp, config):
     quiet = _Section(config, news_text="")
     loud = _Section(config, news_text="3 new")
-    assert loud.min_expanded_height() > quiet.min_expanded_height()
+    assert loud.preferred_expanded_height() > quiet.preferred_expanded_height()
 
 
 def test_the_boost_is_bounded(qapp, config):
@@ -201,7 +201,7 @@ def test_the_boost_is_bounded(qapp, config):
     section with news takes the sidebar"."""
     quiet = _Section(config, news_text="")
     loud = _Section(config, news_text="3 new")
-    extra = loud.min_expanded_height() - quiet.min_expanded_height()
+    extra = loud.preferred_expanded_height() - quiet.preferred_expanded_height()
     # CONTENT_ROW_H, not ROW_H: the boost buys ROWS OF CONTENT, and the two
     # constants parted company when the V3 row grew a second line (ROW_H is now
     # the simple "+N more" tail row).
@@ -210,19 +210,20 @@ def test_the_boost_is_bounded(qapp, config):
 
 
 def test_the_boost_relaxes_when_the_news_goes_quiet(qapp, config):
-    """The floor follows the news at the REFRESH seam, not on every read.
+    """The preferred height follows the news at the REFRESH seam, not on every
+    read.
 
-    ``min_expanded_height`` is called with the class as ``self`` in places
+    ``preferred_expanded_height`` is called with the class as ``self`` in places
     ("this type's floor, no instance needed"), so it reads plain state rather
     than asking a live question. ``refresh_header_status`` is what re-reads
     the news — which is also the one call a section makes when its contents
     change.
     """
     section = _Section(config, news_text="3 new")
-    boosted = section.min_expanded_height()
+    boosted = section.preferred_expanded_height()
     section._news_text = ""
     section.refresh_header_status()
-    assert section.min_expanded_height() < boosted
+    assert section.preferred_expanded_height() < boosted
 
 
 # ---------------------------------------------------------------------------
@@ -297,11 +298,16 @@ def test_refreshing_the_status_updates_text_and_floor(qapp, config):
     """One call keeps the header and the allocation in step — gaining news
     changes both."""
     section = _Section(config)
-    before = section.min_expanded_height()
+    before = section.preferred_expanded_height()
+    floor_before = section.minimumHeight()
     section._news_text = "5 new"
     section.refresh_header_status()
     assert section._status_label.text() == "5 new"
-    assert section.minimumHeight() > before
+    assert section.preferred_expanded_height() > before
+    # ...and the HARD floor does not move with the news. It is the header, so a
+    # section with something to say still drags down to nothing if you want it
+    # to; what news buys is a bigger share when the space is being shared out.
+    assert section.minimumHeight() == floor_before
 
 # ---------------------------------------------------------------------------
 # 4. The mechanism is REACHABLE from the paths the app actually takes.
