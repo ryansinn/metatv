@@ -77,6 +77,10 @@ class RowBudgetMixin:
         Returns:
             How many rows were hidden behind the tail (0 when everything fit).
         """
+        if self._scrolling(list_widget):
+            # Already handed over to the scrollbar; re-budgeting here would
+            # re-hide rows the viewer has scrolled to.
+            return 0
         list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Drop any tail from a previous pass FIRST. This runs again on every
@@ -344,9 +348,14 @@ class RowBudgetMixin:
         if event.angleDelta().y() >= 0:      # scrolling up, or sideways
             return super().eventFilter(obj, event)
         grow = self.__dict__.get("grow_request")
-        if grow is None:
-            return super().eventFilter(obj, event)
-        return bool(grow(self, self.WHEEL_REVEAL_ROWS))
+        if grow is not None and grow(self, self.WHEEL_REVEAL_ROWS):
+            return True
+        # Nothing left to take from the neighbours. Reveal the rest and let the
+        # list scroll, rather than dead-ending a gesture that plainly means
+        # "show me more" — and return False so THIS wheel event is the one that
+        # starts the scroll.
+        self._enter_scroll_mode(list_widget)
+        return super().eventFilter(obj, event)
 
     def _wants_more_row(self) -> bool:
         """Whether to draw the "Show N more" tail at all.
@@ -358,6 +367,46 @@ class RowBudgetMixin:
         hidden either way, and the budget still reports them.
         """
         return bool(getattr(self.config, "sidebar_show_more_row", False))
+
+    def _scrolling(self, list_widget) -> bool:
+        """Whether this list has given up budgeting and is simply scrolling."""
+        return list_widget in self.__dict__.setdefault("_scroll_mode", set())
+
+    def _enter_scroll_mode(self, list_widget) -> None:
+        """Reveal every row and let the list scroll.
+
+        The end of the road for growing: the section is as tall as its
+        neighbours will allow and rows are still hidden, so the only way to
+        reach them in place is to scroll the list itself.
+
+        This is not a reversal of "no nested scrollbars" (R13). That rule
+        exists because Watch Alerts subdivided 173px four ways and each
+        sub-group scrolled in a ~35px band, which is a window too small to read
+        through. A list only reaches this state once its section is at MAXIMUM
+        height, so the band being scrolled is as large as the sidebar can make
+        it — the condition the rule was protecting against cannot hold here.
+
+        Sticky until the section repopulates: a resize must not silently
+        re-hide rows the viewer has already scrolled to.
+        """
+        self.__dict__.setdefault("_scroll_mode", set()).add(list_widget)
+        for index in range(list_widget.count()):
+            item = list_widget.item(index)
+            if item.data(_MORE_ROLE) == _MORE_ROW:
+                list_widget.takeItem(index)
+                break
+        for index in range(list_widget.count()):
+            list_widget.item(index).setHidden(False)
+        list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+
+    def leave_scroll_mode(self, list_widget) -> None:
+        """Return a list to budgeting — called when its rows are rebuilt."""
+        self.__dict__.setdefault("_scroll_mode", set()).discard(list_widget)
+        list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
     def _can_grow(self) -> bool:
         """Whether asking for room would actually get any."""

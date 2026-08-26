@@ -106,7 +106,14 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         adult_mode = getattr(self.config, "filter_adult_mode", "all")
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
-            return build_history_dtos(repos, limit=30, adult_mode=adult_mode)
+            # 30 was an arbitrary cap from when the section could only ever
+            # show a handful of rows. Scrolling now reveals as many as fit and
+            # then some, so the cap became the ceiling a viewer hits instead of
+            # the section's height — which is not a limit anyone chose. 300 is
+            # deep enough to scroll back through a real viewing week and still
+            # one cheap indexed query; it is a bound on MEMORY, not a product
+            # decision about how much history is worth keeping.
+            return build_history_dtos(repos, limit=300, adult_mode=adult_mode)
 
     def _populate_rows(self, dtos) -> None:
         """Main-thread slot: populate history_list from DTOs."""
