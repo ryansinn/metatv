@@ -165,8 +165,11 @@ def test_the_tail_no_longer_reads_like_a_link_away(qapp):
     from metatv.gui.sidebar import row_budget
 
     src = inspect.getsource(row_budget)
-    assert 'f"Show {hidden} more"' in src
-    assert '"+ {hidden} more  →"' not in src, (
+    assert 'QListWidgetItem(f"Show {hidden} more")' in src
+    # Anchored to the CONSTRUCTION, not to the bare old string: the comment
+    # above it quotes the old label to explain the change, and a looser
+    # assertion flagged the documentation as the drift it was documenting.
+    assert 'QListWidgetItem(f"+ ' not in src, (
         "the arrow said 'this leaves for somewhere else', which is the header "
         "button's job, not this one's"
     )
