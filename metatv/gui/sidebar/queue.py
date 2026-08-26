@@ -657,9 +657,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return item
 
     def _add_matched_series_item(self, entry: dict) -> QListWidgetItem:
-        """One monitored-series-with-new-episodes row (distinct 🆕 icon + count)."""
-        from metatv.gui.sidebar.alerts import _VodAlertRow  # local: avoid a top-level cycle
+        """One monitored-series-with-new-episodes row.
 
+        Built by the SHARED row builder, like every other row in this section.
+        It used to be a ``_VodAlertRow`` — a second widget for the same visual
+        row, carrying an emoji type icon and an emoji "NEW" badge — so it sat
+        out every change made to the real rows around it and ended up the only
+        row in the sidebar still wearing the old look.
+        """
         cid = entry.get("series_channel_id", "")
         title = entry.get("display_title") or entry.get("title") or "Unknown series"
         unseen = entry.get("unseen_new") or 0
@@ -673,9 +678,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setToolTip(
             f"{title}: +{unseen} new {ep_word} — double-click to browse the series"
         )
-        row = _VodAlertRow(
-            _icons.new_episodes_icon, title, f"+{unseen} {ep_word}",
-            _theme.VOD_ALERT_COUNT_NEW,
+        row = build_chip_row(
+            title=title,
+            icon_role=media_icon_role("series"),
+            news_text=f"+{unseen} {ep_word}",
+            new_badge=True,
+            density=self._row_density(),
         )
         item.setSizeHint(row.sizeHint())
         self._list.addItem(item)

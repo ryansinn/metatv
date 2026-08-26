@@ -273,6 +273,7 @@ def build_chip_row(
     icon_role: str = "",
     chips: Sequence[tuple[str, str]] = (),
     tail: str = "",
+    news_text: str = "",
     meta: str = "",
     density: str = DENSITY_COMPACT,
     liked: bool = False,
@@ -303,6 +304,11 @@ def build_chip_row(
         tail: Terse muted text pinned to the right edge ("2h", "329m"), after the
             chips. Compact density only — it is where History spends the slot the
             language chip would otherwise take.
+        news_text: The count on a row that has news ("+12 eps", "1 new"), drawn
+            at the right edge in the OK colour. Pairs with ``new_badge``: the
+            ring says THAT there is news, this says how much. Shown in BOTH
+            densities — a count is the reason the row is worth looking at, so
+            it is not something the compact shape trades away.
         meta: The second line ("S18E01 · 2 hours ago"), COMFORTABLE density only.
             Compose it with :func:`sidebar_meta_line`.
         density: :data:`DENSITY_COMPACT` or :data:`DENSITY_COMFORTABLE`. An
@@ -369,6 +375,11 @@ def build_chip_row(
             tail_lbl = QLabel(tail)
             _theme.style(tail_lbl, "SIDEBAR_ROW_TAIL")
             layout.addWidget(tail_lbl)
+
+    if news_text:
+        news_lbl = QLabel(news_text)
+        _theme.style(news_lbl, "SIDEBAR_ROW_NEWS")
+        layout.addWidget(news_lbl)
 
     if trailing_button is not None:
         layout.addWidget(trailing_button)

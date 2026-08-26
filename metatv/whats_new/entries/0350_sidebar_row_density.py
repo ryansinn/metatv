@@ -20,6 +20,9 @@ ENTRY = WhatsNewEntry(
         "inside the title's line height instead of setting the row's, which is "
         "where the extra 7px per row came from. All three (quality, year, "
         "language) share one geometry, so they can no longer drift apart.",
+        "A monitored series with new episodes is a normal sidebar row now. It "
+        "was built by a different widget entirely, so it kept an emoji type "
+        "icon and an emoji NEW badge while every row around it moved on.",
         "A row with news carries a small green ring instead of a blue \"NEW\" "
         "pill. The pill was a second word competing with the title it sat in "
         "front of, and the count beside it already says what is new.",

@@ -28,6 +28,7 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     font_md   = _("FONT_MD")
     font_sm   = _("FONT_SM")
     font_xs   = _("FONT_XS")
+    ok        = _("COLOR_OK")
 
     return {
         # A region chip is a COUNT, and counts read as a grid — so every chip is
@@ -89,6 +90,13 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         # an EPG row's "329m left". COLOR_TEXT rather than a grey: the pre-token
         # greys clear no app surface at 4.5:1, and the smaller size is what makes
         # this subordinate, not a dimmer colour.
+        # "+12 eps", "1 new" — the count on a row that has news. The OK colour
+        # as TEXT, never as a fill, and always beside the ring: the ring says
+        # THAT there is news, this says how much.
+        "SIDEBAR_ROW_NEWS": (
+            f"color: {ok}; font-size: {font_xs}; font-weight: bold;"
+            f" background: transparent;"
+        ),
         "SIDEBAR_ROW_TAIL": (
             f"color: {text}; font-size: {font_xs}; background: transparent;"
         ),
