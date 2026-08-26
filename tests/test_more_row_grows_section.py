@@ -132,7 +132,13 @@ def test_the_tail_click_grows_before_it_explores(qapp, tmp_path):
 
     section = HistorySection.__new__(HistorySection)
     grown, explored = [], []
-    section.__dict__["grow_request"] = lambda s: (grown.append(1), True)[1]
+    # Same signature as MainWindow._grow_sidebar_section, which is what the
+    # section actually calls: (section, rows, *, probe). A one-argument
+    # double raises TypeError from inside the production call instead of
+    # exercising it.
+    section.__dict__["grow_request"] = (
+        lambda s, rows=None, *, probe=False: (grown.append(1), True)[1]
+    )
     section.__dict__["_more_handler"] = lambda: explored.append(1)
 
     tail = QListWidgetItem("Show 4 more")
@@ -149,7 +155,7 @@ def test_the_tail_falls_back_to_explore_when_it_cannot_grow(qapp):
 
     section = HistorySection.__new__(HistorySection)
     explored = []
-    section.__dict__["grow_request"] = lambda s: False
+    section.__dict__["grow_request"] = lambda s, rows=None, *, probe=False: False
     section.__dict__["_more_handler"] = lambda: explored.append(1)
 
     tail = QListWidgetItem("Show 4 more")
@@ -164,7 +170,9 @@ def test_a_normal_row_click_is_ignored(qapp):
 
     section = HistorySection.__new__(HistorySection)
     touched = []
-    section.__dict__["grow_request"] = lambda s: touched.append(1)
+    section.__dict__["grow_request"] = (
+        lambda s, rows=None, *, probe=False: touched.append(1)
+    )
     section.__dict__["_more_handler"] = lambda: touched.append(1)
     section._on_more_row_clicked(QListWidgetItem("It's Always Sunny"))
     assert not touched
@@ -172,16 +180,33 @@ def test_a_normal_row_click_is_ignored(qapp):
 
 # ── the label stopped promising a departure ────────────────────────────
 def test_the_tail_no_longer_reads_like_a_link_away(qapp):
-    import inspect
+    """The tail says what clicking it will DO.
 
-    from metatv.gui.sidebar import row_budget
+    Asserted on the text the row produces, not by grepping the module source.
+    The grep version pinned one exact construction expression and broke the
+    moment the label gained its second form — while the behaviour it names was
+    still correct. A source grep cannot tell those two apart.
+    """
+    from metatv.gui.sidebar.history import HistorySection
 
-    src = inspect.getsource(row_budget)
-    assert 'QListWidgetItem(f"Show {hidden} more")' in src
-    # Anchored to the CONSTRUCTION, not to the bare old string: the comment
-    # above it quotes the old label to explain the change, and a looser
-    # assertion flagged the documentation as the drift it was documenting.
-    assert 'QListWidgetItem(f"+ ' not in src, (
-        "the arrow said 'this leaves for somewhere else', which is the header "
+    # __new__'d like the two tests above it: _tail_text reads only
+    # grow_request, so a full construction would add setup that proves nothing.
+    section = HistorySection.__new__(HistorySection)
+
+    # Room to take → the row offers to grow the section, with no arrow.
+    section.__dict__["grow_request"] = lambda s, rows=None, *, probe=False: True
+    label, tip = section._tail_text(6)
+    assert label == "Show 6 more", label
+    assert "→" not in label, (
+        "the arrow says 'this leaves for somewhere else', which is the header "
         "button's job, not this one's"
     )
+    assert "taller" in tip
+
+    # No room left → the only way to see the rest IS the full view, and the
+    # row says so rather than promising one thing and doing another.
+    section.__dict__["grow_request"] = lambda s, rows=None, *, probe=False: False
+    label, tip = section._tail_text(6)
+    assert label.startswith("See all 6 more")
+    assert "→" in label
+    assert "full view" in tip
