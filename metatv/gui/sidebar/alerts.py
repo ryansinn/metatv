@@ -1450,6 +1450,40 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clock.timeout.connect(self._tick)
         self._clock.start()
 
+    def set_playing(self, channel_id: str | None) -> None:
+        """Light the play marker on whichever row is the thing now playing.
+
+        Fed by the same playback-health poll that drives
+        ``details_pane.set_playing`` (main_window_streaming._notify_details_playing),
+        so the sidebar and the details pane can never disagree about what is on —
+        one source, two readers, rather than a second thing that also tries to
+        track playback.
+
+        Args:
+            channel_id: The channel now playing, or ``None`` to clear.
+        """
+        if "alerts_tree" not in self.__dict__:
+            return
+        for item, row in self._iter_rows():
+            row.set_playing(
+                channel_id is not None
+                and item.data(0, Qt.ItemDataRole.UserRole) == channel_id
+            )
+
+    def _iter_rows(self):
+        """Every (item, _AlertRow) pair in the EPG tree, parents and children."""
+        tree = self.alerts_tree
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            widget = tree.itemWidget(top, 0)
+            if isinstance(widget, _AlertRow):
+                yield top, widget
+            for j in range(top.childCount()):
+                child = top.child(j)
+                w = tree.itemWidget(child, 0)
+                if isinstance(w, _AlertRow):
+                    yield child, w
+
     def _tick(self) -> None:
         """Refresh every visible row's time text against the current instant.
 
@@ -1468,7 +1502,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if self.__dict__.get("is_collapsed") or "alerts_tree" not in self.__dict__:
             return
         now = _now_utc()
-        for row in self.alerts_tree.findChildren(_AlertRow):
+        for _item, row in self._iter_rows():
             row.refresh_time(now)
 
     def _schedule_boundary(self, live_groups: dict, upcoming_only: dict) -> None:
