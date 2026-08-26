@@ -81,11 +81,6 @@ class BackgroundRefreshMixin:
     def _on_data_ready(self, rows) -> None:
         """Main thread: clear, then render rows or a visible failure row."""
         lst = self._refresh_list()
-        # Fresh rows, fresh budget: a list that had been handed over to its
-        # scrollbar goes back to fitting, so a section does not stay expanded
-        # forever because it was scrolled once an hour ago.
-        if hasattr(self, "leave_scroll_mode"):
-            self.leave_scroll_mode(lst)
         lst.clear()
         if rows is None:
             self.show_load_error(lst, self._load_error_message())

@@ -877,12 +877,12 @@ class Config(BaseModel):
     # is vertical space: ~20px against ~37px is roughly twice the entries in the
     # same allocation. See metatv.gui.chip_row.
     sidebar_row_density: str = "compact"
-    #: Show the "Show N more" row at the foot of a truncated SIDEBAR section.
-    #: Off by default: scrolling the list reveals more, so for anyone with a
-    #: wheel the row is a permanent distraction advertising something they
-    #: already know how to do. On, it is the same action as a control, for
-    #: anyone whose pointing device cannot scroll. Sidebar-only — the main
-    #: results list has a real scrollbar.
+    #: Trade SIDEBAR scrollbars for "Show N more" rows. Off by default: every
+    #: entry is present and the section scrolls, like any other list. On: the
+    #: section shows what fits and ends with a row that makes it taller — for
+    #: pointing devices that cannot scroll. One switch for BOTH halves, because
+    #: a truncated list with neither a scrollbar nor a row is just misleading.
+    #: Sidebar-only; the main results list always has its scrollbar.
     sidebar_show_more_row: bool = False
     # Show poster thumbnails at the left of comfy/comfy_plus channel-list rows
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
