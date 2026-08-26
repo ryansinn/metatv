@@ -12,9 +12,88 @@ from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT
 from metatv.gui.token_color import to_qcolor
+
+class GroupHeading(QWidget):
+    """One sub-group heading inside a section — "EPG", "Series", "Watching for".
+
+    A widget rather than a styled item because the heading is two-toned: the
+    LABEL is the constant (it always says SERIES) and the COUNT is the variable,
+    so the count carries the emphasis — row-title size, bold, on the bright ramp
+    — against a muted small-caps label. A ``QListWidgetItem`` has one font and
+    one foreground and cannot express that.
+
+    No hue on the count: green already means "new" in this palette (the ``+N``
+    badge) and blue already means "interactive", so a coloured count would claim
+    a meaning it does not have. Size and value carry it instead.
+
+    No caret either. The heading itself is the control, exactly as the section
+    headers have been since #329 — a caret beside a clickable title is a second
+    affordance for one action.
+
+    This replaces three different ways of drawing the same thing inside one
+    section: real headings for the EPG groups, em-dash divider ROWS in the VOD
+    list, and a separate collapsible sub-section. Two of those dividers looked
+    identical and only one of them was clickable.
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str, count: int | None = None, *,
+                 interactive: bool = False, tooltip: str = "", parent=None):
+        """
+        Args:
+            text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
+                so the string itself stays sentence-case for anything reading it.
+            count: How many items the group holds; ``None`` renders no count.
+                Shown even when the group is collapsed — with the rows hidden it
+                is the only thing describing what is in there.
+            interactive: Whether clicking toggles the group. Adds the
+                pointing-hand cursor and emits :attr:`clicked`.
+            tooltip: Hover text; a sensible default is supplied when interactive.
+            parent: Qt parent.
+        """
+        super().__init__(parent)
+        self._interactive = interactive
+        row = QHBoxLayout(self)
+        row.setContentsMargins(4, 5, 4, 2)
+        row.setSpacing(0)
+
+        self.label = QLabel(text)
+        font = self.label.font()
+        font.setBold(True)
+        font.setCapitalization(QFont.Capitalization.AllUppercase)
+        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
+        self.label.setFont(font)
+        _theme.style(self.label, "SIDEBAR_GROUP_HEADING")
+        row.addWidget(self.label)
+
+        self.count_label = QLabel()
+        _theme.style(self.count_label, "SIDEBAR_GROUP_HEADING_COUNT")
+        row.addWidget(self.count_label)
+        self.set_count(count)
+
+        row.addStretch(1)
+
+        if interactive:
+            cursor_affordance.set_clickable(self)
+            self.setToolTip(tooltip or "Click to collapse or expand this group")
+        elif tooltip:
+            self.setToolTip(tooltip)
+
+    def set_count(self, count: int | None) -> None:
+        """Show ``count`` beside the label, or nothing when it is ``None``."""
+        self.count_label.setText("" if count is None else f"  {count}")
+        self.count_label.setVisible(count is not None)
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt override)
+        if self._interactive:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 
 def style_group_heading(item, column: int | None = None) -> None:
     """Style a sub-group heading INSIDE a section — "NEVER WATCHED", "EPG".

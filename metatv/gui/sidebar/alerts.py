@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import NamedTuple
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor
 from loguru import logger
 
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
@@ -28,13 +27,13 @@ from metatv.gui.sidebar.alerts_rows import (
     _VodAlertRow,
 )
 from metatv.gui.sidebar.base import (
-    CollapsibleSection, _fmt_channel_name, style_group_heading,
+    CollapsibleSection, GroupHeading, _fmt_channel_name,
 )
 
 # Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
 # rule_created id for keyword-rule rows (existing click/menu code reads it); the
 # extra roles tag the item kind and, for series rows, the series channel id.
-_ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "keyword_divider" | "series_divider" | "series"
+_ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "heading" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
 
@@ -346,7 +345,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # Keyword watch-for rules PLUS monitored series (folded in from the retired
         # New Episodes section).  Management is the header "Manage" button now.
         self._vod_collapsed = False
-        self._series_collapsed = False  # the "──── Series ────" divider toggle
+        self._series_collapsed = False   # the Series group heading toggle
+        self._keyword_collapsed = False  # the "Watching for" group heading toggle
 
         vod_hdr_row = QHBoxLayout()
         vod_hdr_row.setContentsMargins(0, 4, 0, 2)
@@ -645,6 +645,48 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             logger.exception("Alert availability re-validation failed; using raw counts")
             return None
 
+    def _toggle_series_group(self) -> None:
+        """Collapse/expand the monitored-series group."""
+        self._series_collapsed = not self._series_collapsed
+        self.refresh_vod_rules()
+
+    def _toggle_keyword_group(self) -> None:
+        """Collapse/expand the keyword watch-for group.
+
+        New: this heading used to be ``NoItemFlags`` and inert while the Series
+        heading beside it — visually identical — collapsed on click. One
+        grammar means both behave the same way.
+        """
+        self._keyword_collapsed = not self._keyword_collapsed
+        self.refresh_vod_rules()
+
+    def _add_group_heading(self, text: str, count: int | None = None, *,
+                           on_click=None, tooltip: str = "") -> None:
+        """Add one sub-group heading to the VOD list.
+
+        The item is always ``NoItemFlags`` — a heading is chrome, so the row
+        budget skips it and it can never be selected — and any click comes from
+        the WIDGET's signal rather than from item flags. That split is what
+        removes the old inconsistency: the two em-dash dividers looked
+        identical, but one was clickable because it had flags and the other was
+        not because it did not.
+        """
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        # Tagged so the context-menu handler can recognise a heading. NoItemFlags
+        # alone is not enough: itemAt() still returns it under the cursor, and
+        # without a kind it would fall through to the keyword-rule branch with a
+        # null rule id.
+        item.setData(_ROLE_KIND, "heading")
+        self._vod_list.addItem(item)
+        heading = GroupHeading(
+            text, count, interactive=on_click is not None, tooltip=tooltip
+        )
+        if on_click is not None:
+            heading.clicked.connect(on_click)
+        item.setSizeHint(QSize(0, heading.sizeHint().height()))
+        self._vod_list.setItemWidget(item, heading)
+
     def _toggle_vod_watching(self) -> None:
         self._vod_collapsed = not self._vod_collapsed
         if self._vod_collapsed:
@@ -705,21 +747,23 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
         )
 
-        # ── "Watching for" divider (keyword group label) ──────────────────
+        # ── "Watching for" group heading ───────────────────────────────────
         # Only shown when BOTH groups are present — with a single group the
-        # sub-section toggle already names it, so a label would be redundant.  A
-        # plain, non-interactive muted row mirroring the Series divider's look
-        # (that one is a collapse toggle; this one is just a label).
+        # sub-section toggle already names it, so a heading would be redundant.
+        # It is a collapse toggle like every other group heading; it used to be
+        # NoItemFlags and inert while looking identical to the Series one.
         if rules and series:
-            kw_divider = QListWidgetItem("──── Watching for ────")
-            kw_divider.setData(_ROLE_KIND, "keyword_divider")
-            kw_divider.setForeground(QColor(_theme.COLOR_MUTED))
-            kw_divider.setFlags(Qt.ItemFlag.NoItemFlags)  # label only — not clickable
-            kw_divider.setToolTip("Keyword watch-for rules")
-            self._vod_list.addItem(kw_divider)
+            self._add_group_heading(
+                "Watching for", len(rules),
+                on_click=self._toggle_keyword_group,
+                tooltip="Keyword watch-for rules — click to collapse or expand",
+            )
 
         # ── Keyword rules ─────────────────────────────────────────────────
-        for rule in rules:
+        # Skipped wholesale when the group is collapsed — but only when its
+        # heading is actually drawn (headings appear only with BOTH groups
+        # present), or a collapsed flag would hide rows with no way back.
+        for rule in ([] if (self._keyword_collapsed and rules and series) else rules):
             text = rule.get("text") or "?"
             match_type = rule.get("match_type", "any")
             created = rule.get("created", "")
@@ -754,17 +798,17 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             item.setSizeHint(row.sizeHint())
             self._vod_list.setItemWidget(item, row)
 
-        # ── Series divider + monitored-series rows ────────────────────────
+        # ── "Series" group heading + monitored-series rows ────────────────
         # The divider appears only when there ARE monitored series; it is a
         # collapse toggle (default expanded) so a heavy monitorer can tuck the
         # idle list away.
         if series:
-            arrow = self.config.expand_icon if self._series_collapsed else self.config.collapse_icon
-            divider = QListWidgetItem(f"{arrow}  ──── Series ({len(series)}) ────")
-            divider.setData(_ROLE_KIND, "series_divider")
-            divider.setForeground(QColor(_theme.COLOR_MUTED))
-            divider.setToolTip("Series you're monitoring for new episodes — click to collapse/expand")
-            self._vod_list.addItem(divider)
+            self._add_group_heading(
+                "Series", len(series),
+                on_click=self._toggle_series_group,
+                tooltip=("Series you're monitoring for new episodes — "
+                         "click to collapse or expand"),
+            )
 
             if not self._series_collapsed:
                 for s in series:
@@ -886,10 +930,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         - series divider → toggle the series block collapse.
         """
         kind = item.data(_ROLE_KIND)
-        if kind == "series_divider":
-            self._series_collapsed = not self._series_collapsed
-            self.refresh_vod_rules()
-            return
+        # Group headings no longer arrive here: they are NoItemFlags items whose
+        # GroupHeading widget emits its own clicked signal (see
+        # _add_group_heading), so an unselectable item cannot reach this handler.
         if kind == "series":
             cid = item.data(_ROLE_SERIES_ID)
             if cid:
@@ -914,8 +957,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             if cid:
                 self.seriesActivated.emit(cid)
             return
-        if kind == "series_divider":
-            return  # single-click already toggles it
+
         self.manageWatchForClicked.emit()
 
     def _on_vod_context_menu(self, pos) -> None:
@@ -929,7 +971,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if kind == "series":
             self._show_series_context_menu(item, pos)
             return
-        if kind in ("series_divider", "keyword_divider"):
+        if kind == "heading":
             return
 
         rule_created = item.data(Qt.ItemDataRole.UserRole)
@@ -1280,11 +1322,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._hide_epg_subsection()
             return
 
-        def _section_hdr(text: str) -> None:
-            item = QTreeWidgetItem([text])
+        def _section_hdr(text: str, count: int | None = None) -> None:
+            """One EPG group heading, in the same grammar as every other group.
+
+            Was a styled QTreeWidgetItem, which has one font and one foreground
+            and so could not render a muted label beside a bright count. A
+            widget can, and it is now the SAME widget the VOD groups use.
+            """
+            item = QTreeWidgetItem()
             item.setFlags(Qt.ItemFlag.NoItemFlags)
-            style_group_heading(item, column=0)
             self.alerts_tree.addTopLevelItem(item)
+            heading = GroupHeading(text, count)
+            item.setSizeHint(0, QSize(0, heading.sizeHint().height()))
+            self.alerts_tree.setItemWidget(item, 0, heading)
 
         def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
             """Connect an _AlertRow's signals to the section's public signals."""
@@ -1318,7 +1368,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self.alerts_tree.setItemWidget(item, 0, row)
 
         if live_groups:
-            _section_hdr("WATCH NOW")
+            _section_hdr("Watch now", len(live_groups))
             for key, grp in sorted(live_groups.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['live'])):
                 title = grp['title']
@@ -1341,7 +1391,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 
         if upcoming_only:
-            _section_hdr("UPCOMING")
+            _section_hdr("Upcoming", len(upcoming_only))
             for key, grp in sorted(upcoming_only.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['airings'])):
                 title = grp['title']
