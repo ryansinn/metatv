@@ -199,6 +199,10 @@ class MoviesSeriesMixin:
             _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
         self._firing_count = _rules_firing  # read by _update_vod_toggle_label
         self._series_new_count = sum(1 for s in series if s["unseen"] > 0)
+        # Group sizes, for pressure_groups: an EMPTY group folds before one
+        # that would actually lose rows.
+        self._rules_count = len(rules)
+        self._series_count = len(series)
         # Header dot/(N) reflect TOTAL firing = keyword rules + series with new
         # episodes (so a collapsed section glows even when only a series is new).
         # "Clear all" stays tied to keyword rules ONLY (series are cleared via each

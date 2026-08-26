@@ -90,6 +90,53 @@ This document defines standard UI/UX behaviors maintained throughout the applica
 - Star icon indicates favorite status
 - Double-click → loads/plays content
 
+## Sidebar vertical space — two limits, never one
+
+A section has **two** height limits and conflating them is what made Watch
+Alerts immovable:
+
+| method | what it means | who honours it |
+|---|---|---|
+| `preferred_expanded_height()` | what the section ASKS for — `MIN_ROWS` of its real row height, plus `NEWS_BOOST_ROWS` while it has news | automatic redistribution: a growing section never starves a neighbour below this |
+| `min_expanded_height()` | the hard floor — the header and the card's border | the user dragging a handle, and nothing else |
+
+They were one value, and the splitter enforced it as a wall. Watch Alerts
+declares `MIN_ROWS = 7` and earns two more rows while it has news, so it could
+not be dragged below **367px** — by far the tallest floor in the sidebar, which
+every other section then had to live around. Owner: *"the vertical resize
+should be standardized and allow to collapse down to nothing except the resize
+row"*.
+
+### Degrading, rather than clipping
+
+A section under pressure folds its groups to their headings, via
+`pressure_groups()` — an ordered, least-important-first list of
+`PressureGroup` records. A flat section returns `[]` and simply scrolls, which
+it already did. Four rules make it feel deliberate rather than random:
+
+1. **Auto-folded is not user-collapsed.** `_auto_folded` records what the pass
+   closed, and the pass may only ever re-open what is in it. Without that
+   distinction, freeing space anywhere in the sidebar silently undoes a
+   collapse the user chose — worse than not folding at all.
+2. **An empty group folds first**, whatever its place in the base order.
+   Folding a heading with nothing under it costs nothing.
+3. **The last group is never folded.** It takes the leftover room and scrolls,
+   so a short section shows every heading *and* some rows. Folding everything
+   leaves a stack of headings over dead space, which is strictly less.
+4. **Re-opening needs headroom** (`PRESSURE_HYSTERESIS`), not a bare fit.
+   Opening a group is what changes the height being measured, so a group that
+   re-opens the instant it *just* fits folds again on the next pixel of drag.
+
+Two traps, both about measurement. The pass is **debounced**
+(`PRESSURE_DEBOUNCE_MS`) because folding a group can mean a full list rebuild
+and a splitter drag emits a resize per frame. And `_content_height()` **forces
+the row budget** before measuring: the budget is what gives each inner view its
+height and a group toggle defers it to a `singleShot`, so measuring first reads
+the height the content had *before* the group opened — two groups re-opened at
+once on a zero-pixel fit until this was fixed.
+
+Guard: `tests/test_sidebar_elastic_sections.py`.
+
 ## Media Player Integration
 
 ### Single-Instance mpv
