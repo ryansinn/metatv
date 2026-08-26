@@ -26,9 +26,13 @@ from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 
 
-#: The left slot's reserved width, and the marker size within it.
-SLOT_W = 14
-SLOT_ICON_PX = 11
+#: The left slot's reserved width, and the marker size within it. 14px is the
+#: sidebar's normal icon size — History's play-next button uses the same — not
+#: the 11px a chip-row TYPE icon uses. That one is deliberately sized against a
+#: title's cap height because it sits inline WITH text; this is a control in its
+#: own column, and at 11px it read as half the size it should be.
+SLOT_W = 18
+SLOT_ICON_PX = 14
 
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
