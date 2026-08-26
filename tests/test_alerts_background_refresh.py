@@ -335,7 +335,8 @@ def _make_section(qapp):
     obj._epg_collapsed = False
     obj._epg_has_rows = False
     obj._epg_hdr_container = QWidget()
-    obj._epg_toggle = QPushButton()
+    from tests.conftest import wire_watch_alerts_headings
+    wire_watch_alerts_headings(obj)
     obj._vod_list = QListWidget()
     obj._retry_list = QListWidget()
     obj.config = _fake_config()
@@ -374,10 +375,12 @@ def test_populate_rows_live_adds_watch_now_header(qapp):
     obj._populate_rows({"live_groups": live_groups, "upcoming_only": {}})
 
     obj.set_empty.assert_called_once_with(False)
-    # Top-level items: "WATCH NOW" header + 1 direct item = 2
-    assert obj.alerts_tree.topLevelItemCount() == 2
-    hdr_text = obj.alerts_tree.topLevelItem(0).text(0)
-    assert hdr_text == "WATCH NOW"
+    # One top-level item: the row itself. EPG no longer wraps its rows in
+    # "Watch now"/"Upcoming" sub-headings — the EPG heading IS the group, and
+    # a wrapper reading as a peer of the rows it contains is what the flatten
+    # removed.
+    assert obj.alerts_tree.topLevelItemCount() == 1
+    assert obj.alerts_tree.itemWidget(obj.alerts_tree.topLevelItem(0), 0) is not None
 
 
 def test_populate_rows_upcoming_adds_upcoming_header(qapp):
@@ -397,9 +400,10 @@ def test_populate_rows_upcoming_adds_upcoming_header(qapp):
     obj._populate_rows({"live_groups": {}, "upcoming_only": upcoming_only})
 
     obj.set_empty.assert_called_once_with(False)
-    assert obj.alerts_tree.topLevelItemCount() == 2
-    hdr_text = obj.alerts_tree.topLevelItem(0).text(0)
-    assert hdr_text == "UPCOMING"
+    # One top-level item: the row itself. EPG no longer wraps its rows in
+    # "Watch now"/"Upcoming" sub-headings — it IS the group.
+    assert obj.alerts_tree.topLevelItemCount() == 1
+    assert obj.alerts_tree.itemWidget(obj.alerts_tree.topLevelItem(0), 0) is not None
 
 
 def test_populate_rows_multiple_airings_creates_parent_with_children(qapp):
@@ -419,8 +423,10 @@ def test_populate_rows_multiple_airings_creates_parent_with_children(qapp):
 
     obj.set_empty.assert_called_once_with(False)
     # WATCH NOW header + 1 parent item = 2 top-level items
-    assert obj.alerts_tree.topLevelItemCount() == 2
-    parent_item = obj.alerts_tree.topLevelItem(1)
+    # One top-level item: the row itself. EPG no longer wraps its rows in
+    # "Watch now"/"Upcoming" sub-headings — it IS the group.
+    assert obj.alerts_tree.topLevelItemCount() == 1
+    parent_item = obj.alerts_tree.topLevelItem(0)   # no header above it now
     # Parent has 2 children (one per airing)
     assert parent_item.childCount() == 2
     # Children carry channel_db_id in UserRole

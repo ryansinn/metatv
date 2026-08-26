@@ -166,6 +166,11 @@ class _ClickableHeader(QWidget):
         # The objectName lets SECTION_HEADER_TINT's ``#sectionHeader`` selector pin
         # the tint to this widget.
         self.setObjectName("sectionHeader")
+        # Without WA_StyledBackground a plain QWidget IGNORES a stylesheet
+        # background entirely — the tint below was applied, resolved, and never
+        # painted, so the header bled into the body at any opacity. Owner: "the
+        # header just bleeds through the entire thing."
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         _theme.style(self, "SECTION_HEADER_TINT")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
@@ -744,8 +749,21 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
             # (news 2.61:1 against plain 3.76:1), which is the signal exactly
             # backwards. COLOR_ACCENT_BLUE is the accent-as-text member and
             # clears 7.3:1 or better in every palette, always above MUTED.
-            colour = _theme.COLOR_ACCENT_BLUE if self.news() else _theme.COLOR_MUTED
-            return f"color: {colour}; font-size: {_theme.FONT_SM};"
+            if self.news():
+                # A filled pill, as the approved design shows — the loudest
+                # thing in the header and the one item worth seeing while the
+                # section is collapsed. Foreground from on_fill, never a
+                # hardcoded white: the fill carries the palette.
+                fill = _theme.COLOR_OK
+                return (
+                    f"color: {_theme.on_fill(fill)}; background: {fill};"
+                    f" border-radius: {_theme.RADIUS_SM}; padding: 0px 5px;"
+                    f" font-size: {_theme.FONT_XS}; font-weight: bold;"
+                )
+            return (
+                f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+                f" background: transparent;"
+            )
 
         self._status_build = _build
         _theme.style_fn(label, _build)

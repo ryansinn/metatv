@@ -838,7 +838,9 @@ def _build_semantic_constants() -> dict[str, object]:
     # link buttons), stacking the translucent overlay into a visibly darker box.  The
     # ``#sectionHeader`` selector pins the tint to the header container only.  Applied
     # by ``_ClickableHeader`` (which sets ``objectName("sectionHeader")``).
-    SECTION_HEADER_TINT = "#sectionHeader { background-color: " + OVERLAY_05 + "; }"
+    # OVERLAY_10, not 05: the section card sits on the DEEP ground now, and a
+    # 3.5% tint over it was invisible — the header bled into the content.
+    SECTION_HEADER_TINT = "#sectionHeader { background-color: " + OVERLAY_10 + "; }"
     BG_TRANSPARENT = "background: transparent;"
 
     # Exclusions chip (FilterChip in bottom nav bar) — three visual states.

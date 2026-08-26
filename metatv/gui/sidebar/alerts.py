@@ -112,12 +112,15 @@ _ALERTS_TREE_AUTOEXPAND_BUDGET = 320
 def _alerts_title_html(title: str, count: int) -> str:
     """Rich-text for the Alerts header: a recolorable status dot + title + count.
 
-    A single state-driven label replaces the old dual-glyph (siren title + green
-    badge).  The dot is a plain glyph that honours CSS ``color`` so its colour is
-    the state cue (paired with the count text, so it is colourblind-safe):
+The DOT carries the state; the title does not. Colouring the whole title
+    green and appending " (N)" made the header read as a different section
+    when something was new, and the count then had no chip of its own — the
+    approved design has a plain white title beside a filled green pill, which
+    is what ``make_status_label`` already renders for every other section.
 
-        - Quiet (count == 0): gray dot, default-text title, no suffix.
-        - Active (count > 0): green dot, green title, " (N)" suffix.
+        - Quiet (count == 0): grey dot, plain title.
+        - Active (count > 0): green dot, plain title. The count lives in the
+          header's status label.
 
     Args:
         title: The section title (always "Watch Alerts").
@@ -126,17 +129,10 @@ def _alerts_title_html(title: str, count: int) -> str:
     Returns:
         An HTML string for :meth:`QLabel.setText` (rich-text format).
     """
-    if count > 0:
-        dot_color = _theme.COLOR_OK
-        title_color = _theme.COLOR_OK
-        suffix = f" ({count})"
-    else:
-        dot_color = _theme.COLOR_MUTED
-        title_color = _theme.COLOR_TEXT
-        suffix = ""
+    dot_color = _theme.COLOR_OK if count > 0 else _theme.COLOR_MUTED
     return (
         f'<span style="color:{dot_color}">{_icons.status_dot_icon}</span> '
-        f'<b><span style="color:{title_color}">{title}{suffix}</span></b>'
+        f'<b><span style="color:{_theme.COLOR_TEXT_HI}">{title}</span></b>'
     )
 
 
@@ -220,6 +216,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.title_label = QLabel(_alerts_title_html(self.title, 0))
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)
+        hl.addStretch(1)
+        # The SAME status widget every other section header uses. Watch Alerts
+        # was the one that hand-rolled its count into the title instead.
+        hl.addWidget(self.make_status_label())
 
         hl.addStretch()
 

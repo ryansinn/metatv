@@ -14,6 +14,8 @@ F. ``update_new_match_badge`` total-vs-clearable split — the header dot reflec
 from __future__ import annotations
 
 from types import SimpleNamespace
+
+import metatv.gui.theme as _theme
 from unittest.mock import MagicMock
 
 import pytest
@@ -178,7 +180,7 @@ class TestHeaderBadgeSplit:
         section = self._section()
         # 3 keyword rules firing + 2 series with new episodes = 5 total.
         section.update_new_match_badge(5, 10, clearable_count=3)
-        assert "(5)" in section.title_label.text()            # dot/(N) = TOTAL
+        assert _theme.COLOR_OK in section.title_label.text()  # green dot; the count is the header pill            # dot/(N) = TOTAL
         assert not section._clear_all_btn.isHidden()          # keyword rules → shown
         tip = section.title_label.toolTip()
         assert "3 keyword matches" in tip, tip
@@ -189,7 +191,7 @@ class TestHeaderBadgeSplit:
         # A collapsed section with ONLY a series new episode: dot glows, but
         # "Clear all" must stay hidden (series are cleared via "Mark seen").
         section.update_new_match_badge(1, clearable_count=0)
-        assert "(1)" in section.title_label.text()
+        assert _theme.COLOR_OK in section.title_label.text()  # green dot; the count is the header pill
         assert section._clear_all_btn.isHidden()
         assert "1 series with new episode" in section.title_label.toolTip()
 
@@ -198,7 +200,7 @@ class TestHeaderBadgeSplit:
         # Legacy call shape (no clearable_count): clearable defaults to count, and
         # the tooltip keeps the matched-item total.
         section.update_new_match_badge(2, 73)
-        assert "(2)" in section.title_label.text()
+        assert _theme.COLOR_OK in section.title_label.text()  # green dot; the count is the header pill
         assert not section._clear_all_btn.isHidden()
         assert "73" in section.title_label.toolTip()
         assert "2 alerts" in section.title_label.toolTip()
