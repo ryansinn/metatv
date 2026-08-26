@@ -9,7 +9,7 @@ from metatv.gui.chip_row import (
 )
 from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui.sidebar.base import CollapsibleSection, make_seamless
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -89,7 +89,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)
-        _theme.apply_list_selection(self.history_list)
+        make_seamless(self.history_list)
         self.content_layout.addWidget(self.history_list)
 
         # The destructive bulk action lives in the ⋯ overflow, like Watch

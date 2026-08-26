@@ -27,7 +27,9 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.alerts_rows import _AlertRow
-from metatv.gui.sidebar.base import CollapsibleSection, GroupHeading, PressureGroup
+from metatv.gui.sidebar.base import (
+    CollapsibleSection, GroupHeading, PressureGroup, make_seamless,
+)
 from metatv.gui.sidebar.alerts_epg import EpgGroupMixin
 from metatv.gui.sidebar.alerts_monitor import StreamMonitoringMixin
 from metatv.gui.sidebar.alerts_vod import MoviesSeriesMixin
@@ -290,33 +292,6 @@ class WatchAlertsSection(
             if view is not None:
                 self.fit_to_rows(view)
 
-    @staticmethod
-    def _make_seamless(view) -> None:
-        """Strip a sub-list's frame and ground so it reads as part of the section.
-
-        The section is built from three widgets — an EPG tree and two lists —
-        stacked in one panel. Each drew its own frame and background, so the
-        approved single flat surface arrived as THREE BORDERED BOXES with
-        headings floating between them. Owner: "that doesn't look like the
-        design we planned."
-
-        They are one list to the reader; they are three only to the layout.
-        """
-        from PyQt6.QtWidgets import QFrame
-
-        view.setFrameShape(QFrame.Shape.NoFrame)
-        view.viewport().setAutoFillBackground(False)
-        # LIST_SELECTION_QSS is APPENDED, not replaced. style_fn hands Qt one
-        # sheet, so returning only the seamless rules wiped the selection rules
-        # apply_list_selection had put there — leaving Qt's raw blue highlight
-        # with unreadable text on it. Composing both is the whole job here.
-        _theme.style_fn(view, lambda: (
-            f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
-            f" background: transparent; border: none;"
-            f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
-            + _theme.LIST_SELECTION_QSS
-        ))
-
     def create_content(self):
         from PyQt6.QtWidgets import QHeaderView
 
@@ -373,8 +348,7 @@ class WatchAlertsSection(
         self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
-        _theme.apply_list_selection(self.alerts_tree)
-        self._make_seamless(self.alerts_tree)
+        make_seamless(self.alerts_tree)
         # Expanding + equal stretch (shared by all three sub-lists) so the section's
         # surplus vertical space is DISTRIBUTED among them rather than pooling in one
         # ballooning list or a dead gap.  No maximumHeight: the stretch share bounds
@@ -416,8 +390,7 @@ class WatchAlertsSection(
         # pane instead of leaving a gap.  A long list scrolls within its share.
         self._vod_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         _theme.style_fn(self._vod_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
-        _theme.apply_list_selection(self._vod_list)
-        self._make_seamless(self._vod_list)
+        make_seamless(self._vod_list)
         cursor_affordance.set_clickable(self._vod_list)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
@@ -471,8 +444,7 @@ class WatchAlertsSection(
         # same footing as the other two sub-lists.
         self._retry_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         _theme.style_fn(self._retry_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
-        _theme.apply_list_selection(self._retry_list)
-        self._make_seamless(self._retry_list)
+        make_seamless(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)

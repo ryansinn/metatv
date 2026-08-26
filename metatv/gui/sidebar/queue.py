@@ -16,7 +16,7 @@ from metatv.gui.chip_row import (
     media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
+from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading, make_seamless
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -126,10 +126,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
         self._filter_btn.setFlat(True)
-        # No box. A bordered, filled button in a header carrying a title, a
-        # count and an arrow reads as the loudest thing on the row for the
-        # least important control on it. Owner: "it looks like ass."
-        _theme.style(self._filter_btn, "PANEL_BTN")
+        # No box — and this time the ROLE says so. It carried PANEL_BTN, which
+        # sets `background: <card>` and `border: 1px solid <border>`, so the
+        # comment promised one thing and the style did the other. Owner, having
+        # to say it twice: "you also haven't removed the annoying outline and
+        # fill around the search icon".
+        _theme.style(self._filter_btn, "HEADER_ICON_BTN")
         self._filter_btn.setToolTip("Find in queue")
         self._filter_btn.clicked.connect(self._toggle_filter_box)
         header_layout.addWidget(self._filter_btn)
@@ -178,7 +180,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.gui.list_middle_click import install_list_middle_click
         self._list_mc = install_list_middle_click(self._list)
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
-        _theme.apply_list_selection(self._list)
+        make_seamless(self._list)
         self.content_layout.addWidget(self._list)
 
         # Both bulk actions live in the ⋯ overflow. "Clear Watched" used to be a

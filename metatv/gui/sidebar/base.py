@@ -183,6 +183,34 @@ from metatv.gui.sidebar.section_pressure import (  # noqa: F401
 
 
 
+def make_seamless(view) -> None:
+    """Strip a view's frame and ground so it reads as part of its section.
+
+    A section is a card. A list inside it that paints its own frame and
+    background lands as a BLACK BLOCK floating on that card — owner, of
+    Recommended: "we can get rid of that black block around the actual
+    content". They are one surface to the reader; two only to the layout.
+
+    Also applies the selection rules, and that ordering is the whole reason
+    this is one function rather than two calls. ``apply_list_selection``
+    APPENDS to a widget's stylesheet, so a sheet set afterwards replaces it and
+    the view falls back to Qt's raw saturated highlight with unreadable text on
+    it. Composing both in one ``style_fn`` is what makes the order impossible to
+    get wrong — see ledger F6, which is the same bug found app-wide.
+
+    Args:
+        view: Any ``QAbstractScrollArea`` — a QListWidget or QTreeWidget here.
+    """
+    view.setFrameShape(QFrame.Shape.NoFrame)
+    view.viewport().setAutoFillBackground(False)
+    _theme.style_fn(view, lambda: (
+        f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
+        f" background: transparent; border: none;"
+        f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
+        + _theme.LIST_SELECTION_QSS
+    ))
+
+
 def _floor_of(widget) -> int:
     """How small AUTOMATIC redistribution may make *widget*.
 
