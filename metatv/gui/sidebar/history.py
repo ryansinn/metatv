@@ -70,16 +70,12 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     def get_section_id(self):
         return "history"
 
-    def create_header(self):
-        """Header with an "Explore →" link that opens the Watch-History trail-map."""
-        header = self._build_clickable_header()
-        hl = header.layout()
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-        self.main_layout.addWidget(header)
+    def overflow_actions(self):
+        return [
+            (f"{self.config.delete_icon} Clear History",
+             "Remove every entry from your history",
+             self.clearHistoryClicked.emit, "clear_all"),
+        ]
 
     def create_content(self):
         self.history_list = QListWidget()
@@ -95,11 +91,6 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         # The destructive bulk action lives in the ⋯ overflow, like Watch
         # Queue's — a full-width button charged ~29px a session for something
         # you use once in a while.
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.delete_icon} Clear History",
-             "Remove every entry from your history",
-             self.clearHistoryClicked.emit),
-        ]))
 
     # --- BackgroundRefreshMixin hooks ---
     def _refresh_list(self) -> QListWidget:

@@ -80,6 +80,13 @@ class RecommendedSection(CollapsibleSection):
     # avoid. Refresh now lives in the ⋯ overflow with every other section's
     # occasional action, so the base header serves this section unchanged.
 
+    def overflow_actions(self):
+        return [
+            (f"{self.config.refresh_icon} Refresh recommendations",
+             "Recompute recommendations from your ratings and history",
+             self.refresh, "refresh"),
+        ]
+
     def create_content(self):
         self._list = QListWidget()
         # Rows fit the sidebar width and elide — never scroll sideways (which would
@@ -96,11 +103,6 @@ class RecommendedSection(CollapsibleSection):
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         make_seamless(self._list)
         self.content_layout.addWidget(self._list)
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.refresh_icon} Refresh recommendations",
-             "Recompute recommendations from your ratings and history",
-             self.refresh),
-        ]))
         self.set_empty(True)
 
     def refresh(self):

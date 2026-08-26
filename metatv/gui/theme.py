@@ -277,22 +277,6 @@ def _build_semantic_constants() -> dict[str, object]:
     # separator hairline, and pairing it with COLOR_DIM measured 2.70:1 in every
     # palette. Same mistake, same family, as the results list reading COLOR_LINE
     # for its background.
-    # Icon-only action in a SECTION HEADER. No box: the header already carries a
-    # title, a count and an arrow, and a bordered, filled button next to them
-    # reads as the loudest thing on the row for the least important control on
-    # it. Owner, twice, of the Watch Queue's find toggle: "it looks like ass",
-    # then "you also haven't removed the annoying outline and fill".
-    #
-    # Hover and checked carry the affordance instead. Colour alone is
-    # acceptable for `checked` here and only here: the thing it reports is the
-    # find box APPEARING directly beneath, which is not a subtle cue.
-    HEADER_ICON_BTN = (
-        "QPushButton { background: transparent; color: " + COLOR_TEXT + ";"
-        " border: none; padding: 0 4px; font-size: " + FONT_MD + "; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
-        "QPushButton:checked { color: " + COLOR_ACCENT + "; }"
-    )
-
     PANEL_BTN = (
         "QPushButton { background:" + COLOR_BG_CARD + "; color:" + COLOR_TEXT + "; border:1px solid " + COLOR_BORDER + ";"
         " border-radius: " + RADIUS_SM + "; padding:0 7px; font-size:" + FONT_MD + "; }"

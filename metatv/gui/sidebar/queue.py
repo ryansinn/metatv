@@ -126,15 +126,26 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
         self._filter_btn.setFlat(True)
-        # No box — and this time the ROLE says so. It carried PANEL_BTN, which
-        # sets `background: <card>` and `border: 1px solid <border>`, so the
-        # comment promised one thing and the style did the other. Owner, having
-        # to say it twice: "you also haven't removed the annoying outline and
-        # fill around the search icon".
-        _theme.style(self._filter_btn, "HEADER_ICON_BTN")
+        # Boxed, like every other control at the right end of a section header.
+        # The owner asked twice for this box to go — and then, seeing the whole
+        # row, asked for "[count] [...]" styled as Watch Alerts' own header
+        # buttons. Those readings agree: a LONE box beside unstyled content is
+        # what looked wrong, not the box. Three matching boxes read as one
+        # control group; one box and two bare things read as a mistake.
+        _theme.style(self._filter_btn, "PANEL_BTN")
         self._filter_btn.setToolTip("Find in queue")
         self._filter_btn.clicked.connect(self._toggle_filter_box)
         header_layout.addWidget(self._filter_btn)
+
+    def overflow_actions(self):
+        return [
+            (f"{self.config.watched_icon} Clear Watched",
+             "Remove finished items — partially watched titles stay",
+             self.clearWatchedClicked.emit),
+            (f"{self.config.delete_icon} Clear All",
+             "Remove everything from the queue",
+             self.clearQueueClicked.emit),
+        ]
 
     def create_content(self):
         # Pinned GREEN "new matches from your alerts" line — a single clickable row
@@ -186,14 +197,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         # Both bulk actions live in the ⋯ overflow. "Clear Watched" used to be a
         # full-width button, which cost ~29px — more than a compact row — in
         # every session, whether or not there was anything to clear.
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.watched_icon} Clear Watched",
-             "Remove finished items — partially watched titles stay",
-             self.clearWatchedClicked.emit),
-            (f"{self.config.delete_icon} Clear All",
-             "Remove everything from the queue",
-             self.clearQueueClicked.emit),
-        ]))
 
         # Filter bookkeeping — rebuilt by every _populate_rows.
         self._groups: list[_FilterGroup] = []

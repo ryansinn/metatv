@@ -81,17 +81,6 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         """
         return _theme.COLOR_GOLD
 
-    def create_header(self):
-        """Header with an "Explore →" link that opens the Favorites trail-map."""
-        header = self._build_clickable_header()
-        hl = header.layout()
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-        self.main_layout.addWidget(header)
-
     def create_content(self):
         self.favorites_list = QListWidget()
         # Chip rows fit the sidebar width and elide — never scroll sideways (which
