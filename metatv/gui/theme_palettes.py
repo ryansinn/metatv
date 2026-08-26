@@ -589,6 +589,17 @@ def _derive(name: str, legacy: dict[str, TokenValue]) -> dict[str, TokenValue]:
     }
 
 
+# What shipped as "Midnight" until 2026-08-26. Renamed, not changed: its
+# neutral IS slate — a nearly hueless grey — so beside Graphite it read as a
+# second neutral dark rather than as a midnight. The name now matches the ramp.
+SLATE: dict[str, TokenValue] = _derive("slate", _MIDNIGHT_LEGACY)
+
+# The design document's own dark theme (docs/design/v3-metatv-redrawn.html).
+# Its neutral is midnight_scale.MIDNIGHT_DARK, the document's verbatim
+# --sunken/--ground/--surface/--raised/--hair/--line and --t1/--t2/--t3: a
+# genuinely blue-grey ramp, darker and cooler than the slate one this name used
+# to carry. Only the neutral changes — every role, and the accent/ok/warn/err
+# scales, are the same, so this is a swap rather than a second palette to keep.
 MIDNIGHT: dict[str, TokenValue] = _derive("midnight", _MIDNIGHT_LEGACY)
 
 _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
@@ -818,6 +829,7 @@ GRUVBOX_LIGHT: dict[str, TokenValue] = _derive("gruvbox-light", _MIDNIGHT_LEGACY
 
 PALETTES: dict[str, dict[str, TokenValue]] = {
     "Midnight": MIDNIGHT,
+    "Slate": SLATE,
     "Graphite": GRAPHITE,
     "Daylight": DAYLIGHT,
     "Gruvbox": GRUVBOX,
@@ -832,8 +844,26 @@ DEFAULT_PALETTE = "Midnight"
 # makes a copy-paste-and-forget-to-convert miss impossible to ship).
 PALETTE_KIND: dict[str, str] = {
     "Midnight": "dark",
+    "Slate": "dark",
     "Graphite": "dark",
     "Daylight": "light",
     "Gruvbox": "dark",
     "Gruvbox Light": "light",
 }
+
+
+#: Palettes that changed identity, old stored name → new one. A viewer who had
+#: the previous Midnight keeps the colours they chose; they are called Slate
+#: now, and the Midnight name belongs to the design document's palette.
+RENAMED_PALETTES: dict[str, str] = {}
+
+
+def resolve_palette_name(name: str) -> str:
+    """The palette to actually load for a stored ``theme_name``.
+
+    Unknown names fall back to :data:`DEFAULT_PALETTE` rather than raising: a
+    config carrying a palette this build does not have should cost the
+    preference, not the launch.
+    """
+    name = RENAMED_PALETTES.get(name, name)
+    return name if name in PALETTES else DEFAULT_PALETTE

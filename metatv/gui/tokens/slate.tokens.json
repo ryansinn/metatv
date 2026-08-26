@@ -1,9 +1,9 @@
 {
-  "$description": "MetaTV 'Midnight' palette — the design document's own dark theme. Its neutral is midnight_scale.MIDNIGHT_DARK, taken verbatim from docs/design/v3-metatv-redrawn.html (--sunken/--ground/--surface/--raised/--hair/--line and --t1/--t2/--t3): a genuinely blue-grey ramp, darker and cooler than the slate one this name used to carry. Everything else — the role structure, the accent/ok/warn/err scales — is unchanged, so this is a neutral swap and not a second palette to maintain.",
+  "$description": "MetaTV 'Slate' palette — what shipped as Midnight until 2026-08-26. Renamed, not changed: its neutral IS slate (see $scales), a nearly hueless grey, and beside Graphite it read as a second neutral dark rather than as a midnight. The name now matches the ramp. The real Midnight is built from the design document's own blue-grey ramp. W3C DTCG format; values are Radix scale references resolved by tokens/loader.py. Role names follow Material 3 (surface / on-surface / outline / primary), which is what makes 'which grey do I use?' answerable — the old set had 15 neutrals named dim/muted/faint with no rule.",
   "$extends": "radix",
   "$mode": "dark",
   "$scales": {
-    "neutral": "midnight",
+    "neutral": "slate",
     "primary": "blue",
     "ok": "green",
     "warn": "amber",
