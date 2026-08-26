@@ -88,9 +88,12 @@ def _meta_parts(row):
     # ...plus the right-edge tail, which is a plain QLabel and is where History
     # keeps its terse age ("2h"). It is a fact the row shows, so it counts.
     title = row_title_label(row)
+    # `.isNull()`, not `is None`: PyQt6's QLabel.pixmap() returns a NULL
+    # QPixmap for a label with no pixmap, never None — so `is None` is always
+    # False and this list silently came back empty.
     tail = [
         l.text() for l in row.findChildren(QLabel)
-        if l.text() and l is not title and l.pixmap() is None
+        if l.text() and l is not title and l.pixmap().isNull()
     ]
     facts = chips + tail
     assert facts, f"row shows neither chips nor a meta line: {_texts(row)}"
