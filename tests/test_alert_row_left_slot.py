@@ -11,12 +11,13 @@ aired. Owner: "how can it play anything in future... no time machine."
 
 from datetime import datetime, timedelta
 
-from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QEnterEvent, QMouseEvent
 
 from metatv.core.config import Config
 from metatv.gui import theme as _theme
 from metatv.gui.relative_time import humanize_remaining
+from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.alerts_rows import SLOT_W, _AlertRow
 
 NOW = datetime(2026, 8, 26, 12, 0, 0)
@@ -63,12 +64,20 @@ def test_hover_does_not_move_anything(qapp, tmp_path):
     row.show()
     qapp.processEvents()
 
-    title = row.layout().itemAt(1).widget()
-    before = (title.geometry(), row.progress.geometry())
+    # Positions in the ROW's own coordinates, and the title fetched by the
+    # sanctioned accessor rather than by layout index — the row is built by
+    # ``build_chip_row`` now, so "the second thing in the layout" names nothing.
+    def _where():
+        title = row_title_label(row)
+        return tuple(
+            (w.mapTo(row, QPoint(0, 0)), w.size())
+            for w in (title, row.progress)
+        )
 
+    before = _where()
     _enter(row)
     qapp.processEvents()
-    after = (title.geometry(), row.progress.geometry())
+    after = _where()
 
     assert before == after, (
         "hovering moved the row's contents — the play affordance is taking "

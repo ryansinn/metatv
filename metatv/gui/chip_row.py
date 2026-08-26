@@ -59,8 +59,11 @@ DENSITIES = (DENSITY_COMPACT, DENSITY_COMFORTABLE)
 CHIP_QUALITY = "quality"
 CHIP_YEAR = "year"
 CHIP_LANG = "lang"
-#: Quality is absent on purpose: its sheet is composed per TIER at build time
-#: (see :func:`_quality_chip_style`), so it has no single static role.
+CHIP_NEWS = "news"
+#: Quality and news are absent on purpose: both sheets are COMPOSED at build
+#: time — quality per tier (see :func:`_quality_chip_style`), news from
+#: ``theme.on_fill`` (:func:`_news_chip_style`) — so neither has a single
+#: static role.
 _CHIP_ROLES = {
     CHIP_YEAR: "SIDEBAR_CHIP_YEAR",
     CHIP_LANG: "SIDEBAR_CHIP_LANG",
@@ -79,6 +82,11 @@ META_OBJECT_NAME = "chipRowMeta"
 #: since they were unified onto one box model, so ``findChild(QPushButton)``
 #: returns a CHIP — the row's quality badge — not the control the caller wired.
 TRAILING_OBJECT_NAME = "chipRowTrailing"
+
+#: The dim qualifier after the title. Named for the same reason the others are:
+#: it is a plain ``QLabel`` and a bare ``findChild(QLabel)`` on a row would
+#: return whichever one Qt reaches first.
+SUFFIX_OBJECT_NAME = "chipRowSuffix"
 
 #: Row-icon edge length, sized against the title's CAP HEIGHT rather than its
 #: font size. A 13px font draws ~9px of capital, but a 13px icon is 13px of
@@ -304,8 +312,35 @@ def _quality_chip_style(text: str) -> str:
     )
 
 
-def _chip_widget(kind: str, text: str) -> QWidget:
+def _news_chip_style() -> str:
+    """The "+N" pill: FILLED, not tinted text.
+
+    It is the one thing on a row you are meant to notice, and the loudest
+    element the V3 row grammar allows. The foreground comes from
+    ``theme.on_fill`` rather than a hardcoded white, because the fill carries
+    the palette — a ``COLOR_OK`` pill is mint in the dark themes and forest in
+    Daylight, so the legible foreground flips with the FILL, not the theme.
+
+    Distinct from ``SIDEBAR_ROW_NEWS``, which is the same count as bare OK-
+    coloured TEXT. Both exist: text where the row already carries chips and a
+    pill would be a third weight, a pill where the count is the row's headline.
+    """
+    fill = _theme.COLOR_OK
+    return (
+        f"QPushButton {{ color: {_theme.on_fill(fill)}; background: {fill};"
+        f" border: 1px solid {fill}; border-radius: {_theme.RADIUS_SM};"
+        f" padding: 0px 5px; font-size: {_theme.FONT_XS}; font-weight: bold; }}"
+    )
+
+
+def chip_widget(kind: str, text: str) -> QWidget:
     """One chip — a flat ``QPushButton`` whatever the kind.
+
+    Public because a row that must KEEP a reference to one of its chips (Watch
+    Alerts rewrites its time chip on a clock tick) has to build it rather than
+    fish it back out of the assembled row by matching text — a lookup that
+    silently returns the wrong widget the moment a title happens to equal a
+    time string. Hand it to ``build_chip_row`` as ``tail_widget``.
 
     All three kinds are the same widget so they share one box model and one
     padding. As QLabels the year and language chips looked looser than the
@@ -319,7 +354,11 @@ def _chip_widget(kind: str, text: str) -> QWidget:
     chip.setFlat(True)
     chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-    if kind == CHIP_QUALITY:
+    if kind == CHIP_NEWS:
+        # style_fn for the same reason quality uses it: the sheet is composed
+        # from runtime colour, so a rendered string goes stale on a switch.
+        _theme.style_fn(chip, _news_chip_style)
+    elif kind == CHIP_QUALITY:
         # Per-TIER hue, from badge_utils — the mapping that already owns
         # quality→colour. style_fn (not style) because the sheet is composed
         # from a runtime value, so it must be REBUILT on a palette switch;
@@ -342,6 +381,11 @@ def build_chip_row(
     liked: bool = False,
     new_badge: bool = False,
     trailing_button: QPushButton | None = None,
+    leading_slot: QWidget | None = None,
+    title_suffix: str = "",
+    title_chips: Sequence[tuple[str, str]] = (),
+    tail_widget: QWidget | None = None,
+    indent: int = 0,
 ) -> QWidget:
     """Build a sidebar content row in the caller's chosen density.
 
@@ -382,6 +426,31 @@ def build_chip_row(
             itself is the cue, never colour alone.
         trailing_button: An already-built, already-styled ``QPushButton`` (the
             caller owns its click wiring) appended as the row's last element.
+        leading_slot: A caller-owned widget pinned at the ABSOLUTE left, before
+            everything else including ``liked`` and ``icon_role``. Give it a
+            fixed width: the point of the slot is that it reserves its column
+            whether or not it currently holds anything, so a marker appearing
+            on hover cannot shove the rest of the row sideways. Watch Alerts
+            paints play / caret / new-dot into one such slot.
+        title_chips: Chips drawn with the TITLE, left of the stretch, rather
+            than in the right-hand rail. The distinction is what the chip
+            claims: a quality token or an episode code is a fact about THIS
+            copy and travels with its name, while ``chips`` are facts about the
+            row's place in the list and belong in the rail. Owner, on the Watch
+            Alerts grammar: "the quality chip should be align left right after
+            the channel title".
+        title_suffix: A quieter qualifier immediately after the title — a
+            collision disambiguator when two rows share a cleaned name. Takes
+            ``SIDEBAR_ROW_TAIL``, the row family's existing "terse and
+            subordinate" role, rather than a second definition of the same idea.
+            It never elides: it is what tells two identical titles apart, so it
+            is the last thing that should be dropped.
+        tail_widget: A caller-owned widget in the right-hand cluster, after the
+            chips and ``tail``. For a fact that cannot be a string — Watch
+            Alerts puts a programme's progress bar here.
+        indent: Left inset, for a child row nested under a parent. Supplied by
+            the caller rather than a tree's ``setIndentation``, which also
+            indents TOP-level rows and so gives a section two left edges.
 
     Returns:
         A ``QWidget`` ready for ``QListWidget.setItemWidget``.
@@ -393,17 +462,23 @@ def build_chip_row(
         outer = QVBoxLayout(row)
         # Tight, deliberately: a two-line row costs the sidebar its scarcest
         # resource, so every pixel of padding is a row someone does not see.
-        outer.setContentsMargins(4, 1, 8, 1)
+        outer.setContentsMargins(4, 1, 8, 1)  # indent goes on the inner line
         outer.setSpacing(0)
         title_line = QWidget()
         outer.addWidget(title_line)
         layout = QHBoxLayout(title_line)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(indent, 0, 0, 0)
     else:
         outer = None
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(4, 1, 8, 1)
+        layout.setContentsMargins(4 + indent, 1, 8, 1)
     layout.setSpacing(5)
+
+    # Absolute left, ahead of every other leading element: the slot is the
+    # column titles align against, so anything placed before it would break the
+    # alignment it exists to provide.
+    if leading_slot is not None:
+        layout.addWidget(leading_slot)
 
     if liked:
         like_lbl = QLabel(_icons.like_icon)
@@ -426,6 +501,16 @@ def build_chip_row(
     title_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
     layout.addWidget(title_lbl)
 
+    if title_suffix:
+        suffix_lbl = QLabel(title_suffix)
+        suffix_lbl.setObjectName(SUFFIX_OBJECT_NAME)
+        _theme.style(suffix_lbl, "SIDEBAR_ROW_TAIL")
+        layout.addWidget(suffix_lbl)
+
+    for kind, text in title_chips:
+        if text:
+            layout.addWidget(chip_widget(kind, text))
+
     layout.addStretch(1)
 
     if not comfortable:
@@ -433,11 +518,13 @@ def build_chip_row(
         # section's rows — see each section for which it spends them on.
         for kind, text in chips:
             if text:
-                layout.addWidget(_chip_widget(kind, text))
+                layout.addWidget(chip_widget(kind, text))
         if tail:
             tail_lbl = QLabel(tail)
             _theme.style(tail_lbl, "SIDEBAR_ROW_TAIL")
             layout.addWidget(tail_lbl)
+        if tail_widget is not None:
+            layout.addWidget(tail_widget)
 
     if news_text:
         news_lbl = QLabel(news_text)
