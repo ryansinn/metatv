@@ -18,6 +18,7 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         return str(t[name])
 
     bg_card   = _("COLOR_BG_CARD")
+    bg_deep   = _("COLOR_BG_DEEP")
     border    = _("COLOR_BORDER")
     text_hi   = _("COLOR_TEXT_HI")
     text      = _("COLOR_TEXT")

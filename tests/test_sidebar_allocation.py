@@ -59,9 +59,18 @@ class _Section(CollapsibleSection):
 
 @pytest.fixture
 def config():
+    """A config with the row budget switched ON.
+
+    Budgeting is opt-in now: by default a sidebar section shows every row and
+    scrolls, like any other list, because hiding rows is only worth doing when
+    something can reveal them. This file is *about* the budget, so it turns the
+    setting on — the same switch a viewer flips when their pointing device
+    cannot scroll.
+    """
     from types import SimpleNamespace
     return SimpleNamespace(expand_icon="v", collapse_icon=">",
-                           sidebar_sections=[], sidebar_visible_sections=[])
+                           sidebar_sections=[], sidebar_visible_sections=[],
+                           sidebar_show_more_row=True)
 
 
 def _fill(section, n, row_h=20):
@@ -253,12 +262,35 @@ def test_news_is_painted_louder_than_a_plain_count(qapp, config):
     property was always "louder", and pinning the token instead is what let the
     inversion ship.
     """
+    def _contrast(a, b):
+        def lin(c):
+            c /= 255
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def lum(h):
+            h = h.lstrip("#")
+            r, g, bl = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+            return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(bl)
+
+        hi, lo = max(lum(a), lum(b)), min(lum(a), lum(b))
+        return (hi + 0.05) / (lo + 0.05)
+
     loud = _Section(config, news_text="1 new")
     quiet = _Section(config)
     quiet._count = 9
-    assert _theme.COLOR_ACCENT_BLUE in loud._status_label.styleSheet()
-    assert _theme.COLOR_ACCENT_BLUE not in quiet._status_label.styleSheet()
-    assert _theme.COLOR_MUTED in quiet._status_label.styleSheet()
+
+    loud_sheet = loud._status_label.styleSheet()
+    quiet_sheet = quiet._status_label.styleSheet()
+
+    # News is a FILLED pill now, so "louder" is measured, not pinned to a
+    # token — which is the mistake this test's own history records.
+    assert "background: " in loud_sheet and _theme.COLOR_OK in loud_sheet, loud_sheet
+    assert "background: transparent" in quiet_sheet, quiet_sheet
+
+    ground = _theme.COLOR_BG_DEEP
+    assert _contrast(_theme.COLOR_OK, ground) > _contrast(_theme.COLOR_MUTED, ground), (
+        "a section WITH news must read louder than one without"
+    )
 
 
 def test_refreshing_the_status_updates_text_and_floor(qapp, config):

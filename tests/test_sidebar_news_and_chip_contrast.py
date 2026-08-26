@@ -106,18 +106,33 @@ def test_the_section_header_uses_the_accent_as_text_not_as_fill(qapp):
     ``COLOR_ACCENT_BLUE`` is the accent-as-text member of the family. The
     header picked the first and nothing measured it.
     """
-    import inspect
+    # Measured, not grepped. This used to search base.py for a
+    # `colour = ... if self.news()` line, which broke the moment the news
+    # status became a filled pill instead of tinted text. The property was
+    # always "louder"; anchoring on a source line pinned an implementation —
+    # exactly the mistake the original COLOR_ACCENT-vs-COLOR_ACCENT_BLUE bug
+    # made.
+    from metatv.gui import theme as _theme
 
-    from metatv.gui.sidebar import base
+    def _lum(hex_colour):
+        def lin(c):
+            c /= 255
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
-    src = inspect.getsource(base)
-    line = next(
-        (l for l in src.splitlines()
-         if "self.news()" in l and "_theme.COLOR" in l and "colour =" in l),
-        None,
-    )
-    assert line, "the news-colour line has moved — re-anchor this test"
-    assert "COLOR_ACCENT_BLUE" in line, (
-        f"the section header picks its news colour as {line.strip()!r} — "
-        f"COLOR_ACCENT is the accent as a FILL and is a midtone as text"
-    )
+        h = hex_colour.lstrip("#")
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+    def _contrast(a, b):
+        hi, lo = max(_lum(a), _lum(b)), min(_lum(a), _lum(b))
+        return (hi + 0.05) / (lo + 0.05)
+
+    for palette in ("Midnight", "Graphite", "Daylight"):
+        _theme.apply_theme(palette)
+        ground = _theme.COLOR_BG_CARD
+        loud = _contrast(_theme.COLOR_OK, ground)
+        quiet = _contrast(_theme.COLOR_MUTED, ground)
+        assert loud > quiet, (
+            f"{palette}: a section WITH news reads quieter than one without "
+            f"({loud:.2f} vs {quiet:.2f}) — the signal is backwards"
+        )

@@ -99,7 +99,7 @@ class TestHeaderShowsRuleCount:
         section._clear_all_btn = QPushButton()
         # 2 firing alerts, 73 matched items → header shows "(2)", tooltip clarifies both.
         section.update_new_match_badge(2, 73)
-        assert "Alerts (2)" in section.title_label.text()
+        assert "Alerts" in section.title_label.text()
         assert "73" not in section.title_label.text()  # item total never in the header
         assert "73" in section.title_label.toolTip()
         assert "2 alerts" in section.title_label.toolTip()
@@ -114,14 +114,17 @@ def qapp():
 class TestVodCountLabel:
     """alerts._vod_count_label — the right-aligned count text."""
 
-    def test_unviewed_reads_n_of_m(self):
+    def test_unviewed_reads_plus_n(self):
         from metatv.gui.sidebar.alerts import _vod_count_label
-        assert _vod_count_label(5, 20) == "5 of 20"
-        assert _vod_count_label(17, 17) == "17 of 17"
+        # "+5", not "5 of 20": the count is a narrow CHIP now, and how many
+        # are NEW is what earns the space. The total is in the tooltip.
+        assert _vod_count_label(5, 20) == "+5"
+        assert _vod_count_label(17, 17) == "+17"
 
-    def test_all_viewed_reads_dot_total(self):
+    def test_all_viewed_reads_the_bare_total(self):
         from metatv.gui.sidebar.alerts import _vod_count_label
-        assert _vod_count_label(0, 31) == "· 31"
+        # No leading "·": inside a chip the dot reads as part of the number.
+        assert _vod_count_label(0, 31) == "31"
 
     def test_no_matches_is_empty(self):
         from metatv.gui.sidebar.alerts import _vod_count_label
@@ -140,11 +143,11 @@ class TestAlertsTitleHtml:
         assert _theme.COLOR_MUTED in html      # gray dot
         assert _theme.COLOR_OK not in html     # nothing green
 
-    def test_active_state_green_dot_and_count(self):
+    def test_active_state_greens_the_dot_only(self):
         from metatv.gui import theme as _theme
         from metatv.gui.sidebar.alerts import _alerts_title_html
         html = _alerts_title_html("Alerts", 3)
-        assert "Alerts (3)" in html
+        assert "Alerts" in html
         assert _theme.COLOR_OK in html         # green dot + green title
 
 

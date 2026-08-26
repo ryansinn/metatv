@@ -177,7 +177,10 @@ def test_every_section_with_group_headings_uses_the_one_styler(module):
     import pathlib
 
     src = pathlib.Path(f"metatv/gui/sidebar/{module}.py").read_text()
-    assert "style_group_heading(" in src, (
+    # Either shared styler: style_group_heading() paints an ITEM, GroupHeading
+    # is the WIDGET that replaced it where a heading needs two tones (a muted
+    # label beside a bright count), which an item cannot express.
+    assert ("style_group_heading(" in src) or ("GroupHeading(" in src), (
         f"{module}.py styles a group heading by hand"
     )
     assert "setBold(True)" not in src, (

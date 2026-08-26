@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import pytest
 
+import metatv.gui.theme as _theme
+
 from metatv.core.config import Config
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -233,7 +235,6 @@ class TestSidebarAndQueueGlance:
 
         # Active: green dot + green "Alerts (3)" title; "Clear all" shows.
         section.update_new_match_badge(3)
-        assert "(3)" in section.title_label.text()
         assert _theme.COLOR_OK in section.title_label.text()
         assert not section._clear_all_btn.isHidden()
 

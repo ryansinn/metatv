@@ -690,6 +690,21 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
+def wire_watch_alerts_headings(section) -> None:
+    """Give a ``__new__``'d WatchAlertsSection its three group headings.
+
+    They are ``GroupHeading`` widgets, not ``QPushButton``s — a heading is two
+    toned (muted label, bright count) and a button's single ``setText`` cannot
+    express that. A skeleton that assigns a QPushButton here fails on
+    ``set_count``, which is the shape the real widget exposes.
+    """
+    from metatv.gui.sidebar.base import GroupHeading
+
+    section._epg_toggle = GroupHeading("EPG", interactive=True)
+    section._vod_toggle = GroupHeading("Movies & Series", interactive=True)
+    section._retry_toggle = GroupHeading("Stream Monitoring", interactive=True)
+
+
 def wire_watch_alerts_group_state(section) -> None:
     """Give a ``__new__``'d WatchAlertsSection the group-collapse flags.
 
