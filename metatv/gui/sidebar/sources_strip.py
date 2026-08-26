@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[int, int]:
     """Classify providers into (active_count, expiring_count) for the strip text.
 
-    'active' = enabled providers with no subscription concern (the green status
-    dot elsewhere). 'expiring' = ANY provider — enabled or not — whose
+    'active' = enabled providers (the green status dot elsewhere), whatever
+    their subscription is doing. 'expiring' = ANY provider — enabled or not — whose
     subscription has already lapsed or is running low, using the same
     ``subscription_color`` classification (WARN/ERR) the manager's rows use.
 
@@ -43,8 +43,9 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
         now: Current time (injected for deterministic tests).
 
     Returns:
-        (active_count, expiring_count) — a provider that is simply disabled with
-        no subscription concern is counted in neither.
+        (active_count, expiring_count). A provider can appear in BOTH: enabled
+        and serving, with a subscription that is nearly up. A disabled provider
+        with no subscription concern appears in neither.
     """
     from metatv.gui.provider_editor import subscription_color
 
@@ -56,10 +57,18 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
             if p.account_exp_date else ""
         )
         concerning = is_expired or color in (_theme.COLOR_WARN, _theme.COLOR_ERR)
+        # INDEPENDENT counts, not exclusive branches. "Active" answers "is this
+        # source enabled and serving?"; "expiring" answers "is its subscription
+        # running out?" — orthogonal questions about the same row. Counting
+        # them with elif meant an enabled source with a lapsing subscription
+        # was counted ONLY as expiring, so an install with two working sources
+        # that both happened to be near renewal reported "0 active" and, once
+        # the strip started leading with its most urgent fact, "No active
+        # sources" — an outright false alarm about an app that was working.
+        if p.is_active:
+            active += 1
         if concerning:
             expiring += 1
-        elif p.is_active:
-            active += 1
     return active, expiring
 
 
