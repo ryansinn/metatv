@@ -133,6 +133,9 @@ Every UI section (splitter size, collapse state, filter selections) saves to con
 ### Architecture discipline — chokepoints, scope, ask early
 Before adding a sibling function, grep the verb-cluster (`play_*`/`load_*`/`refresh_*`/`fetch_*`/`_on_*_ready`) for the existing chokepoint and share it; one concern per PR. Detail + cautionary case: docs/CRITICAL_RULES.md#architecture-discipline.
 
+### Naming anything new — grep FIRST, three greps, before you write it
+The rule above says *function*; every miss is a **role, a config field, a signal handler, a widget on a dialog, an icon key**. Before adding any named thing: (1) grep for siblings of the same shape — a theme role, an icon role, a settings widget; (2) grep for who else CONSTRUCTS the object you are adding to, tests included, and add it to that shared factory in the same edit; (3) grep for the registry it must be listed in (`_SETTINGS_APPLIED_HOOKS`, `VECTOR_KEYS`, `wire_settings_*`). Seconds each, and they are the only form of this that has held — the fluent answer (`hasattr`, a fresh role, a hand-rolled layout) is usually correct Python and wrong *here*, so nothing prompts you to stop. One session produced six of these: `SIDEBAR_TOGGLE_BTN` beside `SIDEBAR_SUBSECTION_TOGGLE` nine lines away, a settings combo missing from the factory whose docstring promises it (43 tests red), a handler missing from `_SETTINGS_APPLIED_HOOKS`, `hasattr` on a `__new__`'d QObject (which raises `RuntimeError`, so the guard explodes), a hand-rolled form row, and an icon key already owned by another role. Detail: docs/CRITICAL_RULES.md#architecture-discipline.
+
 ## Metadata — year derived at ingestion
 
 Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it at write from `release_date`, backfills pre-fix rows on read; no runtime parsing outside `metadata_manager.py`). Provider chain, `merge()` confidence scoring, and dedup compromises: docs/METADATA_SYSTEM.md, docs/CONTENT_IDENTITY.md.
@@ -150,6 +153,7 @@ Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it a
 One directive per rule; violations here have burned real money and real trust. No exceptions without the owner saying so in the moment.
 
 ### One gate, no double-testing
+Feature-work merges gate with **`--quick`** (launch smoke + the PR's own changed test files, seconds); the **full** suite runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
 Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
 
 ### A verified slice gets merged, not resumed
@@ -186,7 +190,7 @@ On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: 
 ### Shipped means proven, never planned
 A wave/release scope list is intent, not evidence. **A claimed item with no What's New entry did not ship** — record it NOT BUILT (or cite a `file.py:line` anchor for genuinely invisible work), and never promote a plan, a brief, or an agent's self-report into a memory of delivered work. Ten releases drifted and three phantom Wave-7 items entered memory as fact before this was mechanical. Gates: `scripts/roadmap_audit.py` (+ `--version X.Y.Z`); detail: docs/SESSION_WRAP.md steps 3-4.
 
-Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict, `merge_pr.sh <PR#>` = verify→merge→prune in one command, `prune_merged.sh` = safe merged-worktree/branch cleanup, `roadmap_audit.py` = roadmap reconciliation watermark + per-release claims audit.
+Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict (`--quick` = launch smoke + the PR's own changed test files, for feature work — never for a release), `merge_pr.sh <PR#>` = verify→merge→prune in one command (takes `--quick` too), `prune_merged.sh` = safe merged-worktree/branch cleanup, `roadmap_audit.py` = roadmap reconciliation watermark + per-release claims audit.
 
 ## Migration Status
 

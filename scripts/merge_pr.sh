@@ -23,6 +23,11 @@
 #   scripts/merge_pr.sh <PR#>                    Verify, merge (squash), prune.
 #   scripts/merge_pr.sh <PR#> --skip-verify      Merge without re-verifying.
 #   scripts/merge_pr.sh <PR#> --keep-worktree    Merge but skip the prune step.
+#   scripts/merge_pr.sh <PR#> --quick            Gate with the QUICK verify
+#                                                (launch smoke + this PR's own
+#                                                test files) instead of the full
+#                                                suite. For feature work; run the
+#                                                full gate before a release.
 #   scripts/merge_pr.sh -h | --help              Show this help.
 #
 # _main_repo mirrors run.sh.
@@ -38,6 +43,12 @@ USAGE
                                              then merge and prune.
   scripts/merge_pr.sh <PR#> --skip-verify    Skip the verify gate (warns).
   scripts/merge_pr.sh <PR#> --keep-worktree  Skip the final prune step.
+  scripts/merge_pr.sh <PR#> --quick         Gate with verify_pr.sh --quick:
+                                            the launch smoke test plus only the
+                                            test files this PR changed. Seconds
+                                            instead of ~10 minutes. NOT a
+                                            substitute for the full gate — run
+                                            that before a release / at wrap.
   scripts/merge_pr.sh -h | --help            Show this help and exit.
 
 CONFIG (repo-root .devscripts.conf, all optional)
@@ -53,6 +64,7 @@ EOF
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 SKIP_VERIFY=0
+QUICK=0
 KEEP_WT=0
 PR=""
 for arg in "$@"; do
@@ -60,6 +72,7 @@ for arg in "$@"; do
         -h|--help|help) usage; exit 0 ;;
         --skip-verify) SKIP_VERIFY=1 ;;
         --keep-worktree) KEEP_WT=1 ;;
+        --quick) QUICK=1 ;;
         ''|*[!0-9]*)
             echo "merge_pr.sh: unexpected argument '$arg'" >&2; usage >&2; exit 64 ;;
         *) PR="$arg" ;;
@@ -120,9 +133,17 @@ if [ "$SKIP_VERIFY" = 1 ]; then
     verdict_used="(skipped — --skip-verify)"
 else
     echo
-    echo "── gate: scripts/verify_pr.sh $PR ──"
+    if [ "$QUICK" = 1 ]; then
+        echo "── gate: scripts/verify_pr.sh $PR --quick ──"
+    else
+        echo "── gate: scripts/verify_pr.sh $PR ──"
+    fi
     verify_log="$(mktemp "${TMPDIR:-/tmp}/merge_pr.${PR}.verify.XXXXXX.log")"
-    "$SCRIPT_DIR/verify_pr.sh" "$PR" 2>&1 | tee "$verify_log"
+    if [ "$QUICK" = 1 ]; then
+        "$SCRIPT_DIR/verify_pr.sh" "$PR" --quick 2>&1 | tee "$verify_log"
+    else
+        "$SCRIPT_DIR/verify_pr.sh" "$PR" 2>&1 | tee "$verify_log"
+    fi
     verify_rc="${PIPESTATUS[0]}"
     verdict_used="$(grep -E '^VERDICT:' "$verify_log" | tail -n1)"
     rm -f "$verify_log"

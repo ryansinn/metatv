@@ -17,6 +17,8 @@
 #   scripts/verify_pr.sh <PR#>          Verify an OPEN PR, then self-clean the
 #                                       worktree (kept only if it went dirty).
 #   scripts/verify_pr.sh <PR#> --keep   Keep the worktree afterwards.
+#   scripts/verify_pr.sh <PR#> --quick  Fast gate: the launch smoke test plus
+#                                       only the test files this PR changed.
 #   scripts/verify_pr.sh -h | --help    Show this help and exit.
 #
 # Config knobs (via .devscripts.conf, all optional):
@@ -51,6 +53,12 @@ USAGE
                                       iff GREEN.
   scripts/verify_pr.sh <PR#> --keep   As above, but keep the worktree after
                                       verifying.
+  scripts/verify_pr.sh <PR#> --quick  FAST gate for feature work: runs the
+                                      launch smoke test plus only the test
+                                      files this PR touched, instead of the
+                                      full suite. Seconds rather than minutes.
+                                      Still RED on a merge conflict. Use the
+                                      full gate before a release / at wrap.
   scripts/verify_pr.sh -h | --help    Show this help and exit.
 
 CONFIG (repo-root .devscripts.conf, all optional)
@@ -66,11 +74,13 @@ EOF
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 KEEP=0
+QUICK=0
 PR=""
 for arg in "$@"; do
     case "$arg" in
         -h|--help|help) usage; exit 0 ;;
         --keep) KEEP=1 ;;
+        --quick) QUICK=1 ;;
         ''|*[!0-9]*)
             echo "verify_pr.sh: unexpected argument '$arg'" >&2
             usage >&2
@@ -186,6 +196,15 @@ else
     echo "(origin/$base_branch not found — skipping diffstat)"
 fi
 
+# The PR's OWN test files, captured here because the merge below moves HEAD —
+# after it, mb..HEAD would also sweep in whatever landed on the trunk meanwhile,
+# and the quick gate would grow without anyone asking it to.
+CHANGED_TESTS=""
+if [ "$QUICK" = 1 ] && [ -n "$mb" ]; then
+    CHANGED_TESTS="$(git -C "$wt" diff --name-only --diff-filter=d "$mb"..HEAD \
+        -- 'tests/test_*.py' 2>/dev/null | tr '\n' ' ')"
+fi
+
 # ── resolve TEST_CMD ──────────────────────────────────────────────────────────
 cleanup_worktree() {
     if [ "$KEEP" = 1 ]; then
@@ -263,13 +282,55 @@ case "$TEST_CMD" in
     *)        runner="generic" ;;
 esac
 
+# ── --quick: narrow the suite to what this PR can plausibly have broken ───────
+# The full gate is 8-11 minutes and is nearly always GREEN, which makes it a poor
+# fit for the merge-often rhythm of feature work. The quick gate keeps the ONE
+# check that is expensive to miss — does the app still launch — and adds the
+# PR's own test files. A unit suite that never boots MainWindow has shipped an
+# init-order crash green before (v0.14.1), which is exactly why the smoke test
+# exists and why it is the thing that stays.
+#
+# Deliberately NOT a substitute for the full suite: it cannot see a change that
+# breaks a caller in a file this PR did not touch. Run the full gate before a
+# release and at session wrap.
+QUICK_NOTE=""
+if [ "$QUICK" = 1 ]; then
+    if [ "$runner" != "pytest" ]; then
+        QUICK_NOTE="--quick ignored: only implemented for pytest"
+        QUICK=0
+    elif [ "${TEST_CMD#* tests/ }" = "$TEST_CMD" ]; then
+        # A custom TEST_CMD from .devscripts.conf — rewriting it would be
+        # guessing at someone else's command, so run it whole instead.
+        QUICK_NOTE="--quick ignored: TEST_CMD is custom, running it in full"
+        QUICK=0
+    else
+        smoke=""
+        [ -f "$wt/tests/test_mainwindow_launch_smoke.py" ] &&
+            smoke="tests/test_mainwindow_launch_smoke.py"
+        targets="$(printf '%s %s' "$smoke" "$CHANGED_TESTS" | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+        if [ -z "$targets" ]; then
+            QUICK_NOTE="--quick ignored: no smoke test and no changed test files"
+            QUICK=0
+        else
+            TEST_CMD="${TEST_CMD/ tests\/ / $targets }"
+            n_changed="$(printf '%s' "$CHANGED_TESTS" | wc -w | tr -d ' ')"
+            QUICK_NOTE="quick gate: launch smoke + $n_changed changed test file(s)"
+        fi
+    fi
+    [ -n "$QUICK_NOTE" ] && { echo; echo "verify_pr.sh: $QUICK_NOTE"; }
+fi
+
 # ── run the FULL suite (no -x / no fail-fast) ─────────────────────────────────
 log=""
 trap 'rm -f "${log:-}"' EXIT
 log="$(mktemp "${TMPDIR:-/tmp}/verify_pr.${PR}.XXXXXX.log")"
 
 echo
-echo "── running full suite ($runner): $TEST_CMD ──"
+if [ "$QUICK" = 1 ]; then
+    echo "── running QUICK gate ($runner): $TEST_CMD ──"
+else
+    echo "── running full suite ($runner): $TEST_CMD ──"
+fi
 ( cd "$wt" && bash -c "$TEST_CMD" ) >"$log" 2>&1
 status=$?
 
@@ -313,5 +374,9 @@ fi
 echo
 cleanup_worktree
 echo
-echo "VERDICT: $verdict — $reason"
+if [ "$QUICK" = 1 ]; then
+    echo "VERDICT: $verdict (QUICK gate — not the full suite) — $reason"
+else
+    echo "VERDICT: $verdict — $reason"
+fi
 [ "$verdict" = "GREEN" ] && exit 0 || exit 1

@@ -9,7 +9,7 @@ as a gate, merges, updates trunk, then runs `prune_merged.sh`. So the day-to-day
 loop is just `verify_pr.sh <N>` while a PR is in review and `merge_pr.sh <N>` to
 land it (verify + prune happen automatically inside).
 
-## `verify_pr.sh <PR#> [--keep]`
+## `verify_pr.sh <PR#> [--keep] [--quick]`
 
 Full-suite PR gate. Resolves the PR, refreshes its `<main-repo>-pr-<PR#>`
 worktree, **merges `origin/<base>` into it and tests the MERGE RESULT** (what will
@@ -19,7 +19,29 @@ GREEN). A non-OPEN PR exits 2; a missing/unparseable pytest summary is RED, neve
 GREEN. It also reports whether the branch was behind base (`merged N commits …` /
 `up to date`). `--keep` retains the worktree afterwards.
 
-## `merge_pr.sh <PR#> [--skip-verify] [--keep-worktree]`
+### `--quick` — the feature-work gate
+
+The full suite is ~10 minutes and is nearly always GREEN, which is a poor fit
+for merging often. `--quick` runs the **launch smoke test** plus **only the test
+files the PR changed** — seconds instead of minutes.
+
+It keeps the one check that is expensive to miss: *does the app still launch*.
+A green unit suite is not proof of that — a v0.14.1 init-order crash passed the
+whole suite because nothing constructed the window, which is why
+`tests/test_mainwindow_launch_smoke.py` exists and why it is the file `--quick`
+always includes.
+
+It is **not** a substitute for the full gate: it cannot see a change that breaks
+a caller in a file the PR never touched. Use it while building; run the full
+gate before a release and at session wrap.
+
+Merge conflicts are still RED under `--quick` — that check runs before any test.
+The flag degrades safely: a non-pytest runner, a custom `TEST_CMD`, or a PR with
+nothing to narrow to all fall back to the full suite with a printed reason, and
+the verdict line says `QUICK gate` so a fast pass is never mistaken for a full
+one.
+
+## `merge_pr.sh <PR#> [--skip-verify] [--keep-worktree] [--quick]`
 
 The full merge sequence as one command: (1) refuse a non-OPEN PR (exit 2);
 (2) gate on `verify_pr.sh <N>` and require `VERDICT: GREEN` — so a stale/conflicting

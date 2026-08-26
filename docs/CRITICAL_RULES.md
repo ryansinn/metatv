@@ -276,6 +276,49 @@ class MySection(BackgroundRefreshMixin, CollapsibleSection):
 
 ## Architecture discipline
 
+### Pre-flight: grep before you name anything new
+
+The headline rule says *before adding a sibling function*. In practice almost
+nothing that goes wrong is a function — it is a **name**: a theme role, a config
+field, a `settings_applied` handler, a widget on a dialog, an icon key, a test
+factory field.
+
+The failure has one shape. The rule fires at the moment attention points the
+other way: you are mid-implementation, you need a bordered button style, and the
+thought *"does one already exist?"* does not arrive. Worse, the fluent answer is
+usually **correct in general and wrong here** — `hasattr` is right Python, a new
+semantic role is reasonable design, a label-plus-combo `QHBoxLayout` is fine Qt.
+Nothing feels wrong, so nothing prompts a check. That is exactly why this is a
+mechanical pre-flight and not an instruction to be careful:
+`scripts/rebaseline_code_health.py` records the finding that every problem
+shipped with a mechanical guard stayed at zero, and every one relying on
+discipline regressed.
+
+**Three greps, before the code:**
+
+1. **Siblings of the same shape.** A button style? `grep -oE '"[A-Z_]*(BTN|BUTTON)[A-Z_]*"'` over `theme.py` and `tokens/`. An icon? Check `VECTOR_KEYS` for the glyph, not just the role name.
+2. **Who else constructs this object** — tests included. A new widget on `SettingsDialog` must land in `tests/conftest.py`'s `wire_settings_*` / `mock_settings_*` factory in the SAME edit.
+3. **The registry it belongs to.** `_SETTINGS_APPLIED_HOOKS`, `VECTOR_KEYS`, `wire_settings_dialog_hooks`, `sidebar_config`.
+
+**Worked cases, all from one session:**
+
+| written | already existed | cost |
+|---|---|---|
+| `SIDEBAR_OVERFLOW_BTN` | `RECIPE_SAVED_ICON_BTN` | + 4 contrast failures |
+| `SIDEBAR_ACTION_RING` | `PANEL_BTN` | — |
+| `SIDEBAR_TOGGLE_BTN` | `SIDEBAR_SUBSECTION_TOGGLE`, nine lines away in the same file | — |
+| `_sidebar_density_combo` on the dialog | `wire_settings_density_widget`, whose docstring promises "a single line here instead of eight near-identical copies" | **43 tests red across 9 files** |
+| `_apply_sidebar_row_density` | `_SETTINGS_APPLIED_HOOKS`, whose comment says the host double "went red once per slice that added one" | 1 test red |
+| `"news": "mdi6.circle-outline"` | `"unwatched"` owns that glyph | caught by `test_vector_icon_registry` |
+| `hasattr(section, "toggle_btn")` | `"toggle_btn" in section.__dict__` | 1 test red — PyQt raises `RuntimeError`, which `hasattr` does NOT absorb, so the guard itself explodes |
+| label + combo in a `QHBoxLayout` | every other settings group uses `QFormLayout` | 1 test red — the page's controls stopped sharing a left edge |
+
+The theme layer now has a duplication ratchet
+(`tests/test_theme_role_duplication.py`): **299 roles, 25 byte-identical
+groups**, the largest holding twelve names for one stylesheet. Shrink-only —
+lower it when roles are merged, never raise it to admit a new twin.
+
+
 The proactive form of the Governing Principles.
 
 - **Find the existing path before adding a sibling.** Grep the verb-cluster (`play_*`/`load_*`/`refresh_*`/`fetch_*`/`_on_*_ready`) and the repo/manager method or seam you're about to call before writing a new one. A core primitive called from >1 UI site is a chokepoint — one entry, every caller gets the full behavior. Need a variant → share the core (one helper both call), never copy-paste-and-trim. Semantic duplication is invisible to syntactic greps — read behavior. (Cautionary case: a duplicate play path that silently dropped failover/buffering and rotted as fixes landed only on the canonical path — see [AUDIT_2026-06-19.md](AUDIT_2026-06-19.md).)
