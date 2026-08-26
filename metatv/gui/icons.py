@@ -538,9 +538,11 @@ VECTOR_KEYS: dict[str, str] = {
     "not_interested": "mdi6.cancel",
     "watched": "mdi6.check",
     "unwatched": "mdi6.circle-outline",
-    # The sidebar's "has news" marker — a ring, not a filled dot: an outline
-    # reads as a marker at 9px where a solid disc reads as a bullet point.
-    "news": "mdi6.circle-outline",
+    # The sidebar's "has news" marker. A ring with a centre, NOT the plain
+    # circle-outline "unwatched" already owns — tests/test_vector_icon_registry
+    # rightly refuses two roles one glyph, because the viewer cannot tell them
+    # apart and they mean different things on rows that sit inches away.
+    "news": "mdi6.record-circle-outline",
     "monitor": "mdi6.bell-outline",
     "monitor_off": "mdi6.bell-off-outline",
     "hide": "mdi6.eye-off-outline",
@@ -552,6 +554,10 @@ VECTOR_KEYS: dict[str, str] = {
     "recommended": "mdi6.star-check-outline",
     "discover": "mdi6.shimmer",
     "recipe": "mdi6.tune-variant",
+    # "Manage these alerts" — the three-slider glyph. Its own role rather than
+    # reusing "recipe" (also sliders): two different meanings sharing one glyph
+    # is how an icon stops meaning anything.
+    "manage": "mdi6.tune",
     "explore": "mdi6.arrow-right",
     "columns": "mdi6.arrow-expand",
     "settings": "mdi6.cog-outline",

@@ -92,12 +92,9 @@ def _queue_row(session, channel_id: str, channel_name: str, pos: int = 0,
 
 
 def _icon_config():
-    return SimpleNamespace(
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        filter_adult_mode="all",
-        watched_icon="W", delete_icon="X", queue_icon="Q",
-        favorite_icon="★", collapse_icon="v",
-    )
+    """Every field a sidebar section reads — see conftest.sidebar_config."""
+    from tests.conftest import sidebar_config
+    return sidebar_config()
 
 
 def _mock_db():

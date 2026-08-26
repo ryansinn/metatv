@@ -26,13 +26,23 @@ from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy
 
-from metatv.gui.chip_row import row_meta_label, row_title_label
+from metatv.gui.chip_row import (
+    DENSITY_COMPACT, row_meta_label, row_title_label,
+)
 from metatv.gui.sidebar.recommended import RecommendedSection, _MiddleElideLabel
 
 
 def _stub_self():
+    """A stand-in for the section, carrying what _build_rec_row reads.
+
+    ``_row_density`` included: rows now render compact or comfortable from the
+    viewer's preference, and the section resolves it. A double that omits it
+    fails with AttributeError the moment a row is built.
+    """
+    from tests.conftest import sidebar_config
     return SimpleNamespace(
-        config=SimpleNamespace(movie_icon="🎬", series_icon="📺", like_icon="👍")
+        config=sidebar_config(),
+        _row_density=lambda: DENSITY_COMPACT,
     )
 
 

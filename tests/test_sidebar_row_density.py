@@ -406,10 +406,13 @@ def test_play_next_uses_the_skip_glyph_not_fast_forward(qapp):
     assert "S01E18" in btn.toolTip(), "the tooltip must name the episode it plays"
 
     # Painted, not merely assigned: an icon that resolves to nothing leaves a
-    # blank button that still passes every check above.
-    img = btn.grab().toImage()
-    lit = sum(
+    # blank button that still passes every check above. Read the ICON's own
+    # pixmap rather than grabbing the button — an unshown widget grabs blank,
+    # which is a fact about the test, not the glyph.
+    pixmap = btn.icon().pixmap(14, 14)
+    img = pixmap.toImage()
+    inked = sum(
         1 for y in range(img.height()) for x in range(img.width())
-        if img.pixelColor(x, y).lightness() > 90
+        if img.pixelColor(x, y).alpha() > 40
     )
-    assert lit > 20, f"the play-next glyph drew {lit} lit pixels — it is blank"
+    assert inked > 20, f"the play-next glyph has {inked} inked pixels — it is blank"

@@ -673,6 +673,8 @@ def mock_settings_density_widget(dlg) -> None:
 
     dlg._channel_density_combo = MagicMock()
     dlg._channel_density_combo.currentData.return_value = "comfy"
+    dlg._sidebar_density_combo = MagicMock()
+    dlg._sidebar_density_combo.currentData.return_value = "compact"
     dlg._platform_name_style_combo = MagicMock()
     dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
@@ -705,12 +707,21 @@ def wire_settings_density_widget(dlg) -> None:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
     from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
-    from metatv.gui.settings_dialog_tabs import _PLATFORM_NAME_STYLE_CHOICES
+    from metatv.gui.settings_dialog_tabs import (
+        _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
+    )
     from PyQt6.QtWidgets import QCheckBox, QComboBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:
         dlg._channel_density_combo.addItem(label, value)
+    # Sidebar row density (Settings -> Interface -> Sidebar). Here rather than
+    # in nine test files, which is what this factory's docstring promises and
+    # what adding it anywhere else costs: one widget on the dialog and not on
+    # the double broke 43 tests across 9 files at once.
+    dlg._sidebar_density_combo = QComboBox()
+    for label, value in _SIDEBAR_DENSITY_CHOICES:
+        dlg._sidebar_density_combo.addItem(label, value)
     dlg._platform_name_style_combo = QComboBox()
     for label, value in _PLATFORM_NAME_STYLE_CHOICES:
         dlg._platform_name_style_combo.addItem(label, value)

@@ -116,7 +116,19 @@ class RowBudgetMixin:
         # as a broken section rather than a full one. One real row always wins
         # over the marker that counts them, and the header's → is still the way
         # to the rest.
-        fits = max(fits, 1)
+        #
+        # And the row it keeps must be CONTENT. Group headings and dividers
+        # carry NoItemFlags, and a floor of 1 that lands on one of those renders
+        # a label, a separator, and a count of things it is not showing —
+        # exactly what Movies & Series did with "──── Watching for ────" over
+        # "+ 12 more →".
+        first_content = next(
+            (i for i in range(total)
+             if list_widget.item(i).flags() != Qt.ItemFlag.NoItemFlags),
+            None,
+        )
+        floor = 1 if first_content is None else first_content + 1
+        fits = min(max(fits, floor), total)
 
         hidden = total - fits
         for index in range(fits, total):
@@ -230,6 +242,24 @@ class RowBudgetMixin:
         """
         return None
 
+    def extra_budgeted_lists(self):
+        """Further lists this section budgets, as ``[(list, on_more), …]``.
+
+        For a section built from SEVERAL lists — Watch Alerts has Movies &
+        Series and Stream Monitoring alongside its EPG tree. They have to be
+        re-budgeted from the same seam as everything else, because a budget
+        applied once at populate is computed against a viewport that has not
+        been laid out yet: Movies & Series rendered a divider and
+        "+ 12 more →" inside a box with room for five rows, and nothing ever
+        recomputed it when the section reached its real height.
+
+        Returns:
+            An iterable of ``(QListWidget, on_more callable)``. Empty by
+            default — most sections have one list and use
+            :meth:`budgeted_list`.
+        """
+        return ()
+
     def reapply_row_budget(self) -> None:
         """Re-fit the rows to the section's CURRENT height.
 
@@ -241,6 +271,9 @@ class RowBudgetMixin:
         lst = self.budgeted_list()
         if lst is not None:
             self.apply_row_budget(lst)
+        for extra, on_more in self.extra_budgeted_lists():
+            if extra is not None and extra.isVisible():
+                self.apply_row_budget(extra, on_more=on_more)
         tree = self.budgeted_tree()
         if tree is not None:
             self.apply_tree_row_budget(tree)

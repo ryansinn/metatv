@@ -185,19 +185,32 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         row.setSpacing(6)
         row.addStretch(1)
 
-        self._manage_btn = QPushButton("Manage")
+        # Icon-only, like the +. As a text button it did not fit beside the
+        # group heading it now shares a line with — "Movies & Series (6) · 2
+        # new" truncated to "· 2 ne". The tooltip carries the words.
+        self._manage_btn = QPushButton()
+        self._manage_btn.setFixedSize(24, 20)
         self._manage_btn.setToolTip(
             "Manage watch alerts — keyword rules and monitored series"
         )
-        _theme.style(self._manage_btn, "SIDEBAR_ACTION_RING")
+        _theme.style(self._manage_btn, "PANEL_BTN")
         cursor_affordance.set_clickable(self._manage_btn)
+
+        def _paint_manage() -> str:
+            self._manage_btn.setIcon(_icon_utils.resolve_icon(
+                _icons.vector_key("manage"), _theme.COLOR_TEXT
+            ))
+            self._manage_btn.setIconSize(QSize(13, 13))
+            return _theme.PANEL_BTN
+
+        _theme.style_fn(self._manage_btn, _paint_manage)
         self._manage_btn.clicked.connect(self.manageWatchForClicked.emit)
         row.addWidget(self._manage_btn)
 
         self._add_btn = QPushButton()
         self._add_btn.setFixedSize(24, 20)
         self._add_btn.setToolTip("Watch for new content…")
-        _theme.style(self._add_btn, "SIDEBAR_ACTION_RING")
+        _theme.style(self._add_btn, "PANEL_BTN")
         cursor_affordance.set_clickable(self._add_btn)
 
         def _paint_add() -> str:
@@ -205,35 +218,85 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 _icons.vector_key("add"), _theme.COLOR_TEXT
             ))
             self._add_btn.setIconSize(QSize(13, 13))
-            return _theme.SIDEBAR_ACTION_RING
+            return _theme.PANEL_BTN
 
         _theme.style_fn(self._add_btn, _paint_add)
         self._add_btn.clicked.connect(self.addWatchForClicked.emit)
         row.addWidget(self._add_btn)
         return row
 
+    def _place_action_buttons(self) -> None:
+        """Park Manage / + on the FIRST VISIBLE sub-header row.
+
+        The approved mockup puts them on the same line as the first group
+        heading — "EPG · 5 ………… Manage +" — not on a row of their own. A strip
+        of its own costs a whole row in the section that can least afford one,
+        and reads as floating between the header and the content.
+
+        Which sub-header is first depends on what has content, so they are
+        re-parented on every render rather than wired to one of them. When
+        NOTHING is visible they go back to their own host, so they are never
+        orphaned — the reason they lived in the section header originally was
+        that management must stay reachable when every sub-section is empty.
+        """
+        # Every lookup through __dict__: this section is driven by
+        # __new__'d skeletons in several tests, and PyQt raises RuntimeError
+        # (not the AttributeError hasattr absorbs) for a missing attribute on
+        # one. The file already reads _list and _epg_hdr_container this way.
+        manage = self.__dict__.get("_manage_btn")
+        add = self.__dict__.get("_add_btn")
+        host = self.__dict__.get("_action_host")
+        if manage is None or add is None or host is None:
+            return
+
+        rows = (
+            self.__dict__.get("_epg_hdr_container"),
+            self.__dict__.get("_vod_hdr_container"),
+            self.__dict__.get("_retry_hdr_container"),
+        )
+        for container in rows:
+            if container is None or not container.isVisible():
+                continue
+            layout = container.layout()
+            if manage.parentWidget() is container:
+                return                      # already parked here
+            layout.addWidget(manage)
+            layout.addWidget(add)
+            host.hide()
+            return
+
+        # Nothing visible to ride on — take them back.
+        host.layout().addWidget(manage)
+        host.layout().addWidget(add)
+        host.show()
+
+    def extra_budgeted_lists(self):
+        """Movies & Series and Stream Monitoring, budgeted from the shared seam.
+
+        Declared here rather than budgeted at populate time so they are re-fitted
+        on every resize like every other list in the rail. Budgeting them once,
+        when they were repopulated, measured a viewport that had not been laid
+        out yet — which is how Movies & Series ended up showing a divider and
+        "+ 12 more →" in a box with room for five rows.
+        """
+        return (
+            (self.__dict__.get("_vod_list"), self.manageWatchForClicked.emit),
+            (self.__dict__.get("_retry_list"), self.manageWatchForClicked.emit),
+        )
+
     def create_content(self):
         from PyQt6.QtWidgets import QHeaderView
 
-        # Manage / + first, so they are the top of the body and stay reachable
-        # whatever the sub-sections below are doing.
-        #
-        # In a WIDGET with an explicit Fixed height policy, not a bare layout:
-        # every sub-section below carries stretch=1, and when they are all
-        # hidden (the empty section) Qt distributes the free space around a
-        # bare layout item and the strip ends up centred in the card. A fixed
-        # widget keeps its own height and the slack goes to the stretch items,
-        # visible or not.
-        action_host = QWidget()
-        action_host.setLayout(self.build_action_row())
-        action_host.setSizePolicy(QSizePolicy.Policy.Preferred,
-                                  QSizePolicy.Policy.Fixed)
-        # Pinned to its own content height. Fixed is a POLICY, not a size: the
-        # widget still takes the height the cell offers it, which in a section
-        # whose sub-lists all carry stretch=1 left the strip floating in a band
-        # of its own. This makes the height its layout's hint and nothing more.
-        action_host.setFixedHeight(action_host.sizeHint().height())
-        self.content_layout.addWidget(action_host, 0, Qt.AlignmentFlag.AlignTop)
+        # Manage / + are built here but PARKED on a sub-header row — see
+        # _place_action_buttons. The fallback host holds them only while no
+        # sub-header is visible, so they are never orphaned.
+        self._action_host = QWidget()
+        self._action_host.setLayout(self.build_action_row())
+        self._action_host.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                        QSizePolicy.Policy.Fixed)
+        self._action_host.setFixedHeight(self._action_host.sizeHint().height())
+        self.content_layout.addWidget(self._action_host, 0,
+                                      Qt.AlignmentFlag.AlignTop)
 
         # ── EPG sub-section ────────────────────────────────────────────────
         # Live/upcoming programmes from the EPG watchlist.  Given its own labelled +
@@ -611,6 +674,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not rules and not series:
             self._vod_hdr_container.hide()
             self._vod_list.hide()
+            self._place_action_buttons()
             self._recompute_empty()
             return
 
@@ -733,12 +797,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_hdr_container.show()
         if not self._vod_collapsed:
             self._vod_list.show()
-        # Show what fits and end with "+N more" instead of scrolling inside a
-        # ~35px band. Deferred: the list has just been repopulated and the
-        # budget needs a laid-out viewport to measure against.
-        QTimer.singleShot(0, lambda: self.apply_row_budget(
-            self._vod_list, on_more=self.manageWatchForClicked.emit
-        ))
+        self._place_action_buttons()
         self._recompute_empty()
 
     def update_new_match_badge(
@@ -1045,6 +1104,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._epg_hdr_container.hide()
             self.alerts_tree.hide()
             self._update_epg_toggle_label(0)
+        self._place_action_buttons()
         self._recompute_empty()
 
     def _load_rows(self) -> dict:
@@ -1255,6 +1315,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not entries:
             self._retry_hdr_container.hide()
             self._retry_list.hide()
+            self._place_action_buttons()
             self._recompute_empty()
             return
 
@@ -1294,9 +1355,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_hdr_container.show()
         if not self._retry_collapsed:
             self._retry_list.show()
-        QTimer.singleShot(0, lambda: self.apply_row_budget(
-            self._retry_list, on_more=self.manageWatchForClicked.emit
-        ))
+        self._place_action_buttons()
         self._recompute_empty()
 
     def _on_retry_double_clicked(self, item: "QListWidgetItem") -> None:

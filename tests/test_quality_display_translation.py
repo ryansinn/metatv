@@ -119,9 +119,11 @@ def test_sidebar_meta_line_renders_translated_quality(qapp):
     assert quality_word("4k") == "4K"
     assert quality_word("") == ""
 
+    from metatv.gui.chip_row import DENSITY_COMFORTABLE
     row = build_chip_row(
         title="Some Movie",
         meta=sidebar_meta_line("Movie", "1999", quality_word("RAW")),
+        density=DENSITY_COMFORTABLE,
     )
     text = row_meta_label(row).text()
     assert "Uncompressed" in text, f"expected translated quality, got {text!r}"

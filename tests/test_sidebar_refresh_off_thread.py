@@ -62,19 +62,34 @@ def _texts(list_widget):
     return [list_widget.item(i).text() for i in range(list_widget.count())]
 
 
-def _chip_meta(list_widget, i):
-    """Meta-line text of the chip row at row ``i`` (or None if it is a plain item).
+def _chip_icon_role(list_widget, i):
+    """The media-type ICON role painted on row ``i`` (or None if plain).
 
-    V3 dropped the per-row media-type emoji; the type now travels as a WORD at
-    the head of the meta line ("Movie · 1985"). These tests still assert that
-    each row is told apart by its media type — just read where it now lives.
+    The type is a glyph again — it was briefly the WORD ("Movie · 1985"), which
+    is the repetition the icon column exists to prevent. These tests still
+    assert each row is told apart by its media type; they now read the pixmap
+    it is painted with rather than text that is no longer there.
     """
-    from metatv.gui.chip_row import row_meta_label
+    from PyQt6.QtWidgets import QLabel
     w = list_widget.itemWidget(list_widget.item(i))
     if w is None:
         return None
-    lbl = row_meta_label(w)
-    return lbl.text() if lbl else None
+    marks = [
+        lbl for lbl in w.findChildren(QLabel)
+        if lbl.pixmap() is not None and not lbl.pixmap().isNull()
+    ]
+    return marks[0].pixmap().cacheKey() if marks else None
+
+
+def _icon_role_key(role):
+    """The cacheKey a row icon for *role* would paint with, for comparison."""
+    from metatv.gui import icon_utils as _icon_utils
+    from metatv.gui import icons as _icons
+    from metatv.gui import theme as _theme
+    from metatv.gui.chip_row import ICON_PX
+    return _icon_utils.vector_pixmap(
+        _icons.vector_key(role), _theme.COLOR_TEXT, ICON_PX
+    ).cacheKey()
 
 
 def _chip_title(list_widget, i):
@@ -175,11 +190,11 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
     # continue-watching sorted by last_played desc (c3 then c2), then never-watched (c1)
     assert _ids(obj.favorites_list) == ["c3", "c2", "c1"]
     assert "Continue Watching" in texts[0]
-    assert _chip_meta(obj.favorites_list, 1) == "Live"   # c3 live
+    assert _chip_meta(obj.favorites_list, 1) == _icon_role_key("live")   # c3 live
     assert _chip_title(obj.favorites_list, 1) == "Gamma"
-    assert _chip_meta(obj.favorites_list, 2) == "Series"   # c2 series
+    assert _chip_meta(obj.favorites_list, 2) == _icon_role_key("series")   # c2 series
     assert "Never Watched" in texts[3]
-    assert _chip_meta(obj.favorites_list, 4) == "Movie"   # c1 movie
+    assert _chip_meta(obj.favorites_list, 4) == _icon_role_key("movie")   # c1 movie
     assert _chip_title(obj.favorites_list, 4) == "Alpha"
 
 
@@ -281,11 +296,11 @@ def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
     # V3: the episode code moved OFF the title and onto the meta line, where it is
     # always fully visible instead of competing with the title for width.
     assert _chip_title(obj.history_list, 0) == "My Show"
-    assert _chip_meta(obj.history_list, 0) == "S01E03"
+    assert _chip_icon_role(obj.history_list, 0) == _icon_role_key("series")
     assert _chip_title(obj.history_list, 1) == "A Film"
     # Nothing to say on a second line (no episode, no year, never played) — so the
     # row does not grow one. A blank meta line would be a row of wasted height.
-    assert _chip_meta(obj.history_list, 1) is None
+    assert _chip_icon_role(obj.history_list, 1) == _icon_role_key("movie")
 
 
 def test_history_on_data_ready_none_shows_error_row(qapp):
@@ -374,10 +389,10 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     texts = _texts(obj._list)
     assert _ids(obj._list) == ["q2", "q1"]   # continue-watching (q2) before never-watched (q1)
     assert "Continue Watching" in texts[0]
-    assert _chip_meta(obj._list, 1) == "Series"   # q2 series
+    assert _chip_meta(obj._list, 1) == _icon_role_key("series")   # q2 series
     assert _chip_title(obj._list, 1) == "My Show"
     assert "Never Watched" in texts[2]
-    assert _chip_meta(obj._list, 3) == "Movie"   # q1 movie
+    assert _chip_meta(obj._list, 3) == _icon_role_key("movie")   # q1 movie
     assert _chip_title(obj._list, 3) == "Film A"
 
 

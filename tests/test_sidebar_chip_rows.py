@@ -73,9 +73,19 @@ def _texts(row):
 
 
 def _meta_parts(row):
+    """The facts a row shows, whichever density it is rendered at.
+
+    Compact puts them in chips; comfortable puts them on a meta line. The
+    thing these tests guard — the honest language, and never the source
+    region — is the same either way, so read whichever is present.
+    """
     meta = row_meta_label(row)
-    assert meta is not None, f"no meta line on the row: {_texts(row)}"
-    return [p.strip() for p in meta.text().split("·")]
+    if meta is not None:
+        return [p.strip() for p in meta.text().split("·")]
+    from PyQt6.QtWidgets import QPushButton
+    chips = [b.text() for b in row.findChildren(QPushButton) if b.text()]
+    assert chips, f"row shows neither chips nor a meta line: {_texts(row)}"
+    return chips
 
 
 def _assert_clean_title_and_no_region(row):

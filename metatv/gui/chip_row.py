@@ -73,6 +73,12 @@ _CHIP_ROLES = {
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
 
+#: The caller-supplied interactive button (History's "play next episode"). It
+#: needs a name for the same reason the labels do: chips are ``QPushButton`` too
+#: since they were unified onto one box model, so ``findChild(QPushButton)``
+#: returns a CHIP — the row's quality badge — not the control the caller wired.
+TRAILING_OBJECT_NAME = "chipRowTrailing"
+
 #: Row-icon edge length, sized against the title's CAP HEIGHT rather than its
 #: font size. A 13px font draws ~9px of capital, but a 13px icon is 13px of
 #: visible glyph — so an icon nominally the same size as the text reads ~44%
@@ -164,6 +170,17 @@ def row_title_label(row: QWidget) -> MiddleElideLabel | None:
 def row_meta_label(row: QWidget) -> MiddleElideLabel | None:
     """The row's META (second-line) label — ``None`` on a compact row."""
     return row.findChild(MiddleElideLabel, META_OBJECT_NAME)
+
+
+def row_trailing_button(row: QWidget) -> QPushButton | None:
+    """The row's interactive trailing button, or ``None``.
+
+    Not ``findChild(QPushButton)``: the chips are flat QPushButtons too — they
+    were unified onto one box model so their padding could not drift — so the
+    bare lookup returns whichever chip Qt reaches first. A test asking "does
+    this row have a play-next button" got a "4K" badge and passed.
+    """
+    return row.findChild(QPushButton, TRAILING_OBJECT_NAME)
 
 
 def media_icon_role(media_type: str | None) -> str:
@@ -386,6 +403,7 @@ def build_chip_row(
         layout.addWidget(news_lbl)
 
     if trailing_button is not None:
+        trailing_button.setObjectName(TRAILING_OBJECT_NAME)
         layout.addWidget(trailing_button)
 
     if comfortable:

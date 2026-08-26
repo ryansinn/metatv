@@ -448,7 +448,7 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self._overflow_btn = QPushButton(_icons.overflow_icon)
         self._overflow_btn.setFixedSize(24, 18)
         self._overflow_btn.setToolTip("More…")
-        _theme.style(self._overflow_btn, "SIDEBAR_OVERFLOW_BTN")
+        _theme.style(self._overflow_btn, "RECIPE_SAVED_ICON_BTN")
         cursor_affordance.set_clickable(self._overflow_btn)
 
         self._overflow_menu = QMenu(self._overflow_btn)
@@ -525,7 +525,7 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         # chevron promised a control that was never the only way in.
         self.toggle_btn = QPushButton(self.config.collapse_icon)
         self.toggle_btn.setFixedSize(16, 20)
-        _theme.style(self.toggle_btn, "SIDEBAR_TOGGLE_BTN")
+        _theme.style(self.toggle_btn, "SIDEBAR_SUBSECTION_TOGGLE")
         self.toggle_btn.setToolTip("Collapse / expand this section")
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         header_layout.addWidget(self.toggle_btn)

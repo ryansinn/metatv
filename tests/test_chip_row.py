@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import QLabel
 
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
+    DENSITY_COMFORTABLE,
     MiddleElideLabel,
     build_chip_row,
     episode_code,
@@ -37,7 +38,13 @@ _META = "Movie · 1998 · EN"
 
 
 def _row(**over):
-    base = dict(title="Cowboy Bebop", meta=_META)
+    """A COMFORTABLE row — this file is about the two-line shape.
+
+    Density defaults to compact (see chip_row), so a meta line is ignored
+    unless the caller asks for the two-line row. Stating it here rather than in
+    twelve tests.
+    """
+    base = dict(title="Cowboy Bebop", meta=_META, density=DENSITY_COMFORTABLE)
     base.update(over)
     return build_chip_row(**base)
 
@@ -97,7 +104,7 @@ def test_find_child_alone_returns_the_WRONG_label(qtbot):
 # ── One line vs two ──────────────────────────────────────────────────────────
 
 def test_no_meta_means_no_second_line(qtbot):
-    row = build_chip_row(title="Cowboy Bebop")
+    row = build_chip_row(title="Cowboy Bebop", density=DENSITY_COMFORTABLE)
     assert row_meta_label(row) is None
     assert row_title_label(row) is not None
 
@@ -121,7 +128,8 @@ def test_meta_line_is_painted_BELOW_the_title(qtbot):
 
 
 def test_two_line_row_is_taller_than_one_line(qtbot):
-    one = build_chip_row(title="Cowboy Bebop").sizeHint().height()
+    one = build_chip_row(title="Cowboy Bebop",
+                         density=DENSITY_COMFORTABLE).sizeHint().height()
     two = _row().sizeHint().height()
     assert two > one + 8, f"second line added no height: {one} -> {two}"
 
@@ -248,17 +256,30 @@ def test_liked_shows_the_like_glyph_before_the_title(qtbot):
     ), "no like glyph when liked is False"
 
 
-def test_new_badge_renders_the_word_new(qtbot):
+def test_new_badge_renders_a_ring_marker(qtbot):
+    """The "NEW" pill became a small green ring.
+
+    A pill was a second WORD in front of the title it sat on, and the count
+    beside it ("+12 eps") already says what is new — so the marker only has to
+    say THAT something is. Still not colour alone: the ring is a shape no other
+    row carries, and the count is the words.
+    """
     row = _row(new_badge=True)
     qtbot.addWidget(row)
-    assert any(
-        isinstance(w, QLabel) and w.text() == "NEW"
-        for k, w in _ordered_items(row)
-    ), "the word NEW is the cue, never colour alone"
-    assert not any(
-        isinstance(w, QLabel) and w.text() == "NEW"
-        for k, w in _ordered_items(_row())
-    )
+    marked = [
+        w for k, w in _ordered_items(row)
+        if isinstance(w, QLabel) and w.pixmap() is not None
+        and not w.pixmap().isNull()
+    ]
+    assert marked, "no ring marker painted on a row with news"
+    assert marked[0].toolTip(), "the marker needs a tooltip — a ring alone says nothing"
+
+    plain = [
+        w for k, w in _ordered_items(_row())
+        if isinstance(w, QLabel) and w.pixmap() is not None
+        and not w.pixmap().isNull()
+    ]
+    assert not plain, "a row without news drew a marker anyway"
 
 
 # ── Drift guard ──────────────────────────────────────────────────────────────
