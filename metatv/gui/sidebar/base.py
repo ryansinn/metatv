@@ -504,13 +504,13 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
 
             self.main_layout.addWidget(header)
 
-        The toggle button is stored as ``self.toggle_btn`` on exit so the existing
-        ``set_collapsed`` bookkeeping that updates ``toggle_btn.setText(…)`` continues
-        to work unmodified.
+        There is no chevron: the header itself is the control, and has been
+        since #329. A caret alongside it was a second affordance for one
+        action.
 
         Returns:
-            A ``_ClickableHeader`` instance with a ``QHBoxLayout`` (margins 5,3,5,3)
-            already containing ``self.toggle_btn``.
+            A ``_ClickableHeader`` instance with an empty ``QHBoxLayout``
+            (margins 5,3,5,3), already wired to toggle on click.
         """
         header = _ClickableHeader()
         # Stashed so refresh_theme() can re-apply SECTION_HEADER_TINT after a
@@ -520,15 +520,14 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
 
-        # A bare glyph, not a bordered box: clicking anywhere on the header
-        # already toggles the section, so drawing a button frame around the
-        # chevron promised a control that was never the only way in.
-        self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(16, 20)
-        _theme.style(self.toggle_btn, "SIDEBAR_SUBSECTION_TOGGLE")
-        self.toggle_btn.setToolTip("Collapse / expand this section")
-        self.toggle_btn.clicked.connect(self.toggle_collapse)
-        header_layout.addWidget(self.toggle_btn)
+        # NO chevron. The whole header is the control — it has been clickable
+        # since #329 and carries the pointing-hand cursor — so the caret was a
+        # second affordance for one action, spending 16px of a 300px header on
+        # a hint the cursor already gives. Owner: "let's assume it's obvious,
+        # it'll make it look better."
+        #
+        # The header's own tooltip is what remains of the hint.
+        header.setToolTip("Click to collapse or expand this section")
 
         # Clicking anywhere on the header (outside child buttons) also toggles.
         header.clicked.connect(self.toggle_collapse)
@@ -741,7 +740,6 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         self.content_widget.setVisible(not collapsed)
 
         if collapsed:
-            self.toggle_btn.setText(self.config.expand_icon)
             h = self.height()
             if h >= self.min_expanded_height():
                 self._expanded_height = h
@@ -751,7 +749,6 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
             if save and freed > 0:
                 self._release_in_splitter(freed)
         else:
-            self.toggle_btn.setText(self.config.collapse_icon)
             self.setMinimumHeight(self.min_expanded_height())
             self.setMaximumHeight(16777215)  # Qt's QWIDGETSIZE_MAX
             if save:

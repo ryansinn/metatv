@@ -149,21 +149,40 @@ def test_build_clickable_header_wires_toggle(qapp):
     )
 
 
-def test_toggle_btn_also_wired(qapp):
-    """toggle_btn.clicked is also connected to toggle_collapse (arrow button still works)."""
+def test_the_header_carries_no_caret(qapp):
+    """This test used to assert the opposite — that the arrow button works.
+
+    It was named ``test_toggle_btn_also_wired`` and guarded a SECOND
+    affordance for one action: a chevron beside a header that has been
+    clickable since #329 and carries the pointing-hand cursor. The owner:
+    "let's remove the carets, clicking the title collapses and expands, let's
+    assume it's obvious, it'll make it look better."
+
+    Inverted rather than deleted, so the reversal is legible here rather than
+    looking like coverage that quietly evaporated. The affordance that
+    remains is asserted by ``test_build_clickable_header_wires_toggle`` above
+    and by the pointing-hand test below — between them, the header is proven
+    to BE the control.
+    """
+    from PyQt6.QtWidgets import QPushButton
+
     section = _bare_section(qapp)
-
-    toggle_calls = []
-    object.__setattr__(section, "toggle_collapse", lambda: toggle_calls.append(1))
-
     header = section._build_clickable_header()
-    # Keep the header (and its QPushButton children) alive
     section.main_layout.addWidget(header)
 
-    section.toggle_btn.clicked.emit()
-
-    assert toggle_calls == [1], (
-        "toggle_btn.clicked must also be connected to toggle_collapse"
+    # __dict__, not hasattr: this section is built via __new__, and PyQt raises
+    # RuntimeError for a missing attribute on one — which hasattr does NOT
+    # absorb, so the guard itself explodes. CLAUDE.md says exactly this, and I
+    # wrote hasattr anyway while writing a test about the caret.
+    assert "toggle_btn" not in section.__dict__, (
+        "the caret is back — the header is the control"
+    )
+    glyphs = {b.text() for b in header.findChildren(QPushButton)}
+    assert not (glyphs & {section.config.expand_icon, section.config.collapse_icon}), (
+        f"a collapse chevron is being drawn in the header: {glyphs}"
+    )
+    assert header.toolTip(), (
+        "with no caret the header's tooltip is the only hint that it toggles"
     )
 
 
