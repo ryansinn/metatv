@@ -471,6 +471,11 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
     CONTENT_ROW_H: int = 37
     HEADER_H: int = 26
 
+    #: The section card's border, one side. Mirrors the ``1px solid`` in the
+    #: ``SIDEBAR_SECTION_CARD`` role; stated as a constant because the height
+    #: floor must be computable from the CLASS, with no widget to measure.
+    CARD_BORDER_PX: int = 1
+
     #: Extra rows a section is allowed while it has NEWS. Bounded on purpose —
     #: "a section widens when it has something to say" must not become "the
     #: section with news takes the sidebar". It relaxes on its own the moment
@@ -809,8 +814,14 @@ class CollapsibleSection(RowBudgetMixin, ScrollPreservingMixin, InPlaceRowMixin,
         The card's own border is counted: a section is a framed panel, so a
         floor of exactly ``HEADER_H`` leaves the header two pixels short of the
         height it needs and clips the title.
+
+        From :attr:`CARD_BORDER_PX`, not ``self.frameWidth()``. The floor has to
+        be answerable without a live widget — ``_floor_of`` reads it off
+        arbitrary splitter children, and several callers ask the CLASS
+        (``HistorySection.min_expanded_height(HistorySection)``) — and
+        ``frameWidth`` is an unbound QFrame method that raises there.
         """
-        return self.HEADER_H + 2 * self.frameWidth()
+        return self.HEADER_H + 2 * self.CARD_BORDER_PX
 
     def _build_clickable_header(self) -> "_ClickableHeader":
         """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.

@@ -30,18 +30,24 @@ def test_floor_is_derived_from_declared_rows(_app) -> None:
     class _Eight(_Four):
         MIN_ROWS = 8
 
-    four = _Four.min_expanded_height(_Four)
-    eight = _Eight.min_expanded_height(_Eight)
+    four = _Four.preferred_expanded_height(_Four)
+    eight = _Eight.preferred_expanded_height(_Eight)
     assert eight > four, "more declared rows must buy more height"
     assert four >= CollapsibleSection.HEADER_H + 4 * CollapsibleSection.ROW_H
 
 
 def test_history_can_no_longer_be_squeezed_to_two_rows(_app) -> None:
-    """The specific regression: 91px for History."""
+    """The specific regression: 91px for History.
+
+    Now about the PREFERENCE rather than the floor. Automatic redistribution
+    honours it, so nothing starves History to 91px on its own; only the user
+    dragging the handle can take it lower, which is a deliberate act and the
+    point of the second limit.
+    """
     from metatv.gui.sidebar.base import CollapsibleSection
     from metatv.gui.sidebar.history import HistorySection
 
-    floor = HistorySection.min_expanded_height(HistorySection)
+    floor = HistorySection.preferred_expanded_height(HistorySection)
     assert floor > 91, (
         f"History floor is {floor}px — the saved layout that starved it was 91px"
     )
@@ -58,7 +64,7 @@ def test_every_section_declares_a_floor_at_least_the_global_one(_app) -> None:
     for mod in mods:
         for name in dir(mod):
             obj = getattr(mod, name)
-            fn = getattr(obj, "min_expanded_height", None)
+            fn = getattr(obj, "preferred_expanded_height", None)
             if isinstance(obj, type) and callable(fn) and getattr(obj, "MIN_ROWS", None):
                 assert fn(obj) >= _MIN_EXPANDED
                 seen += 1
