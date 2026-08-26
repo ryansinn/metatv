@@ -889,14 +889,14 @@ class SettingsTabsMixin:
         # remove), so wheeling one grows its section instead. The main results
         # list has a real scrollbar and is unaffected.
         self._show_more_row_check = QCheckBox(
-            'Show a "Show N more" row when a section is truncated'
+            'Use "Show N more" rows instead of scrollbars'
         )
         self._show_more_row_check.setToolTip(
-            "Sidebar sections show the entries that fit and hide the rest.\n"
-            "Scrolling a section reveals more, so this row is off by default —\n"
-            "it advertises something a scroll wheel already does.\n"
-            "Turn it on if your pointing device cannot scroll: the row does\n"
-            "the same thing as a control you can click."
+            "Off (default): sidebar sections show every entry and scroll,\n"
+            "like any other list.\n"
+            "On: sections show only the entries that fit and end with a\n"
+            '"Show N more" row that makes the section taller — for pointing\n'
+            "devices that cannot scroll."
         )
         density_form.addRow("", self._show_more_row_check)
         sidebar_layout.addLayout(density_form)
