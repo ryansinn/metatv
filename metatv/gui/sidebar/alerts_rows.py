@@ -243,7 +243,8 @@ class _AlertRow(_RowShell):
                  started_at: datetime | None = None, quality: str = "",
                  region: str = "",
                  indent: int = 0, bar_source: str = "",
-                 expandable: bool = False, expanded: bool = False):
+                 expandable: bool = False, expanded: bool = False,
+                 marker_column: bool | None = None):
         """
         Args:
             ch_name: The channel/title text for the row.
@@ -272,7 +273,13 @@ class _AlertRow(_RowShell):
             expandable: This row has children, so its slot shows a disclosure
                 caret. Replaces the tree's native indicator, which lived in its
                 own column and could not share the slot with play and new.
-            expanded: Which way the caret points.
+            expanded: Whether the source list is currently open.
+            marker_column: Reserve the source-marker column. ``None`` means
+                "whenever the row is expandable", which is the sensible default
+                for a child row (no) and a bundled programme (yes). A
+                SINGLE-source programme passes ``True`` explicitly: it has no
+                sources to disclose but it is still a top-level row, and its
+                title has to start where its neighbours' do.
             bar_source: The channel this row's progress bar belongs to, named
                 in the bar's tooltip. A programme row's bar is not an abstract
                 "the programme" — it is the progress of the ONE source its play
@@ -291,6 +298,7 @@ class _AlertRow(_RowShell):
         self._hovered = False
         self._expandable = expandable
         self._expanded = expanded
+        marker_column = expandable if marker_column is None else marker_column
 
         # An expandable row carries TWO leading columns, and the widths are
         # what make them line up: the marker takes exactly _CHILD_INDENT, so
@@ -299,11 +307,20 @@ class _AlertRow(_RowShell):
         # and the parent's title sits on the same left edge as its sources'.
         self._slot = _slot_label()
         self._marker = None
-        if expandable:
+        if marker_column:
+            # RESERVED, not conditional. A top-level EPG row keeps this column
+            # whether or not it has sources to disclose, so a single-source
+            # programme's title lands on the same left edge as a bundled one's.
+            # Owner: "single item spacing needs to leave space for the play
+            # button even if it's not there (so basically hold space for the
+            # playlist icon, and the play button)". Reserving is the same
+            # reasoning that gave the play slot its own fixed width — a column
+            # that appears and disappears moves everything beside it.
             self._marker = QLabel()
             self._marker.setFixedWidth(_CHILD_INDENT)
             self._marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._marker.setToolTip("Several sources — click to show them")
+            if expandable:
+                self._marker.setToolTip("Several sources — click to show them")
             leading = QWidget()
             lay = QHBoxLayout(leading)
             lay.setContentsMargins(0, 0, 0, 0)
@@ -354,7 +371,14 @@ class _AlertRow(_RowShell):
 
         self._mount(build_chip_row(
             title=ch_name,
-            title_chips=((CHIP_LANG, region), (CHIP_QUALITY, quality)),
+            title_chips=((CHIP_QUALITY, quality),),
+            # Language in the RIGHT rail, not with the title: hugging the title
+            # put every row's chip at a different x, since it lands wherever the
+            # name happens to end. Owner: "the alignment of the language chips
+            # should be align right immediately to the left of the progress bar
+            # or upcoming play time chip." Quality stays with the title — that
+            # was settled separately and for the opposite reason.
+            chips=((CHIP_LANG, region),),
             tail_widget=self.progress if self._show_bar else self.time_lbl,
             leading_slot=leading,
             indent=indent,
@@ -418,7 +442,7 @@ class _AlertRow(_RowShell):
         # The marker is a column of its own, so it no longer competes with the
         # play affordance for the one slot — which is what made an expandable
         # row draw a play triangle where its disclosure control should be.
-        if self._marker is not None:
+        if self._marker is not None and self._expandable:
             self._marker.setPixmap(_icon_utils.vector_pixmap(
                 _icons.vector_key(
                     "sources_open" if self._expanded else "sources_closed"),

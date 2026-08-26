@@ -468,8 +468,12 @@ class EpgGroupMixin:
             item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
+            # marker_column: a single-source programme has nothing to disclose,
+            # but it is still a TOP-LEVEL row — it reserves the column so its
+            # title starts where a bundled programme's does.
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
-                            started_at=started_at, quality=quality, region=region)
+                            started_at=started_at, quality=quality, region=region,
+                            bar_source=ch_name, marker_column=True)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
 

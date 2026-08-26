@@ -47,7 +47,8 @@ def _parent(qapp, tmp_path, *, live=True, expanded=False):
     row = _AlertRow("Two and a Half Men", "8m left", Config(config_dir=tmp_path),
                     when=NOW + timedelta(minutes=8), live=live,
                     started_at=NOW - timedelta(minutes=22) if live else None,
-                    bar_source="DTOUR [CA]", expandable=True, expanded=expanded)
+                    bar_source="DTOUR [CA]", region="DE",
+                    expandable=True, expanded=expanded)
     row.setFixedWidth(290)
     row.show()
     qapp.processEvents()
@@ -58,7 +59,8 @@ def _parent(qapp, tmp_path, *, live=True, expanded=False):
 def _child(qapp, tmp_path):
     row = _AlertRow("DTOUR [CA]", "8m left", Config(config_dir=tmp_path),
                     when=NOW + timedelta(minutes=8), live=True,
-                    started_at=NOW - timedelta(minutes=22), indent=_CHILD_INDENT)
+                    started_at=NOW - timedelta(minutes=22), region="CA",
+                    indent=_CHILD_INDENT)
     row.setFixedWidth(290)
     row.show()
     qapp.processEvents()
@@ -264,6 +266,140 @@ class TestOneContinuousPlayColumn:
         assert px == cx, f"parent title at {px}, child at {cx}"
         for r in (parent, child):
             r.deleteLater()
+
+
+class TestEveryTopLevelRowKeepsTheSameColumns:
+    """A column that appears and disappears moves everything beside it.
+
+    Owner: "single item spacing needs to leave space for the play button even
+    if it's not there (so basically hold space for the playlist icon, and the
+    play button)". A single-source programme has nothing to disclose but is
+    still a top-level row, so it reserves the marker column rather than letting
+    its title slide left.
+    """
+
+    def _single(self, qapp, tmp_path):
+        row = _AlertRow("New Mexico News Insiders", "8m left",
+                        Config(config_dir=tmp_path),
+                        when=NOW + timedelta(minutes=8), live=True,
+                        started_at=NOW - timedelta(minutes=22),
+                        region="US", marker_column=True)
+        row.setFixedWidth(290)
+        row.show()
+        qapp.processEvents()
+        _unhover(row)
+        return row
+
+    def test_bundled_single_and_child_share_one_title_edge(self, qapp, tmp_path):
+        from metatv.gui.chip_row import row_title_label
+
+        rows = {
+            "bundled": _parent(qapp, tmp_path),
+            "single": self._single(qapp, tmp_path),
+            "child": _child(qapp, tmp_path),
+        }
+        xs = {k: row_title_label(r).mapTo(r, QPoint(0, 0)).x()
+              for k, r in rows.items()}
+        assert len(set(xs.values())) == 1, xs
+        for r in rows.values():
+            r.deleteLater()
+
+    def test_they_share_one_play_column_too(self, qapp, tmp_path):
+        rows = [_parent(qapp, tmp_path), self._single(qapp, tmp_path),
+                _child(qapp, tmp_path)]
+        assert len({r._slot_rect().left() for r in rows}) == 1
+        for r in rows:
+            r.deleteLater()
+
+    def test_a_single_source_row_reserves_but_does_not_draw_the_marker(
+            self, qapp, tmp_path):
+        """Reserved, blank: there are no sources to disclose."""
+        row = self._single(qapp, tmp_path)
+        assert row._marker is not None, "the column was not reserved"
+        assert row._marker.pixmap().isNull(), (
+            "a single-source row drew a disclosure marker it cannot act on"
+        )
+        assert not row._expandable
+        row.deleteLater()
+
+    def test_a_child_row_does_not_reserve_it(self, qapp, tmp_path):
+        """Its indent already accounts for the column."""
+        row = _child(qapp, tmp_path)
+        assert row._marker is None
+        row.deleteLater()
+
+
+class TestTheLanguageChipIsInTheRightRail:
+    """Owner: "the alignment of the language chips should be align right
+    immediately to the left of the progress bar or upcoming play time chip."
+
+    Hugging the title put every row's chip at a different x, because it landed
+    wherever the name happened to end.
+    """
+
+    def test_language_sits_right_of_the_title_and_left_of_the_bar(
+            self, qapp, tmp_path):
+        from PyQt6.QtWidgets import QPushButton
+        from metatv.gui.chip_row import row_title_label
+
+        row = _parent(qapp, tmp_path, live=True)
+        chips = {c.text(): c for c in row.findChildren(QPushButton)}
+        assert "DE" in chips, list(chips)
+        lang_x = chips["DE"].mapTo(row, QPoint(0, 0)).x()
+        title = row_title_label(row)
+        assert lang_x > title.mapTo(row, QPoint(0, 0)).x()
+        assert lang_x > 290 // 2, "the chip is not pinned right"
+        assert lang_x < row.progress.mapTo(row, QPoint(0, 0)).x(), (
+            "the language chip must sit LEFT of the progress bar"
+        )
+        row.deleteLater()
+
+    def test_it_lands_in_one_column_whatever_the_title_length(
+            self, qapp, tmp_path):
+        """The whole point: two rows with very different titles put their
+        language chips at the same x."""
+        from PyQt6.QtWidgets import QPushButton
+
+        def lang_x(title):
+            row = _AlertRow(title, "8m left", Config(config_dir=tmp_path),
+                            when=NOW + timedelta(minutes=8), live=True,
+                            started_at=NOW - timedelta(minutes=22),
+                            region="US", marker_column=True)
+            row.setFixedWidth(290)
+            row.show()
+            qapp.processEvents()
+            chip = next(c for c in row.findChildren(QPushButton)
+                        if c.text() == "US")
+            x = chip.mapTo(row, QPoint(0, 0)).x()
+            row.deleteLater()
+            return x
+
+        short, long = lang_x("La Gata"), lang_x("Rick Stein's Road to Mexico")
+        assert short == long, (
+            f"chip at {short} on a short title and {long} on a long one — "
+            "it is still following the title"
+        )
+
+    def test_quality_still_travels_with_the_title(self, qapp, tmp_path):
+        """The opposite rule, settled separately: quality is a claim about the
+        copy and hugs the name."""
+        from PyQt6.QtWidgets import QPushButton
+        from metatv.gui.chip_row import row_title_label
+
+        row = _AlertRow("PROSIEBEN MAXX", "8m left", Config(config_dir=tmp_path),
+                        when=NOW + timedelta(minutes=8), live=True,
+                        started_at=NOW - timedelta(minutes=22),
+                        quality="HEVC", region="DE", indent=_CHILD_INDENT)
+        row.setFixedWidth(290)
+        row.show()
+        qapp.processEvents()
+        chips = {c.text(): c.mapTo(row, QPoint(0, 0)).x()
+                 for c in row.findChildren(QPushButton)}
+        title = row_title_label(row)
+        gap = chips["HEVC"] - (title.mapTo(row, QPoint(0, 0)).x() + title.width())
+        assert 0 <= gap < 12, f"quality sits {gap}px out — it left the title"
+        assert chips["DE"] > chips["HEVC"], "language must be further right"
+        row.deleteLater()
 
 
 class TestTheRowsAreNoLongerPaddedLikeAWastedLine:
