@@ -34,6 +34,10 @@ from metatv.gui.sidebar.base import (
 # rule_created id for keyword-rule rows (existing click/menu code reads it); the
 # extra roles tag the item kind and, for series rows, the series channel id.
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "heading" | "series"
+#: Height assumed for a row that never had an explicit size hint set —
+#: a plain text item rather than one carrying a widget.
+_ROW_FALLBACK_H = 22
+
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
 
@@ -256,8 +260,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._series_spinner.setToolTip(
                 "Checking monitored series for new episodes…"
             )
-            self._series_spinner.hide()
+            # hide() AFTER addWidget: adding a widget to a layout re-parents it,
+            # and a re-parented widget takes its new parent's visibility — so
+            # hiding first left the indicator showing with nothing running.
             header_layout.addWidget(self._series_spinner)
+            self._series_spinner.hide()
 
         self._manage_btn = QPushButton()
         self._manage_btn.setFixedSize(24, 20)
@@ -308,6 +315,49 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             (self.__dict__.get("_vod_list"), self.manageWatchForClicked.emit),
             (self.__dict__.get("_retry_list"), self.manageWatchForClicked.emit),
         )
+
+    @staticmethod
+    def _fit_to_rows(view) -> None:
+        """Set a view's height to exactly what its contents need.
+
+        Uses Qt's own ``viewportSizeHint()`` — the ideal viewport size for the
+        current contents — rather than summing rows by hand. Two hand-rolled
+        attempts got this wrong in different ways: ``visualItemRect`` is
+        (0,0,0,0) for anything not yet laid out, and ``sizeHint().height()``
+        returns **-1** when no hint was set, which quietly poisoned the total.
+        Qt already knows this number; asking it is both shorter and correct.
+
+        Without it, three views each holding an equal expanding share of the
+        panel left ~150px of dead space between EPG and Movies whenever one was
+        short — they read as ONE list, so each takes the height its rows need
+        and the column packs upward.
+        """
+        view.updateGeometries()
+        hint = view.viewportSizeHint().height()
+        frame = 2 * view.frameWidth()
+        view.setFixedHeight(max(0, hint) + frame)
+
+    @staticmethod
+    def _make_seamless(view) -> None:
+        """Strip a sub-list's frame and ground so it reads as part of the section.
+
+        The section is built from three widgets — an EPG tree and two lists —
+        stacked in one panel. Each drew its own frame and background, so the
+        approved single flat surface arrived as THREE BORDERED BOXES with
+        headings floating between them. Owner: "that doesn't look like the
+        design we planned."
+
+        They are one list to the reader; they are three only to the layout.
+        """
+        from PyQt6.QtWidgets import QFrame
+
+        view.setFrameShape(QFrame.Shape.NoFrame)
+        view.viewport().setAutoFillBackground(False)
+        _theme.style_fn(view, lambda: (
+            f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
+            f" background: transparent; border: none;"
+            f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
+        ))
 
     def create_content(self):
         from PyQt6.QtWidgets import QHeaderView
@@ -360,11 +410,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
         _theme.apply_list_selection(self.alerts_tree)
+        self._make_seamless(self.alerts_tree)
         # Expanding + equal stretch (shared by all three sub-lists) so the section's
         # surplus vertical space is DISTRIBUTED among them rather than pooling in one
         # ballooning list or a dead gap.  No maximumHeight: the stretch share bounds
         # the tree within the splitter pane, and a long watchlist scrolls internally.
-        self.alerts_tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        # Sized to CONTENT, not given an equal expanding share. Three widgets
+        # each claiming a third of the panel left ~150px of dead space between
+        # EPG and Movies whenever one was short — they read as ONE list, so
+        # each takes the height its rows need and the column packs upward.
+        self.alerts_tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.alerts_tree.hide()
         self.content_layout.addWidget(self.alerts_tree, 1)
 
@@ -395,9 +450,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # Equal stretch with the EPG tree so Movies & Series always gets its fair share
         # of the section's height (never starved to a sliver) and grows to help fill the
         # pane instead of leaving a gap.  A long list scrolls within its share.
-        self._vod_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._vod_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         _theme.style_fn(self._vod_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._vod_list)
+        self._make_seamless(self._vod_list)
         cursor_affordance.set_clickable(self._vod_list)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
@@ -449,13 +505,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         # Matching Expanding + equal stretch so Stream Monitoring shares the pane on the
         # same footing as the other two sub-lists.
-        self._retry_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._retry_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         _theme.style_fn(self._retry_list, lambda: f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._retry_list)
+        self._make_seamless(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
         self._retry_list.hide()
+
+        # Everything packs to the TOP. Without this the layout distributes
+        # slack between the three views again, which is the gap this whole
+        # sizing change exists to close.
+        self.content_layout.addStretch(1)
         self.content_layout.addWidget(self._retry_list, 1)
 
         self._update_retry_toggle_label(0)
@@ -765,9 +827,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # NoItemFlags and inert while looking identical to the Series one.
         if rules and series:
             self._add_group_heading(
-                "Watching for", len(rules),
+                "Movies", len(rules),
                 on_click=self._toggle_keyword_group,
-                tooltip="Keyword watch-for rules — click to collapse or expand",
+                tooltip="Titles you are watching for — click to collapse or expand",
             )
 
         # ── Keyword rules ─────────────────────────────────────────────────
@@ -870,6 +932,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     self._vod_list.setItemWidget(item, row)
 
         self._update_vod_toggle_label(len(rules) + len(series))
+        self._fit_to_rows(self._vod_list)
         self._vod_list.show()
         self._recompute_empty()
 
@@ -1139,6 +1202,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
+        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
 
@@ -1153,6 +1217,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.loading_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
+        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
 
@@ -1330,20 +1395,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._hide_epg_subsection()
             return
 
-        def _section_hdr(text: str, count: int | None = None) -> None:
-            """One EPG group heading, in the same grammar as every other group.
-
-            Was a styled QTreeWidgetItem, which has one font and one foreground
-            and so could not render a muted label beside a bright count. A
-            widget can, and it is now the SAME widget the VOD groups use.
-            """
-            item = QTreeWidgetItem()
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.alerts_tree.addTopLevelItem(item)
-            heading = GroupHeading(text, count)
-            item.setSizeHint(0, QSize(0, heading.sizeHint().height()))
-            self.alerts_tree.setItemWidget(item, 0, heading)
-
         def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
             """Connect an _AlertRow's signals to the section's public signals."""
             row.play_clicked.connect(
@@ -1378,7 +1429,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self.alerts_tree.setItemWidget(item, 0, row)
 
         if live_groups:
-            _section_hdr("Watch now", len(live_groups))
             for key, grp in sorted(live_groups.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['live'])):
                 title = grp['title']
@@ -1402,7 +1452,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 
         if upcoming_only:
-            _section_hdr("Upcoming", len(upcoming_only))
             for key, grp in sorted(upcoming_only.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['airings'])):
                 title = grp['title']
@@ -1419,6 +1468,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     for a in airings[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False)
 
+        self._fit_to_rows(self.alerts_tree)
         self._reveal_epg_subsection()
         self.set_empty(False)
         QTimer.singleShot(0, self._apply_expansion)
