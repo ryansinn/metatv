@@ -33,20 +33,20 @@ def qapp():
 
 
 def _make_dto(**overrides) -> ChannelListDTO:
-    base = dict(
-        id=str(uuid.uuid4()),
-        name="Channel",
-        media_type="live",
-        provider_id="prov1",
-        is_favorite=False,
-        category=None,
-        quality=None,
-        detected_prefix=None,
-        detected_region=None,
-        detected_quality=None,
-        detected_year=None,
-        detected_title="Title",
-    )
+    base = {
+        "id": str(uuid.uuid4()),
+        "name": "Channel",
+        "media_type": "live",
+        "provider_id": "prov1",
+        "is_favorite": False,
+        "category": None,
+        "quality": None,
+        "detected_prefix": None,
+        "detected_region": None,
+        "detected_quality": None,
+        "detected_year": None,
+        "detected_title": "Title",
+    }
     base.update(overrides)
     return ChannelListDTO(**base)
 

@@ -61,13 +61,13 @@ class _FakeSeam:
             token_ref[0] += 1
         token = token_ref[0] if token_ref is not None else None
         self.calls.append(
-            dict(
-                query_fn=query_fn,
-                on_result=on_result,
-                token=token,
-                token_ref=token_ref,
-                on_error=on_error,
-            )
+            {
+                "query_fn": query_fn,
+                "on_result": on_result,
+                "token": token,
+                "token_ref": token_ref,
+                "on_error": on_error,
+            }
         )
 
     def deliver_last(self, data: Any, *, stale: bool = False) -> None:

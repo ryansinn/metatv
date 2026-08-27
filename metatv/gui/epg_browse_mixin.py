@@ -880,10 +880,10 @@ class _EpgBrowseMixin:
         cid = item.data(0, Qt.ItemDataRole.UserRole)
 
         # ── Build context ────────────────────────────────────────────────────
-        ctx_kwargs: dict = dict(
-            channel_ids=[cid] if cid else [],
-            surface="epg_browse",
-        )
+        ctx_kwargs: dict = {
+            "channel_ids": [cid] if cid else [],
+            "surface": "epg_browse",
+        }
 
         if cid:
             with self.db.session_scope(commit=False) as session:

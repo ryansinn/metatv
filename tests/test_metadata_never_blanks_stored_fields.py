@@ -66,16 +66,16 @@ def _manager(db, *providers):
     return MetadataManager(registry, db)
 
 
-_FULL = dict(
-    title="Toy Story",
-    plot="Woody and Buzz.",
-    poster_url="http://img/toy-story.jpg",
-    cast=["Tom Hanks", "Tim Allen"],
-    genres=["Animation"],
-    director="John Lasseter",
-    runtime=81,
-    release_date="1995-11-22",
-)
+_FULL = {
+    "title": "Toy Story",
+    "plot": "Woody and Buzz.",
+    "poster_url": "http://img/toy-story.jpg",
+    "cast": ["Tom Hanks", "Tim Allen"],
+    "genres": ["Animation"],
+    "director": "John Lasseter",
+    "runtime": 81,
+    "release_date": "1995-11-22",
+}
 
 
 def _prime(db, mgr, channel_id, **overrides):

@@ -367,65 +367,65 @@ class _ChannelListMixin:
         # zero-results state. Allows them to see what's hidden without changing settings.
         _bypassing = self._bypass_tier1_filters
         _genre_filters = filter_state.get('_genre_filters')
-        params = dict(
-            provider_id=target_provider_id,
-            media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
+        params = {
+            'provider_id': target_provider_id,
+            'media_types': filter_state.get('media_types', ['live', 'movie', 'series']),
             # Legacy prefix lists — now always empty (tag_includes is the active path).
             # Kept in params so _query_channels_page (pagination) still has these keys.
-            language_prefixes=None,
-            region_prefixes=None,
-            quality_prefixes=None,
-            platform_prefixes=None,
-            genre_filters=None if _bypassing else _genre_filters,
-            invert_prefix_filters=False,
-            include_untagged=filter_state.get('include_untagged', True),
-            include_untagged_quality=filter_state.get('include_untagged_quality', True),
-            adult_mode=filter_state.get('adult_mode', 'hide'),
-            force_adult_ids=force_adult_ids,
+            'language_prefixes': None,
+            'region_prefixes': None,
+            'quality_prefixes': None,
+            'platform_prefixes': None,
+            'genre_filters': None if _bypassing else _genre_filters,
+            'invert_prefix_filters': False,
+            'include_untagged': filter_state.get('include_untagged', True),
+            'include_untagged_quality': filter_state.get('include_untagged_quality', True),
+            'adult_mode': filter_state.get('adult_mode', 'hide'),
+            'force_adult_ids': force_adult_ids,
             # Tag facet filter — the active filter path (Slice B).
             # None when bypassing or no facet is constrained.
-            tag_includes=None if _bypassing else tag_includes,
+            'tag_includes': None if _bypassing else tag_includes,
             # Global filter — bypassed when paused so the user can see everything
-            source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
-            excluded_prefixes=_global_excluded_prefixes,
-            excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
+            'source_categories': None if _filter_paused else get_active_content_type_filter(self.config),
+            'excluded_prefixes': _global_excluded_prefixes,
+            'excluded_user_categories': set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
             # content_type tag slugs to hide (paused-aware); worker resolves the id-set.
-            excluded_tag_content_types=_excluded_ct_slugs,
+            'excluded_tag_content_types': _excluded_ct_slugs,
             # View-scoped reveal: skip the Python-side Global Exclusions for this one
             # load so the user can see exactly what those exclusions hide (mirror-not-
             # cage). Never mutates the stored settings; reset on next search/filter change.
-            bypass_global_exclusions=self._bypass_global_exclusions,
+            'bypass_global_exclusions': self._bypass_global_exclusions,
             # View-scoped reveal: lift the dead-stream gate for this one load so the
             # user can see channels held back by repeated play failures (mirror-not-
             # cage). Never mutates stored settings; reset on next search/filter change.
             # __dict__.get: bare-host tests build MainWindow via __new__, where
             # PyQt turns plain attribute access into RuntimeError (#351/#375 trap).
-            bypass_dead_gate=self.__dict__.get('_bypass_dead_gate', False),
+            'bypass_dead_gate': self.__dict__.get('_bypass_dead_gate', False),
             # Keyword axis: paused-aware list (empty when paused/unset — a no-op).
-            excluded_keywords=_excluded_keywords,
+            'excluded_keywords': _excluded_keywords,
             # View-scoped reveal: skip the keyword axis for this one load so the
             # user can see exactly what their keyword list hides (mirror-not-cage).
             # Never mutates stored settings; reset on next search/filter change.
-            bypass_keyword_exclusions=self.__dict__.get('_bypass_keyword_exclusions', False),
-            search_query=_search_text or None,
-            strict_genre_filter=self._details_genre_filter,
-            person_filter=self._details_person_filter,
+            'bypass_keyword_exclusions': self.__dict__.get('_bypass_keyword_exclusions', False),
+            'search_query': _search_text or None,
+            'strict_genre_filter': self._details_genre_filter,
+            'person_filter': self._details_person_filter,
             # Details-pane tag/collection context chips (strict, mutually exclusive).
-            context_tag_filter=self._details_tag_filter,
-            context_category_filter=self._details_category_filter,
+            'context_tag_filter': self._details_tag_filter,
+            'context_category_filter': self._details_category_filter,
             # Alert "show matches": strict set of stored matched channel ids (ephemeral).
-            context_id_filter=self._details_id_filter,
+            'context_id_filter': self._details_id_filter,
             # Gold-bar "reveal all matches": return the FULL matched set, relaxing the
             # visibility filters (provider-scoping/media-type/exclusions/hide-watched).
-            id_filter_show_all=self._id_filter_show_all,
-            page_size=self._search_page_size,
-            show_provider_icon=show_provider_icon,
-            provider_icon_map=provider_icon_map,
-            given_provider_id=provider_id,
-            hidden_only=self._hidden_mode,
-            bypassing_tier1=_bypassing,
+            'id_filter_show_all': self._id_filter_show_all,
+            'page_size': self._search_page_size,
+            'show_provider_icon': show_provider_icon,
+            'provider_icon_map': provider_icon_map,
+            'given_provider_id': provider_id,
+            'hidden_only': self._hidden_mode,
+            'bypassing_tier1': _bypassing,
             # Watched filter — OFF by default; when ON excludes watch_completed channels
-            hide_watched=filter_state.get('hide_watched', False),
+            'hide_watched': filter_state.get('hide_watched', False),
             # Settings → Interface → Channel List opt-in (default off): collapse
             # quality/language/source variants of the same content_key group into
             # one representative row + a "×N" badge. Read once here (self.config
@@ -433,13 +433,13 @@ class _ChannelListMixin:
             # through pagination (ChannelListModel stores/re-emits query_params
             # verbatim for fetchMore()), so every page of a search uses one
             # consistent collapse setting.
-            collapse_variants=getattr(self.config, "collapse_variants_in_list", False),
+            'collapse_variants': getattr(self.config, "collapse_variants_in_list", False),
             # Zero-sources empty state (main thread, already read above — no extra
             # query): distinguishes "no source configured at all" from "sources
             # exist but filters/search/exclusions hide everything", which
             # _on_channels_loaded needs to pick the honest empty-state message.
-            has_any_provider=bool(all_providers),
-        )
+            'has_any_provider': bool(all_providers),
+        }
 
         # Run the heavy query off the UI thread via the async seam; stale results
         # are dropped by the seam's token_ref. _on_channels_loaded receives the
@@ -488,11 +488,11 @@ class _ChannelListMixin:
         _rank_excl = (
             {}
             if params.get('bypass_global_exclusions') or hidden_only
-            else dict(
-                excluded_prefixes=excluded_prefixes or None,
-                excluded_user_categories=excluded_user_cats or None,
-                excluded_channel_ids=excluded_ct_ids or None,
-            )
+            else {
+                'excluded_prefixes': excluded_prefixes or None,
+                'excluded_user_categories': excluded_user_cats or None,
+                'excluded_channel_ids': excluded_ct_ids or None,
+            }
         )
         # Canonical provider scoping: hide inactive + expired sources (see
         # ProviderRepository.get_hidden_provider_ids — single source of truth).
@@ -1296,13 +1296,13 @@ class _ChannelListMixin:
             population and sum to the visible total; fetching them in separate
             queries would let them disagree after a refresh.
             """
-            scope = dict(
-                excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
-                excluded_keywords=_excl_keywords or None,
-                excluded_prefixes=_excl_prefixes or None,
-                excluded_categories=_excl_categories or None,
-                excluded_tag_content_types=_excl_content_types or None,
-            )
+            scope = {
+                'excluded_provider_ids': list(repos.providers.get_hidden_provider_ids()),
+                'excluded_keywords': _excl_keywords or None,
+                'excluded_prefixes': _excl_prefixes or None,
+                'excluded_categories': _excl_categories or None,
+                'excluded_tag_content_types': _excl_content_types or None,
+            }
             return (repos.tags.get_facet_value_counts(**scope),
                     repos.tags.get_facet_untagged_counts(**scope))
 
@@ -1520,22 +1520,29 @@ class _ChannelListMixin:
 
         # Resolve the play handler by surface
         if surface == "history":
-            play_fn = lambda: self.play_from_history_id(cid)
+            def play_fn():
+                return self.play_from_history_id(cid)
         elif surface == "favorites":
-            play_fn = lambda: self.play_favorite_id(cid)
+            def play_fn():
+                return self.play_favorite_id(cid)
         elif surface == "queue":
-            play_fn = lambda: self.play_queue_item_id(cid)
+            def play_fn():
+                return self.play_queue_item_id(cid)
         else:
-            play_fn = lambda: self.play_channel_by_id(cid)
+            def play_fn():
+                return self.play_channel_by_id(cid)
 
         # Hide handler varies by surface
         if surface == "history":
-            hide_fn = lambda: self._hide_channel_from_history(cid)
+            def hide_fn():
+                return self._hide_channel_from_history(cid)
         elif surface == "alerts":
-            hide_fn = lambda: self._hide_channel_from_alerts(cid)
+            def hide_fn():
+                return self._hide_channel_from_alerts(cid)
         else:
             # channel, queue, recommended
-            hide_fn = lambda: self._hide_channel_from_recommendations(cid)
+            def hide_fn():
+                return self._hide_channel_from_recommendations(cid)
 
         # Clear-unavailable handler varies by surface
         fav_section = (

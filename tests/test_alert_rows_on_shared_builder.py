@@ -163,7 +163,8 @@ class TestTheSlotsAddedToTheSharedBuilder:
         assert row_title_label(a).x() == row_title_label(b).x(), (
             "a marker in the slot shifted the title — the column is not reserved"
         )
-        a.deleteLater(); b.deleteLater()
+        a.deleteLater()
+        b.deleteLater()
 
     def test_title_chips_sit_left_of_rail_chips(self, qapp):
         """A claim about the copy travels with the name; a list fact does not.
@@ -223,7 +224,8 @@ class TestTheSlotsAddedToTheSharedBuilder:
             r.show()
         qapp.processEvents()
         assert row_title_label(deep).x() - row_title_label(flat).x() == 14
-        flat.deleteLater(); deep.deleteLater()
+        flat.deleteLater()
+        deep.deleteLater()
 
 
 class TestChipsComeFromOnePlace:

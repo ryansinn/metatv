@@ -225,13 +225,13 @@ class TestFetchCardsForKey:
         session = seeded_db.get_session()
         try:
             ss = build_status_sets(session)
-            sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
-                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
-            fk = dict(excluded_prefixes=None, include_uncategorized=True)
+            sk = {"fav_ids": ss.fav_ids, "queue_ids": ss.queue_ids,
+                      "watched_ids": ss.watched_ids, "liked_ids": ss.liked_ids}
+            fk = {"excluded_prefixes": None, "include_uncategorized": True}
             adult_mode, force_adult_ids = build_adult_filter(session, Config())
-            af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
+            af = {"adult_mode": adult_mode, "force_adult_provider_ids": force_adult_ids or None}
             excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
-            ek = dict(excluded_provider_ids=excl_ids or None)
+            ek = {"excluded_provider_ids": excl_ids or None}
 
             cards = fetch_cards_for_key(
                 session, Config(), "genre:Action", 30,
@@ -253,13 +253,13 @@ class TestFetchCardsForKey:
         session = seeded_db.get_session()
         try:
             ss = build_status_sets(session)
-            sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
-                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
-            fk = dict(excluded_prefixes=None, include_uncategorized=True)
+            sk = {"fav_ids": ss.fav_ids, "queue_ids": ss.queue_ids,
+                      "watched_ids": ss.watched_ids, "liked_ids": ss.liked_ids}
+            fk = {"excluded_prefixes": None, "include_uncategorized": True}
             adult_mode, force_adult_ids = build_adult_filter(session, Config())
-            af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
+            af = {"adult_mode": adult_mode, "force_adult_provider_ids": force_adult_ids or None}
             excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
-            ek = dict(excluded_provider_ids=excl_ids or None)
+            ek = {"excluded_provider_ids": excl_ids or None}
 
             cards = fetch_cards_for_key(
                 session, Config(), "recently_added", 30,

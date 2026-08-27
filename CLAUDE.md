@@ -198,6 +198,18 @@ A UI test that checks parsed data, cell ORDER, or token existence passes for inf
 ### Subagent dispatch
 The coordinator PLANS COMPLETELY; agents only execute. Model ladder: **Haiku + `effort: "low"`** for prescriptive work (the brief names the files, the edits, and the test cases — the agent types, it doesn't think); **Sonnet + low** only when a slice genuinely requires local judgment; medium and above only with the owner's per-case blessing. **A brief that says "pick an approach" or "decide X" is under-planned — the coordinator makes every design decision IN the brief.** One concern per slice (<100k target; Haiku slices should land well under 50k). Briefs inline the 3-5 applicable rule bullets (never doc-reading assignments) and always carry: pre-assigned What's New id(s), "run only your new/changed test files once — no adjacent-file batteries; the merge gate covers integration", worktree isolation, rebase-before-PR, do-not-merge.
 
+### Clean up what you create — scratch files, worktrees, branches
+A large scratch artifact's value ends the moment its number is recorded; keeping it is
+pure cost on the owner's disk. Before copying anything over ~100 MB, decide how many
+copies must exist AT ONCE (usually two — a pristine baseline and the one being mutated,
+reset rather than re-copied), and `rm` each intermediate in the same step that records
+its result, never "at the end". Nineteen copies of the 1.6 GB database — about 30 GB —
+filled `/home` to 100% mid-measurement and broke the next `cp`. The same applies to
+git: when a PR merges, remove its worktree and delete its branch in that step, and
+sweep the scratch dir at session wrap. `scripts/prune_merged.sh` only covers
+`.claude/worktrees/` and sibling `-pr-*` dirs; worktrees under a session scratchpad are
+the agent's own to clean.
+
 ### The owner's checkout is sacred
 The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here.
 

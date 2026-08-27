@@ -97,7 +97,7 @@ class StreamRetryRepository:
             .filter(StreamRetryDB.reliability_state != "ok")
             .all()
         )
-        return {channel_id: state for channel_id, state in rows}
+        return dict(rows)
 
     def get_due(self) -> list[StreamRetryDB]:
         return (

@@ -1241,7 +1241,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
                 remaining -= take
 
         if remaining > 0:
-            for i, avail in others_avail:
+            for i, _avail in others_avail:
                 extra = min(remaining, new_sizes[i] - floors[i])
                 if extra > 0:
                     new_sizes[i] -= extra

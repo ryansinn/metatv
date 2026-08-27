@@ -42,7 +42,7 @@ class _FakeSeam:
     def _run_query(self, query_fn, on_result, *, token_ref=None, on_error=None) -> None:
         if token_ref is not None:
             token_ref[0] += 1
-        self.calls.append(dict(on_result=on_result, token_ref=token_ref, on_error=on_error))
+        self.calls.append({"on_result": on_result, "token_ref": token_ref, "on_error": on_error})
 
     def deliver_to(self, on_result: Callable, data: Any) -> None:
         for entry in reversed(self.calls):
@@ -222,7 +222,8 @@ def test_nav_chip_entry_lands_on_builder(qapp):
     view, _seam = _make_view(qapp)
     view._active = True
     view._stack.setCurrentIndex(1)          # simulate a prior browse state
-    view._tab_bar.set_index(1); view._show_tab(1)   # …and a prior Saved tab
+    view._tab_bar.set_index(1)
+    view._show_tab(1)   # …and a prior Saved tab
 
     view.on_activate()
 

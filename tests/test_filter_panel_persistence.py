@@ -68,7 +68,8 @@ def _make_config(
     deselections) is covered separately in ``test_filter_opt_out.py``; pass
     ``baseline_established=False`` to exercise it here.
     """
-    _known = (lambda vals: vals if baseline_established else None)
+    def _known(vals):
+        return (vals if baseline_established else None)
     cfg = SimpleNamespace(
         filter_known_languages=_known(["EN", "FR"]),
         filter_known_regions=_known(["US", "CA"]),

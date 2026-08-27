@@ -248,7 +248,7 @@ class TestMakeRecommendationItem:
             class epg:
                 @staticmethod
                 def get_matching_programs(channel_db_id, patterns, provider_ids, limit=10):
-                    captured.append(dict(channel_db_id=channel_db_id, patterns=patterns, provider_ids=provider_ids))
+                    captured.append({"channel_db_id": channel_db_id, "patterns": patterns, "provider_ids": provider_ids})
                     return []
 
         class _FakeDB:

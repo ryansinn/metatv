@@ -105,7 +105,7 @@ def test_reconnect_flag_after_ua_before_cache():
     args = _player("auto", [], "modest")._compose_extra_args()
     ua_idx = args.index(_CANONICAL_UA)
     rc_idx = args.index(RECONNECT_FLAG)
-    cache_indices = [i for i, a in enumerate(args) if a.startswith("--cache=") or a.startswith("--cache-secs")]
+    cache_indices = [i for i, a in enumerate(args) if a.startswith(("--cache=", "--cache-secs"))]
     assert ua_idx < rc_idx
     if cache_indices:
         assert rc_idx < min(cache_indices)
@@ -147,7 +147,7 @@ def test_reconnect_only_profile_no_cache_flags():
     assert _CANONICAL_UA in args
     assert RECONNECT_FLAG in args
     assert not any(
-        a.startswith("--cache=") or a.startswith("--cache-secs") or a.startswith("--demuxer-")
+        a.startswith(("--cache=", "--cache-secs", "--demuxer-"))
         for a in args
     )
 
@@ -230,7 +230,7 @@ def test_garbage_size_reconnect_only_profile():
     assert _CANONICAL_UA in args
     assert RECONNECT_FLAG in args
     assert "--foo" in args
-    assert not any(a.startswith("--cache=") or a.startswith("--cache-secs") for a in args)
+    assert not any(a.startswith(("--cache=", "--cache-secs")) for a in args)
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ def test_override_all_strips_ua_reconnect_cache():
     args = _player("auto", ["--foo"], "modest", mpv_args_override_all=True)._compose_extra_args()
     assert _CANONICAL_UA not in args
     assert RECONNECT_FLAG not in args
-    assert not any(a.startswith("--cache=") or a.startswith("--cache-secs") for a in args)
+    assert not any(a.startswith(("--cache=", "--cache-secs")) for a in args)
 
 
 def test_override_all_off_ua_present():

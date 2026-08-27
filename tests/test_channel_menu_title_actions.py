@@ -32,14 +32,14 @@ def qapp():
 
 
 def _ctx(**kwargs) -> ChannelMenuContext:
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="channel",
-        media_type="movie",
-        channel_name="EN ★ The Matrix (1999) [HEVC]",
-        detected_title="The Matrix",
-        channel_found=True,
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "channel",
+        "media_type": "movie",
+        "channel_name": "EN ★ The Matrix (1999) [HEVC]",
+        "detected_title": "The Matrix",
+        "channel_found": True,
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

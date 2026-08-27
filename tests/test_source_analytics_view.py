@@ -43,7 +43,7 @@ class _FakeSeam:
         self.calls.append((query_fn, on_result, token, token_ref))
 
     def deliver(self, on_result, data):
-        for query_fn, cb, token, token_ref in self.calls:
+        for _query_fn, cb, token, token_ref in self.calls:
             if cb == on_result:
                 if token_ref is not None and token_ref[0] != token:
                     return False  # dropped as stale

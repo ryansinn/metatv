@@ -333,23 +333,23 @@ class TestFacetHueCellBuilders:
 # ---------------------------------------------------------------------------
 
 def _dto(**overrides) -> ChannelListDTO:
-    base = dict(
-        id=str(uuid.uuid4()),
-        name="Channel",
-        media_type="movie",
-        provider_id="p1",
-        is_favorite=False,
-        category=None,
-        quality=None,
-        detected_prefix="EN",
-        detected_region="A+",
-        detected_quality="4K",
-        detected_year="2024",
-        detected_title="Some Show",
-        user_rating=0,
-        detected_collection="APPLE+ KIDS",
-        detected_genre="Comedy",
-    )
+    base = {
+        "id": str(uuid.uuid4()),
+        "name": "Channel",
+        "media_type": "movie",
+        "provider_id": "p1",
+        "is_favorite": False,
+        "category": None,
+        "quality": None,
+        "detected_prefix": "EN",
+        "detected_region": "A+",
+        "detected_quality": "4K",
+        "detected_year": "2024",
+        "detected_title": "Some Show",
+        "user_rating": 0,
+        "detected_collection": "APPLE+ KIDS",
+        "detected_genre": "Comedy",
+    }
     base.update(overrides)
     return ChannelListDTO(**base)
 

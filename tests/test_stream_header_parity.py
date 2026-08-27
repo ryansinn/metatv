@@ -80,7 +80,7 @@ class TestMpvUserAgent:
         args = _player("50M")._compose_extra_args()
         ua_idx = args.index(f"--user-agent={stream_user_agent()}")
         # At least one cache flag must exist and come AFTER the UA.
-        cache_indices = [i for i, a in enumerate(args) if a.startswith("--cache=") or a.startswith("--demuxer-")]
+        cache_indices = [i for i, a in enumerate(args) if a.startswith(("--cache=", "--demuxer-"))]
         assert cache_indices, "expected cache flags to be present"
         assert ua_idx < min(cache_indices), (
             f"--user-agent (idx {ua_idx}) must precede cache flags (min idx {min(cache_indices)})"

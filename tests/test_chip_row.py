@@ -44,7 +44,7 @@ def _row(**over):
     unless the caller asks for the two-line row. Stating it here rather than in
     twelve tests.
     """
-    base = dict(title="Cowboy Bebop", meta=_META, density=DENSITY_COMFORTABLE)
+    base = {"title": "Cowboy Bebop", "meta": _META, "density": DENSITY_COMFORTABLE}
     base.update(over)
     return build_chip_row(**base)
 

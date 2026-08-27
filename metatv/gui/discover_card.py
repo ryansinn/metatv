@@ -187,10 +187,14 @@ class _ContentCard(QWidget):
 
         # Status overlay (top-right corner) — badges scale with zoom.
         badges = []
-        if card.is_liked:        badges.append(config.like_icon)
-        if card.is_favorite:     badges.append(config.favorite_icon)
-        if card.in_queue:        badges.append(config.queue_icon)
-        if card.already_watched: badges.append(config.watched_icon)
+        if card.is_liked:
+            badges.append(config.like_icon)
+        if card.is_favorite:
+            badges.append(config.favorite_icon)
+        if card.in_queue:
+            badges.append(config.queue_icon)
+        if card.already_watched:
+            badges.append(config.watched_icon)
         if badges:
             status_lbl = QLabel(" ".join(badges), self._poster_frame)
             status_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))

@@ -66,10 +66,10 @@ class _FallthroughConfig:
 
 def _fake_config(**overrides):
     """A real config with the handful of values these tests pin."""
-    defaults = dict(
-        epg_watchlist_patterns=[],
-        sidebar_section_states={},
-    )
+    defaults = {
+        "epg_watchlist_patterns": [],
+        "sidebar_section_states": {},
+    }
     defaults.update(overrides)
     return _FallthroughConfig(**defaults)
 

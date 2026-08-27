@@ -97,12 +97,12 @@ class TestContentKeyFor:
 
     def _channel(self, **kwargs):
         """Build a duck-typed channel proxy."""
-        defaults = dict(
-            id=str(uuid.uuid4()),
-            detected_title="Dark Star",
-            media_type="movie",
-            detected_year="2017",
-        )
+        defaults = {
+            "id": str(uuid.uuid4()),
+            "detected_title": "Dark Star",
+            "media_type": "movie",
+            "detected_year": "2017",
+        }
         defaults.update(kwargs)
         return SimpleNamespace(**defaults)
 

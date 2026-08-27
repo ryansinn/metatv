@@ -365,19 +365,19 @@ def sidebar_config(**over):
     defensive ``getattr`` in production — a ``getattr`` fallback in the section
     would mask a real missing-config bug for every viewer.
     """
-    base = dict(
+    base = {
         # Legacy emoji icon set — sidebar ROWS now use vector roles, but headers
         # and several menus still read these.
-        live_icon="L", movie_icon="M", series_icon="S", unknown_icon="?",
-        like_icon="+", delete_icon="x", watched_icon="v",
-        expand_icon="v", collapse_icon=">",
+        "live_icon": "L", "movie_icon": "M", "series_icon": "S", "unknown_icon": "?",
+        "like_icon": "+", "delete_icon": "x", "watched_icon": "v",
+        "expand_icon": "v", "collapse_icon": ">",
         # Row shape (Settings → Interface → Sidebar rows).
-        sidebar_row_density="compact",
+        "sidebar_row_density": "compact",
         # Section behaviour.
-        filter_adult_mode="all",
-        queue_filter_visible=False,
-        sidebar_section_states={},
-    )
+        "filter_adult_mode": "all",
+        "queue_filter_visible": False,
+        "sidebar_section_states": {},
+    }
     base.update(over)
     return SimpleNamespace(**base)
 

@@ -47,12 +47,12 @@ def _stub_self():
 
 
 def _sc(**over):
-    base = dict(
-        media_type="series", already_liked=False,
-        detected_title="Cowboy Bebop", detected_year="1998",
-        detected_prefix="EN", detected_region="DE", detected_quality="4K",
-        channel_name="EN - Cowboy Bebop (1998)",
-    )
+    base = {
+        "media_type": "series", "already_liked": False,
+        "detected_title": "Cowboy Bebop", "detected_year": "1998",
+        "detected_prefix": "EN", "detected_region": "DE", "detected_quality": "4K",
+        "channel_name": "EN - Cowboy Bebop (1998)",
+    }
     base.update(over)
     return SimpleNamespace(**base)
 

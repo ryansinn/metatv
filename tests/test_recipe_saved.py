@@ -31,7 +31,7 @@ class _FakeSeam:
     def _run_query(self, query_fn, on_result, *, token_ref=None, on_error=None) -> None:
         if token_ref is not None:
             token_ref[0] += 1
-        self.calls.append(dict(on_result=on_result, token_ref=token_ref, on_error=on_error))
+        self.calls.append({"on_result": on_result, "token_ref": token_ref, "on_error": on_error})
 
     def deliver_to(self, on_result: Callable, data: Any) -> None:
         for entry in reversed(self.calls):
@@ -244,7 +244,8 @@ def test_full_round_trip_save_list_reload_delete(qapp, tmp_path):
     assert view.recipe_includes == {"genre": {"Drama"}, "decade": {"1990s"}}
 
     # Delete it.
-    view._tab_bar.set_index(1); view._show_tab(1)
+    view._tab_bar.set_index(1)
+    view._show_tab(1)
     view._on_saved_delete(0)
     assert config.saved_recipes == []
     assert view._saved_panel.cards() == []

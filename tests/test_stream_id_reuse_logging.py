@@ -67,12 +67,12 @@ def _make_thread(db: Database, provider_id: str = "p1") -> ProviderLoadThread:
 
 def _seed_channel(db: Database, **kwargs) -> None:
     """Insert a ChannelDB row with sane defaults for fields the test doesn't care about."""
-    defaults = dict(
-        source_id=kwargs.get("id", ""),
-        provider_id="p1",
-        name="Unnamed",
-        media_type="movie",
-    )
+    defaults = {
+        "source_id": kwargs.get("id", ""),
+        "provider_id": "p1",
+        "name": "Unnamed",
+        "media_type": "movie",
+    }
     defaults.update(kwargs)
     with db.session_scope() as session:
         session.add(ChannelDB(**defaults))

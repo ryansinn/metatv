@@ -45,7 +45,8 @@ def _make_config(
     first-run baseline (``filter_known_* is None`` → include everything) is covered
     by ``test_filter_opt_out.py``; pass ``baseline_established=False`` for it.
     """
-    _known = (lambda vals: vals if baseline_established else None)
+    def _known(vals):
+        return (vals if baseline_established else None)
     cfg = SimpleNamespace(
         filter_known_languages=_known(["EN", "FR", "DE"]),
         filter_known_regions=_known(["US", "CA", "GB"]),

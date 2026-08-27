@@ -654,10 +654,10 @@ class _EpgOnNowMixin:
         is_single = len(channel_ids) == 1
 
         # ── Build context ────────────────────────────────────────────────────
-        ctx_kwargs: dict = dict(
-            channel_ids=valid_ch_ids or list(channel_ids),
-            surface=surface,
-        )
+        ctx_kwargs: dict = {
+            "channel_ids": valid_ch_ids or list(channel_ids),
+            "surface": surface,
+        }
 
         if is_single and valid_ch_ids:
             cid = valid_ch_ids[0]

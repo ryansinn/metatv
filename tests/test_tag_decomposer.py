@@ -293,7 +293,7 @@ class TestCompoundDecompose:
     def test_unrecognised_token_dropped_or_collection(self, cfg):
         """Tokens that don't match any known type become collection, not mis-typed."""
         tags = decompose("provider_category", "XYZZY123", config=cfg)
-        for typ, val, conf in tags:
+        for typ, _val, _conf in tags:
             assert typ in (
                 "region", "language", "platform", "quality",
                 "genre", "collection", "content_type", "decade"
@@ -315,7 +315,7 @@ class TestCompoundDecompose:
     def test_nf_is_platform_not_region(self, cfg):
         """NF (Netflix) is a platform — must not appear as region."""
         tags = decompose("provider_category", "NF", config=cfg)
-        for typ, val, conf in tags:
+        for typ, _val, _conf in tags:
             assert typ != "region", f"NF should not be tagged as region, got {tags}"
         assert any(t == "platform" for t, _, _ in tags), f"NF should be tagged as platform: {tags}"
 
@@ -547,7 +547,7 @@ class TestDecomposeNameParse:
             detected_year=None,
             config=cfg,
         )
-        for typ, val, conf in tags:
+        for typ, _val, _conf in tags:
             assert typ != "region", f"NF should not become region, got {tags}"
         assert any(t == "platform" for t, _, _ in tags), f"Expected platform in {tags}"
 
@@ -665,7 +665,7 @@ _VALID_TYPES = frozenset({
 def test_output_types_always_valid(feeder, raw, cfg):
     """Every (type, value, confidence) triple must use a known tag type namespace."""
     tags = decompose(feeder, raw, config=cfg)
-    for typ, val, conf in tags:
+    for typ, val, _conf in tags:
         assert typ in _VALID_TYPES, (
             f"Unknown tag type {typ!r} from feeder={feeder!r} raw={raw!r}"
         )

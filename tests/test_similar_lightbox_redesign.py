@@ -286,7 +286,7 @@ def qapp():
 
 def _version(**kw):
     from metatv.gui.details_versions import ChannelVersion
-    base = dict(channel_id="c1", name="Show", in_queue=False)
+    base = {"channel_id": "c1", "name": "Show", "in_queue": False}
     base.update(kw)
     return ChannelVersion(**base)
 

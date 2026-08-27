@@ -39,21 +39,21 @@ def qapp():
 
 def _single_channel_ctx(**kwargs) -> ChannelMenuContext:
     """Return a single-channel context with sensible defaults for 'channel' surface."""
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="channel",
-        media_type="movie",
-        is_favorite=False,
-        in_queue=False,
-        rating=0,
-        is_hidden=False,
-        is_watched=False,
-        has_unavailable=False,
-        channel_name="Test Channel",
-        user_category=None,
-        entry_id="",
-        channel_found=True,
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "channel",
+        "media_type": "movie",
+        "is_favorite": False,
+        "in_queue": False,
+        "rating": 0,
+        "is_hidden": False,
+        "is_watched": False,
+        "has_unavailable": False,
+        "channel_name": "Test Channel",
+        "user_category": None,
+        "entry_id": "",
+        "channel_found": True,
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 
@@ -710,13 +710,13 @@ def test_on_ctx_data_ready_play_calls_play_channel_by_id(qapp, monkeypatch):
 
 def _queue_ctx(**kwargs) -> ChannelMenuContext:
     """Single-item context on the 'queue' surface with sensible defaults."""
-    defaults = dict(
-        channel_ids=["q1"],
-        surface="queue",
-        media_type="movie",
-        channel_found=True,
-        channel_name="Queued Movie",
-    )
+    defaults = {
+        "channel_ids": ["q1"],
+        "surface": "queue",
+        "media_type": "movie",
+        "channel_found": True,
+        "channel_name": "Queued Movie",
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

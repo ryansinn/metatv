@@ -546,10 +546,10 @@ class TestIdFilterRevealAll:
         db = _make_file_backed_db(tmp_path)
         _seed_alert_channels(db)
         # c2 lives on the DISABLED source; it must stay hidden in BOTH views.
-        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
-                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
-                    source_categories=None, page_size=1000, hide_watched=False,
-                    context_id_filter={"c1", "c2", "c3"})
+        base = {"provider_id": None, "media_types": ["movie"], "force_adult_ids": None,
+                    "invert_prefix_filters": False, "include_untagged": True, "adult_mode": "all",
+                    "source_categories": None, "page_size": 1000, "hide_watched": False,
+                    "context_id_filter": {"c1", "c2", "c3"}}
         with db.session_scope(commit=False) as s:
             repos = RepositoryFactory(s)
             # Default: only c1 (c2 disabled-source, c3 media-type filtered).
@@ -571,10 +571,10 @@ class TestIdFilterRevealAll:
         _seed_alert_channels(db)
         # In real use the caller feeds only the AVAILABLE subset ({c1, c3}) — c2 is
         # already gated out.  Default hides c3 (media-type); reveal shows both → bar clears.
-        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
-                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
-                    source_categories=None, page_size=1000, hide_watched=False,
-                    context_id_filter={"c1", "c3"})
+        base = {"provider_id": None, "media_types": ["movie"], "force_adult_ids": None,
+                    "invert_prefix_filters": False, "include_untagged": True, "adult_mode": "all",
+                    "source_categories": None, "page_size": 1000, "hide_watched": False,
+                    "context_id_filter": {"c1", "c3"}}
         with db.session_scope(commit=False) as s:
             repos = RepositoryFactory(s)
             dtos, dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))

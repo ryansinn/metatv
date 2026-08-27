@@ -37,16 +37,16 @@ def qapp():
 
 
 def _ctx(**kwargs) -> ChannelMenuContext:
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="channel",
-        media_type="movie",
-        channel_found=True,
-        is_hidden=False,
-        watch_progress=0,
-        watch_completed=False,
-        playback_resume_mode="resume",
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "channel",
+        "media_type": "movie",
+        "channel_found": True,
+        "is_hidden": False,
+        "watch_progress": 0,
+        "watch_completed": False,
+        "playback_resume_mode": "resume",
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

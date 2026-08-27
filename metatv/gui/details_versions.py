@@ -547,10 +547,14 @@ class _VersionSection(CollapsibleMixin, QWidget):
     def _chip_status_suffix(self, v: ChannelVersion) -> str:
         """Return the status-icon suffix appended to a chip label (preferred/queue/fav/history)."""
         status = ""
-        if v.is_preferred: status += f" {self.config.preferred_version_icon}"
-        if v.in_queue:     status += f" {self.config.queue_icon}"
-        if v.is_favorite:  status += f" {self.config.favorite_icon}"
-        if v.in_history:   status += f" {self.config.history_icon}"
+        if v.is_preferred:
+            status += f" {self.config.preferred_version_icon}"
+        if v.in_queue:
+            status += f" {self.config.queue_icon}"
+        if v.is_favorite:
+            status += f" {self.config.favorite_icon}"
+        if v.in_history:
+            status += f" {self.config.history_icon}"
         return status
 
     def _chip_label(self, v: ChannelVersion) -> str:

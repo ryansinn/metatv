@@ -514,7 +514,7 @@ class EpgGroupMixin:
             return item
 
         if live_groups:
-            for key, grp in sorted(live_groups.items(),
+            for _key, grp in sorted(live_groups.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['live'])):
                 title = grp['title']
                 live_items = sorted(grp['live'], key=lambda a: a[0])
@@ -550,7 +550,7 @@ class EpgGroupMixin:
                  for a in grp["airings"] if _when(a) is not None),
                 default=None,
             )
-            for key, grp in sorted(upcoming_only.items(),
+            for _key, grp in sorted(upcoming_only.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['airings'])):
                 title = grp['title']
                 airings = sorted(grp['airings'], key=lambda a: a[0])

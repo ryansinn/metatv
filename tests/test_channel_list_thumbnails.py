@@ -77,21 +77,21 @@ class _StubImageCache(QObject):
 
 
 def _make_dto(**overrides) -> ChannelListDTO:
-    base = dict(
-        id=str(uuid.uuid4()),
-        name="Channel",
-        media_type="movie",
-        provider_id="prov1",
-        is_favorite=False,
-        category="Action",
-        quality=None,
-        detected_prefix=None,
-        detected_region="US",
-        detected_quality="HD",
-        detected_year="2021",
-        detected_title="A Great Movie",
-        poster_url="",
-    )
+    base = {
+        "id": str(uuid.uuid4()),
+        "name": "Channel",
+        "media_type": "movie",
+        "provider_id": "prov1",
+        "is_favorite": False,
+        "category": "Action",
+        "quality": None,
+        "detected_prefix": None,
+        "detected_region": "US",
+        "detected_quality": "HD",
+        "detected_year": "2021",
+        "detected_title": "A Great Movie",
+        "poster_url": "",
+    }
     base.update(overrides)
     return ChannelListDTO(**base)
 
