@@ -29,8 +29,6 @@ import re
 from pathlib import Path
 
 import pytest
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
 from metatv.gui import theme as _theme
 

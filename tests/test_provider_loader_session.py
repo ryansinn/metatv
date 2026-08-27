@@ -6,13 +6,11 @@ whether an exception occurs or not. Fails if the session is never closed
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from metatv.core.database import Base, Database, SeasonDB, EpisodeDB
+from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.provider_loader import SeriesLoadThread
 from metatv.core.models import Provider
 

@@ -14,19 +14,15 @@ Coverage:
 
 from __future__ import annotations
 
-import tempfile
 import uuid
-from pathlib import Path
 
 import pytest
 
-from unittest.mock import patch
 
-from metatv.core.database import Base, ChannelDB, Database, TagDB, ContentTagDB
+from metatv.core.database import ChannelDB, Database, TagDB, ContentTagDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.tag import (
     _TAG_ID_CACHE,
-    _clear_tag_cache,
     _compute_confidence,
 )
 

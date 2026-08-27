@@ -13,7 +13,6 @@ All tests use a file-backed DB (tmp_path) — not :memory: — per project polic
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pytest
 

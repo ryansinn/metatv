@@ -12,13 +12,11 @@ class ProviderPlugin(ABC):
     @abstractmethod
     def name(self) -> str:
         """Plugin name"""
-        pass
     
     @property
     @abstractmethod
     def provider_type(self) -> str:
         """Provider type identifier (e.g., 'xtream', 'm3u', 'plex')"""
-        pass
     
     @abstractmethod
     async def test_connection(self, url: str, username: Optional[str] = None, 
@@ -28,7 +26,6 @@ class ProviderPlugin(ABC):
         Returns:
             (success, error_message)
         """
-        pass
     
     @abstractmethod
     async def fetch_channels(self, provider: Provider, 
@@ -42,7 +39,6 @@ class ProviderPlugin(ABC):
         Returns:
             List of Channel objects
         """
-        pass
     
     @abstractmethod
     async def get_categories(self, provider: Provider) -> List[Dict[str, Any]]:
@@ -51,7 +47,6 @@ class ProviderPlugin(ABC):
         Returns:
             List of category dictionaries
         """
-        pass
     
     @abstractmethod
     async def fetch_series_info(self, provider: Provider, series_id: str) -> Optional[Dict[str, Any]]:
@@ -70,7 +65,6 @@ class ProviderPlugin(ABC):
                 'episodes': [...]  # List of episode dicts or nested lists
             }
         """
-        pass
 
     async def fetch_vod_info(self, provider: Provider, vod_id: str) -> Optional[Dict[str, Any]]:
         """Fetch detailed movie/VOD information (optional, default: not supported).

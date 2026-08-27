@@ -4,7 +4,6 @@ Pins the contract: assign plain Python objects, read back identical objects.
 TypeDecorator handles serialization transparently — no json.dumps/loads in app code.
 """
 
-import pytest
 
 
 # ---------------------------------------------------------------------------

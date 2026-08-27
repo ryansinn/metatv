@@ -124,19 +124,16 @@ class MetadataProviderPlugin(ABC):
     @abstractmethod
     def name(self) -> str:
         """Plugin name (e.g., 'tmdb', 'omdb', 'provider')"""
-        pass
     
     @property
     @abstractmethod
     def display_name(self) -> str:
         """Human-readable name for UI (e.g., 'The Movie Database')"""
-        pass
     
     @property
     @abstractmethod
     def supported_media_types(self) -> List[str]:
         """Media types this provider supports: ['movie', 'series', 'live']"""
-        pass
     
     @property
     @abstractmethod
@@ -145,7 +142,6 @@ class MetadataProviderPlugin(ABC):
         
         Examples: ['poster', 'cast', 'plot', 'rating', 'trailer', etc.]
         """
-        pass
     
     @abstractmethod
     async def search(self, title: str, year: Optional[int] = None,
@@ -160,7 +156,6 @@ class MetadataProviderPlugin(ABC):
         Returns:
             List of search results with at least 'id' and 'title' keys
         """
-        pass
     
     @abstractmethod
     async def get_details(self, external_id: str,
@@ -174,7 +169,6 @@ class MetadataProviderPlugin(ABC):
         Returns:
             MetadataResult with populated fields, or None if not found
         """
-        pass
     
     @abstractmethod
     async def test_connection(self) -> tuple[bool, Optional[str]]:
@@ -183,7 +177,6 @@ class MetadataProviderPlugin(ABC):
         Returns:
             Tuple of (success: bool, error_message: Optional[str])
         """
-        pass
     
     def get_rate_limit(self) -> tuple[int, int]:
         """Return (requests, seconds) for rate limiting

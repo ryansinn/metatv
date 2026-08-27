@@ -26,11 +26,9 @@ connections each see an empty schema there).
 from __future__ import annotations
 
 import concurrent.futures
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +195,7 @@ class TestDedupCardsContentKey:
 
     def test_shelf_order_preserved_when_later_card_wins(self):
         """Group keeps original first-seen position even when a later card outranks it."""
-        from metatv.core.discovery_engine import ContentCard, _dedup_cards
+        from metatv.core.discovery_engine import _dedup_cards
         key_a = "alpha|movie|2020"
         key_b = "beta|movie|2021"
         # alpha appears at position 0, beta at 1.

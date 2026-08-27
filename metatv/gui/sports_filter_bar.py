@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QFont
-from loguru import logger
 
 from metatv.gui.filter_bar import FilterDropdown
 from metatv.gui import theme as _theme

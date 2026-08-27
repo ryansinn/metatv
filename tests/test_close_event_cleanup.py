@@ -4,7 +4,6 @@ than individual hasattr checks.
 """
 
 from unittest.mock import MagicMock, patch
-import pytest
 
 
 def _make_close_event():

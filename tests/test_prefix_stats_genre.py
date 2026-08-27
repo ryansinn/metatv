@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from metatv.core.database import Base, ChannelDB, Database
+from metatv.core.database import ChannelDB, Database
 from metatv.core.repositories import RepositoryFactory
 
 

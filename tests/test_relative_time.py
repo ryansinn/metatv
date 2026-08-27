@@ -48,7 +48,7 @@ def test_the_ladder(kwargs, expected):
 
 def test_the_render_s_own_examples_all_come_out():
     """Every phrase the V3 sidebar render shows must be reachable."""
-    produced = {ago(days=d) for d in range(0, 30)} | {ago(hours=h) for h in range(0, 24)}
+    produced = {ago(days=d) for d in range(30)} | {ago(hours=h) for h in range(24)}
     for phrase in ("2 hours ago", "yesterday", "3 days ago", "last week", "2 weeks ago"):
         assert phrase in produced, f"the ladder cannot produce {phrase!r}"
 

@@ -12,7 +12,6 @@ breaks the test:
 6. _on_epg_count_failed clears the "counting…" placeholder on failure.
 7. EpgRepository.count_by_providers counts correctly over populated data.
 """
-import pytest
 
 from metatv.gui.main_window_nav import _NavMixin
 

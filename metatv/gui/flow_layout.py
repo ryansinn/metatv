@@ -14,7 +14,7 @@ Usage:
 from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt
-from PyQt6.QtWidgets import QLayout, QSizePolicy, QWidget, QWidgetItem
+from PyQt6.QtWidgets import QLayout, QWidget, QWidgetItem
 
 
 def enable_height_for_width(widget: "QWidget | None") -> None:

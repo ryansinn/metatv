@@ -1,12 +1,12 @@
 """CollapsibleSection base class and shared helpers for sidebar sections."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QPushButton,
-    QFrame, QScrollArea, QSizePolicy, QTreeWidgetItem,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QScrollArea, QSizePolicy,
 )
 from typing import Callable, NamedTuple
 
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QMouseEvent
 from loguru import logger
 
@@ -1148,7 +1148,6 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
     def create_content(self):
         """Override in subclasses to add section-specific content"""
-        pass
 
     def toggle_collapse(self):
         """Toggle collapsed/expanded state"""
@@ -1385,7 +1384,6 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
     def refresh(self):
         """Refresh section content - override in subclasses"""
-        pass
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this section's persistent chrome —

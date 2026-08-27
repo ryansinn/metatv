@@ -14,10 +14,8 @@ reserves ``None`` for real exceptions.  Valid-empty returns
 """
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -349,7 +347,7 @@ def test_load_rows_excludes_expired_provider_programme(tmp_path):
 
 def _make_section(qapp):
     """Build a WatchAlertsSection via __new__ with only the fields _populate_rows needs."""
-    from PyQt6.QtWidgets import QListWidget, QPushButton, QTreeWidget, QWidget
+    from PyQt6.QtWidgets import QListWidget, QTreeWidget, QWidget
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     obj = WatchAlertsSection.__new__(WatchAlertsSection)
@@ -410,7 +408,6 @@ def test_populate_rows_live_adds_watch_now_header(qapp):
 
 def test_populate_rows_upcoming_adds_upcoming_header(qapp):
     """An upcoming_only entry produces an UPCOMING section header."""
-    from datetime import timezone
     from metatv.core.epg_utils import now_utc as _now
 
     now = _now()

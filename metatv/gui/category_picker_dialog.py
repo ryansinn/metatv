@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
-from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database

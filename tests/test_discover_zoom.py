@@ -83,7 +83,7 @@ class TestCardMetrics:
         assert m.poster_h == round(_POSTER_H * z)
 
     def test_below_min_clamped_to_0_6(self):
-        from metatv.gui.discover_card import card_metrics, _CARD_W, _CARD_H, _POSTER_H
+        from metatv.gui.discover_card import card_metrics
         m_low = card_metrics(0.1)
         m_min = card_metrics(0.6)
         assert m_low == m_min, (
@@ -92,7 +92,7 @@ class TestCardMetrics:
         )
 
     def test_above_max_clamped_to_1_8(self):
-        from metatv.gui.discover_card import card_metrics, _CARD_W, _CARD_H, _POSTER_H
+        from metatv.gui.discover_card import card_metrics
         m_high = card_metrics(5.0)
         m_max = card_metrics(1.8)
         assert m_high == m_max, (
@@ -235,7 +235,6 @@ class TestShelfSizeCardRowZoom:
     def test_card_and_shelf_widths_stay_in_sync(self, qapp):
         """A single card's width must equal the card_w from card_metrics (same source)."""
         from metatv.gui.discover_card import _ContentCard, card_metrics
-        from metatv.gui.discover_shelf import _Shelf
 
         zoom = 1.3
         cfg = _make_config(zoom=zoom)

@@ -12,7 +12,6 @@ true.
 
 from datetime import datetime, timedelta
 
-import pytest
 
 from metatv.core.config import Config
 from metatv.gui.relative_time import humanize_remaining, humanize_until

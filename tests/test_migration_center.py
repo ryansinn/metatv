@@ -8,7 +8,6 @@ Three test suites:
 
 from __future__ import annotations
 
-import threading
 import time
 import uuid
 from pathlib import Path
@@ -682,7 +681,6 @@ class TestCrashedTaskDoesNotLeakLock:
         import time as _time
         from sqlalchemy import update
         from metatv.core.database import ChannelDB
-        from metatv.core.repositories import RepositoryFactory
         from metatv.core.repositories import channel as channel_mod
         from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
 
@@ -783,7 +781,6 @@ class TestMigrationManager:
 
     def _make_manager(self, qapp, db=None):
         from metatv.core.migration_manager import MigrationManager
-        from metatv.core.database import Database
         # Use an in-memory-style db stub if no real db provided
         if db is None:
             db = MagicMock()
@@ -828,7 +825,6 @@ class TestMigrationManager:
 
     def test_skips_when_needs_run_false(self, qapp):
         """run_pending skips tasks whose needs_run returns False."""
-        from metatv.core.migration_manager import MigrationManager
 
         mgr, _ = self._make_manager(qapp)
         task = _FakeTask(should_run=False)
@@ -843,7 +839,6 @@ class TestMigrationManager:
 
     def test_task_started_and_finished_fire_in_order(self, qapp):
         """task_started fires before task_finished for the same task_id."""
-        from metatv.core.migration_manager import MigrationManager
 
         mgr, _ = self._make_manager(qapp)
         task = _FakeTask(task_id="t1")
@@ -863,7 +858,6 @@ class TestMigrationManager:
 
     def test_progress_signals_fire(self, qapp):
         """task_progress is emitted for each progress_cb call inside the task."""
-        from metatv.core.migration_manager import MigrationManager
 
         mgr, _ = self._make_manager(qapp)
         task = _FakeTask(task_id="prog_task")
@@ -879,7 +873,6 @@ class TestMigrationManager:
 
     def test_all_finished_fires_after_all_tasks(self, qapp):
         """all_finished fires exactly once after all tasks complete."""
-        from metatv.core.migration_manager import MigrationManager
 
         mgr, _ = self._make_manager(qapp)
         mgr.register(_FakeTask(task_id="a"))
@@ -896,7 +889,6 @@ class TestMigrationManager:
 
     def test_request_cancel_sets_is_cancelled_true(self, qapp):
         """request_cancel causes is_cancelled() → True inside the running task."""
-        from metatv.core.migration_manager import MigrationManager
         from PyQt6.QtCore import QEventLoop, QTimer
 
         mgr, _ = self._make_manager(qapp)
@@ -926,7 +918,6 @@ class TestMigrationManager:
 
     def test_tasks_run_sequentially(self, qapp):
         """Two tasks run one after the other (not concurrently)."""
-        from metatv.core.migration_manager import MigrationManager
 
         order: list[str] = []
 
@@ -957,7 +948,6 @@ class TestMigrationManager:
 
     def test_shutdown_does_not_hang(self, qapp):
         """shutdown() returns without hanging (no pool-leak → no QThread crash)."""
-        from metatv.core.migration_manager import MigrationManager
 
         mgr, _ = self._make_manager(qapp)
         task = _FakeTask()

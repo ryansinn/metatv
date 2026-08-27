@@ -1,6 +1,6 @@
 """Filter bar widget for channel filtering"""
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
     QMenu, QCheckBox, QScrollArea, QFrame, QWidgetAction, QComboBox,

@@ -57,15 +57,13 @@ there — see the PR body for the exact command + output.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication, QLabel, QStatusBar, QWidget
+from PyQt6.QtWidgets import QApplication, QStatusBar, QWidget
 
 from metatv.gui import theme
 from metatv.gui import theme_palettes as tp
-from metatv.gui.details_sections import _PlotSection, _TechnicalSection
 
 from tests.test_palette_completeness import _contrast
 

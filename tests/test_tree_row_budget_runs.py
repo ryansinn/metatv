@@ -9,8 +9,6 @@ Sibling of ``test_epg_agenda_paint.py``: the guard for a runtime-only error is t
 CALL the thing, with each branch exercised.
 """
 
-import pathlib
-import tempfile
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem

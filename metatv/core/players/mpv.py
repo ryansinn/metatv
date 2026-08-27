@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from loguru import logger

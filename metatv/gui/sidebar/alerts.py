@@ -17,7 +17,7 @@ were in. The mixins hold no state of their own — they reach the widgets
 from __future__ import annotations
 
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QAbstractScrollArea, QListWidget, QTreeWidget
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy, QAbstractScrollArea, QListWidget, QTreeWidget
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
@@ -26,7 +26,6 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.alerts_rows import _AlertRow
 from metatv.gui.sidebar.base import (
     CollapsibleSection, GroupHeading, make_seamless,
 )

@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB, EpgProgramDB
+from metatv.core.database import Database, ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc, epg_auto_delta
 

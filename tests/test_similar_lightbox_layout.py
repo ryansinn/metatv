@@ -20,7 +20,6 @@ overlay hosts it, and let Qt size the card from its own size-hint.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 
 import pytest
 from PyQt6.QtCore import Qt

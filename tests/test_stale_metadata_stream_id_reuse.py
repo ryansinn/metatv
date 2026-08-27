@@ -17,11 +17,9 @@ Two regression groups:
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from pathlib import Path
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -248,7 +246,6 @@ class TestMetadataRescanTask:
     def test_needs_run_true_when_version_is_zero(self, tmp_db):
         """needs_run returns True for a fresh config (version=0)."""
         from metatv.core.migrations.metadata_rescan import (
-            CURRENT_METADATA_RESCAN_VERSION,
             MetadataRescanTask,
         )
         mm = _make_minimal_metadata_manager(tmp_db)
@@ -399,7 +396,7 @@ class TestMetadataRescanTask:
 
     def test_cancellation_stops_after_first_batch(self, tmp_db):
         """Cancellation mid-run leaves work done so far durable but exits early."""
-        from metatv.core.migrations.metadata_rescan import MetadataRescanTask, _BATCH_SIZE
+        from metatv.core.migrations.metadata_rescan import MetadataRescanTask
 
         # Seed 2 stale channels (two separate batches if _BATCH_SIZE == 1,
         # but _BATCH_SIZE is 500 so they'll be in one batch — cancel before it
@@ -504,7 +501,7 @@ class TestStalenessDetection:
 
     def test_alpha_tokens_extracts_long_words(self):
         """_alpha_tokens returns words ≥ _MIN_TOKEN_LEN, lower-cased."""
-        from metatv.core.migrations.metadata_rescan import _alpha_tokens, _MIN_TOKEN_LEN
+        from metatv.core.migrations.metadata_rescan import _alpha_tokens
 
         result = _alpha_tokens("|NL| Bloodlands HD")
         assert "bloodlands" in result

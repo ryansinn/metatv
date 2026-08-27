@@ -11,7 +11,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +504,6 @@ def test_carousel_empty_hides_nav(qapp):
 # 3. MainWindow._whats_new_unseen decision logic
 # ---------------------------------------------------------------------------
 
-import metatv.whats_new as _whats_new_mod
 
 
 class _FakeConfig:

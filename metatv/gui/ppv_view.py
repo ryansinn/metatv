@@ -3,7 +3,7 @@
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QWidget,
-    QPushButton, QFrame, QSizePolicy,
+    QPushButton, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from loguru import logger

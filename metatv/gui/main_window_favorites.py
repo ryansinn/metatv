@@ -12,7 +12,6 @@ from dataclasses import replace
 
 from loguru import logger
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QMessageBox
 
 from metatv.core.repositories import RepositoryFactory
 

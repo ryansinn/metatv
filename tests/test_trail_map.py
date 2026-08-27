@@ -356,7 +356,6 @@ class TestColumnPosterEnlarge:
         """Clicking a rendered column row's poster emits the trail-map's
         ``poster_expand_requested`` (with the loaded pixmap) and leaves the drill /
         selection untouched."""
-        from metatv.gui.trail_map_view import _TrailRow
         db = _seed_db(tmp_path / "peek.db")
         tm = _make_view(db, qapp, image_cache=_PixImageCache())
         tm.open(["o", "s1"])               # 2-item → no auto-drill; trail has 2 rows

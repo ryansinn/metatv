@@ -15,7 +15,6 @@ to reveal them without leaving the sidebar.
 from PyQt6.QtWidgets import QSplitter, QWidget
 from PyQt6.QtCore import Qt
 
-from metatv.core.config import Config
 from metatv.gui.main_window import MainWindow
 from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 

@@ -143,7 +143,7 @@ class _StreamingMixin:
                     return False, f"HTTP {response.status_code}"
                 chunk = next(response.iter_content(chunk_size=256), None)
                 if chunk is None:
-                    logger.warning(f"Stream URL returned no data")
+                    logger.warning("Stream URL returned no data")
                     return False, None
                 # A recognised video container wins outright — even if its ASCII-heavy
                 # header (faststart MP4, Matroska) would otherwise look like text, and

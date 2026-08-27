@@ -8,12 +8,9 @@ emits, and its tolerant accessors.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QLabel
 from datetime import datetime
 from typing import NamedTuple
 from PyQt6.QtCore import Qt
-from metatv.gui import icons as _icons
-from metatv.gui import theme as _theme
 from metatv.gui.sidebar.alerts_rows import _AlertRow, _CHILD_INDENT  # noqa: F401
 
 # Re-exported deliberately: two alerts modules import _CHILD_INDENT from here

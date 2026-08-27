@@ -3,13 +3,12 @@
 import asyncio
 import re
 import time
-from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
 from sqlalchemy import or_
 from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
-from metatv.core.models import Provider, MediaType
+from metatv.core.models import Provider
 from metatv.core.database import (
     Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB, UserRatingDB, WatchQueueDB,
 )

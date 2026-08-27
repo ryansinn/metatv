@@ -3,12 +3,11 @@
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import (
-    QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget,
+    QSizePolicy, QListWidget, QListWidgetItem, QWidget,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from loguru import logger
 
-from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
     build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
@@ -45,7 +44,6 @@ class RecommendedSection(CollapsibleSection):
         if lst is None:
             return None
         from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
-        from PyQt6.QtCore import Qt
 
         return sum(
             1 for i in range(lst.count())

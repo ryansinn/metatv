@@ -15,7 +15,6 @@ from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QEnterEvent, QMouseEvent
 
 from metatv.core.config import Config
-from metatv.gui import theme as _theme
 from metatv.gui.relative_time import humanize_remaining
 from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.alerts_rows import SLOT_W, _AlertRow

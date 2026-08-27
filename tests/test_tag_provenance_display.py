@@ -12,7 +12,6 @@ Pins two invariants:
 """
 from __future__ import annotations
 
-import tempfile
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -354,7 +353,7 @@ class TestTagsSectionRender:
 
 def _collect_chips(section) -> list:
     """Walk the content widget tree and collect all QPushButton chips."""
-    from PyQt6.QtWidgets import QPushButton, QWidget
+    from PyQt6.QtWidgets import QPushButton
 
     result = []
     content = section._content

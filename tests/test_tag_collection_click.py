@@ -249,7 +249,6 @@ class TestCollectionResolution:
 
     def test_handler_resolves_collection_to_channel_category(self, tmp_path):
         """_on_tag_filter_requested('collection', …) filters on the channel's category."""
-        from metatv.gui.main_window_nav import _NavMixin
 
         db = _make_db(tmp_path)
         with db.session_scope() as session:
@@ -266,7 +265,6 @@ class TestCollectionResolution:
         assert host._load_called, "load_channels must be triggered to apply the filter"
 
     def test_handler_routes_non_collection_to_exact_tag(self, tmp_path):
-        from metatv.gui.main_window_nav import _NavMixin
 
         db = _make_db(tmp_path)
         with db.session_scope() as session:

@@ -2,9 +2,9 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QProgressBar, QFrame,
+    QTableWidget, QTableWidgetItem,
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal
 from loguru import logger
 
 from metatv.core.repositories.dtos import (

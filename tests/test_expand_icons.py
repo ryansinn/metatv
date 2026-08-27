@@ -8,7 +8,6 @@ Uses pytest-qt (qtbot) for widget instantiation. Config is mocked with
 deliberately unusual values so tests distinguish "came from config" vs "hardcoded".
 """
 
-import pytest
 from unittest.mock import MagicMock
 
 

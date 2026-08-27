@@ -126,7 +126,7 @@ class TestDerivedTags:
         recommendations as German. Clearing the column without the tag would
         leave that in place.
         """
-        from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+        from metatv.core.database import ContentTagDB, TagDB
 
         cid = _add(db, prefix="EN", region="DE")
         with db.session_scope() as s:

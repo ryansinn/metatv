@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from metatv.core.config import Config
-from metatv.gui import theme as _theme
 from metatv.gui.progress_paint import NEARLY_OVER_PCT, elapsed_pct
 from metatv.gui.sidebar.alerts_rows import _AlertRow, _ProgressBar
 

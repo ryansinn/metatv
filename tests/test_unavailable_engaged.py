@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -307,7 +306,6 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
     """Unavailable rows get the muted foreground color and the tooltip."""
     from PyQt6.QtWidgets import QListWidget
     from PyQt6.QtCore import Qt
-    from metatv.gui import theme as _theme
     from metatv.gui.sidebar.queue import WatchQueueSection, _ROLE_AVAILABLE, _ROLE_SEARCH_TITLE
     from tests.conftest import wire_watch_queue_filter
 
@@ -413,7 +411,6 @@ def test_queue_double_click_unavailable_emits_search_requested(qapp):
 
     # Build the signals manually (they're class-level pyqtSignals — need real instance)
     # Use a fresh WatchQueueSection to get the pyqtSignal instances but bypass __init__
-    from PyQt6.QtCore import pyqtSignal, QObject
     search_emitted = []
     play_emitted = []
 
@@ -474,8 +471,6 @@ def test_favorites_populate_rows_dims_unavailable_items(qapp):
     """Unavailable favorites are dimmed and carry item data."""
     from PyQt6.QtWidgets import QListWidget
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QColor
-    from metatv.gui import theme as _theme
     from metatv.gui.sidebar.favorites import FavoritesSection, _ROLE_AVAILABLE, _ROLE_SEARCH_TITLE
 
     obj = FavoritesSection.__new__(FavoritesSection)

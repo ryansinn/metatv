@@ -12,7 +12,6 @@ from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
-from metatv.gui.settings_dialog_tabs import _CHANNEL_DENSITY_CHOICES  # re-export
 from metatv.gui.three_panel_section_nav import ThreePanelSectionNav
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {

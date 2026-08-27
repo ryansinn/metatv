@@ -274,8 +274,6 @@ def test_section_header_is_not_selectable(qapp):
 
 def test_append_page_routes_rows_into_sections(qapp):
     """A fetched page (grouped) slots each row into its media-type section."""
-    from PyQt6.QtCore import Qt
-    from metatv.gui.channel_list_model import ROW_KIND_ROLE
     dtos = [_make_dto(media_type="movie", detected_title="M1")]
     model = _grouped_model(qapp, dtos)
     gen = model.generation

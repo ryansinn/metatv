@@ -1,7 +1,6 @@
 """Base player plugin interface"""
 
 from abc import ABC, abstractmethod
-from typing import Optional
 from enum import Enum
 
 
@@ -19,18 +18,15 @@ class PlayerPlugin(ABC):
     @abstractmethod
     def __init__(self, config):
         """Initialize player with configuration"""
-        pass
 
     @property
     @abstractmethod
     def name(self) -> str:
         """Player name"""
-        pass
 
     @abstractmethod
     def is_available(self) -> bool:
         """Check if player is available on system"""
-        pass
 
     @abstractmethod
     def play(self, url: str, title: str, instance_key: str = "__shared__") -> bool:
@@ -45,7 +41,6 @@ class PlayerPlugin(ABC):
         Returns:
             True if successful, False otherwise
         """
-        pass
 
     @abstractmethod
     def queue(
@@ -68,7 +63,6 @@ class PlayerPlugin(ABC):
         Returns:
             True if successful, False otherwise.
         """
-        pass
 
     @abstractmethod
     def stop(self) -> bool:
@@ -77,7 +71,6 @@ class PlayerPlugin(ABC):
         Returns:
             True if successful, False otherwise
         """
-        pass
 
     @abstractmethod
     def is_running(self) -> bool:
@@ -86,12 +79,10 @@ class PlayerPlugin(ABC):
         Returns:
             True if player process is running
         """
-        pass
 
     @abstractmethod
     def cleanup(self):
         """Cleanup resources (sockets, processes, etc.)"""
-        pass
 
     def get_property(self, name: str, key: str | None = None) -> object | None:
         """Query a single player runtime property.
@@ -118,7 +109,7 @@ class PlayerPlugin(ABC):
         Returns:
             ``{name: value-or-None}`` for each requested name.
         """
-        return {n: None for n in names}
+        return dict.fromkeys(names)
 
     def send_command(self, cmd: list, key: str | None = None) -> bool:
         """Send a raw IPC/control command to the player.

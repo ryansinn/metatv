@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from loguru import logger
 
-from metatv.core.repositories import RepositoryFactory
 
 # ── QA deep-link target registry (single source of truth) ────────────────────
 # ``navigate_to("view:<name>")`` maps a view name → (switch-method, chip attr).

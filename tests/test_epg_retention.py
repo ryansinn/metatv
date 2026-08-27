@@ -21,8 +21,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
-from metatv.core.epg_manager import EpgManager, _MIN_EPG_RETENTION_HOURS
+from metatv.core.database import Database, EpgProgramDB, ProviderDB
+from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
 
 

@@ -6,10 +6,9 @@ Verifies:
 - events_view and sports_view have on_deactivate() methods (symmetric lifecycle)
 """
 
-import pytest
 
 from tests.conftest import wire_header_search_sync
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from tests.conftest import wire_nav_host
 
 

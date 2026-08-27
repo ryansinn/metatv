@@ -21,7 +21,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
 

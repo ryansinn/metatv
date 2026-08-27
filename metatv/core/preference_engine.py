@@ -35,14 +35,12 @@ STOP_WORDS: frozenset[str] = frozenset({
     "come", "get", "give", "know", "look", "see", "tell", "film", "movie",
     "show", "series", "story", "world", "man", "woman", "men", "soon",
     "begins", "finds", "sets", "goes", "tries", "help", "try", "upon",
-    "when", "your", "they", "them", "that", "have", "been", "were", "will",
-    "their", "from", "with", "this", "that", "what", "into", "when",
-    "after", "while", "about", "which", "over", "each", "must", "three",
+    "your", "them", "three",
     "four", "five", "time", "good", "long", "part", "well", "away",
-    "only", "also", "back", "then", "want", "used", "goes", "once",
+    "want", "used", "once",
     "real", "keep", "face", "left", "side", "much", "hard", "days",
     "full", "home", "last", "next", "year", "play", "live", "turn",
-    "move", "hand", "work", "down", "away", "again", "being", "still",
+    "move", "hand", "work", "down", "again", "still",
     "choice", "together",
     "everything", "something", "anything", "nothing", "someone", "anyone",
     "everyone", "nobody", "somebody", "noone", "none", "nowhere",
@@ -65,7 +63,7 @@ STOP_WORDS: frozenset[str] = frozenset({
     "deadly", "unlikely", "hidden", "unknown", "legendary",
     "famous", "local", "former",
     # Broad nouns — too generic to carry preference signal
-    "world", "drama", "system", "force", "power",
+    "drama", "system", "force", "power",
     "journey", "quest", "mission", "battle",
 })
 

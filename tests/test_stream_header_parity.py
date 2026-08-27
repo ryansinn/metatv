@@ -12,7 +12,6 @@ import subprocess
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from metatv.core.http_headers import STREAM_HTTP_HEADERS, stream_user_agent
 from metatv.core.players.mpv import MPVPlayer

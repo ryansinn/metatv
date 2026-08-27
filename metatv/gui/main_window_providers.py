@@ -575,7 +575,6 @@ class _ProviderMixin:
 
     def edit_provider(self):
         """Legacy hook — no longer used (edit triggers from sidebar widget)."""
-        pass
 
     def load_providers(self):
         """Refresh the Sources status strip + manager view from the database.

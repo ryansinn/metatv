@@ -90,7 +90,6 @@ def _section_stub():
     the same technique tests/test_alerts_matched_queue.py already uses."""
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.queue import WatchQueueSection
-    from types import SimpleNamespace
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
@@ -158,7 +157,6 @@ class TestPayloadHarmonization:
     def test_unavailable_row_keeps_recovery_tooltip_not_the_hint(self, qapp):
         """Unavailable rows keep the existing recovery tooltip — the new
         double-click hint must not clobber it."""
-        from PyQt6.QtCore import Qt
         obj = _section_stub()
         entry = _entry(channel_id="c1", available=False)
         obj._add_entry_item(entry)
@@ -333,7 +331,6 @@ class TestContextMenu:
         """Matched CHANNEL rows now reach _show_channel_menu via the same
         channelContextMenuRequested signal a plain queue row uses (previously:
         an early return, no menu at all)."""
-        from PyQt6.QtCore import QPoint
         from metatv.core.vod_alert_availability import MatchedAlertEntry
 
         obj = _section_stub()

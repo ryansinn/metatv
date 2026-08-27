@@ -20,7 +20,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import aiohttp
-import pytest
 
 import metatv.providers.xtream as xtream_module
 from metatv.core.models import Provider, ProviderURL

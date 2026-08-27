@@ -309,7 +309,7 @@ class TestOverlayEndToEnd:
         import time
 
         from PyQt6.QtWidgets import QWidget
-        from metatv.core.database import ChannelDB, MetadataDB
+        from metatv.core.database import MetadataDB
         from metatv.core.image_cache import ImageCache
         from metatv.gui.similar_lightbox import SimilarTitleLightbox
 

@@ -21,7 +21,6 @@ actually break if the feature regressed:
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 

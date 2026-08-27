@@ -8,10 +8,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from metatv.core.database import Base, Database, ChannelDB, ProviderDB
+from metatv.core.database import Database, ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 
 

@@ -7,10 +7,8 @@ Covers:
 """
 from __future__ import annotations
 
-import tempfile
 import uuid
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import timedelta
 
 import pytest
 
@@ -160,7 +158,7 @@ class TestMakeRecommendationItem:
 
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QMouseEvent
-        from PyQt6.QtCore import QPointF, QPoint
+        from PyQt6.QtCore import QPointF
         evt = QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
             QPointF(0, 0),
@@ -263,7 +261,6 @@ class TestMakeRecommendationItem:
                 yield _FakeSession()
 
         # Patch out RepositoryFactory so we capture args
-        import metatv.gui.epg_view as epg_view_mod
         import metatv.core.repositories as repos_mod
 
         original_factory = repos_mod.RepositoryFactory

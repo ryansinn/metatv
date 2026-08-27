@@ -47,7 +47,7 @@ from __future__ import annotations
 import re
 import weakref
 
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from metatv.gui import theme_palettes

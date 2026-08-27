@@ -12,7 +12,7 @@ Covered behaviours:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pytest
 
 
@@ -291,7 +291,6 @@ def test_series_tree_icon_completed_takes_priority_over_progress():
 def _make_mpv_player():
     """Construct a minimal MPVPlayer with IPC stubbed out."""
     from metatv.core.players.mpv import MPVPlayer
-    from metatv.core.players.base import QueueMode
 
     player = MPVPlayer.__new__(MPVPlayer)
     player.single_instance = True

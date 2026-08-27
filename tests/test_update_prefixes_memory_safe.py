@@ -95,14 +95,14 @@ def test_chunked_processes_all_channels_across_batch_boundary(db):
         ch0 = _fetch(0)
         assert ch0.detected_prefix == "EN", f"idx=0 prefix: {ch0.detected_prefix!r}"
         assert ch0.detected_quality == "HD", f"idx=0 quality: {ch0.detected_quality!r}"
-        assert ch0.detected_title is not None, f"idx=0 title should not be None"
+        assert ch0.detected_title is not None, "idx=0 title should not be None"
 
         # index 1999: 1999 % 5 == 4 → "Channel 1999 Without Prefix"
         ch1999 = _fetch(1999)
         # No EN/ES/etc. prefix — detected_prefix may be None; just assert it was visited
         # (detected_title will be set to the bare name by parse_channel_name).
         assert ch1999.detected_title is not None, (
-            f"idx=1999 (last of batch 1) was not processed; detected_title is None"
+            "idx=1999 (last of batch 1) was not processed; detected_title is None"
         )
 
         # index 2000: 2000 % 5 == 0 → "EN - Movie 2000 HD"  (first of batch 2)
@@ -113,7 +113,7 @@ def test_chunked_processes_all_channels_across_batch_boundary(db):
         # index 2499: 2499 % 5 == 4 → "Channel 2499 Without Prefix" (last of partial batch)
         ch2499 = _fetch(2499)
         assert ch2499.detected_title is not None, (
-            f"idx=2499 (last of partial batch 2) was not processed; detected_title is None"
+            "idx=2499 (last of partial batch 2) was not processed; detected_title is None"
         )
 
         # Also spot-check a 4K-FR compound channel (index 3: "4K-FR - Titre 3")
@@ -124,7 +124,6 @@ def test_chunked_processes_all_channels_across_batch_boundary(db):
 
 def test_updated_count_equals_channels_changed(db):
     """Return value of update_detected_prefixes equals the number of rows actually changed."""
-    from metatv.core.database import ChannelDB
     from metatv.core.repositories import RepositoryFactory
 
     with db.session_scope() as session:

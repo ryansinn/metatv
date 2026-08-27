@@ -9,15 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 
 if TYPE_CHECKING:
-    from metatv.core.database import Database
+    pass
 
 
 class _CrumbButton(QPushButton):

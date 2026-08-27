@@ -25,7 +25,7 @@ separable concern: it takes a widget and a height and returns a count.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QListWidgetItem, QTreeWidgetItem
 
 #: The role the "+N more" marker lives in — **not** ``UserRole``.

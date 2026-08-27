@@ -16,7 +16,6 @@ Per CLAUDE.md "Tests must prove behavior, not shape."
 
 from __future__ import annotations
 
-import inspect
 import ast
 import uuid
 from pathlib import Path

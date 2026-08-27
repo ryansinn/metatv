@@ -19,8 +19,7 @@ C) ``_update_tags_in_thread`` and ``_update_prefixes_in_thread`` — must emit r
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import QCoreApplication, QThread, pyqtSignal

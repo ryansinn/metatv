@@ -224,7 +224,6 @@ class MoviesSeriesMixin:
         startup, after a rule/series is added/removed, after a mark-seen, and after
         ``VodWatchAlertManager.new_matches_found`` / ``new_episodes_found``.
         """
-        from metatv.gui import icons as _icons  # local import avoids circular at top
 
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
         series = self._series_display_entries()

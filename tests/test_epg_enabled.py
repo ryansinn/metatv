@@ -7,9 +7,7 @@ check observable outcomes, not source-code shape.
 
 from __future__ import annotations
 
-import tempfile
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest

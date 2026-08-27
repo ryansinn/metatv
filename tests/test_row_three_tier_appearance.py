@@ -16,12 +16,10 @@ reverts one has to argue with a number rather than with a name.
 from __future__ import annotations
 
 import re
-from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
-from PyQt6.QtWidgets import QStyleOptionViewItem
 
 import metatv.gui.channel_list_delegate as d
 from metatv.core.channel_name_utils import collection_display

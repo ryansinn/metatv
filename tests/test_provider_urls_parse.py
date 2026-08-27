@@ -4,7 +4,6 @@ T1-1 from REFACTOR_PLAN. Pins semantics of the new canonical helper so all
 6 call sites can be safely replaced. Tests each variant the old inline code handled.
 """
 
-import pytest
 import json
 
 from metatv.core.repositories.provider import parse_provider_urls

@@ -12,7 +12,6 @@ in the returned counts, no duplicates, region-only tokens are marked in the set.
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 

@@ -32,8 +32,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import QRect
-from PyQt6.QtGui import QPainter, QPixmap
-from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
+from PyQt6.QtWidgets import QApplication
 
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui.channel_list_delegate import (

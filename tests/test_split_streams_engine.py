@@ -18,11 +18,9 @@ so IPC succeeds.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import pytest
 

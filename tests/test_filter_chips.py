@@ -17,8 +17,6 @@ could see it. Sampling the render is what sees it.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
 
 from metatv.gui.filter_chips import (
     FilterChip, MEDIA_ALL, describe_active_filters,

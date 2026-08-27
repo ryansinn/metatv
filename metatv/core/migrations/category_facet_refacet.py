@@ -45,7 +45,6 @@ because ``set_content_tags`` is a REPLACE operation).
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
@@ -300,7 +299,6 @@ class CategoryFacetRefacetTask:
         """
         from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
         from metatv.core.database import ContentTagDB, TagDB
-        from sqlalchemy import select
 
         # Facets that were historically used for descriptor values (wrong ones).
         wrong_facets = {"language", "platform"}

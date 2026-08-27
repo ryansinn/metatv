@@ -1389,7 +1389,7 @@ class TagRepository:
                 ``sample_channels_by_tag_facets(collapse_variants=True)``.
         """
         from metatv.core.database import ChannelDB
-        from sqlalchemy import func as _func, text as _text
+        from sqlalchemy import func as _func
 
         query = self._faceted_channel_id_query(
             includes, excludes,

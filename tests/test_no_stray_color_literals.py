@@ -23,10 +23,8 @@ and are excluded from all scans.
 
 from __future__ import annotations
 
-import ast
 import importlib
 import re
-import sys
 from pathlib import Path
 
 import pytest

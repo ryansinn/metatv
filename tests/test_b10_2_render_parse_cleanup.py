@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from datetime import datetime, timedelta
 
 import pytest
@@ -301,8 +301,6 @@ def _call_ch_row(host: SimpleNamespace, prog: _FakeWatchlistProg):
     _ch_row is a closure defined inside _render_watchlist_card; we call it by
     extracting the method body into a standalone helper bound to ``host``.
     """
-    from metatv.gui.epg_view import EpgView
-    from PyQt6.QtWidgets import QWidget, QHBoxLayout
 
     # _ch_row is a nested function inside _render_watchlist_card.
     # To test it in isolation we replicate its exact body here, reading

@@ -28,7 +28,6 @@ import uuid
 import pytest
 
 from metatv.core.database import ChannelDB, ContentTagDB, Database, ProviderDB, TagDB
-from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.tag import _clear_tag_cache
 
 

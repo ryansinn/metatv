@@ -28,7 +28,6 @@ import pytest
 
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import now_utc, to_local
-from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
 from metatv.gui.epg_watchlist_mixin import _EpgWatchlistMixin

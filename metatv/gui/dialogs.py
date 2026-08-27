@@ -6,9 +6,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
     QProgressBar, QTextEdit, QDialogButtonBox,
-    QListWidget, QListWidgetItem, QWidget, QCheckBox
+    QListWidget, QWidget, QCheckBox
 )
-from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database, ProviderDB
@@ -294,7 +293,6 @@ class AddProviderDialog(QDialog):
         
         # Create provider
         import uuid
-        from metatv.core.models import ProviderURL
         provider = Provider(
             id=str(uuid.uuid4()),
             name=self.name_input.text().strip() or "Unnamed Source",
