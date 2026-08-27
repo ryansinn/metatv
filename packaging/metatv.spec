@@ -57,6 +57,9 @@ hiddenimports += collect_submodules("metatv")
 # ── Data files ───────────────────────────────────────────────────────────────
 datas = []
 datas += collect_data_files("qtawesome")  # bundled icon fonts / charmaps
+# The window / task-switcher icon. bundle_resource_path() looks for it at
+# this relative path in the frozen app, so the destination must match.
+datas += [("icon/metatv-256.png", "packaging/icon")]
 # The repository's own typefaces (Inter, and the Material Symbols subset).
 # metatv/gui/fonts.py resolves them relative to the package, so they must land
 # beside it in the bundle — without this the frozen app silently falls back to
@@ -150,7 +153,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="MetaTV.app",
-    icon=None,  # placeholder omitted for the MVP; add packaging/metatv.icns later
+    icon='icon/metatv.icns' if os.path.exists('packaging/icon/metatv.icns') else None,
     bundle_identifier="com.ryansinn.metatv",
     version=VERSION,
     info_plist={
