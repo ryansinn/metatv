@@ -154,24 +154,33 @@ def test_the_defaults_change_nothing_for_existing_callers(file_db):
         assert candidate_id in _ids(session)
 
 
-def test_the_sidebar_resolves_every_axis_it_passes():
+def test_every_axis_is_resolved_where_the_surfaces_share_it():
     """The engine can only apply what the caller resolves.
 
-    The Recommended section resolved ONE of the four — and this is the half a
-    query-level test cannot see, because the engine looks correct while the
-    caller hands it nothing.
+    This used to assert the Recommended SECTION resolved each axis itself,
+    which was right when the section was the only fixed surface. It is the
+    wrong object now: resolution moved to
+    ``preference_engine.recommendation_scope`` so that the dashboard, the
+    Explore trail map and the Discover shelf get the same answer — the other
+    two were still missing ``adult_mode`` and ``excluded_content_types``
+    entirely, which is #493 surviving in the surfaces this test never covered.
+
+    The assertion is unchanged in spirit: every axis must be RESOLVED
+    somewhere, not merely accepted by the engine. It now checks the one place
+    that resolves them, and ``tests/test_recommendation_scope.py`` checks that
+    no surface bypasses it.
     """
     import inspect
 
-    from metatv.gui.sidebar import recommended
+    from metatv.core.preference_engine import recommendation_scope
 
-    source = inspect.getsource(recommended)
+    source = inspect.getsource(recommendation_scope)
     for name in ("build_adult_filter", "excluded_tag_content_types",
                  "get_excluded_prefixes"):
         assert name in source, (
-            f"the Recommended section never calls {name}, so that axis reaches "
+            f"recommendation_scope never calls {name}, so that axis reaches "
             "the engine unset however complete the engine is"
         )
-    for kwarg in ("adult_mode=", "force_adult_provider_ids=",
-                  "excluded_content_types="):
-        assert kwarg in source, f"{kwarg} is resolved but never passed"
+    for key in ('"adult_mode"', '"force_adult_provider_ids"',
+                '"excluded_content_types"'):
+        assert key in source, f"{key} is resolved but never returned"

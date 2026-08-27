@@ -359,6 +359,61 @@ def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[s
     return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
+def get_recommended(session, config, limit: int = 30) -> list["ContentCard"]:
+    """The Discover shelf that mirrors the Recommended sidebar.
+
+    Discover had no Recommended shelf at all (owner report, 2026-08-27). This
+    is the FOURTH consumer of ``score_candidates`` and the first that assembles
+    nothing itself — every exclusion axis comes from
+    :func:`~metatv.core.preference_engine.recommendation_scope`, because the
+    other three had each hand-copied the list and drifted.
+
+    Vision-consistent rather than against it: Discover is "a grocery store
+    where you know the butcher", so a recommended shelf is the butcher's
+    counter inside it, not the chef's dining room (docs/PRODUCT_VISION.md).
+
+    Args:
+        session: An open session.
+        config: The application ``Config``.
+        limit: Maximum cards to return.
+
+    Returns:
+        Cards in score order; empty when there is not enough taste signal yet.
+    """
+    from metatv.core.database import ChannelDB, MetadataDB
+    from metatv.core.preference_engine import (
+        RecScoringSettings, compute_weights, recommendation_scope,
+        score_candidates, version_score,
+    )
+
+    settings = RecScoringSettings.from_config(config)
+    weights = compute_weights(session, settings=settings)
+    if weights.is_empty():
+        return []
+
+    recs = score_candidates(
+        session, weights, limit=limit,
+        **recommendation_scope(session, config),
+        version_scorer=lambda ch: version_score(ch, config),
+        diversify_people=True,
+        settings=settings,
+    )
+    if not recs:
+        return []
+
+    # Re-ordered to the scorer's ranking: rows come back in id order, and
+    # keeping that would discard the ranking the shelf exists for.
+    order = {sc.channel_id: n for n, sc in enumerate(recs)}
+    rows = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        .filter(ChannelDB.id.in_(list(order)))
+        .all()
+    )
+    rows.sort(key=lambda pair: order.get(pair[0].id, len(order)))
+    return [_to_card(ch, meta) for ch, meta in rows]
+
+
 def build_adult_filter(session, config) -> tuple[str, list[str]]:
     """Return (adult_mode, force_adult_provider_ids) from config + DB.
 

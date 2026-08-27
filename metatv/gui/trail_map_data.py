@@ -361,25 +361,20 @@ def load_recommended_ids(
 
     Returns an empty list when the user has no taste weights yet.
     """
-    from metatv.core.filter_utils import get_active_category_filter, keyword_exclusion_list
     from metatv.core.preference_engine import (
-        compute_weights, score_candidates, version_score,
+        compute_weights, recommendation_scope, score_candidates, version_score,
     )
-    from metatv.core.repositories import RepositoryFactory
 
     weights = compute_weights(session)
     if weights.is_empty():
         return []
-    excluded_prefixes, include_uncategorized = get_active_category_filter(config)
-    hidden = RepositoryFactory(session).providers.get_hidden_provider_ids()
+    # recommendation_scope, not a hand-copied list. This site missed THREE
+    # axes: adult_mode and excluded_content_types outright, and it passed
+    # get_active_category_filter alone as excluded_prefixes without unioning
+    # get_excluded_prefixes — so per-prefix exclusions never applied here.
     recs = score_candidates(
         session, weights, limit=limit,
-        muted_attrs=getattr(config, "muted_attributes", None),
-        dedupe_overrides=set(getattr(config, "rec_dedupe_overrides", []) or []),
-        excluded_prefixes=excluded_prefixes,
-        include_uncategorized=include_uncategorized,
-        excluded_keywords=keyword_exclusion_list(config) or None,
-        excluded_provider_ids=hidden or None,
+        **recommendation_scope(session, config),
         version_scorer=lambda ch: version_score(ch, config),
         balance_media_types=True,
         diversify_people=True,
