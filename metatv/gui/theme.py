@@ -932,15 +932,22 @@ def _build_semantic_constants() -> dict[str, object]:
     DISCOVER_SHELF_LOADING = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
     DISCOVER_SHELF_ERROR = "color: " + COLOR_WARN + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
 
-    # What's New dialog
+    # What's New dialog.  One step down the scale from where these started
+    # (2XL/LG): an entry title is a card heading inside a dialog, not a view
+    # title, and it was competing with the dialog's own "What's New" header —
+    # which stays at 3XL and is the only thing here that should read as the
+    # biggest text on screen.  The bullets follow it down to body size, which
+    # is what they are.  Owner: "what's new content could be sized down
+    # slightly. same with the title of the whats new entry (not the 'What's
+    # New' title)".
     WHATS_NEW_TITLE = (
-        "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
+        "font-size: " + FONT_XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     )
     WHATS_NEW_META = (
         "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )
     WHATS_NEW_ITEM = (
-        "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
+        "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     )
     WHATS_NEW_CARD = (
         "QWidget { background: " + OVERLAY_04 + "; border: 1px solid " + COLOR_LINE + ";"
