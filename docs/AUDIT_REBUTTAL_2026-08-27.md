@@ -57,21 +57,40 @@ leaves the index ordered by `(media_type, name)`:
 
 Measured through the real repository, best of three, on a copy of the production database.
 
-**And here the audit's instinct turns out to be half right, for a reason it did not give.** Look
-at the Favorites row. Adding the indexes made that query **1.8× slower**, because
-`ix_channels_hidden_name` lets SQLite skip a sort of 28 rows by walking all 492,511 in name order
-— which, with no statistics, looks like a bargain. With statistics the planner knows
-`is_favorite = 1` is rare, takes the 28-row index, and the same query runs in 0.5 ms.
+**And here the audit's instinct turns out to be half right, for a reason neither it nor the first
+draft of this rebuttal gave.** Look at the Favorites row. Adding the indexes made that query
+**1.8× slower**, because `ix_channels_hidden_name` lets SQLite skip a sort of 28 rows by walking
+all 492,511 in name order — which, with no statistics, looks like a bargain.
 
-So: `ANALYZE` alone is worth nothing here, and `ANALYZE` becomes **mandatory** the moment the
-composite indexes land. Not the cheapest fix in the audit; the necessary second half of the real
-one. `PRAGMA analysis_limit` was tried and rejected — at 1000 it samples too shallowly to learn
-that `is_favorite = 1` is rare, so Favorites keeps the bad plan (378 ms), and it saves little
-anyway (10.0 s against 11.5 s), because the cost is reading 33 indexes rather than counting rows.
+The first version of this entry said `ANALYZE` therefore becomes mandatory. That was measured on
+this machine and it is wrong everywhere else. `sqlite_stat1` records the AVERAGE rows per distinct
+value; `is_favorite` has two values, so stat1 can only say "about 246,000", and the planner's
+choice is correct given what it was told. Learning that the value `1` matches 28 rows requires
+`sqlite_stat4`, which exists only where SQLite was compiled with `SQLITE_ENABLE_STAT4` —
+**true of the Python 3.14 used for development here, false on CI's 3.12**, and therefore not
+something the packaged app may assume. Simulated by dropping `sqlite_stat4` after `ANALYZE`,
+Favorites measures **397 ms** against a 183 ms baseline. CI caught it; local measurement did not.
 
-**Disposition.** Both halves ship together in `QueryIndexTask`, off the UI thread through the
-existing migration framework, with `PRAGMA optimize` on close (0.6 ms) keeping the statistics
-current as the catalog changes.
+The fix is a **partial index**, `(is_hidden, name) WHERE is_favorite = 1`, chosen from its own
+WHERE clause with no statistics involved: 0.5 ms on either planner. (`ON channels (name) WHERE
+is_favorite = 1` does not work — it offers only a full-index SCAN, and a stat1-only planner
+prefers a SEARCH with an equality over a SCAN of any size.)
+
+So the final position on the audit's finding: `ANALYZE` is not the cheapest fix in the audit, it
+is not mandatory, and it is not what makes the composite indexes safe. It is still worth running —
+`get_by_category` is 487 ms with the indexes and no statistics, 126 ms with them. `PRAGMA
+analysis_limit` was tried and rejected: at 1000 it samples too shallowly to change the plans that
+matter, and saves little anyway (10.0 s against 11.5 s), because the cost is reading 33 indexes
+rather than counting rows.
+
+**A lesson the audit did not raise and this file now records:** a performance measurement taken
+only on the development machine is not evidence about the shipped build. Python 3.14 and Python
+3.12 disagree about SQLite's compile options, and that disagreement silently changed a query plan
+by three orders of magnitude.
+
+**Disposition.** Three indexes and the `ANALYZE` ship together in `QueryIndexTask`, off the UI
+thread through the existing migration framework, with `PRAGMA optimize` on close (0.7 ms) keeping
+statistics current as the catalog changes.
 
 ## R2 — "Keep `docs/ARCHITECTURE.md` and fix its false claim" — REJECTED, went further
 

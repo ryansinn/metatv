@@ -394,6 +394,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "metadata_enrichment_queue", self.metadata_enrichment_queue.shutdown
         )
 
+        # FIRST: every task below scans channels, and this one is what makes
+        # those scans fast (and correctly planned — see its docstring).
+        from metatv.core.migrations.query_indexes import QueryIndexTask
+        self.migration_manager.register(QueryIndexTask(self.db))
         from metatv.core.migrations.prefix_rescan import PrefixRescanTask
         self.migration_manager.register(PrefixRescanTask(self.db))
         from metatv.core.migrations.metadata_rescan import MetadataRescanTask
