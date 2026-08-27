@@ -409,3 +409,147 @@ def test_search_survives_tmdb_collapse(db):
         assert len(animal) == 1
         assert animal[0].channel_id == cid_en
         assert "animal" in animal[0].title.lower()
+
+
+# ---------------------------------------------------------------------------
+# 8. The writer maintains the content_key invariant on its own
+# ---------------------------------------------------------------------------
+#
+# ``backfill_tmdb_ids`` used to write only ``detected_tmdb_id`` and lean on
+# ``ContentKeyBackfillTask`` — registered *after* it in ``main_window.py`` — to
+# emit the tmdb-first key.  The two tasks are independently version-gated, and
+# the id backfill deliberately leaves its own version unbumped when cancelled so
+# it resumes on the next launch.  By then the key task's version is current and
+# it does not re-run, so every row the resumed pass filled kept a stale
+# title/year key while carrying a tmdb id — it stopped being a sibling of its
+# own variants.  No error, no log line, and no test could see it, which is
+# exactly how the previously-shipped fix reopened.
+
+
+def _stale_keyed_rows(session) -> list[str]:
+    """Rows carrying a real tmdb id under a non-tmdb ``content_key``."""
+    return [
+        cid
+        for cid, key in session.query(ChannelDB.id, ChannelDB.content_key)
+        .filter(ChannelDB.detected_tmdb_id.isnot(None))
+        .all()
+        if not (key or "").startswith("tmdb:")
+    ]
+
+
+def test_backfill_tmdb_ids_writes_the_key_with_the_id(db):
+    """The invariant: a row never holds a tmdb id under a stale title/year key.
+
+    Asserted against the writer ALONE — no content_key task — because that is
+    the state a resumed migration actually leaves behind.
+    """
+    with db.session_scope() as session:
+        _provider(session)
+        cid = _channel(
+            session,
+            name="Peli",
+            media_type="movie",
+            detected_title="Peli",
+            content_key="peli|movie",  # the pre-enrichment title key
+            raw_data={"tmdb": "603"},
+        )
+
+    with db.session_scope() as session:
+        assert RepositoryFactory(session).channels.backfill_tmdb_ids() == 1
+
+    with db.session_scope(commit=False) as session:
+        key = session.query(ChannelDB.content_key).filter_by(id=cid).scalar()
+        assert key == "tmdb:603|movie", (
+            f"id written but key left at {key!r} — the row now carries an id its "
+            "own siblings cannot match on"
+        )
+        assert _stale_keyed_rows(session) == []
+
+
+def test_two_variants_stay_siblings_when_only_one_is_backfilled(db):
+    """The consequence that matters: taste collapses on the key, so a split
+    title double-counts one film's weight in the recommendation engine.
+
+    One variant is already enriched (tmdb key); its sibling is not.  Filling the
+    sibling's id must land it on the SAME key, not leave two identities.
+    """
+    with db.session_scope() as session:
+        _provider(session)
+        _channel(
+            session,
+            name="EN Peli",
+            media_type="movie",
+            detected_title="Peli",
+            detected_tmdb_id="603",
+            content_key="tmdb:603|movie",  # already enriched
+        )
+        cid_b = _channel(
+            session,
+            name="ES Peli 4K",
+            media_type="movie",
+            detected_title="Peli",
+            content_key="peli|movie",  # idless sibling
+            raw_data={"tmdb": "603"},
+        )
+
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.backfill_tmdb_ids()
+
+    with db.session_scope(commit=False) as session:
+        keys = {k for (k,) in session.query(ChannelDB.content_key).all()}
+        assert keys == {"tmdb:603|movie"}, (
+            f"the two variants of one film hold {len(keys)} identities: {keys}"
+        )
+        assert (
+            session.query(ChannelDB.content_key).filter_by(id=cid_b).scalar()
+            == "tmdb:603|movie"
+        )
+
+
+def test_a_resumed_backfill_after_the_key_task_has_run_leaves_no_stale_key(db, tmp_path):
+    """The full launch-order repro, driving both real migration tasks.
+
+    Launch 1: the id backfill is cancelled partway, then the key task runs and
+    bumps its version.  Launch 2: the id backfill resumes and completes while
+    the key task is version-satisfied and skipped.  Before the fix, every row
+    filled on that second pass ended up stale-keyed.
+    """
+    from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
+    from metatv.core.migrations.tmdb_id_backfill import TmdbIdBackfillTask
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path)
+
+    with db.session_scope() as session:
+        _provider(session)
+        for i in range(6):
+            _channel(
+                session,
+                name=f"Film {i}",
+                media_type="movie",
+                detected_title=f"Film {i}",
+                raw_data={"tmdb": str(600 + i)},
+            )
+
+    # Launch 1 — id backfill cancelled before it writes anything.
+    TmdbIdBackfillTask(db).run(
+        progress_cb=lambda d, t: None, is_cancelled=lambda: True
+    )
+    key_task = ContentKeyBackfillTask(db)
+    key_task.run(progress_cb=lambda d, t: None, is_cancelled=lambda: False)
+    key_task.on_completed(config)
+
+    # Launch 2 — the key task is now version-satisfied and must not re-run.
+    assert not key_task.needs_run(config), (
+        "precondition: the key task has already bumped its version"
+    )
+    TmdbIdBackfillTask(db).run(
+        progress_cb=lambda d, t: None, is_cancelled=lambda: False
+    )
+
+    with db.session_scope(commit=False) as session:
+        stale = _stale_keyed_rows(session)
+        assert stale == [], (
+            f"{len(stale)} rows resumed into a tmdb id under a stale key, with "
+            "no later pass left to repair them"
+        )
