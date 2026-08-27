@@ -262,7 +262,7 @@ class EpisodeRepository:
         For each ``(series_id, provider_id)`` key, resolves the smart-ladder resume
         target via :meth:`get_resume_dto` — the same "last engaged → resume in place →
         next episode → None (series complete)" ladder used elsewhere. Sibling to
-        :meth:`get_last_played_codes_for_series` (same batched-keys shape, called
+        :meth:`get_last_played_for_series` (same batched-keys shape, called
         alongside it from :func:`~metatv.core.repositories.dtos.build_history_dtos`),
         but the ladder's branches (engaged lookup, then a conditional next-after query)
         don't collapse into one SQL statement the way a flat "last played" scan does —
@@ -329,16 +329,24 @@ class EpisodeRepository:
             season_num=ep.season_num,
         )
 
-    def get_last_played_codes_for_series(
+    def get_last_played_for_series(
         self, keys: "List[tuple[str, str]]"
-    ) -> "Dict[tuple[str, str], str]":
+    ) -> "Dict[tuple[str, str], tuple[str, str]]":
         """Batch the per-series last-played lookup into ONE query.
 
-        For each ``(series_id, provider_id)`` key, returns the ``S..E..`` code of its
-        most recently played episode. Replaces an N+1 of ``get_last_played`` calls (one
-        per history row). History can span providers, so the key is the pair, not just
-        the series id. Ordering desc + first-seen-per-key reproduces ``get_last_played``'s
-        single-row semantics exactly.
+        For each ``(series_id, provider_id)`` key, returns ``(episode_id, code)``
+        for its most recently played episode. Replaces an N+1 of
+        ``get_last_played`` calls (one per history row). History can span
+        providers, so the key is the pair, not just the series id. Ordering desc
+        + first-seen-per-key reproduces ``get_last_played``'s single-row
+        semantics exactly.
+
+        It returned the CODE alone until the History row needed to play the
+        episode it names — the id was already on the row this walks, and
+        dropping it forced the caller to re-derive a target from the series and
+        get a different episode. Renamed with it: a method called
+        ``..._codes_...`` that hands back ids is the kind of name that stops
+        being read.
         """
         if not keys:
             return {}
@@ -350,11 +358,11 @@ class EpisodeRepository:
             EpisodeDB.provider_id.in_(provider_ids),
             EpisodeDB.last_played.isnot(None),
         ).order_by(EpisodeDB.last_played.desc()).all()
-        out: Dict[tuple[str, str], str] = {}
+        out: Dict[tuple[str, str], tuple[str, str]] = {}
         for ep in rows:
             key = (ep.series_id, ep.provider_id)
             if key in wanted and key not in out:
-                out[key] = f"S{ep.season_num:02d}E{ep.episode_num:02d}"
+                out[key] = (ep.id, f"S{ep.season_num:02d}E{ep.episode_num:02d}")
         return out
     
     def mark_played(self, episode_id: str):

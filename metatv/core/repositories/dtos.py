@@ -223,6 +223,10 @@ class HistoryDTO:
     name: str
     media_type: str | None
     episode_code: str | None     # e.g. "S01E02"; None for non-series or no episode yet
+    # The DB id of the episode ``episode_code`` names — what a double-click on
+    # this row plays. None for non-series rows and for a series with no episode
+    # played yet, which is exactly when there is nothing specific to play.
+    episode_id: str | None = None
     # When it was last played — the History row's meta line renders this as "2 hours
     # ago" / "yesterday" (see metatv.gui.relative_time). Eagerly copied off the ORM row
     # inside the session like every other field here.
@@ -623,18 +627,21 @@ def build_history_dtos(
         for ch in channels
         if ch.media_type == MediaType.SERIES
     ]
-    code_map = repos.episodes.get_last_played_codes_for_series(series_keys)
+    played_map = repos.episodes.get_last_played_for_series(series_keys)
     # Batch the "Play Next Episode" resume-target lookup alongside it (Wave 5) — same
     # keys, sibling helper (see EpisodeRepository.get_resume_targets_for_series).
     resume_map = repos.episodes.get_resume_targets_for_series(series_keys)
     result: list[HistoryDTO] = []
     for ch in channels:
         episode_code: str | None = None
+        episode_id: str | None = None
         next_episode_id: str | None = None
         next_episode_code: str | None = None
         if ch.media_type == MediaType.SERIES:
             key = (ch.source_id, ch.provider_id)
-            episode_code = code_map.get(key)
+            played = played_map.get(key)
+            if played is not None:
+                episode_id, episode_code = played
             resume = resume_map.get(key)
             if resume is not None:
                 next_episode_id = resume.id
@@ -644,6 +651,7 @@ def build_history_dtos(
             name=ch.name,
             media_type=ch.media_type,
             episode_code=episode_code,
+            episode_id=episode_id,
             last_played=ch.last_played,
             # Stored ingestion fields off the ChannelDB row (mapped inside the session)
             # so the sidebar renders the shared chip row without re-parsing the name.

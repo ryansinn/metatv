@@ -621,9 +621,34 @@ class _FavoritesMixin:
             return
         self.play_channel(item)
 
-    def play_from_history_id(self, channel_id: str):
-        """Play a channel from history by ID"""
+    def play_from_history_id(self, channel_id: str, episode_id: str = ""):
+        """Play what a History row is about.
+
+        A series row NAMES an episode — the one you last watched, rendered as
+        the ``S..E..`` on its meta line — and when it does, that is what a
+        double-click plays. Routed through ``play_episode_by_id``, the existing
+        chokepoint for surfaces that know only an episode id, so History does
+        not grow a play path of its own.
+
+        Without the id this fell through to the smart-resume ladder below, and
+        for a completed episode with nothing after it that ladder returns no
+        target at all — so a double-click opened the series browser rather than
+        playing anything. Owner: "double clicking a watched episode in history
+        doesn't play the episode (it should play on double click) it instead
+        opens the browse the series."
+
+        The ladder stays for everything else: a series row with no episode ever
+        played, and the ">>" button, which deliberately asks for the NEXT one.
+
+        Args:
+            channel_id: The history row's channel.
+            episode_id: The episode the row names, or "" when it names none —
+                a movie, a live channel, or a series not yet started.
+        """
         from metatv.core.models import MediaType
+        if episode_id:
+            self.play_episode_by_id(episode_id)
+            return
         channel = None
         with self.db.session_scope() as session:
             channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
