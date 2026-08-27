@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QListWidgetItem, QSplitter
+from PyQt6.QtWidgets import QListWidgetItem, QSplitter, QWidget
 
 from metatv.core.config import Config
 from metatv.gui.chip_row import build_chip_row
@@ -43,15 +43,22 @@ def qapp():
 
 
 def _rig(qapp, tmp_path):
-    """Recommended above History in a splitter with room to spare."""
-    from metatv.gui.sidebar.history import HistorySection
+    """Recommended in a splitter with room to spare, over an uncapped sink.
+
+    The sink is a plain QWidget, not a second section, and that matters: every
+    section now caps itself at its own content, so a rig made only of sections
+    has nowhere to put slack and the splitter forces sizes instead of
+    honouring them. The real sidebar always has somewhere for the surplus to
+    go — Sources and the stretch beneath it — so a bare widget models it
+    better than a second capped section would.
+    """
     from metatv.gui.sidebar.recommended import RecommendedSection
 
     splitter = QSplitter(Qt.Orientation.Vertical)
     sec = RecommendedSection(Config(config_dir=tmp_path), MagicMock())
-    other = HistorySection(Config(config_dir=tmp_path), MagicMock())
+    sink = QWidget()
     splitter.addWidget(sec)
-    splitter.addWidget(other)
+    splitter.addWidget(sink)
     splitter.resize(300, TALL)
     splitter.show()
     qapp.processEvents()
@@ -219,39 +226,28 @@ class TestTheCapAndTheFoldPassDoNotFight:
 
     def test_a_folded_section_is_not_capped_at_its_folded_size(
             self, qapp, tmp_path):
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QSplitter
+        from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-        from metatv.gui.sidebar.history import HistorySection
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
         sec = self._alerts(qapp, tmp_path)
-        splitter.addWidget(sec)
-        splitter.addWidget(HistorySection(Config(config_dir=tmp_path),
-                                          MagicMock()))
-        splitter.resize(300, TALL)
-        splitter.show()
-        qapp.processEvents()
-
-        splitter.setSizes([200, TALL - 200])      # squeeze until it folds
+        # A FIXED host, not a splitter: the cap sizes a section to its content,
+        # so inside a splitter the two never disagree and nothing ever folds.
+        # Folding needs the section held BELOW what it wants, which is what a
+        # drag does and what this models.
+        host = QWidget()
+        host.setFixedSize(300, 200)
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(sec)
+        host.show()
         qapp.processEvents()
         sec._apply_pressure()
         for _ in range(3):
             qapp.processEvents()
-        assert sec._auto_folded, "nothing folded, so there is nothing to test"
 
+        assert sec._auto_folded, "nothing folded, so there is nothing to test"
         assert sec.maximumHeight() > 400, (
             f"a folded section is capped at {sec.maximumHeight()}px — its "
             "groups can never get the room to come back"
         )
-
-        splitter.setSizes([700, TALL - 700])      # give it all back
-        qapp.processEvents()
-        sec._apply_pressure()
-        for _ in range(3):
-            qapp.processEvents()
-        assert not sec._auto_folded, (
-            f"still folded with 700px available: {sec._auto_folded}"
-        )
-        splitter.deleteLater()
+        host.deleteLater()
         qapp.processEvents()

@@ -104,17 +104,26 @@ class SectionPressureMixin:
                 self._auto_folded.add(group.key)
 
             # Unfold, most important first, while the space is comfortably there.
+            #
+            # `continue`, not `break`. Breaking on the first group that does not
+            # fit abandons every group after it — so an empty Stream Monitoring
+            # group, which costs a heading to open, stayed folded because Movies
+            # was tried first and was too big. The section then sat at full
+            # height showing three headings and a lot of nothing, and no amount
+            # of resizing brought them back. Owner: "all the subheaders in watch
+            # alerts collapse but then doing nothing more than expanding and
+            # collapsing favorites AGAIN ... and the watch alerts expand."
             for group in reversed(groups):
                 if group.key not in self._auto_folded:
                     continue          # the user closed this one; not ours to open
                 group.set_collapsed(False)
                 if self._content_height() + self.PRESSURE_HYSTERESIS > available:
                     group.set_collapsed(True)   # it did not fit after all
-                    break
+                    continue                    # ...but a cheaper one still might
                 self._auto_folded.discard(group.key)
         finally:
             self._in_pressure = False
-        self._apply_content_cap()
+        self._apply_content_cap()   # flag is clear again, so this runs its own pass
     def max_useful_height(self) -> int:
         """The tallest this section can be before it is showing dead space.
 
@@ -161,10 +170,20 @@ class SectionPressureMixin:
         content is by definition not showing dead space, so the cap has nothing
         to say about it.
         """
-        if self._auto_folded:
-            self.setMaximumHeight(16777215)   # Qt's QWIDGETSIZE_MAX
+        # Re-entrancy: measuring the content re-runs the row budget, which calls
+        # back here. The old routing went through _schedule_pressure, whose own
+        # guard hid this; calling directly needs its own. Without it the two
+        # bounce until the stack runs out.
+        if self._in_pressure:
             return
-        self.setMaximumHeight(self.max_useful_height())
+        self._in_pressure = True
+        try:
+            if self._auto_folded:
+                self.setMaximumHeight(16777215)   # Qt's QWIDGETSIZE_MAX
+                return
+            self.setMaximumHeight(self.max_useful_height())
+        finally:
+            self._in_pressure = False
 
     def _content_height(self) -> int:
         """What the content wants right now — after ALL pending sizing.

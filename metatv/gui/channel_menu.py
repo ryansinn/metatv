@@ -377,7 +377,24 @@ ACTIONS: dict[str, ChannelAction] = {
         tooltip="Pick a specific quality/language/source version of this title",
         applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
     ),
-    # ── Series monitor ──────────────────────────────────────────────────────
+    # ── The series itself ───────────────────────────────────────────────────
+    # Beside monitor_series rather than up with the play actions: both are
+    # about the SERIES, while everything above concerns this one episode. The
+    # owner spotted the grouping already half-present — "like and dislike
+    # options ... apply to the series, not the episode, so maybe the browse
+    # series menu option should be bundled near them" — and judgment is indeed
+    # title-level (see CLAUDE.md, "Judgment applies to the title").
+    "browse_series": ChannelAction(
+        id="browse_series",
+        label="Browse the series",
+        icon=_icons.series_icon,
+        tooltip="Open every season and episode of this series",
+        applies=lambda c: (
+            c.is_single and c.channel_found
+            and not c.is_hidden
+            and c.media_type == "series"
+        ),
+    ),
     "monitor_series": ChannelAction(
         id="monitor_series",
         label=_monitor_label,
@@ -653,7 +670,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "mark_watched",
         "sep",
-        "monitor_series",
+        "browse_series", "monitor_series",
         "sep",
         "clear_alert",
         "sep",
@@ -680,7 +697,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
-        "monitor_series",
+        "browse_series", "monitor_series",
         "sep",
         "clear_alert",
         "sep",
@@ -698,7 +715,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "mark_watched",
         "sep",
-        "monitor_series",
+        "browse_series", "monitor_series",
         "sep",
         "clear_alert",
         "sep",
@@ -718,7 +735,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "mark_watched",
         "sep",
-        "monitor_series",
+        "browse_series", "monitor_series",
         "sep",
         "clear_alert",
         "sep",
@@ -744,7 +761,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "mark_watched",
         "sep",
-        "monitor_series",
+        "browse_series", "monitor_series",
         "sep",
         "clear_alert",
         "sep",
