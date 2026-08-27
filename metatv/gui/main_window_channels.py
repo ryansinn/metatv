@@ -516,6 +516,56 @@ class _ChannelListMixin:
         # means "don't pass it" rather than "undo it afterwards".
         bypass_keywords = bool(params.get('bypass_keyword_exclusions'))
         _excl_keywords = params.get('excluded_keywords') or []
+        # ── The channel-list query's axes, built ONCE ─────────────────────────
+        # Each of the three transparency diffs below re-runs THIS query with
+        # exactly ONE key overridden. That is what makes a diff mean "what that
+        # one axis hides", and building the axes once is what makes it TRUE.
+        #
+        # They used to be four hand-copied argument lists of ~28 entries. The
+        # tag-filter one omitted NINE axes — language/region/quality/platform
+        # prefixes, hidden_only, include_hidden, include_dead, channel_ids and
+        # facets_hiding_untagged — so its comparison set was wider than "the
+        # main query minus tag_includes" and rows the PREFIX filter had removed
+        # were reported as hidden by the TAG filter. Measured in
+        # tests/test_filter_transparency.py: a count of 3 where the truth is 1.
+        #
+        # _rank_excl is in here too, which the three diffs also used to omit.
+        # It decides which variant is elected representative under
+        # collapse_variants, so a diff that elects differently from the query it
+        # is subtracted from is not measuring one axis either.
+        _axes = dict(
+            provider_id=params['provider_id'],
+            media_types=params['media_types'],
+            language_prefixes=params.get('language_prefixes'),
+            region_prefixes=params.get('region_prefixes'),
+            quality_prefixes=params.get('quality_prefixes'),
+            platform_prefixes=params.get('platform_prefixes'),
+            genre_filters=params.get('genre_filters'),
+            invert_prefix_filters=params['invert_prefix_filters'],
+            include_untagged=params['include_untagged'],
+            include_untagged_quality=params.get('include_untagged_quality', True),
+            adult_mode=params['adult_mode'],
+            force_adult_provider_ids=force_adult_ids or None,
+            source_categories=params['source_categories'],
+            include_uncategorized_content_types=True,
+            hidden_only=False,
+            include_hidden=False,
+            include_dead=bypass_dead_gate,
+            search_query=params.get('search_query'),
+            strict_genre_filter=params.get('strict_genre_filter'),
+            person_filter=params.get('person_filter'),
+            context_tag_filter=params.get('context_tag_filter'),
+            context_category_filter=params.get('context_category_filter'),
+            channel_ids=params.get('context_id_filter'),
+            excluded_provider_ids=providers_to_exclude or None,
+            tag_includes=params.get('tag_includes'),
+            facets_hiding_untagged=params.get('facets_hiding_untagged'),
+            exclude_watched=params.get('hide_watched', False),
+            collapse_variants=params.get('collapse_variants', False),
+            excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
+            limit=_page_size,
+            **_rank_excl,
+        )
         if hidden_only:
             channels = repos.channels.get_hidden_channels(
                 excluded_user_categories=params.get('excluded_user_categories'),
@@ -538,39 +588,7 @@ class _ChannelListMixin:
                 limit=_page_size,
             )
         else:
-            channels = repos.channels.get_all(
-                provider_id=params['provider_id'],
-                media_types=params['media_types'],
-                language_prefixes=params.get('language_prefixes'),
-                region_prefixes=params.get('region_prefixes'),
-                quality_prefixes=params.get('quality_prefixes'),
-                platform_prefixes=params.get('platform_prefixes'),
-                genre_filters=params.get('genre_filters'),
-                invert_prefix_filters=params['invert_prefix_filters'],
-                include_untagged=params['include_untagged'],
-                include_untagged_quality=params.get('include_untagged_quality', True),
-                adult_mode=params['adult_mode'],
-                force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params['source_categories'],
-                include_uncategorized_content_types=True,
-                hidden_only=False,
-                include_hidden=False,
-                include_dead=bypass_dead_gate,
-                search_query=params.get('search_query'),
-                strict_genre_filter=params.get('strict_genre_filter'),
-                person_filter=params.get('person_filter'),
-                context_tag_filter=params.get('context_tag_filter'),
-                context_category_filter=params.get('context_category_filter'),
-                channel_ids=params.get('context_id_filter'),
-                excluded_provider_ids=providers_to_exclude or None,
-                tag_includes=params.get('tag_includes'),
-                facets_hiding_untagged=params.get('facets_hiding_untagged'),
-                exclude_watched=params.get('hide_watched', False),
-                collapse_variants=params.get('collapse_variants', False),
-                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
-                limit=_page_size,
-                **_rank_excl,
-            )
+            channels = repos.channels.get_all(**_axes)
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
         # below. Paging (has_more + the next OFFSET) must be based on this, not on
         # the surviving count — otherwise an active exclusion makes page 1 look
@@ -607,29 +625,7 @@ class _ChannelListMixin:
         hidden_by_search = 0
         tier1_active = bool(params.get('tag_includes'))
         if not hidden_only and not id_filter_show_all and tier1_active:
-            unfiltered = repos.channels.get_all(
-                provider_id=params['provider_id'],
-                media_types=params['media_types'],
-                genre_filters=params.get('genre_filters'),
-                invert_prefix_filters=params.get('invert_prefix_filters', False),
-                include_untagged=params.get('include_untagged', True),
-                include_untagged_quality=params.get('include_untagged_quality', True),
-                adult_mode=params['adult_mode'],
-                force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params['source_categories'],
-                include_uncategorized_content_types=True,
-                search_query=params.get('search_query'),
-                strict_genre_filter=params.get('strict_genre_filter'),
-                person_filter=params.get('person_filter'),
-                context_tag_filter=params.get('context_tag_filter'),
-                context_category_filter=params.get('context_category_filter'),
-                excluded_provider_ids=providers_to_exclude or None,
-                exclude_watched=params.get('hide_watched', False),
-                tag_includes=None,  # the axis being measured
-                collapse_variants=params.get('collapse_variants', False),
-                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
-                limit=_page_size,
-            )
+            unfiltered = repos.channels.get_all(**{**_axes, 'tag_includes': None})
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
             # ONLY the tag filters (never the exclusion layer counted separately above).
             if exclusions_applied:
@@ -653,38 +649,7 @@ class _ChannelListMixin:
         hidden_by_dead = 0
         dead_active = not hidden_only and not id_filter_show_all and not bypass_dead_gate
         if dead_active:
-            with_dead = repos.channels.get_all(
-                provider_id=params['provider_id'],
-                media_types=params['media_types'],
-                language_prefixes=params.get('language_prefixes'),
-                region_prefixes=params.get('region_prefixes'),
-                quality_prefixes=params.get('quality_prefixes'),
-                platform_prefixes=params.get('platform_prefixes'),
-                genre_filters=params.get('genre_filters'),
-                invert_prefix_filters=params['invert_prefix_filters'],
-                include_untagged=params['include_untagged'],
-                include_untagged_quality=params.get('include_untagged_quality', True),
-                adult_mode=params['adult_mode'],
-                force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params['source_categories'],
-                include_uncategorized_content_types=True,
-                hidden_only=False,
-                include_hidden=False,
-                include_dead=True,  # the axis being measured
-                search_query=params.get('search_query'),
-                strict_genre_filter=params.get('strict_genre_filter'),
-                person_filter=params.get('person_filter'),
-                context_tag_filter=params.get('context_tag_filter'),
-                context_category_filter=params.get('context_category_filter'),
-                channel_ids=params.get('context_id_filter'),
-                excluded_provider_ids=providers_to_exclude or None,
-                tag_includes=params.get('tag_includes'),
-                facets_hiding_untagged=params.get('facets_hiding_untagged'),
-                exclude_watched=params.get('hide_watched', False),
-                collapse_variants=params.get('collapse_variants', False),
-                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
-                limit=_page_size,
-            )
+            with_dead = repos.channels.get_all(**{**_axes, 'include_dead': True})
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
             # ONLY the dead-stream gate (never the exclusion layer counted above).
             if exclusions_applied:
@@ -707,38 +672,7 @@ class _ChannelListMixin:
             and not bypass_keywords and bool(_excl_keywords)
         )
         if keywords_active:
-            with_keywords = repos.channels.get_all(
-                provider_id=params['provider_id'],
-                media_types=params['media_types'],
-                language_prefixes=params.get('language_prefixes'),
-                region_prefixes=params.get('region_prefixes'),
-                quality_prefixes=params.get('quality_prefixes'),
-                platform_prefixes=params.get('platform_prefixes'),
-                genre_filters=params.get('genre_filters'),
-                invert_prefix_filters=params['invert_prefix_filters'],
-                include_untagged=params['include_untagged'],
-                include_untagged_quality=params.get('include_untagged_quality', True),
-                adult_mode=params['adult_mode'],
-                force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params['source_categories'],
-                include_uncategorized_content_types=True,
-                hidden_only=False,
-                include_hidden=False,
-                include_dead=bypass_dead_gate,
-                search_query=params.get('search_query'),
-                strict_genre_filter=params.get('strict_genre_filter'),
-                person_filter=params.get('person_filter'),
-                context_tag_filter=params.get('context_tag_filter'),
-                context_category_filter=params.get('context_category_filter'),
-                channel_ids=params.get('context_id_filter'),
-                excluded_provider_ids=providers_to_exclude or None,
-                tag_includes=params.get('tag_includes'),
-                facets_hiding_untagged=params.get('facets_hiding_untagged'),
-                exclude_watched=params.get('hide_watched', False),
-                collapse_variants=params.get('collapse_variants', False),
-                excluded_keywords=None,  # the axis being measured
-                limit=_page_size,
-            )
+            with_keywords = repos.channels.get_all(**{**_axes, 'excluded_keywords': None})
             # Mirror the Python-side exclusion filtering applied to `channels` so the
             # diff isolates ONLY the keyword axis (never the layer-1 exclusions).
             if exclusions_applied:

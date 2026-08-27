@@ -249,6 +249,50 @@ class TestHiddenBySearch:
         assert out["hidden_by_search"] == 3, "the 3 Netflix matches are counted as search-filtered"
         assert out["hidden_by_exclusions"] == 0
 
+    def test_hidden_by_search_counts_only_the_tag_axis(self, session):
+        """The comparison query must hold every OTHER axis equal, or the count lies.
+
+        ``hidden_by_search`` is a diff: the same query with ``tag_includes``
+        lifted, minus the visible set. The comparison query hand-copied its
+        arguments from the main one and omitted NINE axes — language, region,
+        quality and platform prefixes, ``hidden_only``, ``include_hidden``,
+        ``include_dead``, ``channel_ids`` and ``facets_hiding_untagged``. Every
+        one of them makes the comparison set WIDER than "the main query minus
+        tag_includes", so rows dropped by a prefix filter get reported as
+        dropped by the tag filter.
+
+        Here: 2 EN + 2 FR channels, one of each tagged Disney+. With
+        ``language_prefixes=["EN"]`` and the Disney+ facet, exactly one EN row
+        is visible and exactly one EN row is hidden by the tag axis. Before the
+        fix the count read 3, because the comparison query also returned both
+        FR rows, which the language filter had already removed.
+        """
+        repos = RepositoryFactory(session)
+        en_disney = _ch(session, "Widget EN Disney", detected_prefix="EN")
+        en_other = _ch(session, "Widget EN Netflix", detected_prefix="EN")
+        fr_disney = _ch(session, "Widget FR Disney", detected_prefix="FR")
+        fr_other = _ch(session, "Widget FR Netflix", detected_prefix="FR")
+        for cid in (en_disney, fr_disney):
+            _tag(repos, cid, ("platform", "Disney+"))
+        for cid in (en_other, fr_other):
+            _tag(repos, cid, ("platform", "Netflix"))
+        session.commit()
+
+        params = _params(
+            search_query="Widget",
+            language_prefixes=["EN"],
+            tag_includes={"platform": {"Disney+"}},
+        )
+        dtos, out = _ChannelListMixin._query_channels(repos, params)
+
+        assert [d.id for d in dtos] == [en_disney], \
+            "only the EN Disney+ row survives both axes"
+        assert out["hidden_by_search"] == 1, (
+            "only the EN Netflix row is hidden by the TAG axis; the two FR rows "
+            "were already removed by the language filter and must not be counted "
+            f"here (got {out['hidden_by_search']})"
+        )
+
     def test_untagged_is_not_counted_as_search_filtered(self, session):
         """A channel the facet cannot describe is neither hidden NOR counted.
 
