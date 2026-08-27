@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 import json as _json
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, Index, JSON, text, event, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.types import TypeDecorator
@@ -244,6 +244,18 @@ class ChannelDB(Base):
 
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Composite indexes for the channel list, which filters on two columns and
+    # sorts on a third — a shape no single-column index can serve, and there are
+    # 33 of those. The third is PARTIAL, and it is there to undo damage the
+    # second one does: why, on which SQLite builds, and every measurement,
+    # in metatv/core/migrations/query_indexes.py.
+    __table_args__ = (
+        Index("ix_channels_hidden_type_name", "is_hidden", "media_type", "name"),
+        Index("ix_channels_hidden_name", "is_hidden", "name"),
+        Index("ix_channels_favorite_hidden_name", "is_hidden", "name",
+              sqlite_where=text("is_favorite = 1")),
+    )
 
 
 class MetadataDB(Base):
@@ -1111,6 +1123,19 @@ class Database:
             session.close()
 
     def close(self):
-        """Close database connection"""
+        """Close the connection, refreshing stale query statistics on the way out.
+
+        ``PRAGMA optimize`` re-ANALYZEs only what has drifted, and costs 0.6 ms
+        when nothing has — which is almost every time. Without it the planner
+        keeps reading the statistics QueryIndexTask wrote once, however many
+        rows a catalog refresh has since added. Failures are swallowed: a
+        pragma must not stop the app closing.
+        """
+        try:
+            with self.engine.connect() as conn:
+                conn.exec_driver_sql("PRAGMA optimize")
+                conn.commit()
+        except Exception:
+            logger.exception("Database: PRAGMA optimize failed on close")
         self.engine.dispose()
         logger.info("Database connection closed")
