@@ -92,21 +92,46 @@ def _raw_year(channel) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def channel_thumbnail(channel) -> str | None:
-    """Resolve a channel's poster/thumbnail URL from its own stored provider data.
+def poster_url_from_raw(raw_data) -> str | None:
+    """Resolve the poster URL a provider shipped, from its raw stream record.
 
-    Canonical, zero-network resolver (single chokepoint): reads the poster the
-    provider shipped in ``raw_data`` (``stream_icon``/``cover``). Shared by the
-    Discover cards and the Similar-Titles lightbox strip so both surface the same
-    poster without an on-demand metadata fetch.
+    THE canonical resolver, and the only place that knows which raw keys carry a
+    poster. Movies put it in ``stream_icon``; series put it in ``cover``, which
+    is why reading one key covers only part of a library — measured on the
+    owner's: 97.2% of movies had a stored poster and 0% of series did, because
+    ingestion mapped ``stream_icon`` alone.
+
+    Called at INGESTION (``XtreamProvider`` stores the result on
+    ``ChannelDB.logo_url``) so render and query code can read the stored column
+    instead of scanning ``raw_data`` JSON per row — the same compute-once rule
+    ``_primary_genre`` below spells out, and for the same reason.
+
+    Args:
+        raw_data: The provider's stream record, or None.
+
+    Returns:
+        A normalised URL, or None when the provider shipped no poster.
     """
-    rd = channel.raw_data or {}
+    rd = raw_data or {}
     url = (rd.get("stream_icon") or rd.get("cover") or "").strip()
     if not url:
         return None
     # Collapse double slashes in path from provider data quality issues (e.g. /movies//file.jpg).
     # Negative lookbehind preserves the :// in http:// / https://.
     return re.sub(r"(?<!:)/+", "/", url)
+
+
+def channel_thumbnail(channel) -> str | None:
+    """Resolve a channel's poster, preferring the value stored at ingestion.
+
+    Reads ``logo_url`` — computed once by :func:`poster_url_from_raw` when the
+    channel was ingested — and falls back to a raw_data scan only for rows that
+    predate that, which the poster backfill migration clears.
+    """
+    stored = (getattr(channel, "logo_url", "") or "").strip()
+    if stored:
+        return stored
+    return poster_url_from_raw(getattr(channel, "raw_data", None))
 
 
 def _primary_genre(channel) -> str | None:

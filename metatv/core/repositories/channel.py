@@ -545,7 +545,17 @@ class ChannelRepository(_ChannelStatsMixin):
         # unaffected. ChannelListDTO.from_orm reads them back via ``_joined_plot``
         # / ``_joined_poster_url``.
         query = query.outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
-        query = query.add_columns(MetadataDB.plot, MetadataDB.poster_url)
+        # COALESCE, not MetadataDB.poster_url alone: enrichment covers ~0.5% of
+        # a real library while ingestion stores the provider's own poster on
+        # logo_url for 97% of movies. Numbers and the search that exposed it:
+        # tests/test_channel_list_posters.py.
+        query = query.add_columns(
+            MetadataDB.plot,
+            func.coalesce(
+                func.nullif(MetadataDB.poster_url, ""),
+                func.nullif(ChannelDB.logo_url, ""),
+            ),
+        )
 
         if offset is not None:
             query = query.offset(offset)
@@ -673,7 +683,13 @@ class ChannelRepository(_ChannelStatsMixin):
             self.session.query(ChannelDB)
             .filter(ChannelDB.id.in_(rep_ids))
             .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
-            .add_columns(MetadataDB.plot, MetadataDB.poster_url)
+            .add_columns(
+                MetadataDB.plot,
+                func.coalesce(
+                    func.nullif(MetadataDB.poster_url, ""),
+                    func.nullif(ChannelDB.logo_url, ""),
+                ),
+            )
             .all()
         )
         result = []

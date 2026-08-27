@@ -10,6 +10,7 @@ from loguru import logger
 from metatv.core.models import Channel, Provider, MediaType, StreamQuality, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
 from metatv.core.content_identity import valid_tmdb_id
+from metatv.core.discovery_engine import poster_url_from_raw
 from metatv.core.url_cycle import UrlCycler
 from metatv.providers.base import ProviderPlugin
 
@@ -349,7 +350,10 @@ class XtreamAPI:
             stream_url=stream_url,
             category=category_name,
             category_id=category_id,
-            logo_url=raw_data.get('stream_icon'),
+            # Series ship their poster in `cover`, movies in `stream_icon`.
+            # Reading one key stored a poster for 97.2% of movies and 0% of
+            # series; poster_url_from_raw knows both and normalises the URL.
+            logo_url=poster_url_from_raw(raw_data),
             epg_channel_id=raw_data.get('epg_channel_id'),
             media_type=media_type,
             quality=quality,
