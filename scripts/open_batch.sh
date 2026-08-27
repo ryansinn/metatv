@@ -8,7 +8,7 @@
 # entries piled up under 0.41.0 over four days and nine merges — a label that
 # identifies nothing.
 #
-# THE TWO CONDITIONS. A bump is owed when BOTH hold:
+# THE THREE CONDITIONS. A bump is owed when ALL hold:
 #
 #   1. main has moved since the label was opened (metatv/whats_new/batch.py's
 #      OPENED_AT_SHA). Re-running this on the same commit is a REBUILD of what
@@ -19,12 +19,20 @@
 #   2. There are What's New entries past OPENED_AT_ID. A refactor-only merge
 #      changes nothing a user can see, so it does not deserve its own label.
 #
-# Either condition unmet → exits 0 having done nothing, and says which one.
+#   3. The batch is FINISHED — no other open, non-draft PR against the trunk.
+#      A label should name a set of changes the tester receives together, not
+#      count merges: bumping per PR would have produced nine labels in one day
+#      and turned the version into a commit counter. "Nothing left in flight"
+#      is the one signal for "this batch is done" that a script can read, and
+#      it needs no flag anyone has to remember. --force overrides it.
+#
+# Any condition unmet → exits 0 having done nothing, and says which one.
 #
 #   scripts/open_batch.sh                  Bump the minor (0.41.0 -> 0.42.0) when owed.
 #   scripts/open_batch.sh 0.50.0           Open that exact label instead (a jump).
 #   scripts/open_batch.sh --dry-run        Say what it would do; change nothing.
 #   scripts/open_batch.sh --push           Also push the chore commit to the trunk.
+#   scripts/open_batch.sh --force          Bump even with PRs still open.
 #   scripts/open_batch.sh -h | --help      Show this help.
 #
 # Config knobs (via repo-root .devscripts.conf, all optional):
@@ -37,11 +45,13 @@ usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 EXPLICIT=""
 DRY=0
 PUSH=0
+FORCE=0
 for arg in "$@"; do
     case "$arg" in
         -h|--help) usage; exit 0 ;;
         --dry-run) DRY=1 ;;
         --push)    PUSH=1 ;;
+        --force)   FORCE=1 ;;
         [0-9]*.[0-9]*.[0-9]*) EXPLICIT="$arg" ;;
         *) echo "open_batch.sh: unknown argument '$arg'" >&2; usage >&2; exit 2 ;;
     esac
@@ -97,6 +107,18 @@ fi
 if [ "$latest_id" -le "$opened_id" ]; then
     echo "open_batch.sh: no What's New entries since $opened_id — nothing user-visible shipped. Nothing to do."
     exit 0
+fi
+
+# ── condition 3: is the batch actually finished? ──────────────────────────────
+# A label names what the tester receives together. Anything still open is part of
+# this batch, so closing the label now would split it across two names.
+if [ "$FORCE" = 0 ] && command -v gh >/dev/null 2>&1; then
+    still_open="$(gh pr list --state open --base "$base_branch" --draft=false \
+        --json number --jq 'length' 2>/dev/null || echo "")"
+    if [ -n "$still_open" ] && [ "$still_open" -gt 0 ]; then
+        echo "open_batch.sh: $still_open PR(s) still open against $base_branch — the batch is not finished. Nothing to do (--force overrides)."
+        exit 0
+    fi
 fi
 
 # ── the new label ────────────────────────────────────────────────────────────

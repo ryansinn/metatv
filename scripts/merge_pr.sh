@@ -12,11 +12,12 @@
 #      confirmed via gh before continuing.
 #   4. Trunk — from the main worktree, git pull --ff-only origin <base>; a
 #      non-fast-forward means local <base> diverged: stop before pruning (exit 1).
-#   5. Batch label — run open_batch.sh --push, which bumps __version__ ONLY when
-#      main has moved since the label was opened AND there are new What's New
-#      entries. Every push to main ships a build to the tester, so the thing that
-#      goes public has to carry a name that matches what is in it; a rebuild of
-#      the same commit does not bump. --no-bump skips. This step exists because
+#   5. Batch label — run open_batch.sh --push. Safe to call on EVERY merge: it
+#      bumps __version__ only when main moved since the label was opened, new
+#      What's New entries exist, AND no other PR is still open against the trunk.
+#      That last one is what makes it per-BATCH rather than per-PR — the label
+#      names what the tester receives together, and bumping per merge would have
+#      produced nine labels in one day. --no-bump skips. The step exists because
 #      the bump used to live in ship_batch.sh's release chore, rolling releases
 #      retired that ceremony, and 61 entries then piled up under one label.
 #   6. Cleanup — run prune_merged.sh (Bug-3-safe around live agent worktrees).
@@ -209,10 +210,9 @@ else
 fi
 
 # ── 5. open the next What's New batch label ───────────────────────────────────
-# Every push to main ships a build to the tester, so whatever goes public has to
-# carry a name that matches what is in it. open_batch.sh decides for itself
-# whether a bump is owed — main moved AND new entries exist — so calling it after
-# a refactor-only merge, or twice on the same commit, does nothing.
+# open_batch.sh decides for itself whether a bump is owed — main moved, new
+# entries exist, and nothing else is still open — so calling it after every merge
+# is correct: it fires once, on the merge that empties the queue.
 batch_summary="(skipped — --no-bump)"
 if [ "$NO_BUMP" = 1 ]; then
     echo

@@ -22,10 +22,16 @@ only when the batch earned it. Two conditions, both required:
    distinguishes two builds of the same code, so a second label would be a lie.
 2. **There are new What's New entries** past `OPENED_AT_ID`. A refactor-only merge
    changes nothing a user can see and does not deserve its own label.
+3. **The batch is finished** — no other open, non-draft PR against the trunk.
+   A label names what the tester receives *together*; bumping per merge would
+   turn the version into a commit counter (nine labels in one day). "Nothing left
+   in flight" is the one signal a script can read for "this batch is done", and
+   it needs no flag anyone has to remember. `--force` overrides.
 
-Either unmet → exits 0 having done nothing, and says which one. With no argument
+Any unmet → exits 0 having done nothing, and says which one. With no argument
 it bumps the minor (`0.41.0` → `0.42.0`); pass a version to jump. `--push` sends
-the chore commit to the trunk, which is how `merge_pr.sh` calls it.
+the chore commit to the trunk, which is how `merge_pr.sh` calls it — safely, on
+every merge, because it fires only on the one that empties the queue.
 
 Backstop for hand-merges: `tests/test_whats_new_batch_label.py` fails once an
 unbumped label covers more entries than any batch in the project's history.
