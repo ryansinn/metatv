@@ -696,7 +696,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         count = self.item_count()
         return "" if count is None else str(count)
 
-    def build_overflow_button(self, actions, promotable=None) -> QPushButton:
+    def build_overflow_button(self, actions) -> QPushButton:
         """A right-aligned ``⋯`` holding a section's destructive bulk actions.
 
         The V3 render carries no bulk-action buttons in the sidebar at all, and
@@ -707,18 +707,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         their own.
 
         Args:
-            actions: ``[SectionAction, …]``, in menu order.
-            promotable: The subset eligible for the direct-button promotion
-                below — the section's OWN actions, excluding the Move up/Move
-                down every section now gets. Defaults to *actions*.
-
-                The distinction is load-bearing. Promotion asks "does this
-                section have exactly one action?", and adding two reorder
-                entries made the answer no everywhere — which would have
-                demoted Recommended's one-click refresh into a menu, the exact
-                thing the owner asked to avoid: "since there's only one item
-                under the ... it should just be the refresh icon and function
-                instead ... otherwise it's just a wasted click."
+            actions: ``[(label, tooltip, callable), …]``, in menu order.
 
         Returns:
             A ``QHBoxLayout`` (stretch, then the button) to add to the section's
@@ -751,9 +740,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         # shows itself, and the ⋯ appears the moment there are two. The SLOT is
         # what stays consistent between sections, not the glyph in it; Watch
         # Alerts already puts direct actions here.
-        # Judged on the section's own actions, not the total — see *promotable*.
-        candidates = actions if promotable is None else list(promotable)
-        only = candidates[0] if len(candidates) == 1 else None
+        only = actions[0] if len(actions) == 1 else None
         if only is not None and only.icon and not only.destructive:
             label, tooltip, slot, key = only.label, only.tooltip, only.run, only.icon
             self._overflow_btn.setText("")
@@ -763,23 +750,14 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
             self._overflow_btn.setIconSize(QSize(14, 14))
             self._overflow_btn.setToolTip(tooltip)
             self._overflow_btn.clicked.connect(slot)
-            # Recorded BY LABEL so the menu can leave it out. Not by identity:
-            # ``overflow_actions()`` builds fresh ``SectionAction`` records on
-            # every call, so ``is`` never matches the one promoted at
-            # construction and the action appeared twice — on the button and in
-            # its own menu.
-            self._promoted_label = only.label
-            # The rest reach it by right-click. A left-click is the promoted
-            # action; without this the reorder entries would have nowhere to go
-            # on a section that promoted something.
-            self._overflow_btn.setContextMenuPolicy(
-                Qt.ContextMenuPolicy.CustomContextMenu)
-            self._overflow_btn.customContextMenuRequested.connect(
-                lambda _pos: self._show_overflow_menu())
-            self._overflow_btn.setToolTip(f"{tooltip}  ·  right-click for more")
+            self._overflow_menu = None
             return self._overflow_btn
 
-        self._promoted_label = None
+        self._overflow_menu = QMenu(self._overflow_btn)
+        for entry in actions:
+            action = self._overflow_menu.addAction(entry.label)
+            action.setToolTip(entry.tooltip)
+            action.triggered.connect(entry.run)
         self._overflow_btn.clicked.connect(self._show_overflow_menu)
 
         # NOT returned as a content row any more — the caller puts it in the
@@ -789,37 +767,9 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         return self._overflow_btn
 
     def _show_overflow_menu(self) -> None:
-        """Rebuild the menu from a fresh read, then pop it under its button.
-
-        Rebuilt every time rather than once at construction. Two reasons, and
-        both are correctness rather than tidiness: the host wires
-        ``move_request`` AFTER the header exists, so a menu built in
-        ``__init__`` never has the reorder entries at all; and "can this move
-        up?" changes the moment anything moves, so a menu built once would go
-        on offering a move that does nothing.
-        """
-        from PyQt6.QtWidgets import QMenu
-
+        """Pop the overflow menu under its button."""
         button = self._overflow_btn
-        entries = self._menu_actions()
-        if not entries:
-            return
-        self._overflow_menu = QMenu(button)
-        for entry in entries:
-            action = self._overflow_menu.addAction(entry.label)
-            action.setToolTip(entry.tooltip)
-            action.triggered.connect(entry.run)
         self._overflow_menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
-
-    def _menu_actions(self) -> "list[SectionAction]":
-        """What the ⋯ menu should hold right now.
-
-        The section's own actions plus the reorder pair — minus whichever one
-        was promoted to the button itself, which would otherwise appear twice.
-        """
-        own = list(self.overflow_actions())
-        promoted = self.__dict__.get("_promoted_label")
-        return [a for a in own if a.label != promoted] + self.reorder_actions()
 
     def _row_density(self) -> str:
         """The viewer's sidebar row density — "compact" or "comfortable".
@@ -1001,22 +951,20 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
     def _title_html(self) -> str:
         """The header's icon-and-title rich text for the CURRENT palette."""
         # NO ICON. It said nothing the title beside it did not — "Watch Queue"
-        # is already the words "Watch Queue" — and it was kept on the theory
-        # that it might become the drag handle for reordering. Reordering went
-        # to the ⋯ menu instead (five sections is a short list, and a menu is
-        # discoverable where a drag gesture is not), which left the glyph with
-        # no job. Owner: "it might be time to ditch the icons to the left of
-        # the side panel section headers unless they're allowed to be used to
-        # drag and drop their positioning" — they are not, so they go.
+        # is already the words "Watch Queue". It was kept on the theory that it
+        # might become the drag handle for reordering the rail; that is parked
+        # (see ROADMAP, "Reorder the sidebar sections"), and an icon waiting for
+        # a job it may never get is just decoration. Owner: "do we even need
+        # the icons at all?"
         #
-        # ``icon``/``vector_role`` stay as constructor metadata — sections
-        # still declare them and ``filter_bar`` uses the same vocabulary — but
-        # nothing in a section header reads them any more.
+        # ``icon``/``vector_role`` stay as constructor metadata — sections still
+        # declare them and ``filter_bar`` uses the same vocabulary — but nothing
+        # in a section header reads them now.
         #
-        # No exceptions left. Watch Alerts kept a state DOT here (grey quiet,
-        # green when something was new) until the header grew the filled "+N"
-        # pill, which says the same thing louder and with a number in it — so
-        # the dot went too and all five sections share this one builder.
+        # Watch Alerts kept a state DOT here (grey quiet, green when something
+        # was new) until the header grew the filled "+N" pill, which says the
+        # same thing louder and with a number in it — so that went too, and all
+        # five sections share this one builder.
         return f"<b>{self.title}</b>"
 
     def make_title_label(self) -> QLabel:
@@ -1170,62 +1118,11 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         header_layout.addWidget(self.make_status_label())
         self._add_explore_link(header_layout)      # builds it; no longer shown
         # [count] [⋯] — one control group at the right end of every header.
-        # The section's own actions, then the two every section has. Appended
-        # HERE rather than asked of each subclass: three of the five override
-        # ``overflow_actions`` and two do not, so a subclass-by-subclass answer
-        # would have given Watch Alerts and Favorites no way to move at all —
-        # the enumeration that always leaves someone out.
-        # Always built: the header is constructed in ``__init__``, and the
-        # host wires ``move_request`` afterwards — so asking for the reorder
-        # entries HERE always got an empty list, and the ⋯ never appeared for a
-        # section whose only actions were Move up / Move down. The menu fills
-        # itself when it opens instead (see ``_show_overflow_menu``), which is
-        # also the only way the entries can be right: the first section cannot
-        # move up, and which section is first changes every time one moves.
-        own = list(self.overflow_actions())
-        header_layout.addWidget(self.build_overflow_button(own, promotable=own))
+        actions = self.overflow_actions()
+        if actions:
+            header_layout.addWidget(self.build_overflow_button(actions))
 
         self.main_layout.addWidget(header)
-
-    def reorder_actions(self) -> "list[SectionAction]":
-        """Move this section up or down the rail, for the ⋯ menu.
-
-        A menu rather than a drag, for a list of five. A drag reads better in
-        motion but is invisible until someone tries it, it collides with
-        click-to-collapse on the same header, and it needs a signpost — which
-        was the last argument for keeping the header icons. A menu entry is
-        none of those things.
-
-        Reached through the host's ``move_request`` seam, the way ``grow_request``
-        already is: the splitter and the persisted order belong to the window,
-        and a section that reached for either would be a section that knows
-        where it lives.
-
-        Returns:
-            Zero, one or two actions — the first section cannot move up and the
-            last cannot move down, and an entry that does nothing is worse than
-            no entry.
-        """
-        move = self.__dict__.get("move_request")
-        if not callable(move):
-            return []      # no host seam (a bare test double) — no entries
-        out: list[SectionAction] = []
-        for delta, label, hint in (
-            (-1, "Move up", "Move this section up the sidebar"),
-            (1, "Move down", "Move this section down the sidebar"),
-        ):
-            try:
-                if not move(self, delta, probe=True):
-                    continue
-            except TypeError:
-                # A host wired before probe existed. Offer it and let the
-                # click find out, the same fallback ``_can_grow`` takes.
-                pass
-            out.append(SectionAction(
-                label=label, tooltip=hint,
-                run=(lambda d=delta: move(self, d)),
-            ))
-        return out
 
     def overflow_actions(self):
         """Demoted actions for this section's ⋯ menu, in menu order.

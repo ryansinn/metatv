@@ -973,11 +973,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 # Explore view — the header's arrow already does that, and two
                 # controls doing one thing is what the owner spotted.
                 section.grow_request = self._grow_sidebar_section
-                # The ⋯ menu's Move up / Move down. A seam, like grow_request
-                # above: the splitter and the persisted order belong to this
-                # window, and a section that reached for either would be a
-                # section that knows where it lives.
-                section.move_request = self._move_sidebar_section
                 # One wiring site for every "Explore →" header link: a section that
                 # declares an EXPLORE_KEY opens the matching Explore view (cascading
                 # columns seeded with that section's contents).
@@ -1350,65 +1345,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # ------------------------------------------------------------------
     # VOD watch-alert helpers
     # ------------------------------------------------------------------
-
-    def _move_sidebar_section(self, section, delta: int, *,
-                              probe: bool = False) -> bool:
-        """Move ``section`` one place up (-1) or down (+1) the sidebar.
-
-        Moves past the previous or next VISIBLE section, not the next entry in
-        the order. Hidden sections stay in the splitter so a later unhide keeps
-        its place, so stepping one index at a time would spend a click doing
-        nothing the user can see — twice in a row if two are hidden.
-
-        The persisted order is the full list including the hidden ones: it is
-        the record of where everything belongs, not of what is on screen.
-
-        Args:
-            section: The section asking to move.
-            delta: -1 for up, +1 for down.
-            probe: Answer "could this move?" and change nothing. What the menu
-                asks so it can leave out an entry that would do nothing.
-
-        Returns:
-            True if the move happened (or could, when probing).
-        """
-        splitter = self.__dict__.get("sidebar_splitter")
-        if splitter is None:
-            return False
-        index = splitter.indexOf(section)
-        if index < 0:
-            return False
-
-        # Walk to the next visible neighbour in the direction asked for.
-        target = index + delta
-        while 0 <= target < splitter.count():
-            if splitter.widget(target).isVisible():
-                break
-            target += delta
-        else:
-            return False
-        if not 0 <= target < splitter.count():
-            return False
-        if probe:
-            return True
-
-        sizes = splitter.sizes()
-        splitter.insertWidget(target, section)
-        # insertWidget re-parents, which drops the widget's size — put the
-        # sizes back in the order the widgets now sit in, so a move does not
-        # also silently re-allocate the rail.
-        sizes.insert(target, sizes.pop(index))
-        splitter.setSizes(sizes)
-
-        order = [
-            sid for idx in range(splitter.count())
-            for sid, sec in self.sidebar_sections.items()
-            if sec is splitter.widget(idx)
-        ]
-        self.config.sidebar_sections = order
-        self.config.save()
-        logger.info(f"Sidebar order: {order}")
-        return True
 
     def _grow_sidebar_section(self, section, rows: int | None = None, *,
                               probe: bool = False) -> bool:
