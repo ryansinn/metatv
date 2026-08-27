@@ -428,6 +428,53 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     return weights
 
 
+def recommendation_scope(session, config) -> dict:
+    """Every exclusion axis ``score_candidates`` accepts, resolved from *config*.
+
+    THE chokepoint for "what may a recommendation contain". Four surfaces score
+    recommendations and each used to assemble these arguments itself; they had
+    already drifted, and ``score_candidates`` defaults ``adult_mode="all"``, so
+    a caller that omits it gets NO adult filtering rather than a safe default.
+    That is #493 surviving in surfaces the original fix did not reach. Counts,
+    and the guard that stops it recurring: tests/test_recommendation_scope.py.
+
+    Adding an axis here reaches every surface at once, which is the point.
+
+    Args:
+        session: An open session, used to resolve the adult-source id set.
+        config: The application ``Config``.
+
+    Returns:
+        Keyword arguments to splat into :func:`score_candidates`.
+    """
+    from metatv.core.discovery_engine import build_adult_filter
+    from metatv.core.filter_utils import (
+        excluded_tag_content_types, get_active_category_filter,
+        get_excluded_prefixes, keyword_exclusion_list,
+    )
+    from metatv.core.repositories import RepositoryFactory
+
+    adult_mode, force_adult_ids = build_adult_filter(session, config)
+    # The category axis and the per-prefix axis are UNIONED into the prefix
+    # exclusion — the existing convention, not something to re-invent per caller.
+    cat_excluded, include_uncategorized = get_active_category_filter(config)
+    excluded_prefixes = list(set(cat_excluded or []) | get_excluded_prefixes(config))
+
+    return {
+        "muted_attrs": getattr(config, "muted_attributes", None),
+        "dedupe_overrides": set(getattr(config, "rec_dedupe_overrides", [])),
+        "excluded_prefixes": excluded_prefixes,
+        "include_uncategorized": include_uncategorized,
+        "excluded_keywords": keyword_exclusion_list(config) or None,
+        "excluded_provider_ids": (
+            RepositoryFactory(session).providers.get_hidden_provider_ids() or None
+        ),
+        "excluded_content_types": excluded_tag_content_types(config) or None,
+        "adult_mode": adult_mode,
+        "force_adult_provider_ids": force_adult_ids or None,
+    }
+
+
 def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      muted_attrs: dict | None = None,
                      dedupe_overrides: set[str] | None = None,

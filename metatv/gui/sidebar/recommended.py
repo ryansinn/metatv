@@ -122,18 +122,16 @@ class RecommendedSection(CollapsibleSection):
 
     def _bg_refresh(self) -> None:
         from metatv.core.preference_engine import (
-            RecScoringSettings, compute_weights, score_candidates, record_impressions,
+            RecScoringSettings, compute_weights, recommendation_scope,
+            score_candidates, record_impressions,
             version_score,
         )
         from metatv.core.discovery_engine import build_adult_filter
         from metatv.core.filter_utils import (
-            excluded_tag_content_types,
             get_active_category_filter,
             get_excluded_prefixes,
-            keyword_exclusion_list,
         )
         from metatv.core.database import MetadataDB
-        from metatv.core.repositories import RepositoryFactory
         # THE SAME exclusion set every other surface resolves. This section
         # resolved one of the four and the rail showed content the user had
         # excluded — including adult content with the adult filter on, because
@@ -155,17 +153,12 @@ class RecommendedSection(CollapsibleSection):
             if weights.is_empty():
                 self._rec_data_ready.emit(None)
                 return
+            # This site was already correct — #493 fixed it. It routes through
+            # recommendation_scope anyway so there is ONE assembly rather than
+            # one correct copy and three that drifted from it.
             recs = score_candidates(
                 session, weights, limit=20,
-                muted_attrs=getattr(self.config, 'muted_attributes', None),
-                dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
-                excluded_prefixes=excluded_prefixes,
-                include_uncategorized=include_uncategorized,
-                excluded_keywords=keyword_exclusion_list(self.config) or None,
-                excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
-                excluded_content_types=excluded_tag_content_types(self.config) or None,
-                adult_mode=adult_mode,
-                force_adult_provider_ids=force_adult_ids or None,
+                **recommendation_scope(session, self.config),
                 version_scorer=lambda ch: version_score(ch, _config),
                 diversify_people=True,
                 settings=settings,

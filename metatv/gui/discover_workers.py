@@ -113,7 +113,15 @@ def fetch_cards_for_key(
     from metatv.core.discovery_engine import (
         get_recently_added, get_top_rated, get_by_genre,
         get_by_decade, get_by_actor, get_by_user_category, get_by_collection,
+        get_recommended,
     )
+
+    if shelf_key == "recommended":
+        # Takes no sk/fk/af/ek: every exclusion axis comes from
+        # preference_engine.recommendation_scope, which is the one place that
+        # knows what a recommendation may contain. Passing the shelf kwargs too
+        # would be a second, competing answer to the same question.
+        return get_recommended(session, config, limit=limit)
 
     if shelf_key == "recently_added":
         return get_recently_added(session, limit=limit, **sk, **fk, **af, **ek)
@@ -432,6 +440,11 @@ class _LoaderWorker(QObject):
 
             # ── Fixed shelves ─────────────────────────────────────────────────
             for key, title in (
+                # First: it is the one shelf built from YOUR taste rather than
+                # from the catalogue, so it is what the grocery's butcher puts
+                # at the front. Falls back to nothing (header_only) until there
+                # is enough signal, exactly like the sidebar section.
+                ("recommended",    "Recommended for You"),
                 ("recently_added", "Recently Added"),
                 ("top_movies",     "Top Rated Movies"),
                 ("top_series",     "Top Rated Series"),

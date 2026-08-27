@@ -636,11 +636,11 @@ class PreferencesView(QWidget):
 
     def _bg_refresh(self) -> None:
         from metatv.core.preference_engine import (
-            RecScoringSettings, compute_weights, score_candidates, version_score,
+            RecScoringSettings, compute_weights, recommendation_scope,
+            score_candidates, version_score,
         )
-        from metatv.core.filter_utils import get_active_category_filter, keyword_exclusion_list
+        from metatv.core.filter_utils import get_active_category_filter
         from metatv.core.media_mix import resolve_media_share
-        from metatv.core.repositories import RepositoryFactory
         excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
         _config = self.config
         settings = RecScoringSettings.from_config(_config)
@@ -650,14 +650,14 @@ class PreferencesView(QWidget):
             # Resolve the mix here (not inside the scorer) so the dashboard can
             # show the ratio the list was actually built with.
             media_share = resolve_media_share(session, settings.media_mix)
+            # recommendation_scope, not a hand-copied argument list: this call
+            # site omitted adult_mode and excluded_content_types entirely, and
+            # score_candidates defaults adult_mode="all" — so the dashboard was
+            # showing adult titles with the adult filter ON. Same defect as #493,
+            # in a surface that fix did not reach.
             recs = score_candidates(
                 session, weights,
-                muted_attrs=getattr(self.config, 'muted_attributes', None),
-                dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
-                excluded_prefixes=excluded_prefixes,
-                include_uncategorized=include_uncategorized,
-                excluded_keywords=keyword_exclusion_list(self.config) or None,
-                excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
+                **recommendation_scope(session, self.config),
                 version_scorer=lambda ch: version_score(ch, _config),
                 media_mix=media_share,
                 diversify_people=True,
