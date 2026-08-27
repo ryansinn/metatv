@@ -119,6 +119,38 @@ class _ChannelListMixin:
         self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
 
+    def _on_search_submitted(self) -> None:
+        """Enter in the header search box: go to Search and run the query.
+
+        The box is always present now (see
+        ``_AppHeaderMixin._sync_header_search_visibility``), so it has to work
+        as a way INTO the Search view rather than only as a filter you can
+        reach once you are already there. Typing while on Discover and pressing
+        Enter switches and searches, which is what a permanently-visible search
+        field implies.
+
+        Deliberately does nothing on an empty box: Enter on an empty field
+        would yank you out of whatever view you were reading, having asked for
+        nothing. The debounced ``_on_search_text_changed`` still owns the
+        as-you-type path; this only adds the explicit submit.
+        """
+        text = ""
+        box = self.__dict__.get("search_input")
+        if box is not None:
+            text = box.text().strip()
+        if not text:
+            return
+        # switch_to_list_view already hides the other views, deactivates their
+        # chips and enables Search — reuse it rather than re-implementing the
+        # half of it this needs, so the two cannot disagree about what
+        # switching entails.
+        if not self.search_chip.is_enabled():
+            self.switch_to_list_view()
+        # Run it now rather than waiting out the keystroke debounce — pressing
+        # Enter says "this one, now".
+        self._search_debounce.stop()
+        self.load_channels()
+
     def _clear_id_filter(self) -> bool:
         """Drop the ephemeral alert "show matches" id-filter (and its chip) if active.
 

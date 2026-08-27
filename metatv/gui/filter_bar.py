@@ -71,9 +71,15 @@ class ToggleChip(QPushButton):
         }.get(self._segment, "")
         # Every chip but the leftmost carries the hairline that divides it from
         # its neighbour, so the track shows exactly one rule per boundary.
-        rule = "" if self._segment == "first" else \
-            f"border-left: 1px solid {_theme.COLOR_LINE};"
-        return f"border-radius: 0px; {corners} {rule} padding: 7px 16px;"
+        # A TRANSPARENT border in every resting state, recoloured on hover.
+        # The hover outline the owner asked for cannot be added on :hover
+        # alone — a border that appears only on hover adds 1px to the box and
+        # nudges the label as the pointer crosses it. Reserving the ring here
+        # means hover changes colour and nothing else.
+        rule = (f"border-left-color: {_theme.COLOR_LINE};"
+                if self._segment != "first" else "")
+        return (f"border: 1px solid transparent; border-radius: 0px; "
+                f"{corners} {rule} padding: 6px 15px;")
 
     def on_clicked(self):
         self._enabled = self.isChecked()
@@ -142,7 +148,6 @@ class ToggleChip(QPushButton):
                 QPushButton {{
                     background-color: {_theme.COLOR_ACCENT};
                     color: {_theme.COLOR_ON_ACCENT};
-                    border: none;
                     {self._geometry_css()}
                     font-weight: bold;
                 }}
@@ -159,11 +164,15 @@ class ToggleChip(QPushButton):
                     background-color: {
                         "transparent" if segmented else _theme.COLOR_BG_CARD};
                     color: {_theme.COLOR_TEXT};
-                    {"border: none;" if segmented
-                     else f"border: 1px solid {_theme.COLOR_BORDER};"}
                     {self._geometry_css()}
+                    {"" if segmented
+                     else f"border-color: {_theme.COLOR_BORDER};"}
                 }}
-                QPushButton:hover {{ background-color: {_theme.COLOR_BG_BAR}; }}
+                QPushButton:hover {{
+                    background-color: {_theme.OVERLAY_SELECTION};
+                    color: {_theme.COLOR_TEXT_HI};
+                    border-color: {_theme.COLOR_ACCENT};
+                }}
             """))
 
     def is_enabled(self) -> bool:
