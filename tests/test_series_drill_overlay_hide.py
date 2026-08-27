@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, call
 
 from metatv.gui.main_window_nav import _NavMixin
 from tests.conftest import wire_filter_chip_host, wire_header_search_sync
+from tests.conftest import wire_nav_host
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,7 @@ def _make_host() -> _NavMixin:
     ``populate_series_tree`` and ``status_bar.showMessage`` are no-ops.
     """
     host = _NavMixin.__new__(_NavMixin)
+    wire_nav_host(host)
     wire_header_search_sync(host)
     wire_filter_chip_host(host)
 

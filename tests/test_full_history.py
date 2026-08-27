@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import wire_nav_host
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +319,7 @@ def _nav_host(key: str = "history"):
     from metatv.gui.main_window_nav import _NavMixin
 
     host = _NavMixin()
+    wire_nav_host(host)
     # _hide_all_content_views() resets the channel-render banners, which
     # live outside every view; this skeleton host is not a full MainWindow
     # so it needs that method wired in (shared factory — see conftest).

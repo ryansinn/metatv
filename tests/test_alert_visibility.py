@@ -233,16 +233,21 @@ class TestSidebarAndQueueGlance:
         section._clear_all_btn = QPushButton()
         section._clear_all_btn.hide()
 
-        # Active: green dot + green "Alerts (3)" title; "Clear all" shows.
+        # The DOT is gone — the header's filled "+N" pill says the same thing
+        # with a number in it, and two indicators for one fact is what the V3
+        # pass keeps removing. What this method still owns is the tooltip and
+        # the "Clear all" button, so that is what these assert.
+        # Active: "Clear all" shows and the tooltip names the count.
         section.update_new_match_badge(3)
-        assert _theme.COLOR_OK in section.title_label.text()
         assert not section._clear_all_btn.isHidden()
+        assert "3" in section.title_label.toolTip()
 
-        # Quiet: no count suffix, gray dot, no green; "Clear all" hides.
+        # Quiet: the count never reaches the TITLE, and "Clear all" hides.
         section.update_new_match_badge(0)
         assert "(3)" not in section.title_label.text()
-        assert _theme.COLOR_MUTED in section.title_label.text()
-        assert _theme.COLOR_OK not in section.title_label.text()
+        assert _theme.COLOR_OK not in section.title_label.text(), (
+            "the state dot came back to the title"
+        )
         assert section._clear_all_btn.isHidden()
 
     def test_queue_line_shows_and_hides(self, qapp):

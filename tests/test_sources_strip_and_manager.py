@@ -21,6 +21,7 @@ import pytest
 
 from metatv.core.database import Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
+from tests.conftest import wire_nav_host
 
 
 @pytest.fixture(scope="module")
@@ -165,6 +166,7 @@ class TestSwitchToSourcesManager:
 
         manager = MagicMock()
         host = _NavMixin.__new__(_NavMixin)
+        wire_nav_host(host)
         # _hide_all_content_views() resets the channel-render banners, which
         # live outside every view; this skeleton host is not a full MainWindow
         # so it needs that method wired in (shared factory — see conftest).
@@ -323,6 +325,7 @@ class TestAccountInfoUpdatedReachesStrip:
         manager = MagicMock()
         strip = MagicMock()
         me = MainWindow.__new__(MainWindow)
+        wire_nav_host(me)
         me.sources_manager_view = manager
         me.sources_strip = strip
 
@@ -336,6 +339,7 @@ class TestAccountInfoUpdatedReachesStrip:
         from metatv.gui.main_window import MainWindow
 
         me = MainWindow.__new__(MainWindow)
+        wire_nav_host(me)
         me.sidebar_sections = {}
 
         MainWindow._on_account_info_updated(me, "p1")  # must not raise

@@ -1066,8 +1066,12 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
                     f"QPushButton:hover {{ border-color:"
                     f" {_theme.COLOR_ACCENT_BLUE}; }}"
                 )
+            # COLOR_TEXT, not COLOR_MUTED. The count is TEXT — a number you
+            # read — and muted cannot clear 4.5:1 on the card in any palette,
+            # which is what tests/test_text_role_migration.py fails on. Same
+            # call the group-heading count already made.
             return (
-                f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+                f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
                 f" background: transparent;"
             )
 

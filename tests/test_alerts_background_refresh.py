@@ -38,19 +38,42 @@ def qapp():
     yield app
 
 
+class _FallthroughConfig:
+    """Overrides in front of a REAL ``Config``.
+
+    It was a bare ``SimpleNamespace`` listing seven attributes by hand, and it
+    went stale the way a hand-maintained enumeration does: the section grew a
+    read of ``alerts_epg_upcoming_collapsed`` and three tests here started
+    raising ``AttributeError`` — in a file the change never touched.
+
+    ``Path.home()`` is redirected by the autouse ``_isolate_user_config``
+    fixture, so a real Config touches nothing of the user's.
+    """
+
+    def __init__(self, **overrides):
+        from metatv.core.config import Config
+
+        self.__dict__["_overrides"] = overrides
+        self.__dict__["_real"] = Config()
+
+    def __getattr__(self, name):
+        overrides = self.__dict__["_overrides"]
+        if name in overrides:
+            return overrides[name]
+        return getattr(self.__dict__["_real"], name)
+
+    def __setattr__(self, name, value):
+        self.__dict__["_overrides"][name] = value
+
+
 def _fake_config(**overrides):
-    """A config with a minimal set of attributes WatchAlertsSection reads."""
+    """A real config with the handful of values these tests pin."""
     defaults = dict(
         epg_watchlist_patterns=[],
-        watch_alerts_icon="🔔",
-        collapse_icon="▼",
-        expand_icon="▶",
-        play_icon="▷",
-        info_icon="ℹ",
         sidebar_section_states={},
     )
     defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    return _FallthroughConfig(**defaults)
 
 
 def _make_db(tmp_path: Path) -> Database:
@@ -402,10 +425,22 @@ def test_populate_rows_upcoming_adds_upcoming_header(qapp):
     obj._populate_rows({"live_groups": {}, "upcoming_only": upcoming_only})
 
     obj.set_empty.assert_called_once_with(False)
-    # One top-level item: the row itself. EPG no longer wraps its rows in
-    # "Watch now"/"Upcoming" sub-headings — it IS the group.
-    assert obj.alerts_tree.topLevelItemCount() == 1
-    assert obj.alerts_tree.itemWidget(obj.alerts_tree.topLevelItem(0), 0) is not None
+    # TWO top-level items: the "Upcoming" heading, then the row under it.
+    #
+    # This asserted ONE, with a comment that EPG "no longer wraps its rows in
+    # sub-headings — it IS the group". That was true until the not-yet-airing
+    # block grew its own foldable heading, which is the whole point of it: the
+    # upcoming list is the long one and the owner wanted it collapsible without
+    # losing what is on now. The test name said "adds upcoming header" the
+    # entire time it was asserting there wasn't one.
+    from metatv.gui.sidebar.base import GroupHeading
+
+    tree = obj.alerts_tree
+    assert tree.topLevelItemCount() == 2
+    heading = tree.itemWidget(tree.topLevelItem(0), 0)
+    assert isinstance(heading, GroupHeading)
+    assert heading.label.text() == "Upcoming"
+    assert tree.itemWidget(tree.topLevelItem(1), 0) is not None
 
 
 def test_populate_rows_multiple_airings_creates_parent_with_children(qapp):

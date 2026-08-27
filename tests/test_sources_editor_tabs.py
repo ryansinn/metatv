@@ -28,6 +28,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from metatv.gui import icons as _icons
+from tests.conftest import wire_nav_host
 
 
 @pytest.fixture(scope="module")
@@ -424,6 +425,7 @@ def test_sources_strip_toggle_closes_and_deactivates_when_already_active():
         pass
 
     me = _FakeHost()
+    wire_nav_host(me)
     # _hide_all_content_views() resets the channel-render banners, which
     # live outside every view; this skeleton host is not a full MainWindow
     # so it needs that method wired in (shared factory — see conftest).

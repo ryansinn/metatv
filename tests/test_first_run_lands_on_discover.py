@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.gui.main_window_nav import _NavMixin
+from tests.conftest import wire_nav_host
 
 
 class _FakeWidget:
@@ -69,6 +70,7 @@ def _nav_host() -> _NavMixin:
     )
 
     host = _NavMixin.__new__(_NavMixin)
+    wire_nav_host(host)
     wire_hide_channel_banners(host)
     wire_header_search_sync(host)
     wire_filter_chip_host(host)

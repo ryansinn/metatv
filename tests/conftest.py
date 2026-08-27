@@ -1481,3 +1481,47 @@ def render_channel_row(delegate, index, *, rect=None, selected=False, hovered=Fa
     finally:
         painter.end()
     return pixmap.toImage()
+
+
+def wire_nav_host(host) -> None:
+    """Give a bare ``_NavMixin`` double the cross-cutting bits every switch touches.
+
+    ``_hide_all_content_views`` is the seam EVERY view switch passes through, so
+    anything it reaches becomes a requirement of every nav double at once — and
+    the doubles are hand-built, one per test file, each listing the attributes
+    its own test happened to need. Adding one line to that seam therefore breaks
+    a dozen files that never mentioned it: clearing the stale status line
+    (#490) took out 42 tests across nine files, none of which the PR touched.
+
+    So the attributes live HERE, in one helper the builders call, exactly as
+    ``wire_channel_banner_widgets`` and ``wire_hide_channel_banners`` already
+    do. The alternative — a ``hasattr`` guard in ``_hide_all_content_views`` —
+    is forbidden for a good reason: on a ``__new__``'d QObject ``hasattr``
+    raises ``RuntimeError`` rather than returning False, so the guard explodes
+    where it is most needed.
+
+    Safe to call on a double that already set some of these: nothing is
+    overwritten, so a test that wants its own spy keeps it.
+
+    Args:
+        host: A ``_NavMixin`` (or ``_FakeHost``) built without
+            ``MainWindow.__init__``.
+    """
+    from unittest.mock import MagicMock
+
+    # The status line. Cleared on every switch so a view never wears the
+    # previous view's message.
+    if "status_bar" not in host.__dict__:
+        host.status_bar = MagicMock()
+
+    # The series Back/breadcrumb bar. Hidden as a UNIT outside series view —
+    # it used to be added to the content column unconditionally with only its
+    # contents hidden, which cost every other view a blank row.
+    if "_series_nav_bar" not in host.__dict__:
+        host._series_nav_bar = MagicMock()
+    if "back_button" not in host.__dict__:
+        host.back_button = MagicMock()
+    if "breadcrumb_label" not in host.__dict__:
+        host.breadcrumb_label = MagicMock()
+    if "series_icon" not in host.__dict__:
+        host.series_icon = "S"
