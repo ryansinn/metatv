@@ -183,6 +183,7 @@ class _AppHeaderMixin:
         self.search_input.setMaximumWidth(460)
         _theme.style_fn(self.search_input, _search_sheet)
         self.search_input.textChanged.connect(self._on_search_text_changed)
+        self.search_input.returnPressed.connect(self._on_search_submitted)
         layout.addWidget(self.search_input, 1)
 
         layout.addWidget(self._create_view_switcher())
@@ -242,12 +243,26 @@ class _AppHeaderMixin:
         menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def _sync_header_search_visibility(self, visible: bool) -> None:
-        """Show the header's search box only where it does something.
+        """No-op on the box's visibility: the header search is ALWAYS present.
 
-        It filters the channel list, so it is meaningless on EPG, Recommended,
-        Discover and Recipe. It follows the same rule the content-area controls
-        row already followed, which is why the two are kept in step here rather
-        than at each of the three call sites that toggle the row.
+        It used to hide on EPG, Recommended, Discover and Recipe, on the
+        reasoning that it filters the channel list and so means nothing
+        elsewhere. Two problems with that, and the second is the reason it
+        changed:
+
+        * Removing a 240-460px widget from a horizontal layout re-flows
+          everything to its right, so the view switcher JUMPED sideways every
+          time you left or returned to Search — the control you use to change
+          views moved as a consequence of changing views.
+        * "Means nothing elsewhere" stopped being true. Typing here and
+          pressing Enter now SWITCHES to Search and runs the query (see
+          ``_on_search_submitted``), which makes the box a way INTO the search
+          view rather than a filter that only works once you are already in it.
+
+        The parameter is kept so the three nav call sites need no edit and the
+        signature stays honest about what they are asking for; the enabled
+        state still follows it, so the box reads as inert where it does not
+        filter, without moving anything.
         """
         # ``self.__dict__.get``, never ``hasattr``: PyQt raises RuntimeError —
         # not AttributeError — for attribute access on a ``__new__``'d
@@ -255,4 +270,8 @@ class _AppHeaderMixin:
         # path on exactly such a skeleton.
         search = self.__dict__.get("search_input")
         if search is not None:
-            search.setVisible(visible)
+            search.setVisible(True)
+            search.setPlaceholderText(
+                "Search titles — name, category…" if visible
+                else "Search titles — press Enter to search"
+            )

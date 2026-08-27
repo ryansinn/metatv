@@ -155,17 +155,73 @@ def test_the_search_box_still_filters(window):
 # 3. Search hides where it would do nothing.
 # ---------------------------------------------------------------------------
 
-def test_header_search_hides_on_views_it_cannot_filter(window):
-    """It filters the channel list, so it is meaningless on EPG/Discover/etc.
-    It follows the same rule the content controls row already followed."""
-    # isHidden(), not isVisible(): the window itself is never shown in an
-    # offscreen test, and isVisible() is False for every child of a hidden
-    # parent regardless of what was asked for. isHidden() reflects the
-    # explicit setVisible() call, which is what is under test.
+def test_header_search_stays_put_on_every_view(window):
+    """The search box no longer hides — it is the anchor the switcher sits beside.
+
+    It used to disappear on EPG, Recommended, Discover and Recipe, on the
+    reasoning that it only filters the channel list. Removing a 240-460px
+    widget from a horizontal layout re-flows everything to its right, so the
+    VIEW SWITCHER jumped sideways every time you left or returned to Search —
+    the control you use to change views moved as a consequence of changing
+    views. Owner report, 2026-08-27.
+
+    isHidden(), not isVisible(): the window is never shown in an offscreen
+    test, so isVisible() is False for every child of a hidden parent regardless
+    of what was asked for. isHidden() reflects the explicit setVisible() call,
+    which is what is under test.
+    """
     window._sync_header_search_visibility(False)
-    assert window.search_input.isHidden()
+    assert not window.search_input.isHidden(), (
+        "the search box hid on a non-Search view; that is what moved the switcher"
+    )
     window._sync_header_search_visibility(True)
     assert not window.search_input.isHidden()
+
+
+def test_the_switcher_does_not_move_when_the_view_changes(window):
+    """The reason the box stays, asserted as PAINTED GEOMETRY.
+
+    The switcher used to jump 250px left when you left Search — measured, not
+    estimated: x=364 with the box, x=114 without.
+
+    ``show()`` and ``processEvents()`` are load-bearing. Without them every
+    widget reports the default ``QRect(0, 0, 640, 480)`` because the layout has
+    never run, both states compare equal, and the assertion cannot fail — which
+    is precisely what the first version of this test did.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    window.resize(1400, 900)
+    window.show()
+    try:
+        QApplication.processEvents()
+        window._sync_header_search_visibility(True)
+        QApplication.processEvents()
+        on_search = window._nav_track.geometry()
+
+        window._sync_header_search_visibility(False)
+        QApplication.processEvents()
+        off_search = window._nav_track.geometry()
+    finally:
+        window.hide()
+
+    assert on_search.width() > 0 and on_search.x() > 0, (
+        f"the switcher was never laid out ({on_search}) — this test would pass "
+        "for any behaviour at all"
+    )
+    assert on_search.x() == off_search.x(), (
+        f"the view switcher moved {abs(on_search.x() - off_search.x())}px when "
+        "leaving the Search view"
+    )
+    assert on_search.width() == off_search.width()
+
+
+def test_the_search_placeholder_says_enter_searches_off_the_search_view(window):
+    """The box is present everywhere, so it has to say what Enter will do."""
+    window._sync_header_search_visibility(False)
+    assert "Enter" in window.search_input.placeholderText()
+    window._sync_header_search_visibility(True)
+    assert "Enter" not in window.search_input.placeholderText()
 
 
 # ---------------------------------------------------------------------------
