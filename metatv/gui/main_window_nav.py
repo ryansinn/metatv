@@ -795,6 +795,38 @@ class _NavMixin:
         self.switch_to_recipe_view()
         self.recipe_view.seed_facet(facet_type, value)
 
+    def _on_trail_recipe_requested(self, channel_id: str) -> None:
+        """"Make recipe" from the trail-map — open the Recipe builder, SEEDED.
+
+        It used to switch to Recipe and discard the ``channel_id``, so this
+        landed you in an empty builder — which reads as a dead button (owner
+        report, 2026-08-27).
+
+        Seeds the GENRE only: seeding every facet a title has narrows the
+        recipe until it returns just that title. Routed through
+        ``_on_tag_discover_requested``, the same seam the details-pane tag
+        right-click uses. Rationale and cases: tests/test_trail_map_make_recipe.py.
+        """
+        # ``__dict__.get``, never ``hasattr``: PyQt raises RuntimeError — not
+        # AttributeError — for attribute access on a ``__new__``'d QObject, and
+        # hasattr does not absorb it, so the guard itself explodes on exactly
+        # the skeleton hosts the tests drive (CLAUDE.md).
+        for name in ("_lightbox", "_trail_map"):
+            overlay = self.__dict__.get(name)
+            if overlay is not None and overlay.isVisible():
+                overlay.hide()
+
+        from metatv.core.repositories import RepositoryFactory   # local, as elsewhere here
+
+        with self.db.session_scope(commit=False) as session:
+            genre = RepositoryFactory(session).channels.get_detected_genre(channel_id)
+        if genre:
+            self._on_tag_discover_requested("genre", genre)
+            return
+        # No stored genre: still open the builder rather than swallowing the
+        # click, but empty — there is nothing honest to seed it with.
+        self.switch_to_recipe_view()
+
     def _resolve_current_channel_category(self) -> str | None:
         """Return the curated ``category`` of the channel shown in the details pane.
 
