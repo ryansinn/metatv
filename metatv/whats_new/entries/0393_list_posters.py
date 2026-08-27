@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=392,
+    id=393,
     version="0.50.0",
     date="2026-08-27",
     title="Posters show up in the channel list and in search results",
