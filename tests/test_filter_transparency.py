@@ -441,3 +441,65 @@ class TestBreakdownRenderer:
         assert not host._channel_exclusion_btn.isVisible()
         assert not host._channel_filter_btn.isVisible()
         assert not host._channel_filter_bar.isVisible()
+
+
+# ---------------------------------------------------------------------------
+# Saturation — the counters at the page cap (audit objective 7)
+# ---------------------------------------------------------------------------
+
+class TestCountersAtThePageCap:
+    """A count that hit the cap must read as a floor, never as zero.
+
+    Every transparency query is capped at ``page_size``. When the visible set
+    AND its comparison both saturate, subtracting their lengths gives zero —
+    and the gold bar renders a segment only for a count above zero. So on a
+    large library the reveal button VANISHED at exactly the point where the
+    most was hidden.
+
+    The obvious fix — two uncapped ``COUNT(*)``s — was measured on the owner's
+    library at **3.0 seconds** for one pair, because the count carries the
+    dead-stream ``NOT IN`` subquery over 484,288 rows. That would have put
+    three seconds back into a load just taken from 252ms to 1.1ms, so the
+    counter reports a floor instead and says so.
+    """
+
+    def test_an_unsaturated_diff_is_exact_and_not_a_floor(self):
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        n, is_floor = _ChannelListMixin._hidden_by_axis(
+            visible=[1, 2], comparison=[1, 2, 3, 4, 5], page_size=100)
+
+        assert (n, is_floor) == (3, False)
+
+    def test_both_sides_saturated_reports_a_floor_not_zero(self):
+        """The bug, stated exactly: two full pages used to subtract to zero."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        full = list(range(50))
+        n, is_floor = _ChannelListMixin._hidden_by_axis(
+            visible=full, comparison=list(full), page_size=50)
+
+        assert n == 50, "a saturated pair must report the page as a floor"
+        assert is_floor is True
+        assert n > 0, (
+            "zero is what hid the gold bar segment entirely — the reveal "
+            "affordance disappeared where the most was hidden"
+        )
+
+    def test_one_side_saturated_also_reports_a_floor(self):
+        """If the comparison is capped, the diff understates by an unknown amount."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        n, is_floor = _ChannelListMixin._hidden_by_axis(
+            visible=list(range(10)), comparison=list(range(50)), page_size=50)
+
+        assert is_floor is True
+
+    def test_the_label_marks_a_floor_and_leaves_an_exact_count_alone(self):
+        """"≥ 5,000" rather than quoting 5,000 as though it were the total."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        assert _ChannelListMixin._count_label(5000, True).startswith("≥")
+        assert "5,000" in _ChannelListMixin._count_label(5000, True)
+        assert _ChannelListMixin._count_label(42, False) == "42"
+        assert "≥" not in _ChannelListMixin._count_label(42, False)

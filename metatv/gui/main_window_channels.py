@@ -483,6 +483,37 @@ class _ChannelListMixin:
             on_error=self._on_channels_load_error,
         )
 
+    # Rendered prefix for a count that only knows a lower bound.
+    _AT_LEAST = "\u2265"
+
+    @staticmethod
+    def _hidden_by_axis(visible: list, comparison: list, page_size: int) -> tuple[int, bool]:
+        """How many rows one axis hides, and whether that number is a FLOOR.
+
+        The list diff is exact while neither side reached the cap, and it
+        honours the Python-side exclusion pass both were filtered through.
+
+        When either side saturates it is not merely imprecise but wrong: both
+        report ``page_size``, the difference is zero, and the gold bar renders a
+        segment only above zero — so the reveal button vanished where the most
+        was hidden. Two uncapped COUNT(*)s were measured at 3.0s on the owner's
+        library and rejected; a floor costs nothing and lies about nothing.
+        Cases and numbers: tests/test_filter_transparency.py.
+
+        Args:
+            visible: The surviving rows.
+            comparison: The same query with the measured axis lifted.
+            page_size: The cap both were fetched under.
+
+        Returns:
+            ``(count, is_floor)``.
+        """
+        if len(visible) < page_size and len(comparison) < page_size:
+            return max(0, len(comparison) - len(visible)), False
+        # Both saturated: at least one page-worth is hidden, and the true number
+        # is unknown without a query we cannot afford on this path.
+        return page_size, True
+
     @staticmethod
     def _query_channels(repos, params: dict) -> tuple[list, dict]:
         """Worker (off-thread): run the heavy DB query and return (dtos, params).
@@ -663,7 +694,9 @@ class _ChannelListMixin:
                 unfiltered = _apply_python_exclusions(
                     unfiltered, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
-            hidden_by_search = max(0, len(unfiltered) - len(channels))
+            hidden_by_search, floor_search = _ChannelListMixin._hidden_by_axis(
+                channels, unfiltered, _page_size)
+            params['hidden_by_search_is_floor'] = floor_search
             filtered_out_count = hidden_by_search
 
         # ── Filter layer 3 — dead-stream gate (repeated play failures) ─────────────
@@ -687,7 +720,9 @@ class _ChannelListMixin:
                 with_dead = _apply_python_exclusions(
                     with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
-            hidden_by_dead = max(0, len(with_dead) - len(channels))
+            hidden_by_dead, floor_dead = _ChannelListMixin._hidden_by_axis(
+                channels, with_dead, _page_size)
+            params['hidden_by_dead_is_floor'] = floor_dead
 
         # ── Filter layer 4 — Global Exclusions keyword axis (SQL) ──────────────────
         # Unlike layer 1 (prefix/category/content-type, applied Python-side above),
@@ -710,7 +745,9 @@ class _ChannelListMixin:
                 with_keywords = _apply_python_exclusions(
                     with_keywords, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
-            hidden_by_keywords = max(0, len(with_keywords) - len(channels))
+            hidden_by_keywords, floor_keywords = _ChannelListMixin._hidden_by_axis(
+                channels, with_keywords, _page_size)
+            params['hidden_by_keywords_is_floor'] = floor_keywords
 
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
@@ -852,7 +889,12 @@ class _ChannelListMixin:
             elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
                 # Results exist but are hidden by one or more filter layers — show the
                 # per-layer breakdown so the user can reveal each independently.
-                self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead, hidden_kw)
+                self._show_channel_filter_breakdown(
+                    hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                    hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
+                    hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
+                    hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
+                )
                 total_hidden = hidden_excl + hidden_search + hidden_dead + hidden_kw
                 self.status_bar.showMessage(
                     f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
@@ -1080,12 +1122,20 @@ class _ChannelListMixin:
         if hasattr(self, '_channel_filter_bar'):
             self._channel_filter_bar.setVisible(False)
 
+    @staticmethod
+    def _count_label(n: int, is_floor: bool) -> str:
+        """Format a hidden-count, marking a floor as one rather than a total."""
+        return f"{_ChannelListMixin._AT_LEAST} {n:,}" if is_floor else f"{n:,}"
+
     def _show_channel_filter_breakdown(
         self,
         hidden_by_exclusions: int = 0,
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
+        hidden_by_search_is_floor: bool = False,
+        hidden_by_dead_is_floor: bool = False,
+        hidden_by_keywords_is_floor: bool = False,
     ) -> None:
         """Render the per-layer filter-transparency bar (up to four clickable segments).
 
@@ -1125,7 +1175,7 @@ class _ChannelListMixin:
         if hasattr(self, '_channel_filter_btn'):
             if show_search:
                 self._channel_filter_btn.setText(
-                    f"{_icons.search_filter_icon} {hidden_by_search:,} hidden by "
+                    f"{_icons.search_filter_icon} {self._count_label(hidden_by_search, hidden_by_search_is_floor)} hidden by "
                     f"search filters  —  show"
                 )
             self._channel_filter_btn.setVisible(show_search)
@@ -1135,14 +1185,14 @@ class _ChannelListMixin:
         if self.__dict__.get('_channel_dead_btn') is not None:
             if show_dead:
                 self._channel_dead_btn.setText(
-                    f"{_icons.dead_stream_icon} {hidden_by_dead:,} unavailable "
+                    f"{_icons.dead_stream_icon} {self._count_label(hidden_by_dead, hidden_by_dead_is_floor)} unavailable "
                     f"(repeated play failures)  —  show"
                 )
             self._channel_dead_btn.setVisible(show_dead)
         if self.__dict__.get('_channel_keyword_btn') is not None:
             if show_kw:
                 self._channel_keyword_btn.setText(
-                    f"{_icons.keyword_exclusion_icon} {hidden_by_keywords:,} hidden by "
+                    f"{_icons.keyword_exclusion_icon} {self._count_label(hidden_by_keywords, hidden_by_keywords_is_floor)} hidden by "
                     f"keywords  —  show"
                 )
             self._channel_keyword_btn.setVisible(show_kw)
