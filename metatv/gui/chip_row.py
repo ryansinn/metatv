@@ -41,6 +41,35 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 
 from metatv.core.channel_name_utils import quality_display
+
+
+class _ChipRow(QWidget):
+    """A sidebar content row that will not be laid out shorter than the floor.
+
+    ``setMinimumHeight`` alone is not enough, and that is the whole reason this
+    class exists: every section sizes its list item from
+    ``row.sizeHint().height()``, and a plain ``QWidget``'s size hint comes from
+    its LAYOUT — it never consults the minimum. So the floor was set and then
+    read straight past, and the rows stayed at whatever their children summed
+    to. Raising the hint is what makes the floor reach the item.
+    """
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        hint = super().sizeHint()
+        return QSize(hint.width(), max(hint.height(), self.minimumHeight()))
+
+
+def row_min_height() -> int:
+    """The shortest a sidebar content row may be, at the current app font.
+
+    Measured live rather than cached: the app font can change under a theme or
+    a settings switch, and a cached floor would keep sizing rows for the font
+    that was loaded at import.
+
+    Returns:
+        The default font's line box plus :data:`ROW_LEADING_PX`.
+    """
+    return QLabel().fontMetrics().height() + ROW_LEADING_PX
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
@@ -76,6 +105,22 @@ _CHIP_ROLES = {
 #: META label and not the title. Every lookup goes through
 #: :func:`row_title_label` / :func:`row_meta_label`; a drift-guard test fails the
 #: suite on a bare ``findChild(MiddleElideLabel)``.
+#: Pixels added to the font's own line box to get a sidebar row's floor.
+#:
+#: The floor has to come from the LINE BOX (ascent + descent + leading) and not
+#: from whatever the row's children happen to add up to, or a descender clips
+#: the moment the app font outgrows the children — "Stargate SG-1" lost the tail
+#: of its g exactly this way. Watch Alerts learned that and grew its own floor;
+#: every other section kept summing its children and silently pinned itself at
+#: 20px, so above a 13px app font the sidebar rendered two different row heights
+#: (Alerts 21-24px, everyone else 20px). That is the difference the owner saw:
+#: "the watch alerts spacing for the content item rows is the correct spacing".
+#:
+#: So the floor moves HERE, where every sidebar row is already built, and Watch
+#: Alerts reads it back instead of computing a second one. One pixel rather than
+#: the two Alerts used — "maybe minus 1 pixel".
+ROW_LEADING_PX = 1
+
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
 
@@ -459,7 +504,7 @@ def build_chip_row(
     """
     comfortable = density == DENSITY_COMFORTABLE and bool(meta)
 
-    row = QWidget()
+    row = _ChipRow()
     if comfortable:
         outer = QVBoxLayout(row)
         # Tight, deliberately: a two-line row costs the sidebar its scarcest
@@ -559,6 +604,8 @@ def build_chip_row(
             outer.addWidget(meta_lbl)
 
     row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    # The one row floor, for every sidebar section. See ROW_LEADING_PX.
+    row.setMinimumHeight(row_min_height())
     if trailing_button is None:
         row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
     return row

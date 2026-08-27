@@ -223,7 +223,11 @@ class RowBudgetMixin:
         """
         # Collect the groups and strip any previous tails FIRST: both branches
         # below need them, and the early return read `groups` before this ran.
-        groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
+        # Hidden top-level rows are skipped: a folded sub-group (Watch Alerts'
+        # "Upcoming") leaves its items in the tree, and counting them would
+        # reserve a row of headroom each for rows nobody can see.
+        groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                  if not tree.topLevelItem(i).isHidden()]
         for group in groups:
             for index in reversed(range(group.childCount())):
                 if group.child(index).data(0, _MORE_ROLE) == _MORE_ROW:

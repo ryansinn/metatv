@@ -1034,6 +1034,14 @@ class Config(BaseModel):
     epg_default_refresh_interval: str = "auto"  # Global default interval; sources inherit this when per-source = "default"
     epg_watchlist_patterns: list = Field(default_factory=list)
     epg_watchlist_quiet_collapsed: bool = True  # collapse "nothing on now" section by default
+    # Watch Alerts -> EPG: whether the "Upcoming" sub-group (programmes that are
+    # not on yet) is folded to its heading. Expanded by default so nothing
+    # changes for anyone who has not asked for it; collapsing is the point —
+    # the upcoming block is usually the long one, and folding it leaves the
+    # alerts and what is on NOW visible in a much shorter section. Owner: "the
+    # upcoming shows take over the entire array and maybe I don't care what's
+    # on next."
+    alerts_epg_upcoming_collapsed: bool = False
     # e.g. ["NHL", "Jeopardy!", "MasterChef Canada"]
     epg_watchlist_channels: list = Field(default_factory=list)
     # channel_db_ids pinned to watchlist (MY CHANNELS section)
