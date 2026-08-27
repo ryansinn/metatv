@@ -80,6 +80,9 @@ class SectionPressureMixin:
             return
         groups = self.pressure_groups()
         if not groups:
+            # A flat section folds nothing, but it still must not outgrow its
+            # content — which is the case the owner reported (Recommended).
+            self._apply_content_cap()
             return
 
         self._in_pressure = True
@@ -111,6 +114,58 @@ class SectionPressureMixin:
                 self._auto_folded.discard(group.key)
         finally:
             self._in_pressure = False
+        self._apply_content_cap()
+    def max_useful_height(self) -> int:
+        """The tallest this section can be before it is showing dead space.
+
+        The THIRD limit, completing the pair in :mod:`base`:
+
+        * ``min_expanded_height`` — the header. The floor a user drag may reach.
+        * ``preferred_expanded_height`` — what the section asks for when space
+          is being shared out.
+        * this — what it can actually FILL.
+
+        Without it a section keeps whatever the splitter gave it and pads the
+        surplus around its content, because ``fit_to_rows`` pins each view to
+        exactly its rows and nothing left in the layout can absorb the rest.
+        Measured on Recommended: a 420px section around a 160px list. Owner:
+        "recommended should never really be able to go beyond the length of the
+        list ... otherwise it's just dead space."
+
+        Never below the floor, so a section that is empty or still loading does
+        not collapse to nothing and then jump when its rows arrive.
+        """
+        return max(self.min_expanded_height(),
+                   self.HEADER_H + self._content_height())
+
+    def _apply_content_cap(self) -> None:
+        """Stop the splitter handing this section more than it can fill.
+
+        One line, deliberately. The first version also remembered the user's
+        height, guarded against overwriting it while the cap was what held the
+        section down, and called ``_grow_in_splitter`` to restore it when the
+        content came back — and **none of that machinery could be shown to do
+        anything**. Mutating all three away left every test green, because
+        ``QSplitter`` already returns a widget's share when its maximum lifts.
+        Code that cannot be proven to matter is the same problem as a test that
+        cannot fail; both look like they are working.
+
+        So the section states its maximum and Qt does the rest. The user's size
+        survives a content dip and comes back after it because the splitter
+        remembers it, not because this does.
+
+        **Not while anything is auto-folded.** The cap is measured AFTER the
+        fold pass, so a folded section would be capped at its folded height —
+        and then there would never be room for the groups to come back, making
+        folding a one-way ratchet. A section that has hidden some of its own
+        content is by definition not showing dead space, so the cap has nothing
+        to say about it.
+        """
+        if self._auto_folded:
+            self.setMaximumHeight(16777215)   # Qt's QWIDGETSIZE_MAX
+            return
+        self.setMaximumHeight(self.max_useful_height())
+
     def _content_height(self) -> int:
         """What the content wants right now — after ALL pending sizing.
 

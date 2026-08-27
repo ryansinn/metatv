@@ -9,7 +9,7 @@ from metatv.gui.chip_row import (
 )
 from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -56,6 +56,8 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
+    #: Age-scoped clear; carries the day threshold.
+    clearOldHistoryClicked = pyqtSignal(int)
     playNextClicked     = pyqtSignal(str)  # episode_id — the row's ">>" "Play Next Episode" button
     # "Explore →" (open the Watch-History trail-map) is the shared base-class
     # ``exploreClicked`` signal — see CollapsibleSection._add_explore_link.
@@ -70,16 +72,27 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     def get_section_id(self):
         return "history"
 
-    def create_header(self):
-        """Header with an "Explore →" link that opens the Watch-History trail-map."""
-        header = self._build_clickable_header()
-        hl = header.layout()
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-        self.main_layout.addWidget(header)
+    def overflow_actions(self):
+        return [
+            # Both destructive, so both stay behind the ⋯ however few there
+            # are. The older-than option exists because all-or-nothing made
+            # tidying up an all-or-nothing decision — owner: "people aren't
+            # wiping history daily ... add a second wipe history option that
+            # wipes history older than a month".
+            SectionAction(
+                f"{self.config.delete_icon} Clear history older than 30 days",
+                "Forget what you played more than a month ago, keeping "
+                "everything since",
+                lambda: self.clearOldHistoryClicked.emit(30),
+                destructive=True,
+            ),
+            SectionAction(
+                f"{self.config.delete_icon} Clear all history",
+                "Remove every entry from your history",
+                self.clearHistoryClicked.emit,
+                destructive=True,
+            ),
+        ]
 
     def create_content(self):
         self.history_list = QListWidget()
@@ -89,17 +102,12 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)
-        _theme.apply_list_selection(self.history_list)
+        make_seamless(self.history_list)
         self.content_layout.addWidget(self.history_list)
 
         # The destructive bulk action lives in the ⋯ overflow, like Watch
         # Queue's — a full-width button charged ~29px a session for something
         # you use once in a while.
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.delete_icon} Clear History",
-             "Remove every entry from your history",
-             self.clearHistoryClicked.emit),
-        ]))
 
     # --- BackgroundRefreshMixin hooks ---
     def _refresh_list(self) -> QListWidget:

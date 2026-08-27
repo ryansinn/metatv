@@ -183,6 +183,63 @@ from metatv.gui.sidebar.section_pressure import (  # noqa: F401
 
 
 
+class SectionAction(NamedTuple):
+    """One entry in a section's ⋯ menu.
+
+    A record rather than a bare tuple because two of these fields decide
+    whether the action is SHOWN as a header button or hidden behind the menu,
+    and a positional flag is exactly the thing that gets passed wrong once and
+    then silently deletes someone's history.
+
+    Attributes:
+        label: Menu text, glyph included.
+        tooltip: Hover text; reused on the button when promoted.
+        run: The callable.
+        icon: An ``icons.vector_key`` name. Only an action WITH one can be
+            promoted to a direct header button — declaring an icon is how a
+            section opts in.
+        destructive: This action destroys data. **Never promoted**, whatever
+            else is true. The ⋯ is the deliberate step that stops a curious
+            click and the confirmation dialog is the second; owner, on the
+            Clear History button sitting a quarter-inch from the count:
+            "wouldn't be hard to accidently click it".
+    """
+
+    label: str
+    tooltip: str
+    run: "Callable[[], None]"
+    icon: str = ""
+    destructive: bool = False
+
+
+def make_seamless(view) -> None:
+    """Strip a view's frame and ground so it reads as part of its section.
+
+    A section is a card. A list inside it that paints its own frame and
+    background lands as a BLACK BLOCK floating on that card — owner, of
+    Recommended: "we can get rid of that black block around the actual
+    content". They are one surface to the reader; two only to the layout.
+
+    Also applies the selection rules, and that ordering is the whole reason
+    this is one function rather than two calls. ``apply_list_selection``
+    APPENDS to a widget's stylesheet, so a sheet set afterwards replaces it and
+    the view falls back to Qt's raw saturated highlight with unreadable text on
+    it. Composing both in one ``style_fn`` is what makes the order impossible to
+    get wrong — see ledger F6, which is the same bug found app-wide.
+
+    Args:
+        view: Any ``QAbstractScrollArea`` — a QListWidget or QTreeWidget here.
+    """
+    view.setFrameShape(QFrame.Shape.NoFrame)
+    view.viewport().setAutoFillBackground(False)
+    _theme.style_fn(view, lambda: (
+        f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
+        f" background: transparent; border: none;"
+        f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
+        + _theme.LIST_SELECTION_QSS
+    ))
+
+
 def _floor_of(widget) -> int:
     """How small AUTOMATIC redistribution may make *widget*.
 
@@ -597,7 +654,7 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         count = self.item_count()
         return "" if count is None else str(count)
 
-    def build_overflow_row(self, actions) -> "QHBoxLayout":
+    def build_overflow_button(self, actions) -> QPushButton:
         """A right-aligned ``⋯`` holding a section's destructive bulk actions.
 
         The V3 render carries no bulk-action buttons in the sidebar at all, and
@@ -617,25 +674,55 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         """
         from PyQt6.QtWidgets import QMenu
 
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 4, 0)
-        row.addStretch(1)
-
-        self._overflow_btn = QPushButton(_icons.overflow_icon)
-        self._overflow_btn.setFixedSize(24, 18)
+        # Same box, same size, same slot as Watch Alerts' own header buttons.
+        # Owner: "the count and the ... menu should basically hold the position
+        # and the style of the settings and [+] menus of the Watch Alerts —
+        # same styling, same position ... that would give it a consistant flow
+        # and hint there's something going on there."
+        # A vector glyph, not the "⋯" character: at 22x20 with the header's
+        # font size the text form renders as a single faint dot.
+        self._overflow_btn = QPushButton()
+        self._overflow_btn.setIcon(_icon_utils.resolve_icon(
+            _icons.vector_key("more"), _theme.COLOR_TEXT
+        ))
+        self._overflow_btn.setIconSize(QSize(14, 14))
+        self._overflow_btn.setFixedSize(22, 20)   # structural — matches PANEL_BTN peers
+        self._overflow_btn.setFlat(True)
         self._overflow_btn.setToolTip("More…")
-        _theme.style(self._overflow_btn, "RECIPE_SAVED_ICON_BTN")
+        _theme.style(self._overflow_btn, "PANEL_BTN")
         cursor_affordance.set_clickable(self._overflow_btn)
 
+        # ONE action is not a menu. A ⋯ that opens a single item costs a click
+        # and offers no choice — owner: "if we add more functionality, it can
+        # go to ... but otherwise it's just a wasted click." So a lone action
+        # shows itself, and the ⋯ appears the moment there are two. The SLOT is
+        # what stays consistent between sections, not the glyph in it; Watch
+        # Alerts already puts direct actions here.
+        only = actions[0] if len(actions) == 1 else None
+        if only is not None and only.icon and not only.destructive:
+            label, tooltip, slot, key = only.label, only.tooltip, only.run, only.icon
+            self._overflow_btn.setText("")
+            self._overflow_btn.setIcon(_icon_utils.resolve_icon(
+                _icons.vector_key(key), _theme.COLOR_TEXT
+            ))
+            self._overflow_btn.setIconSize(QSize(14, 14))
+            self._overflow_btn.setToolTip(tooltip)
+            self._overflow_btn.clicked.connect(slot)
+            self._overflow_menu = None
+            return self._overflow_btn
+
         self._overflow_menu = QMenu(self._overflow_btn)
-        for label, tooltip, slot in actions:
-            action = self._overflow_menu.addAction(label)
-            action.setToolTip(tooltip)
-            action.triggered.connect(slot)
+        for entry in actions:
+            action = self._overflow_menu.addAction(entry.label)
+            action.setToolTip(entry.tooltip)
+            action.triggered.connect(entry.run)
         self._overflow_btn.clicked.connect(self._show_overflow_menu)
 
-        row.addWidget(self._overflow_btn)
-        return row
+        # NOT returned as a content row any more — the caller puts it in the
+        # header. A ⋯ on its own line at the bottom of a section spends a whole
+        # row on the least-used control it has. Owner: "the ... on it's own row
+        # at the bottom rather than in the header seems like a waste of space".
+        return self._overflow_btn
 
     def _show_overflow_menu(self) -> None:
         """Pop the overflow menu under its button."""
@@ -811,8 +898,12 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         # "super-class __init__() was never called" the moment it is dereferenced.
         # The lambda keeps header construction independent of Qt init order.
         btn.clicked.connect(lambda: self.exploreClicked.emit())
-        header_layout.addWidget(btn)
         self.explore_btn = btn
+        # NOT added to the header. The count itself opens Explore now, so an
+        # arrow beside it is a second control for one action. The button is
+        # still built and still emits, because tests and callers reach for
+        # ``explore_btn`` — removing it is a separate cleanup.
+        btn.hide()
         return btn
 
     def header_tint(self) -> str | None:
@@ -870,7 +961,32 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         news is painted in the accent because it is the one thing in a collapsed
         sidebar worth looking at.
         """
-        label = self._status_label = QLabel()
+        # A BUTTON, not a label, whenever the section has somewhere to go. Two
+        # reasons, and the second is the bug the owner hit.
+        #
+        # The count was inert — a number stated beside an arrow that did the
+        # work. Owner: "the count is a dead piece of content so the [count]->
+        # is what opens explore ... maybe we don't even need the arrow icon at
+        # all. maybe just put a hairline outline around the count."
+        #
+        # And a QLabel does not consume its mouse press, so the click reached
+        # _ClickableHeader and COLLAPSED the section: "clicking the count just
+        # collapses the section". A QPushButton consumes its own press, which
+        # is what keeps the two gestures apart.
+        if self.EXPLORE_KEY:
+            from metatv.gui.explore_view import EXPLORE_SOURCES
+
+            label = self._status_label = QPushButton()
+            label.setFlat(True)
+            label.setFixedHeight(20)          # structural — matches its peers
+            label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            cursor_affordance.set_clickable(label)
+            # The arrow's tooltip, since the count inherited its job. Owner:
+            # "the tool tip from the -> can be used on the count button."
+            label.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)
+            label.clicked.connect(lambda: self.exploreClicked.emit())
+        else:
+            label = self._status_label = QLabel()
 
         def _build() -> str:  # noqa: D401 — a style_fn builder
             self._news_active = bool(self.news())
@@ -890,10 +1006,26 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
                 # section is collapsed. Foreground from on_fill, never a
                 # hardcoded white: the fill carries the palette.
                 fill = _theme.COLOR_OK
-                return (
+                body = (
                     f"color: {_theme.on_fill(fill)}; background: {fill};"
+                    f" border: 1px solid {fill};"
                     f" border-radius: {_theme.RADIUS_SM}; padding: 0px 5px;"
                     f" font-size: {_theme.FONT_XS}; font-weight: bold;"
+                )
+                # Scoped when the slot is a button: an unscoped sheet on a
+                # QPushButton leaves Qt's own frame drawn underneath it.
+                return f"QPushButton {{ {body} }}" if self.EXPLORE_KEY else body
+            if self.EXPLORE_KEY:
+                # The SAME box as the ⋯ beside it and as Watch Alerts' header
+                # buttons, so the right end of every section header reads as one
+                # control group rather than three unrelated things. A lone box
+                # next to unstyled content is what looked wrong before — the box
+                # was never the problem, the inconsistency was.
+                return _theme.PANEL_BTN + (
+                    f"QPushButton {{ font-weight: 600;"
+                    f" font-size: {_theme.FONT_SM}; }}"
+                    f"QPushButton:hover {{ border-color:"
+                    f" {_theme.COLOR_ACCENT_BLUE}; }}"
                 )
             return (
                 f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
@@ -945,9 +1077,24 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         # in the same place in every section.
         self._add_header_actions(header_layout)
         header_layout.addWidget(self.make_status_label())
-        self._add_explore_link(header_layout)
+        self._add_explore_link(header_layout)      # builds it; no longer shown
+        # [count] [⋯] — one control group at the right end of every header.
+        actions = self.overflow_actions()
+        if actions:
+            header_layout.addWidget(self.build_overflow_button(actions))
 
         self.main_layout.addWidget(header)
+
+    def overflow_actions(self):
+        """Demoted actions for this section's ⋯ menu, in menu order.
+
+        ``[(label, tooltip, callable), …]``; empty means no ⋯ at all. Declared
+        rather than assembled by each section so the button lands in the header
+        in one place, beside the count, instead of on its own row at the bottom
+        of the content — which spent a whole row on the least-used control the
+        section has.
+        """
+        return []
 
     def _add_header_actions(self, header_layout: QHBoxLayout) -> None:
         """Hook: append section-specific buttons left of the "Explore →" link.
@@ -988,7 +1135,10 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
                 self._release_in_splitter(freed)
         else:
             self.setMinimumHeight(self.min_expanded_height())
-            self.setMaximumHeight(16777215)  # Qt's QWIDGETSIZE_MAX
+            # The content cap, not QWIDGETSIZE_MAX: an expanding section must
+            # not be handed more height than it can fill. _apply_content_cap
+            # keeps it current as the content changes.
+            self.setMaximumHeight(self.max_useful_height())
             if save:
                 self._grow_in_splitter()
 

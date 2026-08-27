@@ -581,6 +581,10 @@ VECTOR_KEYS: dict[str, str] = {
     "close": "mdi6.close",
     "add": "mdi6.plus",
     "refresh": "mdi6.refresh",
+    # Destructive section action ("Clear History"). Registered because a
+    # single-action section shows its action DIRECTLY in the header rather
+    # than behind a ⋯, and a header button needs a vector glyph.
+    "clear_all": "mdi6.delete-outline",
     "warning": "mdi6.alert-outline",
     "history": "mdi6.history",
     "sources": "mdi6.package-variant-closed",

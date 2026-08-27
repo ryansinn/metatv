@@ -13,7 +13,7 @@ from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
     build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
 )
-from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
 
 # Re-exported for callers/tests that import the title label from this module; the
 # canonical definition now lives in ``metatv.gui.chip_row`` (shared by every
@@ -80,6 +80,15 @@ class RecommendedSection(CollapsibleSection):
     # avoid. Refresh now lives in the ⋯ overflow with every other section's
     # occasional action, so the base header serves this section unchanged.
 
+    def overflow_actions(self):
+        return [
+            SectionAction(
+                f"{self.config.refresh_icon} Refresh recommendations",
+                "Recompute recommendations from your ratings and history",
+                self.refresh, icon="refresh",
+            ),
+        ]
+
     def create_content(self):
         self._list = QListWidget()
         # Rows fit the sidebar width and elide — never scroll sideways (which would
@@ -94,13 +103,8 @@ class RecommendedSection(CollapsibleSection):
         from metatv.gui.list_middle_click import install_list_middle_click
         self._list_mc = install_list_middle_click(self._list)
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
-        _theme.apply_list_selection(self._list)
+        make_seamless(self._list)
         self.content_layout.addWidget(self._list)
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.refresh_icon} Refresh recommendations",
-             "Recompute recommendations from your ratings and history",
-             self.refresh),
-        ]))
         self.set_empty(True)
 
     def refresh(self):

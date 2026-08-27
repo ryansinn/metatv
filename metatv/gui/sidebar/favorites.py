@@ -14,7 +14,7 @@ from metatv.gui.chip_row import (
     quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
+from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading, make_seamless
 
 _ROLE_AVAILABLE    = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -81,17 +81,6 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         """
         return _theme.COLOR_GOLD
 
-    def create_header(self):
-        """Header with an "Explore →" link that opens the Favorites trail-map."""
-        header = self._build_clickable_header()
-        hl = header.layout()
-        self.title_label = self.make_title_label()
-        hl.addWidget(self.title_label)
-        hl.addStretch()
-        hl.addWidget(self.make_status_label())
-        self._add_explore_link(hl)
-        self.main_layout.addWidget(header)
-
     def create_content(self):
         self.favorites_list = QListWidget()
         # Chip rows fit the sidebar width and elide — never scroll sideways (which
@@ -105,7 +94,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.gui.list_middle_click import install_list_middle_click
         self._list_mc = install_list_middle_click(self.favorites_list)
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
-        _theme.apply_list_selection(self.favorites_list)
+        make_seamless(self.favorites_list)
         self.content_layout.addWidget(self.favorites_list)
 
     # --- BackgroundRefreshMixin hooks ---

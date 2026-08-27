@@ -9,6 +9,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
@@ -16,7 +17,7 @@ from metatv.gui.chip_row import (
     media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -122,17 +123,42 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         Recommended's refresh button — makes it available without charging rent
         for it.
         """
-        self._filter_btn = QPushButton(_icons.search_icon)
+        # The VECTOR glyph, not the "🔍" emoji as button text. As text it was a
+        # colour emoji drawn at the header's font size inside a 22x20 button —
+        # squeezed and clipped to an unreadable smear. Every other button in
+        # this cluster already draws a vector icon; this one was the exception.
+        self._filter_btn = QPushButton()
+        self._filter_btn.setIcon(_icon_utils.resolve_icon(
+            _icons.vector_key("search"), _theme.COLOR_TEXT
+        ))
+        self._filter_btn.setIconSize(QSize(14, 14))
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
         self._filter_btn.setFlat(True)
-        # No box. A bordered, filled button in a header carrying a title, a
-        # count and an arrow reads as the loudest thing on the row for the
-        # least important control on it. Owner: "it looks like ass."
+        # Boxed, like every other control at the right end of a section header.
+        # The owner asked twice for this box to go — and then, seeing the whole
+        # row, asked for "[count] [...]" styled as Watch Alerts' own header
+        # buttons. Those readings agree: a LONE box beside unstyled content is
+        # what looked wrong, not the box. Three matching boxes read as one
+        # control group; one box and two bare things read as a mistake.
         _theme.style(self._filter_btn, "PANEL_BTN")
         self._filter_btn.setToolTip("Find in queue")
         self._filter_btn.clicked.connect(self._toggle_filter_box)
         header_layout.addWidget(self._filter_btn)
+
+    def overflow_actions(self):
+        return [
+            SectionAction(
+                f"{self.config.watched_icon} Clear Watched",
+                "Remove finished items — partially watched titles stay",
+                self.clearWatchedClicked.emit, destructive=True,
+            ),
+            SectionAction(
+                f"{self.config.delete_icon} Clear All",
+                "Remove everything from the queue",
+                self.clearQueueClicked.emit, destructive=True,
+            ),
+        ]
 
     def create_content(self):
         # Pinned GREEN "new matches from your alerts" line — a single clickable row
@@ -178,20 +204,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.gui.list_middle_click import install_list_middle_click
         self._list_mc = install_list_middle_click(self._list)
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
-        _theme.apply_list_selection(self._list)
+        make_seamless(self._list)
         self.content_layout.addWidget(self._list)
 
         # Both bulk actions live in the ⋯ overflow. "Clear Watched" used to be a
         # full-width button, which cost ~29px — more than a compact row — in
         # every session, whether or not there was anything to clear.
-        self.content_layout.addLayout(self.build_overflow_row([
-            (f"{self.config.watched_icon} Clear Watched",
-             "Remove finished items — partially watched titles stay",
-             self.clearWatchedClicked.emit),
-            (f"{self.config.delete_icon} Clear All",
-             "Remove everything from the queue",
-             self.clearQueueClicked.emit),
-        ]))
 
         # Filter bookkeeping — rebuilt by every _populate_rows.
         self._groups: list[_FilterGroup] = []

@@ -327,8 +327,22 @@ class RowBudgetMixin:
         tree = self.budgeted_tree()
         if tree is not None:
             self.apply_tree_row_budget(tree)
+        self._after_budget()
         if lst is not None or tree is not None:
             self.refresh_header_status()
+
+    def _after_budget(self) -> None:
+        """Re-run the pressure pass after the rows have been re-fitted.
+
+        The budget is what changes the content height, and the content height
+        is what the section's maximum is derived from — so a refresh has to
+        recompute the cap, not just a resize. Routed through the DEBOUNCED
+        scheduler rather than called directly, so a burst of refreshes costs
+        one pass.
+        """
+        schedule = getattr(self, "_schedule_pressure", None)
+        if callable(schedule):
+            schedule()
 
     def resizeEvent(self, event):  # noqa: N802 (Qt override)
         """Re-fit on every resize — the splitter drag is the whole point.
