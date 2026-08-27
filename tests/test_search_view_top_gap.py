@@ -128,6 +128,23 @@ def test_the_search_controls_sit_at_the_top_of_the_content_column(geometry):
     )
 
 
+def test_the_top_padding_is_a_quarter_of_the_platform_default(geometry):
+    """Shared by every view — the splitter holding all of them is a child of
+    this layout, so this margin is the first thing you see in all of them.
+
+    Asserted as a ceiling AND a floor: zero would be a different decision
+    (flush against the header) and is not what was asked for.
+    """
+    from metatv.gui.main_window import CONTENT_TOP_PAD
+
+    top = geometry["list_view"]["margin_top"]
+    assert top == CONTENT_TOP_PAD
+    assert 0 < top <= 3, (
+        f"the content column's top margin is {top}px; Qt's platform default "
+        "was ~9 and the ask was about a quarter of it"
+    )
+
+
 def test_the_nav_bar_is_not_merely_empty_outside_series_view(geometry):
     """The distinction that caused this: hidden contents, visible container."""
     assert geometry["list_view"]["nav_visible"] is False

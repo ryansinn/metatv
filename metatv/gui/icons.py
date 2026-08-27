@@ -126,6 +126,15 @@ missing_data_icon: str = "🗄"   # U+1F5C4 FILE CABINET — Missing TMDb data d
 reconnect_icon: str = "🔌"     # U+1F50C ELECTRIC PLUG — Reconnect Engaged Content diagnostic view
 watchlist_icon: str = "⏰"
 calendar_icon: str = "📅"
+#: The mark a NESTED group heading puts in the reserved play-slot column.
+#:
+#: An em-dash, deliberately NOT a caret. The section headers have had no caret
+#: since #329 — the heading itself is the control, and a caret beside a
+#: clickable title is a second affordance for one action. A caret also carries
+#: STATE (down open, right shut), so it would have to flip, and then it is a
+#: control competing with the heading it sits on. This is a mark: it fills the
+#: column, breaks the run of titles, and says nothing it cannot back up.
+group_mark_icon: str = "—"
 discover_icon: str = "✨"
 preferences_icon: str = "🎯"
 queue_icon: str = "📋"

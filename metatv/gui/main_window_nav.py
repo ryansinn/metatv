@@ -34,7 +34,21 @@ class _NavMixin:
     # ── Content-area blanking ───────────────────────────────────────────────
 
     def _hide_all_content_views(self) -> None:
-        """Blank-slate all views. Call before activating any single view."""
+        """Blank-slate all views. Call before activating any single view.
+
+        That includes the status line. Sixty of the sixty-five
+        ``status_bar.showMessage`` calls pass no timeout, so a message stands
+        until something else overwrites it — and a view that has nothing to say
+        never does. Leaving EPG for Discover left "EPG: 2,109 on now" sitting
+        under a page it had nothing to do with. Owner: "it doesn't seem to do
+        anything on Recommended or Discover and keeps the previous status so
+        EPG -> Discover still shows EPG: 2,109 on now."
+
+        Cleared HERE, at the one seam every view switch already passes through,
+        rather than by giving each view an "and clear the status bar" line —
+        which is the enumeration that leaves the next view out.
+        """
+        self.status_bar.clearMessage()
         if self.epg_view.isVisible():
             self.epg_view.on_deactivate()
         if self.discover_view.isVisible():

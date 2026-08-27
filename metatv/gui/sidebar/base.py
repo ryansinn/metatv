@@ -46,7 +46,7 @@ class GroupHeading(QWidget):
 
     def __init__(self, text: str, count: int | None = None, *,
                  interactive: bool = False, tooltip: str = "", news: int = 0,
-                 indent: int = 0, count_leads: bool = False, parent=None):
+                 indent: int = 0, leading_mark: str = "", parent=None):
         """
         Args:
             text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
@@ -59,14 +59,13 @@ class GroupHeading(QWidget):
                 collapsed — see :meth:`set_news`.
             interactive: Whether clicking toggles the group. Adds the
                 pointing-hand cursor and emits :attr:`clicked`.
-            count_leads: Put the count in the indent column, BEFORE the label,
-                right-aligned against it — so the heading reads "9 UPCOMING"
-                and the word starts exactly where the row titles below it do.
-                A nested heading otherwise floats at an indent of its own,
-                between its parent's left edge and its rows', and the eye walks
-                a staircase. Owner: "the NUMBER of upcoming shows fills the
-                Play button Space, so [count] UPCOMING". Requires an ``indent``
-                wide enough to hold the number.
+            leading_mark: A glyph centred in the indent column, before the
+                label — ``icons.group_mark_icon`` for a nested heading. With
+                one, the ``indent`` belongs to the MARK and the label begins
+                where the indent ends, so the word lines up with the row titles
+                beneath it. Without it a nested heading floats at an indent of
+                its own, between its parent's left edge and its rows', and the
+                eye walks a staircase down the panel.
             indent: Left inset, for a heading NESTED inside another group.
                 Watch Alerts' "Upcoming" sits inside EPG, and at zero inset it
                 lines up with EPG itself and reads as its sibling rather than
@@ -83,20 +82,17 @@ class GroupHeading(QWidget):
         # gap that separates groups sits above the heading rather than being
         # split evenly around it. Halved with the rows it sits over — 10px of
         # lead-in over a 17px label was reading as a blank row of its own.
-        self._count_leads = count_leads
-        # With a leading count the inset belongs to the COUNT, which occupies
-        # it; the label then begins where the inset ends, which is the whole
-        # point of the mode.
-        row.setContentsMargins(4 if count_leads else 4 + indent, 5, 4, 1)
+        # With a mark the inset belongs to IT — the label then begins where
+        # the inset ends, which is the whole point of the column.
+        row.setContentsMargins(4 if leading_mark else 4 + indent, 5, 4, 1)
         row.setSpacing(0)
 
-        self.count_label = QLabel()
-        _theme.style(self.count_label, "SIDEBAR_GROUP_HEADING_COUNT")
-        if count_leads:
-            self.count_label.setFixedWidth(indent - ROW_SPACING)
-            self.count_label.setAlignment(Qt.AlignmentFlag.AlignRight
-                                          | Qt.AlignmentFlag.AlignVCenter)
-            row.addWidget(self.count_label)
+        if leading_mark:
+            self.mark_label = QLabel(leading_mark)
+            _theme.style(self.mark_label, "SIDEBAR_GROUP_HEADING")
+            self.mark_label.setFixedWidth(indent - ROW_SPACING)
+            self.mark_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            row.addWidget(self.mark_label)
             row.addSpacing(ROW_SPACING)
 
         self.label = QLabel(text)
@@ -109,8 +105,9 @@ class GroupHeading(QWidget):
         _theme.style(self.label, "SIDEBAR_GROUP_HEADING")
         row.addWidget(self.label)
 
-        if not count_leads:
-            row.addWidget(self.count_label)
+        self.count_label = QLabel()
+        _theme.style(self.count_label, "SIDEBAR_GROUP_HEADING_COUNT")
+        row.addWidget(self.count_label)
         self.set_count(count)
 
         # The same filled pill the section header carries, so "+3" means the
@@ -141,17 +138,8 @@ class GroupHeading(QWidget):
             self.setToolTip(tooltip)
 
     def set_count(self, count: int | None) -> None:
-        """Show ``count`` beside the label, or nothing when it is ``None``.
-
-        Leading, the count needs no spacer of its own — the column it sits in
-        provides the gap, and a padded string would push it off its own right
-        edge.
-        """
-        if count is None:
-            self.count_label.setText("")
-        else:
-            self.count_label.setText(f"{count}" if self._count_leads
-                                     else f"  {count}")
+        """Show ``count`` beside the label, or nothing when it is ``None``."""
+        self.count_label.setText("" if count is None else f"  {count}")
         self.count_label.setVisible(count is not None)
 
     def set_news(self, news: int) -> None:
