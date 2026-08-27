@@ -9,7 +9,6 @@ from __future__ import annotations
 
 
 from PyQt6.QtWidgets import QListWidgetItem
-from datetime import datetime
 from PyQt6.QtCore import Qt
 from metatv.gui import icons as _icons
 
@@ -36,7 +35,7 @@ class StreamMonitoringMixin:
             self._recompute_empty()
             return
 
-        from datetime import datetime, timezone
+        from datetime import datetime
         now = datetime.utcnow()
 
         for entry in entries:

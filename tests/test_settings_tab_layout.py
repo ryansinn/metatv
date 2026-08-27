@@ -20,7 +20,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QLineEdit, QListWidget,
-    QListWidgetItem, QSpinBox, QTabWidget,
+    QSpinBox,
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS

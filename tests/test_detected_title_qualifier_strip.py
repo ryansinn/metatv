@@ -489,7 +489,6 @@ def test_detected_title_reparse_task_run_idempotent(tmp_path: Path):
     """Running DetectedTitleReparseTask.run() twice produces identical results."""
     from metatv.core.database import ChannelDB, Database
     from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
-    from metatv.core.repositories import RepositoryFactory
 
     d = Database(f"sqlite:///{tmp_path / 'idempotent.db'}")
     d.create_tables()

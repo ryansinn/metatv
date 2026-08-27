@@ -17,8 +17,7 @@ were removed, not the shape of the implementation.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -91,7 +90,7 @@ def test_clickable_header_emits_on_mouse_press(qapp):
     """mousePressEvent on _ClickableHeader fires the ``clicked`` signal."""
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QMouseEvent
-    from PyQt6.QtCore import QPointF, QPoint
+    from PyQt6.QtCore import QPointF
     from metatv.gui.sidebar.base import _ClickableHeader
 
     header = _ClickableHeader()

@@ -123,7 +123,6 @@ def _build_mock_window(engine):
 def test_toggle_favorite_posts_added_status(engine, channel):
     win = _build_mock_window(engine)
     item = MagicMock()
-    from PyQt6.QtCore import Qt
     item.data.return_value = channel.id
     item.text.return_value = f"☆ {channel.name}"
 
@@ -139,7 +138,6 @@ def test_toggle_favorite_posts_removed_status(engine, channel):
 
     # Toggle twice: added → removed
     item = MagicMock()
-    from PyQt6.QtCore import Qt
     item.data.return_value = channel.id
     item.text.return_value = f"☆ {channel.name}"
     win.toggle_favorite(item)
@@ -176,7 +174,6 @@ def test_toggle_favorite_by_id_refreshes_via_channel_state_bus(engine, channel):
 def test_toggle_favorite_sidebar_refreshed(engine, channel):
     win = _build_mock_window(engine)
     item = MagicMock()
-    from PyQt6.QtCore import Qt
     item.data.return_value = channel.id
     item.text.return_value = f"☆ {channel.name}"
     win.toggle_favorite(item)

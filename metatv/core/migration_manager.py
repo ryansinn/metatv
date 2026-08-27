@@ -24,8 +24,8 @@ Signal flow (mirrors ``EpgManager``)::
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from typing import TYPE_CHECKING, Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger

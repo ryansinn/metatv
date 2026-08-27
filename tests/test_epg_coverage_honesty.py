@@ -25,8 +25,7 @@ D — ``get_schedule`` slot math: prime-time today and tomorrow each return seed
 from __future__ import annotations
 
 import zoneinfo
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -35,7 +34,6 @@ import pytest
 from metatv.core.database import ChannelDB, Database, EpgProgramDB
 from metatv.core.epg_manager import _compute_honest_guide_end
 from metatv.core.epg_utils import EPG_FILLER_THRESHOLD
-from metatv.core.epg_utils import now_utc
 from metatv.core.repositories.epg import EpgRepository
 from metatv.core.xmltv_parser import XmltvProgramme
 from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
@@ -227,7 +225,6 @@ def test_epg_data_end_excludes_filler_via_helper(coverage_db):
 
 def _make_browse_host(*, provider_ids, search_text, guide_end=None):
     """Minimal _EpgBrowseMixin host for _browse_placeholder_text."""
-    from PyQt6.QtWidgets import QLabel
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
     host._provider_ids = list(provider_ids)
     host._filtered_provider_ids = lambda: host._provider_ids

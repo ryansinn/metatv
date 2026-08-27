@@ -16,7 +16,7 @@ state across the worker→main-thread boundary:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

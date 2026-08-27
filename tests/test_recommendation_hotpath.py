@@ -14,12 +14,11 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import (
-    Base, ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB,
+    Base, ChannelDB, MetadataDB, UserRatingDB,
 )
 
 
@@ -208,7 +207,7 @@ class TestComputeWeightsEquivalence:
         db.close()
 
     def test_weights_empty_when_no_ratings(self, tmp_path):
-        from metatv.core.preference_engine import compute_weights, AttributeWeights
+        from metatv.core.preference_engine import compute_weights
 
         db = _make_db(tmp_path / "empty.db")
         Session = sessionmaker(bind=db.engine)

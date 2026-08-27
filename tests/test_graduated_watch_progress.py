@@ -187,7 +187,7 @@ def test_episode_dto_carries_watch_percent(db):
 
 def test_glyph_below_threshold_returns_empty():
     """5% (below default 10% threshold) → empty string (untouched)."""
-    from metatv.gui.icons import watch_progress_glyph, partial_watched_q1_icon
+    from metatv.gui.icons import watch_progress_glyph
     assert watch_progress_glyph(5, False, partial_threshold_pct=10) == "", \
         "Below threshold must return empty string"
 

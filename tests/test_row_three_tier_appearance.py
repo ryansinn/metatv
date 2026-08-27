@@ -16,19 +16,22 @@ reverts one has to argue with a number rather than with a name.
 from __future__ import annotations
 
 import re
-from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
-from PyQt6.QtWidgets import QStyleOptionViewItem
 
 import metatv.gui.channel_list_delegate as d
 from metatv.core.channel_name_utils import collection_display
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
 from metatv.gui.channel_list_delegate import ChannelRowDelegate
-from metatv.gui.channel_row_cells import ROW_META_ORDER, ROW_RAIL_ORDER, _language_cell
+from metatv.gui.channel_row_cells import (
+    ROW_META_ORDER,
+    ROW_RAIL_ORDER,
+    _language_cell,
+    _MAX_GENRES,   # defined here; the delegate imported it only to re-export
+)
 from tests.conftest import ROW_ROLE_DEFAULTS, paint_channel_row, row_model
 
 PALETTES = list(tp.PALETTES.keys())
@@ -437,7 +440,7 @@ def test_genre_count_is_capped(qapp):
         _index(GENRES_ROLE=("A", "B", "C", "D", "E")),
     )
     run = next(c for _r, c in painted.cells if c.facet == "genre")
-    assert run.text.count("/") == d._MAX_GENRES - 1
+    assert run.text.count("/") == _MAX_GENRES - 1
     assert "D" not in run.text.split(" / ")
 
 

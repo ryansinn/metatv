@@ -4,7 +4,6 @@ import html
 import re
 from typing import Optional, Dict, List, Set
 from dataclasses import dataclass
-from loguru import logger
 
 
 # Bracket prefix at start of name: [SE], [UK], [4K], etc.

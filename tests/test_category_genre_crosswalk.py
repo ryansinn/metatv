@@ -16,7 +16,6 @@ Also tests:
 
 from __future__ import annotations
 
-import uuid
 import pytest
 
 from metatv.core.channel_name_utils import CONF_DENOTED, CONF_STRONG_PRIOR

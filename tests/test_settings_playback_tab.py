@@ -12,7 +12,7 @@ qapp fixture.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox, QSpinBox
+from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent

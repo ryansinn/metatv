@@ -28,7 +28,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.core.database import ChannelDB, Database, ProviderDB
-from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.tag import _clear_tag_cache
 from metatv.gui.main_window import MainWindow
 

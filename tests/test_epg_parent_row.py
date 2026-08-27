@@ -28,7 +28,6 @@ from PyQt6.QtGui import QEnterEvent, QMouseEvent
 
 from metatv.core.config import Config
 from metatv.gui import icons as _icons
-from metatv.gui import theme as _theme
 from metatv.gui.sidebar.alerts_rows import (
     ROW_PAD_Y, SLOT_W, _AlertRow, _CHILD_INDENT,
 )

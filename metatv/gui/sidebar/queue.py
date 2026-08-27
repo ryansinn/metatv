@@ -1,7 +1,7 @@
 """WatchQueueSection — user's ordered watch queue."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
+    QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
     QGraphicsOpacityEffect, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
@@ -230,7 +230,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         cannot claim a number the rows disagree with. The ``+N more`` tail is
         excluded: it is chrome, not content.
         """
-        from PyQt6.QtCore import Qt
 
         from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 

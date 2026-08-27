@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
-from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W, card_metrics
+from metatv.gui.discover_card import _ContentCard, card_metrics
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme

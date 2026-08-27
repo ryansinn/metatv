@@ -17,8 +17,7 @@ Assertions focus on the behaviors that would regress:
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import QCoreApplication, QThread, pyqtSignal
@@ -621,7 +620,6 @@ class TestOverviewSteps:
 
     def test_enqueue_appends_a_source_row(self, qapp):
         """Enqueueing a second source adds a second step row to the overview."""
-        from metatv.core.notifications import StepStatus
 
         p1 = _make_db_provider("p1", "Provider 1")
         p2 = _make_db_provider("p2", "Provider 2")

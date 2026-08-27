@@ -1,6 +1,6 @@
 """Collapsible splitter widget with click-to-collapse functionality"""
 from PyQt6.QtWidgets import QSplitter, QSplitterHandle
-from PyQt6.QtCore import Qt, QEvent, QPoint, QPointF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter
 
 from metatv.gui import theme as _theme

@@ -12,7 +12,7 @@ Covers:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,7 +20,6 @@ from metatv.gui.channel_menu import (
     ChannelMenuContext,
     build_channel_menu,
     SURFACE_LAYOUTS,
-    ACTIONS,
 )
 from metatv.gui import icons as _icons
 

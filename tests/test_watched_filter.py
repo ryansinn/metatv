@@ -13,7 +13,6 @@ import uuid
 import pytest
 
 from tests.conftest import make_channel
-from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.dtos import ChannelListDTO
 
 

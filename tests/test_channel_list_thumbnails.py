@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import QStyleOptionViewItem
 from metatv.core.config import Config
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui.channel_list_delegate import (
-    _ROW_V_PAD,
     _THUMB_H,
     DENSITY_COMFY,
     DENSITY_COMPACT,

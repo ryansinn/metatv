@@ -47,7 +47,7 @@ def main():
         playable_channels = [ch for ch in all_channels if ch.stream_url]
         
         print(f"\n{'='*80}")
-        print(f"SPECIAL CONTENT ANALYSIS")
+        print("SPECIAL CONTENT ANALYSIS")
         print(f"{'='*80}")
         print(f"\nTotal entries in database: {len(all_channels)}")
         print(f"Organizational headers: {len(org_headers)}")
@@ -119,11 +119,11 @@ def main():
                 
                 if ch.raw_data:
                     print(f"  Raw Data Keys: {list(ch.raw_data.keys())}")
-                    print(f"  Raw Data (truncated):")
+                    print("  Raw Data (truncated):")
                     json_str = json.dumps(ch.raw_data, indent=4)
                     print(f"  {json_str[:500]}...")
                 else:
-                    print(f"  Raw Data: None")
+                    print("  Raw Data: None")
             
             # Analyze categories
             print(f"\n--- Category Distribution for {category_name} ---")
@@ -134,7 +134,7 @@ def main():
             # Show hashtag pattern examples
             hashtag_cats = [ch.category for ch in channels if ch.category.startswith('#')]
             if hashtag_cats:
-                print(f"\n--- Hashtag-Prefixed Categories (TREX Pattern) ---")
+                print("\n--- Hashtag-Prefixed Categories (TREX Pattern) ---")
                 for cat in set(hashtag_cats[:10]):
                     print(f"  {cat}")
             
@@ -184,7 +184,7 @@ def main():
         with open(report_path, 'w') as f:
             f.write("# Special Content Analysis Report\n\n")
             f.write(f"Generated from {len(all_channels)} total entries\n\n")
-            f.write(f"## Summary\n\n")
+            f.write("## Summary\n\n")
             f.write(f"- Organizational headers: {len(org_headers)}\n")
             f.write(f"- Playable channels: {len(playable_channels)}\n")
             f.write(f"- Sports channels: {len(sports_channels)}\n")
@@ -193,27 +193,27 @@ def main():
             
             # Organizational structure section
             if org_headers:
-                f.write(f"## Organizational Structure\n\n")
+                f.write("## Organizational Structure\n\n")
                 f.write(f"**{len(org_headers)} category headers** define the content hierarchy:\n\n")
-                f.write(f"These headers have no `stream_url` but are referenced by actual channels.\n")
-                f.write(f"Useful for:\n")
-                f.write(f"- Building hierarchical Browse Mode navigation\n")
-                f.write(f"- Grouping channels by category\n")
-                f.write(f"- Understanding provider's content organization\n\n")
-                f.write(f"### Sample Category Headers\n\n")
+                f.write("These headers have no `stream_url` but are referenced by actual channels.\n")
+                f.write("Useful for:\n")
+                f.write("- Building hierarchical Browse Mode navigation\n")
+                f.write("- Grouping channels by category\n")
+                f.write("- Understanding provider's content organization\n\n")
+                f.write("### Sample Category Headers\n\n")
                 for header in sorted(org_headers[:20], key=lambda x: x.category):
                     referencing_count = sum(1 for ch in playable_channels if ch.category == header.category)
                     f.write(f"- `{header.category}` → {referencing_count} channels\n")
                 f.write("\n")
             
-            f.write(f"## Provider-Specific Patterns\n\n")
-            f.write(f"### TREX Hashtag Categories\n\n")
-            f.write(f"- Categories use hashtag prefixes (`##` or `#`) as **organizational headers**\n")
-            f.write(f"- These headers have no `stream_url` (can't be played, define hierarchy only)\n")
-            f.write(f"- Actual playable channels reference these headers via their `category` field\n")
-            f.write(f"- Examples: `## SPORTS`, `# PPV EVENTS`, `## USA | SPORT`\n")
-            f.write(f"- Detection: Strip hashtags from channel.category before keyword matching\n")
-            f.write(f"- Analysis only includes channels with `stream_url` (playable content)\n\n")
+            f.write("## Provider-Specific Patterns\n\n")
+            f.write("### TREX Hashtag Categories\n\n")
+            f.write("- Categories use hashtag prefixes (`##` or `#`) as **organizational headers**\n")
+            f.write("- These headers have no `stream_url` (can't be played, define hierarchy only)\n")
+            f.write("- Actual playable channels reference these headers via their `category` field\n")
+            f.write("- Examples: `## SPORTS`, `# PPV EVENTS`, `## USA | SPORT`\n")
+            f.write("- Detection: Strip hashtags from channel.category before keyword matching\n")
+            f.write("- Analysis only includes channels with `stream_url` (playable content)\n\n")
             
             for category_name, channels in [
                 ("Sports", sports_channels),

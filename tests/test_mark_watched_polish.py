@@ -195,7 +195,7 @@ def test_episode_mark_watched_bulk_sets_last_played_via_manual(tmp_path):
 
 def test_mark_watched_action_applies_for_movie_not_live(qapp):
     """mark_watched action must render for movies but not for live channels."""
-    from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu, ACTIONS
+    from metatv.gui.channel_menu import ChannelMenuContext, ACTIONS
 
     action_def = ACTIONS["mark_watched"]
 
@@ -291,7 +291,7 @@ def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp):
     from metatv.core.repositories import RepositoryFactory
     from metatv.core.repositories.dtos import EpisodeDTO
     from metatv.gui.main_window_series import _SeriesMixin
-    from PyQt6.QtWidgets import QTreeWidgetItem, QApplication
+    from PyQt6.QtWidgets import QTreeWidgetItem
     from PyQt6.QtCore import Qt
 
     db = Database(f"sqlite:///{tmp_path / 'ep_toggle.db'}")

@@ -71,6 +71,19 @@ Every icon/emoji/symbol comes from `icons.py`, never a literal in widget code; a
 ### Cursors — never `setCursor` directly; route through `metatv/gui/cursor_affordance.py`
 Every clickable widget's pointing-hand cursor comes from `cursor_affordance.py` (`set_clickable()`; buttons qualify automatically; checkboxes/radio buttons excluded by convention) — a drift-guard test fails the suite on any other `PointingHandCursor` reference.
 
+### Importing a private name — from the module that DEFINES it
+Import `_private` names from where they are defined, never from a module that
+merely imported them; a re-export another module genuinely needs is declared in
+`__all__`, never silenced with `# noqa: F401`. The guard is ruff's F401 in CI
+(config + rationale: `pyproject.toml`): it deletes any import that is neither
+used nor declared, so `__all__` IS the executable statement of intent, and
+"noqa" — which only says *ignore this* — is not. This applies to the string
+form too: `patch("module.name")` and `getattr(module, "name")` must name the
+defining module. `tests/test_epg_on_now_display.py` patched
+`epg_view.parse_channel_name` for months to prove render never calls it, while
+the render code lived in `epg_on_now_mixin.py` — the attribute existed, so
+nothing failed, and the guard could not fire.
+
 ### Logging — always loguru
 `from loguru import logger`; never `import logging`.
 
@@ -173,7 +186,7 @@ hypothetical — 58 failures accumulated across five merges in one week, and the
 failed on every push for three weeks with eight failures that pre-dated all of it.
 
 ### One gate, no double-testing
-Feature-work merges gate with **`--quick`** (launch smoke + the PR's own changed test files, seconds); the **full** suite runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
+Since 2026-08-27 **CI runs the full suite on both platforms for every pull request** (`.github/workflows/ci.yml`), plus a `lint` job that reports in seconds. That is the real gate: never merge on a red or pending CI, and never re-run locally what CI has already reported. Local **`--quick`** (launch smoke + the PR's own changed test files, seconds) stays the fast in-loop check while building; run the FULL suite locally only when a change touches files broadly enough that `--quick`'s blind spot matters — it runs only a PR's OWN changed test files, so a moved contract breaks tests in files the PR never touched (233 files, 4 such breaks, found by CI after four green local gates). The **full** suite also runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
 Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
 
 ### A verified slice gets merged, not resumed

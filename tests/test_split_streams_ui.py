@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -344,7 +344,6 @@ def _bare_split_dialog(qapp, split: bool = False):
         QCheckBox, QComboBox, QSpinBox, QLineEdit, QListWidget
     )
     from metatv.gui.settings_dialog import SettingsDialog
-    from metatv.core.http_headers import stream_user_agent
     from tests.conftest import (
         wire_settings_density_widget,
         wire_settings_epg_widgets,

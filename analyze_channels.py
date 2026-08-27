@@ -3,7 +3,6 @@
 
 from metatv.core.database import Database, ChannelDB
 from metatv.core.config import Config
-from collections import Counter
 
 config = Config.load()
 db = Database(config.database_url)

@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import socket
 
-import pytest
 
 from metatv.gui import icons as _icons
 from metatv.gui.main_window import MainWindow

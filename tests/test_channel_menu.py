@@ -14,8 +14,6 @@ Covers:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,7 +22,6 @@ from metatv.gui.channel_menu import (
     ChannelMenuContext,
     build_channel_menu,
     SURFACE_LAYOUTS,
-    ACTIONS,
 )
 from metatv.gui import icons as _icons
 
@@ -63,7 +60,6 @@ def _single_channel_ctx(**kwargs) -> ChannelMenuContext:
 
 def _action_texts(menu) -> list[str]:
     """Collect action texts (skip separators which have empty text)."""
-    from PyQt6.QtGui import QAction
     texts = []
     for act in menu.actions():
         if act.isSeparator():

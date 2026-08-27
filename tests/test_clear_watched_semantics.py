@@ -6,7 +6,6 @@ partially watched items.
 
 from datetime import datetime
 import pytest
-from sqlalchemy.orm import Session
 
 from metatv.core.database import Database, ChannelDB, EpisodeDB, WatchQueueDB
 

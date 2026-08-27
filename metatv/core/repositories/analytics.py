@@ -1,7 +1,7 @@
 """Analytics repository for source fingerprinting and overlap analysis."""
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import and_
 
 from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories.dtos import (

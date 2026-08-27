@@ -5,7 +5,6 @@ populates detected_prefix at ingestion time.  A regression here corrupts the
 entire filter system because bad prefix data is stored and never re-parsed.
 """
 
-import pytest
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
 
 

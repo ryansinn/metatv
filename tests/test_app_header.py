@@ -14,6 +14,8 @@ order, and that the bottom bar is gone — not that a method is defined.
 from __future__ import annotations
 
 import pytest
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QLineEdit, QPushButton, QWidget
 
 from metatv.gui import theme as _theme
@@ -209,3 +211,43 @@ def test_the_header_restyles_on_a_theme_switch(window, palette):
     finally:
         window.config.theme_name = original
         window.refresh_theme()
+
+
+def _press(button: Qt.MouseButton) -> QMouseEvent:
+    """A synthetic mouse-press at the label's origin."""
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(1.0, 1.0),
+        QPointF(1.0, 1.0),
+        button,
+        button,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_clicking_the_playback_health_readout_reaches_its_slot(window):
+    """A left click on the health readout emits ``clicked``; a right click does not.
+
+    ``_ClickableNavLabel.mousePressEvent`` reads ``Qt.MouseButton.LeftButton``
+    in its BODY, and ``Qt`` was never imported in that module — so every click
+    raised ``NameError``, Qt swallowed it at the event boundary, and the
+    readout silently stopped cycling player windows. ``from __future__ import
+    annotations`` covers the sibling ``QMouseEvent`` in the signature, which is
+    exactly why nothing at import time noticed; only running the handler does.
+
+    The right-click half matters: without it the test passes on a handler that
+    emits unconditionally, which is a different bug wearing the same green.
+    """
+    from metatv.gui.app_header import _ClickableNavLabel
+
+    assert isinstance(window._playback_health_label, _ClickableNavLabel)
+
+    label = _ClickableNavLabel("")
+    fired: list[int] = []
+    label.clicked.connect(lambda: fired.append(1))
+
+    label.mousePressEvent(_press(Qt.MouseButton.LeftButton))
+    assert fired == [1], "left click did not reach the clicked signal"
+
+    label.mousePressEvent(_press(Qt.MouseButton.RightButton))
+    assert fired == [1], "right click emitted clicked; the button test is dead"

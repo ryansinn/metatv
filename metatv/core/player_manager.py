@@ -341,7 +341,7 @@ class PlayerManager:
             player is available.
         """
         if not self.player:
-            return {n: None for n in names}
+            return dict.fromkeys(names)
         return self.player.get_properties(names, key=key)
 
     def active_keys(self) -> list[str]:

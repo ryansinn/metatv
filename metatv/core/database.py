@@ -3,7 +3,6 @@
 from contextlib import contextmanager
 from datetime import datetime
 import json as _json
-from typing import Optional
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session

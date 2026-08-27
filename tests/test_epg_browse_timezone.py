@@ -7,8 +7,6 @@ browsing local date 2026-05-31, NOT when browsing 2026-06-01.
 This test FAILS on unfixed code and PASSES after the P0-2 fix.
 """
 
-import sys
-import zoneinfo
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 

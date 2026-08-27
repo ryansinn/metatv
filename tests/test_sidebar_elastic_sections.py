@@ -32,7 +32,6 @@ from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 from PyQt6.QtCore import Qt
 
 from metatv.core.config import Config
-from metatv.gui.sidebar.base import CollapsibleSection
 
 
 @pytest.fixture(scope="module")

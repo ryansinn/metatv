@@ -21,7 +21,8 @@ where the hand already goes (R6). An early mockup had it in both places.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QTimer, pyqtSignal as _pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal as _pyqtSignal
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 
 from metatv.gui import cursor_affordance
@@ -80,6 +81,10 @@ class _ClickableNavLabel(QLabel):
         super().__init__(text, parent)
         cursor_affordance.set_clickable(self)
 
+    # Qt and QMouseEvent are imported at module top, not deferred: the button
+    # test below runs at CLICK time, so a missing name is a live NameError and
+    # not the harmless kind `from __future__ import annotations` absorbs in the
+    # signature. It was missing until ruff's F821 found it.
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()

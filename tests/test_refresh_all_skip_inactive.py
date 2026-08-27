@@ -13,8 +13,7 @@ Four concrete regressions guarded here:
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -171,7 +170,6 @@ def test_config_refresh_all_includes_inactive_roundtrip(tmp_path):
 
 def test_settings_checkbox_loads_from_config(qapp):
     """_refresh_all_inactive_check.isChecked() must reflect config.refresh_all_includes_inactive."""
-    from PyQt6.QtWidgets import QCheckBox
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)

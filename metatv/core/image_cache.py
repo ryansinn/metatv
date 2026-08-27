@@ -2,7 +2,6 @@
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import requests

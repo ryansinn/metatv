@@ -21,7 +21,6 @@ Per CLAUDE.md every test uses a real ``Database`` on a ``tmp_path`` file — nev
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -31,7 +30,6 @@ import pytest
 from metatv.core.database import (
     Database, ProviderDB, ChannelDB, TagDB, ContentTagDB,
 )
-from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.provider import ProviderRepository
 from metatv.gui.main_window import MainWindow

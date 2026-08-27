@@ -18,14 +18,12 @@ Coverage:
 from __future__ import annotations
 
 import uuid
-from typing import List
 
 import pytest
 
-from metatv.core.database import ChannelDB, ContentTagDB, Database, ProviderDB, TagDB
+from metatv.core.database import ChannelDB, Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import FacetSummaryDTO, TagCountDTO
-from metatv.core.repositories.tag import _clear_tag_cache
 
 
 # ---------------------------------------------------------------------------

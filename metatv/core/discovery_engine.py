@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from sqlalchemy import literal_column, text
@@ -378,7 +378,6 @@ def build_status_sets(session) -> StatusSets:
     # Rows with watch_completed=True already have watch_progress cleared to 0, so they
     # never appear here.
     from metatv.core.database import MetadataDB
-    from sqlalchemy import and_
     partial_rows = (
         session.query(ChannelDB.id, ChannelDB.watch_progress, ChannelDB.metadata_id)
         .filter(
@@ -759,7 +758,7 @@ def _rank_genres_by_preference(genres: list[str], liked_ids: set,
     if not liked_ids:
         return genres
     from metatv.core.database import ChannelDB
-    genre_score: dict[str, int] = {g: 0 for g in genres}
+    genre_score: dict[str, int] = dict.fromkeys(genres, 0)
     q = (
         session.query(ChannelDB.detected_genres)
         .filter(ChannelDB.id.in_(liked_ids))

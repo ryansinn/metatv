@@ -196,8 +196,7 @@ class RefreshQueueManager(QObject):
         # Use module-level imports (RepositoryFactory, ProviderLoadThread, ProviderDB)
         # so tests can patch them at metatv.gui.refresh_queue_manager.*
         from metatv.gui.main_window_providers import (
-            _make_steps, _advance_steps, _has_epg_steps,
-            _advance_epg_steps,
+            _make_steps, _advance_steps,
         )
 
         entry.status = ProviderRefreshStatus.RUNNING

@@ -21,7 +21,7 @@ import uuid
 import pytest
 
 from metatv.core.config import Config
-from metatv.core.database import Base, ChannelDB, ContentTagDB, Database, TagDB
+from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_backfill import (
     CURRENT_TAG_BACKFILL_VERSION,
     TagBackfillTask,

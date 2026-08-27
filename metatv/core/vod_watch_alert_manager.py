@@ -9,7 +9,6 @@ on the Qt main thread via private signals (same pattern as ``EpgManager`` and
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal

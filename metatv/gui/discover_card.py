@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QContextMenuEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget,
+    QFrame, QGraphicsOpacityEffect, QLabel, QProgressBar, QVBoxLayout, QWidget,
 )
 
 from loguru import logger

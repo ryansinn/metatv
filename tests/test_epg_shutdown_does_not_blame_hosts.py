@@ -98,7 +98,7 @@ def test_a_teardown_abort_blames_no_host(manager, db, monkeypatch):
     with pytest.raises(XmltvAborted):
         manager._resolve_and_fetch_guide("trex", "TREX Shared", lambda n: None)
 
-    assert _failure_counts(db) == {h: 0 for h in _HOSTS}, (
+    assert _failure_counts(db) == dict.fromkeys(_HOSTS, 0), (
         "a shutdown was recorded as host unreliability"
     )
     assert len(attempted) == 1, (
@@ -141,7 +141,7 @@ def test_the_real_runtime_error_is_what_triggers_it(manager, db, monkeypatch):
 
     manager._fetch_worker("trex", "TREX Shared", notif_id="n1")
 
-    assert _failure_counts(db) == {h: 0 for h in _HOSTS}, (
+    assert _failure_counts(db) == dict.fromkeys(_HOSTS, 0), (
         "the reported RuntimeError still lands in the host-failure recorder"
     )
 
@@ -165,7 +165,7 @@ def test_the_shutdown_flag_stops_a_fetch_that_has_not_crashed_yet(
     assert manager._shutting_down is True
 
     manager._fetch_worker("trex", "TREX Shared", notif_id="n1")
-    assert _failure_counts(db) == {h: 0 for h in _HOSTS}
+    assert _failure_counts(db) == dict.fromkeys(_HOSTS, 0)
 
 
 def test_the_worker_stays_quiet_on_abort(manager, monkeypatch):

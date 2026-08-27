@@ -17,10 +17,8 @@ view's Watch tab).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtWidgets import QPushButton
 
 from metatv.core.config import Config
 
@@ -52,7 +50,7 @@ class _Cfg:
     def __init__(self, base, *, show_idle=False, firing=True):
         self.__dict__["_b"] = base
         self.__dict__["_idle"] = show_idle
-        unviewed = UNVIEWED if firing else {k: 0 for k in UNVIEWED}
+        unviewed = UNVIEWED if firing else dict.fromkeys(UNVIEWED, 0)
         self.get_vod_watch_alerts = lambda: [dict(r) for r in RULES]
         self.get_monitored_series = lambda: [
             {"cid": f"s{i}", "channel_id": f"s{i}", "title": t,

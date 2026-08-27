@@ -1,36 +1,23 @@
 """Main application window"""
 
-import asyncio
 import base64
-import json
-import os
 import re
-import shutil
-import socket
-import subprocess
-import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QSplitter,
-    QTreeWidget, QListView, QMenuBar, QMenu,
-    QCheckBox, QLineEdit
+    QTreeWidget, QCheckBox
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
-from metatv.gui.icon_utils import resolve_icon
 from loguru import logger
 from concurrent.futures import ThreadPoolExecutor
-import requests
-from urllib.parse import urlparse, urlunparse
-from datetime import datetime
 
 from metatv.core.build_info import window_title
-from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
 from metatv.core.update_checker import UpdateChecker
 from metatv.core.runtime_env import is_frozen
-from metatv.gui.main_window_streaming import _StreamingMixin, _looks_like_text
+from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
@@ -46,8 +33,7 @@ from metatv.gui.menu_bar_reveal import (
     auto_hide_supported as menu_bar_auto_hide_supported,
 )
 from metatv.gui.main_window_style_menu import _StyleMenuMixin
-from metatv.core.database import Database, SeasonDB, EpisodeDB
-from metatv.core.repositories.provider import parse_provider_urls
+from metatv.core.database import Database
 from metatv.core.notifications import NotificationManager
 from metatv.core.player_manager import PlayerManager
 from metatv.gui.notification_widget import NotificationWidget
@@ -59,15 +45,11 @@ from metatv.gui.sidebar_sections import (
 )
 from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
 from metatv.gui.sources_manager_view import SourcesManagerView
-from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.filter_bar import ToggleChip, FilterChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.channel_state_bus import ChannelStateBus
 from metatv.gui.details_pane import DetailsPaneWidget
-from metatv.gui.details_actions import ChannelActionState
-from metatv.gui.details_versions import ChannelVersion
 from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
@@ -85,7 +67,6 @@ from metatv.metadata_providers.omdb import OMDbProvider
 from metatv.gui.migration_progress_widget import MigrationProgressWidget
 from metatv.gui.refresh_queue_manager import RefreshQueueManager
 
-from metatv.core.preference_engine import version_score as _version_score
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
 
@@ -120,8 +101,6 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
     return yr_a is None or yr_b is None or yr_a == yr_b
 
 
-from PyQt6.QtCore import pyqtSignal as _pyqtSignal
-from PyQt6.QtGui import QMouseEvent
 
 
 class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
@@ -1678,7 +1657,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         nav_layout = QHBoxLayout(self._series_nav_bar)
         nav_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.back_button = QPushButton(f"← Back")
+        self.back_button = QPushButton("← Back")
         self.back_button.clicked.connect(self.navigate_back)
         nav_layout.addWidget(self.back_button)
 

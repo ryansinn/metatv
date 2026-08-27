@@ -4,9 +4,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QGroupBox,
-    QDialogButtonBox, QSpinBox, QWidget
+    QDialogButtonBox, QWidget
 )
-from PyQt6.QtCore import Qt
 from loguru import logger
 
 from metatv.core.models import Provider, ProviderURL

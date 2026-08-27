@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

@@ -1,14 +1,13 @@
 """FavoritesSection sidebar widget."""
 
 from PyQt6.QtWidgets import (
-    QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
+    QSizePolicy, QListWidget, QListWidgetItem,
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, media_icon_role,
     quality_word, sidebar_meta_line,
@@ -42,7 +41,6 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         if lst is None:
             return None
         from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
-        from PyQt6.QtCore import Qt
 
         return sum(
             1 for i in range(lst.count())

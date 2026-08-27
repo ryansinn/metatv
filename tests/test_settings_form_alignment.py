@@ -31,8 +31,6 @@ pinned pixels, so a deliberate density change does not turn these red.
 
 from __future__ import annotations
 
-import pathlib
-import tempfile
 
 import pytest
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QLabel, QListWidget

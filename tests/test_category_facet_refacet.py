@@ -19,7 +19,7 @@ import pytest
 
 from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
 from metatv.core.config import Config
-from metatv.core.database import Base, ChannelDB, ContentTagDB, Database, TagDB
+from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_backfill import _collect_tags
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.tag_decomposer import remap_content_descriptor_facets
@@ -347,7 +347,6 @@ class TestCategoryFacetRefacetMigration:
     def test_needs_run_when_version_at_zero(self, cfg):
         """needs_run() must return True when category_facet_version == 0."""
         from metatv.core.migrations.category_facet_refacet import (
-            CURRENT_VERSION,
             CategoryFacetRefacetTask,
         )
         task = CategoryFacetRefacetTask.__new__(CategoryFacetRefacetTask)

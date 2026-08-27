@@ -20,7 +20,6 @@ RecommendedSection is already off-thread and is not re-tested here.
 from __future__ import annotations
 
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -370,7 +369,7 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.queue import WatchQueueSection
     from metatv.core.repositories.queue import QueueEntry
-    from tests.conftest import wire_watch_queue_filter, sidebar_config
+    from tests.conftest import wire_watch_queue_filter
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()

@@ -6,7 +6,6 @@ Pins that:
 3. Key constants match the values in Config defaults (so migration is transparent)
 """
 
-import pytest
 
 # Expected icon names that must exist in the icons module
 REQUIRED_ICONS = [

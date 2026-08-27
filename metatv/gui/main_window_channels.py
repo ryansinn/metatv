@@ -24,13 +24,12 @@ split is behaviour-preserving.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
 from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui import theme as _theme
 
 
 def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set,

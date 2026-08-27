@@ -18,7 +18,7 @@ Covered behaviors:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 import pytest
 
 
@@ -224,7 +224,6 @@ def test_play_all_selected_episodes_calls_play_all_items_in_order(db):
     host = _make_series_host(db)
     host._play_all_items = MagicMock()
 
-    from PyQt6.QtCore import Qt
 
     ep1 = _make_episode_dto("e1", 1, url="http://x.com/ep1.ts")
     ep2 = _make_episode_dto("e2", 2, url="http://x.com/ep2.ts")

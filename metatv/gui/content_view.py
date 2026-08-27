@@ -38,7 +38,6 @@ class ContentView(QWidget):
         Override in subclasses to perform any necessary setup
         when the view is shown.
         """
-        pass
     
     def on_deactivate(self):
         """Called when this view is hidden
@@ -46,7 +45,6 @@ class ContentView(QWidget):
         Override in subclasses to perform any necessary cleanup
         when the view is hidden.
         """
-        pass
     
     def get_view_name(self) -> str:
         """Get display name for this view

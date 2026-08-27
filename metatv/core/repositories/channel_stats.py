@@ -5,7 +5,6 @@ query methods into a mixin, keeping channel.py under the 1000-line rule. No logi
 changed — ChannelRepository composes _ChannelStatsMixin.
 """
 import re
-from collections import Counter
 from typing import Optional, List, Dict
 
 from sqlalchemy import func, or_

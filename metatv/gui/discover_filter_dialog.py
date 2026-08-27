@@ -26,14 +26,13 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
-from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
-    from metatv.gui.discover_shelf import _Shelf
+    pass
 
 _ZONE_PINNED    = "pinned"
 _ZONE_EXPANDED  = "expanded"

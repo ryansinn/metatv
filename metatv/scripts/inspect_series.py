@@ -13,9 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from collections import Counter
-from pathlib import Path
 
 from metatv.core.content_dedup import normalize_title
 from metatv.core.database import ChannelDB, Database, EpisodeDB, ProviderDB, SeasonDB

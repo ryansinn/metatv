@@ -12,11 +12,8 @@ meaningless on an in-memory SQLite database.
 """
 
 import sqlite3
-from pathlib import Path
 
-import pytest
 from loguru import logger
-from sqlalchemy import text
 
 from metatv.core.database import Database
 

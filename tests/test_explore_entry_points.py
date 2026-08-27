@@ -621,7 +621,6 @@ class TestSidebarExploreLinks:
         self, qapp, tmp_path, module, cls_name, key
     ):
         import importlib
-        from metatv.gui import icons as _icons
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
         cls = getattr(importlib.import_module(f"metatv.gui.sidebar.{module}"), cls_name)

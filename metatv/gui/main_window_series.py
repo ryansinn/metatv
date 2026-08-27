@@ -18,7 +18,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QAbstractItemView, QTreeWidgetItem
+from PyQt6.QtWidgets import QTreeWidgetItem
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
@@ -102,7 +102,7 @@ class _SeriesMixin:
 
     def play_channel(self, item):
         """Play selected channel in external player or drill down into series"""
-        logger.info(f"=== play_channel called ===")
+        logger.info("=== play_channel called ===")
         logger.info(f"Item type: {type(item)}")
         logger.info(f"Item text: {item.text() if hasattr(item, 'text') else 'N/A'}")
 
@@ -153,7 +153,6 @@ class _SeriesMixin:
         self.current_series = channel
 
         # Get provider info
-        from metatv.core.models import Provider
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -429,11 +428,9 @@ class _SeriesMixin:
 
     def on_tree_item_expanded(self, item):
         """Handle tree item expanded (no-op, using native arrows)"""
-        pass
 
     def on_tree_item_collapsed(self, item):
         """Handle tree item collapsed (no-op, using native arrows)"""
-        pass
 
     def play_series_item(self, item, column):
         """Handle double-click on series tree item"""

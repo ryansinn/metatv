@@ -78,7 +78,6 @@ def _make_discover_view(qapp, *, collapse_to_top: bool = True):
     view._expand_worker = None
     view._inflight_expand = None
     view._loaded = False
-    from metatv.core.discovery_engine import ContentCard
     view._shelf_data_cache = {}
     view._loaded_shelf_keys = set()
     view._shelf_widgets = {}
@@ -101,7 +100,6 @@ class TestCollapseToTop:
         (using a non-header_only shelf so it builds immediately), then move it
         to the collapsed zone to simulate an initial collapsed shelf."""
         from metatv.gui.discover_shelf import _Shelf
-        from metatv.gui import theme as _theme
         from metatv.gui.discover_view import _ZONE_COLLAPSED
         shelf = _Shelf(title, key, [], view._image_cache, view._config, collapsed=True)
         view._shelf_widgets[key] = shelf
@@ -171,7 +169,6 @@ class TestCollapseToTop:
 
     def test_initial_load_placement_always_appends_in_order(self, qapp):
         """Batch-built initial-load shelves append in natural order (at_top=False)."""
-        from metatv.gui.discover_view import _ZONE_COLLAPSED
 
         view, cfg = _make_discover_view(qapp, collapse_to_top=True)
 
@@ -271,7 +268,6 @@ class TestCollapsedStripBuffering:
 
     def test_more_btn_count_reflects_pending_total(self, qapp):
         """More Categories count includes both built and pending collapsed strips."""
-        from metatv.gui.discover_view import _ZONE_COLLAPSED
         from metatv.gui.discover_shelf import _Shelf
 
         view, cfg = _make_discover_view(qapp)

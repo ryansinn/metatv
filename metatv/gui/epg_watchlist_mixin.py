@@ -94,7 +94,6 @@ class _EpgWatchlistMixin:
     # ── Tab 0: Watchlist ───────────────────────────────────────────────
 
     def _build_watchlist_tab(self) -> None:
-        from metatv.gui.flow_layout import FlowLayout
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -354,7 +353,6 @@ class _EpgWatchlistMixin:
                           recommendations: list, dismissed: set,
                           channel_now: dict | None = None,
                           channel_names: dict | None = None) -> None:
-        from metatv.gui.flow_layout import FlowLayout
 
         old_wl = self.watchlist_scroll.takeWidget()
         if old_wl:

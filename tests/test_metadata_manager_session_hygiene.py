@@ -206,7 +206,6 @@ def test_get_metadata_cache_hit_never_calls_provider(db):
     phase (and the fake provider that would fail the test if called) never
     runs."""
     from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
-    from metatv.core.repositories import RepositoryFactory
     from metatv.metadata_providers.base import MetadataResult
 
     with db.session_scope() as session:

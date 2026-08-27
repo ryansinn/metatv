@@ -37,11 +37,10 @@ from __future__ import annotations
 
 import threading
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import QRect
-from PyQt6.QtGui import QFont
 
 from metatv.core.channel_name_utils import (
     CategoryMarker,
@@ -52,9 +51,7 @@ from metatv.core.channel_name_utils import (
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui.channel_list_delegate import (
     DENSITY_COMFY,
-    DENSITY_COMPACT,
     ChannelRowDelegate,
-    _CELL_GAP,
 )
 from metatv.gui.channel_list_model import ChannelListModel
 

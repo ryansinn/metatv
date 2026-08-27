@@ -623,7 +623,6 @@ def test_content_key_backfill_task_run_populates_rows(tmp_path):
     """ContentKeyBackfillTask.run() fills all NULL rows in the DB."""
     from metatv.core.database import ChannelDB, Database
     from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
-    from metatv.core.repositories import RepositoryFactory
 
     db = Database(f"sqlite:///{tmp_path / 'task_run.db'}")
     db.create_tables()

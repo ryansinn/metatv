@@ -5,12 +5,11 @@ from __future__ import annotations
 import types as _types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import Callable
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
 
-from metatv.core.channel_name_utils import epg_tld_compatible
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_matching import build_match_map
@@ -31,7 +30,6 @@ from metatv.core.xmltv_parser import (
     XmltvAborted,
     XmltvChannel,
     XmltvProgramme,
-    normalize_channel_name,
     parse_xmltv_url,
 )
 
@@ -706,7 +704,7 @@ class EpgManager(QObject):
             # Phase 2: channel matching — indeterminate (fast, no useful fraction)
             self._emit_or_abort(self._progress_update, 
                 notif_id or "", 0, -1,
-                f"Matching channels to your streams…"
+                "Matching channels to your streams…"
             )
 
             # Build channel match map: epg_id → channel_db_id

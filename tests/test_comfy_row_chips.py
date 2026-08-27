@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import QRect

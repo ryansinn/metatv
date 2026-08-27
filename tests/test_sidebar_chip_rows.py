@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -158,7 +157,7 @@ def test_queue_row_is_honest_chip_row(qapp, tmp_path):
         entries = RepositoryFactory(session).queue.get_all()
     assert entries and entries[0].detected_prefix == "EN", "entry must carry the stored prefix"
 
-    from tests.conftest import wire_watch_queue_filter, sidebar_config
+    from tests.conftest import wire_watch_queue_filter
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()

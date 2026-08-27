@@ -255,7 +255,7 @@ class TestDetectedGenreBackfillCrashRetry:
         """
         from metatv.core.migration_manager import MigrationManager
         from metatv.core.migrations.detected_genre_backfill import (
-            CURRENT_VERSION, DetectedGenreBackfillTask,
+            DetectedGenreBackfillTask,
         )
 
         task = DetectedGenreBackfillTask(file_db)

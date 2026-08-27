@@ -218,6 +218,13 @@ class _FakeProgram:
 
 # ---------------------------------------------------------------------------
 # PR-3 — _render_on_now reads stored prefix/title maps, no parse_channel_name
+#
+# The patch target is the DEFINING module, metatv.core.channel_name_utils, not
+# epg_view. It used to be epg_view, which only worked because epg_view carried
+# an import it never called — the import existed FOR this guard, and ruff
+# removed it as unused, which is correct and broke all three tests. Patching
+# the definition is the stronger guard anyway: it fires on a call made through
+# a function-local import too, which patching epg_view's namespace never saw.
 # (Slice 3C: assertions now navigate group → child, since the tree is grouped)
 # ---------------------------------------------------------------------------
 
@@ -232,7 +239,7 @@ def test_render_on_now_uses_stored_prefix_map(qapp):
 
     # parse_channel_name must NOT be invoked during render
     with patch(
-        "metatv.gui.epg_view.parse_channel_name",
+        "metatv.core.channel_name_utils.parse_channel_name",
         side_effect=AssertionError("parse_channel_name called at render time"),
     ):
         host._render_on_now([prog])
@@ -258,7 +265,7 @@ def test_render_on_now_bare_name_fallback_to_ch_name(qapp):
     prog = _FakeProgram(channel_db_id="ch2", title="Episode 1")
 
     with patch(
-        "metatv.gui.epg_view.parse_channel_name",
+        "metatv.core.channel_name_utils.parse_channel_name",
         side_effect=AssertionError("called"),
     ):
         host._render_on_now([prog])
@@ -281,7 +288,7 @@ def test_render_on_now_category_override_wins_over_prefix_map(qapp):
     prog = _FakeProgram(channel_db_id="ch3", title="SportsCenter")
 
     with patch(
-        "metatv.gui.epg_view.parse_channel_name",
+        "metatv.core.channel_name_utils.parse_channel_name",
         side_effect=AssertionError("called"),
     ):
         host._render_on_now([prog])

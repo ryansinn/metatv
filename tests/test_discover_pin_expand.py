@@ -23,7 +23,7 @@ Guards the three core invariants:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -73,7 +73,7 @@ class TestPinTriggersCardFetch:
 
     def test_pin_collapsed_shelf_starts_card_fetch(self, qapp, config):
         """_on_pin_requested must start _start_expand_fetch for an unloaded shelf."""
-        from metatv.gui.discover_view import DiscoverView, _ZONE_COLLAPSED, _ZONE_PINNED
+        from metatv.gui.discover_view import _ZONE_COLLAPSED, _ZONE_PINNED
         from metatv.gui.discover_shelf import _Shelf
 
         view = _build_view(qapp, config)
@@ -115,7 +115,7 @@ class TestPinTriggersCardFetch:
 
     def test_pin_loaded_shelf_no_double_fetch(self, qapp, config):
         """Pinning an already-loaded shelf must NOT start a redundant card fetch."""
-        from metatv.gui.discover_view import _ZONE_EXPANDED, _ZONE_PINNED
+        from metatv.gui.discover_view import _ZONE_EXPANDED
         from metatv.gui.discover_shelf import _Shelf
 
         view = _build_view(qapp, config)

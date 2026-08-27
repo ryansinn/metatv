@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from metatv.core.database import Database
+    pass
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme

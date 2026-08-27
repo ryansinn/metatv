@@ -198,7 +198,6 @@ def test_widget_refresh_retry_renders_pending_icon_for_pending_entry(qapp, tmp_p
 
 def test_manager_emits_stream_online_with_stream_url(qapp, tmp_path):
     """The widened stream_online signal emits (channel_id, channel_name, stream_url)."""
-    from metatv.core.repositories.stream_retry import StreamRetryRepository
     from metatv.core.stream_retry_manager import StreamRetryManager
 
     db = _make_db(tmp_path)

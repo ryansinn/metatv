@@ -16,7 +16,6 @@ from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.repositories.dtos import (
     SourceFingerprintDTO,
     OverlapMatrixDTO,
-    UniqueChannelDTO,
     PrefixStatDTO,
 )
 

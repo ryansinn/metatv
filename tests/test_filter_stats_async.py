@@ -26,7 +26,6 @@ so this gap is a testing artifact, not a production risk.
 """
 from __future__ import annotations
 
-import pytest
 
 from metatv.gui.main_window import MainWindow
 

@@ -16,7 +16,7 @@ from metatv.core.database import (
 )
 from metatv.core import channel_visibility
 from metatv.core.filter_utils import (
-    extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM, genres_from_raw,
+    extract_prefix, genres_from_raw,
 )
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,

@@ -248,7 +248,7 @@ def test_the_allowlist_only_shrinks(qapp):
     stale = sorted(set(KNOWN_BELOW_FLOOR) - still_failing)
     assert not stale, (
         "these are allowlisted but now pass in every palette — delete them from "
-        f"KNOWN_BELOW_FLOOR:\n" + "\n".join(f"  {role}  {sel}" for role, sel in stale)
+        "KNOWN_BELOW_FLOOR:\n" + "\n".join(f"  {role}  {sel}" for role, sel in stale)
     )
 
 

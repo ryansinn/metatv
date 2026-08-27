@@ -4,8 +4,7 @@ Regression for B0: "WWE Raw" was being parsed as title="WWE", quality="RAW",
 when it should be title="WWE Raw", quality=[].
 """
 
-import pytest
-from metatv.core.channel_name_utils import parse_channel_name, QUALITY_TOKENS
+from metatv.core.channel_name_utils import parse_channel_name
 
 
 def test_wwe_raw_title_not_eaten():

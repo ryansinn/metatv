@@ -4,7 +4,6 @@ Tests verify that the added tokens are correctly recognized and parsed.
 For each token added, we test the parse behavior it enables.
 """
 
-import pytest
 from metatv.core.channel_name_utils import parse_channel_name
 
 

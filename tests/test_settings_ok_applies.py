@@ -33,7 +33,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from PyQt6.QtWidgets import QComboBox
 
 from metatv.gui.main_window import MainWindow
 from metatv.gui.settings_dialog import SettingsDialog

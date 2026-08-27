@@ -14,7 +14,7 @@ series tree on top of it.  These tests pin the corrected behaviour:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from metatv.gui.main_window_nav import _NavMixin
 from tests.conftest import wire_filter_chip_host, wire_header_search_sync

@@ -385,7 +385,6 @@ class SourcesSection(CollapsibleSection):
 
     def update_provider_status(self, provider_id: str, status: str):
         """Legacy method — no-op; widgets now update via refresh()."""
-        pass
 
     def is_provider_busy(self, provider_id: str) -> bool:
         return provider_id in self._busy_ids

@@ -5,9 +5,9 @@ import io
 import re
 import urllib.request
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable, Iterator, Optional
+from typing import Callable, Optional
 from xml.etree import ElementTree as ET
 
 from loguru import logger

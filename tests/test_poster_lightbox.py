@@ -13,7 +13,7 @@ Tests pin the behaviors that would actually regress:
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt, QPointF, QSize
+from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPixmap, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 

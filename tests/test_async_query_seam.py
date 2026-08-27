@@ -9,10 +9,8 @@ No Qt event loop required — _query_result.emit is stubbed with a plain list.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-import pytest
 
 from metatv.gui.main_window_async import _AsyncMixin, _QueryResult
 

@@ -235,7 +235,6 @@ class TestAlertsMatchedSectionRendering:
     def _make_section(self):
         from PyQt6.QtWidgets import QListWidget
         from metatv.gui.sidebar.queue import WatchQueueSection
-        from types import SimpleNamespace
 
         obj = WatchQueueSection.__new__(WatchQueueSection)
         obj._list = QListWidget()

@@ -9,8 +9,7 @@ These tests verify:
 from __future__ import annotations
 
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 from metatv.core.models import ProviderURL
 from metatv.gui.main_window_streaming import _StreamingMixin

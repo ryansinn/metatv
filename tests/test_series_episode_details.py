@@ -253,7 +253,6 @@ def test_reverting_to_series_clears_episode_mode(qapp):
 
 def test_host_tree_selection_routes_episode_and_season(qapp):
     """_on_series_tree_selection: episode → show_episode; season → show_channel."""
-    from PyQt6.QtCore import Qt
     from metatv.gui.main_window_series import _SeriesMixin
 
     host = _SeriesMixin.__new__(_SeriesMixin)

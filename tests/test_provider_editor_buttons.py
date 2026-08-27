@@ -12,10 +12,9 @@ No shape-only assertions.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
-from PyQt6.QtWidgets import QApplication, QPushButton, QLineEdit
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 from metatv.gui import icons as _icons
 

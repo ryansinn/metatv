@@ -13,8 +13,6 @@ tests/test_watch_alerts_consolidation.py) — NewEpisodesSection was retired.
 
 from __future__ import annotations
 
-import os
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch

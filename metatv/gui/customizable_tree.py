@@ -8,7 +8,7 @@ This module provides a reusable framework for QTreeWidget views with:
 - Easy integration with any tree view
 """
 
-from PyQt6.QtWidgets import QTreeWidget, QMenu, QHeaderView
+from PyQt6.QtWidgets import QTreeWidget, QMenu
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from loguru import logger

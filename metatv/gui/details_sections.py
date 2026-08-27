@@ -5,14 +5,13 @@ import re
 from loguru import logger
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
-    QSizePolicy, QApplication,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
+    normalize_region_code, QUALITY_TOKENS,
     quality_display, quality_tooltip,
 )
 from metatv.core.filter_utils import normalize_genre

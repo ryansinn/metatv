@@ -76,7 +76,7 @@ def media_engagement_counts(session) -> tuple[int, int]:
 
     from metatv.core.database import ChannelDB, UserRatingDB, WatchQueueDB
 
-    counts: dict[str, int] = {mt: 0 for mt in _MEDIA_TYPES}
+    counts: dict[str, int] = dict.fromkeys(_MEDIA_TYPES, 0)
 
     def _tally(rows) -> None:
         for media_type, n in rows:

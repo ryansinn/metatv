@@ -46,7 +46,6 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         if lst is None:
             return None
         from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
-        from PyQt6.QtCore import Qt
 
         return sum(
             1 for i in range(lst.count())

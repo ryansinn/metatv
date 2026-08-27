@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.database import Database, EpisodeDB, SeasonDB, ChannelDB
+from metatv.core.database import Database, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
 
 

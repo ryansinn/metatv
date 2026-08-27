@@ -1450,7 +1450,7 @@ class QAChecklistWindow(QWidget):
             f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;")
         hdr_layout.addWidget(section_hdr, stretch=1)
 
-        add_btn = QPushButton(f"+ Add item")
+        add_btn = QPushButton("+ Add item")
         add_btn.setToolTip("Add a new flagged observation to capture something noticed during testing")
         _theme.style(add_btn, "QA_ATTACH_BTN")
         hdr_layout.addWidget(add_btn)

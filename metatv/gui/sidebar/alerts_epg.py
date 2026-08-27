@@ -13,14 +13,14 @@ which ``create_content`` builds.
 from __future__ import annotations
 
 
-from PyQt6.QtWidgets import QListWidgetItem, QTreeWidget, QTreeWidgetItem
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
 from PyQt6.QtCore import Qt, QSize, QTimer
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 from metatv.gui.sidebar.alerts_rows import TITLE_INDENT, _AlertRow
 from metatv.gui.sidebar.base import (
-    CollapsibleSection, GroupHeading, _fmt_channel_name,
+    GroupHeading, _fmt_channel_name,
 )
 from metatv.gui.sidebar.alerts_common import (
     _CHILD_INDENT,

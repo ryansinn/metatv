@@ -13,7 +13,7 @@ asserts an outcome that would actually break if the code regressed.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -419,7 +419,6 @@ def _make_context_menu_host(qapp):
 
 def test_single_select_context_menu_routes_to_show_context_menu_for(qapp):
     """Right-click on a single channel must call _show_context_menu_for with that id."""
-    from PyQt6.QtCore import QPoint
 
     host = _make_context_menu_host(qapp)
     dto = _make_dto(id="single-id")
@@ -449,7 +448,6 @@ def test_multi_select_context_menu_routes_to_show_multi_select(qapp):
     Stubs selectionModel().selectedIndexes() to return two indexes so the multi-
     select branch is reached without needing a visible, painted QListView.
     """
-    from PyQt6.QtCore import Qt
 
     host = _make_context_menu_host(qapp)
     dto_a = _make_dto(id="id-a")

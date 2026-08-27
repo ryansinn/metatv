@@ -7,7 +7,6 @@ cases remain unchanged (regression guards).
 
 from __future__ import annotations
 
-import pytest
 
 from metatv.core.build_info import compose_title
 

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -435,7 +435,6 @@ def test_chip_click_emits_version_selected(qapp):
     section.load([v], provider_map=provider_map)
 
     # Locate the chip button that was added to the layout
-    from metatv.gui.details_versions import _FlowLayout
     layout = section._chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
     assert chips, "Expected at least one chip in the layout"
@@ -472,7 +471,6 @@ def test_inactive_chip_click_emits_version_selected(qapp):
 
     section.load([v], provider_map=provider_map)
 
-    from metatv.gui.details_versions import _FlowLayout
     layout = section._chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
     assert chips, "Expected a chip even for inactive variant"
@@ -507,7 +505,6 @@ def test_chip_right_click_wires_to_context_menu(qapp):
 
     section.load([v], provider_map=provider_map)
 
-    from metatv.gui.details_versions import _FlowLayout
     layout = section._chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
     assert chips, "Expected at least one chip in the layout"

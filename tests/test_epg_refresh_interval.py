@@ -12,14 +12,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, EpgProgramDB, ProviderDB
+from metatv.core.database import Database, ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import (
     EPG_INTERVAL_CHOICES,
     epg_interval_delta,
     now_utc,
 )
-from metatv.core.repositories.provider import ProviderRepository
 
 
 # ---------------------------------------------------------------------------

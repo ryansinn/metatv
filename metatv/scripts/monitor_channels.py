@@ -26,7 +26,7 @@ import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from loguru import logger
 
@@ -89,10 +89,10 @@ def search_channels(session, query: str, limit: int = 30) -> None:
         stream = "has_stream" if ch.stream_url else "NO_STREAM"
         print(f"  source_id={ch.source_id:<12}  [{stream}]  {ch.name[:70]}")
 
-    print(f"\nTo monitor these, copy the source_ids above and run:")
+    print("\nTo monitor these, copy the source_ids above and run:")
     ids = " ".join(ch.source_id for ch in rows)
     print(f"  python -m metatv.scripts.monitor_channels {ids}")
-    print(f"\nOr save them:")
+    print("\nOr save them:")
     print(f"  python -m metatv.scripts.monitor_channels {ids} --save watchlist.txt")
 
 

@@ -12,7 +12,6 @@ The autouse ``_isolate_user_config`` fixture in ``conftest.py`` redirects
 ``Path.home()`` to a throwaway tmp dir. These tests fail if that guard regresses.
 """
 
-from pathlib import Path
 
 
 def test_config_dir_is_isolated_to_tmp():

@@ -241,8 +241,7 @@ def test_preferences_render_overwrites_loading_header_no_ratings(qapp):
 # ---------------------------------------------------------------------------
 
 def _make_load_channels_host(qapp):
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QListView
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
 
@@ -318,7 +317,7 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
 
 
 def test_channels_load_error_clears_loading_placeholder(qapp):
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
+    from PyQt6.QtWidgets import QListView
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
 

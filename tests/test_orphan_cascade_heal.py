@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -25,7 +24,6 @@ from metatv.core.database import (
     EpgProgramDB, SeasonDB, EpisodeDB,
     UserRatingDB, AlertMatchDB, WatchQueueDB,
 )
-from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import ProviderRepository
 from metatv.core.repositories.channel import ChannelRepository
 
@@ -162,7 +160,6 @@ def _rating(session, channel_id: str) -> UserRatingDB:
 
 
 def _alert_match(session, channel_id: str) -> AlertMatchDB:
-    from metatv.core.database import AlertPatternDB
     # Need an alert_pattern_id — use a placeholder (no FK enforcement in SQLite)
     am = AlertMatchDB(
         id=str(uuid.uuid4()),

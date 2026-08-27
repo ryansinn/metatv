@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -27,23 +26,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
-from metatv.core.repositories.dtos import LiveEventDTO
 from metatv.gui.content_view import ContentView
 from metatv.gui.details_versions import resolve_category_name
 from metatv.gui import theme as _theme
 from metatv.gui.epg_events_mixin import (
     _EpgEventsMixin,
-    LIVE_EVENT_WINDOW,
-    _classify_event,
-    group_events_timeline,
-    group_events_by_network,
 )
 
 from metatv.core.epg_utils import (
     epg_is_stale as _epg_is_stale,
-    fmt_duration as _duration_str,
     to_local as _to_local,
 )
 from metatv.gui import icons as _icons
@@ -51,17 +43,6 @@ from metatv.gui import icons as _icons
 # Re-export shared EPG widget primitives (moved to epg_widgets.py).
 # Kept here for backwards compatibility — existing code and tests that
 # import these names from metatv.gui.epg_view continue to resolve fine.
-from metatv.gui.epg_widgets import (
-    _SORT_ROLE,
-    _PROGRESS_ROLE,
-    _REMAIN_ROLE,
-    _ProgressBarDelegate,
-    _EpgTreeItem,
-    _progress_bar,
-    _DismissedDialog,
-    _AssignCategoryDialog,
-    _parse_iso,
-)
 from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
 from metatv.gui.epg_on_now_mixin import _EpgOnNowMixin
 from metatv.gui.epg_watchlist_mixin import _EpgWatchlistMixin
