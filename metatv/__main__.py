@@ -3,9 +3,11 @@
 import sys
 from pathlib import Path
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
+from metatv.core.runtime_env import bundle_resource_path
 from metatv.core.stream_diagnostics import _redact
 
 from metatv.gui import cursor_affordance
@@ -73,6 +75,15 @@ def main():
 
     # Create Qt application
     app = QApplication(sys.argv)
+    # The window and task-switcher icon. There was none until 2026-08-27 —
+    # packaging/metatv.spec carried `icon=None, # placeholder omitted for the
+    # MVP`, and nothing called setWindowIcon, so every surface fell back to
+    # the window manager's generic square.
+    _icon = bundle_resource_path("packaging/icon/metatv-256.png")
+    if _icon.exists():
+        app.setWindowIcon(QIcon(str(_icon)))
+    else:
+        logger.warning("App icon missing at {} — falling back to the system default", _icon)
     app.setApplicationName("MetaTV")
     app.setOrganizationName("MetaTV")
 

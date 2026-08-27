@@ -106,6 +106,26 @@ jobs:
         run: |
           pytest tests/ -q
 
+      - name: Build the macOS .icns from the PNG set
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          # iconutil is part of macOS and wants a .iconset directory whose file
+          # names encode size and scale. The PNGs are committed, so this is a
+          # rename step rather than a render, and the icon cannot drift from
+          # the SVG that produced them.
+          ICONSET=packaging/icon/metatv.iconset
+          mkdir -p "$ICONSET"
+          for s in 16 32 128 256 512; do
+            cp "packaging/icon/metatv-${s}.png" "$ICONSET/icon_${s}x${s}.png"
+          done
+          for s in 16 32 128 256 512; do
+            d=$((s * 2))
+            cp "packaging/icon/metatv-${d}.png" "$ICONSET/icon_${s}x${s}@2x.png"
+          done
+          iconutil -c icns "$ICONSET" -o packaging/icon/metatv.icns
+          ls -la packaging/icon/metatv.icns
+
       - name: Stamp the build id
         run: |
           set -euo pipefail

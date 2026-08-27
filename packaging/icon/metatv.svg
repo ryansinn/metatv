@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
+  <!-- MetaTV app icon — "solid M" (option A, owner's pick 2026-08-27).
+       One shape, one counter, so it survives the 16px it spends most of its
+       life at. Accent is COLOR_ACCENT from the Midnight palette; the letter is
+       knocked out in COLOR_ON_ACCENT, the token whose whole job is legibility
+       on a solid accent fill. -->
+  <rect width="64" height="64" rx="14" fill="#5697d7"/>
+  <path d="M16 45V19h6.4l9.6 15 9.6-15H48v26h-6.6V31.2L32 45.6 22.6 31.2V45z" fill="#0e1013"/>
+</svg>
