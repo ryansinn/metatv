@@ -64,12 +64,30 @@ def _alt(window):
         QKeyEvent.Type.KeyRelease, Qt.Key.Key_Alt, Qt.KeyboardModifier.NoModifier))
 
 
+#: Skips the tests that exercise HIDING, on any platform that refuses to.
+#:
+#: Keyed off the production guard rather than ``sys.platform`` directly, so the
+#: skip tracks the feature: ``auto_hide_supported()`` is False on macOS, where
+#: the menu bar is the system bar at the top of the screen and the window has
+#: no bar to hide. Those seven tests asserted ``not menuBar().isVisible()`` and
+#: failed on every macOS CI run — not because the feature is broken there but
+#: because it is deliberately refused, which is a different thing and is what
+#: ``test_macos_cannot_turn_it_on_however_config_is_written`` (below, and NOT
+#: skipped) exists to prove.
+needs_hideable_bar = pytest.mark.skipif(
+    not menu_bar_reveal.auto_hide_supported(),
+    reason="this platform has no in-window menu bar to hide "
+           "(menu_bar_reveal.auto_hide_supported() is False)",
+)
+
+
 def test_the_menu_bar_is_visible_by_default(window):
     """The owner's reversal is the DEFAULT, not merely the recommendation."""
     assert not window.config.menu_bar_auto_hide
     assert window.menuBar().isVisible()
 
 
+@needs_hideable_bar
 def test_turning_it_on_hides_the_bar_and_alt_brings_it_back(window):
     window.set_menu_bar_auto_hide(True)
     assert not window.menuBar().isVisible(), "the setting did not apply"
@@ -81,6 +99,7 @@ def test_turning_it_on_hides_the_bar_and_alt_brings_it_back(window):
     assert not window.menuBar().isVisible(), "Alt did not hide it again"
 
 
+@needs_hideable_bar
 def test_escape_closes_a_bar_revealed_by_accident(window):
     window.set_menu_bar_auto_hide(True)
     _alt(window)
@@ -91,6 +110,7 @@ def test_escape_closes_a_bar_revealed_by_accident(window):
     assert not window.menuBar().isVisible()
 
 
+@needs_hideable_bar
 def test_alt_as_a_mnemonic_does_not_also_toggle(window):
     """Alt+F opens File. It must not ALSO flip the bar out from under it."""
     window.set_menu_bar_auto_hide(True)
@@ -107,6 +127,7 @@ def test_alt_as_a_mnemonic_does_not_also_toggle(window):
     )
 
 
+@needs_hideable_bar
 def test_turning_it_off_restores_the_bar_even_while_hidden(window):
     """Nobody may be left with no menu."""
     window.set_menu_bar_auto_hide(True)
@@ -132,6 +153,7 @@ def test_the_off_switch_lives_in_the_menu_the_header_can_open(window):
     )
 
 
+@needs_hideable_bar
 def test_the_tools_toggle_turns_auto_hide_off(window):
     window.set_menu_bar_auto_hide(True)
     assert not window.menuBar().isVisible()
@@ -142,6 +164,7 @@ def test_the_tools_toggle_turns_auto_hide_off(window):
     assert window.menuBar().isVisible()
 
 
+@needs_hideable_bar
 def test_the_tools_tick_is_read_from_the_setting_not_a_cached_flag(window):
     window.set_menu_bar_auto_hide(True)
     window.sync_menu_bar_actions()
@@ -152,6 +175,7 @@ def test_the_tools_tick_is_read_from_the_setting_not_a_cached_flag(window):
     assert window._menu_always_visible_action.isChecked() is True
 
 
+@needs_hideable_bar
 def test_settings_and_the_tools_toggle_drive_the_same_setting(window):
     """Two surfaces, one seam — they cannot disagree."""
     window.set_menu_bar_auto_hide(True)

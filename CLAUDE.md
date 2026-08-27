@@ -150,7 +150,7 @@ Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it a
 
 - Python 3.11+ type hints on all signatures; Google-style docstrings on public APIs.
 - Imports: stdlib → third-party → local, separated by blank lines.
-- Files under 1000 lines; one class per file (helper classes excepted).
+- Files under 1000 lines; one class per file (helper classes excepted). **1000 is a round number, not a finding** — it is a good place to STOP AND LOOK at what a file is actually doing, not a verdict that it is wrong. The guard's value is its *direction* (`limit = max(1000, baseline)`: shrink freely, never grow), which needs no theory of correct file size; and a breach is answered by cohesion, not arithmetic — "split by isolation, not the line count" (docs/AUDIT_2026-06-19.md). A 1400-line file doing one job needs no split; a 600-line file doing three does.
 - `ThreadPoolExecutor` for blocking I/O; `asyncio` for async providers; `QTimer.singleShot(0, ...)` for deferred main-thread execution.
 - **Every PR with user-visible behavior adds `metatv/whats_new/entries/NNNN_slug.py`** (zero-padded next id via `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`) with `ENTRY = WhatsNewEntry(...)` including a **non-empty `test_steps`** tuple — the dev-QA smoke test (`METATV_DEV=1`), each step an action + expected outcome covering the changed path. `test_steps` is the default; omit (with a one-line PR note) only for no-behavior refactors or dev-only tooling. Never edit the shared list. Format + examples: `metatv/whats_new/entries/README`.
 
