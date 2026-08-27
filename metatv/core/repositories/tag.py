@@ -134,6 +134,32 @@ class TagRepository:
 
         return row
 
+    def get_or_create_tag_id(self, type: str, value: str) -> int:
+        """Return the ``TagDB.id`` for ``(type, value)``, creating the row if needed.
+
+        :meth:`get_or_create_tag` minus the ORM object, and that omission is
+        the point: it caches the id and then calls ``session.get(TagDB, id)``
+        to hand back a row, which is a real SELECT whenever the object is not
+        in THIS session's identity map. The tagging path opens a session per
+        500-channel batch and commits inside it, so it almost never is —
+        measured at 796 ``SELECT ... WHERE tags.id = ?`` for 200 channels.
+        Every content-tag writer reads only ``.id``.
+        Guard: ``tests/test_tag_write_batching.py``.
+
+        Args:
+            type: Namespace string, e.g. ``"region"``.
+            value: Canonical value, e.g. ``"US"``.
+
+        Returns:
+            The persistent tag id.
+        """
+        with _TAG_ID_LOCK:
+            cached_id = _TAG_ID_CACHE.get((type, value))
+        if cached_id is not None:
+            return cached_id
+        # Not cached: fall through to the SELECT-or-INSERT path, which caches.
+        return self.get_or_create_tag(type, value).id
+
     # ------------------------------------------------------------------
     # ContentTag level
     # ------------------------------------------------------------------
@@ -176,8 +202,7 @@ class TagRepository:
         # Step 1: resolve tag ids (cached — typically 0 DB round-trips after warmup).
         tag_ids: List[Tuple[int, str]] = []  # (tag_id, feeder)
         for tag_type, tag_value, feeder in tags:
-            tag = self.get_or_create_tag(tag_type, tag_value)
-            tag_ids.append((tag.id, feeder))
+            tag_ids.append((self.get_or_create_tag_id(tag_type, tag_value), feeder))
 
         # Step 2: load all existing links for this channel+source in one SELECT.
         existing_tag_ids = [tid for tid, _ in tag_ids]
@@ -437,8 +462,8 @@ class TagRepository:
             if not tags:
                 continue
             for tag_type, tag_value, feeder in tags:
-                tag = self.get_or_create_tag(tag_type, tag_value)
-                channel_tag_feeders.append((channel_id, tag.id, feeder))
+                tag_id = self.get_or_create_tag_id(tag_type, tag_value)
+                channel_tag_feeders.append((channel_id, tag_id, feeder))
 
         if not channel_tag_feeders:
             return

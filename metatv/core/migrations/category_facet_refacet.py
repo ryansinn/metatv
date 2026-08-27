@@ -245,6 +245,14 @@ class CategoryFacetRefacetTask:
                 .all()
             )
 
+            # Collected across the batch and written in two statements after
+            # the loop, not two per channel — same change as the per-refresh
+            # path in provider_loader._update_tags_in_thread, and the same
+            # reason: the bulk methods already existed here and this call site
+            # never adopted them.
+            retag_ids: list[str] = []
+            tag_map: dict[str, list] = {}
+
             for row in rows:
                 (
                     channel_id,
@@ -262,7 +270,7 @@ class CategoryFacetRefacetTask:
                 ) = row
 
                 # Scrub only generated tags — user tags survive.
-                repos.tags.delete_generated_for_channel(channel_id)
+                retag_ids.append(channel_id)
 
                 # Every feeder must be passed. This call site previously omitted
                 # name / detected_audio, so a re-facet silently DELETED the
@@ -285,9 +293,12 @@ class CategoryFacetRefacetTask:
                 )
 
                 if all_tags:
-                    repos.tags.set_content_tags(
-                        channel_id, all_tags, source="generated"
-                    )
+                    tag_map[channel_id] = all_tags
+
+            if retag_ids:
+                repos.tags.delete_generated_for_channels(retag_ids)
+            if tag_map:
+                repos.tags.set_content_tags_bulk(tag_map, source="generated")
 
     def _prune_orphan_descriptor_tags(self) -> None:
         """Delete TagDB rows for wrong-facet descriptor values with zero content_tags links.
