@@ -292,6 +292,28 @@ class ChannelRepository(_ChannelStatsMixin):
         """Get channel by ID"""
         return self.session.query(ChannelDB).filter_by(id=channel_id).first()
 
+    def get_detected_genre(self, channel_id: str) -> Optional[str]:
+        """Return the channel's ingestion-computed primary genre, or None.
+
+        Reads the stored ``detected_genre`` rather than re-deriving it from
+        ``raw_data`` (compute-once; one indexed column beats a JSON scan). One
+        column, one row — safe to call from a click handler.
+
+        Args:
+            channel_id: The ``ChannelDB.id``.
+
+        Returns:
+            The genre, or None when the row is gone or carries no usable value.
+        """
+        row = (
+            self.session.query(ChannelDB.detected_genre)
+            .filter(ChannelDB.id == channel_id)
+            .first()
+        )
+        if not row:
+            return None
+        return (row[0] or "").strip() or None
+
     def get_playable_dto(self, channel_id: str) -> "Optional[PlayableChannelDTO]":
         """Return a PlayableChannelDTO for *channel_id*, or None if not found.
 

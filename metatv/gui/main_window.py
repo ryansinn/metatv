@@ -2359,20 +2359,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self._lightbox.hide()
         self.show_channel_details_by_id(channel_id)
 
-    def _on_trail_recipe_requested(self, channel_id: str) -> None:
-        """"Make recipe" from the trail-map — open the Recipe builder.
-
-        First cut: dismiss the overlays and switch to the Recipe view.  Seeding the
-        pantry from *channel_id*'s genres/tags is a follow-up (the intent already
-        carries the id, so the wiring is in place).
-        """
-        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
-            self._lightbox.hide()
-        if hasattr(self, '_trail_map') and self._trail_map.isVisible():
-            self._trail_map.hide()
-        if hasattr(self, "switch_to_recipe_view"):
-            self.switch_to_recipe_view()
-    
     def show_test_notification(self):
         """Show a test notification (for development)"""
         notif_id = self.notification_manager.show_progress(
