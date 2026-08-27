@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=394,
+    id=395,
     version="0.51.0",
     date="2026-08-27",
     title="Discover gains a Recommended shelf, and two surfaces start obeying your adult filter",
