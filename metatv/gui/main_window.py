@@ -1256,6 +1256,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         self._run_query(_query, _apply, on_error=lambda _e: self._refresh_vod_alerts_section())
 
+    def browse_series_by_id(self, channel_id: str) -> None:
+        """Open a series' seasons and episodes, from a channel id.
+
+        Every existing caller of ``drill_into_series`` already had the channel
+        object; a context menu has only the id, so this is the one-line fetch
+        they all do inline — kept here rather than as a tenth copy of it.
+        """
+        from metatv.core.repositories import RepositoryFactory   # local, as elsewhere here
+
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if channel is not None:
+            self.drill_into_series(channel)
+
     def _monitor_series(self, channel_id: str) -> None:
         """Start a new-episode alert for a series.
 

@@ -28,7 +28,7 @@ from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.alerts_rows import _AlertRow
 from metatv.gui.sidebar.base import (
-    CollapsibleSection, GroupHeading, PressureGroup, make_seamless,
+    CollapsibleSection, GroupHeading, make_seamless,
 )
 from metatv.gui.sidebar.alerts_epg import EpgGroupMixin
 from metatv.gui.sidebar.alerts_monitor import StreamMonitoringMixin
@@ -95,59 +95,6 @@ class WatchAlertsSection(
         super().__init__("Watch Alerts", _icons.alert_icon, config, parent)
         self._init_background_refresh()
         self._start_clock()
-
-    #: Which group gives up its rows first when the section runs short.
-    #: Stream Monitoring is a transient diagnostic; EPG is time-bound but the
-    #: guide is browsable in its own view; Movies and Series are the standing
-    #: watchlist, and Series is the one that accrues new episodes. An EMPTY
-    #: group jumps to the front of this whatever its place — folding a heading
-    #: with nothing under it costs nothing.
-    _PRESSURE_ORDER = ("monitor", "epg", "movies", "series")
-
-    def pressure_groups(self) -> list[PressureGroup]:
-        """The four groups, least important first.
-
-        Rebuilt per pass rather than cached: which group is least important
-        depends on what is currently in them, and that changes under the user.
-        """
-        if "_vod_list" not in self.__dict__:
-            return []      # a __new__'d test stub has no widgets to fold
-
-        def _setter(attr: str, toggle):
-            """Turn a TOGGLE into a set-to-this-value.
-
-            The four group toggles flip a boolean and re-render; the pressure
-            pass needs to assert a state. Routing through the real toggle
-            rather than the boolean is deliberate — the heading's caret and
-            count follow along for free.
-            """
-            def apply(collapsed: bool) -> None:
-                if getattr(self, attr) != collapsed:
-                    toggle()
-            return apply
-
-        specs = {
-            "monitor": ("_retry_collapsed", self._toggle_stream_monitoring,
-                        self._retry_list.count()),
-            "epg": ("_epg_collapsed", self._toggle_epg,
-                    self.__dict__.get("_epg_count", 0)),
-            "movies": ("_keyword_collapsed", self._toggle_keyword_group,
-                       self.__dict__.get("_rules_count", 0)),
-            "series": ("_series_collapsed", self._toggle_series_group,
-                       self.__dict__.get("_series_count", 0)),
-        }
-        ordered = sorted(
-            self._PRESSURE_ORDER,
-            key=lambda k: (specs[k][2] > 0, self._PRESSURE_ORDER.index(k)),
-        )
-        return [
-            PressureGroup(
-                key=key,
-                collapsed=getattr(self, specs[key][0]),
-                set_collapsed=_setter(specs[key][0], specs[key][1]),
-            )
-            for key in ordered
-        ]
 
     def get_section_id(self):
         return "alerts"

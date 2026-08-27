@@ -1636,6 +1636,7 @@ class _ChannelListMixin:
                 if ctx.is_watched
                 else (lambda: self._watch_channel_from_list(cid))
             ),
+            "browse_series": lambda: self.browse_series_by_id(cid),
             "monitor_series": (
                 (lambda: self._unmonitor_series(cid))
                 if ctx.is_series_monitored

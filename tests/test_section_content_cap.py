@@ -23,11 +23,12 @@ container that constrains the thing under test measures the container.
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QListWidgetItem, QSplitter
+from PyQt6.QtWidgets import QListWidgetItem, QSplitter, QWidget
 
 from metatv.core.config import Config
 from metatv.gui.chip_row import build_chip_row
@@ -43,15 +44,22 @@ def qapp():
 
 
 def _rig(qapp, tmp_path):
-    """Recommended above History in a splitter with room to spare."""
-    from metatv.gui.sidebar.history import HistorySection
+    """Recommended in a splitter with room to spare, over an uncapped sink.
+
+    The sink is a plain QWidget, not a second section, and that matters: every
+    section now caps itself at its own content, so a rig made only of sections
+    has nowhere to put slack and the splitter forces sizes instead of
+    honouring them. The real sidebar always has somewhere for the surplus to
+    go — Sources and the stretch beneath it — so a bare widget models it
+    better than a second capped section would.
+    """
     from metatv.gui.sidebar.recommended import RecommendedSection
 
     splitter = QSplitter(Qt.Orientation.Vertical)
     sec = RecommendedSection(Config(config_dir=tmp_path), MagicMock())
-    other = HistorySection(Config(config_dir=tmp_path), MagicMock())
+    sink = QWidget()
     splitter.addWidget(sec)
-    splitter.addWidget(other)
+    splitter.addWidget(sink)
     splitter.resize(300, TALL)
     splitter.show()
     qapp.processEvents()
@@ -70,7 +78,7 @@ def _fill(qapp, sec, n):
     sec.reapply_row_budget()
     for _ in range(3):
         qapp.processEvents()
-    sec._apply_pressure()          # debounced in the app; driven here
+    sec._apply_content_cap()       # debounced in the app; driven here
     for _ in range(3):
         qapp.processEvents()
 
@@ -79,7 +87,7 @@ def _drag(qapp, splitter, sec, height):
     """What a user dragging the handle does."""
     splitter.setSizes([height, TALL - height])
     qapp.processEvents()
-    sec._apply_pressure()
+    sec._apply_content_cap()
     for _ in range(3):
         qapp.processEvents()
 
@@ -173,17 +181,19 @@ class TestTheUserSizeSurvivesContentChanges:
     # test_shrink_then_grow_returns_to_the_users_size.
 
 
-class TestTheCapAndTheFoldPassDoNotFight:
-    """Two features that meet badly if the cap is applied blindly.
+class TestTheCapHoldsWhateverIsCollapsed:
+    """A section squeezed below its content is still capped at its content.
 
-    The cap is measured AFTER the fold pass, so capping a section that has
-    folded its own groups would pin it at its FOLDED height — and then there is
-    never room for those groups to come back. Folding becomes a one-way
-    ratchet: shrink the sidebar once and Watch Alerts stays collapsed forever,
-    however much space you give it back.
+    This class used to assert the OPPOSITE. The section could fold its own
+    groups under pressure, and the cap stood down while anything was folded —
+    otherwise a folded section was pinned at its folded height and the groups
+    could never get the room to come back.
 
-    A section that has hidden some of its own content is by definition not
-    showing dead space, so the cap has nothing to say about it.
+    The fold is gone (see :mod:`metatv.gui.sidebar.section_cap`), and with it
+    the exception. The cap now applies unconditionally, which is what lets a
+    squeezed Watch Alerts release its surplus to Recommended instead of holding
+    an unlimited maximum. Collapsing a group by hand is a content change like
+    any other: the cap follows it down.
     """
 
     def _alerts(self, qapp, tmp_path):
@@ -217,41 +227,61 @@ class TestTheCapAndTheFoldPassDoNotFight:
         qapp.processEvents()
         return sec
 
-    def test_a_folded_section_is_not_capped_at_its_folded_size(
+    def test_a_squeezed_section_is_capped_at_its_content(
             self, qapp, tmp_path):
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QSplitter
+        """The mutation of what this file used to assert.
 
-        from metatv.gui.sidebar.history import HistorySection
+        Held BELOW what it wants — a fixed host, not a splitter, because inside
+        a splitter the cap and the section agree and there is no squeeze to
+        model. The old code answered ``16777215`` here.
+        """
+        from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
         sec = self._alerts(qapp, tmp_path)
-        splitter.addWidget(sec)
-        splitter.addWidget(HistorySection(Config(config_dir=tmp_path),
-                                          MagicMock()))
-        splitter.resize(300, TALL)
-        splitter.show()
-        qapp.processEvents()
-
-        splitter.setSizes([200, TALL - 200])      # squeeze until it folds
-        qapp.processEvents()
-        sec._apply_pressure()
-        for _ in range(3):
+        host = QWidget()
+        host.setFixedSize(300, 200)
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(sec)
+        host.show()
+        sec._apply_content_cap()
+        # Spin out the debounce: the squeeze is a RESIZE, and what used to
+        # stand the cap down was scheduled by that resize rather than run
+        # inline. A tight processEvents loop never lets such a timer fire, so
+        # the assertion below would hold against the code it exists to reject.
+        deadline = time.monotonic() + (sec.CAP_DEBOUNCE_MS / 1000) * 4
+        while time.monotonic() < deadline:
             qapp.processEvents()
-        assert sec._auto_folded, "nothing folded, so there is nothing to test"
+            time.sleep(0.005)
 
-        assert sec.maximumHeight() > 400, (
-            f"a folded section is capped at {sec.maximumHeight()}px — its "
-            "groups can never get the room to come back"
+        assert sec.maximumHeight() == sec.max_useful_height()
+        assert sec.maximumHeight() < 16777215, (
+            "the cap stood down, so the splitter may hand this section more "
+            "height than it can fill"
         )
-
-        splitter.setSizes([700, TALL - 700])      # give it all back
+        host.deleteLater()
         qapp.processEvents()
-        sec._apply_pressure()
-        for _ in range(3):
-            qapp.processEvents()
-        assert not sec._auto_folded, (
-            f"still folded with 700px available: {sec._auto_folded}"
+
+    def test_collapsing_a_group_by_hand_lowers_the_cap(self, qapp, tmp_path):
+        """A group the USER closes is content that is no longer there.
+
+        The cap has to follow it down, or closing Movies and Series leaves the
+        section holding the height those rows used to occupy.
+        """
+        sec = self._alerts(qapp, tmp_path)
+        sec.show()
+        qapp.processEvents()
+        sec._apply_content_cap()
+        qapp.processEvents()
+        tall = sec.maximumHeight()
+
+        sec._toggle_series_group()
+        qapp.processEvents()
+        sec._apply_content_cap()
+        qapp.processEvents()
+
+        assert sec.maximumHeight() < tall, (
+            f"cap unchanged at {tall}px after a group was collapsed"
         )
-        splitter.deleteLater()
+        sec.deleteLater()
         qapp.processEvents()

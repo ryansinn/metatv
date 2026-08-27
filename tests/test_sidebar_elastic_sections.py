@@ -1,4 +1,4 @@
-"""A sidebar section shrinks to its header, folding its groups on the way.
+"""A sidebar section shrinks to its header, and scrolls on the way.
 
 The bug: ``min_expanded_height()`` returned a MIN_ROWS-derived preference and
 the splitter enforced it as a wall. Watch Alerts declares ``MIN_ROWS = 7`` and
@@ -15,13 +15,16 @@ Two limits now, where there was one:
 * ``min_expanded_height()`` — the hard floor, now just the header. Only the
   user dragging a handle goes here.
 
-On the way down a section folds its groups to their headings, and unfolds them
-again when the space comes back. The single thing this must never get wrong is
-re-opening a group the USER closed, which is what ``_auto_folded`` is for.
+On the way down it SCROLLS. It used to fold its groups to their headings and
+unfold them when space came back; that is gone (see :mod:`section_cap` for the
+four defects it caused), and these tests now hold the opposite line — a resize
+never touches a group. What does survive the shrink is the cap: the section
+still refuses to claim more height than its content can fill.
 """
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -84,12 +87,23 @@ def _alerts(qapp, tmp_path, *, series_n=7):
     return sec
 
 
-def _at(qapp, sec, height):
-    """Put the section at an exact height and run the pressure pass.
+def _settle(qapp, sec):
+    """Spin until anything the resize SCHEDULED has had its chance to run.
 
-    The pass is debounced, so a test drives it directly rather than sleeping —
-    the debounce is a cost control, not part of the behaviour under test.
+    Not a nicety. These tests assert that a resize leaves the groups alone,
+    and the pass that used to close them was debounced — so a test that only
+    calls ``processEvents`` in a tight loop never lets the timer fire and
+    passes against the very code it was written to reject. Driving the cap
+    directly has the same blind spot from the other side.
     """
+    deadline = time.monotonic() + (sec.CAP_DEBOUNCE_MS / 1000) * 4
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+
+
+def _at(qapp, sec, height):
+    """Put the section at an exact height and let it react."""
     host = QWidget()
     host.setFixedSize(300, height)
     layout = QVBoxLayout(host)
@@ -97,8 +111,8 @@ def _at(qapp, sec, height):
     layout.addWidget(sec)
     host.show()
     qapp.processEvents()
-    sec._apply_pressure()
-    qapp.processEvents()
+    sec._apply_content_cap()
+    _settle(qapp, sec)
     return host
 
 
@@ -158,165 +172,109 @@ class TestTheFloorIsTheHeader:
             sec.deleteLater()
 
 
-class TestGroupsFoldUnderPressure:
-    """Shrinking degrades; it does not clip."""
+#: Every group's "am I closed?" flag, by the name the section keeps it under.
+_GROUP_FLAGS = ("_retry_collapsed", "_epg_collapsed",
+                "_keyword_collapsed", "_series_collapsed")
 
-    def test_a_shorter_section_folds_at_least_as_much(self, qapp, tmp_path):
-        """Monotonic. A non-monotonic rule is what a naive fit test produces,
-        and it reads as the panel making decisions at random."""
-        counts = []
-        for h in (560, 400, 300, 200, 120):
-            sec = _alerts(qapp, tmp_path)
-            host = _at(qapp, sec, h)
-            counts.append(len(sec._auto_folded))
-            host.deleteLater()
-            qapp.processEvents()
-        assert counts == sorted(counts), counts
-        assert counts[0] == 0, "a tall section should fold nothing"
-        assert counts[-1] > 0, "a short section should fold something"
 
-    def test_the_last_group_is_never_folded(self, qapp, tmp_path):
-        """It absorbs the leftover space by scrolling.
+def _open_groups(sec) -> set[str]:
+    """The groups currently showing their rows."""
+    return {f for f in _GROUP_FLAGS if not getattr(sec, f)}
 
-        Folding everything leaves a stack of headings with dead space beneath
-        — strictly less information than the same headings plus a scrolling
-        group.
+
+class TestShrinkingNeverClosesAGroup:
+    """The behaviour that replaced folding, and the reason it replaced it.
+
+    Under pressure the section used to close its own groups, least important
+    first. Every one of these assertions is RED against that code, which is
+    the point: the fold was not a bug in need of tuning, it was the wrong
+    answer, and the tests that guarded it were guarding the defect.
+    """
+
+    def test_a_hard_squeeze_leaves_every_group_open(self, qapp, tmp_path):
+        """120px — barely the header — and all four groups are still open.
+
+        Owner, on EPG closing itself when the section was dragged down:
+        "Maybe I wanted to see just the epg, now I have to reopen it."
+        """
+        sec = _alerts(qapp, tmp_path)
+        before = _open_groups(sec)
+        assert before, "nothing was open, so nothing could be closed"
+
+        host = _at(qapp, sec, 120)
+        assert _open_groups(sec) == before, (
+            f"the section closed its own groups under pressure: "
+            f"{sorted(before - _open_groups(sec))}"
+        )
+        host.deleteLater()
+
+    def test_no_height_closes_a_group(self, qapp, tmp_path):
+        """Swept, not sampled — the fold had a threshold, and a single height
+        can sit on either side of it."""
+        sec = _alerts(qapp, tmp_path)
+        before = _open_groups(sec)
+        host = _at(qapp, sec, 600)
+        for height in range(600, 100, -40):
+            host.setFixedHeight(height)
+            sec._apply_content_cap()
+            _settle(qapp, sec)
+            assert _open_groups(sec) == before, f"a group closed at {height}px"
+        host.deleteLater()
+
+    def test_the_content_still_scrolls_when_it_does_not_fit(self, qapp, tmp_path):
+        """Nothing is CLIPPED by refusing to fold — the scroll area takes it.
+
+        This is what makes the removal safe rather than merely simpler: the
+        rows a fold would have hidden are still reachable.
         """
         sec = _alerts(qapp, tmp_path)
         host = _at(qapp, sec, 120)
-        groups = sec.pressure_groups()
-        assert groups[-1].key not in sec._auto_folded
-        assert len(sec._auto_folded) == len(groups) - 1
-        host.deleteLater()
-
-    def test_an_empty_group_folds_before_one_with_rows(self, qapp, tmp_path):
-        """Stream Monitoring is empty here, so it goes first whatever its
-        place in the base order — folding a heading with nothing under it
-        costs nothing."""
-        sec = _alerts(qapp, tmp_path)
-        order = [g.key for g in sec.pressure_groups()]
-        assert order[0] == "monitor", order
-
-    def test_folding_frees_real_height(self, qapp, tmp_path):
-        """The point of folding, measured: the content actually gets shorter."""
-        sec = _alerts(qapp, tmp_path)
-        host = _at(qapp, sec, 560)
-        tall = sec._content_height()
-        host.deleteLater()
-
-        sec2 = _alerts(qapp, tmp_path)
-        host2 = _at(qapp, sec2, 200)
-        short = sec2._content_height()
-        host2.deleteLater()
-        assert short < tall, (tall, short)
-
-
-class TestSpaceComingBackReopensThem:
-    """The half the owner asked for by name."""
-
-    def test_growing_again_unfolds_what_shrinking_folded(self, qapp, tmp_path):
-        sec = _alerts(qapp, tmp_path)
-        host = _at(qapp, sec, 200)
-        assert sec._auto_folded, "nothing folded, so nothing to re-open"
-
-        host.setFixedHeight(600)
-        qapp.processEvents()
-        sec._apply_pressure()
-        qapp.processEvents()
-        assert not sec._auto_folded, (
-            f"still folded after the space came back: {sec._auto_folded}"
+        area = sec.content_scroll
+        assert area.verticalScrollBar().maximum() > 0, (
+            "content taller than the section, but nothing to scroll to"
         )
         host.deleteLater()
 
-    def test_a_group_the_user_closed_is_never_re_opened(self, qapp, tmp_path):
-        """The one thing this mechanism must not get wrong.
 
-        Auto-unfold may only re-open what auto-fold closed. Without the
-        distinction, freeing space anywhere in the sidebar would silently undo
-        a deliberate collapse.
+class TestTheCapTracksTheContent:
+    """The half of the pressure pass that was doing real work."""
+
+    def test_the_cap_is_the_content_at_every_height(self, qapp, tmp_path):
+        """Never QWIDGETSIZE_MAX.
+
+        The old pass stood the cap DOWN whenever anything was auto-folded, so
+        a folded Watch Alerts advertised an unlimited maximum and kept the
+        height it had been given — 600px of headings, with Recommended unable
+        to grow into it. Owner: "when recommendations load, shouldn't they
+        push up and expand up into the empty space of Watch Alert? because
+        they don't."
         """
         sec = _alerts(qapp, tmp_path)
-        sec._toggle_series_group()                 # the user collapses Series
-        assert sec._series_collapsed
-        qapp.processEvents()
-
-        host = _at(qapp, sec, 200)                 # squeeze...
-        assert "series" not in sec._auto_folded, (
-            "a user-collapsed group was claimed as ours to re-open"
-        )
-        host.setFixedHeight(600)                   # ...and give it all back
-        qapp.processEvents()
-        sec._apply_pressure()
-        qapp.processEvents()
-
-        assert sec._series_collapsed, (
-            "the user's collapse was undone when space came back"
-        )
-        host.deleteLater()
-
-    def test_a_group_re_opens_with_slack_not_on_a_bare_fit(self, qapp, tmp_path):
-        """What ``PRESSURE_HYSTERESIS`` buys, measured at the boundary.
-
-        A group that re-opens the instant it *just* fits will fold again on the
-        next pixel of drag, because opening it is what changes the height being
-        measured. So the moment one comes back there must be real slack.
-
-        Measured by walking the height up until a group actually re-opens —
-        the first version of this test asserted "re-running the pass at a fixed
-        height is stable", which passed with the hysteresis removed, because a
-        fixed height is a fixed point either way. The flicker lives at the
-        boundary, so the test has to stand on it.
-        """
-        STEP = 4
-        sec = _alerts(qapp, tmp_path)
-        host = _at(qapp, sec, 200)
-        folded = len(sec._auto_folded)
-        assert folded, "nothing folded, so nothing can re-open"
-
-        slack_at_reopen = None
-        for height in range(200, 900, STEP):
+        host = _at(qapp, sec, 600)
+        for height in (600, 400, 300, 200, 120):
             host.setFixedHeight(height)
-            qapp.processEvents()
-            sec._apply_pressure()
-            qapp.processEvents()
-            if len(sec._auto_folded) < folded:
-                slack_at_reopen = (sec.height() - sec.HEADER_H) - sec._content_height()
-                break
-            folded = len(sec._auto_folded)
-        host.deleteLater()
-
-        assert slack_at_reopen is not None, "no group ever re-opened"
-        assert slack_at_reopen >= sec.PRESSURE_HYSTERESIS - STEP, (
-            f"a group re-opened with only {slack_at_reopen}px to spare; it "
-            f"needs {sec.PRESSURE_HYSTERESIS}px or it will fold straight back"
-        )
-
-    def test_the_fold_set_is_a_fixed_point_at_one_height(self, qapp, tmp_path):
-        """No drift from simply re-running the pass."""
-        sec = _alerts(qapp, tmp_path)
-        host = _at(qapp, sec, 330)
-        first = set(sec._auto_folded)
-        for _ in range(6):
-            sec._apply_pressure()
-            qapp.processEvents()
-            assert set(sec._auto_folded) == first, (
-                f"the fold set moved without a resize: {first} -> {sec._auto_folded}"
+            sec._apply_content_cap()
+            _settle(qapp, sec)
+            assert sec.maximumHeight() == sec.max_useful_height(), height
+            assert sec.maximumHeight() < 16777215, (
+                f"the cap stood down at {height}px, so the splitter may hand "
+                f"this section more height than it can fill"
             )
         host.deleteLater()
 
-    def test_the_pass_does_not_re_enter(self, qapp, tmp_path):
-        """Folding a group resizes the section, which would re-enter the pass."""
+    def test_the_cap_pass_does_not_re_enter(self, qapp, tmp_path):
+        """Measuring the content runs the row budget, which lands back here."""
         sec = _alerts(qapp, tmp_path)
         host = _at(qapp, sec, 200)
         calls = []
-        real = sec._apply_pressure
+        real = sec._apply_content_cap
 
         def counting():
             calls.append(1)
             assert len(calls) < 20, "runaway re-entry"
             real()
 
-        sec._apply_pressure = counting
+        sec._apply_content_cap = counting
         sec.resize(300, 150)
         qapp.processEvents()
         host.deleteLater()
@@ -344,8 +302,13 @@ class TestAutomaticSharingStillRespectsPreferences:
         qapp.processEvents()
 
         sizes = splitter.sizes()
-        assert sizes[1] >= b.preferred_expanded_height(), (
-            f"History was squashed to {sizes[1]}px, below the "
-            f"{b.preferred_expanded_height()}px it asks for"
+        # min(preference, its own content cap). A section that HAS no content
+        # to show is not being starved by being small — that is the cap doing
+        # its job, and asserting the raw preference here would demand dead
+        # space be reserved for an empty section.
+        floor = min(b.preferred_expanded_height(), b.max_useful_height())
+        assert sizes[1] >= floor - 4, (
+            f"History was squashed to {sizes[1]}px, below the {floor}px it "
+            "asks for and can actually fill"
         )
         splitter.deleteLater()

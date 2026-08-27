@@ -332,17 +332,16 @@ class RowBudgetMixin:
             self.refresh_header_status()
 
     def _after_budget(self) -> None:
-        """Re-run the pressure pass after the rows have been re-fitted.
+        """Re-derive the section's MAXIMUM after the rows have been re-fitted.
 
-        The budget is what changes the content height, and the content height
-        is what the section's maximum is derived from — so a refresh has to
-        recompute the cap, not just a resize. Routed through the DEBOUNCED
-        scheduler rather than called directly, so a burst of refreshes costs
-        one pass.
+        Rows arriving is exactly when the cap goes stale: a section sized for
+        an empty list must be allowed to grow, and one whose list emptied must
+        stop claiming the height. Content that outgrows the section is what the
+        scroll area is for.
         """
-        schedule = getattr(self, "_schedule_pressure", None)
-        if callable(schedule):
-            schedule()
+        cap = getattr(self, "_apply_content_cap", None)
+        if callable(cap):
+            cap()
 
     def resizeEvent(self, event):  # noqa: N802 (Qt override)
         """Re-fit on every resize — the splitter drag is the whole point.

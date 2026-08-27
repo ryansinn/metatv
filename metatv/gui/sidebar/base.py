@@ -173,11 +173,8 @@ from metatv.gui.sidebar.row_budget import (  # noqa: F401
     _MORE_ROW,
     RowBudgetMixin,
 )
-# Re-exported: sections import PressureGroup from here because this is where
-# the class they mix it into lives, and the split should be invisible to them.
-from metatv.gui.sidebar.section_pressure import (  # noqa: F401
-    PressureGroup,
-    SectionPressureMixin,
+from metatv.gui.sidebar.section_cap import (  # noqa: F401
+    SectionContentCapMixin,
 )
 
 
@@ -484,7 +481,7 @@ class InPlaceRowMixin:
                 list_widget.takeItem(index)
 
 
-class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
+class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
                          ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
@@ -557,14 +554,9 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.setMinimumHeight(self.min_expanded_height())  # the header; see the method
-        #: Groups this section folded ITSELF, by key. The distinction from a
-        #: group the user collapsed is the one thing this mechanism cannot get
-        #: wrong: auto-unfold may only ever re-open what auto-fold closed, or
-        #: freeing space elsewhere would silently undo a deliberate collapse.
-        #: The section-level :attr:`_user_collapsed` models the same idea one
-        #: level up, and this follows it.
-        self._auto_folded: set[str] = set()
-        self._in_pressure = False   # re-entrancy guard; folding triggers a resize
+        #: Re-entrancy guard for the content cap: measuring the content runs
+        #: the row budget, which lands back in the cap.
+        self._in_cap = False
 
         # Main layout
         # Each section is a CARD in the V3 render — its own rounded surface,
@@ -779,9 +771,9 @@ class CollapsibleSection(RowBudgetMixin, SectionPressureMixin,
         than this".
 
         A section can now be dragged down to its header. What it shows on the
-        way is not clipped — its groups fold to their headings under pressure
-        (:meth:`pressure_groups`) and its content scrolls — and it unfolds
-        again by itself when the space comes back.
+        way is not clipped, it SCROLLS — and its groups stay exactly as the
+        user left them, because a section that closes its own groups to save
+        room hides content without revealing any (see :mod:`section_cap`).
 
         The card's own border is counted: a section is a framed panel, so a
         floor of exactly ``HEADER_H`` leaves the header two pixels short of the
