@@ -14,6 +14,8 @@ to ignore. Historical batches ran 1-26 entries.
 
 from __future__ import annotations
 
+import pytest
+
 import metatv
 from metatv.whats_new import latest_id
 from metatv.whats_new.batch import OPENED_AT_ID, OPENED_AT_SHA
@@ -47,8 +49,22 @@ def test_the_marker_is_behind_or_level_with_the_entries():
 
 
 def test_the_marker_names_a_commit_that_exists():
-    """A sha that is not in the repository makes the rebuild check meaningless."""
+    """A sha that is not in the repository makes the rebuild check meaningless.
+
+    Skipped on a shallow clone. CI checks out with ``actions/checkout@v4``, whose
+    default depth is 1, so any commit older than HEAD is genuinely absent and
+    ``cat-file`` fails for a reason that has nothing to do with the marker. This
+    test failed on both runners for exactly that, which is the guard working on
+    the wrong subject rather than a real finding.
+    """
     import subprocess
+
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if shallow == "true":
+        pytest.skip("shallow clone — older commits are absent by design, not by error")
 
     result = subprocess.run(
         ["git", "cat-file", "-e", f"{OPENED_AT_SHA}^{{commit}}"],
