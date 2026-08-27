@@ -28,6 +28,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
+    row_min_height,
 )
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -48,28 +49,19 @@ SLOT_ICON_PX = 14
 #: continuous line down the group. Two numbers that must match are one number.
 _CHILD_INDENT = 14
 
-#: Vertical padding per row, one side.
+#: Vertical padding per row, one side, INSIDE the mounted chip row.
 #:
 #: The history is worth keeping because both ends were wrong. 1px rendered
 #: ~18px rows against the design's ~28px and read as cramped; 5px put 12px of
 #: padding around a 17px line box, and the owner read the surplus as a whole
 #: wasted row between every entry: "the space between each item is a wasted
-#: row ... spacing between rows should be cut in half".
+#: row ... spacing between rows should be cut in half". Halved twice at the
+#: owner's word — 12px, then 6px, then 3px.
 #:
-#: Halved twice, at the owner's word each time: 12px of padding around a 17px
-#: line box, then 6px, now 3px — "the spacing between the items (subheader
-#: content rows) could still be halved again". Rows are 20px.
-#:
-#: **20px is the floor**, not a preference. The inner ``chip_row`` keeps 1px
-#: above and below its 17px content, so no combination of this constant and the
-#: line-box term goes lower; measured, all four candidates bottom out there.
-#: Anything tighter needs a smaller type scale or shorter chips, which is a
-#: different decision.
-#:
-#: The descender is safe at any value here: clipping came from sizing a row to
-#: its tallest CHILD, and the fix was measuring the font's full line box
-#: (ascent + descent + leading) in :meth:`_RowShell._mount`, which this is
-#: merely added to.
+#: It is no longer the row's FLOOR. That was the bug: a floor only this file
+#: applied left every other sidebar section summing its children instead, and
+#: the sidebar rendered two row heights. The floor is
+#: :func:`metatv.gui.chip_row.row_min_height`, shared by all of them.
 ROW_PAD_Y = 1
 
 
@@ -113,15 +105,13 @@ class _RowShell(QWidget):
         layout.setSpacing(0)
         layout.addWidget(inner)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        # From the font's OWN line box (ascent + descent + leading), so a
-        # descender can never be clipped by a row sized to its children —
-        # "Stargate SG-1" lost the tail of its g this way. No slack term on top:
-        # the line box already contains the descent, and the two pixels that
-        # used to be added here were the last of the surplus the owner read as
-        # a wasted row.
-        self.setMinimumHeight(
-            QLabel().fontMetrics().height() + 2 * ROW_PAD_Y
-        )
+        # The floor is chip_row's now, not this file's. It started here
+        # because Watch Alerts was the section that noticed clipped descenders,
+        # but a floor only one section applies is a floor the sidebar does not
+        # have — every other section stayed pinned at its children's 20px and
+        # rendered shorter rows above a 13px app font. Reading it back keeps
+        # the two in step by construction.
+        self.setMinimumHeight(row_min_height())
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
         """Full row height, minimum width.

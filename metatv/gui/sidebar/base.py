@@ -46,7 +46,7 @@ class GroupHeading(QWidget):
 
     def __init__(self, text: str, count: int | None = None, *,
                  interactive: bool = False, tooltip: str = "", news: int = 0,
-                 parent=None):
+                 indent: int = 0, parent=None):
         """
         Args:
             text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
@@ -59,6 +59,12 @@ class GroupHeading(QWidget):
                 collapsed — see :meth:`set_news`.
             interactive: Whether clicking toggles the group. Adds the
                 pointing-hand cursor and emits :attr:`clicked`.
+            indent: Left inset, for a heading NESTED inside another group.
+                Watch Alerts' "Upcoming" sits inside EPG, and at zero inset it
+                lines up with EPG itself and reads as its sibling rather than
+                as the heading for the rows underneath it. Supplied by the
+                caller, the same way ``chip_row``'s row indent is, because the
+                widget cannot know how deep it has been put.
             tooltip: Hover text; a sensible default is supplied when interactive.
             parent: Qt parent.
         """
@@ -69,7 +75,7 @@ class GroupHeading(QWidget):
         # gap that separates groups sits above the heading rather than being
         # split evenly around it. Halved with the rows it sits over — 10px of
         # lead-in over a 17px label was reading as a blank row of its own.
-        row.setContentsMargins(4, 5, 4, 1)
+        row.setContentsMargins(4 + indent, 5, 4, 1)
         row.setSpacing(0)
 
         self.label = QLabel(text)

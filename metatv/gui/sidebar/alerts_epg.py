@@ -19,7 +19,9 @@ from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_loc
 from metatv.gui import icons as _icons
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 from metatv.gui.sidebar.alerts_rows import _AlertRow
-from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+from metatv.gui.sidebar.base import (
+    CollapsibleSection, GroupHeading, _fmt_channel_name,
+)
 from metatv.gui.sidebar.alerts_common import (
     _CHILD_INDENT,
     _Airing,
@@ -366,6 +368,13 @@ class EpgGroupMixin:
         live_groups   = data["live_groups"]
         upcoming_only = data["upcoming_only"]
 
+        # Dropped FIRST, before any early return. The caller has already
+        # cleared the tree, so every item still in this list is a deleted C++
+        # object and touching one raises RuntimeError — which is what would
+        # happen on the next toggle if an empty refresh took a return below
+        # without passing through the rebuild that repopulates it.
+        self._upcoming_items: list[QTreeWidgetItem] = []
+
         if not live_groups and not upcoming_only:
             # Nothing to list. The group VANISHING here is what made a working
             # watchlist read as a broken feature: seven alerts configured, and
@@ -461,9 +470,13 @@ class EpgGroupMixin:
 
         def _add_direct(ch_name, time_str, channel_db_id, title,
                         when=None, live=False, started_at=None,
-                        quality="", region="") -> None:
+                        quality="", region="") -> "QTreeWidgetItem":
             """Single-channel item: header IS the row — no expand arrow.
-            Shows the show title; channel name is the tooltip."""
+            Shows the show title; channel name is the tooltip.
+
+            Returns the item so the caller can put it under a sub-group — an
+            upcoming programme is hidden and shown as a block.
+            """
             item = QTreeWidgetItem()
             item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
             item.setToolTip(0, ch_name)
@@ -476,6 +489,7 @@ class EpgGroupMixin:
                             bar_source=ch_name, marker_column=True)
             _wire_row(row, channel_db_id)
             self.alerts_tree.setItemWidget(item, 0, row)
+            return item
 
         if live_groups:
             for key, grp in sorted(live_groups.items(),
@@ -506,14 +520,16 @@ class EpgGroupMixin:
                                    quality=_quality(a), region=_region(a))
 
         if upcoming_only:
+            self._add_upcoming_heading(len(upcoming_only))
             for key, grp in sorted(upcoming_only.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['airings'])):
                 title = grp['title']
                 airings = sorted(grp['airings'], key=lambda a: a[0])
                 if len(airings) == 1:
                     a = airings[0]
-                    _add_direct(a[2], a[1], a[3], title, _when(a), live=False,
-                                quality=_quality(a), region=_region(a))
+                    self._upcoming_items.append(_add_direct(
+                        a[2], a[1], a[3], title, _when(a), live=False,
+                        quality=_quality(a), region=_region(a)))
                 else:
                     lead = airings[0]
                     # No first_source: every airing here is in the FUTURE, so
@@ -521,15 +537,85 @@ class EpgGroupMixin:
                     hdr = _add_parent(
                         title, lead[1], len(airings) - 1, when=_when(lead),
                     )
+                    self._upcoming_items.append(hdr)
                     for a in airings[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
                                    quality=_quality(a), region=_region(a))
 
+        self._apply_upcoming_collapse()
         self._reveal_epg_subsection()
         self.set_empty(False)
         QTimer.singleShot(0, self._apply_expansion)
         QTimer.singleShot(0, self.reapply_row_budget)
         self._schedule_boundary(live_groups, upcoming_only)
+
+    #: Text of the sub-group that holds programmes which have not started.
+    #:
+    #: The word is the one the full EPG watchlist view already uses for the
+    #: same split ("ON NOW · n" / "UPCOMING · n", epg_watchlist_mixin.py), so
+    #: the sidebar and the view name the same thing the same way. Owner: "or
+    #: whatever title we used before, it was good".
+    UPCOMING_HEADING = "Upcoming"
+
+    def _add_upcoming_heading(self, count: int) -> None:
+        """Put a foldable "UPCOMING n" heading above the not-yet-airing block.
+
+        A ``GroupHeading``, not a rule or a divider row, because that widget is
+        already the section's one sub-group heading — it exists precisely
+        because this section had grown THREE ways of drawing the same thing
+        (real headings, em-dash divider rows, a separate collapsible
+        sub-section), two of which looked identical and only one of which was
+        clickable. A ``──── UPCOMING ────`` bar would be a fourth.
+
+        No caret, for the same reason the section headers have not had one
+        since #329: the heading itself is the control, and a caret beside a
+        clickable title is a second affordance for one action. What says it is
+        interactive is the pointing-hand cursor and the tooltip; what says
+        there is something inside while it is closed is the count, which
+        ``GroupHeading`` keeps visible when collapsed for exactly that reason.
+
+        There is deliberately no matching "On now" heading. What is on now sits
+        at the top where it always did, and a heading over it would spend a row
+        to label the thing you are already looking at. Owner: "We don't have to
+        have a header for what's on now."
+
+        Args:
+            count: How many upcoming programmes the group holds.
+        """
+        item = QTreeWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)      # a label, not a target
+        self.alerts_tree.addTopLevelItem(item)
+        heading = GroupHeading(
+            self.UPCOMING_HEADING, count, interactive=True,
+            # One nesting step in, the same step the child airings take, so it
+            # heads the rows below it instead of lining up with EPG above.
+            indent=_CHILD_INDENT,
+            tooltip="Programmes that have not started yet — "
+                    "click to collapse or expand",
+        )
+        heading.clicked.connect(self._toggle_epg_upcoming)
+        self.alerts_tree.setItemWidget(item, 0, heading)
+        self._upcoming_heading_item = item
+
+    def _toggle_epg_upcoming(self) -> None:
+        """Fold or unfold the Upcoming block, and remember the choice."""
+        self.config.alerts_epg_upcoming_collapsed = (
+            not self.config.alerts_epg_upcoming_collapsed
+        )
+        self.config.save()
+        self._apply_upcoming_collapse()
+        self.reapply_row_budget()
+
+    def _apply_upcoming_collapse(self) -> None:
+        """Show or hide the upcoming rows to match the stored choice.
+
+        Hidden rather than removed: ``fit_to_rows`` sizes the tree from Qt's own
+        ``viewportSizeHint``, which already excludes hidden items, so the
+        section shrinks to what is left without anything here doing arithmetic.
+        """
+        collapsed = bool(self.config.alerts_epg_upcoming_collapsed)
+        for item in self.__dict__.get("_upcoming_items", ()):
+            item.setHidden(collapsed)
 
     def _start_clock(self) -> None:
         """Begin the 30-second repaint tick, once.
