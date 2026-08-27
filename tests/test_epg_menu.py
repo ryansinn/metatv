@@ -57,17 +57,17 @@ def _action_by_fragment(menu, fragment: str):
 
 
 def _epg_on_now_single_ctx(**kwargs) -> ChannelMenuContext:
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="epg_on_now",
-        media_type="movie",
-        is_favorite=False,
-        in_queue=False,
-        rating=0,
-        is_hidden=False,
-        channel_name="Test Channel",
-        channel_found=True,
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "epg_on_now",
+        "media_type": "movie",
+        "is_favorite": False,
+        "in_queue": False,
+        "rating": 0,
+        "is_hidden": False,
+        "channel_name": "Test Channel",
+        "channel_found": True,
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

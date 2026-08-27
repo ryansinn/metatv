@@ -42,13 +42,13 @@ _CHIPS = ((CHIP_QUALITY, "4K"), (CHIP_YEAR, "1985"), (CHIP_LANG, "EN"))
 
 
 def _row(**over):
-    base = dict(
-        title="Rambo 2 First Blood Part II",
-        icon_role="movie",
-        chips=_CHIPS,
-        meta="1985 · EN · 4K",
-        density=DENSITY_COMPACT,
-    )
+    base = {
+        "title": "Rambo 2 First Blood Part II",
+        "icon_role": "movie",
+        "chips": _CHIPS,
+        "meta": "1985 · EN · 4K",
+        "density": DENSITY_COMPACT,
+    }
     base.update(over)
     return build_chip_row(**base)
 

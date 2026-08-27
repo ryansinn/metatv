@@ -917,7 +917,7 @@ class _FavoritesMixin:
         # Also update in all_channels cache for filtering. The cached entries are
         # frozen ChannelListDTOs, so build a new one with the flipped flag rather
         # than mutating in place (a frozen dataclass would raise on assignment).
-        for i, (text, ch) in enumerate(self.all_channels):
+        for i, (_text, ch) in enumerate(self.all_channels):
             if ch.id == channel_id:
                 new_ch = replace(ch, is_favorite=channel.is_favorite)
                 media_icon = self.get_media_type_icon(new_ch.media_type)

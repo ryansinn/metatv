@@ -902,13 +902,17 @@ def _interleave_media_types(scored: list[ScoredChannel], slots: int) -> list[Sco
     i = j = 0
     while len(out) < slots and (i < len(movies) or j < len(series)):
         if take_movie and i < len(movies):
-            out.append(movies[i]); i += 1
+            out.append(movies[i])
+            i += 1
         elif not take_movie and j < len(series):
-            out.append(series[j]); j += 1
+            out.append(series[j])
+            j += 1
         elif i < len(movies):
-            out.append(movies[i]); i += 1
+            out.append(movies[i])
+            i += 1
         else:
-            out.append(series[j]); j += 1
+            out.append(series[j])
+            j += 1
         take_movie = not take_movie
     return out
 

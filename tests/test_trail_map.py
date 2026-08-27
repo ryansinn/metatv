@@ -540,12 +540,12 @@ class TestSharedLangChip:
 
 def _dto(**kw):
     from metatv.gui.trail_map_data import TrailRowDTO
-    base = dict(
-        id="x", title="X", year=2000, poster_url=None, media_type="movie",
-        provider_id="pa", lang="EN", rating=None, user_rating=0, in_queue=False,
-        is_favorite=False, is_suppressed=False, watch_progress=0,
-        watch_completed=False, watch_percent=0, dedup_key="k",
-    )
+    base = {
+        "id": "x", "title": "X", "year": 2000, "poster_url": None, "media_type": "movie",
+        "provider_id": "pa", "lang": "EN", "rating": None, "user_rating": 0, "in_queue": False,
+        "is_favorite": False, "is_suppressed": False, "watch_progress": 0,
+        "watch_completed": False, "watch_percent": 0, "dedup_key": "k",
+    }
     base.update(kw)
     return TrailRowDTO(**base)
 

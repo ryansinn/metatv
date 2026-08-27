@@ -150,7 +150,7 @@ def test_title_outcontrasts_every_other_thing_painted_in_its_row(qapp, palette_n
     surface = _list_surface()
 
     title_contrast = _contrast(_theme.COLOR_ROW_TITLE, surface)
-    for rect, text, color, _font in painted.texts:
+    for _rect, text, color, _font in painted.texts:
         if text == _ROW_DATA["TITLE_ROLE"]:
             continue
         assert _contrast(color, surface) < title_contrast, (

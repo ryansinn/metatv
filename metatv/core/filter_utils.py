@@ -851,7 +851,7 @@ _GENRE_NORM: dict[str, str] = {
     "familj":                   "Family",                # Family
     "mysterium":                "Mystery",               # Mystery
     "krig & politik":           "War & Politics",        # War & Politics
-    "kriminalitet":             "Crime",                 # Criminality
+    "kriminalitet":             "Crime",                 # Criminality (SV + DA/NO)
     "västern":                  "Western",               # Western
     "musik":                    "Music",                 # Music
     "skräck":                   "Horror",                # Horror/Fright
@@ -861,7 +861,6 @@ _GENRE_NORM: dict[str, str] = {
     "biografi":                 "Biography",             # Biography (#153: was mis-mapped to History)
     # Danish / Norwegian
     "virkelighed":              "Reality",               # Reality (Danish)
-    "kriminalitet":             "Crime",                 # Criminality (shared)
     "børn":                     "Kids",                  # Children (Danish)
     "sci-fi og fantasy":        "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy (Danish)
     "dokumentarni":             "Documentary",           # Documentary (Croatian/Bosnian, also Norwegian)
@@ -961,9 +960,7 @@ _GENRE_NORM: dict[str, str] = {
     "crime":                    "Crime",
     "animation":                "Animation",
     "reality":                  "Reality",
-    "horror":                   "Horror",
     "kids":                     "Kids",
-    "western":                  "Western",
 
     # =====================================================================
     # Genre consolidation #153 (owner-approved, 2026-07-22).  129 chart folds

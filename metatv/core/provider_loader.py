@@ -379,7 +379,7 @@ class ProviderLoadThread(QThread):
             )
             .all()
         )
-        return {cid: name for cid, name in rows}
+        return dict(rows)
 
     def _report_recycled_ids(self, session, before: dict[str, str]) -> None:
         """Warn for every engaged channel whose title changed during this refresh.
@@ -406,7 +406,7 @@ class ProviderLoadThread(QThread):
                 .filter(ChannelDB.id.in_(chunk))
                 .all()
             )
-            after.update({cid: name for cid, name in rows})
+            after.update(dict(rows))
 
         changed: list[tuple[str, str, str]] = []
         for cid, old in before.items():

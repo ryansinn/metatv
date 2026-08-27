@@ -958,7 +958,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         url_map = {pu.url.rstrip("/"): pu for pu in self._provider_urls}
 
         new_order: List[ProviderURL] = []
-        for url, success, ms, _ in sorted_results:
+        for url, success, _ms, _ in sorted_results:
             pu = url_map.get(url.rstrip("/"))
             if pu:
                 # Update cumulative stats

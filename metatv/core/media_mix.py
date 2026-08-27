@@ -208,10 +208,12 @@ def mix_media_types(scored: list, slots: int, movie_share: float) -> list:
     mi = si = 0
     while mi < len(m_sel) or si < len(s_sel):
         if si >= len(s_sel):
-            out.append(m_sel[mi]); mi += 1
+            out.append(m_sel[mi])
+            mi += 1
             continue
         if mi >= len(m_sel):
-            out.append(s_sel[si]); si += 1
+            out.append(s_sel[si])
+            si += 1
             continue
         m_progress = (mi + 1) / len(m_sel)
         s_progress = (si + 1) / len(s_sel)
@@ -222,7 +224,9 @@ def mix_media_types(scored: list, slots: int, movie_share: float) -> list:
         else:  # equally far along their quotas — the stronger match leads
             take_movie = m_sel[mi].score >= s_sel[si].score
         if take_movie:
-            out.append(m_sel[mi]); mi += 1
+            out.append(m_sel[mi])
+            mi += 1
         else:
-            out.append(s_sel[si]); si += 1
+            out.append(s_sel[si])
+            si += 1
     return out

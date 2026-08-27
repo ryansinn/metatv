@@ -73,7 +73,7 @@ def test_upgrade_delta_still_shows(monkeypatch):
 
 def _entries(n, version):
     out = []
-    for i in range(n):
+    for _i in range(n):
         e = MagicMock()
         e.version = version
         out.append(e)

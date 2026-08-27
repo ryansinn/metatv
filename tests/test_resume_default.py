@@ -352,26 +352,26 @@ def test_play_media_start_override_nonzero_forces_resume_despite_beginning_mode(
 
 def _make_ctx(**kwargs):
     from metatv.gui.channel_menu import ChannelMenuContext
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="channel",
-        media_type="movie",
-        is_favorite=False,
-        in_queue=False,
-        rating=0,
-        is_hidden=False,
-        is_watched=False,
-        is_vod_watched=False,
-        is_series_monitored=False,
-        has_unavailable=False,
-        channel_name="Test Movie",
-        user_category=None,
-        entry_id="",
-        channel_found=True,
-        watch_progress=300,
-        watch_completed=False,
-        playback_resume_mode="resume",
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "channel",
+        "media_type": "movie",
+        "is_favorite": False,
+        "in_queue": False,
+        "rating": 0,
+        "is_hidden": False,
+        "is_watched": False,
+        "is_vod_watched": False,
+        "is_series_monitored": False,
+        "has_unavailable": False,
+        "channel_name": "Test Movie",
+        "user_category": None,
+        "entry_id": "",
+        "channel_found": True,
+        "watch_progress": 300,
+        "watch_completed": False,
+        "playback_resume_mode": "resume",
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

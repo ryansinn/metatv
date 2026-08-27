@@ -431,7 +431,6 @@ _AUDIO_NORM: dict[str, str] = {
     "MULTI AUDIO/SUB": "Multi", "MULTI AU/SUB": "Multi",
     "MULTI AU/AUDIO": "Multi", "MULTI AUDO": "Multi",
     "MULTI AUDO/ SUB": "Multi", "MULTI AUDO/SUB": "Multi",
-    "MULTI AU/SUB": "Multi", "MULTI AU/AUDIO": "Multi",
     "MULTIAUDIO": "Multi", "MULTI AUDIO SUB": "Multi",
     "MULTI LANGUAGE": "Multi", "MULTILANGUAGE": "Multi",
     "MULTI-AUDIO/SUB": "Multi",
@@ -998,7 +997,7 @@ def extract_audio_annotation(inner: str) -> tuple[str, list[str], list[str], lis
     sub_langs: list[str] = []
     pending_lang: str | None = None  # lang token waiting for a role marker
 
-    for i, tok in enumerate(tokens):
+    for _i, tok in enumerate(tokens):
         if tok in _MULTI_MARKERS:
             form = "Multi"
             if not sub_langs:
@@ -1072,7 +1071,7 @@ _FULL_NAME_TO_CODE: dict[str, str] = {
     "EGYPT": "EGY", "SOUTH AFRICA": "ZAF",
     # Latin America — full names seen as channel prefixes
     "DOMINICAN": "DO", "HONDURAS": "HN", "GUATEMALA": "GT",
-    "CUBA": "CU",     "PANAMA": "PA",   "VENEZUELA": "VEN",
+    "CUBA": "CU",     "PANAMA": "PA",
     # Africa — full names seen as channel prefixes
     "SENEGAL": "SEN",  "SOMALIA": "SOM",  "UGANDA": "UGA",
     "CAMEROON": "CM",  "GHANA": "GHA",    "KENYA": "KE",
@@ -1160,12 +1159,12 @@ REGION_FULL_NAMES: dict[str, str] = {
     "GM": "Gambia", "GN": "Guinea",
     # Additional 3-letter codes for African countries
     "NGA": "Nigeria",   "GHA": "Ghana",   "SEN": "Senegal",  "UGA": "Uganda",
-    "CMR": "Cameroon",  "KEN": "Kenya",   "ETH": "Ethiopia", "SOM": "Somalia",
+    "CMR": "Cameroon",  "KEN": "Kenya",   "ETH": "Ethiopia",
+    "SOM": "Somalia",   # measured 2,812 channels
     "TZA": "Tanzania",  "MLI": "Mali",    "GIN": "Guinea",   "GAB": "Gabon",
     "GMB": "Gambia",    "TGO": "Togo",
     # Additional LatAm 3-letter codes
-    "ARG": "Argentina", "VEN": "Venezuela", "COL": "Colombia",
-    "URY": "Uruguay",   "DOM": "Dominican Republic",
+    "DOM": "Dominican Republic",
     # Regional groupings
     "LAT": "Latin America", "LATS": "Latin America (Spanish)",
     "EXYU": "Ex-Yugoslavia",
@@ -1193,7 +1192,6 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Additional regions (surfaced by Ninja, 2026-06)
     "MXC": "Mexico",  # surfaced in TREX + IPTV Ninja, measured 2,934 channels
     "ISR": "Israel",  # surfaced in TREX + IPTV Ninja, measured 588 channels
-    "SOM": "Somalia",  # measured 2,812 channels
     # Content-type prefixes (Trex / provider-specific)
     "MV": "Music Videos", "SPT": "Sports",
 }

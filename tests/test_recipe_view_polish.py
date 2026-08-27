@@ -38,8 +38,8 @@ class _FakeSeam:
     def _run_query(self, query_fn, on_result, *, token_ref=None, on_error=None):
         if token_ref is not None:
             token_ref[0] += 1
-        self.calls.append(dict(query_fn=query_fn, on_result=on_result,
-                                token_ref=token_ref, on_error=on_error))
+        self.calls.append({"query_fn": query_fn, "on_result": on_result,
+                                "token_ref": token_ref, "on_error": on_error})
 
     def deliver_last(self, data):
         entry = self.calls[-1]

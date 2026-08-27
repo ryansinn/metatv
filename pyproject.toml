@@ -85,25 +85,17 @@ ignore = [
   # -------------------------------------------------------------------------
   "BLE001",   # 175 — blind `except Exception`. The audit's point; needs a
               #       judgement per site, which is why it is not stage A.
-  "C408",     # 99  — `dict()` where `{}` would do.
   "F841",     # 60  — assigned and never used. Some are genuinely dead; some
               #       are a bug where the value was meant to be returned.
   "RUF012",   # 46  — mutable class attribute without ClassVar.
-  "E702",     # 24  — two statements on one line, separated by `;`.
   "B905",     # 23  — `zip()` without `strict=`. Per site: does a length
               #       mismatch mean truncate, or mean a bug?
   "E712",     # 23  — `== True`. NOT blanket-fixable: SQLAlchemy filters
               #       require it, `if x == True` does not.
-  "B007",     # 20  — loop variable never used in the body.
   "F821",     # 20  — undefined name. All that remain are quoted annotations
               #       (latent, not live); the one LIVE case is fixed in this
               #       commit. See metatv/gui/app_header.py.
-  "F601",     # 11  — repeated dict key literal. All 11 map to the same value,
               #       so they are redundant rather than wrong.
-  "E731",     # 9   — lambda bound to a name.
-  "E701",     # 8   — two statements on one line, separated by `:`.
-  "C416",     # 7   — comprehension that reproduces its iterable.
-  "PIE810",   # 6   — several `startswith` calls where a tuple would do.
   "B008",     # 4   — function call in a default argument.
   "B017",     # 3   — `pytest.raises(Exception)`, too broad to assert anything.
   "B023",     # 1   — function in a loop closing over the loop variable.

@@ -105,7 +105,7 @@ def parse_xmltv_url(
 
             context = ET.iterparse(stream, events=("end",))
             try:
-                for event, elem in context:
+                for _event, elem in context:
                     if elem.tag == "channel":
                         ch = _parse_channel(elem)
                         if ch:

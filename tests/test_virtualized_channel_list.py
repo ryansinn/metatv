@@ -31,20 +31,20 @@ def qapp():
 
 
 def _make_dto(**overrides) -> ChannelListDTO:
-    base = dict(
-        id=str(uuid.uuid4()),
-        name="Channel",
-        media_type="live",
-        provider_id="prov1",
-        is_favorite=False,
-        category=None,
-        quality=None,
-        detected_prefix=None,
-        detected_region=None,
-        detected_quality=None,
-        detected_year=None,
-        detected_title=None,
-    )
+    base = {
+        "id": str(uuid.uuid4()),
+        "name": "Channel",
+        "media_type": "live",
+        "provider_id": "prov1",
+        "is_favorite": False,
+        "category": None,
+        "quality": None,
+        "detected_prefix": None,
+        "detected_region": None,
+        "detected_quality": None,
+        "detected_year": None,
+        "detected_title": None,
+    }
     base.update(overrides)
     return ChannelListDTO(**base)
 
@@ -831,9 +831,9 @@ def test_decoration_role_none_for_all_states(qapp):
     from PyQt6.QtCore import Qt
 
     for overrides in (
-        dict(watch_progress=0, watch_completed=False),       # neutral
-        dict(watch_progress=900, watch_completed=False),     # in progress
-        dict(watch_completed=True, watch_percent=100),       # watched
+        {"watch_progress": 0, "watch_completed": False},       # neutral
+        {"watch_progress": 900, "watch_completed": False},     # in progress
+        {"watch_completed": True, "watch_percent": 100},       # watched
     ):
         model = _set_model_with(qapp, media_type="movie", detected_title="X", **overrides)
         assert model.index(0, 0).data(Qt.ItemDataRole.DecorationRole) is None

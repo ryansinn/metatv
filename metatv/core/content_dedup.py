@@ -248,7 +248,7 @@ def build_engaged_normalized(
     # Watched channels — column-only query to avoid loading raw_data JSON.
     # Columns needed: id, name, detected_prefix, media_type, metadata_id, content_key
     # (channel); director, year (metadata via outerjoin on nullable metadata_id).
-    for (ch_id, ch_name, ch_prefix, ch_media_type, ch_meta_id, ch_content_key,
+    for (ch_id, ch_name, ch_prefix, ch_media_type, _ch_meta_id, ch_content_key,
          meta_director, meta_year) in (
         session.query(
             ChannelDB.id,

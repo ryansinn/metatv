@@ -568,11 +568,7 @@ def is_theme_invariant(key: str, value: TokenValue) -> bool:
     insufficiently different.
     """
     return (
-        key.startswith("FONT_")
-        or key.startswith("COLOR_LIGHTBOX_")
-        or key.startswith("OVERLAY_BLACK_")
-        or key.startswith("COLOR_ON_FILL_")
-        or not isinstance(value, str)
+        key.startswith(("FONT_", "COLOR_LIGHTBOX_", "OVERLAY_BLACK_", "COLOR_ON_FILL_")) or not isinstance(value, str)
     )
 
 

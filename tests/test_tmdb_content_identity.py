@@ -131,13 +131,13 @@ class TestValidTmdbId:
 
 class TestContentKeyTmdb:
     def _ch(self, **kw):
-        defaults = dict(
-            id=str(uuid.uuid4()),
-            detected_title="Some Title",
-            media_type="movie",
-            detected_year="2019",
-            detected_tmdb_id=None,
-        )
+        defaults = {
+            "id": str(uuid.uuid4()),
+            "detected_title": "Some Title",
+            "media_type": "movie",
+            "detected_year": "2019",
+            "detected_tmdb_id": None,
+        }
         defaults.update(kw)
         return SimpleNamespace(**defaults)
 

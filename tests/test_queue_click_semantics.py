@@ -115,12 +115,12 @@ def _entry(**over):
     ``AttributeError`` at once. A real ``QueueEntry`` defaults them to None;
     this stub does too, so the double and the thing it stands for agree.
     """
-    base = dict(
-        is_episode=False, episode_id=None, channel_id="c1", channel_name="Movie",
-        media_type="movie", available=True, search_title="Movie",
-        season_num=None, episode_num=None, episode_title=None,
-        detected_year="", detected_quality="", detected_prefix="",
-    )
+    base = {
+        "is_episode": False, "episode_id": None, "channel_id": "c1", "channel_name": "Movie",
+        "media_type": "movie", "available": True, "search_title": "Movie",
+        "season_num": None, "episode_num": None, "episode_title": None,
+        "detected_year": "", "detected_quality": "", "detected_prefix": "",
+    }
     base.update(over)
     return types.SimpleNamespace(**base)
 

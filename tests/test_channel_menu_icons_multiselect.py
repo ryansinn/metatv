@@ -33,30 +33,30 @@ def _ch_id() -> str:
 
 def _single_ctx(media_type: str = "movie", **kwargs):
     from metatv.gui.channel_menu import ChannelMenuContext
-    defaults = dict(
-        channel_ids=["ch1"],
-        surface="channel",
-        media_type=media_type,
-        is_favorite=False,
-        in_queue=False,
-        rating=0,
-        is_hidden=False,
-        is_watched=False,
-        has_unavailable=False,
-        channel_name="Test Channel",
-        channel_found=True,
-    )
+    defaults = {
+        "channel_ids": ["ch1"],
+        "surface": "channel",
+        "media_type": media_type,
+        "is_favorite": False,
+        "in_queue": False,
+        "rating": 0,
+        "is_hidden": False,
+        "is_watched": False,
+        "has_unavailable": False,
+        "channel_name": "Test Channel",
+        "channel_found": True,
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 
 
 def _multi_ctx(**kwargs):
     from metatv.gui.channel_menu import ChannelMenuContext
-    defaults = dict(
-        channel_ids=["a", "b", "c"],
-        surface="channel",
-        channel_found=True,
-    )
+    defaults = {
+        "channel_ids": ["a", "b", "c"],
+        "surface": "channel",
+        "channel_found": True,
+    }
     defaults.update(kwargs)
     return ChannelMenuContext(**defaults)
 

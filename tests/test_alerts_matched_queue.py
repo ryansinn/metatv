@@ -355,11 +355,11 @@ class TestAlertsMatchedSectionRendering:
 class TestOnAlertsMatchedClicked:
 
     def _stub(self, cfg, **extra):
-        base = dict(
-            config=cfg,
-            show_channel_details_by_id=MagicMock(),
-            _refresh_alert_visibility=MagicMock(),
-        )
+        base = {
+            "config": cfg,
+            "show_channel_details_by_id": MagicMock(),
+            "_refresh_alert_visibility": MagicMock(),
+        }
         base.update(extra)
         return types.SimpleNamespace(**base)
 

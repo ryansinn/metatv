@@ -359,11 +359,17 @@ def test_overview_visibility_resets_across_reuse(qapp):
     from metatv.gui.details_sections import _PlotSection
 
     s = _PlotSection()
-    s.set_mode(is_live=False); s.clear(); s.load("Plot one.")
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load("Plot one.")
     assert not s.isHidden()
-    s.set_mode(is_live=False); s.clear(); s.load(None)
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(None)
     assert s.isHidden(), "must hide when reused for a plot-less title"
-    s.set_mode(is_live=False); s.clear(); s.load("Plot three.")
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load("Plot three.")
     assert not s.isHidden(), "must re-show when reused for a title that has a plot"
 
 
@@ -405,9 +411,15 @@ def test_cast_visibility_resets_across_reuse(qapp):
     from metatv.gui.details_sections import _CastSection
 
     s = _CastSection(_make_config())
-    s.set_mode(is_live=False); s.clear(); s.load(cast=[{"name": "A"}], director="D")
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[{"name": "A"}], director="D")
     assert not s.isHidden()
-    s.set_mode(is_live=False); s.clear(); s.load(cast=[], director=None)
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[], director=None)
     assert s.isHidden(), "must hide when reused for a title with no cast/crew"
-    s.set_mode(is_live=False); s.clear(); s.load(cast=[{"name": "B"}], director=None)
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[{"name": "B"}], director=None)
     assert not s.isHidden(), "must re-show when reused for a title with cast"

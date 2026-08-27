@@ -196,12 +196,12 @@ def _list_dto(**overrides):
     import dataclasses
     from metatv.core.repositories.dtos import ChannelListDTO
 
-    base = dict(
-        id="c1", name="Some Movie RAW", media_type="movie",
-        provider_id="p1", is_favorite=False, category=None, quality=None,
-        detected_prefix=None, detected_region=None, detected_year=None,
-        detected_title="Some Movie", detected_quality="RAW",
-    )
+    base = {
+        "id": "c1", "name": "Some Movie RAW", "media_type": "movie",
+        "provider_id": "p1", "is_favorite": False, "category": None, "quality": None,
+        "detected_prefix": None, "detected_region": None, "detected_year": None,
+        "detected_title": "Some Movie", "detected_quality": "RAW",
+    }
     base.update(overrides)
     fields = {f.name for f in dataclasses.fields(ChannelListDTO)}
     return ChannelListDTO(**{k: v for k, v in base.items() if k in fields})

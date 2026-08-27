@@ -524,11 +524,11 @@ class ChannelRepository(_ChannelStatsMixin):
         if collapse_variants:
             return self._get_all_collapsed(
                 query, limit=limit, offset=offset,
-                exclusion_sets=dict(
-                    excluded_prefixes=excluded_prefixes,
-                    excluded_user_categories=excluded_user_categories,
-                    excluded_channel_ids=excluded_channel_ids,
-                ),
+                exclusion_sets={
+                    "excluded_prefixes": excluded_prefixes,
+                    "excluded_user_categories": excluded_user_categories,
+                    "excluded_channel_ids": excluded_channel_ids,
+                },
             )
 
         query = query.order_by(ChannelDB.name)
@@ -2929,12 +2929,11 @@ class ChannelRepository(_ChannelStatsMixin):
         hit_ids = list(hits.keys())
         # media_type is needed to namespace the tmdb key (movie vs series live in
         # separate TMDb id spaces) — project just that column, no raw_data blob.
-        mt_by_id = {
-            cid: mt
-            for (cid, mt) in self.session.query(ChannelDB.id, ChannelDB.media_type)
+        mt_by_id = dict(
+            self.session.query(ChannelDB.id, ChannelDB.media_type)
             .filter(ChannelDB.id.in_(hit_ids))
             .all()
-        }
+        )
 
         new_keys: Dict[str, str] = {}
         for cid, tmdb in hits.items():

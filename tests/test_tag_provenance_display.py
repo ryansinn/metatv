@@ -59,11 +59,11 @@ def _make_channel(session, name: str = "Test Channel") -> ChannelDB:
 
 def _fake_config(**overrides):
     """Minimal config namespace for _TagsSection."""
-    defaults = dict(
-        collapse_icon=_icons.collapse_icon,
-        expand_icon=_icons.expand_icon,
-        details_pane_collapsed_sections=[],
-    )
+    defaults = {
+        "collapse_icon": _icons.collapse_icon,
+        "expand_icon": _icons.expand_icon,
+        "details_pane_collapsed_sections": [],
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 

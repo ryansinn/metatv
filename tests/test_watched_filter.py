@@ -20,24 +20,24 @@ from metatv.core.repositories.dtos import ChannelListDTO
 
 def _dto(channel_id: str, **kwargs) -> ChannelListDTO:
     """Build a minimal ChannelListDTO for model tests."""
-    defaults = dict(
-        id=channel_id,
-        name=f"Channel {channel_id[:4]}",
-        media_type="movie",
-        is_favorite=False,
-        provider_id="test",
-        detected_prefix=None,
-        detected_quality=None,
-        detected_region=None,
-        detected_title=None,
-        detected_year=None,
-        category=None,
-        quality=None,
-        watch_completed=False,
-        watch_progress=0,
-        watch_percent=0,
-        user_rating=0,
-    )
+    defaults = {
+        "id": channel_id,
+        "name": f"Channel {channel_id[:4]}",
+        "media_type": "movie",
+        "is_favorite": False,
+        "provider_id": "test",
+        "detected_prefix": None,
+        "detected_quality": None,
+        "detected_region": None,
+        "detected_title": None,
+        "detected_year": None,
+        "category": None,
+        "quality": None,
+        "watch_completed": False,
+        "watch_progress": 0,
+        "watch_percent": 0,
+        "user_rating": 0,
+    }
     defaults.update(kwargs)
     return ChannelListDTO(**defaults)
 

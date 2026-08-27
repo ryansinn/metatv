@@ -263,7 +263,7 @@ class TestGetRecommendationsChannelScoping:
         _add_channel(session, "rec-ch-gone", "rec-disabled")
 
         # Seed several upcoming programmes so the channel appears in recommendations
-        for i in range(3):
+        for _i in range(3):
             _add_programme(session, "rec-feed", "rec-ch-ok",   title="Rec Series", upcoming=True)
             _add_programme(session, "rec-feed", "rec-ch-gone", title="Rec Series", upcoming=True)
 

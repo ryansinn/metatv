@@ -109,7 +109,7 @@ class _ChannelStatsMixin:
             dq_rows = dq_rows.filter(ChannelDB.provider_id == provider_id)
         dq_rows = _apply_provider_exclusion(dq_rows)
         dq_rows = dq_rows.group_by(ChannelDB.detected_quality).all()
-        dq_counts = {dq: cnt for dq, cnt in dq_rows}
+        dq_counts = dict(dq_rows)
 
         for group_name, tokens in quality_groups.items():
             total = sum(dq_counts.get(t.upper(), 0) for t in tokens)

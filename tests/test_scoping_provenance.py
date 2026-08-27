@@ -104,15 +104,15 @@ def _add_upcoming(session, provider_id, title, channel_db_id, *,
 
 
 def _fake_config(**overrides):
-    defaults = dict(
-        epg_watchlist_patterns=[],
-        watch_alerts_icon="🔔",
-        collapse_icon="▼",
-        expand_icon="▶",
-        play_icon="▷",
-        info_icon="ℹ",
-        sidebar_section_states={},
-    )
+    defaults = {
+        "epg_watchlist_patterns": [],
+        "watch_alerts_icon": "🔔",
+        "collapse_icon": "▼",
+        "expand_icon": "▶",
+        "play_icon": "▷",
+        "info_icon": "ℹ",
+        "sidebar_section_states": {},
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 

@@ -45,23 +45,23 @@ class _FakeConfig:
 
 def _full_result(**overrides) -> DiagnosticResult:
     """A fully-populated DiagnosticResult so every possible row renders."""
-    base = dict(
-        reachable=True,
-        verdict=_diag.HEALTHY,
-        summary=(
+    base = {
+        "reachable": True,
+        "verdict": _diag.HEALTHY,
+        "summary": (
             "Stream is healthy — comfortable headroom over the bitrate. "
             "(throughput 12.4 Mbps vs bitrate 3.1 Mbps, headroom 4.00x; "
             "baseline 15.2 Mbps)"
         ),
-        connect_ms=45.0,
-        ttfb_ms=120.0,
-        throughput_mbps=12.4,
-        bitrate_mbps=3.1,
-        baseline_mbps=15.2,
-        headroom_ratio=4.0,
-        codec="h264",
-        resolution="1920x1080",
-    )
+        "connect_ms": 45.0,
+        "ttfb_ms": 120.0,
+        "throughput_mbps": 12.4,
+        "bitrate_mbps": 3.1,
+        "baseline_mbps": 15.2,
+        "headroom_ratio": 4.0,
+        "codec": "h264",
+        "resolution": "1920x1080",
+    }
     base.update(overrides)
     return DiagnosticResult(**base)
 

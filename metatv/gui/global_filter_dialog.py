@@ -109,7 +109,7 @@ def _load_tag_content_type_counts(db: Database, values: list[str]) -> dict[str, 
             .group_by(TagDB.value)
             .all()
         )
-        return {value: count for value, count in rows}
+        return dict(rows)
     finally:
         session.close()
 
@@ -224,7 +224,7 @@ def _group_prefixes(
     # Platform codes (NF, D+, etc.) are properly labelled in the filter panel's
     # Platform section; they should not bleed into Uncategorized here.
     if platform_groups:
-        for group_name, members in platform_groups.items():
+        for members in platform_groups.values():
             for m in members:
                 remaining.discard(m.upper())
 
@@ -493,7 +493,7 @@ class _ContentTypeSection(QWidget):
         super().__init__(parent)
         self._config = config
         self._items = items
-        self._initial_checked = {s for s in initially_checked}
+        self._initial_checked = set(initially_checked)
         self._checkboxes: dict[str, QCheckBox] = {}
         self._body_built = False
         self._expanded = False
