@@ -437,6 +437,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      include_uncategorized: bool = True,
                      excluded_keywords: list[str] | None = None,
                      excluded_provider_ids: list[str] | None = None,
+                     excluded_categories: set[str] | None = None,
+                     excluded_content_types: list[str] | None = None,
+                     adult_mode: str = "all",
+                     force_adult_provider_ids: list[str] | None = None,
                      version_scorer=None,
                      balance_media_types: bool = False,
                      diversify_people: bool = False,
@@ -555,13 +559,32 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     # detected_prefix but an excluded detected_region is now ALSO dropped here,
     # matching the channel list / tag-facet counts / EPG On-Now (see PR
     # description for the full rationale/impact).
+    # EVERY axis the scope carries, not the four this used to fill.
+    #
+    # ``VisibilityScope`` is the one definition of "which channels are visible",
+    # and the rule about it is that an axis is added to the SCOPE so every
+    # surface gets it at once — never to one caller. That held; what did not is
+    # that this caller then only populated part of it, which is the same bug
+    # wearing the chokepoint's clothes. A recommendation could therefore carry
+    # content the user had excluded everywhere else, and the worst of those was
+    # ADULT: ``adult_mode`` never reached this query, so the filter that governs
+    # the channel list, Discover and the tag counts did not govern
+    # Recommendations.
+    #
+    # The disabled/expired-source gate is absolute (see CLAUDE.md), and so is
+    # this: a Recommendations rail that surfaces excluded content is the
+    # product's own thesis leaking.
     candidates_q = channel_visibility.apply(
         candidates_q,
         channel_visibility.VisibilityScope(
             excluded_provider_ids=list(excluded_provider_ids or []),
             excluded_prefixes=set(excluded_prefixes or []),
+            excluded_categories=set(excluded_categories or []),
+            excluded_content_types=set(excluded_content_types or []),
             include_uncategorized=include_uncategorized,
             excluded_keywords=set(excluded_keywords or []),
+            adult_mode=adult_mode,
+            force_adult_provider_ids=list(force_adult_provider_ids or []),
         ),
         channel_cls=ChannelDB,
     )
