@@ -220,6 +220,42 @@ class TestFoldingIt:
         assert _visible(section) == before
 
 
+class TestTheCountsAddUp:
+    """EPG counts programmes, not tree entries.
+
+    They were the same number until the Upcoming heading became a top-level
+    item of its own, and then EPG read one higher than the programmes beneath
+    it. Owner: "EPG 13, + UPCOMING 9, should be 12, right? not 13 if there are
+    only 3 shows now playing and 9 upcoming."
+    """
+
+    def test_epg_counts_the_programmes_not_the_furniture(self, section):
+        live, upcoming = 2, 6                      # what _payload() seeds
+        assert section._epg_toggle.count_label.text().strip() == str(live + upcoming)
+
+    def test_it_disagrees_with_the_raw_item_count(self, section):
+        """The heading is the difference, and it must not be counted.
+
+        Asserting the two DIFFER is what makes this test able to fail: if the
+        count went back to ``topLevelItemCount()`` they would agree again.
+        """
+        tree = section.alerts_tree
+        assert tree.topLevelItemCount() == 9       # 8 programmes + the heading
+        assert section._epg_toggle.count_label.text().strip() == "8"
+
+    def test_the_two_headings_partition_the_rows(self, section):
+        """EPG's count is the whole; Upcoming's is the part below it."""
+        epg = int(section._epg_toggle.count_label.text().strip())
+        upcoming = int(_heading(section).count_label.text().strip())
+        from metatv.gui.sidebar.alerts_rows import _AlertRow
+
+        tree = section.alerts_tree
+        rows = sum(1 for item in _tops(section)
+                   if isinstance(tree.itemWidget(item, 0), _AlertRow))
+        assert epg == rows
+        assert 0 < upcoming < epg
+
+
 class TestTheTimeSurvivesTheCollapse:
     """A closed group still says when the next one starts.
 

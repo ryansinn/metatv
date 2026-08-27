@@ -14,6 +14,31 @@ from metatv.gui import theme as _theme
 from metatv.gui.sidebar.base import GroupHeading
 
 
+def _luminance(value: str) -> float:
+    """WCAG relative luminance of a ``#rrggbb`` string."""
+    value = value.strip().lstrip("#")
+    parts = [int(value[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+              for c in parts]
+    r, g, b = linear
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _luminance(a), _luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _colour(sheet: str) -> str:
+    """The ``color:`` a role sheet sets."""
+    import re
+
+    match = re.search(r"color:\s*(#[0-9a-fA-F]{6})", sheet)
+    assert match, f"no colour in {sheet!r}"
+    return match.group(1)
+
+
 def _click(widget) -> None:
     widget.mousePressEvent(QMouseEvent(
         QEvent.Type.MouseButtonPress, QPointF(4, 4), Qt.MouseButton.LeftButton,
@@ -41,9 +66,41 @@ def test_the_count_is_rendered_with_more_emphasis_than_the_label(qapp):
     )
     assert heading.count_label.font().bold() or "bold" in heading.count_label.styleSheet()
 
-    # ...and brighter. COLOR_TEXT_HI on COLOR_MUTED, read off the applied sheets.
-    assert _theme.COLOR_TEXT_HI in heading.count_label.styleSheet()
-    assert _theme.COLOR_MUTED in heading.label.styleSheet()
+    # ...and brighter. Measured, not pinned to the two tokens this used to
+    # name: the label's colour deliberately moved OFF COLOR_MUTED when muted
+    # measured 4.15:1 here and failed the 4.5 text floor in four of six
+    # palettes, and an assertion naming the old token turned that fix into a
+    # red gate. What must hold is the RELATIONSHIP plus the floor underneath
+    # it — a heading is text, and "quiet" cannot be bought with contrast a
+    # reader needs.
+    ground = _theme.COLOR_BG_CARD
+    label_c = _contrast(_colour(heading.label.styleSheet()), ground)
+    count_c = _contrast(_colour(heading.count_label.styleSheet()), ground)
+    assert count_c > label_c, (
+        f"the count ({count_c:.2f}:1) does not out-contrast its label "
+        f"({label_c:.2f}:1), so the emphasis is carried by size alone"
+    )
+
+
+def test_the_heading_clears_the_text_floor_in_every_palette(qapp):
+    """The floor the label's colour was changed FOR, swept across the set.
+
+    The role's own note says muted "fails the 4.5 text floor in four of six
+    palettes" — so a floor checked in ONE palette is checked in the two that
+    were already fine. Mutating the role back to muted passed a Midnight-only
+    version of this and fails here, which is the whole difference.
+    """
+    for name in _theme.available_themes():
+        _theme.apply_theme(name)
+        heading = GroupHeading("Series", 10)
+        contrast = _contrast(_colour(heading.label.styleSheet()),
+                             _theme.COLOR_BG_CARD)
+        assert contrast >= 4.5, (
+            f"{name}: the heading label sits at {contrast:.2f}:1 on the card "
+            "— below the 4.5 floor, and a heading is text"
+        )
+        heading.deleteLater()
+    _theme.apply_theme("Midnight")
 
 
 def test_the_label_renders_uppercase_without_changing_its_text(qapp):

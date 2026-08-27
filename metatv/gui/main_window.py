@@ -91,6 +91,11 @@ import metatv.whats_new as _whats_new
 
 # Auto-dialog backlog cap — above this many unseen entries, show only the
 # newest release's entries (see maybe_show_whats_new).
+#: Padding above every view in the content column (px). Structural spacing, so
+#: a literal rather than a token — the theme scale's SPACE_* are stylesheet
+#: strings and a layout margin needs an int.
+CONTENT_TOP_PAD = 2
+
 _WHATS_NEW_AUTO_CAP = 25
 from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
 
@@ -1646,22 +1651,43 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Create main content area"""
         content = QWidget()
         self.content_layout = QVBoxLayout(content)
+        # The top margin is shared by EVERY view — the splitter holding all of
+        # them is a child of this layout — so whatever it is, it is the first
+        # thing you see in all of them. Qt's platform default put ~9px above
+        # every view, which read as a band once the empty nav bar below it
+        # stopped adding a row of its own. Owner: "every view had some top
+        # padding of the exact same amount. make that padding about 1/4 of what
+        # it is currently."
+        #
+        # Only the TOP is pinned. Left, right and bottom keep the platform's
+        # own value: they separate the content from the sidebar, the window
+        # edge and the stats bar, none of which was reported, and hardcoding
+        # them would change macOS to match this machine.
+        _margins = self.content_layout.contentsMargins()
+        self.content_layout.setContentsMargins(
+            _margins.left(), CONTENT_TOP_PAD, _margins.right(), _margins.bottom()
+        )
         
-        # Navigation bar (hidden by default, shown in series view)
-        nav_bar = QWidget()
-        nav_layout = QHBoxLayout(nav_bar)
+        # Series navigation bar. THE BAR ITSELF is hidden outside series view,
+        # not just its contents — it held an invisible Back button and an empty
+        # label, and an empty QWidget in a QVBoxLayout is still a row: it and
+        # the layout spacing under it were the blank band above "Search:" in
+        # every other view. Owner: "in the search view, there just seems to be
+        # dead space above Search: All Hidden."
+        self._series_nav_bar = QWidget()
+        nav_layout = QHBoxLayout(self._series_nav_bar)
         nav_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.back_button = QPushButton(f"← Back")
         self.back_button.clicked.connect(self.navigate_back)
-        self.back_button.setVisible(False)
         nav_layout.addWidget(self.back_button)
-        
+
         self.breadcrumb_label = QLabel("")
         nav_layout.addWidget(self.breadcrumb_label)
         nav_layout.addStretch()
-        
-        self.content_layout.addWidget(nav_bar)
+
+        self.content_layout.addWidget(self._series_nav_bar)
+        self.show_series_nav(None)
         
         # Search and filter controls
         self.search_controls = QWidget()

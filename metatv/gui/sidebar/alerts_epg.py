@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
 from metatv.gui.relative_time import humanize_remaining, humanize_until
-from metatv.gui.sidebar.alerts_rows import _AlertRow
+from metatv.gui.sidebar.alerts_rows import TITLE_INDENT, _AlertRow
 from metatv.gui.sidebar.base import (
     CollapsibleSection, GroupHeading, _fmt_channel_name,
 )
@@ -164,7 +164,7 @@ class EpgGroupMixin:
 
         Args:
             count: Programmes to put on the heading chip. ``None`` counts the
-                tree's own top-level rows, which is right for a populated
+                tree's own programme rows, which is right for a populated
                 render; a notice render passes 0, because the one row it drew
                 is a sentence, not a programme.
         """
@@ -176,7 +176,18 @@ class EpgGroupMixin:
         self._epg_hdr_container.show()
         self.alerts_tree.setVisible(not self._epg_collapsed)
         if count is None:
-            count = self.alerts_tree.topLevelItemCount()
+            # PROGRAMME rows, not top-level items. The two were the same thing
+            # until the "Upcoming" heading became a top-level item of its own,
+            # and then EPG read one higher than the programmes under it — 13
+            # over 3 live and 9 upcoming. Owner: "EPG 13, + UPCOMING 9, should
+            # be 12, right?" Counting what the rows ARE rather than how many
+            # entries the tree holds is also proof against the next piece of
+            # furniture someone adds.
+            tree = self.alerts_tree
+            count = sum(
+                1 for i in range(tree.topLevelItemCount())
+                if isinstance(tree.itemWidget(tree.topLevelItem(i), 0), _AlertRow)
+            )
         self._update_epg_toggle_label(count)
 
     def _hide_epg_subsection(self) -> None:
@@ -605,9 +616,12 @@ class EpgGroupMixin:
         self.alerts_tree.addTopLevelItem(item)
         heading = GroupHeading(
             self.UPCOMING_HEADING, count, interactive=True,
-            # One nesting step in, the same step the child airings take, so it
-            # heads the rows below it instead of lining up with EPG above.
-            indent=_CHILD_INDENT,
+            # The mark fills the reserved play-slot column and the word
+            # starts exactly where the row titles do, so the heading sits IN
+            # the rows' left edge rather than at an indent of its own between
+            # EPG's and theirs.
+            indent=TITLE_INDENT,
+            leading_mark=_icons.group_mark_icon,
             tooltip="Programmes that have not started yet — "
                     "click to collapse or expand",
         )

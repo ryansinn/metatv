@@ -16,7 +16,7 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT
+from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT, ROW_SPACING
 from metatv.gui.token_color import to_qcolor
 
 class GroupHeading(QWidget):
@@ -46,7 +46,7 @@ class GroupHeading(QWidget):
 
     def __init__(self, text: str, count: int | None = None, *,
                  interactive: bool = False, tooltip: str = "", news: int = 0,
-                 indent: int = 0, parent=None):
+                 indent: int = 0, leading_mark: str = "", parent=None):
         """
         Args:
             text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
@@ -59,6 +59,13 @@ class GroupHeading(QWidget):
                 collapsed — see :meth:`set_news`.
             interactive: Whether clicking toggles the group. Adds the
                 pointing-hand cursor and emits :attr:`clicked`.
+            leading_mark: A glyph centred in the indent column, before the
+                label — ``icons.group_mark_icon`` for a nested heading. With
+                one, the ``indent`` belongs to the MARK and the label begins
+                where the indent ends, so the word lines up with the row titles
+                beneath it. Without it a nested heading floats at an indent of
+                its own, between its parent's left edge and its rows', and the
+                eye walks a staircase down the panel.
             indent: Left inset, for a heading NESTED inside another group.
                 Watch Alerts' "Upcoming" sits inside EPG, and at zero inset it
                 lines up with EPG itself and reads as its sibling rather than
@@ -75,8 +82,18 @@ class GroupHeading(QWidget):
         # gap that separates groups sits above the heading rather than being
         # split evenly around it. Halved with the rows it sits over — 10px of
         # lead-in over a 17px label was reading as a blank row of its own.
-        row.setContentsMargins(4 + indent, 5, 4, 1)
+        # With a mark the inset belongs to IT — the label then begins where
+        # the inset ends, which is the whole point of the column.
+        row.setContentsMargins(4 if leading_mark else 4 + indent, 5, 4, 1)
         row.setSpacing(0)
+
+        if leading_mark:
+            self.mark_label = QLabel(leading_mark)
+            _theme.style(self.mark_label, "SIDEBAR_GROUP_HEADING")
+            self.mark_label.setFixedWidth(indent - ROW_SPACING)
+            self.mark_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            row.addWidget(self.mark_label)
+            row.addSpacing(ROW_SPACING)
 
         self.label = QLabel(text)
         font = self.label.font()

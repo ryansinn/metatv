@@ -121,6 +121,11 @@ _CHIP_ROLES = {
 #: the two Alerts used — "maybe minus 1 pixel".
 ROW_LEADING_PX = 1
 
+#: Gap between a row's leading elements — slot, icon, title, chips. Named
+#: because anything that has to LINE UP with a row title has to add it, and a
+#: second literal 5 somewhere else is a second definition of this layout.
+ROW_SPACING = 5
+
 TITLE_OBJECT_NAME = "chipRowTitle"
 META_OBJECT_NAME = "chipRowMeta"
 
@@ -519,7 +524,7 @@ def build_chip_row(
         outer = None
         layout = QHBoxLayout(row)
         layout.setContentsMargins(4 + indent, 1, 8, 1)
-    layout.setSpacing(5)
+    layout.setSpacing(ROW_SPACING)
 
     # Absolute left, ahead of every other leading element: the slot is the
     # column titles align against, so anything placed before it would break the

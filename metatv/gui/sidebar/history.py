@@ -22,6 +22,11 @@ from metatv.gui import theme as _theme
 HISTORY_ROW_LIMIT = 300
 
 
+#: The episode this row names, kept off ``UserRole`` — that holds the channel
+#: id and a dozen handlers read it back.
+_ROLE_EPISODE_ID = Qt.ItemDataRole.UserRole + 7
+
+
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
     def budgeted_list(self):
@@ -53,7 +58,11 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     EXPLORE_KEY = "history"
 
-    historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
+    # channel_id, episode_id — the episode this row NAMES, "" when it names
+    # none. Two arguments rather than a second signal: a double-click is one
+    # action with one handler, and splitting it by row kind is how a surface
+    # grows a parallel play path.
+    historyItemClicked = pyqtSignal(str, str)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
     #: Age-scoped clear; carries the day threshold.
@@ -134,6 +143,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         for dto in dtos:
             item = QListWidgetItem(self.history_list)
             item.setData(Qt.ItemDataRole.UserRole, dto.id)
+            item.setData(_ROLE_EPISODE_ID, dto.episode_id or "")
             title = dto.detected_title or dto.name
             trailing_button = self._build_play_next_button(dto) if dto.has_next else None
             # The episode code moves OFF the title and onto the meta line, where
@@ -204,9 +214,20 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         return next_btn
 
     def on_history_item_clicked(self, item):
+        """Double-click: play what this row is ABOUT.
+
+        A series row names one episode — the one you last watched, which is the
+        code on its meta line. Sending only the channel id made the host
+        re-derive a target from the series, and for a finished episode with
+        nothing after it that resolved to no target at all, so a double-click
+        opened the series browser instead of playing. Owner: "double clicking a
+        watched episode in history doesn't play the episode (it should play on
+        double click) it instead opens the browse the series."
+        """
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if channel_id:
-            self.historyItemClicked.emit(channel_id)
+            self.historyItemClicked.emit(channel_id,
+                                         item.data(_ROLE_EPISODE_ID) or "")
 
     def on_history_item_selected(self, current, previous):
         if not current:
