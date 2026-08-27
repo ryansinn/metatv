@@ -127,15 +127,32 @@ class RecommendedSection(CollapsibleSection):
             RecScoringSettings, compute_weights, score_candidates, record_impressions,
             version_score,
         )
-        from metatv.core.filter_utils import get_active_category_filter, keyword_exclusion_list
+        from metatv.core.discovery_engine import build_adult_filter
+        from metatv.core.filter_utils import (
+            excluded_tag_content_types,
+            get_active_category_filter,
+            get_excluded_prefixes,
+            keyword_exclusion_list,
+        )
         from metatv.core.database import MetadataDB
         from metatv.core.repositories import RepositoryFactory
-        excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
+        # THE SAME exclusion set every other surface resolves. This section
+        # resolved one of the four and the rail showed content the user had
+        # excluded — including adult content with the adult filter on, because
+        # ``build_adult_filter`` was never called here at all.
+        #
+        # Resolved the way ``discover_workers`` resolves it, deliberately: the
+        # category axis and the per-prefix axis are UNIONED into the prefix
+        # exclusion, which is the existing convention and not something to
+        # re-invent one caller at a time.
+        cat_excluded, include_uncategorized = get_active_category_filter(self.config)
+        excluded_prefixes = list(set(cat_excluded or []) | get_excluded_prefixes(self.config))
         _config = self.config
         # Same steering the Recommendations dashboard uses — one config, one engine.
         settings = RecScoringSettings.from_config(_config)
         session = self.db.get_session()
         try:
+            adult_mode, force_adult_ids = build_adult_filter(session, self.config)
             weights = compute_weights(session, settings=settings)
             if weights.is_empty():
                 self._rec_data_ready.emit(None)
@@ -148,6 +165,9 @@ class RecommendedSection(CollapsibleSection):
                 include_uncategorized=include_uncategorized,
                 excluded_keywords=keyword_exclusion_list(self.config) or None,
                 excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
+                excluded_content_types=excluded_tag_content_types(self.config) or None,
+                adult_mode=adult_mode,
+                force_adult_provider_ids=force_adult_ids or None,
                 version_scorer=lambda ch: version_score(ch, _config),
                 diversify_people=True,
                 settings=settings,
