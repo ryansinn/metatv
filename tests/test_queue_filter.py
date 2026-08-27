@@ -124,23 +124,32 @@ class TestTheHeaderToggle:
         assert section._filter_btn.toolTip()
         assert not section._filter_btn.isChecked()
 
-    def test_putting_it_away_gives_the_space_to_the_list(self, section):
-        """The point of the toggle, measured in pixels of list.
+    def test_putting_it_away_gives_the_space_back(self, section):
+        """The point of the toggle, measured in pixels — of the SECTION.
 
-        A hidden widget still in the layout would keep its row and prove
-        nothing — so this asserts the LIST actually got taller.
+        This measured the LIST, and that stopped being the right place to look
+        when sections gained a content cap (#487/#489): ``fit_to_rows`` pins
+        each view to exactly its rows, so the list is sized by its CONTENT and
+        hiding a sibling widget cannot make it taller. The freed row now goes
+        to the section's neighbours instead, which is the behaviour the cap
+        exists for.
+
+        So the assertion moves up a level to the thing that must still be true:
+        a hidden widget that kept its row would leave the section wanting the
+        same height either way. That is exactly what "hidden but still in the
+        layout" looks like, and it is what this test was written to catch.
         """
         section._set_filter_visible(True, save=False)
         QApplication.processEvents()
-        with_box = section._list.height()
+        with_box = section._content_height()
 
         section._set_filter_visible(False, save=False)
         QApplication.processEvents()
-        without_box = section._list.height()
+        without_box = section._content_height()
 
-        assert without_box > with_box, (
-            f"hiding the filter freed no space: list is {without_box}px either "
-            f"way, so the box is still occupying its row"
+        assert without_box < with_box, (
+            f"hiding the filter freed no space: the section wants "
+            f"{without_box}px either way, so the box is still occupying its row"
         )
 
     def test_revealing_it_focuses_it_so_you_can_just_type(self, section):

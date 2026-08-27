@@ -96,7 +96,22 @@ def test_authoring_surface_is_scale_choices_not_values():
         if isinstance(t, dict) and "$value" in t and not t["$value"].startswith("{")
     ]
     assert literals == [], f"palette hard-codes colours instead of referencing scales: {literals}"
-    assert len(doc["$scales"]) <= 8, "a theme should be a handful of scale choices"
+
+    # 8 -> 16. The first number was written when a palette named a handful of
+    # HUES; it now also names the SEMANTIC roles those hues serve — ok, warn,
+    # err, info alongside blue, cyan, amber, red. That is the same idea one
+    # level up, not the flatness this test exists to prevent: the assertion
+    # above is the one that catches that, and every value in every palette is
+    # still a {reference}, never a literal.
+    #
+    # Midnight names 14 (amber, blue, cyan, err, green, info, neutral, ok,
+    # orange, primary, purple, red, teal, warn); Gruvbox names 16. A cap under
+    # those would force a palette to alias a status colour onto a hue and lose
+    # the ability to tune them apart, which is what the semantic names bought.
+    assert len(doc["$scales"]) <= 16, (
+        f"{len(doc['$scales'])} scales — a theme names hues and the roles they "
+        "serve, not one entry per colour it wants"
+    )
 
 
 def test_alpha_steps_become_qt_safe_rgba(tokens):

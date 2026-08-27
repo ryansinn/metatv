@@ -898,7 +898,12 @@ class SettingsTabsMixin:
             '"Show N more" row that makes the section taller — for pointing\n'
             "devices that cannot scroll."
         )
-        density_form.addRow("", self._show_more_row_check)
+        # addRow(widget), not addRow("", widget). An empty label still OCCUPIES
+        # the label column, so the checkbox sits in the FIELD column while every
+        # other unlabelled checkbox on this page spans both — 195 against 297.
+        # This is the exact trap tests/test_settings_form_alignment.py exists
+        # for (#323).
+        density_form.addRow(self._show_more_row_check)
         sidebar_layout.addLayout(density_form)
 
         hint = QLabel(

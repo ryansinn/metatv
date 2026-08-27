@@ -10,6 +10,7 @@ import pytest
 
 from tests.conftest import wire_header_search_sync
 from unittest.mock import MagicMock, patch, call
+from tests.conftest import wire_nav_host
 
 
 def _build_mock_window():
@@ -17,6 +18,12 @@ def _build_mock_window():
 
     with patch.object(mw_module.MainWindow, "__init__", lambda self: None):
         win = mw_module.MainWindow.__new__(mw_module.MainWindow)
+    # Not QMainWindow.__init__ — running Qt's constructor on this half-built
+    # object aborts the interpreter. The failure was a READ of an attribute
+    # nobody set: on a __new__'d QObject that raises RuntimeError rather than
+    # AttributeError, which is why it read as "super-class __init__ was never
+    # called" and not as a missing attribute. Setting it is the whole fix.
+    wire_nav_host(win)
 
     # Widgets that _hide_all_content_views hides
     win.channels_list          = MagicMock()
