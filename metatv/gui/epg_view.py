@@ -467,8 +467,8 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         for _id, name, data_end in stale:
             try:
                 day = _to_local(data_end).strftime("%d %b %Y").lstrip("0")
-            except Exception:
-                day = str(data_end)
+            except (TypeError, ValueError, OSError, OverflowError):
+                day = str(data_end)  # silent: unformattable date still names the source
             parts.append(f"{name} (guide ends {day})")
         self._stale_epg_notice.setText(
             f"{_icons.notification_warning_icon}  Stale guide data — these sources' "

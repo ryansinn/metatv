@@ -297,8 +297,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             try:
                 avail = compute_alert_availability(self.config, repos)
                 self._available_unviewed = avail.unviewed_total
-            except Exception:  # noqa: BLE001
-                self._available_unviewed = None  # fall back to raw config count
+            except Exception:  # silent: the raw config count is the documented fallback
+                self._available_unviewed = None
             # Alerts Matched (topmost group) — carried as side-channel instance
             # attributes (same pattern as ``_available_unviewed`` above) rather than
             # widening this method's return value, so every existing caller that
@@ -316,7 +316,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                     s for s in self.config.get_monitored_series()
                     if (s.get("unseen_new") or 0) > 0
                 ]
-            except Exception:  # noqa: BLE001
+            except Exception:  # silent: no monitored series is a valid empty state
                 self._alerts_matched_series = []
             return entries
 

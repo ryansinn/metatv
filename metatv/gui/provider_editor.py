@@ -114,7 +114,9 @@ class TestAllURLsThread(QThread):
     def run(self):
         try:
             asyncio.run(self._test_all())
-        except Exception as e:
+        except Exception:
+            # An empty result with no reason reads as "all of them failed".
+            logger.exception("Testing all provider URLs failed")
             self.all_done.emit([])
 
     async def _test_all(self):
@@ -1001,5 +1003,5 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             return None
         try:
             return datetime.fromtimestamp(int(ts))
-        except Exception:
-            return None
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None  # silent: junk timestamp from the provider — show nothing

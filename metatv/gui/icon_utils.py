@@ -36,7 +36,7 @@ def resolve_icon(icon_key: str, color: str = _theme.COLOR_TEXT) -> QIcon:
                 icon = qta.icon(key, color=color)
                 if not icon.isNull():
                     return icon
-            except Exception:
+            except Exception:  # silent: qtawesome raises per unknown key; try the next one
                 continue
     except ImportError:
         pass
@@ -110,7 +110,7 @@ def busy_spinner(parent=None, icon_key: str = "mdi6.loading",
             color=color or _theme.COLOR_TEXT,
             animation=qta.Spin(widget, interval=SPIN_INTERVAL_MS, step=SPIN_STEP_DEG),
         ))
-    except Exception:
+    except Exception:  # silent: a spinner is decoration — no icon beats no dialog
         return None
     return widget
 

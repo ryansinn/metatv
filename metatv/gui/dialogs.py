@@ -251,16 +251,16 @@ class AddProviderDialog(QDialog):
                 exp_dt = datetime.fromtimestamp(int(exp_ts))
                 days_left = (exp_dt - datetime.now()).days
                 lines.append(f"  Expires:     {exp_dt.strftime('%Y-%m-%d')}  ({days_left} days remaining)")
-            except Exception:
-                pass
+            except (TypeError, ValueError, OSError, OverflowError):
+                pass  # silent: providers send junk timestamps; omit the line rather than guess
 
         created_ts = info.get("created_at")
         if created_ts:
             try:
                 created_dt = datetime.fromtimestamp(int(created_ts))
                 lines.append(f"  Created:     {created_dt.strftime('%Y-%m-%d')}")
-            except Exception:
-                pass
+            except (TypeError, ValueError, OSError, OverflowError):
+                pass  # silent: providers send junk timestamps; omit the line rather than guess
 
         active = info.get("active_cons", 0)
         max_c = info.get("max_connections", 1)
@@ -353,8 +353,8 @@ class AddProviderDialog(QDialog):
                     created_ts = info.get("created_at")
                     if created_ts:
                         db_provider.account_created_at = datetime.fromtimestamp(int(created_ts))
-                except Exception:
-                    pass
+                except (TypeError, ValueError, OSError, OverflowError):
+                    pass  # silent: junk timestamps — store what parsed, skip what did not
             session.add(db_provider)
             session.commit()
         finally:

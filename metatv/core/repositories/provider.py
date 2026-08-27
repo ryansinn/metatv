@@ -25,8 +25,8 @@ def parse_provider_urls(raw: "str | list | None") -> list[dict]:
             return []
         try:
             raw = json.loads(raw)
-        except Exception:
-            return []
+        except (ValueError, TypeError):
+            return []  # silent: a malformed stored value means "no urls", which is the fallback
     return [u for u in (raw or []) if isinstance(u, dict)]
 
 

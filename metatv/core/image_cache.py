@@ -217,8 +217,8 @@ class ImageCache(QObject):
                 return True
             
             return False
-        except Exception:
-            return False
+        except OSError:
+            return False  # silent: unreadable or truncated file is not a valid image
     
     def _cleanup_if_needed(self):
         """LRU cleanup if cache exceeds max size"""

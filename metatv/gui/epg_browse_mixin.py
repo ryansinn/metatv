@@ -256,8 +256,8 @@ class _EpgBrowseMixin:
         if _saved_header:
             try:
                 hdr.restoreState(QByteArray.fromBase64(_saved_header.encode("ascii")))
-            except Exception:
-                pass  # corrupt/stale state → keep the default column order
+            except Exception:  # silent: Qt raises broadly on corrupt saved state, and
+                pass           # falling back to the default column order IS the recovery
         hdr.sectionMoved.connect(self._save_browse_header_state)
 
         # Restore persisted sort — migrate the OLD (pre-Q1/Q2) column index once via
