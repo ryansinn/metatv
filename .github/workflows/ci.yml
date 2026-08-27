@@ -1,0 +1,79 @@
+# Test every pull request, on both platforms, BEFORE it can reach main.
+#
+# This did not exist until 2026-08-27, and its absence is the single most
+# expensive gap the external audit found. The only workflow was the macOS
+# release build, triggered on push to main — so the suite ran AFTER merge, as
+# step one of the build that ships to the tester.
+#
+# What that cost, measured on one week:
+#   - 58 test failures accumulated across five merges before anything noticed.
+#     Every one came from a cross-cutting change breaking files the PR never
+#     touched, which the local --quick gate cannot see by construction: it runs
+#     only a PR's OWN changed test files.
+#   - The macOS release build failed on every push for three weeks. Eight of
+#     its nine failures pre-dated the week entirely. Nobody was looking, because
+#     looking meant opening the Actions tab rather than being told.
+#
+# BOTH platforms run, and that is deliberate rather than thorough-for-its-own-
+# sake. Linux is where the app is developed; macOS is where it ships, and the
+# nine failures that hid for three weeks were macOS-only — a menu bar that is a
+# system bar rather than a window widget, and a font rasterizer that paints the
+# same token 16px where Linux paints 18. A Linux-only gate would have caught
+# none of them.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same PR makes the previous run irrelevant. Cancelling keeps
+# the queue short so the gate stays fast enough that nobody wants it skipped.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report both. Cancelling the sibling on first failure hides whether a
+      # failure is platform-specific, which is the single most useful thing
+      # this matrix tells you.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 3.12, matching the release build — NOT the 3.14 used locally.
+          # PEP 649 makes 3.14 evaluate annotations lazily, so a function
+          # annotated with a name its module never imports passes locally and
+          # fails at import time here. This job is where that class is caught.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libdbus-1-3 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 \
+            libxcb-cursor0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -q

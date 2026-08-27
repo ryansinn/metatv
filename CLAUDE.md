@@ -162,6 +162,16 @@ Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it a
 
 One directive per rule; violations here have burned real money and real trust. No exceptions without the owner saying so in the moment.
 
+### CI tests every pull request — the local gate is now a fast pre-check
+`.github/workflows/ci.yml` runs the FULL suite on Linux and macOS for every PR. That is the
+authoritative gate; `--quick` is a local pre-check to catch the obvious before pushing, not a
+substitute. The rule below was written when no CI existed and the local gate was all there was.
+
+**Why it exists, so nobody removes it:** `--quick` runs only a PR's OWN changed test files, so a
+cross-cutting change breaks files the PR never touched and nothing reports it. That is not
+hypothetical — 58 failures accumulated across five merges in one week, and the macOS release build
+failed on every push for three weeks with eight failures that pre-dated all of it.
+
 ### One gate, no double-testing
 Feature-work merges gate with **`--quick`** (launch smoke + the PR's own changed test files, seconds); the **full** suite runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
 Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
