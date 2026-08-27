@@ -40,11 +40,17 @@ def test_body_text_clears_the_legibility_floor(qtbot):
     """Body carries the app; it rendered 15px tall before V3.
 
     A floor, not an equality — a later scale is free to grow it.
+
+    16, not 17. The same token paints 18px on Linux and 16px on macOS: font
+    rasterisation is a PLATFORM property, and a floor set from one machine's
+    numbers is an assertion about that machine. 17 failed every macOS CI run
+    while the scale was perfectly correct there. 16 still catches the
+    regression this was written for — the pre-V3 ramp rendered body at 15.
     """
     height, _ = _rendered(qtbot, theme.FONT_MD)
-    assert height >= 17, (
-        f"body text renders {height}px tall; the V3 baseline is 18px and the "
-        "pre-V3 one was 15px"
+    assert height >= 16, (
+        f"body text renders {height}px tall; the pre-V3 ramp rendered 15px "
+        "and this is the guard against falling back to it"
     )
 
 

@@ -104,9 +104,17 @@ def test_the_bullets_still_clear_the_legibility_floor(card_labels):
 
     Without it, "size it down" has no stopping point and the next nudge is
     unreadable rather than merely smaller.
+
+    Measured against what body text paints ON THIS PLATFORM, not against a
+    number. The first version asserted ``>= 17``, which is what FONT_MD paints
+    on Linux — and macOS paints the same token at 16, so it failed CI while the
+    bullets were exactly the size intended. The claim was never "17px"; it was
+    "no smaller than body text", and that is what this now says.
     """
-    assert card_labels["item"] >= 17, (
-        f"bullets paint {card_labels['item']}px; body text's floor is 17px"
+    body = _rendered_px(theme.FONT_MD)
+    assert card_labels["item"] >= body, (
+        f"bullets paint {card_labels['item']}px against body text's {body}px — "
+        "they have gone below the size the rest of the app reads at"
     )
 
 
