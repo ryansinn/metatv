@@ -461,18 +461,10 @@ class TestIncrementalTagging:
     """Behavioral tests for the skip-unchanged fingerprint logic and defer-during-migration."""
 
     def _run_update_tags(self, db: Database, provider_id: str, provider_name: str, cfg: Config) -> None:
-        """Drive _update_tags_in_thread via a minimal ProviderLoadThread stub."""
-        from unittest.mock import MagicMock
-        from metatv.core.provider_loader import ProviderLoadThread
+        """Drive _update_tags_in_thread via the shared ProviderLoadThread skeleton."""
+        from tests.conftest import make_provider_load_thread
 
-        provider = MagicMock()
-        provider.id = provider_id
-        provider.name = provider_name
-
-        thread = ProviderLoadThread.__new__(ProviderLoadThread)
-        thread.db = db
-        thread.provider = provider
-        thread._update_tags_in_thread()
+        make_provider_load_thread(db, provider_id, provider_name)._update_tags_in_thread()
 
     def test_unchanged_channel_skipped_on_second_run(self, file_db, cfg, monkeypatch):
         """A channel whose feeder fields have not changed is NOT re-tagged on second run.

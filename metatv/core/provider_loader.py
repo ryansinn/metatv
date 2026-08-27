@@ -751,8 +751,11 @@ class ProviderLoadThread(QThread):
                         .all()
                     )
 
-                    # Collect (channel_id, new_fingerprint) pairs that need updating.
+                    # Collected across the batch, written in three statements
+                    # after the loop rather than three per channel.
                     fingerprint_updates: list[tuple[str, str]] = []
+                    retag_ids: list[str] = []
+                    tag_map: dict[str, list] = {}
 
                     for row in rows:
                         (
@@ -788,8 +791,9 @@ class ProviderLoadThread(QThread):
                             skipped += 1
                             continue
 
-                        # Non-destructive: scrub only generated tags; user tags survive.
-                        repos.tags.delete_generated_for_channel(channel_id)
+                        # Non-destructive: scrub only generated tags; user tags
+                        # survive. Collected for ONE bulk DELETE after the loop.
+                        retag_ids.append(channel_id)
 
                         all_tags = _collect_tags(
                             config=config,
@@ -807,19 +811,25 @@ class ProviderLoadThread(QThread):
                         )
 
                         if all_tags:
-                            repos.tags.set_content_tags(
-                                channel_id, all_tags, source="generated"
-                            )
+                            tag_map[channel_id] = all_tags
 
                         fingerprint_updates.append((channel_id, current_fp))
 
-                    # Batch-update fingerprints for all channels we just (re-)tagged.
-                    for channel_id, fp in fingerprint_updates:
+                    # Three statements per BATCH, not per channel — this used
+                    # to be ~2,000 round-trips per 500 channels, on every source
+                    # refresh. Order holds: each channel's generated links are
+                    # only touched by its own delete, and all deletes precede
+                    # all writes. Measured in tests/test_tag_write_batching.py.
+                    if retag_ids:
+                        repos.tags.delete_generated_for_channels(retag_ids)
+                    if tag_map:
+                        repos.tags.set_content_tags_bulk(tag_map, source="generated")
+                    if fingerprint_updates:
                         session.execute(
                             _text(
                                 "UPDATE channels SET tag_fingerprint = :fp WHERE id = :id"
                             ),
-                            {"fp": fp, "id": channel_id},
+                            [{"fp": fp, "id": cid} for cid, fp in fingerprint_updates],
                         )
 
             except Exception as e:

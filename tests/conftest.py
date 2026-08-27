@@ -1558,3 +1558,38 @@ def _bundled_ui_font():
     app = QApplication.instance() or QApplication([])
     _fonts.apply_ui_font(app)
     yield
+
+
+def make_provider_load_thread(db, provider_id: str, provider_name: str = "Test Source"):
+    """A ``ProviderLoadThread`` skeleton for driving its worker-thread methods.
+
+    ``__new__`` skips ``QThread.__init__``, which is what makes the object cheap
+    and also what makes ``self.progress.emit`` raise ``RuntimeError`` — the
+    class absorbs that in ``_try_emit_progress`` specifically for this path.
+
+    It lives here rather than in each test file because the alternative is a
+    hand-rolled stub per suite, and a hand-rolled stub is missing whatever the
+    method under test touches next (CLAUDE.md: "Test doubles that skip
+    ``__init__`` — wire them from ``tests/conftest.py``"). A ``SimpleNamespace``
+    fails immediately on ``_try_emit_progress``; the real class does not.
+
+    Args:
+        db: A ``Database`` instance the method should read and write.
+        provider_id: The ``ProviderDB.id`` whose channels are in scope.
+        provider_name: Only used in log lines.
+
+    Returns:
+        A ``ProviderLoadThread`` with ``db`` and ``provider`` set.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.provider_loader import ProviderLoadThread
+
+    provider = MagicMock()
+    provider.id = provider_id
+    provider.name = provider_name
+
+    thread = ProviderLoadThread.__new__(ProviderLoadThread)
+    thread.db = db
+    thread.provider = provider
+    return thread
