@@ -97,13 +97,22 @@ class GroupHeading(QWidget):
         # same thing at every level of the sidebar. Built through chip_row's
         # CHIP_NEWS rather than a local sheet — that is the one definition of
         # this pill, and it re-renders on a palette switch.
-        from metatv.gui.chip_row import CHIP_NEWS, chip_widget
+        from metatv.gui.chip_row import CHIP_NEWS, CHIP_YEAR, chip_widget
         self.news_chip = chip_widget(CHIP_NEWS, "")
         row.addSpacing(6)
         row.addWidget(self.news_chip)
         self.set_news(news)
 
         row.addStretch(1)
+
+        # Right-aligned, past the stretch: a fact about the group that has to
+        # survive a collapse, the way :meth:`set_news` does. CHIP_YEAR is the
+        # same outlined chip the ROWS use for their own time, so a heading
+        # standing in for a hidden row looks like the row it replaced rather
+        # than like a new kind of thing.
+        self.tail_chip = chip_widget(CHIP_YEAR, "")
+        row.addWidget(self.tail_chip)
+        self.set_tail("")
 
         if interactive:
             cursor_affordance.set_clickable(self)
@@ -128,6 +137,24 @@ class GroupHeading(QWidget):
         """
         self.news_chip.setText(f"+{news}" if news > 0 else "")
         self.news_chip.setVisible(news > 0)
+
+    def set_tail(self, text: str) -> None:
+        """Show a right-aligned chip, or hide it when ``text`` is empty.
+
+        The counterpart to :meth:`set_news`, and it earns its place the same
+        way: while the group is OPEN the rows carry this fact themselves and a
+        chip here would say it twice; while it is CLOSED the heading is the
+        only thing left that can say it. Watch Alerts uses it for when the next
+        upcoming programme starts — owner: "a chip that replicates the next
+        upcoming show time ... that appears when it's collapsed and disappears
+        when expanded".
+
+        Args:
+            text: What to show, already formatted by the caller. Empty hides
+                the chip entirely rather than leaving a blank pill behind.
+        """
+        self.tail_chip.setText(text)
+        self.tail_chip.setVisible(bool(text))
 
     def mousePressEvent(self, event):  # noqa: N802 (Qt override)
         if self._interactive:

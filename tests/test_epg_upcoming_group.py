@@ -220,6 +220,78 @@ class TestFoldingIt:
         assert _visible(section) == before
 
 
+class TestTheTimeSurvivesTheCollapse:
+    """A closed group still says when the next one starts.
+
+    The same rule ``GroupHeading.set_news`` already encodes: open, the rows
+    carry the fact and a chip would say it twice; closed, the heading is the
+    only thing left that can say it. Owner: "a chip that replicates the next
+    upcoming show time ... that appears when its collapsed and disappears when
+    expanded".
+    """
+
+    def test_the_chip_is_hidden_while_the_group_is_open(self, section):
+        heading = _heading(section)
+        assert heading.tail_chip.text() == ""
+        assert not heading.tail_chip.isVisible()
+
+    def test_it_appears_on_collapse_and_goes_again_on_expand(
+            self, qtbot, section):
+        section._toggle_epg_upcoming()
+        _settle(qtbot, section)
+        heading = _heading(section)
+        assert heading.tail_chip.text(), "collapsed, but no time on the heading"
+        assert heading.tail_chip.isVisible()
+
+        section._toggle_epg_upcoming()
+        _settle(qtbot, section)
+        heading = _heading(section)
+        assert heading.tail_chip.text() == ""
+        assert not heading.tail_chip.isVisible()
+
+    def test_it_renders_the_same_instant_the_first_row_does(
+            self, qtbot, section):
+        """Not merely "some time" — the chip stands in for a specific row, and
+        two renderings of one instant that disagree are worse than no chip."""
+        from metatv.gui.sidebar.alerts_rows import _AlertRow
+
+        tree = section.alerts_tree
+        rows = [tree.itemWidget(item, 0) for item in _tops(section)]
+        first_upcoming = next(
+            r for r in rows
+            if isinstance(r, _AlertRow) and r.time_lbl is not None
+            and not r._live
+        )
+        now = NOW
+        first_upcoming.refresh_time(now)
+        section.config.alerts_epg_upcoming_collapsed = True
+        section._refresh_upcoming_tail(now)
+        assert _heading(section).tail_chip.text() == first_upcoming.time_lbl.text()
+
+    def test_the_clock_tick_keeps_it_honest(self, qtbot, section):
+        """A rendered time goes stale; the section already ticks for the rows,
+        and a chip that did not join the tick would drift away from them."""
+        section._toggle_epg_upcoming()
+        _settle(qtbot, section)
+        section._refresh_upcoming_tail(NOW)
+        early = _heading(section).tail_chip.text()
+
+        section._refresh_upcoming_tail(NOW + timedelta(minutes=45))
+        assert _heading(section).tail_chip.text() != early, (
+            f"the chip still reads {early!r} three quarters of an hour later"
+        )
+
+    def test_the_tick_and_the_rows_share_one_reading_of_now(self, section):
+        """``_tick`` must pass its own ``now`` down, not call the clock twice."""
+        import inspect
+
+        source = inspect.getsource(section._tick.__func__)
+        assert "_refresh_upcoming_tail(now)" in source, (
+            "the tick re-reads the clock for the chip, so the chip and the "
+            "rows can disagree by a tick"
+        )
+
+
 def test_an_empty_refresh_then_a_toggle_does_not_crash(qtbot, section):
     """Found by running the code rather than by reading it.
 

@@ -374,6 +374,17 @@ class EpgGroupMixin:
         # happen on the next toggle if an empty refresh took a return below
         # without passing through the rebuild that repopulates it.
         self._upcoming_items: list[QTreeWidgetItem] = []
+        #: The heading's own item, dropped here for the SAME reason as the list
+        #: above and not merely alongside it: it is a tree item too, the clear
+        #: deletes it too, and reading it back after an empty refresh raises
+        #: the same RuntimeError. Adding a second tracked item without
+        #: extending this reset is exactly how the first one got missed.
+        self._upcoming_heading_item = None
+        #: When the SOONEST upcoming programme starts, for the collapsed
+        #: heading's chip. Kept as the timestamp, not the rendered string, for
+        #: the reason the rows keep theirs: the text goes stale on the clock
+        #: tick and the instant does not.
+        self._upcoming_next_when = None
 
         if not live_groups and not upcoming_only:
             # Nothing to list. The group VANISHING here is what made a working
@@ -521,6 +532,13 @@ class EpgGroupMixin:
 
         if upcoming_only:
             self._add_upcoming_heading(len(upcoming_only))
+            # Soonest first, which is the order the block is built in — so the
+            # chip names the same airing as the first row under the heading.
+            self._upcoming_next_when = min(
+                (_when(a) for grp in upcoming_only.values()
+                 for a in grp["airings"] if _when(a) is not None),
+                default=None,
+            )
             for key, grp in sorted(upcoming_only.items(),
                                    key=lambda kv: min(a[0] for a in kv[1]['airings'])):
                 title = grp['title']
@@ -616,6 +634,38 @@ class EpgGroupMixin:
         collapsed = bool(self.config.alerts_epg_upcoming_collapsed)
         for item in self.__dict__.get("_upcoming_items", ()):
             item.setHidden(collapsed)
+        self._refresh_upcoming_tail()
+
+    def _upcoming_heading(self) -> "GroupHeading | None":
+        """The Upcoming heading widget, or None when the block is not built."""
+        item = self.__dict__.get("_upcoming_heading_item")
+        if item is None or "alerts_tree" not in self.__dict__:
+            return None
+        widget = self.alerts_tree.itemWidget(item, 0)
+        return widget if isinstance(widget, GroupHeading) else None
+
+    def _refresh_upcoming_tail(self, now=None) -> None:
+        """Put the next start time on the heading, but only while it is closed.
+
+        Through ``humanize_until`` with the same arguments the rows pass, so
+        the chip and the first row under it cannot render the same instant two
+        different ways.
+
+        Args:
+            now: The instant to render against; defaults to the current one.
+                Passed in from the clock tick so every row and this chip share
+                one reading of the time.
+        """
+        heading = self._upcoming_heading()
+        if heading is None:
+            return
+        when = self.__dict__.get("_upcoming_next_when")
+        show = bool(self.config.alerts_epg_upcoming_collapsed) and when is not None
+        heading.set_tail(
+            humanize_until(when, now or _now_utc(),
+                           to_local=_to_local, is_local_today=_is_local_today)
+            if show else ""
+        )
 
     def _start_clock(self) -> None:
         """Begin the 30-second repaint tick, once.
@@ -685,6 +735,10 @@ class EpgGroupMixin:
         now = _now_utc()
         for _item, row in self._iter_rows():
             row.refresh_time(now)
+        # The collapsed heading's chip is a rendered time like any other and
+        # goes stale on the same schedule. Same ``now``, so it cannot drift
+        # from the rows by a tick.
+        self._refresh_upcoming_tail(now)
 
     def _schedule_boundary(self, live_groups: dict, upcoming_only: dict) -> None:
         """Reload once, at the next instant the LIST ITSELF changes.

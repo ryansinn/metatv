@@ -13,6 +13,9 @@ ENTRY = WhatsNewEntry(
         "What is on now has no heading of its own. It is at the top where it "
         "always was, and a label there would cost a row to say what you can "
         "already see.",
+        "While it is folded, the heading carries a chip showing when the next "
+        "one starts - so putting the list away does not cost you the one fact "
+        "you were keeping it open for. It disappears again when you expand.",
         "The choice is remembered, and a guide refresh no longer re-opens it.",
         "Every sidebar section now draws its content rows at the same height. "
         "Watch Alerts sized its rows from the font's full line box so "
@@ -27,6 +30,9 @@ ENTRY = WhatsNewEntry(
         "step under EPG.",
         "Click the UPCOMING heading - those rows fold away, the count stays, "
         "and the Watch Alerts section gets visibly shorter.",
+        "A time chip appears at the right of the UPCOMING heading. It must "
+        "read the same time the first row under it showed before you "
+        "collapsed, and must vanish when you expand again.",
         "Check the section below Watch Alerts - it should grow into the space "
         "that was released.",
         "Wait for the guide to refresh, or switch views and back - UPCOMING "
