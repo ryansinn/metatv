@@ -8,7 +8,11 @@ MetaTV is a Python/PyQt6 IPTV client. It connects to Xtream API providers, cache
 
 ## Architecture
 
-`core/` business logic (no UI deps) · `gui/` PyQt6 widgets · `providers/` IPTV source plugins · `metadata_providers/` enrichment plugins. Full directory map + per-file responsibilities: docs/ARCHITECTURE.md.
+`core/` business logic (no UI deps) · `gui/` PyQt6 widgets · `providers/` IPTV source plugins · `metadata_providers/` enrichment plugins.
+
+**There is deliberately no directory map.** `docs/ARCHITECTURE.md` was one — 76 hand-written lines describing 621 files — and it decayed to covering ~17% of `gui/` and 35% of `core/`, naming deleted modules and omitting whole subsystems (the sidebar package, the token layer, playback, the migration framework, ten of fifteen repositories). It was deleted rather than rewritten: a hand-maintained enumeration of a tree this size cannot stay true, and a map that is confidently wrong is worse than none — it was the file this guide sent newcomers to first.
+
+This is the same failure the code keeps hitting in other clothes (the `refresh_theme()` sweep, hand-listed test config stubs, `_SETTINGS_APPLIED_HOOKS`): **an enumeration never sees what nobody remembered to add.** If a structural map is wanted, GENERATE it from the import graph so it cannot drift. Read the code for structure; read `docs/DESIGN_RATIONALE.md` for why it is shaped that way — decisions do not go stale, descriptions do.
 
 **Data locations:** config `~/.config/metatv/config.yaml` · db `~/.local/share/metatv/metatv.db` · logs `~/.config/metatv/logs/` · image cache `~/.cache/metatv/images/`.
 
