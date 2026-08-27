@@ -125,19 +125,19 @@ class TestVodCountLabel:
     """alerts._vod_count_label — the right-aligned count text."""
 
     def test_unviewed_reads_plus_n(self):
-        from metatv.gui.sidebar.alerts import _vod_count_label
+        from metatv.gui.sidebar.alerts_common import _vod_count_label
         # "+5", not "5 of 20": the count is a narrow CHIP now, and how many
         # are NEW is what earns the space. The total is in the tooltip.
         assert _vod_count_label(5, 20) == "+5"
         assert _vod_count_label(17, 17) == "+17"
 
     def test_all_viewed_reads_the_bare_total(self):
-        from metatv.gui.sidebar.alerts import _vod_count_label
+        from metatv.gui.sidebar.alerts_common import _vod_count_label
         # No leading "·": inside a chip the dot reads as part of the number.
         assert _vod_count_label(0, 31) == "31"
 
     def test_no_matches_is_empty(self):
-        from metatv.gui.sidebar.alerts import _vod_count_label
+        from metatv.gui.sidebar.alerts_common import _vod_count_label
         assert _vod_count_label(0, 0) == ""
 
 

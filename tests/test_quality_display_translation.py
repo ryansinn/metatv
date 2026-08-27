@@ -258,7 +258,8 @@ def _on_now_host():
     """Minimal namespace for calling EpgView._render_on_now (mirrors the
     harness in tests/test_epg_on_now_display.py)."""
     from PyQt6.QtWidgets import QTreeWidget, QLabel
-    from metatv.gui.epg_view import EpgView, _ProgressBarDelegate
+    from metatv.gui.epg_view import EpgView
+    from metatv.gui.epg_widgets import _ProgressBarDelegate
 
     cfg = SimpleNamespace(
         epg_category_overrides={},

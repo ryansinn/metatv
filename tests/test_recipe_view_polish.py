@@ -115,7 +115,7 @@ def _make_view(qapp):
 
 def test_matching_shelf_has_card_context_menu_signal(qapp):
     """_MatchingShelf exposes a cardContextMenu(str, int, int) signal."""
-    from metatv.gui.recipe_view import _MatchingShelf
+    from metatv.gui.recipe_bar_widgets import _MatchingShelf
     from PyQt6.QtCore import QObject, pyqtSignal
 
     class _FakeCache(QObject):
@@ -195,7 +195,7 @@ def test_recipe_view_has_channel_context_menu_required_signal(qapp):
 
 def test_search_bar_has_box(qapp):
     """_TagSearchBar exposes a QLineEdit search box with a clear button."""
-    from metatv.gui.recipe_view import _TagSearchBar
+    from metatv.gui.recipe_widgets import _TagSearchBar
     from PyQt6.QtWidgets import QLineEdit
     bar = _TagSearchBar()
     assert isinstance(bar._box, QLineEdit)

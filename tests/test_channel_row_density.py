@@ -67,11 +67,8 @@ from metatv.gui.channel_list_model import (
     ChannelListModel,
 )
 from metatv.gui.main_window import MainWindow
-from metatv.gui.settings_dialog import (
-    _CHANNEL_DENSITY_CHOICES,
-    _load_channel_density,
-    _save_channel_density,
-)
+from metatv.gui.settings_dialog import _load_channel_density, _save_channel_density
+from metatv.gui.settings_dialog_tabs import _CHANNEL_DENSITY_CHOICES
 
 
 @pytest.fixture()

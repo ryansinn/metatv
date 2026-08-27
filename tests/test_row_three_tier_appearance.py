@@ -27,12 +27,8 @@ import metatv.gui.channel_list_delegate as d
 from metatv.core.channel_name_utils import collection_display
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
-from metatv.gui.channel_list_delegate import (
-    ROW_META_ORDER,
-    ROW_RAIL_ORDER,
-    ChannelRowDelegate,
-    _language_cell,
-)
+from metatv.gui.channel_list_delegate import ChannelRowDelegate
+from metatv.gui.channel_row_cells import ROW_META_ORDER, ROW_RAIL_ORDER, _language_cell
 from tests.conftest import ROW_ROLE_DEFAULTS, paint_channel_row, row_model
 
 PALETTES = list(tp.PALETTES.keys())

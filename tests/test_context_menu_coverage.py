@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import QApplication, QMenu
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
-from metatv.gui.recipe_view import _MatchingShelf
+from metatv.gui.recipe_bar_widgets import _MatchingShelf
 
 
 # ---------------------------------------------------------------------------

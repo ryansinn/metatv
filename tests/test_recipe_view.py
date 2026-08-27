@@ -613,19 +613,19 @@ def test_ingredient_remove_prunes_empty_facet(qapp):
 # ---------------------------------------------------------------------------
 
 def test_generate_recipe_name_empty_is_placeholder():
-    from metatv.gui.recipe_view import _generate_recipe_name
+    from metatv.gui.recipe_widgets import _generate_recipe_name
     name = _generate_recipe_name({}, {})
     assert name == "Your recipe is empty"
 
 
 def test_generate_recipe_name_uses_genre_as_anchor():
-    from metatv.gui.recipe_view import _generate_recipe_name
+    from metatv.gui.recipe_widgets import _generate_recipe_name
     name = _generate_recipe_name({"genre": {"Drama"}}, {})
     assert "Drama" in name
 
 
 def test_generate_recipe_name_without_genre_uses_adjective():
-    from metatv.gui.recipe_view import _generate_recipe_name
+    from metatv.gui.recipe_widgets import _generate_recipe_name
     name = _generate_recipe_name({"language": {"English"}}, {})
     # Must be non-empty and not the empty placeholder
     assert name
@@ -633,14 +633,14 @@ def test_generate_recipe_name_without_genre_uses_adjective():
 
 
 def test_generate_recipe_name_with_excludes_only():
-    from metatv.gui.recipe_view import _generate_recipe_name
+    from metatv.gui.recipe_widgets import _generate_recipe_name
     name = _generate_recipe_name({}, {"genre": {"Horror"}})
     # Non-empty: has some ingredients (excludes)
     assert name
 
 
 def test_generate_recipe_name_includes_decade():
-    from metatv.gui.recipe_view import _generate_recipe_name
+    from metatv.gui.recipe_widgets import _generate_recipe_name
     name = _generate_recipe_name({"decade": {"1980s"}, "genre": {"Action"}}, {})
     assert "1980s" in name
 
@@ -853,7 +853,7 @@ def test_recipe_icons_defined_and_non_empty():
 # ---------------------------------------------------------------------------
 
 def test_facet_color_returns_token_for_known_facets():
-    from metatv.gui.recipe_view import _facet_color
+    from metatv.gui.recipe_widgets import _facet_color
     from metatv.gui import theme as _theme
     assert _facet_color("genre") == _theme.COLOR_FACET_GENRE
     assert _facet_color("language") == _theme.COLOR_FACET_LANGUAGE
@@ -861,7 +861,7 @@ def test_facet_color_returns_token_for_known_facets():
 
 
 def test_facet_color_falls_back_for_unknown():
-    from metatv.gui.recipe_view import _facet_color
+    from metatv.gui.recipe_widgets import _facet_color
     from metatv.gui import theme as _theme
     # Unknown facet should fall back to COLOR_TEXT, not crash
     result = _facet_color("unknown_facet_xyz")
@@ -869,14 +869,14 @@ def test_facet_color_falls_back_for_unknown():
 
 
 def test_facet_display_known_and_unknown():
-    from metatv.gui.recipe_view import _facet_display
+    from metatv.gui.recipe_widgets import _facet_display
     assert _facet_display("genre") == "Genre"
     assert _facet_display("decade") == "Decade"
     assert _facet_display("some_custom") == "Some_Custom"
 
 
 def test_facet_role_known_and_unknown():
-    from metatv.gui.recipe_view import _facet_role
+    from metatv.gui.recipe_widgets import _facet_role
     assert _facet_role("genre") == "BASE"
     assert _facet_role("language") == "IN"
     assert _facet_role("decade") == "ERA"
@@ -891,7 +891,7 @@ def test_role_order_covers_all_known_facets():
     """Every known facet's role appears in _ROLE_ORDER."""
     # _facet_meta() re-reads the current theme token on every call (was a
     # frozen-at-import dict, _FACET_META) — see wave7/theme-system.
-    from metatv.gui.recipe_view import _ROLE_ORDER, _facet_meta
+    from metatv.gui.recipe_widgets import _ROLE_ORDER, _facet_meta
     for ftype, meta in _facet_meta().items():
         role = meta[2]
         assert role in _ROLE_ORDER, (
@@ -1196,7 +1196,7 @@ def test_ingredient_remove_renders_rail_chips_synchronously(qapp):
 
 def test_update_recipe_pending_total_shows_pending_label(qapp):
     """_RecipeBar.update_recipe with total=None shows a pending yield (no number)."""
-    from metatv.gui.recipe_view import _RecipeBar
+    from metatv.gui.recipe_bar_widgets import _RecipeBar
 
     bar = _RecipeBar()
     bar.update_recipe({"genre": {"Drama"}}, {}, None)
@@ -1209,7 +1209,7 @@ def test_update_recipe_pending_total_shows_pending_label(qapp):
 
 def test_update_recipe_real_total_shows_count(qapp):
     """_RecipeBar.update_recipe with a real total shows the numeric yield."""
-    from metatv.gui.recipe_view import _RecipeBar
+    from metatv.gui.recipe_bar_widgets import _RecipeBar
 
     bar = _RecipeBar()
     bar.update_recipe({"genre": {"Drama"}}, {}, 42)
@@ -1220,7 +1220,7 @@ def test_update_recipe_real_total_shows_count(qapp):
 
 def test_recipe_bar_renders_ingredient_pills(qapp):
     """Ingredients render as pills; Save/Clear enable only when non-empty."""
-    from metatv.gui.recipe_view import _RecipeBar
+    from metatv.gui.recipe_bar_widgets import _RecipeBar
     from PyQt6.QtWidgets import QPushButton
 
     bar = _RecipeBar()
@@ -1239,7 +1239,7 @@ def test_recipe_bar_renders_ingredient_pills(qapp):
 
 def test_recipe_bar_region_ingredient_shows_code_not_name(qapp):
     """A region ingredient pill shows the CODE (ES), never an expanded name."""
-    from metatv.gui.recipe_view import _RecipeBar
+    from metatv.gui.recipe_bar_widgets import _RecipeBar
     from PyQt6.QtWidgets import QPushButton
 
     bar = _RecipeBar()
@@ -1252,7 +1252,7 @@ def test_recipe_bar_region_ingredient_shows_code_not_name(qapp):
 
 def test_recipe_bar_remove_emits_signal(qapp):
     """Clicking an ingredient pill emits ingredient_remove_requested(facet, value)."""
-    from metatv.gui.recipe_view import _RecipeBar
+    from metatv.gui.recipe_bar_widgets import _RecipeBar
     from PyQt6.QtWidgets import QPushButton
 
     bar = _RecipeBar()

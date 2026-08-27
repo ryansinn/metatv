@@ -103,7 +103,8 @@ class TestOpeningOneGroupDoesNotCloseAnother:
         from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
         from metatv.core.config import Config
-        from metatv.gui.sidebar.alerts import WatchAlertsSection, _Airing
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+        from metatv.gui.sidebar.alerts_common import _Airing
 
         now = datetime(2026, 8, 26, 12, 0, 0)
 

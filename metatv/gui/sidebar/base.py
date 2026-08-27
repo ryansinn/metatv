@@ -216,16 +216,14 @@ def style_group_heading(item, column: int | None = None) -> None:
 _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
 
 # Row fitting lives in row_budget.py — see there for why "+N more" is an
-# allocation consequence and not a cap. The sentinel is re-exported because
-# callers already reach for it here.
-from metatv.gui.sidebar.row_budget import (  # noqa: F401
-    _MORE_ROLE,
-    _MORE_ROW,
-    RowBudgetMixin,
-)
-from metatv.gui.sidebar.section_cap import (  # noqa: F401
-    SectionContentCapMixin,
-)
+# allocation consequence and not a cap.
+from metatv.gui.sidebar.row_budget import _MORE_ROLE, _MORE_ROW, RowBudgetMixin
+from metatv.gui.sidebar.section_cap import SectionContentCapMixin
+
+# _MORE_ROLE/_MORE_ROW are re-exported: four section modules and three tests
+# import them from here, not from row_budget. Declared in __all__ rather than
+# silenced with a noqa comment, so the names read as this module's surface.
+__all__ = ["_MORE_ROLE", "_MORE_ROW"]
 
 
 

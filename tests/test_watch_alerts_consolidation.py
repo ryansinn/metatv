@@ -173,7 +173,7 @@ class TestSeriesDisplayEntries:
 class TestRefreshMoviesSeries:
 
     def _kinds(self, section):
-        from metatv.gui.sidebar.alerts import _ROLE_KIND
+        from metatv.gui.sidebar.alerts_common import _ROLE_KIND
         lst = section._vod_list
         return [lst.item(i).data(_ROLE_KIND) for i in range(lst.count())]
 
@@ -424,7 +424,8 @@ class TestRealSectionConstruction:
     def test_constructs_and_renders_series(self, qapp, tmp_path):
         from metatv.core.config import Config
         from metatv.core.database import Database
-        from metatv.gui.sidebar.alerts import WatchAlertsSection, _ROLE_KIND
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+        from metatv.gui.sidebar.alerts_common import _ROLE_KIND
 
         db = Database("sqlite:///:memory:")
         db.create_tables()

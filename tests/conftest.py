@@ -747,7 +747,7 @@ def wire_settings_density_widget(dlg) -> None:
     Args:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
-    from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
+    from metatv.gui.settings_dialog_tabs import _CHANNEL_DENSITY_CHOICES
     from metatv.gui.settings_dialog_tabs import (
         _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
     )
