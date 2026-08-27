@@ -27,8 +27,8 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import (
-    CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, build_chip_row, chip_widget,
-    row_min_height,
+    CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, ROW_SPACING, build_chip_row,
+    chip_widget, row_min_height,
 )
 from metatv.gui.progress_paint import elapsed_pct, paint_progress
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -63,6 +63,13 @@ _CHILD_INDENT = 14
 #: the sidebar rendered two row heights. The floor is
 #: :func:`metatv.gui.chip_row.row_min_height`, shared by all of them.
 ROW_PAD_Y = 1
+
+
+#: How far a top-level row's TITLE sits from the row's left edge: the marker
+#: column, the reserved play slot, and the gap between them. Anything that must
+#: line up with the titles — the "Upcoming" heading — takes this rather than a
+#: number that happens to match today.
+TITLE_INDENT = _CHILD_INDENT + SLOT_W + ROW_SPACING
 
 
 def _slot_label() -> QLabel:

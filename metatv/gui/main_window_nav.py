@@ -128,8 +128,27 @@ class _NavMixin:
         if hasattr(self, "_tab_all_btn"):
             self._tab_all_btn.setChecked(True)
             self._tab_hidden_btn.setChecked(False)
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
+        self.show_series_nav(None)
+
+    def show_series_nav(self, series_name: "str | None") -> None:
+        """Show or hide the series navigation bar, contents and all.
+
+        One method rather than three call sites each setting the button, the
+        label and now the bar: the bar was added and every existing site
+        toggled only what was INSIDE it, which is precisely how it stayed
+        visible-but-empty everywhere for as long as it did.
+
+        Args:
+            series_name: The series to name in the breadcrumb, or ``None`` to
+                leave series view — which hides the whole bar, so no other view
+                pays a row for it.
+        """
+        showing = series_name is not None
+        self._series_nav_bar.setVisible(showing)
+        self.back_button.setVisible(showing)
+        self.breadcrumb_label.setText(
+            f"{self.series_icon} {series_name}" if showing else ""
+        )
 
     # ── Switch-to helpers ───────────────────────────────────────────────────
 
@@ -156,8 +175,7 @@ class _NavMixin:
         # _hide_all_content_views() hides both channels_list and series_tree; re-show
         # only what series view needs.
         self.series_tree.setVisible(True)
-        self.back_button.setVisible(True)
-        self.breadcrumb_label.setText(f"{self.series_icon} {self.current_series.name}")
+        self.show_series_nav(self.current_series.name)
         self.search_input.setEnabled(False)
         self.search_input.setPlaceholderText("Search not available in series view")
         self.populate_series_tree()

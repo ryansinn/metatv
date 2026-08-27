@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
 from metatv.gui.relative_time import humanize_remaining, humanize_until
-from metatv.gui.sidebar.alerts_rows import _AlertRow
+from metatv.gui.sidebar.alerts_rows import TITLE_INDENT, _AlertRow
 from metatv.gui.sidebar.base import (
     CollapsibleSection, GroupHeading, _fmt_channel_name,
 )
@@ -605,9 +605,12 @@ class EpgGroupMixin:
         self.alerts_tree.addTopLevelItem(item)
         heading = GroupHeading(
             self.UPCOMING_HEADING, count, interactive=True,
-            # One nesting step in, the same step the child airings take, so it
-            # heads the rows below it instead of lining up with EPG above.
-            indent=_CHILD_INDENT,
+            # The count fills the reserved play-slot column and the word
+            # starts exactly where the row titles do, so the heading sits IN
+            # the rows' left edge rather than at an indent of its own between
+            # EPG's and theirs.
+            indent=TITLE_INDENT,
+            count_leads=True,
             tooltip="Programmes that have not started yet — "
                     "click to collapse or expand",
         )

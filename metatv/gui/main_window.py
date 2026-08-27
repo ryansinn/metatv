@@ -1647,21 +1647,26 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         content = QWidget()
         self.content_layout = QVBoxLayout(content)
         
-        # Navigation bar (hidden by default, shown in series view)
-        nav_bar = QWidget()
-        nav_layout = QHBoxLayout(nav_bar)
+        # Series navigation bar. THE BAR ITSELF is hidden outside series view,
+        # not just its contents — it held an invisible Back button and an empty
+        # label, and an empty QWidget in a QVBoxLayout is still a row: it and
+        # the layout spacing under it were the blank band above "Search:" in
+        # every other view. Owner: "in the search view, there just seems to be
+        # dead space above Search: All Hidden."
+        self._series_nav_bar = QWidget()
+        nav_layout = QHBoxLayout(self._series_nav_bar)
         nav_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.back_button = QPushButton(f"← Back")
         self.back_button.clicked.connect(self.navigate_back)
-        self.back_button.setVisible(False)
         nav_layout.addWidget(self.back_button)
-        
+
         self.breadcrumb_label = QLabel("")
         nav_layout.addWidget(self.breadcrumb_label)
         nav_layout.addStretch()
-        
-        self.content_layout.addWidget(nav_bar)
+
+        self.content_layout.addWidget(self._series_nav_bar)
+        self.show_series_nav(None)
         
         # Search and filter controls
         self.search_controls = QWidget()
