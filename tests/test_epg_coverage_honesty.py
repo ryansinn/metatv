@@ -33,7 +33,8 @@ from unittest.mock import patch
 import pytest
 
 from metatv.core.database import ChannelDB, Database, EpgProgramDB
-from metatv.core.epg_manager import EPG_FILLER_THRESHOLD, _compute_honest_guide_end
+from metatv.core.epg_manager import _compute_honest_guide_end
+from metatv.core.epg_utils import EPG_FILLER_THRESHOLD
 from metatv.core.epg_utils import now_utc
 from metatv.core.repositories.epg import EpgRepository
 from metatv.core.xmltv_parser import XmltvProgramme

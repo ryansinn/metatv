@@ -28,7 +28,7 @@ def _mock_config():
 # ---------------------------------------------------------------------------
 
 def test_group_row_initial_shows_expand_icon(qtbot):
-    from metatv.gui.filter_panel import _GroupRow
+    from metatv.gui.filter_group_row import _GroupRow
     cfg = _mock_config()
     widget = _GroupRow("Group", 3, [("a", "A", 1)], config=cfg)
     qtbot.addWidget(widget)
@@ -38,7 +38,7 @@ def test_group_row_initial_shows_expand_icon(qtbot):
 
 
 def test_group_row_toggle_shows_collapse_icon(qtbot):
-    from metatv.gui.filter_panel import _GroupRow
+    from metatv.gui.filter_group_row import _GroupRow
     cfg = _mock_config()
     widget = _GroupRow("Group", 3, [("a", "A", 1)], config=cfg)
     qtbot.addWidget(widget)
@@ -49,7 +49,7 @@ def test_group_row_toggle_shows_collapse_icon(qtbot):
 
 
 def test_group_row_double_toggle_returns_expand_icon(qtbot):
-    from metatv.gui.filter_panel import _GroupRow
+    from metatv.gui.filter_group_row import _GroupRow
     cfg = _mock_config()
     widget = _GroupRow("Group", 3, [("a", "A", 1)], config=cfg)
     qtbot.addWidget(widget)
@@ -63,7 +63,7 @@ def test_group_row_double_toggle_returns_expand_icon(qtbot):
 # ---------------------------------------------------------------------------
 
 def test_section_initially_collapsed_shows_expand_icon(qtbot):
-    from metatv.gui.filter_panel import _Section
+    from metatv.gui.filter_group_row import _Section
     cfg = _mock_config()
     widget = _Section("media", "Media Types", config=cfg, initially_expanded=False)
     qtbot.addWidget(widget)
@@ -71,7 +71,7 @@ def test_section_initially_collapsed_shows_expand_icon(qtbot):
 
 
 def test_section_initially_expanded_shows_collapse_icon(qtbot):
-    from metatv.gui.filter_panel import _Section
+    from metatv.gui.filter_group_row import _Section
     cfg = _mock_config()
     widget = _Section("media", "Media Types", config=cfg, initially_expanded=True)
     qtbot.addWidget(widget)
@@ -79,7 +79,7 @@ def test_section_initially_expanded_shows_collapse_icon(qtbot):
 
 
 def test_section_set_expanded_updates_icon(qtbot):
-    from metatv.gui.filter_panel import _Section
+    from metatv.gui.filter_group_row import _Section
     cfg = _mock_config()
     widget = _Section("media", "Media Types", config=cfg, initially_expanded=False)
     qtbot.addWidget(widget)

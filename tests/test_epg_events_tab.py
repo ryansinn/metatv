@@ -21,7 +21,11 @@ import pytest
 from metatv.core.database import ChannelDB, Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import LiveEventDTO
-from metatv.gui.epg_view import LIVE_EVENT_WINDOW, group_events_timeline, group_events_by_network
+from metatv.gui.epg_events_mixin import (
+    LIVE_EVENT_WINDOW,
+    group_events_timeline,
+    group_events_by_network,
+)
 
 
 # ---------------------------------------------------------------------------

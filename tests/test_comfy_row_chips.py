@@ -56,15 +56,13 @@ from metatv.core.config import Config
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_colors, _quality_outline_colors
-from metatv.gui.channel_list_delegate import (
-    DENSITY_COMFY,
-    ChannelRowDelegate,
+from metatv.gui.channel_list_delegate import DENSITY_COMFY, ChannelRowDelegate, _to_qcolor
+from metatv.gui.channel_row_cells import (
     _category_cell,
     _genre_cell,
     _language_cell,
     _quality_cell,
     _region_or_platform_cell,
-    _to_qcolor,
     _variant_badge_cell,
     _year_cell,
 )

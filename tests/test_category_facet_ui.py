@@ -217,12 +217,12 @@ class TestRecipeFacetMeta:
 
     def test_category_in_facet_meta(self):
         """'category' must be a key in _facet_meta()."""
-        from metatv.gui.recipe_view import _facet_meta
+        from metatv.gui.recipe_widgets import _facet_meta
         assert "category" in _facet_meta(), "'category' must be in recipe_view._facet_meta()"
 
     def test_category_display_name(self):
         """_facet_meta()['category'][0] (display name) must be 'Category'."""
-        from metatv.gui.recipe_view import _facet_meta
+        from metatv.gui.recipe_widgets import _facet_meta
         display_name = _facet_meta()["category"][0]
         assert display_name == "Category", (
             f"display name must be 'Category'; got {display_name!r}"
@@ -231,7 +231,7 @@ class TestRecipeFacetMeta:
     def test_category_color_is_theme_token(self):
         """_facet_meta()['category'][1] must equal theme.COLOR_FACET_CATEGORY."""
         from metatv.gui import theme as _theme
-        from metatv.gui.recipe_view import _facet_meta
+        from metatv.gui.recipe_widgets import _facet_meta
         color = _facet_meta()["category"][1]
         assert color == _theme.COLOR_FACET_CATEGORY, (
             f"category color must be COLOR_FACET_CATEGORY; got {color!r}"
@@ -239,13 +239,13 @@ class TestRecipeFacetMeta:
 
     def test_category_role_label_is_kind(self):
         """_facet_meta()['category'][2] (role label) must be 'KIND'."""
-        from metatv.gui.recipe_view import _facet_meta
+        from metatv.gui.recipe_widgets import _facet_meta
         role = _facet_meta()["category"][2]
         assert role == "KIND", f"role label must be 'KIND'; got {role!r}"
 
     def test_kind_in_role_order(self):
         """'KIND' must be in _ROLE_ORDER (before 'BASE')."""
-        from metatv.gui.recipe_view import _ROLE_ORDER
+        from metatv.gui.recipe_widgets import _ROLE_ORDER
         assert "KIND" in _ROLE_ORDER, "'KIND' must appear in _ROLE_ORDER"
         assert _ROLE_ORDER.index("KIND") < _ROLE_ORDER.index("BASE"), (
             "'KIND' must precede 'BASE' in _ROLE_ORDER"

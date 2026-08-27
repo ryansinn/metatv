@@ -272,7 +272,7 @@ def _render_section(cfg, qapp):
 class TestSidebarDisambiguationRender:
 
     def test_colliding_series_show_dim_suffix_and_identity_tooltip(self, qapp):
-        from metatv.gui.sidebar.alerts import _ROLE_KIND
+        from metatv.gui.sidebar.alerts_common import _ROLE_KIND
 
         cfg = _FakeConfig([
             _series("a", "Fallout", region="US", language="EN", source="P1"),
@@ -303,7 +303,7 @@ class TestSidebarDisambiguationRender:
         assert seen_suffix == {"US", "FR"}, seen_suffix
 
     def test_unique_series_has_no_suffix(self, qapp):
-        from metatv.gui.sidebar.alerts import _ROLE_KIND
+        from metatv.gui.sidebar.alerts_common import _ROLE_KIND
         from PyQt6.QtWidgets import QLabel
 
         cfg = _FakeConfig([

@@ -16,6 +16,11 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.alerts_rows import _AlertRow, _CHILD_INDENT  # noqa: F401
 
+# Re-exported deliberately: two alerts modules import _CHILD_INDENT from here
+# rather than from alerts_rows, because this module is the shared vocabulary for
+# the alerts family. Declared so the linter keeps it and a reader knows why.
+__all__ = ["_CHILD_INDENT"]
+
 
 # Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
 # rule_created id for keyword-rule rows (existing click/menu code reads it); the

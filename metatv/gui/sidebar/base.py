@@ -218,11 +218,21 @@ _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises i
 # Row fitting lives in row_budget.py — see there for why "+N more" is an
 # allocation consequence and not a cap. The sentinel is re-exported because
 # callers already reach for it here.
-from metatv.gui.sidebar.row_budget import (  # noqa: F401
+from metatv.gui.sidebar.row_budget import (
     _MORE_ROLE,
     _MORE_ROW,
     RowBudgetMixin,
 )
+
+# Re-exported deliberately: four section modules import _MORE_ROLE/_MORE_ROW from
+# here rather than from row_budget, because this is where the class they mix into
+# lives and the split should be invisible to them.
+#
+# Declared in __all__ rather than silenced with `# noqa: F401`. Both stop the
+# linter deleting the import; only __all__ also tells a reader (and grep) that the
+# name is part of this module's surface. "noqa" says ignore this; "__all__" says
+# this is intentional. Different claims.
+__all__ = ["_MORE_ROLE", "_MORE_ROW"]
 from metatv.gui.sidebar.section_cap import (  # noqa: F401
     SectionContentCapMixin,
 )

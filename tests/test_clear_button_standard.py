@@ -66,7 +66,7 @@ class _FakeImageCache:
 
 def test_search_bar_box_has_clear_button(qapp):
     """_TagSearchBar._box must have isClearButtonEnabled() == True."""
-    from metatv.gui.recipe_view import _TagSearchBar
+    from metatv.gui.recipe_widgets import _TagSearchBar
     bar = _TagSearchBar()
     assert bar._box.isClearButtonEnabled(), (
         "_TagSearchBar._box must call setClearButtonEnabled(True) [isClearButtonEnabled() must return True]"
@@ -75,7 +75,7 @@ def test_search_bar_box_has_clear_button(qapp):
 
 def test_search_bar_clear_still_works(qapp):
     """clear() must empty the text box (the standard programmatic clear path)."""
-    from metatv.gui.recipe_view import _TagSearchBar
+    from metatv.gui.recipe_widgets import _TagSearchBar
 
     bar = _TagSearchBar()
     bar._box.setText("comedy")
