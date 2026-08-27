@@ -4,10 +4,37 @@ Project-agnostic tooling that turns repetitive multi-step Bash sequences into on
 command each. All are self-contained and configured through an optional repo-root
 `.devscripts.conf` — no project details are hardcoded.
 
-**Manager workflow:** `merge_pr.sh` chains the other two — it runs `verify_pr.sh`
-as a gate, merges, updates trunk, then runs `prune_merged.sh`. So the day-to-day
-loop is just `verify_pr.sh <N>` while a PR is in review and `merge_pr.sh <N>` to
-land it (verify + prune happen automatically inside).
+**Manager workflow:** `merge_pr.sh` chains the others — it runs `verify_pr.sh`
+as a gate, merges, updates trunk, runs `open_batch.sh`, then `prune_merged.sh`.
+So the day-to-day loop is just `verify_pr.sh <N>` while a PR is in review and
+`merge_pr.sh <N>` to land it (verify, batch label and prune happen automatically
+inside). **Merging with a bare `gh pr merge` skips all of that** — including the
+batch label, which is how 61 What's New entries came to ship under one version.
+
+## `open_batch.sh [<version>] [--dry-run] [--push]`
+
+Bumps `__version__`, the label a batch of What's New entries ships under — but
+only when the batch earned it. Two conditions, both required:
+
+1. **Main has moved** since the label was opened (`metatv/whats_new/batch.py`'s
+   `OPENED_AT_SHA`). Re-running on the same commit is a *rebuild* of what already
+   shipped under this label; the build id (`<version>+<date>.<sha>`) already
+   distinguishes two builds of the same code, so a second label would be a lie.
+2. **There are new What's New entries** past `OPENED_AT_ID`. A refactor-only merge
+   changes nothing a user can see and does not deserve its own label.
+3. **The batch is finished** — no other open, non-draft PR against the trunk.
+   A label names what the tester receives *together*; bumping per merge would
+   turn the version into a commit counter (nine labels in one day). "Nothing left
+   in flight" is the one signal a script can read for "this batch is done", and
+   it needs no flag anyone has to remember. `--force` overrides.
+
+Any unmet → exits 0 having done nothing, and says which one. With no argument
+it bumps the minor (`0.41.0` → `0.42.0`); pass a version to jump. `--push` sends
+the chore commit to the trunk, which is how `merge_pr.sh` calls it — safely, on
+every merge, because it fires only on the one that empties the queue.
+
+Backstop for hand-merges: `tests/test_whats_new_batch_label.py` fails once an
+unbumped label covers more entries than any batch in the project's history.
 
 ## `verify_pr.sh <PR#> [--keep] [--quick]`
 
