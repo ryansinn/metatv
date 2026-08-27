@@ -2455,18 +2455,16 @@ class ChannelRepository(_ChannelStatsMixin):
     ) -> int:
         """Populate ``detected_tmdb_id`` from each row's ``raw_data["tmdb"]``.
 
-        Content-identity Slice 3.  Existing rows were ingested before the raw
-        provider tmdb id was captured, so their ``detected_tmdb_id`` is NULL.
-        This one-time pass reads the ``raw_data`` blob, validates the id via the
-        shared :func:`~metatv.core.content_identity.valid_tmdb_id`, and stores it.
-
-        **Ordering:** must run BEFORE the content_key recompute (version 4) so
-        that recompute reads a populated ``detected_tmdb_id`` and can emit the
-        tmdb-first key.  See the registration order in ``gui/main_window.py``.
-
-        Only ``detected_tmdb_id`` (a generated field derived purely from the
-        provider blob) is written — user tags/ratings/favorites are never
-        touched (mirror-not-cage).  Rows with no real tmdb id keep NULL.
+        Content-identity Slice 3.  Rows ingested before the provider tmdb id was
+        captured have a NULL ``detected_tmdb_id``; this one-time pass reads the
+        ``raw_data`` blob, validates via the shared ``valid_tmdb_id``, and
+        stores it.  **The key is recomputed in the same UPDATE** (via
+        ``content_key_for``), so it no longer depends on running before
+        ``ContentKeyBackfillTask``: both are independently version-gated and
+        this one leaves its version unbumped when cancelled, so a resumed run
+        met an already-current key task that sat out, filling ids under stale
+        keys that silently orphaned rows from their own variants.  Only
+        generated columns are written (mirror-not-cage).
 
         Processes rows in 2000-row batches, loading ``raw_data`` for at most one
         batch at a time (then commit + ``expunge_all``) to stay memory-safe on
@@ -2512,19 +2510,24 @@ class ChannelRepository(_ChannelStatsMixin):
             # raw_data IS needed here (that's where tmdb lives), so load it for
             # this batch only, then expunge below.
             rows = (
-                self.session.query(ChannelDB.id, ChannelDB.raw_data)
+                self.session.query(
+                    ChannelDB.id, ChannelDB.raw_data, ChannelDB.media_type
+                )
                 .filter(ChannelDB.id.in_(chunk_ids))
                 .all()
             )
 
-            for (ch_id, raw) in rows:
+            for (ch_id, raw, media_type) in rows:
                 tmdb = valid_tmdb_id((raw or {}).get("tmdb")) if raw else None
                 if tmdb is None:
                     continue  # leave NULL — no real id shipped for this row
+                key = content_key_for(
+                    _TmdbKeyProxy(tmdb, media_type or "", ch_id)
+                )
                 self.session.execute(
                     update(ChannelDB)
                     .where(ChannelDB.id == ch_id)
-                    .values(detected_tmdb_id=tmdb)
+                    .values(detected_tmdb_id=tmdb, content_key=key)
                 )
                 filled += 1
 
