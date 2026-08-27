@@ -1,0 +1,124 @@
+# Static analysis for MetaTV.
+#
+# WHY THIS FILE EXISTS. The external audit's sharpest structural finding: this
+# project hand-wrote ~1,866 lines of AST-walking pytest guards because it had no
+# linter to write rules in — while declaring black and mypy as dependencies with
+# no config, no CI step and no script, and declaring alembic, which nothing
+# imports. Those three are now gone from requirements.txt; ruff is in.
+#
+# The audit also found an accidental controlled experiment. Same author, same
+# period, same discipline; the only variable was whether a rule was executable:
+#
+#     mechanically guarded rules ......    0 violations
+#     prose-only rules ................  670  (hasattr/getattr)
+#                                         158  (icons read from Config)
+#                                          24  (files over the size standard)
+#
+# ON THE SELECTION. `ruff check` with defaults reports 5,892 findings here,
+# which is a useless number — configuring it IS the work. This set is chosen to
+# catch BUGS, not to impose style, and lands in stages so each pull request
+# stays reviewable:
+#
+#     stage A (this one)  the selection below, --fix applied   1,181 -> 584
+#     stage B             the 584 residual, themed batches, judgement per site
+#     stage C             I001 + UP006/UP045                   1,884 pure churn
+#
+# Stage C is deliberately last: import sorting and annotation modernisation
+# touch nearly every file, conflict with every in-flight branch, and catch no
+# defects. Worth doing once, when nothing else is in flight.
+
+[tool.ruff]
+line-length = 100
+# CI's version, deliberately NOT the 3.14 used for development. PEP 649 makes
+# 3.14 evaluate annotations lazily, so a function annotated with a name its
+# module never imports passes locally and raises at import time in CI.
+target-version = "py312"
+extend-exclude = ["venv", ".claude"]
+
+[tool.ruff.lint]
+select = [
+  "F",               # pyflakes — undefined names, unused imports, redefinitions
+  "E4", "E7", "E9",  # pycodestyle: real errors only, not whitespace religion
+  "B",               # bugbear — mutable defaults, closures over loop variables
+  "BLE",             # blind except, including `except Exception: pass`
+  "RUF012",          # mutable class defaults
+  "PIE", "C4",       # dead code and redundant collection constructions
+]
+
+# ---------------------------------------------------------------------------
+# NOT SELECTED, with reasons. A rule dropped silently is a rule someone adds
+# back next year.
+# ---------------------------------------------------------------------------
+#
+# DTZ — flags naive datetimes. It CONTRADICTS this project's design rather than
+#   encoding it. `start_time`/`stop_time` are stored UTC-naive deliberately
+#   (CLAUDE.md, "EPG time & timezone"), so DTZ reports 303 findings against
+#   intentional behaviour, and its suggested fix — attach tzinfo — would break
+#   the storage contract. The rule the project actually wants is "go through
+#   epg_utils", which is adjacent but different and needs its own AST guard.
+#
+# I  — import sorting, 976 findings. Stage C.
+# UP — 908 findings, almost all annotation modernisation. Stage C.
+# SIM — its suggestions are readability opinions. A linter's first adoption is
+#   not the venue for those.
+
+ignore = [
+  # -------------------------------------------------------------------------
+  # Permanent exemptions.
+  # -------------------------------------------------------------------------
+  # PIE807: rewrites `lambda: []` to `list`. No defect, and it makes a test
+  # double read worse: `cfg.get_monitored_series = list` states less than
+  # `= lambda: []` about what the stub returns.
+  "PIE807",
+  # E402: imports below module-level code. Deliberate in the sidebar modules,
+  # where a constant is defined before the mixin imports that consume it, and
+  # in the local-import-to-break-a-cycle pattern.
+  "E402",
+  # E741: `l`/`I`/`O` as names. All 17 are loop or comprehension variables in
+  # colour and geometry maths where `l` means lightness.
+  "E741",
+
+  # -------------------------------------------------------------------------
+  # STAGE B BACKLOG. Selected above so the rule is on the record; ignored until
+  # its batch lands. Counts are as of this commit — delete a line when it is
+  # cleared, and CI starts enforcing that rule from then on.
+  # -------------------------------------------------------------------------
+  "BLE001",   # 175 — blind `except Exception`. The audit's point; needs a
+              #       judgement per site, which is why it is not stage A.
+  "C408",     # 99  — `dict()` where `{}` would do.
+  "F841",     # 60  — assigned and never used. Some are genuinely dead; some
+              #       are a bug where the value was meant to be returned.
+  "RUF012",   # 46  — mutable class attribute without ClassVar.
+  "E702",     # 24  — two statements on one line, separated by `;`.
+  "B905",     # 23  — `zip()` without `strict=`. Per site: does a length
+              #       mismatch mean truncate, or mean a bug?
+  "E712",     # 23  — `== True`. NOT blanket-fixable: SQLAlchemy filters
+              #       require it, `if x == True` does not.
+  "B007",     # 20  — loop variable never used in the body.
+  "F821",     # 20  — undefined name. All that remain are quoted annotations
+              #       (latent, not live); the one LIVE case is fixed in this
+              #       commit. See metatv/gui/app_header.py.
+  "F601",     # 11  — repeated dict key literal. All 11 map to the same value,
+              #       so they are redundant rather than wrong.
+  "E731",     # 9   — lambda bound to a name.
+  "E701",     # 8   — two statements on one line, separated by `:`.
+  "C416",     # 7   — comprehension that reproduces its iterable.
+  "PIE810",   # 6   — several `startswith` calls where a tuple would do.
+  "B008",     # 4   — function call in a default argument.
+  "B017",     # 3   — `pytest.raises(Exception)`, too broad to assert anything.
+  "B023",     # 1   — function in a loop closing over the loop variable.
+  "E711",     # 1   — `== None`.
+  "E722",     # 1   — bare `except:`.
+  "F811",     # 1   — redefined while unused.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 812 of the 827 F821 findings in the tree are this one file, which rebinds
+# every COLOR_*/FONT_* token at runtime from the active palette — those names
+# genuinely do not exist statically. Excluding it is what made the other ~20
+# readable, and reading them found the live NameError fixed in this commit.
+"metatv/gui/theme.py" = ["F821"]
+# Tests catch broad exceptions on purpose when asserting a failure path.
+"tests/*" = ["BLE001"]
+# Changelog entries are data, not code.
+"metatv/whats_new/entries/*" = ["E501"]

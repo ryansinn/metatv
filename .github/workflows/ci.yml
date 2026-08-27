@@ -34,6 +34,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Seconds, and it runs first because a NameError does not need fifteen
+  # minutes of Qt to be worth reporting. The rule set lives in pyproject.toml,
+  # including a stage-B backlog of codes that are selected but ignored — clear
+  # a batch, delete its ignore line, and this job starts enforcing it.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.6.0"
+
+      - name: Run ruff
+        run: ruff check .
+
   test:
     name: tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
