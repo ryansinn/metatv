@@ -46,8 +46,27 @@ UNREACHABLE = VERDICT_UNREACHABLE
 _XTREAM_PATH_RE = re.compile(
     r"/(live|movie|series)/[^/]+/[^/]+/", re.IGNORECASE
 )
+#: The bare shape ``{base}/{user}/{pass}/{id}``, found ANYWHERE in a string.
+#:
+#: This was ``^``-anchored and matched with ``.match()``, so it only fired when
+#: the URL began the string. That is true when redacting a URL on its own and
+#: false for every log line, which all read ``Stream URL: http://…`` — so the
+#: shape was covered in the one place it was called and uncovered in the
+#: seventy-one places it was not. Caught by driving a real sink rather than
+#: calling the function directly, which is the only way this was ever visible.
 _XTREAM_BARE_PATH_RE = re.compile(
-    r"^(https?://[^/]+)/([^/]+)/([^/]+)/(\d+)\b", re.IGNORECASE
+    r"(https?://[^/\s]+)/([^/\s]+)/([^/\s]+)/(\d+)\b", re.IGNORECASE
+)
+#: Credentials in a QUERY STRING, which the two path patterns above cannot see.
+#:
+#: This is where the bulk of the exposure was. ``player_api.php`` takes
+#: ``?username=X&password=Y``, and a scan of the logs on one developer machine
+#: found 26,793 ``username=`` and 26,761 ``password=`` occurrences against 385
+#: path-shaped URLs — so the shape nobody had a pattern for accounted for
+#: ~99% of the leak. Not anchored to a URL: the pair leaks through any string
+#: that happens to carry it, which is exactly how it escaped.
+_QUERY_CRED_RE = re.compile(
+    r"\b(username|password|pass|pwd|token|api_key)=([^&\s\"']+)", re.IGNORECASE
 )
 
 # Classification thresholds (documented for the pure helpers below).
@@ -103,17 +122,24 @@ def _redact(url: str) -> str:
     if not url:
         return url
 
+    # Query-string credentials first, and unconditionally: a URL can carry both
+    # shapes, and the path branches below return early.
+    url = _QUERY_CRED_RE.sub(lambda m: f"{m.group(1)}=***", url)
+
     if _XTREAM_PATH_RE.search(url):
         return _XTREAM_PATH_RE.sub(
             lambda m: f"/{m.group(1)}/***/***/", url, count=1
         )
 
-    bare = _XTREAM_BARE_PATH_RE.match(url)
+    # search, not match: the URL is rarely at position 0 of a log record.
+    bare = _XTREAM_BARE_PATH_RE.search(url)
     if bare:
         base, _user, _pwd, ident = bare.groups()
-        # Preserve whatever followed the id (e.g. ".ts").
-        tail = url[bare.end():]
-        return f"{base}/***/***/{ident}{tail}"
+        return (
+            url[:bare.start()]
+            + f"{base}/***/***/{ident}"
+            + url[bare.end():]
+        )
 
     return url
 

@@ -6,6 +6,8 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
+from metatv.core.stream_diagnostics import _redact
+
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.main_window import MainWindow
@@ -17,7 +19,28 @@ def setup_logging():
     """Configure application logging"""
     log_dir = Path.home() / ".config" / "metatv" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    # Redact credentials on EVERY record, before any sink sees it.
+    #
+    # An Xtream stream URL embeds the subscription's username and password —
+    # `{base}/movie/{user}/{pass}/{id}.ext` — and `player_api.php` takes them
+    # as `?username=…&password=…`. Seventy-one call sites log a URL. A scan of
+    # one developer machine found 26,793 `username=` and 26,761 `password=`
+    # occurrences sitting in `~/.config/metatv/logs/` under a seven-day
+    # retention, from ordinary use.
+    #
+    # Fixed HERE rather than at those 71 sites, and the distinction is the
+    # whole point: `_redact` already existed and was already imported by
+    # `main_window_streaming.py`, which called it at one of its five URL logs.
+    # Patching call sites is how you get four out of five — it is the same
+    # enumeration failure as the `refresh_theme()` sweep and the hand-listed
+    # test stubs. A patcher cannot be forgotten by the next person to write a
+    # `logger.info(f"... {url}")`, because they never have to know it exists.
+    def _scrub(record):
+        record["message"] = _redact(record["message"])
+
+    logger.configure(patcher=_scrub)
+
     logger.add(
         log_dir / "metatv.log",
         rotation="10 MB",
