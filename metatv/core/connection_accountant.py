@@ -32,6 +32,8 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
+from loguru import logger
+
 
 @dataclass(frozen=True)
 class Holder:
@@ -87,6 +89,10 @@ class ConnectionAccountant:
         try:
             return int(self._capacity_resolver(provider_id))
         except Exception:
+            # The resolver is caller-supplied, so this really can be anything —
+            # but falling back to 1 connection silently would look like a
+            # provider limit rather than a broken resolver.
+            logger.warning("Capacity resolver failed for {}; assuming 1", provider_id, exc_info=True)
             return 1
 
     def in_use(self, provider_id: str) -> int:

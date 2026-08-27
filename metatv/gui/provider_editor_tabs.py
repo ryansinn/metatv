@@ -635,8 +635,8 @@ class _ProviderEditorTabsMixin:
         else:
             try:
                 day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")
-            except Exception:
-                day = str(epg_data_end)
+            except (TypeError, ValueError, OSError, OverflowError):
+                day = str(epg_data_end)  # silent: unformattable date still reads
             if epg_is_stale(epg_data_end):
                 text = f"{_icons.notification_warning_icon} Stale — guide ends {day} (source out of date)"
                 style = f"color: {_theme.COLOR_WARN};"

@@ -1926,8 +1926,8 @@ class Config(BaseModel):
             # Clean up temp file if it exists
             try:
                 tmp_path.unlink(missing_ok=True)
-            except:
-                pass
+            except OSError:
+                pass  # silent: best-effort cleanup of a temp file we are already abandoning
             raise
 
 

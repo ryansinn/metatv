@@ -38,8 +38,8 @@ def _git(*args: str) -> str:
             cwd=str(repo_dir()),
         )
         return result.stdout.strip()
-    except Exception:
-        return ""
+    except (OSError, subprocess.SubprocessError):
+        return ""  # silent: no git, or not a checkout — the packaged app is the normal case
 
 
 def _pr_number() -> str:
@@ -64,8 +64,8 @@ def build_id() -> str:
         from metatv import _build_id  # type: ignore[attr-defined]
 
         return str(getattr(_build_id, "BUILD_ID", "") or "")
-    except Exception:
-        return ""
+    except ImportError:
+        return ""  # silent: _build_id is generated per build and absent in a checkout
 
 
 def compose_title(

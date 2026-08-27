@@ -121,8 +121,8 @@ class XtreamAPI:
                     if exp_ts:
                         try:
                             exp_str = f" (expired {datetime.fromtimestamp(int(exp_ts)).strftime('%Y-%m-%d')})"
-                        except Exception:
-                            pass
+                        except (TypeError, ValueError, OSError, OverflowError):
+                            pass  # silent: junk timestamp — the status alone is still useful
                     error_msg = f"Account {status}{exp_str}"
                     if provider_url:
                         await ConnectionTracker.record_failure(provider_url, error_msg)

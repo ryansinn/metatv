@@ -874,8 +874,8 @@ class _ProviderMixin:
                 epg.refresh_started.disconnect(_on_epg_started)
                 epg.refresh_finished.disconnect(_on_epg_finished)
                 epg.refresh_error.disconnect(_on_epg_error)
-            except Exception:
-                pass
+            except (TypeError, RuntimeError):
+                pass  # silent: already disconnected — which is the state we wanted
 
         def _on_epg_error(pid: str, error: str) -> None:
             if pid != provider_id:
@@ -886,8 +886,8 @@ class _ProviderMixin:
                 epg.refresh_started.disconnect(_on_epg_started)
                 epg.refresh_finished.disconnect(_on_epg_finished)
                 epg.refresh_error.disconnect(_on_epg_error)
-            except Exception:
-                pass
+            except (TypeError, RuntimeError):
+                pass  # silent: already disconnected — which is the state we wanted
 
         epg.refresh_started.connect(_on_epg_started)
         epg.refresh_finished.connect(_on_epg_finished)

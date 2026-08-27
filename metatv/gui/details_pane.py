@@ -624,6 +624,9 @@ class DetailsPaneWidget(QWidget):
             finally:
                 session.close()
         except Exception:
+            # Taste weights are an enhancement, so a failure degrades rather than
+            # breaks — but it degrades the recommendations, so say so.
+            logger.warning("Could not compute taste weights for the details pane", exc_info=True)
             return None
 
     # ------------------------------------------------------------------ #

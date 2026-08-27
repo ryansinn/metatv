@@ -5,6 +5,7 @@ from datetime import datetime
 import json as _json
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, Index, JSON, text, event, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.types import TypeDecorator
 from loguru import logger
@@ -769,8 +770,8 @@ class Database:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
                     conn.commit()
                     logger.info(f"Migration: added column {col} to {table}")
-                except Exception:
-                    pass  # column already exists
+                except OperationalError:
+                    pass  # silent: "duplicate column name" — the migration already ran
 
             # Index migrations — idempotent via IF NOT EXISTS
             index_migrations = [
@@ -822,8 +823,8 @@ class Database:
         with self.engine.connect() as conn:
             try:
                 version = conn.execute(text("PRAGMA user_version")).scalar() or 0
-            except Exception:
-                version = 0
+            except SQLAlchemyError:
+                version = 0  # silent: no user_version on a pre-pragma DB — treat as 0
             if version >= 1:
                 return
 
@@ -832,14 +833,14 @@ class Database:
                     rows = conn.execute(text(
                         f'SELECT rowid, "{col}" FROM {table} WHERE "{col}" LIKE \'"%\''
                     )).fetchall()
-                except Exception:
-                    continue  # table/column not present in this DB
+                except OperationalError:
+                    continue  # silent: table/column not present in this DB
                 fixed = 0
                 for rowid, raw in rows:
                     try:
                         inner = _json.loads(raw)
-                    except Exception:
-                        continue
+                    except (ValueError, TypeError):
+                        continue  # silent: not JSON — so not double-encoded, which is the point
                     if not isinstance(inner, str):
                         continue  # not actually double-encoded
                     conn.execute(
@@ -1060,8 +1061,8 @@ class Database:
                         continue
                     try:
                         parsed = parse_channel_name(title)
-                    except Exception:
-                        continue
+                    except Exception:  # silent: per-row cleanup over the whole table — one
+                        continue       # unparseable title must not log 240k times
                     bare = (parsed.bare_name or "").strip()
                     # Gate: only rewrite when the parser actually stripped a
                     # language/region prefix or a trailing year (looks polluted).

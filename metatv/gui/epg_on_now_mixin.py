@@ -256,8 +256,8 @@ class _EpgOnNowMixin:
             try:
                 hdr.restoreState(QByteArray.fromBase64(_saved_header.encode("ascii")))
                 hdr.setStretchLastSection(False)  # re-assert after restoreState
-            except Exception:
-                _saved_header = None  # fall through to default order
+            except Exception:  # silent: Qt raises broadly on corrupt saved state, and
+                _saved_header = None   # falling back to the default order IS the recovery
         else:
             _saved_header = None
         if not _saved_header:

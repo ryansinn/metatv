@@ -20,8 +20,8 @@ def _epg_tooltip(state: str, start, end) -> str:
             return "?"
         try:
             return _to_local(d).strftime("%d %b %Y").lstrip("0")
-        except Exception:
-            return str(d)
+        except (TypeError, ValueError, OSError, OverflowError):
+            return str(d)  # silent: unformattable date still reads
 
     label = {
         "stale": "EPG stale",

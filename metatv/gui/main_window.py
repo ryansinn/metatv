@@ -3051,7 +3051,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 if _persist:
                     self.config.save()
         except Exception:
-            pass
+            # A failing config.save() means the layout silently stops persisting.
+            logger.exception("Failed to save the filter-panel width")
 
     def save_splitter_sizes(self, _persist: bool = True):
         """Save main splitter (sidebar | content | details) sizes to config.
@@ -3130,8 +3131,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # any pending debounce first so it can't fire after teardown.
         try:
             self._layout_save_debounce.stop()
-        except Exception:
-            pass
+        except RuntimeError:
+            pass  # silent: the timer's C++ object is already gone during teardown
         self._persist_layout_now()
 
         # Shut down all registered managers (registered in __init__ / setup_ui via

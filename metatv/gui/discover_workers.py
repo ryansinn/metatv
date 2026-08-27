@@ -462,6 +462,7 @@ class _LoaderWorker(QObject):
                     session, settings=RecScoringSettings.from_config(self._config)
                 )
             except Exception:
+                logger.warning("Featured-actor shelf falling back to unweighted", exc_info=True)
                 weights = None
             actor, cards = get_featured_actor(session, weights, **sk, **fk, **af, **ek)
             if actor:

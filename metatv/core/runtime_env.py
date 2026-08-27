@@ -56,8 +56,8 @@ def bundle_resource_path(rel: str) -> Path:
             exe_dir = Path(sys.executable).resolve().parent
             candidates.append(exe_dir / rel_path)
             candidates.append(exe_dir.parent / "Resources" / rel_path)
-        except Exception:  # pragma: no cover - defensive; sys.executable is set
-            pass
+        except (OSError, ValueError):  # pragma: no cover — sys.executable is set
+            pass  # silent: this path is one candidate of several; the loop tries the rest
         for cand in candidates:
             if cand.exists():
                 return cand

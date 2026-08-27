@@ -168,3 +168,42 @@ remains plausible and unmeasured.
   uses** (`_to_qcolor`, `_no_width_force`, `_DEFAULT_HEADERS`, `_MiddleElideLabel`). Real count 30.
 - The **"~94% behavioural tests"** figure has not been independently verified. Recorded as the
   auditor's measurement, not as confirmed.
+
+---
+
+## R6 — "175 blind `except Exception`" — ACCEPTED, BUT THE COUNT MISLEADS
+
+**The claim.** 175 blind excepts, presented as a single finding.
+
+**Measured.** 193 tree-wide, 183 under `metatv/`. Split by what the handler actually does:
+
+| | n |
+|---|---:|
+| logs at exception/error | 80 |
+| logs at warning | 43 |
+| logs at debug/info | 11 |
+| **reports nothing at all** | **40** |
+
+The 40 are the finding, and they are fixed. Two failure shapes, both real:
+`except Exception: pass  # column already exists` around an `ALTER TABLE` also swallowed
+"database is locked" and a full disk; and `MainWindow` saved the splitter layout inside a blind
+handler, so a failing `config.save()` meant the layout silently stopped persisting.
+
+**Where the count misleads.** The other 134 all report. 23 sit at a thread or lifecycle entry, 22
+inside a per-item loop over untrusted provider data, 7 in signal handlers — places where a
+catch-all that logs is the correct construct, not a defect. `Database.session_scope` is blind by
+necessity: it must roll back on anything, and it re-raises. Narrowing those converts a logged
+warning into a dead worker thread, with no defect behind the change.
+
+**Also rejected: enabling ruff's `BLE001`.** It flags all 193 including the 134 that behave
+correctly, so it forces either an ignore that teaches nothing or 193 edits that make the codebase
+worse. `tests/test_no_silent_blind_except.py` asks the question the project actually cares about —
+*does this handler tell anyone?* — and accepts logging, re-raising, passing the exception onward,
+or a written reason.
+
+That third form was missing from the guard's first draft and it wrongly called five correct
+handlers silent, including one returning `ProbeResult(..., ProbeStatus.ERROR, str(e))`. A guard
+that pushes correct code toward a suppression marker is how a rule stops meaning anything.
+
+**Disposition.** 40 fixed. The remaining 134 are roadmapped as a per-subsystem audit, explicitly
+not a sweep.

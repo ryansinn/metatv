@@ -1578,8 +1578,8 @@ def is_restricted(detected_prefix: Optional[str], name: str, config=None) -> boo
             else:
                 from metatv.core.config import BASE_PREFIX_GROUPS as groups
             adult_codes = {c.upper() for c in (groups.get("Adult") or [])}
-        except Exception:
-            adult_codes = set()
+        except (AttributeError, TypeError, KeyError):
+            adult_codes = set()  # silent: no Adult group configured — nothing to match
         if detected_prefix.strip().upper() in adult_codes:
             return True
 
