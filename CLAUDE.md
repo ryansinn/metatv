@@ -224,7 +224,9 @@ Mockups start from a faithful inventory of the CURRENT app (code transcription w
 
 ## Releases — rolling by default
 
-**Every push to `main` builds and publishes to one moving release tagged `rolling`** (`.github/workflows/release.yml`). There is no per-release chore and no version to choose: the tester bookmarks one URL and always gets the newest build. A `v*` tag still cuts an immutable release when a milestone genuinely warrants one — the two paths coexist.
+**Every push to `main` builds and publishes to one moving release tagged `rolling`** (`.github/workflows/release.yml`). The tester bookmarks one URL and always gets the newest build. A `v*` tag still cuts an immutable release when a milestone genuinely warrants one — the two paths coexist.
+
+**There is no per-release chore, but there IS still a version to move.** `__version__` is the label the batch of What's New entries ships under, and because every push goes public it has to name what is actually in that build. `scripts/merge_pr.sh` calls `scripts/open_batch.sh` after every merge, which bumps only when **main has moved since the label was opened AND new What's New entries exist** — so a rebuild of the same commit, or a refactor-only merge, does nothing. Merging with a bare `gh pr merge` skips it: that is how 61 entries came to sit under `0.41.0` across four days and nine merges, after rolling releases retired the `ship_batch.sh` chore the bump used to live in. Backstop: `tests/test_whats_new_batch_label.py` fails once an unbumped label covers more entries than any batch in the project's history.
 
 The identifier is derived, never hand-chosen: `<version>+<UTC date>.<short sha>`, stamped into `metatv/_build_id.py` (gitignored) before PyInstaller so a packaged app's title bar names the exact commit. `metatv/__init__.py`'s `__version__` survives only as the What's New batch label. **Because a push ships to the tester, `main` must always be green** — run the full suite before pushing, not after.
 

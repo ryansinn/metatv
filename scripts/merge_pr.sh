@@ -12,9 +12,16 @@
 #      confirmed via gh before continuing.
 #   4. Trunk — from the main worktree, git pull --ff-only origin <base>; a
 #      non-fast-forward means local <base> diverged: stop before pruning (exit 1).
-#   5. Cleanup — run prune_merged.sh (Bug-3-safe around live agent worktrees).
+#   5. Batch label — run open_batch.sh --push, which bumps __version__ ONLY when
+#      main has moved since the label was opened AND there are new What's New
+#      entries. Every push to main ships a build to the tester, so the thing that
+#      goes public has to carry a name that matches what is in it; a rebuild of
+#      the same commit does not bump. --no-bump skips. This step exists because
+#      the bump used to live in ship_batch.sh's release chore, rolling releases
+#      retired that ceremony, and 61 entries then piled up under one label.
+#   6. Cleanup — run prune_merged.sh (Bug-3-safe around live agent worktrees).
 #      --keep-worktree skips this.
-#   6. Summary — PR#, merge sha, verify verdict used, prune counts.
+#   7. Summary — PR#, merge sha, verify verdict used, batch label, prune counts.
 #
 # Config knobs (via repo-root .devscripts.conf, all optional):
 #   MERGE_METHOD  gh merge method: squash | merge | rebase. Default: squash.
@@ -23,6 +30,8 @@
 #   scripts/merge_pr.sh <PR#>                    Verify, merge (squash), prune.
 #   scripts/merge_pr.sh <PR#> --skip-verify      Merge without re-verifying.
 #   scripts/merge_pr.sh <PR#> --keep-worktree    Merge but skip the prune step.
+#   scripts/merge_pr.sh <PR#> --no-bump          Merge without opening the next
+#                                                What's New batch label.
 #   scripts/merge_pr.sh <PR#> --quick            Gate with the QUICK verify
 #                                                (launch smoke + this PR's own
 #                                                test files) instead of the full
@@ -66,12 +75,14 @@ EOF
 SKIP_VERIFY=0
 QUICK=0
 KEEP_WT=0
+NO_BUMP=0
 PR=""
 for arg in "$@"; do
     case "$arg" in
         -h|--help|help) usage; exit 0 ;;
         --skip-verify) SKIP_VERIFY=1 ;;
         --keep-worktree) KEEP_WT=1 ;;
+        --no-bump) NO_BUMP=1 ;;
         --quick) QUICK=1 ;;
         ''|*[!0-9]*)
             echo "merge_pr.sh: unexpected argument '$arg'" >&2; usage >&2; exit 64 ;;
@@ -197,7 +208,32 @@ else
     git -C "$main" fetch origin -q "$base_branch" || true
 fi
 
-# ── 5. cleanup (prune_merged.sh) ──────────────────────────────────────────────
+# ── 5. open the next What's New batch label ───────────────────────────────────
+# Every push to main ships a build to the tester, so whatever goes public has to
+# carry a name that matches what is in it. open_batch.sh decides for itself
+# whether a bump is owed — main moved AND new entries exist — so calling it after
+# a refactor-only merge, or twice on the same commit, does nothing.
+batch_summary="(skipped — --no-bump)"
+if [ "$NO_BUMP" = 1 ]; then
+    echo
+    echo "merge_pr.sh: --no-bump — leaving the batch label alone."
+elif [ ! -x "$SCRIPT_DIR/open_batch.sh" ]; then
+    batch_summary="(open_batch.sh not present)"
+else
+    echo
+    echo "── batch label: scripts/open_batch.sh ──"
+    batch_log="$(mktemp "${TMPDIR:-/tmp}/merge_pr.${PR}.batch.XXXXXX.log")"
+    if "$SCRIPT_DIR/open_batch.sh" --push 2>&1 | tee "$batch_log"; then
+        batch_summary="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+ -> [0-9]+\.[0-9]+\.[0-9]+' "$batch_log" | tail -1)"
+        [ -n "$batch_summary" ] || batch_summary="(unchanged — nothing owed)"
+    else
+        # A label that failed to open is not a reason to unwind a good merge.
+        batch_summary="(FAILED — run scripts/open_batch.sh by hand)"
+    fi
+    rm -f "$batch_log"
+fi
+
+# ── 6. cleanup (prune_merged.sh) ──────────────────────────────────────────────
 prune_summary="(skipped — --keep-worktree)"
 if [ "$KEEP_WT" = 1 ]; then
     echo
@@ -213,11 +249,12 @@ else
     [ -n "$prune_summary" ] || prune_summary="(no summary parsed)"
 fi
 
-# ── 6. final summary ──────────────────────────────────────────────────────────
+# ── 7. final summary ──────────────────────────────────────────────────────────
 merge_sha="$(git -C "$main" log -1 --oneline 2>/dev/null)"
 echo
 echo "── merge_pr.sh summary ──"
 echo "PR:              #$PR ($MERGE_METHOD merged)"
 echo "verify:          ${verdict_used:-<none>}"
 echo "trunk ($base_branch): $merge_sha"
+echo "batch label:     $batch_summary"
 echo "prune:           $prune_summary"
