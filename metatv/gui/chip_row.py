@@ -476,7 +476,9 @@ def build_chip_row(
         liked: When True, prefix the row with the 👍 like glyph.
         new_badge: When True, show a small "NEW" pill before the title — the word
             itself is the cue, never colour alone.
-        trailing_button: An already-built, already-styled ``QPushButton`` (the
+        trailing_button: An already-built, already-styled ``QPushButton``. On a
+            compact row it sits INSIDE the tail, so the tail keeps the right
+            edge and stays a readable column down the list. (The
             caller owns its click wiring) appended as the row's last element.
         leading_slot: A caller-owned widget pinned at the ABSOLUTE left, before
             everything else including ``liked`` and ``icon_role``. Give it a
@@ -571,6 +573,16 @@ def build_chip_row(
         for kind, text in chips:
             if text:
                 layout.addWidget(chip_widget(kind, text))
+        # BEFORE the tail, not after it. The tail is a COLUMN — History is a
+        # list ordered by time and the times read down the rail — and an
+        # optional button on the outside of it pushes that column left on the
+        # few rows that have one, which is the only thing a column cannot
+        # survive. Owner: "the play next icon on Series episodes should be
+        # AFTER the episode so the date/time are the right most items in a row
+        # for vertical flow."
+        if trailing_button is not None:
+            trailing_button.setObjectName(TRAILING_OBJECT_NAME)
+            layout.addWidget(trailing_button)
         if tail:
             tail_lbl = QLabel(tail)
             _theme.style(tail_lbl, "SIDEBAR_ROW_TAIL")
@@ -583,7 +595,9 @@ def build_chip_row(
         _theme.style(news_lbl, "SIDEBAR_ROW_NEWS")
         layout.addWidget(news_lbl)
 
-    if trailing_button is not None:
+    # A comfortable (two-line) row has no tail to protect, so its button still
+    # closes the line. The compact branch above places its own.
+    if comfortable and trailing_button is not None:
         trailing_button.setObjectName(TRAILING_OBJECT_NAME)
         layout.addWidget(trailing_button)
 

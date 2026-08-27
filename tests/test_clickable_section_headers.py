@@ -37,19 +37,38 @@ def qapp():
 # Minimal config stub used across all section constructors
 # ---------------------------------------------------------------------------
 
+class _StubConfig:
+    """A real ``Config`` with a couple of test overrides in front of it.
+
+    It was a bare ``SimpleNamespace`` listing twelve attributes by hand, and it
+    went stale exactly the way a hand-maintained enumeration does: History grew
+    a ``delete_icon`` and Watch Queue a ``watched_icon``, neither was added
+    here, and both constructors raised ``AttributeError`` on ``main``. Falling
+    through to a real Config means the next attribute a section reads is
+    already here.
+
+    The autouse ``_isolate_user_config`` fixture points ``Path.home()`` at a
+    tmp dir, so constructing a real Config touches nothing of the user's.
+    """
+
+    def __init__(self, **overrides):
+        from metatv.core.config import Config
+
+        self.__dict__["_overrides"] = overrides
+        self.__dict__["_real"] = Config()
+
+    def __getattr__(self, name):
+        overrides = self.__dict__["_overrides"]
+        if name in overrides:
+            return overrides[name]
+        return getattr(self.__dict__["_real"], name)
+
+    def __setattr__(self, name, value):
+        self.__dict__["_overrides"][name] = value
+
+
 def _stub_config():
-    return SimpleNamespace(
-        collapse_icon="v",
-        expand_icon=">",
-        favorite_icon="★",
-        preferences_icon="♦",
-        provider_icon="◉",
-        refresh_icon="↻",
-        play_icon="▶",
-        live_icon="L",
-        movie_icon="M",
-        series_icon="S",
-        unknown_icon="?",
+    return _StubConfig(
         filter_adult_mode="all",
         sidebar_section_states={},
     )
@@ -238,6 +257,14 @@ def _make_section(cls, extra_kwargs=None, qapp=None):
     from metatv.gui.sidebar.base import _ClickableHeader
 
     section = cls.__new__(cls)
+    # Bring Qt's C++ side up WITHOUT running the subclass __init__ (which is
+    # what this helper exists to avoid). Without it, every attribute this
+    # function sets is a gamble and any assignment the header itself makes —
+    # ``self._overflow_btn``, for one — raises "super-class __init__() was
+    # never called" the moment a header grows one. The docstring below already
+    # described that hazard for reads; the ⋯ every section now carries made it
+    # a write hazard too.
+    QFrame.__init__(section)
 
     # Set instance attributes directly — do NOT call hasattr on the uninitialized object.
     # PyQt6 signals are class-level descriptors, and accessing them on an instance whose

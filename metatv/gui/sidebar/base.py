@@ -948,27 +948,24 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         btn.hide()
         return btn
 
-    def header_tint(self) -> str | None:
-        """Colour for the header icon, or ``None`` for the default text colour.
-
-        A method rather than a constructor argument on purpose: it is called
-        from inside the ``style_fn`` builder, so overriding it with a live token
-        read (``_theme.COLOR_GOLD``) re-resolves on every palette switch. A
-        value passed in at construction would be the old palette's hex forever.
-        """
-        return None
-
     def _title_html(self) -> str:
         """The header's icon-and-title rich text for the CURRENT palette."""
-        if self.vector_role:
-            glyph = _icon_utils.inline_icon_html(
-                _icons.vector_key(self.vector_role),
-                self.header_tint() or _theme.COLOR_TEXT,
-            )
-            if glyph:
-                return f"{glyph} <b>{self.title}</b>"
-        # No role, or the icon pack failed to resolve — keep the emoji.
-        return f"{self.icon} <b>{self.title}</b>"
+        # NO ICON. It said nothing the title beside it did not — "Watch Queue"
+        # is already the words "Watch Queue". It was kept on the theory that it
+        # might become the drag handle for reordering the rail; that is parked
+        # (see ROADMAP, "Reorder the sidebar sections"), and an icon waiting for
+        # a job it may never get is just decoration. Owner: "do we even need
+        # the icons at all?"
+        #
+        # ``icon``/``vector_role`` stay as constructor metadata — sections still
+        # declare them and ``filter_bar`` uses the same vocabulary — but nothing
+        # in a section header reads them now.
+        #
+        # Watch Alerts kept a state DOT here (grey quiet, green when something
+        # was new) until the header grew the filled "+N" pill, which says the
+        # same thing louder and with a number in it — so that went too, and all
+        # five sections share this one builder.
+        return f"<b>{self.title}</b>"
 
     def make_title_label(self) -> QLabel:
         """Build the header title label and keep its icon on-palette.
