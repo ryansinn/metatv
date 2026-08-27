@@ -102,33 +102,6 @@ class _Airing(NamedTuple):
 _ALERTS_TREE_AUTOEXPAND_BUDGET = 320
 
 
-def _alerts_title_html(title: str, count: int) -> str:
-    """Rich-text for the Alerts header: a recolorable status dot + title + count.
-
-The DOT carries the state; the title does not. Colouring the whole title
-    green and appending " (N)" made the header read as a different section
-    when something was new, and the count then had no chip of its own — the
-    approved design has a plain white title beside a filled green pill, which
-    is what ``make_status_label`` already renders for every other section.
-
-        - Quiet (count == 0): grey dot, plain title.
-        - Active (count > 0): green dot, plain title. The count lives in the
-          header's status label.
-
-    Args:
-        title: The section title (always "Watch Alerts").
-        count: Number of unviewed watch-for matches across all rules.
-
-    Returns:
-        An HTML string for :meth:`QLabel.setText` (rich-text format).
-    """
-    dot_color = _theme.COLOR_OK if count > 0 else _theme.COLOR_MUTED
-    return (
-        f'<span style="color:{dot_color}">{_icons.status_dot_icon}</span> '
-        f'<b><span style="color:{_theme.COLOR_TEXT_HI}">{title}</span></b>'
-    )
-
-
 def _vod_count_label(unviewed: int, count: int) -> str:
     """Right-aligned count text for a watch-for rule row.
 

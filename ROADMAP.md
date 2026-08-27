@@ -194,6 +194,10 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 - [ ] **Launch-time feedback prompts** — while channels load at startup (5-10s), show "You watched [X] — what did you think?" prompts for recently-watched content with no rating; feeds the recommendation engine quickly; opt-in ("Ask me about content I watch"), explain data stays local; dismissable and rate-limited so it doesn't become annoying
 - [ ] **Recommendation dashboard — category mood editor** — show all user categories with their current mood, channel count, and inferred genre; let user adjust mood in bulk without re-opening CategoryPickerDialog; "Why is this recommended?" explainer links back to category mood contributions
 
+- [ ] **Sidebar sections shareable with the right-hand column** — *(owner, 2026-08-26; "Right now no, but worth a thought")*. Sections reorder within the left rail via the ⋯ menu's Move up / Move down. The open question is whether a section should be able to leave the rail entirely and sit beside the details pane — Recommended or Watch Queue as a right-hand column on a wide window, rather than everything competing for one vertical strip.
+
+  Worth recording now because it changes what "order" means: `config.sidebar_sections` is a single ordered list today, and a two-column rail needs a *placement* per section (which column, which position) instead. Whatever builds this should expect to migrate that field rather than extend it. It also interacts with the content cap (#487) — a section that releases height to its neighbours has different neighbours in each column.
+
 ## UI correctness fixes with no roadmap line
 
 Recorded here only so the roadmap watermark can move honestly — these fixed existing behaviour rather than building anything the roadmap was tracking.

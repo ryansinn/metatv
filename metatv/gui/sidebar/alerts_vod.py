@@ -19,7 +19,6 @@ from metatv.gui.sidebar.base import GroupHeading
 from metatv.gui.sidebar.alerts_common import (
     _ROLE_KIND,
     _ROLE_SERIES_ID,
-    _alerts_title_html,
     _vod_count_label,
 )
 
@@ -438,7 +437,8 @@ class MoviesSeriesMixin:
         """
         clearable = count if clearable_count is None else clearable_count
         try:
-            self.title_label.setText(_alerts_title_html(self.title, count))
+            # No title rewrite: the title is the constant "Watch Alerts" now,
+            # and the count reaches the header through the status pill below.
             if count > 0:
                 items = count if item_count is None else item_count
                 series_new = max(0, count - clearable)

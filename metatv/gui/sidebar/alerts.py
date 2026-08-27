@@ -43,7 +43,6 @@ from metatv.gui.sidebar.alerts_common import (  # noqa: F401
     _ROLE_SERIES_ID,
     _ROW_FALLBACK_H,
     _Airing,
-    _alerts_title_html,
     _quality,
     _started_at,
     _vod_count_label,
@@ -102,12 +101,15 @@ class WatchAlertsSection(
     def create_header(self):
         header = self._build_clickable_header()
         hl = header.layout()
-        # A single state-driven label: a recolorable status dot + "Watch Alerts" + an
-        # optional " (N)" count.  Replaces the old warn-siren title + separate
-        # green badge — the dot's colour IS the glance (gray = quiet, green = new),
-        # visible even when the section is collapsed.  Updated by update_new_match_badge.
-        self.title_label = QLabel(_alerts_title_html(self.title, 0))
-        self.title_label.setTextFormat(Qt.TextFormat.RichText)
+        # The SHARED title label, like every other section. Watch Alerts used
+        # to prepend a recolorable status dot here — grey quiet, green when
+        # something was new — which was the right idea before the header grew
+        # the filled "+N" pill that says the same thing louder and with a
+        # number in it. Two indicators for one fact is what the V3 pass keeps
+        # removing. Owner: "watch alerts icon could probably go as well, since
+        # we have the +1 or whatever filled chip in the header to note what is
+        # going on."
+        self.title_label = self.make_title_label()
         hl.addWidget(self.title_label)
         hl.addStretch(1)
         # The SAME status widget every other section header uses. Watch Alerts

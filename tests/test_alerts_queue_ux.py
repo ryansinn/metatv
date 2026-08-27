@@ -4,7 +4,6 @@ Covers:
 - ``Config.mark_vod_rule_viewed``: acknowledges just one rule's matches, returns
   the cleared count, and leaves other rules unviewed (real Config on tmp_path).
 - ``alerts._vod_count_label``: the "N of M" / "· M" / "" count-text formatter.
-- ``alerts._alerts_title_html``: recolorable header dot + title + count states.
 
 The formatter/HTML helpers are pure functions, so they are exercised directly
 without any Qt widget construction.
@@ -90,17 +89,28 @@ class TestRulesWithNewMatchesCount:
 class TestHeaderShowsRuleCount:
     """The Alerts header label reflects the firing-rule count, not item totals."""
 
-    def test_header_label_shows_rule_count(self, qapp):
+    def test_the_badge_updates_the_tooltip_and_leaves_the_title_alone(self, qapp):
+        """The title is a constant now; the count lives on the header pill.
+
+        It used to be rewritten here — the label carried a recolorable state
+        dot and the title together — which is why this asserted the title's
+        TEXT. The dot went when the filled "+N" pill made it a second drawing
+        of one fact, so the title is set once at construction and the count
+        reaches the header through the pill. What this method still owns is
+        the tooltip, which is the only place the item TOTAL is stated.
+        """
         from PyQt6.QtWidgets import QLabel, QPushButton
         from metatv.gui.sidebar.alerts import WatchAlertsSection
         section = WatchAlertsSection.__new__(WatchAlertsSection)
         section.title = "Alerts"
-        section.title_label = QLabel()
+        section.title_label = QLabel("<b>Alerts</b>")
         section._clear_all_btn = QPushButton()
-        # 2 firing alerts, 73 matched items → header shows "(2)", tooltip clarifies both.
+        # 2 firing alerts, 73 matched items.
         section.update_new_match_badge(2, 73)
-        assert "Alerts" in section.title_label.text()
-        assert "73" not in section.title_label.text()  # item total never in the header
+        assert section.title_label.text() == "<b>Alerts</b>", (
+            "the badge update rewrote the title"
+        )
+        assert "73" not in section.title_label.text()  # item total never in the title
         assert "73" in section.title_label.toolTip()
         assert "2 alerts" in section.title_label.toolTip()
 
@@ -129,26 +139,6 @@ class TestVodCountLabel:
     def test_no_matches_is_empty(self):
         from metatv.gui.sidebar.alerts import _vod_count_label
         assert _vod_count_label(0, 0) == ""
-
-
-class TestAlertsTitleHtml:
-    """alerts._alerts_title_html — recolorable header dot + title + count."""
-
-    def test_quiet_state_gray_dot_no_count(self):
-        from metatv.gui import theme as _theme
-        from metatv.gui.sidebar.alerts import _alerts_title_html
-        html = _alerts_title_html("Alerts", 0)
-        assert "Alerts" in html
-        assert "(" not in html                 # no count suffix
-        assert _theme.COLOR_MUTED in html      # gray dot
-        assert _theme.COLOR_OK not in html     # nothing green
-
-    def test_active_state_greens_the_dot_only(self):
-        from metatv.gui import theme as _theme
-        from metatv.gui.sidebar.alerts import _alerts_title_html
-        html = _alerts_title_html("Alerts", 3)
-        assert "Alerts" in html
-        assert _theme.COLOR_OK in html         # green dot + green title
 
 
 class TestShowMatchesHandler:
