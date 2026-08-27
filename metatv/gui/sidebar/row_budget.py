@@ -334,14 +334,10 @@ class RowBudgetMixin:
     def _after_budget(self) -> None:
         """Re-derive the section's MAXIMUM after the rows have been re-fitted.
 
-        The cap only — deliberately NOT the fold pass. Folding answers "there
-        is less space than this needs"; a content change is not that. When it
-        ran here, opening one group re-folded another to make room, so clicking
-        Stream Monitoring silently closed EPG. Owner: "the EPG just collapsed
-        on it's own while clicking on the Stream Monitor subheader."
-
-        Content that outgrows the section is what the scroll area is for. Only
-        a RESIZE folds anything.
+        Rows arriving is exactly when the cap goes stale: a section sized for
+        an empty list must be allowed to grow, and one whose list emptied must
+        stop claiming the height. Content that outgrows the section is what the
+        scroll area is for.
         """
         cap = getattr(self, "_apply_content_cap", None)
         if callable(cap):

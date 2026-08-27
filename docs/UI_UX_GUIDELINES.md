@@ -107,35 +107,46 @@ every other section then had to live around. Owner: *"the vertical resize
 should be standardized and allow to collapse down to nothing except the resize
 row"*.
 
-### Degrading, rather than clipping
+### Scrolling, rather than folding
 
-A section under pressure folds its groups to their headings, via
-`pressure_groups()` — an ordered, least-important-first list of
-`PressureGroup` records. A flat section returns `[]` and simply scrolls, which
-it already did. Four rules make it feel deliberate rather than random:
+A section under pressure **scrolls**. It does not close its own groups.
 
-1. **Auto-folded is not user-collapsed.** `_auto_folded` records what the pass
-   closed, and the pass may only ever re-open what is in it. Without that
-   distinction, freeing space anywhere in the sidebar silently undoes a
-   collapse the user chose — worse than not folding at all.
-2. **An empty group folds first**, whatever its place in the base order.
-   Folding a heading with nothing under it costs nothing.
-3. **The last group is never folded.** It takes the leftover room and scrolls,
-   so a short section shows every heading *and* some rows. Folding everything
-   leaves a stack of headings over dead space, which is strictly less.
-4. **Re-opening needs headroom** (`PRESSURE_HYSTERESIS`), not a bare fit.
-   Opening a group is what changes the height being measured, so a group that
-   re-opens the instant it *just* fits folds again on the next pixel of drag.
+It used to. `pressure_groups()` returned an ordered, least-important-first list
+and the section folded down it until the content fit, unfolding again when the
+space came back. Four rules governed it, it was debounced, it distinguished
+auto-folded from user-collapsed — and it was still wrong, because the premise
+was wrong. Folding hides content **without revealing any**: everything below
+the fold already scrolled, so the section gave up a group the user had opened
+and showed nothing extra in return.
 
-Two traps, both about measurement. The pass is **debounced**
-(`PRESSURE_DEBOUNCE_MS`) because folding a group can mean a full list rebuild
-and a splitter drag emits a resize per frame. And `_content_height()` **forces
-the row budget** before measuring: the budget is what gives each inner view its
-height and a group toggle defers it to a `singleShot`, so measuring first reads
-the height the content had *before* the group opened — two groups re-opened at
-once on a zero-pixel fit until this was fixed.
+It produced four defects in a single day, all the same shape:
 
-Guard: `tests/test_sidebar_elastic_sections.py`.
+1. Groups folded during startup could never re-open. The content cap stood
+   down while anything was folded (it had to, or a folded section was pinned at
+   its folded height), so Watch Alerts held its full height for a stack of
+   headings and Recommended could not grow into the space.
+2. Opening one group re-folded another to make room, so clicking Stream
+   Monitoring silently closed EPG.
+3. Shrinking the section closed EPG — the group the user was looking at.
+   Owner: *"Maybe I wanted to see just the epg, now I have to reopen it."*
+4. The order was invisible: Series was structurally exempt (the last group is
+   never folded) while EPG and Stream Monitoring were not, which reads as the
+   panel choosing at random.
+
+A group now stays exactly as the user left it. What remains is the **content
+cap** (`section_cap.py`): a section states a maximum of `HEADER_H +
+_content_height()`, so it never claims height it cannot fill and the splitter
+hands the surplus to its neighbours. Two measurement traps survive with it. The
+pass is **debounced** (`CAP_DEBOUNCE_MS`) because a splitter drag emits a resize
+per frame and re-deriving the cap re-runs every inner view's row budget. And
+`_content_height()` **forces the row budget** before measuring — the budget is
+what gives each inner view its height and a group toggle defers it to a
+`singleShot`, so measuring first derives the cap from the content size of one
+interaction ago.
+
+Guards: `tests/test_sidebar_elastic_sections.py`,
+`tests/test_section_content_cap.py`. Both hold the *absence* of folding, and
+both were proven to fail against the code that folded.
 
 ## Media Player Integration
 

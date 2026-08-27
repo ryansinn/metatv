@@ -1,12 +1,11 @@
 """Two reported faults, both in code this session wrote.
 
-**Folded groups never came back.** The unfold pass gave up on the first group
-that did not fit, abandoning every group after it — so an empty Stream
-Monitoring group, which costs one heading to open, stayed shut because Movies
-was tried first and was too big. The section then sat at full height showing
-three headings and a lot of nothing. Owner: "all the subheaders in watch alerts
-collapse but then doing nothing more than expanding and collapsing favorites
-AGAIN ... and the watch alerts expand."
+**A section closed groups the user had opened.** Three separate reports, one
+mechanism: the fold pass. It has been removed rather than repaired — see
+:mod:`metatv.gui.sidebar.section_cap` — so what survives here is the narrowest
+of the three, which is a contract in its own right whatever the mechanism:
+toggling one group must not move another. Owner: "in main the EPG just
+collapsed on it's own while clicking on the Stream Monitoring subheader."
 
 **No way to reach the series.** Double-clicking a watched episode in History
 opens the series browser, so the only route to it is a gesture that should have
@@ -28,69 +27,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-class TestUnfoldingTriesEveryGroup:
-
-    def test_a_cheap_group_opens_even_when_an_expensive_one_cannot(self, qapp):
-        """The bug, at the level it actually lives: the loop's control flow.
-
-        Driven through _apply_pressure with stub groups so the arithmetic is
-        visible — a real section's content heights depend on fonts and would
-        make the failure look like a rounding problem rather than a `break`.
-        """
-        from metatv.gui.sidebar.section_pressure import (
-            PressureGroup, SectionPressureMixin,
-        )
-
-        class _Section(SectionPressureMixin):
-            HEADER_H = 26
-            is_collapsed = False
-            PRESSURE_HYSTERESIS = 0
-
-            def __init__(self):
-                self._auto_folded = {"cheap", "expensive"}
-                self._in_pressure = False
-                self._state = {"cheap": True, "expensive": True}
-                self._height = 126          # 100px of room
-
-            def height(self):
-                return self._height
-
-            def min_expanded_height(self):
-                return self.HEADER_H
-
-            def setMaximumHeight(self, _h):
-                pass
-
-            def _content_height(self):
-                # base 10, +20 for the cheap group, +500 for the expensive one
-                return (10
-                        + (0 if self._state["cheap"] else 20)
-                        + (0 if self._state["expensive"] else 500))
-
-            def pressure_groups(self):
-                def setter(key):
-                    return lambda collapsed: self._state.__setitem__(key, collapsed)
-                # Least important FIRST, so the unfold pass (which walks this
-                # reversed) reaches the expensive group before the cheap one.
-                # That ordering is the whole bug: get it the other way round and
-                # the cheap group is tried first, fits, and `break` never bites.
-                return [
-                    PressureGroup("cheap", self._state["cheap"], setter("cheap")),
-                    PressureGroup("expensive", self._state["expensive"],
-                                  setter("expensive")),
-                ]
-
-        sec = _Section()
-        sec._apply_pressure()
-
-        assert sec._state["expensive"] is True, "the expensive group must stay shut"
-        assert sec._state["cheap"] is False, (
-            "the cheap group stayed folded because the expensive one was tried "
-            "first — the loop gave up instead of trying the rest"
-        )
-        assert sec._auto_folded == {"expensive"}
 
 
 class TestReachingTheSeries:
@@ -215,10 +151,10 @@ class TestOpeningOneGroupDoesNotCloseAnother:
         try:
             before = sec._epg_collapsed
             sec._toggle_stream_monitoring()
-            # Long enough for a DEBOUNCED fold to fire if one were scheduled —
-            # otherwise the mutation that re-schedules it passes unnoticed,
+            # Long enough for anything DEBOUNCED to fire if it were scheduled
+            # — otherwise a mutation that re-schedules a pass passes unnoticed,
             # because the timer never gets to run inside a tight event loop.
-            deadline = time.monotonic() + (sec.PRESSURE_DEBOUNCE_MS / 1000) * 4
+            deadline = time.monotonic() + (sec.CAP_DEBOUNCE_MS / 1000) * 4
             while time.monotonic() < deadline:
                 qapp.processEvents()
                 time.sleep(0.005)
