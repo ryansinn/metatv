@@ -326,8 +326,22 @@ def test_quality_hugs_the_title_and_is_not_in_the_rail(qapp):
     language = painted.rect_of("EN")
 
     # On the title's LINE, and left of the rail that shares it.
-    assert quality.center().y() == title.center().y(), (
-        "quality must sit on the title's own line, not the meta line"
+    #
+    # Overlap, not identical centres. This asserted
+    # ``quality.center().y() == title.center().y()`` and that is a pixel, not a
+    # property: it holds only while the two text runs happen to be the same
+    # height. Applying the app's own bundled face (which the suite had never
+    # done — see conftest's _bundled_ui_font) makes the chip 16px tall against
+    # the title's 18, so the centres round one pixel apart and a correct
+    # layout failed.
+    #
+    # What "same line" actually means is that the boxes overlap almost
+    # completely. On the meta line they would not overlap at all, which is the
+    # arrangement this test exists to forbid.
+    overlap = min(quality.bottom(), title.bottom()) - max(quality.top(), title.top())
+    assert overlap >= 0.6 * min(quality.height(), title.height()), (
+        f"quality must sit on the title's own line, not the meta line "
+        f"(overlap {overlap}px of {min(quality.height(), title.height())}px)"
     )
     assert quality.left() >= title.left()
     assert quality.right() < language.left(), (
