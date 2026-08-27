@@ -1525,3 +1525,36 @@ def wire_nav_host(host) -> None:
         host.breadcrumb_label = MagicMock()
     if "series_icon" not in host.__dict__:
         host.series_icon = "S"
+
+@pytest.fixture(scope="session", autouse=True)
+def _bundled_ui_font():
+    """Measure the font the APP renders, not the platform's default.
+
+    Every widget test that asserts a width, a height or an elision is measuring
+    text, and text metrics are a property of the FACE. Without this the suite
+    measured whatever face the platform happened to default to — and the same
+    token rendered three different heights across three machines:
+
+        dev Linux 18px   ·   macOS CI 16px   ·   Ubuntu CI 15px
+
+    which is why a pixel floor written on one machine failed on the other two,
+    twice, and why two width assertions passed locally and failed in CI on
+    their first run.
+
+    ``__main__.py`` calls ``apply_ui_font`` before constructing anything, so
+    Inter is what the app actually draws with. Tests that measured Sans Serif
+    were measuring an app that does not exist. This makes the suite both
+    deterministic AND more faithful, which is a rare pairing.
+
+    Session-scoped and autouse: the application font is process-global, so it
+    must be set before the first widget is constructed and it never needs
+    setting twice. A no-op if the bundled face fails to load — a missing
+    typeface should cost determinism, not the whole suite.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    from metatv.gui import fonts as _fonts
+
+    app = QApplication.instance() or QApplication([])
+    _fonts.apply_ui_font(app)
+    yield

@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=386,
+    id=387,
     version="0.41.0",
     date="2026-08-27",
     title="Recommendations obey your exclusions",
