@@ -398,6 +398,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # those scans fast (and correctly planned — see its docstring).
         from metatv.core.migrations.query_indexes import QueryIndexTask
         self.migration_manager.register(QueryIndexTask(self.db))
+        from metatv.core.migrations.poster_backfill import PosterBackfillTask
+        self.migration_manager.register(PosterBackfillTask(self.db))
         from metatv.core.migrations.prefix_rescan import PrefixRescanTask
         self.migration_manager.register(PrefixRescanTask(self.db))
         from metatv.core.migrations.metadata_rescan import MetadataRescanTask
