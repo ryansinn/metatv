@@ -25,7 +25,7 @@ import uuid
 
 import pytest
 
-from metatv.core.repositories.channel import _contradicts_own_locale
+from metatv.core.repositories.channel_ingestion import _contradicts_own_locale
 
 
 class TestContradictionPredicate:
