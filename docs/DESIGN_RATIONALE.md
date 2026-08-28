@@ -14,6 +14,7 @@ Write a settled decision through them in this order; the flow is one-directional
 |---|---|---|---|
 | **Vision** (north star) | `docs/PRODUCT_VISION.md` | *Why does the product feel this way?* | Rarely changes |
 | **Rationale** (the "why") | **`docs/DESIGN_RATIONALE.md`** (this file) | *Why did we decide it this way, and what did we reject?* | Append-only log |
+| **Engineering decisions** | `docs/ENGINEERING_DECISIONS.md` | *Why is the data/query/guard layer built this way, and what was weighed?* | Revised in place |
 | **Rules** (enforced invariant) | `CLAUDE.md` Critical Rules | *Claude: what must I never violate?* | Distilled from a decision |
 | **Patterns** (how it behaves) | `docs/UI_UX_GUIDELINES.md` | *How does this interaction actually work?* | Per pattern |
 

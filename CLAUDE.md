@@ -249,6 +249,7 @@ These legacy forms coexist with the rules above — new code follows the rule, d
 |---|---|
 | **Critical Rules — full detail (code, exceptions, rationale)** | docs/CRITICAL_RULES.md |
 | **Product vision & direction (north star)** | docs/PRODUCT_VISION.md |
+| **Engineering decisions — why the data/query/guard layers are shaped this way** | docs/ENGINEERING_DECISIONS.md |
 | UI/UX interaction patterns | docs/UI_UX_GUIDELINES.md |
 | Qt threading deep dive | docs/THREADING_PATTERNS.md |
 | Metadata system architecture | docs/METADATA_SYSTEM.md |
