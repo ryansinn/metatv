@@ -132,6 +132,30 @@ def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bo
     return normalize_region_code(candidate_region) not in implied
 
 
+class _FullKeyProxy:
+    """Duck-typed row for ``content_key_for`` when there may be NO tmdb id.
+
+    Sibling of :class:`_TmdbKeyProxy`, and deliberately not merged with it: that
+    one carries three attributes because a row WITH a tmdb id keys on the id
+    alone, while this one must also carry title/year for the fallback key. Same
+    shape, different policy — collapsing them would quietly widen what the tmdb
+    path reads.
+
+    It was previously declared INSIDE the per-row loop, so the class object was
+    rebuilt once per channel across a 484k-row pass.
+    """
+
+    __slots__ = ("detected_title", "media_type", "detected_year",
+                 "detected_tmdb_id", "id")
+
+    def __init__(self, t, m, y, tmdb, i) -> None:
+        self.detected_title = t
+        self.media_type = m
+        self.detected_year = y
+        self.detected_tmdb_id = tmdb
+        self.id = i
+
+
 class ChannelIngestionMixin:
     """The ingestion/backfill half of :class:`ChannelRepository`.
 
@@ -925,6 +949,50 @@ class ChannelIngestionMixin:
             )
         return adopted
 
+    def _process_tmdb_backfill_batch(self, chunk_ids: list[str]) -> int:
+        """Fill one batch of tmdb ids + content keys, committing at the end.
+
+        Split out of :meth:`backfill_tmdb_ids` so the batch can be retried as a
+        UNIT through :meth:`_retry_on_lock`. Retrying only the ``commit()``
+        would be wrong: a failed commit's rollback expires the session's
+        in-memory changes, so a bare re-commit flushes nothing — the batch has
+        to be recomputed from a fresh query. That is the same reasoning as
+        :meth:`_commit_prefix_batch_with_retry`, and this method exists for the
+        same reason.
+
+        Args:
+            chunk_ids: Channel ids in this batch.
+
+        Returns:
+            Number of rows written in this batch.
+        """
+        filled = 0
+        # raw_data IS needed here (that's where tmdb lives), so load it for
+        # this batch only, then expunge below.
+        rows = (
+            self.session.query(
+                ChannelDB.id, ChannelDB.raw_data, ChannelDB.media_type
+            )
+            .filter(ChannelDB.id.in_(chunk_ids))
+            .all()
+        )
+
+        for (ch_id, raw, media_type) in rows:
+            tmdb = valid_tmdb_id((raw or {}).get("tmdb")) if raw else None
+            if tmdb is None:
+                continue  # leave NULL — no real id shipped for this row
+            key = content_key_for(_TmdbKeyProxy(tmdb, media_type or "", ch_id))
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == ch_id)
+                .values(detected_tmdb_id=tmdb, content_key=key)
+            )
+            filled += 1
+
+        self.session.commit()
+        self.session.expunge_all()
+        return filled
+
     def backfill_tmdb_ids(
         self,
         progress_cb=None,
@@ -984,37 +1052,62 @@ class ChannelIngestionMixin:
                 break
 
             chunk_ids = all_ids[batch_start : batch_start + _BATCH]
-            # raw_data IS needed here (that's where tmdb lives), so load it for
-            # this batch only, then expunge below.
-            rows = (
-                self.session.query(
-                    ChannelDB.id, ChannelDB.raw_data, ChannelDB.media_type
-                )
-                .filter(ChannelDB.id.in_(chunk_ids))
-                .all()
+            filled += self._retry_on_lock(
+                "backfill_tmdb_ids: batch",
+                self._process_tmdb_backfill_batch,
+                chunk_ids,
             )
-
-            for (ch_id, raw, media_type) in rows:
-                tmdb = valid_tmdb_id((raw or {}).get("tmdb")) if raw else None
-                if tmdb is None:
-                    continue  # leave NULL — no real id shipped for this row
-                key = content_key_for(
-                    _TmdbKeyProxy(tmdb, media_type or "", ch_id)
-                )
-                self.session.execute(
-                    update(ChannelDB)
-                    .where(ChannelDB.id == ch_id)
-                    .values(detected_tmdb_id=tmdb, content_key=key)
-                )
-                filled += 1
-
-            self.session.commit()
-            self.session.expunge_all()
 
             if progress_cb is not None:
                 progress_cb(min(batch_start + _BATCH, total), total)
 
         logger.info("backfill_tmdb_ids: wrote {} tmdb ids across {} scanned rows", filled, total)
+        return filled
+
+    def _process_content_key_backfill_batch(self, chunk_ids: list[str]) -> int:
+        """Recompute one batch of ``content_key``, committing at the end.
+
+        Split out of :meth:`backfill_content_keys` so the batch is retried as a
+        UNIT through :meth:`_retry_on_lock` — see
+        :meth:`_process_tmdb_backfill_batch` for why retrying the commit alone
+        would flush nothing.
+
+        Args:
+            chunk_ids: Channel ids in this batch.
+
+        Returns:
+            Number of rows rewritten in this batch.
+        """
+        filled = 0
+        # Project only the columns we need to stay memory-safe.  detected_tmdb_id
+        # is included so content_key_for can pick the tmdb-first key on recompute
+        # (else it would fall back to the title/year key and never key on tmdb).
+        rows = (
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.detected_title,
+                ChannelDB.media_type,
+                ChannelDB.detected_year,
+                ChannelDB.detected_tmdb_id,
+            )
+            .filter(ChannelDB.id.in_(chunk_ids))
+            .all()
+        )
+
+        for (ch_id, det_title, media_type, det_year, det_tmdb_id) in rows:
+            key = content_key_for(
+                _FullKeyProxy(det_title, media_type, det_year, det_tmdb_id, ch_id)
+            )
+            # Bulk UPDATE avoids loading the full ORM object (raw_data JSON blob).
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == ch_id)
+                .values(content_key=key)
+            )
+            filled += 1
+
+        self.session.commit()
+        self.session.expunge_all()
         return filled
 
     def backfill_content_keys(
@@ -1076,44 +1169,11 @@ class ChannelIngestionMixin:
                 break
 
             chunk_ids = all_ids[batch_start : batch_start + _BATCH]
-            # Project only the columns we need to stay memory-safe.  detected_tmdb_id
-            # is included so content_key_for can pick the tmdb-first key on recompute
-            # (else it would fall back to the title/year key and never key on tmdb).
-            rows = (
-                self.session.query(
-                    ChannelDB.id,
-                    ChannelDB.detected_title,
-                    ChannelDB.media_type,
-                    ChannelDB.detected_year,
-                    ChannelDB.detected_tmdb_id,
-                )
-                .filter(ChannelDB.id.in_(chunk_ids))
-                .all()
+            filled += self._retry_on_lock(
+                "backfill_content_keys: batch",
+                self._process_content_key_backfill_batch,
+                chunk_ids,
             )
-
-            for (ch_id, det_title, media_type, det_year, det_tmdb_id) in rows:
-                class _Proxy:
-                    __slots__ = (
-                        "detected_title", "media_type", "detected_year",
-                        "detected_tmdb_id", "id",
-                    )
-                    def __init__(self, t, m, y, tmdb, i):
-                        self.detected_title = t
-                        self.media_type = m
-                        self.detected_year = y
-                        self.detected_tmdb_id = tmdb
-                        self.id = i
-                key = content_key_for(_Proxy(det_title, media_type, det_year, det_tmdb_id, ch_id))
-                # Update via bulk UPDATE to avoid loading the full ORM object (raw_data JSON blob).
-                self.session.execute(
-                    update(ChannelDB)
-                    .where(ChannelDB.id == ch_id)
-                    .values(content_key=key)
-                )
-                filled += 1
-
-            self.session.commit()
-            self.session.expunge_all()
 
             if progress_cb is not None:
                 progress_cb(min(batch_start + _BATCH, total), total)
