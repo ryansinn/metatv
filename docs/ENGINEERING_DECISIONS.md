@@ -20,28 +20,61 @@ this file.
 
 ---
 
-## 1. Query planning runs without `ANALYZE`
+## 1. Indexes first, and `ANALYZE` to repair what the indexes broke
 
-**Decision.** The app does not run `ANALYZE`, and does not ship `sqlite_stat1`.
-Query performance is addressed with explicit indexes chosen per access path.
+**Decision.** Query performance is addressed with explicit composite and partial
+indexes chosen per access path. `ANALYZE` **does** run — once, as a migration — and
+`PRAGMA optimize` refreshes the statistics on close. Both ship.
 
-**Why.** SQLite without statistics falls back to heuristics that, for this schema's
-access patterns, already choose the intended index. The measured wins came from adding
-covering and partial indexes for specific queries, not from teaching the planner about
-data distribution.
+**Why.** Statistics alone were worth nothing to the query that motivated the work.
+Measured on a copy of the production database (492,511 channels), best of three:
+
+| case | before | indexes only | + ANALYZE |
+|---|---|---|---|
+| default view (3 types) | 289.9 ms | **1.2 ms** | 1.1 ms |
+| one media type | 244.3 ms | 1.3 ms | 1.2 ms |
+| get_favorites | 182.7 ms | 0.5 ms | 0.5 ms |
+| **get_by_category** | 145.9 ms | **487.4 ms** | **126.0 ms** |
+
+`ANALYZE` on its own moved the channel-list query 221.6 ms → 222.9 ms with a
+byte-identical plan: both candidate indexes matched nearly every row, so there was no
+better plan for statistics to find. The indexes are what produced the 240×.
+
+**But the indexes made `get_by_category` 3.3× worse** — a new index the planner chose
+badly without distribution data. `ANALYZE` is what repairs that regression, and that is
+the honest reason it ships: not to speed up the query the work was about, but to pay for
+a cost the fix to that query introduced.
+
+`PRAGMA optimize` on close re-analyses only what has drifted and costs 0.6 ms when
+nothing has, which is almost every time. Without it the planner keeps reading statistics
+written once, however many rows a catalogue refresh has since added.
 
 **Alternatives considered.**
 
-- *Run `ANALYZE` at startup or on a schedule.* Rejected on measurement: it did not
-  change the plans for the queries that mattered, so it added a maintenance step and a
-  startup cost for no observed gain. On a 1.6 GB file the scan is not free.
+- *Indexes with no statistics at all.* Rejected: it is the `487.4 ms` column above. The
+  regression is real and only distribution data fixes it.
+- *`PRAGMA analysis_limit=1000` to bound the ANALYZE cost.* Rejected on measurement: it
+  samples too shallowly to change the plans that matter, and saves little anyway — 10.0 s
+  against 11.5 s — because the cost is reading 33 indexes, not counting rows.
+- *A partial index `ON channels (name) WHERE is_favorite = 1`.* Rejected: it offers only
+  a full-index SCAN, and a stat1-only planner prefers a SEARCH with an equality over a
+  SCAN of any size. Keeping `is_hidden` as the leading column is what makes it a SEARCH.
 - *Rely on `sqlite_stat4` for range/equality selectivity.* Rejected as non-portable:
   `stat4` requires `SQLITE_ENABLE_STAT4` at compile time. An index tuned against a local
   build with `stat4` behaved differently on CI's interpreters — a real divergence, caught
   when an index passed locally and failed on both CI runners. **A partial index expresses
-  the same intent and is version-independent**, so that is the form used.
+  the same intent and is version-independent**, so that is the form used, and the shipped
+  planner is treated as stat1-only.
 
----
+> **Correction, 2026-08-28.** This entry previously stated the opposite — that the app
+> does not run `ANALYZE` and does not ship `sqlite_stat1` — and was wrong on the day it
+> was written; the work that added them had already merged. The error came from
+> generalising a true measurement (`ANALYZE` did nothing for the channel-list query) into
+> a false claim about the system (`ANALYZE` does nothing worth having), without
+> re-reading the code. The live database carries 62 `sqlite_stat1` rows and 1,048
+> `sqlite_stat4` rows, which is what a thirty-second check would have shown. Recorded
+> rather than quietly rewritten, because this file's preamble makes the claim that an
+> entry not matching the code is a bug in the file, and the first entry was that bug.
 
 ## 2. There is no directory map
 
@@ -77,7 +110,10 @@ a lock retry.
 
 **Decision.** Cross-source dedup uses a single stored field, `content_key`, computed at
 ingestion. It is `tmdb:{id}|{media_type}` when the provider shipped a TMDb id, else a
-normalized `{title}|{media_type}|{year}` key. Every collapse surface reads the stored
+normalized title key — `{title}|{media_type}|{year}` for **movies**, and
+`{title}|{media_type}` for series and live, which omit the year deliberately because
+cross-provider year labels on a long-running series are noisy. Every figure quoted below
+describes the movie form. Every collapse surface reads the stored
 key; none re-derives identity.
 
 **Why.** The same film appears many times across sources and language/quality variants.
@@ -179,9 +215,10 @@ minutes of repeated work.
 **Alternatives considered.**
 
 - *A single serialized write gateway (all writes through one queue).* Rejected as
-  disproportionate: it is new architecture across 52 committing methods to address
-  contention that WAL plus a 30-second timeout already absorbs, and the one observed
-  failure class is fixed by retrying five bulk paths.
+  disproportionate: it is new architecture across every committing method in the app
+  (~80 by AST count under `metatv/`, of which the repositories hold about two thirds) to
+  address contention that WAL plus a 30-second timeout already absorbs, when the one
+  observed failure class is fixed by retrying five bulk paths.
 - *Retry only the `commit()`.* Rejected as incorrect, not merely weak. A failed commit's
   rollback expires the session's in-memory changes, so a bare re-commit flushes nothing.
   The batch must be recomputed from a fresh query, which is why each retried batch owns
@@ -204,10 +241,13 @@ disappeared *exactly where the most was hidden*. A floor is honest at every inpu
 
 **Alternatives considered.**
 
-- *Compute exact counts with a grouped query.* Rejected on measurement: **3,028 ms** for
-  the pair on 484,288 rows, because the count carries the dead-stream `NOT IN` subquery.
-  That would have put three seconds back into a load that had just been taken from 252 ms
-  to 1.1 ms. Exact counting assumes a count is cheap; carrying that subquery, it is not.
+- *Compute exact counts with a grouped query.* Rejected on measurement: the pair costs
+  **414 ms** (215 + 198) in raw SQL on 484,287 rows, against a load that had just been
+  taken from 252 ms to 1.1 ms, and up to three axes are measured per keystroke. An earlier
+  3,028 ms figure for the same pair does **not** reproduce, and its attribution to the
+  dead-stream `NOT IN` was wrong — that subquery costs ~17 ms. The conclusion survives at
+  the lower number; the stated cause did not. Re-derive by timing the two `SELECT COUNT(*)`
+  forms of the visible/comparison pair directly against the live database.
 - *Raise the page cap.* Rejected: it moves the threshold without removing it, and costs
   memory on every load to fix a status line.
 - *Materialise the full list to count it.* Rejected for the same reason as above — a
@@ -225,18 +265,19 @@ Documented at the call site rather than hidden.
 them with a frozen query object, the *forwarding* between the query and its sibling
 counters is derived from the accepting function's own signature.
 
-**Why.** The problem a parameter object solves is call-site churn, and measured, that is
-not where the pain is. The call-site distribution:
+**Why.** The problem a parameter object solves is call-site churn. Counting `get_all` /
+`_apply_channel_filters` / `count_watched_matching` calls under `metatv/` by AST, the
+distribution is roughly `{30:1, 28:1, 9:1, 8:2, 4:1, 1:10, 0:10}` — a couple of heavy
+sites and a long tail passing at most one argument. (An earlier revision of this entry
+quoted "19 of 26 pass a single argument" as a measurement; it was an estimate, never
+counted, and does not reproduce. Re-derive with an `ast.walk` over `metatv/` matching
+those three attribute names.)
 
-| args passed | sites |
-|---|---|
-| 30, 28, 26, 22 | 4 |
-| 9, 8, 8 | 3 |
-| **1** | **19** |
-
-Nineteen of twenty-six sites pass a single argument; threading a 37-field object through
-them is churn without benefit. The **hand-copied forwards** are where drift actually
-occurred: a count hand-listed 23 parameters and its caller hand-listed 22 more to feed
+That distribution is a weak argument on its own — with under a dozen real call sites, the
+conversion would be an afternoon. **The decision rests on the second argument, not the
+first: a parameter object would not have prevented the bug that actually occurred**,
+which was a forward omitting fields, not a call site passing too many. The hand-copied
+forwards are where drift happened: a count hand-listed 23 parameters and its caller hand-listed 22 more to feed
 it — three enumerations of one axis set — and three axes had already gone missing, so a
 row the list had dropped for a keyword was still reported as "hidden because watched".
 
@@ -307,8 +348,10 @@ already present in the same class (`_ChannelStatsMixin`).
   above. Still correct for pure query code.
 - *Splitting by line count to reach a target.* Rejected. The guideline number (1,000) is a
   prompt to look, not a verdict: a 1,400-line file doing one job needs no split, and a
-  600-line file doing three does. The extracted module is 1,172 lines and coherent, so it
-  is recorded rather than split again.
+  600-line file doing three does. The extracted module is comfortably over the guideline
+  and coherent, so it is recorded in the ratchet baseline rather than split again. (No
+  line count is quoted here on purpose: it moves with every change to the file, and the
+  baseline is the place that tracks it.)
 
 **The success criterion was chosen to be falsifiable**: the full suite must pass with no
 assertion changed. Only import paths moved. Two classes of dangling reference appeared and
