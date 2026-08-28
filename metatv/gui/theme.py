@@ -929,6 +929,25 @@ def _build_semantic_constants() -> dict[str, object]:
     # Shelf-row placeholder — shown in a Discover shelf's card row while a
     # lazy-expand fetch is in flight (DISCOVER_SHELF_LOADING) or after it fails
     # (DISCOVER_SHELF_ERROR). See discover_shelf.py set_loading()/show_load_error().
+    # Shelf scrollbar. Thin by design: it is a position indicator here, not the
+    # primary control — DISCOVER_SHELF_PAGE_BTN is, because macOS hides overlay
+    # scrollbars at rest.
+    DISCOVER_SHELF_SCROLLBAR = "QScrollBar:horizontal { height: 10px; }"
+
+    # Shelf paging chevrons. macOS draws scrollbars as OVERLAYS — they appear
+    # while scrolling and fade out — so ScrollBarAsNeeded leaves a shelf with no
+    # visible affordance at rest and the row reads as un-scrollable. These are a
+    # real control rather than a styled scrollbar, so they behave the same on
+    # every platform. Sits ON the row, hence the surface tint rather than a
+    # panel colour, and COLOR_TEXT_HI because it is drawn over card artwork.
+    DISCOVER_SHELF_PAGE_BTN = (
+        "QPushButton {"
+        " background: " + OVERLAY_40 + "; color: " + COLOR_TEXT_HI + ";"
+        " border: none; border-radius: 4px;"
+        " font-size: " + FONT_LG + "; font-weight: 600; padding: 0px;"
+        "}"
+        "QPushButton:hover { background: " + OVERLAY_55 + "; }"
+    )
     DISCOVER_SHELF_LOADING = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
     DISCOVER_SHELF_ERROR = "color: " + COLOR_WARN + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
 
