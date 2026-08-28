@@ -254,3 +254,99 @@ def test_propagation_does_not_import_the_raw_name_cleaner():
     )
     assert "normalize_title_for_key" in src
     assert "from metatv.core.content_dedup import normalize_title" not in src
+
+
+class TestExactYearBeatsARemakeVeto:
+    """An exact year match must not be vetoed by a remake elsewhere.
+
+    Movie identity in this system IS title+year — it is what the fallback key
+    keys on. So when an idless row and an id-bearing sibling both carry a real
+    year and those years are equal, that sibling identifies the same production
+    and nothing further along the title needs consulting.
+
+    The coarse bucket could not express that: it spans every year of a title and
+    a ±1 window treats a stored ``None`` as compatible with everything, so one
+    remake anywhere in the catalogue made the whole title ambiguous and the row
+    was refused. Measured on the owner's library, 109 rows across 88 groups sat
+    beside exactly one id-bearing sibling at their own explicit year and were
+    refused; the real pass now adopts 102 of them where it adopted 0.
+    """
+
+    def test_an_exact_year_match_adopts_despite_a_remake(self, db):
+        """The veto case: a 1984 remake must not block a 2021↔2021 match."""
+        with db.session_scope() as session:
+            _provider(session)
+            _channel(session, title="Dune", year="2021", tmdb="438631")
+            _channel(session, title="Dune", year="1984", tmdb="841")
+            idless = _channel(session, title="Dune", year="2021")
+
+        with db.session_scope() as session:
+            RepositoryFactory(session).channels.propagate_tmdb_from_title_siblings()
+
+        with db.session_scope(commit=False) as session:
+            row = session.query(ChannelDB).filter_by(id=idless).one()
+            assert row.detected_tmdb_id == "438631", (
+                "the 2021 row matched a 2021 sibling exactly; the 1984 remake "
+                f"is irrelevant to that, got {row.detected_tmdb_id!r}"
+            )
+            assert row.content_key == "tmdb:438631|movie"
+
+    def test_a_missing_year_does_not_single_out_a_yearless_sibling(self, db):
+        """A yearless row must not "exactly match" the one other yearless row.
+
+        This is the shape that makes ``syear == my_year`` dangerous rather than
+        merely useless: the row has no year, ONE sibling also has no year, and
+        others carry real years. If a missing year counted as a match, tier 1
+        would see a single candidate and adopt it — while the coarse tier,
+        which correctly considers every sibling, sees three ids and refuses.
+
+        6,297 rows on the owner's library are "same title, neither has a year".
+        Treating that as an exact match is the merge that put a Disney
+        animation, an anime and a documentary under one `aladdin|movie|` key.
+        """
+        with db.session_scope() as session:
+            _provider(session)
+            _channel(session, title="Aladdin", year=None, tmdb="812")       # yearless
+            _channel(session, title="Aladdin", year="1992", tmdb="420817")  # dated
+            _channel(session, title="Aladdin", year="2019", tmdb="11238")   # dated
+            idless = _channel(session, title="Aladdin", year=None)
+
+        with db.session_scope() as session:
+            RepositoryFactory(session).channels.propagate_tmdb_from_title_siblings()
+
+        with db.session_scope(commit=False) as session:
+            row = session.query(ChannelDB).filter_by(id=idless).one()
+            assert row.detected_tmdb_id is None, (
+                "a missing year matched the one other missing year and adopted "
+                f"812, guessing between three productions — got "
+                f"{row.detected_tmdb_id!r}"
+            )
+
+    def test_two_ids_at_the_SAME_year_are_still_ambiguous(self, db):
+        """The exact tier narrows the bucket; it does not lower the bar."""
+        with db.session_scope() as session:
+            _provider(session)
+            _channel(session, title="Crash", year="2004", tmdb="1640")
+            _channel(session, title="Crash", year="2004", tmdb="796")
+            idless = _channel(session, title="Crash", year="2004")
+
+        with db.session_scope() as session:
+            RepositoryFactory(session).channels.propagate_tmdb_from_title_siblings()
+
+        with db.session_scope(commit=False) as session:
+            assert session.query(ChannelDB).filter_by(
+                id=idless).one().detected_tmdb_id is None
+
+    def test_the_coarse_tier_still_carries_yearless_rows(self, db):
+        """Regression floor: tier 2 must keep working for its own population."""
+        with db.session_scope() as session:
+            _provider(session)
+            _channel(session, title="Solaris", year="2002", tmdb="3512")
+            idless = _channel(session, title="Solaris", year=None)
+
+        with db.session_scope() as session:
+            RepositoryFactory(session).channels.propagate_tmdb_from_title_siblings()
+
+        with db.session_scope(commit=False) as session:
+            assert session.query(ChannelDB).filter_by(
+                id=idless).one().detected_tmdb_id == "3512"

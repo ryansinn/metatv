@@ -917,11 +917,39 @@ class ChannelIngestionMixin:
             if not bucket:
                 continue
             my_year = _start_year_int(det_year)
-            compat_ids = {
-                tid
-                for tid, syear in bucket.items()
-                if my_year is None or syear is None or abs(my_year - syear) <= 1
-            }
+            # Tier 1 — EXACT year. When this row and a sibling both carry a
+            # real year and those years are equal, that sibling identifies the
+            # same production by the system's own axiom (movie identity is
+            # title+year: it is what the fallback key itself keys on). A remake
+            # elsewhere in the catalogue is irrelevant to a match this precise,
+            # so it must not veto — and under the coarse tier below it does,
+            # because that bucket spans every year and a ±1 window treats a
+            # stored None as compatible with everything.
+            #
+            # Measured on the owner's library: 109 idless rows across 88 groups
+            # sit beside exactly one id-bearing sibling at their own explicit
+            # year and are refused today. It is deliberately not more. Grouping
+            # "same title, NEITHER has a year" as a year match would reach 6,297
+            # rows — and that is the coarse merge this system refuses on
+            # purpose, the one that put a Disney animation, an anime and a
+            # documentary under one `aladdin|movie|` key. A missing year is not
+            # a matching year.
+            exact_ids = (
+                {tid for tid, syear in bucket.items() if syear == my_year}
+                if my_year is not None
+                else set()
+            )
+            if len(exact_ids) == 1:
+                compat_ids = exact_ids
+            else:
+                # Tier 2 — the coarse year-compatible bucket, unchanged. Carries
+                # the yearless rows, where a ±1 window over an unknown year is
+                # the only evidence available.
+                compat_ids = {
+                    tid
+                    for tid, syear in bucket.items()
+                    if my_year is None or syear is None or abs(my_year - syear) <= 1
+                }
             if len(compat_ids) != 1:
                 continue  # no candidate, or ambiguous remake split → don't guess
             tmdb = next(iter(compat_ids))
