@@ -132,8 +132,35 @@ class _Shelf(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollBar:horizontal { height: 10px; }")
+        _theme.style(scroll, "DISCOVER_SHELF_SCROLLBAR")
         self._scroll_area = scroll
+
+        # Paging chevrons, drawn ON the row at its left and right edges.
+        #
+        # macOS renders scrollbars as OVERLAYS: they appear while scrolling and
+        # fade out, so ScrollBarAsNeeded leaves the shelf with no visible
+        # affordance at rest and a scrollable row reads as the whole content.
+        # A real control behaves identically on every platform, which is why
+        # this is a button rather than a forced-visible scrollbar.
+        self._page_left = QPushButton(_icons.nav_prev_icon, scroll)
+        self._page_left.setToolTip("Scroll left")
+        self._page_right = QPushButton(_icons.nav_next_icon, scroll)
+        self._page_right.setToolTip("Scroll right")
+        # Set at construction, not in the loop below: the icon-only-button guard
+        # reads the AST and looks for setToolTip beside the QPushButton it is
+        # judging, so a tooltip applied through a loop variable is invisible to
+        # it — and an icon-only control with no tooltip is exactly what it
+        # exists to catch.
+        for _btn in (self._page_left, self._page_right):
+            _btn.setFixedWidth(24)
+            _btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            _theme.style(_btn, "DISCOVER_SHELF_PAGE_BTN")
+            cursor_affordance.set_clickable(_btn)
+            _btn.hide()
+        self._page_left.clicked.connect(lambda: self._page(-1))
+        self._page_right.clicked.connect(lambda: self._page(1))
+        scroll.horizontalScrollBar().valueChanged.connect(self._sync_page_buttons)
+        scroll.horizontalScrollBar().rangeChanged.connect(self._sync_page_buttons)
 
         inner = QWidget()
         inner_hl = QHBoxLayout(inner)
@@ -157,6 +184,57 @@ class _Shelf(QWidget):
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
         if not self._collapsed:
             QTimer.singleShot(120, self._load_visible)
+
+    def _page(self, direction: int) -> None:
+        """Scroll one viewport-width left (-1) or right (+1).
+
+        A page rather than a fixed number of cards: the card width follows the
+        user's zoom, so a card count would move a different distance at each
+        zoom level while a viewport always lands the next screenful.
+
+        Args:
+            direction: -1 for left, +1 for right.
+        """
+        if self._scroll_area is None:
+            return
+        bar = self._scroll_area.horizontalScrollBar()
+        step = max(1, self._scroll_area.viewport().width() - 40)
+        bar.setValue(bar.value() + direction * step)
+
+    def _sync_page_buttons(self, *_args) -> None:
+        """Show each chevron only while there is room to move that way.
+
+        Hidden at the ends rather than disabled: a dead control on top of
+        artwork reads as part of the card, and the row's own edge already says
+        there is nothing further.
+        """
+        if self._scroll_area is None or "_page_left" not in self.__dict__:
+            return
+        bar = self._scroll_area.horizontalScrollBar()
+        scrollable = bar.maximum() > bar.minimum()
+        self._page_left.setVisible(scrollable and bar.value() > bar.minimum())
+        self._page_right.setVisible(scrollable and bar.value() < bar.maximum())
+        self._place_page_buttons()
+
+    def _place_page_buttons(self) -> None:
+        """Pin the chevrons to the row's left and right edges, vertically centred."""
+        if self._scroll_area is None or "_page_left" not in self.__dict__:
+            return
+        h = max(24, self._scroll_area.viewport().height() // 3)
+        top = (self._scroll_area.viewport().height() - h) // 2
+        self._page_left.setFixedHeight(h)
+        self._page_right.setFixedHeight(h)
+        self._page_left.move(2, top)
+        self._page_right.move(
+            self._scroll_area.viewport().width() - self._page_right.width() - 2, top
+        )
+        self._page_left.raise_()
+        self._page_right.raise_()
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt naming
+        """Re-place the chevrons when the shelf width changes."""
+        super().resizeEvent(event)
+        self._sync_page_buttons()
 
     def _size_card_row(self) -> None:
         """Size the inner card row from the zoomed card dimensions (timing-independent).

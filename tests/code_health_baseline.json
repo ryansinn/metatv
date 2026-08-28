@@ -26,7 +26,7 @@
     "metatv/gui/provider_editor.py": 1007,
     "metatv/gui/qa_checklist_window.py": 2424,
     "metatv/gui/sidebar/base.py": 1404,
-    "metatv/gui/theme.py": 2299
+    "metatv/gui/theme.py": 2324
   },
   "get_session_calls": 79
 }
