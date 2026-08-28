@@ -23,6 +23,21 @@ on:
       - "v*"
   workflow_dispatch:
 
+# One build per ref at a time, newest wins.
+#
+# Merging a batch of PRs pushes to main several times in a row, and without
+# this each push started its own ~15-minute macOS build. They then RACED to
+# publish the same `rolling` release: the winner is whichever FINISHES last,
+# not whichever commit is newest, so a batch could publish an older tree and
+# leave the tester on a build missing the fix they were waiting for.
+#
+# Grouping on github.ref keeps tags independent — refs/tags/v1.2.3 is its own
+# group, so cutting an immutable release never cancels another and never gets
+# cancelled by a merge to main.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write  # needed to create/update a GitHub Release + upload assets
 
