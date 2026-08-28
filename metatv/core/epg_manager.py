@@ -184,7 +184,21 @@ class EpgManager(QObject):
             raw_urls = parse_provider_urls(provider.urls)
             if not raw_urls:
                 return None
-            base_url = raw_urls[0].get("url", "")
+            configured = [u.get("url", "") for u in raw_urls]
+            # Prefer the host that last served a parseable guide. Falling back
+            # to configured[0] means the FIRST host positionally, which has
+            # nothing to do with whether it serves EPG: a panel commonly has 20
+            # hosts where only some answer xmltv.php, so the displayed URL (and
+            # the one `effective_epg_url` gates on) could 403 forever while the
+            # fetch quietly succeeded against a different host every time. It is
+            # only honoured while still configured, so removing a host drops it.
+            remembered = (getattr(provider, "epg_last_good_base_url", None) or "").strip()
+            if remembered and any(
+                remembered.rstrip("/") == (c or "").rstrip("/") for c in configured
+            ):
+                base_url = remembered
+            else:
+                base_url = configured[0] if configured else ""
         base = base_url.rstrip("/") if base_url else ""
         if not base:
             return None
@@ -625,11 +639,45 @@ class EpgManager(QObject):
             cycler.record_success(base_url)
             if cycler.dirty:
                 persist_url_stats(self.db, provider_model)
+            self._remember_good_epg_host(provider_id, base_url)
             return channels, programmes
 
         raise last_error or RuntimeError(
             f"All EPG hosts failed for provider {provider_name!r}"
         )
+
+    def _remember_good_epg_host(self, provider_id: str, base_url: str) -> None:
+        """Record the host that just served a guide, for the next fetch and the UI.
+
+        Cycling already finds a working host, but nothing survived the attempt:
+        ``build_epg_url`` defaulted to the first entry in ``urls``, so the
+        displayed URL and the one ``effective_epg_url`` gates on could keep
+        naming a host that returns 403 while every actual fetch succeeded
+        elsewhere. That is the shape of the owner's report — a red 403 beside a
+        green AUTODETECTED badge that never updated.
+
+        Only the host is stored; the credentials are re-derived on every build,
+        so this cannot go stale the way the cached ``epg_url`` column did.
+
+        Args:
+            provider_id: Row to update.
+            base_url: The host that returned a parseable, non-empty guide.
+        """
+        try:
+            with self.db.session_scope() as session:
+                row = session.query(ProviderDB).filter_by(id=provider_id).first()
+                if row is not None and getattr(
+                    row, "epg_last_good_base_url", None
+                ) != base_url:
+                    row.epg_last_good_base_url = base_url
+                    logger.info(
+                        "EPG: remembering {} as the working guide host for {}",
+                        base_url, row.name,
+                    )
+        except Exception:
+            # A bookkeeping write must never fail a fetch that already
+            # succeeded — the guide is parsed and about to be stored.
+            logger.exception("EPG: could not record the working guide host")
 
     def _emit_or_abort(self, signal, *args) -> None:
         """Emit a worker progress signal, or abandon the fetch if we are gone.
