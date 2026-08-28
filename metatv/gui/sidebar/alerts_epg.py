@@ -142,6 +142,7 @@ class EpgGroupMixin:
         a programme, and letting topLevelItemCount() speak would put a "1" chip
         on the heading beside the words "Nothing airing".
         """
+        self._forget_tracked_items()
         tree.clear()
         item = QTreeWidgetItem([f"{icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -150,6 +151,27 @@ class EpgGroupMixin:
         tree.addTopLevelItem(item)
         self._reveal_epg_subsection(count=0)
         self.set_empty(False)
+
+    def _forget_tracked_items(self) -> None:
+        """Drop references to tree items that are about to be destroyed.
+
+        ``QTreeWidget.clear()`` deletes the underlying C++ objects while any
+        Python reference we kept stays alive and dangling. Touching one raises
+        ``RuntimeError`` — not ``AttributeError`` — so an ``is None`` check
+        sails straight past it into the crash.
+
+        This lives beside the ``clear()`` that causes the problem rather than in
+        the rebuild that usually follows, because the two are not the same
+        moment. A notice render (loading, error, nothing-airing) clears and then
+        returns WITHOUT rebuilding, and the 30-second clock tick dereferenced
+        the stale heading item from there and took the app down with SIGABRT.
+        ``_populate_rows`` re-initialises the same attributes for its own path;
+        both now go through this, so a newly tracked item cannot be forgotten in
+        one place and remembered in the other.
+        """
+        self._upcoming_items = []
+        self._upcoming_heading_item = None
+        self._upcoming_next_when = None
 
     def show_load_error(self, tree, message: str) -> None:
         """Override for QTreeWidget: render a non-selectable error row."""
@@ -384,18 +406,16 @@ class EpgGroupMixin:
         # object and touching one raises RuntimeError — which is what would
         # happen on the next toggle if an empty refresh took a return below
         # without passing through the rebuild that repopulates it.
-        self._upcoming_items: list[QTreeWidgetItem] = []
-        #: The heading's own item, dropped here for the SAME reason as the list
-        #: above and not merely alongside it: it is a tree item too, the clear
-        #: deletes it too, and reading it back after an empty refresh raises
-        #: the same RuntimeError. Adding a second tracked item without
-        #: extending this reset is exactly how the first one got missed.
-        self._upcoming_heading_item = None
-        #: When the SOONEST upcoming programme starts, for the collapsed
-        #: heading's chip. Kept as the timestamp, not the rendered string, for
-        #: the reason the rows keep theirs: the text goes stale on the clock
-        #: tick and the instant does not.
-        self._upcoming_next_when = None
+        # One definition of "these references are now dangling" — see
+        # _forget_tracked_items. It used to be spelled out here only, which is
+        # why the notice path (which clears without rebuilding) kept its stale
+        # items and crashed the clock tick.
+        # (_upcoming_next_when is reset in there too: it is the collapsed
+        # heading's chip value, meaningless once the rows it summarised are
+        # gone, and kept as the timestamp rather than the rendered string
+        # because the text goes stale on the clock tick and the instant does
+        # not.)
+        self._forget_tracked_items()
 
         if not live_groups and not upcoming_only:
             # Nothing to list. The group VANISHING here is what made a working

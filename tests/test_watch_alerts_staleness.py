@@ -171,3 +171,93 @@ def test_the_earliest_boundary_wins(qapp, tmp_path, monkeypatch):
                     "upcoming": [], "title": "T"}}
     sec._schedule_boundary(groups, {})
     assert 420_000 <= sec._boundary.interval() <= 422_000
+
+
+# ── the clock tick must survive a tree the notice path cleared ──────────────
+#
+# Owner crash, 2026-08-28: SIGABRT out of the 30-second tick.
+#
+#   _tick -> _refresh_upcoming_tail -> _upcoming_heading -> itemWidget
+#   RuntimeError: wrapped C/C++ object of type QTreeWidgetItem has been deleted
+#
+# QTreeWidget.clear() destroys the C++ items while the Python references we
+# tracked stay alive and dangling, and touching one raises RuntimeError — NOT
+# AttributeError — so the `is None` guard in _upcoming_heading walks straight
+# past it. _populate_rows reset those references; the notice path (loading,
+# error, nothing-airing) cleared WITHOUT rebuilding and left them.
+
+
+def _section(tmp_path):
+    return WatchAlertsSection(Config(config_dir=tmp_path), db=None)
+
+
+def _upcoming_payload():
+    """One upcoming-only programme — enough to build the heading + a row."""
+    from metatv.gui.sidebar.alerts_epg import _Airing
+
+    start = NOW + timedelta(minutes=5)
+    return {
+        "live_groups": {},
+        "upcoming_only": {
+            "k": {
+                "title": "T",
+                "airings": [_Airing(start.timestamp(), "12:05", "ORF",
+                                    "cid", start, None, None, None)],
+            }
+        },
+    }
+
+
+def test_the_clock_tick_survives_a_notice_render(qapp, tmp_path):
+    """The reported crash, end to end: populate, show a notice, then tick."""
+    sec = _section(tmp_path)
+    sec._populate_rows(_upcoming_payload())
+    # A load failure (or "Nothing airing", or the loading row) clears the tree.
+    sec.show_load_error(sec.alerts_tree, "boom")
+
+    # 30 seconds later the clock fires. This raised RuntimeError and aborted.
+    sec._tick()
+
+
+def test_a_notice_render_drops_the_tracked_item_references(qapp, tmp_path):
+    """The mechanism, asserted directly: nothing dangling survives the clear."""
+    sec = _section(tmp_path)
+    sec._populate_rows(_upcoming_payload())
+    sec.show_loading(sec.alerts_tree)
+
+    assert sec.__dict__.get("_upcoming_heading_item") is None, (
+        "the heading item was destroyed by clear() but still referenced"
+    )
+    assert not sec.__dict__.get("_upcoming_items"), (
+        "row items were destroyed by clear() but still referenced"
+    )
+    assert sec._upcoming_heading() is None, "reading it back must be safe"
+
+
+def test_every_clear_goes_through_one_forget():
+    """A future clear() cannot forget to invalidate what it destroys.
+
+    The bug was a second clear site that did not repeat the reset. Derived, so
+    a third one fails here rather than at a user's 30-second tick.
+    """
+    import ast
+    import inspect
+    from metatv.gui.sidebar import alerts_epg
+
+    tree = ast.parse(inspect.getsource(alerts_epg))
+    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        clears = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "clear"
+        ]
+        if not clears:
+            continue
+        calls = {
+            n.func.attr for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        }
+        assert "_forget_tracked_items" in calls, (
+            f"{fn.name}() clears a tree without dropping the item references "
+            "it invalidates — call self._forget_tracked_items() first"
+        )
