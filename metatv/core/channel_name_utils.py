@@ -43,7 +43,7 @@ class ParsedChannel(NamedTuple):
     dub_langs: list[str] = []
     sub_langs: list[str] = []
     trailing: str = ""
-    trailing_meta: Optional[Tuple[str, str]] = None
+    trailing_meta: Optional[tuple[str, str]] = None
 
 
 # ── Separator patterns ──────────────────────────────────────────────────────── #
@@ -330,7 +330,7 @@ _TRAILING_GENRE_TOKENS = {
 }
 
 
-def classify_trailing_metadata(text: str) -> Optional[Tuple[str, str]]:
+def classify_trailing_metadata(text: str) -> Optional[tuple[str, str]]:
     """Classify text found AFTER a mid-string ``(YYYY)`` marker.
 
     Returns a ``(kind, value)`` pair — kind is one of ``collection`` / ``dub`` /
@@ -2434,7 +2434,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
     #     conventionally uppercase ("HARVEY KEITEL, TARANTINO", "BROADWAY MUSICAL");
     #     mixed/title-case trailing text ("FBI (2024) Reboot") is a real subtitle
     #     that's part of the title, not metadata junk, and must be left intact.
-    trailing_meta: Optional[Tuple[str, str]] = None
+    trailing_meta: Optional[tuple[str, str]] = None
     _early_year = ""
     _year_matches = list(_PAREN_YEAR_ANYWHERE_RE.finditer(bare))
     if _year_matches:
