@@ -38,9 +38,25 @@ def tmp_db(tmp_path: Path):
 
 @pytest.fixture()
 def captured_warnings():
-    """Capture loguru WARNING+ records emitted during a test via a list sink."""
+    """Capture loguru WARNING+ records from the module under test.
+
+    Scoped to ``stream_id_reuse``'s own reporting rather than every warning in
+    the process. These tests assert that ordinary re-titles stay SILENT, and a
+    bare global sink turns that into "nothing anywhere may warn" — so an
+    unrelated diagnostic firing during the test's own setup fails a guarantee it
+    has nothing to do with. That happened: a UI-thread commit-timing warning
+    (``core/database``) fired from the ``session.commit()`` these tests use to
+    stage a row, on a CI runner slow enough to cross its threshold.
+
+    Filtering by module keeps the guarantee exactly as strong for what it is
+    about, and stops it failing for what it is not.
+    """
     captured: list[str] = []
-    sink_id = logger.add(captured.append, level="WARNING")
+    sink_id = logger.add(
+        captured.append,
+        level="WARNING",
+        filter=lambda r: "stream_id_reuse" in r["name"] or "provider" in r["name"],
+    )
     try:
         yield captured
     finally:
