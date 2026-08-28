@@ -701,6 +701,15 @@ class _ChannelListMixin:
                 channels, excluded_prefixes, excluded_user_cats, excluded_ct_ids
             )
             hidden_by_exclusions = _before_excl - len(channels)
+            # Exact for the rows fetched, but the fetch stopped at the page cap
+            # — every excluded row beyond it was never seen, so on a saturated
+            # page this is a floor like its three siblings. It rendered as a
+            # bare number beside their "≥" labels until #521; the adjacent
+            # comment calling that "the same acceptable compromise as the
+            # existing counts" went stale when they were upgraded.
+            params['hidden_by_exclusions_is_floor'] = (
+                params['raw_fetched'] >= _page_size
+            )
 
         # ── Filter layer 2 — search / Tier-1 tag filters ───────────────────────────
         # Whenever a tag facet filter is active, re-fetch the SAME query WITHOUT
@@ -902,6 +911,8 @@ class _ChannelListMixin:
                 # per-layer breakdown so the user can reveal each independently.
                 self._show_channel_filter_breakdown(
                     hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                    hidden_by_exclusions_is_floor=params.get(
+                        'hidden_by_exclusions_is_floor', False),
                     hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
                     hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
                     hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
@@ -1012,7 +1023,20 @@ class _ChannelListMixin:
                 if id_hidden > 0:
                     self._show_channel_filter_breakdown(0, id_hidden)
         elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
-            self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead, hidden_kw)
+            # The floor flags must come through HERE too, not only on the
+            # zero-results branch above. This call omitted them, so every count
+            # rendered as an exact number on the normal path while the same
+            # count rendered "≥ N" when the view happened to be empty — the
+            # saturated case, which is precisely when the number is a floor, is
+            # far more likely to have rows than not.
+            self._show_channel_filter_breakdown(
+                hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                hidden_by_exclusions_is_floor=params.get(
+                    'hidden_by_exclusions_is_floor', False),
+                hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
+                hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
+                hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
+            )
 
     def _refresh_channel_stats_label(self) -> None:
         """Set the stats label from the current loaded row count.
@@ -1141,6 +1165,7 @@ class _ChannelListMixin:
     def _show_channel_filter_breakdown(
         self,
         hidden_by_exclusions: int = 0,
+        hidden_by_exclusions_is_floor: bool = False,
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
@@ -1163,6 +1188,8 @@ class _ChannelListMixin:
 
         Args:
             hidden_by_exclusions: Results this view dropped via Global Exclusions.
+            hidden_by_exclusions_is_floor: True when the page cap means more
+                were dropped beyond what was fetched.
             hidden_by_search: Results this view dropped via search / Tier-1 filters.
             hidden_by_dead: Results this view dropped via the dead-stream gate
                 (channels with repeated play failures).
@@ -1179,8 +1206,9 @@ class _ChannelListMixin:
         if hasattr(self, '_channel_exclusion_btn'):
             if show_excl:
                 self._channel_exclusion_btn.setText(
-                    f"{_icons.global_exclusion_icon} {hidden_by_exclusions:,} hidden by "
-                    f"Global Exclusions  —  show"
+                    f"{_icons.global_exclusion_icon} "
+                    f"{self._count_label(hidden_by_exclusions, hidden_by_exclusions_is_floor)} "
+                    f"hidden by Global Exclusions  —  show"
                 )
             self._channel_exclusion_btn.setVisible(show_excl)
         if hasattr(self, '_channel_filter_btn'):

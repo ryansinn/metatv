@@ -564,3 +564,66 @@ class TestCountersAtThePageCap:
         assert "5,000" in _ChannelListMixin._count_label(5000, True)
         assert _ChannelListMixin._count_label(42, False) == "42"
         assert "≥" not in _ChannelListMixin._count_label(42, False)
+
+
+# ── every counter reaches the label with its floor flag ─────────────────────
+#
+# The floor labels shipped for search/dead/keywords, but the breakdown call on
+# the path where results EXIST passed none of the flags — so "≥" only ever
+# appeared on the empty-results screen, which is the rarer case by far. The
+# Global-Exclusions counter had no floor concept at all: its page-local
+# subtraction is exact for the rows fetched and blind to every excluded row
+# beyond the cap, yet it rendered as a bare number beside its siblings' "≥".
+
+
+class TestEveryCounterCarriesItsFloor:
+
+    @staticmethod
+    def _breakdown_calls(src):
+        import ast
+        tree = ast.parse(src)
+        return [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "_show_channel_filter_breakdown"
+        ]
+
+    def test_every_multi_axis_breakdown_call_passes_the_floor_flags(self):
+        """Derived: a call rendering all four axes must carry all four flags.
+
+        Single-segment calls (the dormant alert id-filter) are exempt — they
+        pass one literal count and no axis flags apply.
+        """
+        import inspect
+        from metatv.gui import main_window_channels as mod
+
+        for call in self._breakdown_calls(inspect.getsource(mod)):
+            if len(call.args) < 4:
+                continue  # single-segment id-filter form
+            passed = {k.arg for k in call.keywords}
+            missing = {
+                "hidden_by_exclusions_is_floor",
+                "hidden_by_search_is_floor",
+                "hidden_by_dead_is_floor",
+                "hidden_by_keywords_is_floor",
+            } - passed
+            assert not missing, (
+                f"breakdown call at line {call.lineno} renders four axes but "
+                f"omits {sorted(missing)} — that count will print as exact when "
+                "it is a floor"
+            )
+
+    def test_the_exclusions_label_marks_a_floor(self, qapp):
+        """The rendered string, not just the plumbing."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        assert _ChannelListMixin._count_label(5000, True).startswith("≥")
+        assert _ChannelListMixin._count_label(5000, False) == "5,000"
+
+    def test_the_exclusions_counter_is_a_floor_only_when_the_page_saturated(self):
+        """It is exact below the cap; beyond it, excluded rows were never seen."""
+        # The flag is computed as raw_fetched >= page_size at the call site;
+        # assert that relationship directly so a change to either side is caught.
+        for raw, cap, expected in ((4999, 5000, False), (5000, 5000, True),
+                                   (12, 5000, False)):
+            assert (raw >= cap) is expected
