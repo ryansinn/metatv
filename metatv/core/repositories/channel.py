@@ -1,7 +1,9 @@
 """Channel repository for data access"""
 
+import inspect
 import re
 import time
+from functools import lru_cache
 from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -80,6 +82,43 @@ class _TmdbKeyProxy:
 
 
 _YEAR4_RE = re.compile(r"\b(\d{4})\b")
+
+
+# Axes ``_apply_channel_filters`` understands that ``count_watched_matching``
+# deliberately does NOT forward, each with the reason it is excluded.
+_COUNT_WATCHED_OMITS = frozenset({
+    "query",            # the query object itself, passed positionally
+    "exclude_watched",  # this method narrows TO watched rows
+    "include_hidden",   # the count is always over the visible set
+    "hidden_only",      # same
+})
+
+# Axes a caller may splat in that this count knowingly skips: ``get_all``
+# applies them in Python after the query returns, or they are pagination, so
+# there is nothing to forward to a SQL COUNT.  Accepted silently so a caller can
+# pass its whole axis dict; see the method docstring's "Known limit".
+_COUNT_WATCHED_IGNORED = frozenset({
+    "collapse_variants",
+    "excluded_channel_ids",
+    "excluded_prefixes",
+    "excluded_user_categories",
+    "tag_excludes",
+    "limit",
+    "offset",
+})
+
+
+@lru_cache(maxsize=1)
+def _apply_channel_filters_axes() -> frozenset:
+    """Axis names :meth:`ChannelRepository._apply_channel_filters` accepts.
+
+    Derived from the signature so a newly added axis reaches every forwarder
+    without anyone remembering to list it — the enumeration failure that let
+    ``channel_ids`` / ``excluded_keywords`` / ``include_dead`` reach ``get_all``
+    and never reach the watched count.
+    """
+    sig = inspect.signature(ChannelRepository._apply_channel_filters)
+    return frozenset(sig.parameters) - {"self"}
 
 
 def _start_year_int(detected_year) -> Optional[int]:
@@ -1527,94 +1566,78 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter(~ChannelDB.provider_id.in_(list(excluded_provider_ids)))
         return {row[0] for row in query.all()}
 
-    def count_watched_matching(
-        self,
-        provider_id=None,
-        media_types: Optional[List[str]] = None,
-        excluded_provider_ids: Optional[List[str]] = None,
-        search_query: Optional[str] = None,
-        adult_mode: str = "all",
-        force_adult_provider_ids: Optional[List[str]] = None,
-        tag_includes: Optional[Dict[str, Set[str]]] = None,
-        facets_hiding_untagged: Optional[Set[str]] = None,
-        # DB-3 — the remaining get_all() filter axes.  These default to inactive so
-        # existing callers keep compiling; when the caller forwards the same filters
-        # it passed to get_all(), the count matches the visible set (no over-count).
-        media_type: Optional[str] = None,
-        language_prefixes: Optional[List[str]] = None,
-        region_prefixes: Optional[List[str]] = None,
-        quality_prefixes: Optional[List[str]] = None,
-        platform_prefixes: Optional[List[str]] = None,
-        genre_filters: Optional[List[str]] = None,
-        invert_prefix_filters: bool = False,
-        include_untagged: bool = True,
-        include_untagged_quality: bool = True,
-        source_categories: Optional[List[str]] = None,
-        include_uncategorized_content_types: bool = True,
-        strict_genre_filter: Optional[str] = None,
-        person_filter: Optional[str] = None,
-        context_tag_filter: Optional[Tuple[str, str]] = None,
-        context_category_filter: Optional[str] = None,
-    ) -> int:
-        """Count visible channels with ``watch_completed=True`` matching the filters.
+    def count_watched_matching(self, **axes) -> int:
+        """Count visible channels with ``watch_completed=True`` matching *axes*.
 
-        Used to compute the "N hidden because watched" metric shown in the stats
-        label when the "Hide watched" axis is ON.  Routes through the shared
-        :meth:`_apply_channel_filters` chokepoint so it applies the SAME predicates
-        as :meth:`get_all` (identity / quality / source-category / genre / context /
-        …), then adds ``watch_completed == True`` and omits pagination — so the count
-        matches the visible set exactly instead of over-counting when those axes are
-        active.
+        Powers the "N hidden because watched" figure in the stats label when the
+        "Hide watched" axis is ON.  Accepts the **same axis keyword arguments as
+        :meth:`get_all`** and forwards every one that
+        :meth:`_apply_channel_filters` understands, so the count is computed by
+        the same predicates as the list it describes.
 
-        Note:
-            The caller must forward the same filter arguments it passed to
-            ``get_all``; any argument left at its default is treated as inactive.
+        **It takes ``**axes`` rather than re-declaring them for a reason.**  It
+        used to hand-list 23 parameters and forward 26, and the caller hand-listed
+        22 more to feed it — three enumerations of one axis set, kept in step by
+        memory alone.  They had already drifted: ``channel_ids``,
+        ``excluded_keywords`` and ``include_dead`` reached ``get_all`` and never
+        reached the count, so a watched row excluded by a keyword was counted as
+        "hidden because watched" when the list had dropped it for another reason
+        entirely.  Forwarding by *derivation* — see ``_COUNT_WATCHED_OMITS`` — is
+        what makes a newly added axis reach both paths without anyone
+        remembering to add it, which is the whole failure mode CLAUDE.md names.
+
+        Unknown keys raise ``TypeError`` rather than being silently ignored; the
+        Python-side axes in ``_COUNT_WATCHED_IGNORED`` are accepted and skipped
+        so a caller can splat its whole axis dict in.
+
+        **Known limit, deliberate:** the axes ``get_all`` applies in *Python*
+        after the query returns (``excluded_prefixes``,
+        ``excluded_user_categories``, ``excluded_channel_ids``, ``tag_excludes``,
+        ``collapse_variants``) cannot be applied to a SQL ``COUNT`` — there is no
+        materialised list to post-filter.  When one of those is active this
+        figure over-counts, by at most the number of watched rows that axis
+        removes.  Materialising the list to make it exact would cost a second
+        full scan for a number displayed in a status label; the honest cheap
+        answer is preferred, exactly as with the page-cap floor in the sibling
+        transparency counters.
 
         Args:
-            provider_id: Same as ``get_all`` — str, list, or None.
-            media_types: List of media types to include.
-            excluded_provider_ids: Provider IDs to exclude.
-            search_query: Optional search filter (LIKE on name).
-            adult_mode: Adult content mode ("all", "hide", "only").
-            force_adult_provider_ids: Provider IDs to treat as adult.
-            tag_includes: Tier-1 tag-facet constraints (same as get_all).
-            (remaining args): The other ``get_all`` filter axes — see that method.
+            **axes: Any :meth:`get_all` filter axis.  ``exclude_watched`` is
+                ignored (this method narrows *to* watched rows) and visibility
+                is forced to the visible set.
 
         Returns:
-            Count of matching visible channels with ``watch_completed=True``.
+            Count of visible, watched channels matching *axes*.
+
+        Raises:
+            TypeError: If an axis name is not one ``get_all`` accepts.
         """
-        query = self.session.query(ChannelDB)
+        forwarded = {
+            k: v
+            for k, v in axes.items()
+            if k in _apply_channel_filters_axes() and k not in _COUNT_WATCHED_OMITS
+        }
+        unknown = (
+            set(axes)
+            - set(forwarded)
+            - _COUNT_WATCHED_OMITS
+            - _COUNT_WATCHED_IGNORED
+        )
+        if unknown:
+            raise TypeError(
+                f"count_watched_matching() got unexpected axis(es): "
+                f"{sorted(unknown)}"
+            )
+
         query = self._apply_channel_filters(
-            query,
-            provider_id=provider_id,
-            media_type=media_type,
-            media_types=media_types,
-            language_prefixes=language_prefixes,
-            region_prefixes=region_prefixes,
-            quality_prefixes=quality_prefixes,
-            platform_prefixes=platform_prefixes,
-            genre_filters=genre_filters,
+            self.session.query(ChannelDB),
             include_hidden=False,
             hidden_only=False,
-            invert_prefix_filters=invert_prefix_filters,
-            include_untagged=include_untagged,
-            include_untagged_quality=include_untagged_quality,
-            adult_mode=adult_mode,
-            force_adult_provider_ids=force_adult_provider_ids,
-            source_categories=source_categories,
-            include_uncategorized_content_types=include_uncategorized_content_types,
-            search_query=search_query,
-            strict_genre_filter=strict_genre_filter,
-            person_filter=person_filter,
-            excluded_provider_ids=excluded_provider_ids,
-            tag_includes=tag_includes,
-            facets_hiding_untagged=facets_hiding_untagged,
-            context_tag_filter=context_tag_filter,
-            context_category_filter=context_category_filter,
+            **forwarded,
         )
 
-        # Watched-only constraint — the whole point of this method.  (exclude_watched
-        # is intentionally left at its default so this NARROWS to the watched rows.)
+        # Watched-only constraint — the whole point of this method.  exclude_watched
+        # is omitted (see _COUNT_WATCHED_OMITS) so this NARROWS to the watched rows.
         query = query.filter(ChannelDB.watch_completed == True)  # noqa: E712
 
         return query.count()
