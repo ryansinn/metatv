@@ -107,7 +107,7 @@ class BadRegionCleanupTask:
                 keyword call.
         """
         from metatv.core.database import ChannelDB
-        from metatv.core.repositories.channel import _contradicts_own_locale
+        from metatv.core.repositories.channel_ingestion import _contradicts_own_locale
 
         logger.info(
             "BadRegionCleanupTask: scanning for regions that contradict their "
