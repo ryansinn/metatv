@@ -346,6 +346,17 @@ class ProviderDB(Base):
     epg_enabled = Column(Boolean, default=True)  # If False, skip EPG fetch and exclude from EPG surfaces
     epg_refresh_interval = Column(String, default="default")  # Per-source throttle: "default"|"every_open"|"4h"|…|"when_stale"
     epg_url_override = Column(String, nullable=True)  # User-supplied XMLTV URL; blank/NULL = use auto-built epg_url
+    # The HOST that last served a parseable guide, remembered so the next fetch
+    # and the displayed URL start from a host known to work rather than from
+    # whichever one happens to sit first in `urls`.
+    #
+    # A host, deliberately — never the built URL. The `epg_url` column above is
+    # a cached full URL including credentials, with no invalidation, and a
+    # re-subscription on the same row left it serving the previous account's
+    # credentials for 11 days behind a green AUTODETECTED badge. Storing only
+    # the host keeps credentials derived live at every fetch, so that cannot
+    # recur, while still letting a working host survive a restart.
+    epg_last_good_base_url = Column(String, nullable=True)
     epg_unnamed_refetch_attempted = Column(Boolean, default=False)  # Persistent guard: the one-time re-fetch to name legacy nameless guide rows has been tried (reset on content refresh)
 
     # Account info cached from provider API
@@ -718,6 +729,8 @@ class Database:
             ("providers",    "epg_enabled",                "INTEGER DEFAULT 1"),
             ("providers",    "epg_refresh_interval",       "TEXT DEFAULT 'default'"),
             ("providers",    "epg_url_override",           "TEXT"),
+            # Host that last served a parseable guide; see the column comment.
+            ("providers",    "epg_last_good_base_url",     "TEXT"),
             ("providers",    "epg_unnamed_refetch_attempted", "INTEGER DEFAULT 0"),
             ("channels",     "watch_progress",             "INTEGER DEFAULT 0"),
             ("channels",     "watch_completed",            "INTEGER DEFAULT 0"),
