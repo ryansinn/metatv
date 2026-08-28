@@ -3,6 +3,8 @@
 from contextlib import contextmanager
 from datetime import datetime
 import json as _json
+import threading
+import time
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, Index, JSON, text, event, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -11,6 +13,11 @@ from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 Base = declarative_base()
+
+#: Log a main-thread commit that blocked at least this long. 100ms is the point
+#: a click stops feeling instant; below it the wait is invisible and logging it
+#: would only add noise.
+SLOW_MAIN_THREAD_COMMIT_MS = 100.0
 
 
 class JSONEncoded(TypeDecorator):
@@ -1138,7 +1145,32 @@ class Database:
         try:
             yield session
             if commit:
+                _started = time.perf_counter()
                 session.commit()
+                _waited_ms = (time.perf_counter() - _started) * 1000.0
+                if (_waited_ms >= SLOW_MAIN_THREAD_COMMIT_MS
+                        and threading.current_thread() is threading.main_thread()):
+                    # The UI thread blocked on a write. Under WAL readers never
+                    # block, but writer-vs-writer still serialises, so a bulk
+                    # pass holding the write lock stalls a click handler for as
+                    # long as its batch takes — up to busy_timeout (30s) before
+                    # it would fail outright.
+                    #
+                    # Logged rather than prevented, deliberately. The two fixes
+                    # on offer both cost something real: routing every user-state
+                    # mutation through the async seam is a wide refactor, and a
+                    # short main-thread busy_timeout turns a slow favourite
+                    # toggle into a FAILED one, which is worse. Neither is worth
+                    # buying before the frequency is known, and it is not: the
+                    # batches are sized (2,000 rows) so the typical wait should
+                    # be well under this threshold. This line is what turns that
+                    # "should" into evidence.
+                    logger.warning(
+                        "UI thread blocked {:.0f}ms committing — a background "
+                        "write held the lock. If this is common, user-state "
+                        "writes need the async seam.",
+                        _waited_ms,
+                    )
             else:
                 session.rollback()
         except Exception:
