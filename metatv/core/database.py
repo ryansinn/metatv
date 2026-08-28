@@ -228,6 +228,14 @@ class ChannelDB(Base):
     # deliberately NOT merged into MetadataDB.cast — real credits and a filename
     # guess must stay distinguishable.
     detected_name_cast           = Column(String, nullable=True)
+    # Collection/studio the parser recognised AFTER a mid-name year, e.g.
+    # "Hallmark" from "Christmas At Castle Hart (2021) Hallmark".  Kept apart
+    # from detected_collection (the cleaned PROVIDER CATEGORY) because they are
+    # different feeders and a title legitimately belongs to BOTH — the provider
+    # files it under CHRISTMAS while the name says Hallmark.  Both become
+    # collection: tags, the provider's denoted and this one inferred, which is
+    # what lets one title carry several collections at all.
+    detected_name_collection     = Column(String, index=True, nullable=True)
 
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
@@ -751,6 +759,9 @@ class Database:
             # Trailing credits lifted from the name at ingestion (#278) — an
             # inference, see ChannelDB.detected_name_cast above.
             ("channels",     "detected_name_cast",           "TEXT"),
+            # Collection lifted from the name after a mid-year marker; an
+            # inference, see ChannelDB.detected_name_collection above.
+            ("channels",     "detected_name_collection",      "TEXT"),
             # Wave 4 — episode-grain metadata lifted from raw_data at ingestion
             # (#247); computed at ingestion, see EpisodeDB.plot/air_date/rating/
             # still_url above. Pre-existing rows backfilled by

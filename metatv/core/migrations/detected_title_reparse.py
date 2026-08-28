@@ -96,7 +96,21 @@ if TYPE_CHECKING:
 #       stored version 8 is burned without the pipe-residue strip ever applying.
 #       No parser change beyond v8; this bump makes the fixed parse actually run
 #       to completion.
-CURRENT_VERSION: int = 9
+#  10 — the year always wins. v7 relocated a mid-name "(YYYY)" only when the text
+#       AFTER it was ALL-CAPS (provider cast blobs). Title-case trailers defeated
+#       it entirely — "Christmas At Castle Hart (2021) Hallmark" parsed with
+#       year="" and kept "(2021) Hallmark" inside detected_title, so it keyed to
+#       the coarse yearless content_key and could not match its own siblings.
+#       Measured on the owner's library: 2,092 rows across 478 distinct trailers,
+#       led by "sinhronizirano" (385), "Hallmark" (322) and "Polski" (176).
+#       The year is now extracted wherever it appears; the trailing TEXT is only
+#       removed from the title when classify_trailing_metadata() can name it
+#       (collection / dub / sub / genre / rating / quality), because 383 of those
+#       478 trailers are singletons that may be real subtitles ("FBI (2024)
+#       Reboot") — those keep their text and still gain the year.
+#       Verified against all 466,061 distinct names: 2,038 gain a year, 0 lose
+#       one, 0 lose a cast blob.
+CURRENT_VERSION: int = 10
 
 
 class DetectedTitleReparseTask:

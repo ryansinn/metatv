@@ -26,6 +26,12 @@ class ParsedChannel(NamedTuple):
                     to be dropped on the floor — not merely unused, but never
                     surfaced to any caller. Callers decide what it means; the
                     parser only refuses to throw it away.
+        trailing_meta: ``(kind, value)`` when the text after a mid-string year was
+                    RECOGNISED provider metadata rather than cast — e.g.
+                    ``("collection", "Hallmark")`` for "... (2021) Hallmark".
+                    ``None`` when nothing followed the year, or when the text was
+                    not recognised and was therefore left inside ``bare_name``
+                    (it may be a real subtitle: "FBI (2024) Reboot").
     """
     region: str
     bare_name: str
@@ -37,6 +43,7 @@ class ParsedChannel(NamedTuple):
     dub_langs: list[str] = []
     sub_langs: list[str] = []
     trailing: str = ""
+    trailing_meta: Optional[tuple[str, str]] = None
 
 
 # ── Separator patterns ──────────────────────────────────────────────────────── #
@@ -267,6 +274,99 @@ _YEAR_RE = re.compile(
 # "From Dusk Till Dawn 4K (1996) HARVEY KEITEL, TARANTINO". Restricted to 19xx/20xx so
 # it never matches an arbitrary parenthetical like "(Director's Cut)" or "(Soleil Noir)".
 _PAREN_YEAR_ANYWHERE_RE = re.compile(r'\((19\d{2}|20\d{2})(?:[-–](19\d{2}|20\d{2}))?\)')
+
+# ── Trailing metadata after a mid-string "(YYYY)" ───────────────────────────── #
+#
+# Providers append a marker AFTER the year — "Christmas At Castle Hart (2021)
+# Hallmark".  The year strip is end-anchored, so anything after it hid the year
+# entirely: 2,092 rows across 478 distinct trailers parsed with year="" and kept
+# "(2021) Hallmark" inside detected_title, which then keyed to the coarse
+# yearless content_key AND could not match its own siblings.
+#
+# The year itself is never ambiguous, so it is now always extracted.  The
+# trailing TEXT is only removed from the title when we can NAME what it is —
+# 383 of those 478 trailers are singletons that may well be real subtitles
+# ("FBI (2024) Reboot"), and silently eating them would trade one wrong title
+# for another.  Recognised → routed to a facet; unrecognised → left in the
+# title, year still extracted.
+
+# Self-labelling: "- Lucky Luke Collection", "- Gullivers Collection".  Needs no
+# curation at all — the provider says what it is.
+_TRAILING_COLLECTION_RE = re.compile(r'^-?\s*(.+?)\s+Collection$', re.IGNORECASE)
+
+# Studio / franchise names that appear as a bare trailing token.  Curated data
+# lives here and only here (CLAUDE.md lookup-table rule).
+_TRAILING_COLLECTIONS = {
+    "hallmark": "Hallmark",
+    "aardman": "Aardman",
+    "minions": "Minions",
+    "cheech and chong": "Cheech and Chong",
+    "jay and silent bob": "Jay and Silent Bob",
+    "ciccio e franco": "Ciccio e Franco",
+}
+
+# Dub / subtitle / audio-track markers in the provider's own language.
+_TRAILING_AUDIO_TOKENS = {
+    "sinhronizirano": ("dub", "Slovenian"),
+    "polski": ("dub", "Polish"),
+    "makedonski": ("dub", "Macedonian"),
+    "dubbing": ("dub", ""),
+    "dubbing kino": ("dub", ""),
+    "lektor": ("dub", "Polish"),
+    "lektor (ai)": ("dub", "Polish"),
+    "bg.audio": ("dub", "Bulgarian"),
+    "bgaudio": ("dub", "Bulgarian"),
+    "napisy": ("sub", "Polish"),
+    "vostfr": ("sub", "French"),
+}
+
+# "- Dubbed in Albanian" / "- Dubbed in Greek".
+_TRAILING_DUBBED_IN_RE = re.compile(r'^-?\s*Dubbed\s+in\s+(.+)$', re.IGNORECASE)
+
+# Provider genre words that trail the year.
+_TRAILING_GENRE_TOKENS = {
+    "dokument": "Documentary",
+    "animacja": "Animation",
+}
+
+
+def classify_trailing_metadata(text: str) -> Optional[tuple[str, str]]:
+    """Classify text found AFTER a mid-string ``(YYYY)`` marker.
+
+    Returns a ``(kind, value)`` pair — kind is one of ``collection`` / ``dub`` /
+    ``sub`` / ``genre`` / ``rating`` / ``quality`` — or ``None`` when the text is
+    not recognised, in which case the caller must LEAVE IT IN THE TITLE rather
+    than guess.  That conservative default is the whole point: the trailing slot
+    holds real subtitles as well as provider metadata, and only the second kind
+    may be moved out of the name.
+
+    Args:
+        text: Raw trailing text, e.g. ``"Hallmark"`` or ``"- Dubbed in Albanian"``.
+
+    Returns:
+        ``(kind, value)`` when recognised, else ``None``.
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+    low = t.lower().lstrip("- ").strip()
+
+    if m := _TRAILING_COLLECTION_RE.match(t):
+        return ("collection", m.group(1).strip())
+    if m := _TRAILING_DUBBED_IN_RE.match(t):
+        return ("dub", m.group(1).strip().title())
+    if low in _TRAILING_COLLECTIONS:
+        return ("collection", _TRAILING_COLLECTIONS[low])
+    if low in _TRAILING_AUDIO_TOKENS:
+        kind, lang = _TRAILING_AUDIO_TOKENS[low]
+        return (kind, lang)
+    if low in _TRAILING_GENRE_TOKENS:
+        return ("genre", _TRAILING_GENRE_TOKENS[low])
+    if low in ("18+", "16+", "12+"):
+        return ("rating", low)
+    if t.upper() in QUALITY_TOKENS:
+        return ("quality", t.upper())
+    return None
 
 # ── Title-qualifier strip patterns (single-source-of-truth; also used by content_dedup) ── #
 
@@ -2334,6 +2434,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
     #     conventionally uppercase ("HARVEY KEITEL, TARANTINO", "BROADWAY MUSICAL");
     #     mixed/title-case trailing text ("FBI (2024) Reboot") is a real subtitle
     #     that's part of the title, not metadata junk, and must be left intact.
+    trailing_meta: Optional[tuple[str, str]] = None
+    _early_year = ""
     _year_matches = list(_PAREN_YEAR_ANYWHERE_RE.finditer(bare))
     if _year_matches:
         _last_year_match = _year_matches[-1]
@@ -2342,18 +2444,32 @@ def parse_channel_name(name: str) -> ParsedChannel:
             any(ch.isupper() for ch in _trailing)
             and not any(ch.islower() for ch in _trailing)
         )
-        if (
-            _trailing
-            and not _trailing.startswith(("(", "["))
-            and _trailing_is_upper_junk
-        ):
-            # Keep it. This span is already known to be provider-appended
-            # extra credits ("HARVEY KEITEL, TARANTINO", "NICOLAS CAGE") —
-            # the guards above established that. Discarding it meant no
-            # caller could see the actor the provider had helpfully named,
-            # even on titles with no metadata at all.
-            trailing = _trailing
-            bare = bare[: _last_year_match.end()]
+        if _trailing and not _trailing.startswith(("(", "[")):
+            if _trailing_is_upper_junk:
+                # Keep it. This span is already known to be provider-appended
+                # extra credits ("HARVEY KEITEL, TARANTINO", "NICOLAS CAGE") —
+                # the guards above established that. Discarding it meant no
+                # caller could see the actor the provider had helpfully named,
+                # even on titles with no metadata at all.
+                trailing = _trailing
+                bare = bare[: _last_year_match.end()]
+            elif (_meta := classify_trailing_metadata(_trailing)) is not None:
+                # Recognised provider metadata ("Hallmark", "sinhronizirano",
+                # "- Lucky Luke Collection").  Route it to a facet and truncate,
+                # so the year reaches the end-anchored strip in step 5 and the
+                # title matches its own siblings again.
+                trailing_meta = _meta
+                bare = bare[: _last_year_match.end()]
+            else:
+                # NOT recognised — it may be a real subtitle ("FBI (2024)
+                # Reboot"), so it stays in the name.  The year is never
+                # ambiguous though, so lift it out here rather than letting
+                # the trailing text hide it from the end-anchored strip.
+                _g1, _g2 = _last_year_match.group(1), _last_year_match.group(2)
+                _early_year = f"{_g1}-{_g2}" if _g2 else _g1
+                bare = (
+                    bare[: _last_year_match.start()].strip() + " " + _trailing
+                ).strip()
 
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
@@ -2415,6 +2531,10 @@ def parse_channel_name(name: str) -> ParsedChannel:
         # Anything still after the year here (step 1b usually took it already).
         trailing = trailing or bare[ym.end():].strip()
         bare = bare[: ym.start()].strip()
+    elif _early_year:
+        # A mid-string year whose trailing text was deliberately left in the
+        # name (unrecognised).  The year still belongs in its own field.
+        year = _early_year
 
     # 6a. Second bracket pass — catches brackets that were hidden by the year token in
     #     step 5 ("[4K] (2025)") or by a second bracket in step 3 ("[FRENCH] [4k]").
@@ -2493,7 +2613,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
         quality = quality + [_prefix_quality]
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
-                         _audio_langs, _dub_langs, _sub_langs, trailing)
+                         _audio_langs, _dub_langs, _sub_langs, trailing,
+                         trailing_meta)
 
 
 # ── EPG TLD compatibility (region-gated fuzzy matching, Wave 3 Slice 3B) ─────── #

@@ -2144,6 +2144,16 @@ class ChannelRepository(_ChannelStatsMixin):
             # stay distinguishable.
             new_name_cast = (parsed.trailing or "").strip() or None
 
+            # Collection the parser recognised after a mid-name year
+            # ("Hallmark").  Only the collection kind is stored: dub/genre/
+            # rating/quality trailers are correctly removed from the title, but
+            # they already have provider-denoted homes and overwriting those
+            # with a name guess would lose better data.
+            _meta = parsed.trailing_meta
+            new_name_collection = (
+                _meta[1] if _meta and _meta[0] == "collection" and _meta[1] else None
+            )
+
             changed = (
                 prefix != channel.detected_prefix
                 or quality != channel.detected_quality
@@ -2151,6 +2161,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 or new_title != channel.detected_title
                 or new_year  != channel.detected_year
                 or new_content_key != channel.content_key
+                or new_name_collection != channel.detected_name_collection
                 or new_detected_audio != channel.detected_audio
                 or new_detected_genre != channel.detected_genre
                 or new_detected_genres != channel.detected_genres
@@ -2175,6 +2186,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel.detected_collection_language = new_collection_language
                 channel.detected_collection_subdub = new_collection_subdub
                 channel.detected_name_cast = new_name_cast
+                channel.detected_name_collection = new_name_collection
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 
