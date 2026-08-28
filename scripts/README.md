@@ -125,6 +125,41 @@ numbers, rewrites the baseline, and prints a diff of what changed. Run it
 still over 1000 but smaller) — never to silence a red guard for an accidental
 regression.
 
+## `setup_merge_drivers.sh` + `merge_code_health_baseline.py`
+
+`tests/code_health_baseline.json` is DERIVED data, so **every** branch that
+touches a tracked file rewrites it and any two such branches conflict on merge
+or rebase. The resolution was always mechanical — regenerate, never hand-merge
+the JSON — but a human had to do it: five rebases in one evening, each
+discarding a green CI run and restarting a ten-minute two-platform gate.
+
+`merge_code_health_baseline.py` is a git merge driver that resolves it by
+**per-key maximum** of the two sides. Regenerating from the working tree looks
+more correct, but a merge driver runs *during* the merge when the tree is not
+guaranteed final, and a too-low value would reintroduce the very false failure
+this removes. The maximum needs no tree access and is safe by construction: the
+ratchet is `max(1000, baseline)` and each side already passed on its own
+branch, so the larger cannot fail either. It is slightly LAX — a shrink
+recorded on one branch is lost if the other kept a higher number — which
+`rebaseline_code_health.py` re-tightens on its next run. A driver that never
+blocks and is occasionally loose beats one that is exact and stops the merge.
+
+**Run `bash scripts/setup_merge_drivers.sh` once per clone.** A merge driver is
+NAMED in `.gitattributes` but DEFINED in git config, which is not versioned.
+The script is idempotent and records a RELATIVE script path on purpose: the
+config is shared by every worktree of the clone, so an absolute path captured
+inside a throwaway worktree would point at a deleted directory.
+
+**Two things must both be true for it to fire**, verified the hard way against
+real merges: the branches involved must carry `.gitattributes` *and* the driver
+script. So it does nothing for branches created before it landed — those still
+conflict once, exactly as before. Without registration git just reports a
+normal conflict, which is the old behaviour, never anything worse.
+
+Covered by `tests/test_code_health_merge_driver.py`, which drives real `git
+merge` and `git rebase` in a throwaway repo rather than unit-testing the merge
+function alone (which would pass even if the driver were never wired up).
+
 ## Configuration — `.devscripts.conf`
 
 Resolution order for anything project-specific: **(a)** a repo-root

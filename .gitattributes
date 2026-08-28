@@ -1,0 +1,11 @@
+# tests/code_health_baseline.json is DERIVED data — every branch that touches a
+# tracked file rewrites it, so any two such branches conflict on merge/rebase.
+# The resolution is always mechanical, so a driver does it instead of a human.
+# The driver only takes effect once registered locally (a merge driver lives in
+# .git/config, which is not versioned):
+#
+#     bash scripts/setup_merge_drivers.sh
+#
+# Without that, git falls back to a normal conflict — the pre-existing
+# behaviour, never something worse.
+tests/code_health_baseline.json merge=codehealthbaseline
