@@ -487,32 +487,57 @@ class _ChannelListMixin:
     _AT_LEAST = "\u2265"
 
     @staticmethod
-    def _hidden_by_axis(visible: list, comparison: list, page_size: int) -> tuple[int, bool]:
+    def _hidden_by_axis(
+        visible: list,
+        comparison: list,
+        page_size: int,
+        raw_visible: int | None = None,
+        raw_comparison: int | None = None,
+    ) -> tuple[int, bool]:
         """How many rows one axis hides, and whether that number is a FLOOR.
 
-        The list diff is exact while neither side reached the cap, and it
-        honours the Python-side exclusion pass both were filtered through.
+        *comparison* is the same query with the measured axis lifted, so it is a
+        SUPERSET of *visible*: any id present there and absent here was removed
+        by that axis. Counting the set difference is therefore **provable at
+        every input** — it is 0 when there is no evidence of hiding, and exact
+        when neither SQL fetch reached the cap.
 
-        When either side saturates it is not merely imprecise but wrong: both
-        report ``page_size``, the difference is zero, and the gold bar renders a
-        segment only above zero — so the reveal button vanished where the most
-        was hidden. Two uncapped COUNT(*)s were measured at 3.0s on the owner's
-        library and rejected; a floor costs nothing and lies about nothing.
-        Cases and numbers: tests/test_filter_transparency.py.
+        This replaced a length subtraction that reported ``page_size`` whenever
+        either side saturated. That was not a floor. Two saturated pages imply
+        nothing about the difference between the underlying sets: with an axis
+        that hides nothing (a keyword matching no row, a tag every row carries)
+        both lists are identical and full, and the old form claimed "≥ 5,000
+        hidden" behind a reveal button that revealed nothing. A transparency
+        feature that invents withholding is worse than the zero it replaced —
+        the zero under-claimed, this over-claimed. The mixed case was wrong too:
+        4,999 visible against a capped comparison claimed 5,000 where the
+        provable floor is 1.
+
+        Saturation is judged on the RAW pre-Python-filter lengths. The exclusion
+        pass runs before this, so a SQL-saturated fetch trimmed to 4,970 rows
+        would otherwise read as unsaturated and label truncated data "exact".
+
+        The floor is only sound if both plans order ties identically; ``get_all``
+        sorts by ``name, id`` for that reason.
 
         Args:
-            visible: The surviving rows.
+            visible: The surviving rows (post-exclusion).
             comparison: The same query with the measured axis lifted.
             page_size: The cap both were fetched under.
+            raw_visible: Rows the visible query fetched BEFORE Python filtering.
+                Defaults to ``len(visible)``.
+            raw_comparison: Same for the comparison query.
 
         Returns:
-            ``(count, is_floor)``.
+            ``(count, is_floor)`` — count is a lower bound; ``is_floor`` says so.
         """
-        if len(visible) < page_size and len(comparison) < page_size:
-            return max(0, len(comparison) - len(visible)), False
-        # Both saturated: at least one page-worth is hidden, and the true number
-        # is unknown without a query we cannot afford on this path.
-        return page_size, True
+        def _ids(rows):
+            return {getattr(r, "id", r) for r in rows}
+
+        hidden = len(_ids(comparison) - _ids(visible))
+        rv = len(visible) if raw_visible is None else raw_visible
+        rc = len(comparison) if raw_comparison is None else raw_comparison
+        return hidden, (rv >= page_size or rc >= page_size)
 
     @staticmethod
     def _query_channels(repos, params: dict) -> tuple[list, dict]:
@@ -676,6 +701,15 @@ class _ChannelListMixin:
                 channels, excluded_prefixes, excluded_user_cats, excluded_ct_ids
             )
             hidden_by_exclusions = _before_excl - len(channels)
+            # Exact for the rows fetched, but the fetch stopped at the page cap
+            # — every excluded row beyond it was never seen, so on a saturated
+            # page this is a floor like its three siblings. It rendered as a
+            # bare number beside their "≥" labels until #521; the adjacent
+            # comment calling that "the same acceptable compromise as the
+            # existing counts" went stale when they were upgraded.
+            params['hidden_by_exclusions_is_floor'] = (
+                params['raw_fetched'] >= _page_size
+            )
 
         # ── Filter layer 2 — search / Tier-1 tag filters ───────────────────────────
         # Whenever a tag facet filter is active, re-fetch the SAME query WITHOUT
@@ -688,6 +722,7 @@ class _ChannelListMixin:
         tier1_active = bool(params.get('tag_includes'))
         if not hidden_only and not id_filter_show_all and tier1_active:
             unfiltered = repos.channels.get_all(**{**_axes, 'tag_includes': None})
+            _raw_unfiltered = len(unfiltered)
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
             # ONLY the tag filters (never the exclusion layer counted separately above).
             if exclusions_applied:
@@ -695,7 +730,8 @@ class _ChannelListMixin:
                     unfiltered, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
             hidden_by_search, floor_search = _ChannelListMixin._hidden_by_axis(
-                channels, unfiltered, _page_size)
+                channels, unfiltered, _page_size,
+                raw_visible=params['raw_fetched'], raw_comparison=_raw_unfiltered)
             params['hidden_by_search_is_floor'] = floor_search
             filtered_out_count = hidden_by_search
 
@@ -714,6 +750,7 @@ class _ChannelListMixin:
         dead_active = not hidden_only and not id_filter_show_all and not bypass_dead_gate
         if dead_active:
             with_dead = repos.channels.get_all(**{**_axes, 'include_dead': True})
+            _raw_with_dead = len(with_dead)
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
             # ONLY the dead-stream gate (never the exclusion layer counted above).
             if exclusions_applied:
@@ -721,7 +758,8 @@ class _ChannelListMixin:
                     with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
             hidden_by_dead, floor_dead = _ChannelListMixin._hidden_by_axis(
-                channels, with_dead, _page_size)
+                channels, with_dead, _page_size,
+                raw_visible=params['raw_fetched'], raw_comparison=_raw_with_dead)
             params['hidden_by_dead_is_floor'] = floor_dead
 
         # ── Filter layer 4 — Global Exclusions keyword axis (SQL) ──────────────────
@@ -739,6 +777,7 @@ class _ChannelListMixin:
         )
         if keywords_active:
             with_keywords = repos.channels.get_all(**{**_axes, 'excluded_keywords': None})
+            _raw_with_keywords = len(with_keywords)
             # Mirror the Python-side exclusion filtering applied to `channels` so the
             # diff isolates ONLY the keyword axis (never the layer-1 exclusions).
             if exclusions_applied:
@@ -746,7 +785,8 @@ class _ChannelListMixin:
                     with_keywords, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
             hidden_by_keywords, floor_keywords = _ChannelListMixin._hidden_by_axis(
-                channels, with_keywords, _page_size)
+                channels, with_keywords, _page_size,
+                raw_visible=params['raw_fetched'], raw_comparison=_raw_with_keywords)
             params['hidden_by_keywords_is_floor'] = floor_keywords
 
         # When "Hide watched" is ON, count how many results are hidden because they're
@@ -871,6 +911,8 @@ class _ChannelListMixin:
                 # per-layer breakdown so the user can reveal each independently.
                 self._show_channel_filter_breakdown(
                     hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                    hidden_by_exclusions_is_floor=params.get(
+                        'hidden_by_exclusions_is_floor', False),
                     hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
                     hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
                     hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
@@ -981,7 +1023,20 @@ class _ChannelListMixin:
                 if id_hidden > 0:
                     self._show_channel_filter_breakdown(0, id_hidden)
         elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
-            self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead, hidden_kw)
+            # The floor flags must come through HERE too, not only on the
+            # zero-results branch above. This call omitted them, so every count
+            # rendered as an exact number on the normal path while the same
+            # count rendered "≥ N" when the view happened to be empty — the
+            # saturated case, which is precisely when the number is a floor, is
+            # far more likely to have rows than not.
+            self._show_channel_filter_breakdown(
+                hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                hidden_by_exclusions_is_floor=params.get(
+                    'hidden_by_exclusions_is_floor', False),
+                hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
+                hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
+                hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
+            )
 
     def _refresh_channel_stats_label(self) -> None:
         """Set the stats label from the current loaded row count.
@@ -1113,6 +1168,13 @@ class _ChannelListMixin:
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
+        # Keyword-only, and AFTER the four counts. Callers pass the counts
+        # positionally, so a flag inserted between them silently rebinds every
+        # later argument — `hidden_search` landed in `hidden_by_exclusions_is_floor`
+        # and CI caught it as a duplicate-argument TypeError. Keyword-only makes
+        # that class of mistake impossible for the next flag as well.
+        *,
+        hidden_by_exclusions_is_floor: bool = False,
         hidden_by_search_is_floor: bool = False,
         hidden_by_dead_is_floor: bool = False,
         hidden_by_keywords_is_floor: bool = False,
@@ -1132,6 +1194,8 @@ class _ChannelListMixin:
 
         Args:
             hidden_by_exclusions: Results this view dropped via Global Exclusions.
+            hidden_by_exclusions_is_floor: True when the page cap means more
+                were dropped beyond what was fetched.
             hidden_by_search: Results this view dropped via search / Tier-1 filters.
             hidden_by_dead: Results this view dropped via the dead-stream gate
                 (channels with repeated play failures).
@@ -1148,8 +1212,9 @@ class _ChannelListMixin:
         if hasattr(self, '_channel_exclusion_btn'):
             if show_excl:
                 self._channel_exclusion_btn.setText(
-                    f"{_icons.global_exclusion_icon} {hidden_by_exclusions:,} hidden by "
-                    f"Global Exclusions  —  show"
+                    f"{_icons.global_exclusion_icon} "
+                    f"{self._count_label(hidden_by_exclusions, hidden_by_exclusions_is_floor)} "
+                    f"hidden by Global Exclusions  —  show"
                 )
             self._channel_exclusion_btn.setVisible(show_excl)
         if hasattr(self, '_channel_filter_btn'):
