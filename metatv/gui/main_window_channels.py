@@ -1165,10 +1165,16 @@ class _ChannelListMixin:
     def _show_channel_filter_breakdown(
         self,
         hidden_by_exclusions: int = 0,
-        hidden_by_exclusions_is_floor: bool = False,
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
+        # Keyword-only, and AFTER the four counts. Callers pass the counts
+        # positionally, so a flag inserted between them silently rebinds every
+        # later argument — `hidden_search` landed in `hidden_by_exclusions_is_floor`
+        # and CI caught it as a duplicate-argument TypeError. Keyword-only makes
+        # that class of mistake impossible for the next flag as well.
+        *,
+        hidden_by_exclusions_is_floor: bool = False,
         hidden_by_search_is_floor: bool = False,
         hidden_by_dead_is_floor: bool = False,
         hidden_by_keywords_is_floor: bool = False,
