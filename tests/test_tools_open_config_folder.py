@@ -14,7 +14,6 @@ did not mean to change.
 from __future__ import annotations
 
 import pathlib
-import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
