@@ -78,9 +78,14 @@ def test_region_paren_rejects_unknown_code():
 
 def test_region_paren_rejects_bare_year():
     # "FBI (2024) Reboot" — paren is a year → it's a title, not region+platform.
+    # region == "" IS the contract here; the year itself is now lifted into its
+    # own field wherever it appears, and only the unrecognised trailing word has
+    # to survive in the name (see TestYearAlwaysWins in
+    # tests/test_vod_title_year_precut.py).
     p = parse_channel_name("FBI (2024) Reboot")
-    assert p.region == ""
-    assert p.bare_name == "FBI (2024) Reboot"
+    assert p.region == "", f"a year was read as a region: {p.region!r}"
+    assert "Reboot" in p.bare_name, f"subtitle eaten: {p.bare_name!r}"
+    assert p.year == "2024", f"Got {p.year!r}"
 
 
 def test_parse_pipe_prefix_strips_separator_residue():

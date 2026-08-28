@@ -214,6 +214,7 @@ def decompose_name_parse(
     detected_region: str | None,
     detected_year: str | None,
     config,
+    detected_name_collection: str | None = None,
 ) -> list[tuple[str, str, float]]:
     """Return tags from the already-typed ``detected_*`` name-parse fields.
 
@@ -229,6 +230,13 @@ def decompose_name_parse(
         detected_region:  secondary lang/region suffix — maps to ``region``/``language``.
         detected_year:    e.g. ``"2024"``, ``"1993-2002"`` — maps to ``decade``.
         config:           Live ``Config`` instance.
+        detected_name_collection: Collection recognised after a mid-name year
+                          ("Hallmark") — maps to ``collection`` at STRONG_PRIOR
+                          confidence, so it ranks below the provider's own
+                          denoted category without suppressing it.  A title
+                          filed under CHRISTMAS whose name says Hallmark
+                          carries both (DR-0006: capture generously, label
+                          confidence + provenance).
 
     Returns:
         Deduplicated list of ``(type, value, confidence)`` triples.
@@ -249,6 +257,9 @@ def decompose_name_parse(
         decade_tag = _year_to_decade(detected_year)
         if decade_tag:
             tags.append(decade_tag)
+
+    if detected_name_collection:
+        tags.append(("collection", detected_name_collection, CONF_STRONG_PRIOR))
 
     return _dedup(tags)
 
