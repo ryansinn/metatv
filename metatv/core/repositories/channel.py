@@ -524,7 +524,13 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin):
                 },
             )
 
-        query = query.order_by(ChannelDB.name)
+        # Tie-break on id, not name alone. Two things depend on ties ordering
+        # identically across separate executions: OFFSET paging (an unstable sort
+        # can repeat or skip a tied row between pages) and the transparency
+        # counters, whose floor is a set difference between this query and the
+        # same query with one axis lifted — a tie that shuffles would read as a
+        # row the axis hid. The collapse path below already tie-breaks this way.
+        query = query.order_by(ChannelDB.name, ChannelDB.id)
 
         # Comfy+ density's plot line (and the channel-list thumbnail's poster
         # URL): outerjoin MetadataDB and select ONLY its plot + poster_url

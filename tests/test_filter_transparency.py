@@ -456,11 +456,20 @@ class TestCountersAtThePageCap:
     large library the reveal button VANISHED at exactly the point where the
     most was hidden.
 
-    The obvious fix — two uncapped ``COUNT(*)``s — was measured on the owner's
-    library at **3.0 seconds** for one pair, because the count carries the
-    dead-stream ``NOT IN`` subquery over 484,288 rows. That would have put
-    three seconds back into a load just taken from 252ms to 1.1ms, so the
-    counter reports a floor instead and says so.
+    The obvious fix — two uncapped ``COUNT(*)``s — is too slow for the
+    interactive path: re-measured in raw SQL on the owner's 484,287-row library,
+    the pair costs **414 ms** (215 + 198) against a load just taken from 252 ms
+    to 1.1 ms, and up to three axes are measured per keystroke. (An earlier
+    3.0 s figure for the same pair does not reproduce and its attribution to the
+    dead-stream ``NOT IN`` was wrong — that subquery costs ~17 ms. The
+    conclusion survives at the lower number; the reasoning does not.)
+
+    So the counter reports a floor and says so. The floor is a set difference,
+    not a length subtraction: ``comparison`` is a superset of ``visible``, so
+    every id present there and absent here was provably removed by the measured
+    axis. That is sound at every input, including the saturated cases where a
+    subtraction either read zero (the original bug) or invented a page-worth of
+    withholding (the fix's first version).
     """
 
     def test_an_unsaturated_diff_is_exact_and_not_a_floor(self):
@@ -471,29 +480,81 @@ class TestCountersAtThePageCap:
 
         assert (n, is_floor) == (3, False)
 
-    def test_both_sides_saturated_reports_a_floor_not_zero(self):
-        """The bug, stated exactly: two full pages used to subtract to zero."""
+    def test_a_saturated_pair_hiding_nothing_reports_zero(self):
+        """Two full identical pages mean the axis hid NOTHING. Say zero.
+
+        This test previously asserted 50 here — the page size — on the reasoning
+        that a saturated pair must hide "at least a page-worth". That does not
+        follow: both queries hitting the cap says nothing about the difference
+        between the underlying sets, and `comparison` is a superset of `visible`,
+        so identical contents are positive evidence that the axis removed nothing.
+        The old assertion made a spec-named test encode the fabrication it was
+        named to prevent.
+        """
         from metatv.gui.main_window_channels import _ChannelListMixin
 
         full = list(range(50))
         n, is_floor = _ChannelListMixin._hidden_by_axis(
             visible=full, comparison=list(full), page_size=50)
 
-        assert n == 50, "a saturated pair must report the page as a floor"
+        assert n == 0, (
+            "identical saturated pages are evidence of NO hiding; claiming a "
+            "page-worth invents withholding and offers a reveal button that "
+            "reveals nothing"
+        )
+        assert is_floor is True, "saturated data still can't prove completeness"
+
+    def test_a_saturated_pair_reports_the_rows_it_can_prove(self):
+        """The original bug's shape: full pages that DO differ must not read zero."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        # Both pages full, but the comparison holds 10 ids the visible set lacks.
+        n, is_floor = _ChannelListMixin._hidden_by_axis(
+            visible=list(range(50)), comparison=list(range(10, 60)), page_size=50)
+
+        assert n == 10, f"the 10 ids only the comparison holds are provable, got {n}"
         assert is_floor is True
         assert n > 0, (
             "zero is what hid the gold bar segment entirely — the reveal "
             "affordance disappeared where the most was hidden"
         )
 
-    def test_one_side_saturated_also_reports_a_floor(self):
-        """If the comparison is capped, the diff understates by an unknown amount."""
+    def test_one_side_saturated_counts_the_evidence_not_the_page(self):
+        """A capped comparison still yields a provable count, not the page size."""
         from metatv.gui.main_window_channels import _ChannelListMixin
 
         n, is_floor = _ChannelListMixin._hidden_by_axis(
             visible=list(range(10)), comparison=list(range(50)), page_size=50)
 
+        assert n == 40, f"40 ids are demonstrably absent from visible, got {n}"
         assert is_floor is True
+
+    def test_saturation_is_judged_before_the_python_exclusion_pass(self):
+        """A SQL-capped fetch trimmed by Python must still count as saturated.
+
+        The exclusion pass runs before this helper, so post-filter lengths can sit
+        under the cap while the underlying query was truncated — labelling data
+        that is demonstrably incomplete as exact.
+        """
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        _, is_floor = _ChannelListMixin._hidden_by_axis(
+            visible=list(range(4970)), comparison=list(range(4970)),
+            page_size=5000, raw_visible=5000, raw_comparison=5000)
+
+        assert is_floor is True, "raw saturation must win over trimmed lengths"
+
+    def test_the_count_is_membership_not_arithmetic(self):
+        """Equal lengths with different members still means rows were hidden."""
+        from metatv.gui.main_window_channels import _ChannelListMixin
+
+        n, _ = _ChannelListMixin._hidden_by_axis(
+            visible=[1, 2, 3], comparison=[1, 2, 9], page_size=100)
+
+        assert n == 1, (
+            "a length subtraction reports 0 here; id 9 is present only in the "
+            "comparison and is provably hidden"
+        )
 
     def test_the_label_marks_a_floor_and_leaves_an_exact_count_alone(self):
         """"≥ 5,000" rather than quoting 5,000 as though it were the total."""
