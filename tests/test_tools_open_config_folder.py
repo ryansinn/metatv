@@ -23,13 +23,30 @@ from metatv.gui import icons as _icons
 from metatv.gui.main_window import MainWindow
 
 
+class _Host:
+    """A plain stand-in carrying only what the handler touches.
+
+    Deliberately NOT ``MainWindow.__new__(MainWindow)``. That yields a
+    QMainWindow whose C++ side was never constructed, and the Qt teardown sweep
+    in conftest walks leftover widgets after each test — reaching one aborts the
+    interpreter rather than raising, which is how this file took the whole macOS
+    suite down with SIGABRT while passing on Linux.
+
+    ``open_config_folder`` touches nothing Qt-specific on ``self``, so it can be
+    called unbound against an ordinary object.
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.notification_manager = MagicMock()
+
+    def open_config_folder(self):
+        return MainWindow.open_config_folder(self)
+
+
 @pytest.fixture()
 def host(tmp_path):
-    """A MainWindow skeleton carrying only what the handler touches."""
-    mw = MainWindow.__new__(MainWindow)
-    mw.config = Config(config_dir=tmp_path / "cfg")
-    mw.notification_manager = MagicMock()
-    return mw
+    return _Host(Config(config_dir=tmp_path / "cfg"))
 
 
 def test_it_opens_the_config_directory(host):
