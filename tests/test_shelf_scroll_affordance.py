@@ -15,8 +15,6 @@ the end of the row, passes any existence check while looking wrong.
 
 from __future__ import annotations
 
-import pathlib
-import tempfile
 
 import pytest
 

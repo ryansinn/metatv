@@ -143,10 +143,15 @@ class _Shelf(QWidget):
         # A real control behaves identically on every platform, which is why
         # this is a button rather than a forced-visible scrollbar.
         self._page_left = QPushButton(_icons.nav_prev_icon, scroll)
+        self._page_left.setToolTip("Scroll left")
         self._page_right = QPushButton(_icons.nav_next_icon, scroll)
-        for _btn, _tip in ((self._page_left, "Scroll left"),
-                           (self._page_right, "Scroll right")):
-            _btn.setToolTip(_tip)
+        self._page_right.setToolTip("Scroll right")
+        # Set at construction, not in the loop below: the icon-only-button guard
+        # reads the AST and looks for setToolTip beside the QPushButton it is
+        # judging, so a tooltip applied through a loop variable is invisible to
+        # it — and an icon-only control with no tooltip is exactly what it
+        # exists to catch.
+        for _btn in (self._page_left, self._page_right):
             _btn.setFixedWidth(24)
             _btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             _theme.style(_btn, "DISCOVER_SHELF_PAGE_BTN")

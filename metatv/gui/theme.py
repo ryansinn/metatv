@@ -938,15 +938,21 @@ def _build_semantic_constants() -> dict[str, object]:
     # while scrolling and fade out — so ScrollBarAsNeeded leaves a shelf with no
     # visible affordance at rest and the row reads as un-scrollable. These are a
     # real control rather than a styled scrollbar, so they behave the same on
-    # every platform. Sits ON the row, hence the surface tint rather than a
-    # panel colour, and COLOR_TEXT_HI because it is drawn over card artwork.
+    # every platform.
+    #
+    # Takes the FIXED-DARK family, not a palette tint. The chevron is drawn over
+    # poster artwork, so it has no known ground to borrow contrast from: a
+    # translucent wash measured 3.31:1 against COLOR_TEXT_HI and the conformance
+    # guard rejected it. COLOR_LIGHTBOX_BG/_TEXT_HI is the pair built for
+    # exactly this — an opaque control over imagery — and it measures 16.40:1
+    # identically in all six palettes because the family is theme-invariant.
     DISCOVER_SHELF_PAGE_BTN = (
         "QPushButton {"
-        " background: " + OVERLAY_40 + "; color: " + COLOR_TEXT_HI + ";"
+        " background: " + COLOR_LIGHTBOX_BG + "; color: " + COLOR_LIGHTBOX_TEXT_HI + ";"
         " border: none; border-radius: 4px;"
         " font-size: " + FONT_LG + "; font-weight: 600; padding: 0px;"
         "}"
-        "QPushButton:hover { background: " + OVERLAY_55 + "; }"
+        "QPushButton:hover { background: " + COLOR_LIGHTBOX_FILL_HOVER + "; }"
     )
     DISCOVER_SHELF_LOADING = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
     DISCOVER_SHELF_ERROR = "color: " + COLOR_WARN + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
