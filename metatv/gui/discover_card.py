@@ -270,8 +270,21 @@ class _ContentCard(QWidget):
             self._image_requested = True
             if self._shimmer:
                 self._shimmer.start()
-            self._image_cache.image_loaded.connect(self._on_image_loaded)
-            self._image_cache.image_failed.connect(self._on_image_failed)
+            # subscribe(), NOT the image_loaded broadcast.
+            #
+            # A shelf builds one card per title, and every card waiting for a
+            # poster used to connect to the shared signal — so each arriving
+            # image invoked the slot on ALL waiting cards and all but one
+            # returned immediately on a url mismatch. Filling a screen of
+            # posters cost N² dispatches: 157 ms of pure signal plumbing at
+            # 800 cards, before decoding anything. That is the choppy scroll
+            # into unloaded posters; scrolling back over loaded ones was
+            # smooth because a card left the fan-out once its image arrived.
+            self._image_cache.subscribe(
+                self._card.thumbnail_url,
+                self._on_image_loaded,
+                self._on_image_failed,
+            )
             self._image_cache.get_image_async(self._card.thumbnail_url)
 
     def _stop_shimmer(self) -> None:
@@ -283,10 +296,8 @@ class _ContentCard(QWidget):
                 effect.setOpacity(1.0)
 
     def _on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
-        if url != self._card.thumbnail_url:
-            return
-        self._image_cache.image_loaded.disconnect(self._on_image_loaded)
-        self._image_cache.image_failed.disconnect(self._on_image_failed)
+        # No disconnect and no url guard needed: subscribe() routes this url to
+        # this card only, and drops the subscription once it has fired.
         self._stop_shimmer()
         # Crop to the zoomed card dimensions (stored at construction time so we
         # don't re-derive from config here — the card is already the right size).
@@ -308,11 +319,7 @@ class _ContentCard(QWidget):
         The placeholder icon remains visible (it is never hidden on failure),
         so the card shows a meaningful fallback rather than a blank shimmer.
         """
-        if url != self._card.thumbnail_url:
-            return
         logger.debug(f"Poster load failed for {url!r}: {error}")
-        self._image_cache.image_loaded.disconnect(self._on_image_loaded)
-        self._image_cache.image_failed.disconnect(self._on_image_failed)
         self._stop_shimmer()
 
     def mousePressEvent(self, event) -> None:

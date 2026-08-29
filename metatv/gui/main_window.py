@@ -493,6 +493,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(CategoryFacetRefacetTask(self.db, config=self.config))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
 
+        # Notices when the UI thread stops answering, and says so in the log.
+        # Registered like any other background object so it stops on close.
+        from metatv.gui.main_thread_watchdog import MainThreadWatchdog
+
+        self._main_thread_watchdog = MainThreadWatchdog(self)
+        self._main_thread_watchdog.start()
+        self._register_cleanable(
+            "main_thread_watchdog", self._main_thread_watchdog.stop
+        )
+
         # Serial refresh queue — must be created BEFORE setup_ui() because
         # setup_ui() wires sidebar signals that trigger refresh_provider().
         # The NotificationManager is already initialised above.
