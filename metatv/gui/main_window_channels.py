@@ -1436,9 +1436,28 @@ class _ChannelListMixin:
         self._sync_filter_chips()   # chips describe the state about to be queried
 
     def _reload_after_filter_change(self):
-        """Run the deferred reload. One per burst."""
+        """Run the deferred reload. One per burst.
+
+        Guarded on ``_shutting_down`` because deferring created a window that
+        did not exist before: the timer can fire AFTER closeEvent has begun,
+        and ``load_channels`` submits to an executor the cleanup registry has
+        already shut down. CI caught exactly that —
+        ``RuntimeError: cannot schedule new futures after shutdown`` out of a
+        Qt event loop during test teardown.
+
+        The same shape as EpgView's pool in #568: making something happen later
+        means it can now happen after the thing it needs is gone.
+        """
+        if getattr(self, "_shutting_down", False):
+            return
         logger.info("Filter changed, reloading channels...")
         self.load_channels(None)
+
+    def stop_filter_reload_timer(self) -> None:
+        """Cancel any pending reload. Registered for cleanup by MainWindow."""
+        timer = getattr(self, "_filter_reload_timer", None)
+        if timer is not None:
+            timer.stop()
 
     def initialize_filter_stats(self) -> None:
         """Kick off a background load of tag-facet statistics for the filter bar.

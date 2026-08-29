@@ -503,6 +503,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "main_thread_watchdog", self._main_thread_watchdog.stop
         )
 
+        # The deferred filter reload must not fire into a closing window.
+        self._register_cleanable(
+            "filter_reload_timer", self.stop_filter_reload_timer
+        )
+
         # Serial refresh queue — must be created BEFORE setup_ui() because
         # setup_ui() wires sidebar signals that trigger refresh_provider().
         # The NotificationManager is already initialised above.

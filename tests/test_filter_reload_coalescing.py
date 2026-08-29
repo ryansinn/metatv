@@ -102,3 +102,54 @@ def test_changes_further_apart_than_the_window_each_reload(qtbot, qapp) -> None:
     assert host.reloads == [None, None], (
         f"two deliberate gestures collapsed into {len(host.reloads)} reload(s)"
     )
+
+
+def test_a_pending_reload_does_not_fire_into_a_closing_window(qtbot, qapp) -> None:
+    """Deferring created a window that did not exist before.
+
+    The timer can fire AFTER closeEvent has begun, and ``load_channels``
+    submits to an executor the cleanup registry has already shut down. CI
+    caught exactly that: ``RuntimeError: cannot schedule new futures after
+    shutdown`` out of a Qt event loop during teardown.
+
+    Same shape as EpgView's pool in #568 — making something happen later means
+    it can now happen after the thing it needs is gone.
+    """
+    host = _Host()
+    qtbot.addWidget(host)
+
+    host.on_filter_changed()
+    host._shutting_down = True      # closeEvent sets this first, before teardown
+    _settle(qapp)
+
+    assert host.reloads == [], "a deferred reload ran while the window was closing"
+
+
+def test_the_pending_reload_can_be_cancelled(qtbot, qapp) -> None:
+    """The cleanup registry calls this, so a closing window leaves no timer armed."""
+    host = _Host()
+    qtbot.addWidget(host)
+
+    host.on_filter_changed()
+    host.stop_filter_reload_timer()
+    _settle(qapp)
+
+    assert host.reloads == [], "stop_filter_reload_timer did not cancel the reload"
+
+
+def test_the_timer_is_registered_for_cleanup() -> None:
+    """Derived from main_window's AST — an unregistered timer is the bug above."""
+    import ast
+    import inspect
+
+    from metatv.gui import main_window
+
+    tree = ast.parse(inspect.getsource(main_window))
+    registered = {
+        node.args[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", None) == "_register_cleanable"
+        and node.args and isinstance(node.args[0], ast.Constant)
+    }
+    assert "filter_reload_timer" in registered
