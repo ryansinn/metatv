@@ -118,6 +118,11 @@ def test_the_patcher_is_actually_installed_by_the_app():
     source = inspect.getsource(app_main)
     assert "logger.configure(patcher=" in source, "no patcher installed at startup"
     assert "_redact" in source, "the patcher does not redact"
-    assert source.index("logger.configure(patcher=") < source.index('log_dir / "metatv.log"'), (
+    # Anchored on the sink call itself, not on how its path happens to be
+    # spelled. This asserted ``source.index('log_dir / "metatv.log"')`` and
+    # broke the day the filename moved into a named constant — raising
+    # ValueError from .index(), so the failure did not even name the real
+    # property. "logger.add(" is the thing the ordering is actually ABOUT.
+    assert source.index("logger.configure(patcher=") < source.index("logger.add("), (
         "the patcher is installed AFTER the file sink, so early records leak"
     )

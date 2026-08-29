@@ -128,6 +128,14 @@ missing_data_icon: str = "🗄"   # U+1F5C4 FILE CABINET — Missing TMDb data d
 #: sent to fetch one usually needs the other.
 config_folder_icon: str = "📂"  # U+1F4C2 OPEN FILE FOLDER
 reconnect_icon: str = "🔌"     # U+1F50C ELECTRIC PLUG — Reconnect Engaged Content diagnostic view
+#: Tools ▸ "Log viewer". A SCROLL rather than a document or a magnifier: the
+#: window shows a running stream of lines, not a file to open or a search.
+log_viewer_icon: str = "📜"     # U+1F4DC SCROLL
+#: Tools ▸ "Clear log" and the viewer's own clear button — the same broom the
+#: EPG link-clearing action uses, because it is the same kind of act.
+clear_log_icon: str = "🧹"      # U+1F9F9 BROOM
+#: The viewer's save-to-file action.
+save_log_icon: str = "💾"       # U+1F4BE FLOPPY DISK
 watchlist_icon: str = "⏰"
 calendar_icon: str = "📅"
 #: The mark a NESTED group heading puts in the reserved play-slot column.

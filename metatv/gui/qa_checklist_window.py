@@ -307,10 +307,14 @@ def _attachments_dir(config: "Config") -> Path:
 def _log_dir(config: "Config") -> Path:
     """Return ``<config_dir>/logs/`` — where loguru writes ``metatv.log``.
 
-    Matches ``__main__.setup_logging`` (``<config_dir>/logs``).  Derived from
-    the config dir so it tracks test isolation.
+    Delegates to ``core.log_paths``, which is the single definition. This used
+    to derive the path itself and carry a docstring promising it "matches
+    __main__.setup_logging" — a promise no comment can keep, and exactly the
+    shape of drift the project keeps paying for.
     """
-    return _config_dir(config) / "logs"
+    from metatv.core.log_paths import log_directory
+
+    return log_directory(config)
 
 
 def _snapshot_log(config: "Config", entry_id: int, step_idx: int, *, tail: int = 200) -> str:

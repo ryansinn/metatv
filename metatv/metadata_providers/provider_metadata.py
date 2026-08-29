@@ -91,18 +91,19 @@ def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
     # Preserve raw_data rating as fallback before potentially filtering
     raw_rating = raw_data.get('rating') if raw_data else None
 
+    # NO per-row logging in here. This function runs once per catalogue row: on
+    # the owner's library the three DEBUG lines that used to sit in this block
+    # fired 650,101 times each and produced 1.30M of 1.44M total log lines —
+    # 330 MB, which under a seven-day retention left 8 days of history where
+    # there would otherwise be 76. Whether a blob was flat or nested is not
+    # worth one line per title; the shape is visible in the row itself.
     if not info:
         # Maybe raw_data IS the info (flat structure)
         info = dict(raw_data)   # shallow copy — don't mutate stored raw_data
-        logger.debug(f"Using flat raw_data structure for {name}")
         # Xtream top-level 'rating'/'rating_5based' are stream-API placeholders
         # (always '10'/'5') — not real content ratings from TMDb/IMDb.
         info.pop('rating', None)
         info.pop('rating_5based', None)
-    else:
-        logger.debug(f"Using nested 'info' structure for {name}")
-
-    logger.debug(f"Available fields in raw_data: {list(info.keys())}")
 
     # Title — prefer a real provider-supplied name, but when the
     # provider only echoes the raw channel name back (the common
