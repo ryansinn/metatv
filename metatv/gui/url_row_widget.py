@@ -12,6 +12,55 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
+#: Health at or above this reads as healthy.
+#:
+#: Bands, not a gradient: the useful question is "is this address fine, flaky,
+#: or broken", and three answers are readable at a glance where a continuous
+#: ramp is not.
+_HEALTHY_AT = 0.90
+
+#: Below this reads as failing rather than merely flaky.
+_FAILING_BELOW = 0.50
+
+
+def reliability_tint_token(pu: ProviderURL) -> "str | None":
+    """Name of the overlay TOKEN tinting a URL row, or ``None`` for no tint.
+
+    A token rather than three dedicated theme roles. Three roles differing only
+    in which colour they name is a near-twin cluster, and the role-duplication
+    guard is right to reject it — the shape is one thing parameterised by
+    state, so it is expressed that way and composed with ``style_fn``.
+
+    Uses ``health_score`` — the recency-weighted score ``ordered_urls`` SORTS
+    on — not ``reliability_score``. Tinting on the lifetime ratio would put a
+    green row at the bottom of the list and an amber one at the top, because
+    the two disagree the moment a long-good host starts failing.
+
+    An untested URL is deliberately left UNTINTED. ``reliability_score``
+    returns 100.0 for one ("untested, assume good") and ``health_score`` falls
+    back to it, so tinting on the number alone would paint an address nobody
+    has ever reached in confident green. "Untested" is what the row's own text
+    already says, and no tint is the honest visual for it.
+
+    Args:
+        pu: The URL row's model.
+
+    Returns:
+        A ``theme`` role name, or None when there is nothing to say.
+    """
+    if pu.success_count + pu.failure_count == 0:
+        return None
+
+    from metatv.core.url_policy import get_url_ranking_policy
+
+    health = pu.health_score(get_url_ranking_policy().health_decay)
+    if health >= _HEALTHY_AT:
+        return "OVERLAY_GREEN_15"
+    if health < _FAILING_BELOW:
+        return "OVERLAY_ERR_15"
+    return "OVERLAY_ORANGE_10"
+
+
 class URLRowWidget(QWidget):
     """Single URL row: move up/down, live test result badge, stats, remove."""
 
@@ -22,6 +71,17 @@ class URLRowWidget(QWidget):
     def __init__(self, provider_url: ProviderURL, index: int, total: int, parent=None):
         super().__init__(parent)
         self.provider_url = provider_url
+
+        # Reinforcement for the reliability text already on this row, never a
+        # replacement for it. Untested rows stay untinted — see the helper.
+        tint_token = reliability_tint_token(provider_url)
+        if tint_token:
+            # style_fn, so the tint is re-read on a theme switch rather than
+            # baked in at construction (CLAUDE.md's theme-registry rule).
+            _theme.style_fn(self, lambda t=tint_token: (
+                f"background-color: {getattr(_theme, t)}; border-radius: 3px;"
+            ))
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
