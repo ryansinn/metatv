@@ -118,6 +118,21 @@ class SimilarTitleLightbox(QWidget):
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
+    def shutdown(self) -> None:
+        """Stop the background executor (registered in the host's cleanup registry).
+
+        This widget owns a pool and had NO shutdown of any kind — no method, no
+        ``closeEvent``, no registration — so its worker outlived the window that
+        created it. Its sibling nine lines away in ``main_window.py``, the trail
+        map, was registered from the day it was written; this one was simply
+        never wired, which is what a hand-maintained registry costs.
+
+        A pool running past teardown is the same fault that has been aborting
+        this app on quit (#540, #542): a thread still executing when the
+        objects it touches are destroyed.
+        """
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
     def show_preview(
         self,
         channel_ids: list[str],

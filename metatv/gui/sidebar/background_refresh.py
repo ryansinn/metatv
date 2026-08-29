@@ -41,6 +41,27 @@ class BackgroundRefreshMixin:
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._data_ready.connect(self._on_data_ready)
 
+    def shutdown(self) -> None:
+        """Stop this section's worker pool.
+
+        Defined on the MIXIN, so every section that composes it is covered at
+        once. Six sections do (`favorites`, `history`, `queue`, `alerts`,
+        `recommended`, and the base) and NONE of them could stop the pool
+        ``_init_background_refresh`` hands them — six threads that outlived the
+        window, found by deriving the owners rather than listing them.
+
+        Putting it here rather than in each section is the point: a seventh
+        section gets a working shutdown for free, which is exactly how the six
+        came to be missing one.
+
+        Safe before ``_init_background_refresh`` (a section torn down mid-build
+        never made a pool) and safe twice.
+        """
+        executor = self.__dict__.get("_executor")
+        if executor is None:
+            return
+        executor.shutdown(wait=False, cancel_futures=True)
+
     def _loading_message(self) -> str:
         """Text for the transient loading placeholder. Sections MAY override."""
         return "Loading…"
