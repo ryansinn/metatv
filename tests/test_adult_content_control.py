@@ -15,8 +15,7 @@ Three separate failures shipped together here, and each test below targets one:
    user's next filter click.
 """
 
-import pytest
-from PyQt6.QtWidgets import QPushButton, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from metatv.gui.settings_dialog import SettingsDialog, _SECTIONS, _SECTION_HELP
 from tests.test_settings_tab_layout import _FakeConfig
