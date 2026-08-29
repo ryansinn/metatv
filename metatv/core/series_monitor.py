@@ -346,6 +346,9 @@ class SeriesMonitorManager(QObject):
             max_workers=1, thread_name_prefix="series_monitor"
         )
         self._pending_batches = 0
+        #: Advances once per pass; rotates which mirrors a bounded
+        #: pass checks (see _mirrors_for_this_pass).
+        self._pass_index = 0
         # Set by shutdown(). ThreadPoolExecutor.shutdown(wait=False) stops NEW
         # work but cannot interrupt the batch already running, so without this
         # the in-flight worker kept issuing live HTTP fetches for every
@@ -433,7 +436,27 @@ class SeriesMonitorManager(QObject):
     # ------------------------------------------------------------------
 
     def _submit_check(self, entries: list[dict]) -> None:
-        """Submit *entries* to the executor, bracketing with checking_started/finished."""
+        """Submit *entries* to the executor, bracketing with checking_started/finished.
+
+        Refuses to queue while a batch is already in flight. The executor is
+        ``max_workers=1``, so batches never ran concurrently — they QUEUED, and
+        the queue had no bound. A pass over the owner's watchlist is 153 mirror
+        fetches, each a live ``get_series_info`` that cycles up to 20 hosts when
+        one fails, so it comfortably exceeds the 60-minute timer that schedules
+        it. Every tick appended another pass to a queue that could never drain:
+        measured on the owner's machine, three hours of continuous fetching at
+        130% CPU, with the app laggy throughout. Owner: "it's brutally slow".
+
+        Skipping is the right answer rather than queueing: the work is a poll,
+        and a poll that is already running does not need to be run again. The
+        next tick picks it up.
+        """
+        if self._pending_batches:
+            logger.info(
+                "series_monitor: a check is still running — skipping this pass "
+                "rather than queueing another behind it"
+            )
+            return
         self._pending_batches += 1
         if self._pending_batches == 1:
             self.checking_started.emit()
@@ -444,6 +467,7 @@ class SeriesMonitorManager(QObject):
         try:
             self._worker_check_entries(entries)
         finally:
+            self._pass_index += 1
             self._check_batch_done.emit()
 
     def _on_check_batch_done(self) -> None:
@@ -466,12 +490,28 @@ class SeriesMonitorManager(QObject):
         """
         from metatv.core.repositories import RepositoryFactory
 
-        mirrors: list[tuple[str, str]] = [(primary_provider_id, primary_source_id)]
         repos = RepositoryFactory(session)
+        hidden = repos.providers.get_hidden_provider_ids()
+
+        # The PRIMARY is gated too, not just the siblings below. It used to be
+        # added unconditionally, so an expired source kept being polled: every
+        # entry whose primary is that source ran a live fetch per pass, and each
+        # fetch cycled all twenty of its hosts because every one answers 451.
+        # Measured on the owner's machine the evening TREX expired at 16:00 —
+        # three hours of continuous fetching at 130% CPU against a subscription
+        # that cannot serve anything, with the app laggy throughout.
+        #
+        # get_hidden_provider_ids is the canonical gate (inactive ∪ expired ∪
+        # orphaned) and the visibility layer already routes through it. A fetch
+        # path that skips it is asking a source for content the app would refuse
+        # to display even if it arrived.
+        mirrors: list[tuple[str, str]] = []
+        if primary_provider_id not in hidden:
+            mirrors.append((primary_provider_id, primary_source_id))
+
         primary_channel = repos.channels.get_by_id(cid)
         if not primary_channel or not primary_channel.content_key:
             return mirrors
-        hidden = repos.providers.get_hidden_provider_ids()
         # Dedupe on the full (provider, source) pair. content_key is a
         # deliberately generous identity, so a single provider can contribute
         # several distinct listings here — that is legitimate (each is a real
@@ -495,6 +535,57 @@ class SeriesMonitorManager(QObject):
             seen.add(pair)
             mirrors.append((sib["provider_id"], sib["source_id"]))
         return mirrors
+
+    #: Mirrors any one series may cost in a single pass. A title on the owner's
+    #: watchlist can carry 21 of them, and each is a live network fetch that
+    #: cycles up to 20 hosts on failure — 153 mirrors made one pass longer than
+    #: the hour that schedules it.
+    MIRRORS_PER_PASS: int = 4
+
+    def _mirrors_for_this_pass(self, mirrors, cid, primary_provider_id,
+                               primary_source_id):
+        """Bound one series' mirror checks, rotating so all are still reached.
+
+        A new episode appears on most mirrors of a title, so checking every one
+        every hour buys almost nothing for its cost: the owner's "Wonder Man" is
+        monitored twice (two language variants) at 21 mirrors each — 42 live
+        fetches to learn one fact.
+
+        Rotated rather than truncated. Taking the first N would mean the mirrors
+        past N were NEVER checked and their baselines never established, which
+        trades a slow poll for a silently incomplete one. The offset advances
+        per pass and per series, so every mirror comes up within a few hours
+        while no single pass is unbounded.
+
+        The PRIMARY mirror is always included, whatever the rotation: it is the
+        one the user actually chose, and the one whose episode list the details
+        pane shows.
+
+        Args:
+            mirrors: Every (provider_id, source_id) carrying this series.
+            cid: The series channel id, so each series rotates independently.
+            primary_provider_id: The entry's own provider.
+            primary_source_id: The entry's own source id.
+
+        Returns:
+            At most :attr:`MIRRORS_PER_PASS` mirrors, primary first.
+        """
+        if len(mirrors) <= self.MIRRORS_PER_PASS:
+            return mirrors
+
+        primary = (primary_provider_id, primary_source_id)
+        others = [m for m in mirrors if m != primary]
+        offset = self._pass_index * self.MIRRORS_PER_PASS
+        take = self.MIRRORS_PER_PASS - 1
+        # Rotate through `others` so a later pass starts where this one stopped.
+        start = (offset + hash(cid)) % len(others) if others else 0
+        picked = [others[(start + i) % len(others)] for i in range(min(take, len(others)))]
+        chosen = ([primary] if primary in mirrors else []) + picked
+        logger.debug(
+            "series_monitor: checking {} of {} mirrors this pass",
+            len(chosen), len(mirrors),
+        )
+        return chosen
 
     def _worker_check_entries(self, entries: list[dict]) -> None:
         """Check each monitored entry across every provider that carries it.
@@ -536,6 +627,20 @@ class SeriesMonitorManager(QObject):
             except Exception:
                 logger.exception(f"series_monitor: error resolving mirrors for {title}")
                 mirrors = [(primary_provider_id, primary_source_id)]
+
+            if not mirrors:
+                # Every source carrying this series is hidden — expired,
+                # switched off, or gone. Nothing to ask, and asking is what made
+                # the app unusable.
+                logger.debug(
+                    "series_monitor: {} has no reachable source right now — "
+                    "skipping", title,
+                )
+                continue
+
+            mirrors = self._mirrors_for_this_pass(
+                mirrors, cid, primary_provider_id, primary_source_id
+            )
 
             new_baselines = dict(baselines)
             grown: dict[str, int] = {}        # mirror key -> delta
