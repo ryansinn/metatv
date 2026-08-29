@@ -34,6 +34,8 @@ from loguru import logger
 
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
+from metatv.core.connection_diagnosis import diagnose
+from metatv.gui.connection_diagnosis_text import _DIAGNOSIS_TEXT
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
@@ -104,6 +106,11 @@ class TestAllURLsThread(QThread):
 
     url_result = pyqtSignal(str, bool, int, str)  # url, success, ms, message
     all_done = pyqtSignal(list)                   # [(url, success, ms, message), ...]
+    #: A DiagnosisReport, emitted alongside all_done. Carried separately because
+    #: all_done's tuples are already formatted for display and have dropped the
+    #: probe status and HTTP detail that the diagnosis is derived from — the
+    #: information exists, it just stops here.
+    diagnosis = pyqtSignal(object)
 
     def __init__(self, urls: List[str], username: str, password: str):
         super().__init__()
@@ -130,6 +137,8 @@ class TestAllURLsThread(QThread):
         self.all_done.emit(
             [(r.url, r.success, r.latency_ms, _format_probe_message(r)) for r in results]
         )
+        # Diagnosed in core (no English there); phrased by the editor.
+        self.diagnosis.emit(diagnose(results))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -599,6 +608,18 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._save_btn.clicked.connect(self._save)
         row.addWidget(self._save_btn)
 
+        # Why every address failed, and what to do about it. Hidden until a
+        # test actually fails everywhere — a permanently-present empty panel
+        # would be furniture.
+        self._diagnosis_lbl = QLabel()
+        self._diagnosis_lbl.setWordWrap(True)
+        self._diagnosis_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        _theme.style(self._diagnosis_lbl, "NOTICE_WARN")
+        self._diagnosis_lbl.hide()
+        root.addWidget(self._diagnosis_lbl)
+
         root.addWidget(self._footer)
 
     def _connect_dirty_signals(self) -> None:
@@ -924,6 +945,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._test_thread = TestAllURLsThread(urls, username, password)
         self._test_thread.url_result.connect(self._on_single_url_result)
         self._test_thread.all_done.connect(self._on_all_urls_done)
+        self._test_thread.diagnosis.connect(self._on_diagnosis)
         self._test_thread.start()
 
     def _on_single_url_result(self, url: str, success: bool, ms: int, message: str):
@@ -939,6 +961,27 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             if isinstance(w, URLRowWidget) and w.provider_url.url == url:
                 w.show_test_result(success, message)
                 break
+
+    def _on_diagnosis(self, report) -> None:
+        """Show why every address failed — or hide the panel when one worked.
+
+        Only speaks up on a TOTAL failure. A partial failure is normal and is
+        the entire reason a source carries several addresses; announcing it
+        would train the user to ignore this panel.
+        """
+        phrasing = _DIAGNOSIS_TEXT.get(report.diagnosis)
+        if phrasing is None:
+            self._diagnosis_lbl.hide()
+            return
+
+        headline, advice = phrasing
+        evidence = ""
+        if report.refusal_codes:
+            evidence = f" (HTTP {', '.join(report.refusal_codes)})"
+        self._diagnosis_lbl.setText(
+            f"{headline}{evidence}\n\n{advice}"
+        )
+        self._diagnosis_lbl.show()
 
     def _on_all_urls_done(self, sorted_results: list):
         """Reorder URL list: successes fastest-first, failures last."""
