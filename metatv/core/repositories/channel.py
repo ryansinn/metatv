@@ -175,7 +175,25 @@ def _channel_text_search_predicate(search_term: str):
         A SQLAlchemy boolean clause suitable for ``query.filter(...)``.
     """
     pattern = f"%{search_term}%"
-    return or_(ChannelDB.name.ilike(pattern), metadata_person_exists(pattern))
+    # Channel IDs are matched EXACTLY, never as a substring, so that pasting an
+    # id finds exactly that channel while an ordinary word search is unchanged.
+    #
+    # Two ids are useful to a person and both are accepted:
+    #   ChannelDB.id         the app's own "{provider_uuid}_{stream_id}"
+    #   ChannelDB.source_id  the provider's own stream id, which is what a user
+    #                        reads off a source and passes to someone else
+    #
+    # Exactness is the whole design. A substring match would make a search for
+    # "2024" also return whichever channel happens to carry stream id 2024,
+    # which is noise in the common case and impossible to predict. Equality
+    # costs nothing when it does not match and is unambiguous when it does.
+    term = search_term.strip()
+    return or_(
+        ChannelDB.name.ilike(pattern),
+        metadata_person_exists(pattern),
+        ChannelDB.id == term,
+        ChannelDB.source_id == term,
+    )
 
 
 
