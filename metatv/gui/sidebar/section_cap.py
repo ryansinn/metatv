@@ -62,9 +62,49 @@ class SectionContentCapMixin:
 
         Never below the floor, so a section that is empty or still loading does
         not collapse to nothing and then jump when its rows arrive.
+
+        **And never below a height the user chose.** The cap is applied as a
+        real ``setMaximumHeight``, so it does not merely influence how space is
+        shared out — it stops the widget growing at all. On a sparse library
+        that is total: with little content the cap sits just above the header,
+        every section refuses to grow, and dragging a splitter handle changes
+        ``QSplitter.sizes()`` while the widgets stay put. Measured headless:
+        a splitter reporting ``[298, 298]`` around two sections both pinned at
+        108px, ~190px each of allocation nothing honours. Owner: "the vertical
+        resize doesn't work ... the icon changes, but the resize doesn't happen".
+
+        "No dead space" is a rule for AUTOMATIC allocation — the splitter should
+        not hand a section room it cannot fill. It was never meant to overrule a
+        person who deliberately dragged a section taller, and a control that
+        silently refuses is worse than one that is absent.
+
+        A previous version of this file remembered the user's height and was
+        removed because "none of that machinery could be shown to do anything"
+        — every test stayed green when it was mutated away. That was a gap in
+        the tests, not proof it was inert; ``tests/test_user_drag_beats_cap.py``
+        is the reproduction it lacked.
         """
         return max(self.min_expanded_height(),
-                   self.HEADER_H + self._content_height())
+                   self.HEADER_H + self._content_height(),
+                   self.__dict__.get("_user_height") or 0)
+
+    def note_user_height(self, height: int) -> None:
+        """Record a height the user chose by dragging, so the cap honours it.
+
+        Called from the host's ``splitterMoved`` — the one signal that means a
+        PERSON moved this, as opposed to the automatic redistribution that runs
+        on every content change and must stay subject to the cap.
+
+        Ignored below the floor: a drag that collapses a section to its header
+        is a collapse, not a request for a taller section, and remembering it
+        would pin the section small forever.
+
+        Args:
+            height: The section's height after the drag.
+        """
+        if height > self.min_expanded_height():
+            self._user_height = int(height)
+            self.setMaximumHeight(self.max_useful_height())
 
     def _apply_content_cap(self) -> None:
         """Stop the splitter handing this section more than it can fill.

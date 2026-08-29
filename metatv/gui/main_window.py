@@ -996,6 +996,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         
         # Connect splitter moved signal to save sizes
         self.sidebar_splitter.splitterMoved.connect(self._schedule_layout_save)
+        # ...and to record the height as the USER's choice. splitterMoved is the
+        # one signal that means a person dragged this; automatic redistribution
+        # does not emit it, and must stay subject to the content cap.
+        self.sidebar_splitter.splitterMoved.connect(self._note_sidebar_user_sizes)
 
         # Wrap in outer widget so the Sources strip + a Settings button can live
         # at the bottom, below the reorderable section stack.
@@ -1343,6 +1347,27 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # ------------------------------------------------------------------
     # VOD watch-alert helpers
     # ------------------------------------------------------------------
+
+    def _note_sidebar_user_sizes(self, *_args) -> None:
+        """Tell each section the height the user just dragged it to.
+
+        The content cap is a real ``setMaximumHeight``, so without this a
+        section simply refuses to grow past what its rows fill: the splitter
+        updates ``sizes()`` and the widgets ignore it. On a sparse library every
+        section caps just above its header and vertical resize appears dead.
+
+        Every visible section is told, not just the two either side of the
+        handle — a drag redistributes across the whole stack, and a section that
+        shrank has chosen its new height just as deliberately.
+        """
+        splitter = self.__dict__.get("sidebar_splitter")
+        if splitter is None:
+            return
+        for i in range(splitter.count()):
+            widget = splitter.widget(i)
+            note = getattr(widget, "note_user_height", None)
+            if callable(note) and widget.isVisible() and not widget.is_collapsed:
+                note(widget.height())
 
     def _grow_sidebar_section(self, section, rows: int | None = None, *,
                               probe: bool = False) -> bool:
