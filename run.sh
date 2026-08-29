@@ -77,6 +77,44 @@ resolve_py() {
     return 1
 }
 
+# Say so when this checkout is behind its remote, then run anyway.
+#
+# ./run.sh deliberately does NOT pull — it runs THIS tree, which is the whole
+# point when you are testing a change. The failure mode is the silent one: a
+# checkout drifts behind main and every launch quietly re-runs bugs that were
+# fixed days ago. That happened over a whole evening — nine commits behind,
+# repeatedly hitting a crash whose fix was already on main and already in the
+# shipped build.
+#
+# So: report, never act. Fetching or pulling here would be worse than the
+# problem, because it would change the code under someone who ran this script
+# precisely to test what they have.
+#
+# Uses only refs already on disk (no network), so an offline or slow start
+# costs nothing. Everything is guarded: outside a repo, no upstream, a detached
+# HEAD, or no git at all, this prints nothing and the app starts as before.
+warn_if_behind() {
+    local dir="$1"
+    command -v git >/dev/null 2>&1 || return 0
+    git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+    local branch upstream behind ahead
+    branch="$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null)" || return 0
+    upstream="$(git -C "$dir" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" || return 0
+    [ -n "$upstream" ] || return 0
+
+    # Counted against the last fetch, so it can lag; that is fine. A stale
+    # "behind" is still true, and a missed one is no worse than today.
+    behind="$(git -C "$dir" rev-list --count "HEAD..$upstream" 2>/dev/null)" || return 0
+    ahead="$(git -C "$dir" rev-list --count "$upstream..HEAD" 2>/dev/null)" || return 0
+    [ "${behind:-0}" -gt 0 ] || return 0
+
+    printf '\n  \033[33m!\033[0m  This checkout is %s commit(s) behind %s' "$behind" "$upstream"
+    [ "${ahead:-0}" -gt 0 ] && printf ' (and %s ahead)' "$ahead"
+    printf '.\n     run.sh runs THIS tree as-is and never pulls.\n'
+    printf '     To catch up:  git -C %s pull --ff-only\n\n' "$dir"
+}
+
 # cd into <checkout-dir> and run metatv with the resolved interpreter.
 run_dir() {
     local dir="$1"; shift
@@ -86,6 +124,7 @@ run_dir() {
         echo "        create one: python -m venv venv && venv/bin/pip install -r requirements.txt" >&2
         exit 1
     fi
+    warn_if_behind "$dir"
     cd "$dir" || exit 1
     exec "$py" -m metatv "$@"
 }
