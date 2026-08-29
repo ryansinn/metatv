@@ -1184,6 +1184,8 @@ class Config(BaseModel):
     restricted_backfill_version: int = 0
     #: Version of the case-variant tag merge that has been applied.
     tag_case_merge_version: int = 0
+    #: Version of the epg_channel_id recovery that has been applied.
+    epg_channel_id_backfill_version: int = 0
 
     # Internal migration version for the category-marker backfill (owner-reported
     # gap — provider category strings carrying a leading "|EN| ANIME"-style marker

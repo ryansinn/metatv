@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.conftest import make_channel_double
+
 from metatv.core.database import ChannelDB, Database, MetadataDB
 from metatv.core.provider_loader import ProviderLoadThread
 from metatv.core.models import Provider
@@ -59,21 +61,14 @@ def store_thread(tmp_db):
 
 def _fake_channel(ch_id: str, name: str, raw_data: dict | None = None) -> MagicMock:
     """Return a duck-typed Channel-like object for use with _store_channels."""
-    ch = MagicMock()
-    ch.id = ch_id
-    ch.source_id = ch_id
-    ch.provider_id = "prov1"
-    ch.name = name
-    ch.stream_url = "http://example.com/stream"
-    ch.category = "General"
-    ch.category_id = "cat1"
-    ch.logo_url = ""
-    ch.media_type = "movie"
-    ch.quality = MagicMock()
-    ch.quality.value = "hd"
-    ch.raw_data = raw_data if raw_data is not None else {"info": {"name": name}}
-    ch.detected_tmdb_id = None
-    return ch
+    return make_channel_double(
+        id=ch_id,
+        source_id=ch_id,
+        provider_id="prov1",
+        name=name,
+        media_type="movie",
+        raw_data=raw_data if raw_data is not None else {"info": {"name": name}},
+    )
 
 
 def _store(thread: ProviderLoadThread, db: Database, channels: list) -> None:
