@@ -117,3 +117,39 @@ def test_a_reload_does_not_leave_the_previous_titles_offline_chips(section) -> N
     section.load([_v("live")], provider_map={})
     assert _chips(section._offline_chips_layout) == [], "stale offline chips survived a reload"
     assert section._offline_section.isHidden()
+
+
+# ── the gap the offline section exposed ─────────────────────────────────────
+
+def test_the_available_grid_is_hidden_when_nothing_is_available(section) -> None:
+    """No empty box under "Also Available".
+
+    Owner report with a screenshot: a title whose only variants are offline
+    showed the "Also Available" header, then a blank gap, then the two
+    sub-sections. Before offline variants moved out of ``active``, that list
+    was almost never empty — an inactive-source variant landed in it and filled
+    the grid. Splitting the buckets made the empty case reachable, and an empty
+    container still occupies its margins, so it renders as a gap rather than
+    as nothing.
+    """
+    section.load([_v("dead", inactive=True)], provider_map={})
+
+    assert section._chips_row.isHidden(), (
+        "the available grid is empty but still taking up space"
+    )
+    assert not section._offline_section.isHidden(), (
+        "the offline section should still be shown — only the empty grid hides"
+    )
+
+
+def test_the_available_grid_returns_when_something_is_available(section) -> None:
+    """The mirror, so the test above cannot pass by hiding the grid forever."""
+    section.load([_v("live"), _v("dead", inactive=True)], provider_map={})
+    assert not section._chips_row.isHidden()
+
+
+def test_no_gap_when_every_variant_is_filtered(section) -> None:
+    """Same defect, reachable through the other sub-section."""
+    section.load([_v("f", filtered=True)], provider_map={})
+    assert section._chips_row.isHidden()
+    assert not section._filtered_section.isHidden()

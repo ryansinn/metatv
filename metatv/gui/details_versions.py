@@ -430,6 +430,17 @@ class _VersionSection(CollapsibleMixin, QWidget):
             self._filtered_section.hide()
 
         self._row_container.show()
+
+        # Hide the active grid entirely when nothing is IN it. Before offline
+        # variants moved to their own section, `active` was almost never empty
+        # — an inactive-source variant landed here and filled it. Now a title
+        # whose every variant is filtered or offline leaves an empty flow
+        # layout under the "Also Available" header, which renders as a gap with
+        # nothing in it (owner report, screenshot 2026-08-29). An empty
+        # container still occupies its margins; it has to be hidden, not just
+        # left unpopulated.
+        self._chips_row.setVisible(bool(active))
+
         self._chips_row.updateGeometry()
         if filtered:
             self._filtered_chips_row.updateGeometry()
