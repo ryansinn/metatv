@@ -1186,6 +1186,8 @@ class Config(BaseModel):
     tag_case_merge_version: int = 0
     #: Version of the epg_channel_id recovery that has been applied.
     epg_channel_id_backfill_version: int = 0
+    #: Version of the metadata.year derivation that has been applied.
+    metadata_year_backfill_version: int = 0
 
     # Internal migration version for the category-marker backfill (owner-reported
     # gap — provider category strings carrying a leading "|EN| ANIME"-style marker
