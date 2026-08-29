@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -284,11 +286,77 @@ def _title_key(channel) -> str:
     return ck if ck else f"id:{channel.id}"
 
 
+#: Weights computed for one taste state, shared by every surface that asks.
+#: Keyed by a signature of the inputs, so a changed rating is never served a
+#: stale answer — see :func:`_taste_signature`.
+_WEIGHTS_CACHE: "dict[tuple, tuple[float, AttributeWeights]]" = {}
+_WEIGHTS_LOCK = threading.Lock()
+
+#: Recompute at least this often even when the signature holds, so a corpus
+#: grown by background enrichment is eventually reflected. The signature covers
+#: taste; this covers what drifts underneath it.
+WEIGHTS_TTL_S: float = 600.0
+
+
+def _taste_signature(session, dials: "RecScoringSettings") -> tuple:
+    """A cheap fingerprint of everything the weights depend on.
+
+    Measured on the owner's library: 5.5 ms, against 3,900 ms to recompute — so
+    asking is ~700x cheaper than answering.
+
+    Covers both signals the engine consumes: explicit ratings, and the watch
+    history behind the implicit ones. Counts alone would miss a rating CHANGED
+    in place, so the newest timestamp rides along with each.
+    """
+    from sqlalchemy import text
+
+    ratings = session.execute(
+        text("SELECT COUNT(*), MAX(rated_at) FROM user_ratings")
+    ).first()
+    history = session.execute(
+        text("SELECT COUNT(*), MAX(last_played) FROM channels "
+             "WHERE last_played IS NOT NULL")
+    ).first()
+    return (tuple(ratings or ()), tuple(history or ()), dials)
+
+
+def _remember_weights(key, weights: AttributeWeights) -> AttributeWeights:
+    """Store *weights* under *key* and return them unchanged.
+
+    Returns the value so every exit reads ``return _remember_weights(...)`` —
+    an exit that forgets to store is then a visibly different line, not a silent
+    cache miss forever. ``key`` may be None when the signature could not be
+    taken, in which case nothing is stored and the answer still flows.
+    """
+    if key is not None:
+        with _WEIGHTS_LOCK:
+            _WEIGHTS_CACHE[key] = (time.monotonic(), weights)
+            # One taste state is live at a time; older keys are dead the moment
+            # a rating lands, so this never accumulates.
+            if len(_WEIGHTS_CACHE) > 8:
+                oldest = min(_WEIGHTS_CACHE, key=lambda k: _WEIGHTS_CACHE[k][0])
+                _WEIGHTS_CACHE.pop(oldest, None)
+    return weights
+
+
 def compute_weights(session, settings: RecScoringSettings | None = None) -> AttributeWeights:
     """Load all ratings, join to MetadataDB, and accumulate attribute weights.
 
     Level 1 — genre, director, cast (structured fields).
     Level 2 — TF-IDF weighted keywords from plot text.
+
+    **Cached on a signature of its inputs.** This is a full TF-IDF rebuild over
+    every stored plot — measured at 3.9 s on a 75,398-plot corpus — and six
+    surfaces call it independently: the Recommended sidebar, Discover's workers,
+    the details pane, the trail map, the preferences view and the discovery
+    engine. From the owner's log, one startup ran it six times in thirty seconds
+    on identical inputs: ~23 s of CPU for the same answer six times, and a
+    plausible cause of "Couldn't load recommendations" on a slower machine where
+    those passes overlap.
+
+    Keyed, not timed, so rating something changes the signature and the next
+    call recomputes. The TTL is only a backstop for the plot corpus growing
+    under background enrichment, which no taste signal would notice.
 
     Args:
         session: Open SQLAlchemy session.
@@ -298,6 +366,22 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     from metatv.core.database import UserRatingDB, ChannelDB, MetadataDB
 
     dials = settings or DEFAULT_REC_SETTINGS
+
+    try:
+        # NOT `key`: this function already binds that name to a title key
+        # inside its loops, so a cache key called `key` is a different string
+        # by the time it reaches the return — cached under 'o', looked up under
+        # a tuple, and every call recomputed while looking cached.
+        cache_key = _taste_signature(session, dials)
+    except Exception:
+        # A signature we cannot take is not a reason to refuse the answer.
+        logger.exception("preference_engine: taste signature failed; recomputing")
+        cache_key = None
+    if cache_key is not None:
+        with _WEIGHTS_LOCK:
+            hit = _WEIGHTS_CACHE.get(cache_key)
+        if hit is not None and (time.monotonic() - hit[0]) < WEIGHTS_TTL_S:
+            return hit[1]
 
     ratings = session.query(UserRatingDB).all()
 
@@ -318,7 +402,9 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     ]
 
     if not ratings and not favorites:
-        return AttributeWeights()
+        # Cached too: "no taste yet" is an answer worth not recomputing, and it
+        # is the state a fresh install sits in while every surface asks.
+        return _remember_weights(cache_key, AttributeWeights())
 
     # Collapse to one signal per TITLE (CLAUDE.md "Content identity" — group on the
     # stored content_key, computed at ingestion, never re-keyed here). Rating or
@@ -425,7 +511,7 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
         if actor_support[name] >= dials.actor_min_support
     }
 
-    return weights
+    return _remember_weights(cache_key, weights)
 
 
 def recommendation_scope(session, config) -> dict:
