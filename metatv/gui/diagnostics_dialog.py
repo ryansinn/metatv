@@ -42,6 +42,10 @@ _HEADLINES = {
     _diag.PROVIDER_LIMITED: "Your source is the bottleneck",
     _diag.INTERNET_LIMITED: "Your internet connection is the bottleneck",
     _diag.UNREACHABLE: "Couldn't reach the stream",
+    # The server ANSWERED and said no. "Couldn't reach" was the headline for
+    # this too, which is why a 405 — a server that is up, responding, and
+    # merely refusing the probe's request shape — read as a network fault.
+    _diag.REFUSED: "Your source refused the stream",
 }
 
 
@@ -51,7 +55,7 @@ def _headline_color(verdict: str) -> str:
         return _theme.COLOR_OK
     if verdict == _diag.JITTER:
         return _theme.COLOR_WARN
-    if verdict in (_diag.PROVIDER_LIMITED, _diag.INTERNET_LIMITED):
+    if verdict in (_diag.PROVIDER_LIMITED, _diag.INTERNET_LIMITED, _diag.REFUSED):
         return _theme.COLOR_ERR
     # UNREACHABLE or anything unexpected — muted.
     return _theme.COLOR_MUTED

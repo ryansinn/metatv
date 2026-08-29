@@ -33,6 +33,11 @@ VERDICT_JITTER = "jitter"
 VERDICT_PROVIDER_LIMITED = "provider-limited"
 VERDICT_INTERNET_LIMITED = "internet-limited"
 VERDICT_UNREACHABLE = "unreachable"
+#: The server ANSWERED and refused. Distinct from UNREACHABLE, which means
+#: nothing answered at all — a difference that decides where the user looks
+#: next. Every non-2xx used to be reported as "Couldn't reach the stream",
+#: which sent them hunting for a network fault that did not exist.
+VERDICT_REFUSED = "refused"
 
 # Re-export under the short names referenced by the task spec / callers.
 HEALTHY = VERDICT_HEALTHY
@@ -40,6 +45,7 @@ JITTER = VERDICT_JITTER
 PROVIDER_LIMITED = VERDICT_PROVIDER_LIMITED
 INTERNET_LIMITED = VERDICT_INTERNET_LIMITED
 UNREACHABLE = VERDICT_UNREACHABLE
+REFUSED = VERDICT_REFUSED
 
 # Matches an Xtream stream path: /<kind>/<user>/<pass>/<id>.<ext>
 # kind is one of live/movie/series (Xtream also serves bare /<user>/<pass>/<id>).
@@ -102,6 +108,70 @@ class DiagnosticResult:
     headroom_ratio: float | None = None
     recommended_args: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
+    #: The HTTP status when the server answered and refused, else None. Lets a
+    #: caller distinguish 404 (gone) from 403 (refused) without parsing prose.
+    http_status: int | None = None
+
+
+#: Plain-language cause + next step per HTTP status, for a stream URL that the
+#: server answered and refused. Keyed by exact status first, then by class.
+#:
+#: Written for someone who wants to watch something, not for someone reading an
+#: RFC: each entry says what the server meant and what they can actually do.
+_HTTP_EXPLANATIONS: "dict[int, tuple[str, str]]" = {
+    401: ("Your source rejected the username or password.",
+          "Re-check the credentials on this source, or ask your provider "
+          "whether the line is still active."),
+    403: ("Your source refused this stream.",
+          "Usually the connection limit — most accounts allow only one or two "
+          "streams at once, so stop anything else that is playing and try "
+          "again. It can also mean the line expired or the content is blocked "
+          "in your region."),
+    404: ("This stream is no longer on your source.",
+          "The provider removed it. Refresh the source to drop it from your "
+          "library; the entry you clicked is stale, not broken."),
+    405: ("Your source refused the request.",
+          "The server is up and answering — it simply will not serve this URL "
+          "the way it was asked. This is common on providers that only accept "
+          "a real player's request, so the stream itself may play normally. "
+          "Try playing it; if it plays, this result says more about the probe "
+          "than about the stream."),
+    429: ("Your source is rate-limiting you.",
+          "Too many requests or connections in a short window. Wait a minute "
+          "and try again, and avoid refreshing sources while watching."),
+}
+
+_HTTP_CLASS_EXPLANATIONS: "dict[int, tuple[str, str]]" = {
+    4: ("Your source refused this stream.",
+        "The server answered but would not serve it. Check that the source is "
+        "still active and that nothing else is using your connection."),
+    5: ("Your source had a server error.",
+        "The problem is on the provider's side, not yours or your network's. "
+        "Trying again later is the only fix."),
+}
+
+
+def explain_http_status(status: int, redacted_url: str = "") -> str:
+    """Return a plain-language summary for a refused stream.
+
+    Args:
+        status: The HTTP status the stream URL returned.
+        redacted_url: Credential-free URL, appended as context when given.
+
+    Returns:
+        One or two sentences naming the cause and the next step. Never contains
+        credentials — the caller passes an already-redacted URL.
+    """
+    cause, advice = _HTTP_EXPLANATIONS.get(
+        status,
+        _HTTP_CLASS_EXPLANATIONS.get(
+            status // 100,
+            ("Your source returned an unexpected response.",
+             "The server answered, so it is reachable — the response just was "
+             "not a stream."),
+        ),
+    )
+    return f"{cause} (HTTP {status}) {advice}"
 
 
 # --- Security ----------------------------------------------------------------
@@ -216,8 +286,9 @@ def recommend_buffer_profile(verdict: str) -> tuple[str | None, bool]:
         # Pre-fill helps a slow-but-steady provider build a cushion before play
         # starts, reducing the chance of an initial stall.
         return ("large", True)
-    # HEALTHY, INTERNET_LIMITED, UNREACHABLE, or anything unexpected:
-    # a bigger buffer won't help (or there's nothing to tune).
+    # HEALTHY, INTERNET_LIMITED, UNREACHABLE, REFUSED, or anything unexpected:
+    # a bigger buffer won't help (or there's nothing to tune). REFUSED lands
+    # here deliberately — no cache setting talks a server out of a 403.
     return (None, False)
 
 
@@ -442,11 +513,17 @@ def run_stream_diagnostic(
         if not (200 <= resp.status_code < 300):
             msg = f"Stream returned HTTP {resp.status_code}"
             logger.warning(f"{msg} for {redacted}")
+            # REFUSED, not UNREACHABLE. The server answered — we know its
+            # address works, the DNS resolved, the TCP connection opened and it
+            # sent us a status line. Reporting that as "couldn't reach the
+            # stream" is not a wording quibble: it points the user at their
+            # network when the answer is their provider.
             return DiagnosticResult(
-                reachable=False,
-                verdict=UNREACHABLE,
-                summary=f"{redacted} returned HTTP {resp.status_code}.",
+                reachable=True,
+                verdict=REFUSED,
+                summary=explain_http_status(resp.status_code, redacted),
                 error=msg,
+                http_status=resp.status_code,
             )
 
         connect_ms = (time.monotonic() - request_start) * 1000.0

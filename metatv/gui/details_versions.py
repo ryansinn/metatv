@@ -890,7 +890,9 @@ class _VersionSection(CollapsibleMixin, QWidget):
             f"Unhide {prefix} category" if is_hidden else f"Remove filter on {prefix} content"
         )
         menu.addSeparator()
-        manage_act = menu.addAction("Manage content filters…")
+        # "Global Exclusions" is the app's one name for this surface — never
+        # "filters", which is what this said while emitting into a dead stub.
+        manage_act = menu.addAction("Manage Global Exclusions…")
 
         chosen = menu.exec(global_pos)
         if chosen == restore_act:

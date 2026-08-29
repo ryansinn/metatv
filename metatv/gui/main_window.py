@@ -897,13 +897,38 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         
         # Tools menu
         tools_menu = self._tools_menu = menubar.addMenu("&Tools")
-        tools_menu.addAction("&Diagnostics", self.show_diagnostics)
         # Stream-quality diagnosis of the SELECTED channel. It had its own
         # permanent button in the bottom bar, which put a niche action on
         # screen beside the primary navigation forever; the header's Tools
         # button opens this menu instead (R5).
-        tools_menu.addAction("Diagnose &stream quality", self.on_diagnose_clicked)
-        tools_menu.addAction("&Filters", self.manage_filters)
+        #
+        # This used to sit under a SECOND entry called "Diagnostics", whose
+        # handler logged one line and returned — so the menu offered two
+        # diagnostics items, one of which did nothing. Owner: "no point to
+        # having a diagnostics menu item that goes no where and a stream
+        # diagnostic menu item". The dead one is gone and the real one carries
+        # the name, matching the dialog's own title bar.
+        diagnose_action = QAction(f"{_icons.diagnose_icon}  Stream &diagnostics", self)
+        diagnose_action.setToolTip(
+            "Measure the selected channel's stream: reachability, time to first "
+            "byte, throughput, and whether a bigger buffer would help"
+        )
+        diagnose_action.triggered.connect(self.on_diagnose_clicked)
+        tools_menu.addAction(diagnose_action)
+        # "Global Exclusions", never "Filters" — the app's one name for this.
+        # Its handler was a stub too, and unlike Diagnostics it had a LIVE
+        # trigger: the details pane's "Manage content filters…" context item
+        # emits manage_filters_requested straight into it, so that menu entry
+        # had been doing nothing at all.
+        exclusions_action = QAction(
+            f"{_icons.global_exclusion_icon}  Global &Exclusions", self
+        )
+        exclusions_action.setToolTip(
+            "Choose which prefixes, categories and keywords are hidden across "
+            "the whole app"
+        )
+        exclusions_action.triggered.connect(self.manage_filters)
+        tools_menu.addAction(exclusions_action)
         missing_tmdb_action = QAction(
             f"{_icons.missing_data_icon}  Missing TMDb Data", self
         )
@@ -2557,13 +2582,27 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             duration_ms=12000,
         )
 
-    def show_diagnostics(self):
-        """Show diagnostics window"""
-        logger.info("Show diagnostics")
-    
     def manage_filters(self):
-        """Show filter management"""
-        logger.info("Manage filters")
+        """Open Global Exclusions — the real surface, not a log line.
+
+        This was a stub that logged "Manage filters" and returned, which made
+        two separate entry points inert: the Tools menu item, and the details
+        pane's "Manage content filters…" context action, which emits
+        ``manage_filters_requested`` into this slot (wired in ``setup_ui``).
+        A user clicking either got nothing, with no error to explain it.
+
+        Delegates rather than reimplements: ``_open_global_filter_dialog`` is
+        the one path that opens the dialog AND runs the refresh tail every
+        dependent view needs afterwards (channel list, Discover, preferences,
+        recipes, Recommended). A second opener here would have been a copy of
+        that tail, and the copy is what goes stale.
+
+        Its sibling stub ``show_diagnostics`` was deleted rather than filled
+        in: the Tools menu already had a working stream-diagnostics entry, so
+        the honest fix was to remove the duplicate rather than invent a second
+        diagnostics surface.
+        """
+        self._open_global_filter_dialog()
 
     def open_settings(self, tab: str | None = None):
         """Open settings dialog.
