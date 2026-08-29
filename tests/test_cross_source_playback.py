@@ -471,9 +471,21 @@ def test_inactive_chip_click_emits_version_selected(qapp):
 
     section.load([v], provider_map=provider_map)
 
-    layout = section._chips_layout
+    # The chip lives in OFFLINE SOURCES now, not among the available versions.
+    # A source the user turned off must not be presented as something they can
+    # watch (CRITICAL_RULES:188) — but it is still shown, and still clickable,
+    # because right-click reactivate-and-play is the recovery path.
+    active_layout = section._chips_layout
+    active_chips = [active_layout.itemAt(i).widget() for i in range(active_layout.count())
+                    if active_layout.itemAt(i).widget()]
+    assert not active_chips, (
+        f"an inactive variant must not appear among the available versions, "
+        f"got {[c.text() for c in active_chips]!r}"
+    )
+
+    layout = section._offline_chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
-    assert chips, "Expected a chip even for inactive variant"
+    assert chips, "Expected the inactive variant to appear under OFFLINE SOURCES"
 
     chips[0].click()
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel,
-    QLayout, QLayoutItem, QMenu, QLineEdit,
+    QLayout, QLayoutItem, QMenu, QLineEdit, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 
@@ -229,7 +229,6 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._setup()
 
     def _setup(self) -> None:
-        from PyQt6.QtWidgets import QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -276,46 +275,30 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._chips_layout = _FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
         content_layout.addWidget(self._chips_row)
 
-        # Filtered variants collapsible sub-section (hidden until ≥1 filtered chip)
-        self._filtered_section = QWidget()
-        filtered_section_layout = QVBoxLayout(self._filtered_section)
-        filtered_section_layout.setContentsMargins(0, 4, 0, 0)
-        filtered_section_layout.setSpacing(2)
-
-        # Header row: [> btn] [FILTERED VARIANTS label]
-        self._filtered_header = QWidget()
-        filtered_header_layout = QHBoxLayout(self._filtered_header)
-        filtered_header_layout.setContentsMargins(0, 2, 0, 2)
-        filtered_header_layout.setSpacing(4)
-        self._filtered_toggle_btn = QPushButton(_icons.expand_icon)
-        self._filtered_toggle_btn.setFixedSize(20, 20)
-        _theme.style_fn(self._filtered_toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-        self._filtered_toggle_btn.setToolTip("Show/hide filtered variants")
-        self._filtered_toggle_btn.clicked.connect(self._toggle_filtered_section)
-        filtered_header_layout.addWidget(self._filtered_toggle_btn)
-        # Flat QPushButton styled as a label so the whole text is also clickable.
-        self._filtered_hdr_lbl = QPushButton("FILTERED VARIANTS")
-        self._filtered_hdr_lbl.setFlat(True)
-        _theme.style_fn(self._filtered_hdr_lbl, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
-            " font-weight: bold; border: none; text-align: left; padding: 0; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-        self._filtered_hdr_lbl.setToolTip("Show/hide filtered variants")
-        self._filtered_hdr_lbl.clicked.connect(self._toggle_filtered_section)
-        filtered_header_layout.addWidget(self._filtered_hdr_lbl)
-        filtered_header_layout.addStretch()
-        filtered_section_layout.addWidget(self._filtered_header)
-
-        # Greyed chips container (hidden by default — collapsed)
-        self._filtered_chips_row = QWidget()
-        self._filtered_chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self._filtered_chips_layout = _FlowLayout(self._filtered_chips_row, h_spacing=4, v_spacing=4)
-        self._filtered_chips_row.hide()
-        filtered_section_layout.addWidget(self._filtered_chips_row)
-
+        # Two collapsible chip sub-sections, built by ONE factory.
+        #
+        # "Filtered variants" is the soft bucket: things the user's own filters
+        # excluded, revealable on demand. "Offline sources" is the hard one:
+        # variants on a source that is turned off or expired. They must not be
+        # the same list — CRITICAL_RULES "hidden-provider content is an absolute
+        # gate ... never a soft filter" — but they ARE the same widget, and
+        # hand-rolling the second copy of 45 lines of header plumbing is how
+        # they drift apart.
+        (self._filtered_section, self._filtered_toggle_btn, self._filtered_hdr_lbl,
+         self._filtered_chips_row, self._filtered_chips_layout) = self._build_chip_subsection(
+            "FILTERED VARIANTS", "Show/hide filtered variants",
+            self._toggle_filtered_section,
+        )
         self._filtered_collapsed: bool = True
-        self._filtered_section.hide()
         content_layout.addWidget(self._filtered_section)
+
+        (self._offline_section, self._offline_toggle_btn, self._offline_hdr_lbl,
+         self._offline_chips_row, self._offline_chips_layout) = self._build_chip_subsection(
+            "OFFLINE SOURCES", "Variants on a source you have turned off or that has expired",
+            self._toggle_offline_section,
+        )
+        self._offline_collapsed: bool = True
+        content_layout.addWidget(self._offline_section)
 
         self._wire_header()
 
@@ -342,11 +325,13 @@ class _VersionSection(CollapsibleMixin, QWidget):
             item = layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
-        # Clear filtered chips layout
-        while self._filtered_chips_layout.count():
-            item = self._filtered_chips_layout.takeAt(0)
-            if w := item.widget():
-                w.deleteLater()
+        # Clear both sub-section chip layouts. Missing the second one here is
+        # how a reload leaves a previous title's offline chips on screen.
+        for sub_layout in (self._filtered_chips_layout, self._offline_chips_layout):
+            while sub_layout.count():
+                item = sub_layout.takeAt(0)
+                if w := item.widget():
+                    w.deleteLater()
 
         try:
             self._pref_nudge_switch_btn.clicked.disconnect()
@@ -354,17 +339,42 @@ class _VersionSection(CollapsibleMixin, QWidget):
             pass
         self._pref_nudge.hide()
         self._row_container.hide()
+        # Both sub-sections reset to hidden-and-collapsed on every load.
         self._filtered_section.hide()
-        # Reset filtered section to collapsed on every load
         self._filtered_collapsed = True
         self._filtered_chips_row.hide()
         self._filtered_toggle_btn.setText(_icons.expand_icon)
+        self._offline_section.hide()
+        self._offline_collapsed = True
+        self._offline_chips_row.hide()
+        self._offline_toggle_btn.setText(_icons.expand_icon)
 
         if not versions:
             return
 
-        active   = [v for v in versions if not v.is_filtered and not v.is_hidden]
-        filtered = [v for v in versions if v.is_filtered and not v.is_hidden]
+        # THREE buckets, not two. A variant on a source the user has turned
+        # off (or that expired) used to land in `active`: rendered among the
+        # available versions, counted in the "3 versions · 2 regions" header,
+        # and distinguishable only by being slightly dimmer with an explanatory
+        # tooltip. That is a hidden-provider leak into a forward-looking view —
+        # CRITICAL_RULES:188 says such content "must never appear" there, and
+        # the only documented exception is the record/engaged views (History,
+        # Favorites, Queue). It also broke the colour-alone accessibility rule,
+        # since dimness was the entire visual signal.
+        #
+        # It is NOT folded into `filtered` either. That bucket is the user's own
+        # soft exclusions, revealable on demand; an inactive source is an
+        # absolute gate (CRITICAL_RULES:219), and merging them would let
+        # "reveal filtered" surface disabled-source content.
+        #
+        # The variants are still SHOWN, in their own section, because the chip
+        # already offers "right-click to reactivate & play" and that recovery
+        # path is the point — it just must not read as "available now".
+        offline  = [v for v in versions if v.is_inactive and not v.is_hidden]
+        active   = [v for v in versions
+                    if not v.is_filtered and not v.is_hidden and not v.is_inactive]
+        filtered = [v for v in versions
+                    if v.is_filtered and not v.is_hidden and not v.is_inactive]
 
         # A source glyph on every chip is only information when the chips span
         # more than one source; with a single source it repeats the same symbol
@@ -373,10 +383,10 @@ class _VersionSection(CollapsibleMixin, QWidget):
         # "Filtered variants" can't change the rule mid-render. The source is
         # still named in each chip's tooltip either way.
         self._show_source_icons = len({
-            v.provider_id for v in (active + filtered) if v.provider_id
+            v.provider_id for v in (active + filtered + offline) if v.provider_id
         }) > 1
 
-        if not active and not filtered:
+        if not active and not filtered and not offline:
             return
 
         preferred = next((v for v in versions if v.is_preferred), None)
@@ -401,6 +411,17 @@ class _VersionSection(CollapsibleMixin, QWidget):
         for v in filtered:
             self._filtered_chips_layout.addWidget(self._make_greyed_chip(v))
 
+        for v in offline:
+            # _make_active_chip, NOT _make_greyed_chip. Both render a quiet chip,
+            # but the greyed one wires the FILTERED context menu and a tooltip
+            # saying "filtered" — using it here would silently drop the
+            # "right-click to reactivate & play" recovery path, which is the
+            # entire reason these are still shown rather than dropped.
+            # _make_active_chip already branches on is_inactive and every
+            # variant in this list has it set.
+            self._offline_chips_layout.addWidget(self._make_active_chip(v))
+        self._offline_section.setVisible(bool(offline))
+
         if filtered:
             self._filtered_section.show()
         else:
@@ -412,6 +433,8 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._chips_row.updateGeometry()
         if filtered:
             self._filtered_chips_row.updateGeometry()
+        if offline:
+            self._offline_chips_row.updateGeometry()
 
     def _clear_active_chips(self) -> None:
         """Empty the grid — and take the old chips OFF THE SCREEN, now.
@@ -527,6 +550,71 @@ class _VersionSection(CollapsibleMixin, QWidget):
 
     def clear(self) -> None:
         self.load([])
+
+    def _build_chip_subsection(self, title: str, tooltip: str, on_toggle):
+        """Build one collapsible, titled row of chips.
+
+        Extracted when the second caller arrived. The header is ~45 lines of
+        button-styled-as-label plumbing, and a copy of it for "Offline sources"
+        would have been two headers that look identical today and drift apart
+        the first time either is touched.
+
+        Args:
+            title: Header text, shown uppercase as written.
+            tooltip: Hover text, on both the arrow and the label.
+            on_toggle: Called when either the arrow or the label is clicked.
+
+        Returns:
+            ``(section, toggle_btn, header_label, chips_row, chips_layout)`` —
+            unpacked into the caller's own attribute names, which existing
+            tests already reach for.
+        """
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 4, 0, 0)
+        section_layout.setSpacing(2)
+
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 2, 0, 2)
+        header_layout.setSpacing(4)
+
+        toggle_btn = QPushButton(_icons.expand_icon)
+        toggle_btn.setFixedSize(20, 20)
+        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
+        toggle_btn.setToolTip(tooltip)
+        toggle_btn.clicked.connect(on_toggle)
+        header_layout.addWidget(toggle_btn)
+
+        # Flat QPushButton styled as a label so the whole text is clickable too.
+        hdr_lbl = QPushButton(title)
+        hdr_lbl.setFlat(True)
+        _theme.style_fn(hdr_lbl, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
+            " font-weight: bold; border: none; text-align: left; padding: 0; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
+        hdr_lbl.setToolTip(tooltip)
+        hdr_lbl.clicked.connect(on_toggle)
+        header_layout.addWidget(hdr_lbl)
+        header_layout.addStretch()
+        section_layout.addWidget(header)
+
+        chips_row = QWidget()
+        chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        chips_layout = _FlowLayout(chips_row, h_spacing=4, v_spacing=4)
+        chips_row.hide()                      # collapsed by default
+        section_layout.addWidget(chips_row)
+
+        section.hide()                        # shown only when it has chips
+        return section, toggle_btn, hdr_lbl, chips_row, chips_layout
+
+    def _toggle_offline_section(self) -> None:
+        """Expand/collapse OFFLINE SOURCES."""
+        self._offline_collapsed = not self._offline_collapsed
+        self._offline_chips_row.setVisible(not self._offline_collapsed)
+        self._offline_toggle_btn.setText(
+            _icons.expand_icon if self._offline_collapsed else _icons.collapse_icon
+        )
 
     def _toggle_filtered_section(self) -> None:
         """Toggle the collapsed state of the FILTERED VARIANTS sub-section."""
