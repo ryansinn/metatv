@@ -564,7 +564,14 @@ class _SeriesMixin:
         else:
             _should_queue = queue_season
 
-        # Record playback
+        # Record playback.
+        #
+        # Bound BEFORE the try, because line 633 reads it after the block and a
+        # failure inside would otherwise leave it unbound — turning one crash
+        # into a different one. (It did: the guard below was added first, and
+        # the tests came back with UnboundLocalError instead of the abort.)
+        episodes_to_queue: list = []
+
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -586,7 +593,7 @@ class _SeriesMixin:
             else:
                 logger.warning(f"Could not find parent channel for episode. series_id={episode.series_id}, provider_id={episode.provider_id}")
 
-            episodes_to_queue = []
+            episodes_to_queue = []          # reset; pre-bound above
             if _should_queue and episode.season_id:
                 # Use DTOs — no ORM objects escape the session boundary
                 all_episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=episode.season_id)
@@ -599,6 +606,27 @@ class _SeriesMixin:
                     episode_range = f"E{episodes_to_queue[0].episode_num}-E{episodes_to_queue[-1].episode_num}"
                     logger.info(f"Will queue {len(episodes_to_queue)} subsequent episodes: {episode_range}")
                     logger.debug(f"Queue list: {[f'E{ep.episode_num}: {ep.title}' for ep in episodes_to_queue]}")
+        except Exception as exc:
+            # Degraded, not fatal: the play proceeds; what is lost is this
+            # episode's play count and the season queue.
+            #
+            # BOOKKEEPING MUST NOT PREVENT PLAYBACK. This block was try/finally
+            # with NO except, so a write that failed took the whole app down:
+            #
+            #   sqlalchemy.exc.OperationalError: database is locked
+            #     [SQL: UPDATE episodes SET last_played=?, play_count=? ...]
+            #   fish: Job 1, './run.sh' terminated by signal SIGABRT
+            #
+            # PyQt aborts the process when an exception escapes a slot — no
+            # traceback from Qt's side, no chance to recover. The owner hit it
+            # by playing an episode while a 293,468-item source refresh held
+            # the write lock past the 30 s busy_timeout.
+            #
+            # The channel path already behaved this way (_bg_mark_played logs
+            # and moves on); the episode path never got the same treatment.
+            # ERROR, not WARNING: a lock held this long is a real problem even
+            # though it must not be a crash.
+            logger.error("Could not record episode playback: {}", exc)
         finally:
             session.close()
 
