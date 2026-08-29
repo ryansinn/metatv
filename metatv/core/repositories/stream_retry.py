@@ -99,6 +99,28 @@ class StreamRetryRepository:
         )
         return dict(rows)
 
+    def has_dead(self) -> bool:
+        """Return True when any channel has graduated to ``reliability_state='dead'``.
+
+        A one-row existence probe, so the channel list can decide whether the
+        dead-stream gate is worth *measuring*. Answering "how many rows does
+        that gate hide" means re-running the whole channel query with the gate
+        lifted and diffing — and with variant collapsing on, the owner's live
+        library makes that comparison cost ~6.5 s. When this table holds no dead
+        row the gate cannot hide anything, so the answer is exactly 0 and the
+        comparison is a provable no-op. The probe costs well under a
+        millisecond.
+
+        Returns:
+            True if at least one row is in the ``dead`` state.
+        """
+        return (
+            self._session.query(StreamRetryDB.channel_id)
+            .filter(StreamRetryDB.reliability_state == "dead")
+            .limit(1)
+            .first()
+        ) is not None
+
     def get_due(self) -> list[StreamRetryDB]:
         return (
             self._session.query(StreamRetryDB)
