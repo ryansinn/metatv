@@ -62,6 +62,24 @@ for _key in ("history", "favorites", "queue", "recommended"):
     _view = win._ensure_explore_view(_key)
     assert _view.trail_map is not None
     assert win._ensure_explore_view(_key) is _view, "cached, not rebuilt"
+
+# CLOSE IT. The window was built and walked away from, so closeEvent — every
+# registered cleanup, the view deactivation sweep, db.close() — ran in no test
+# that boots a real window. An exception or an init-order fault anywhere in
+# that path is caught here the way this file catches them on the way up: the
+# child dies and never prints its marker.
+#
+# HONEST LIMIT: this does NOT reproduce the owner's SIGSEGV on quit (#542).
+# That needs a view loader still RUNNING when its widget is destroyed, and this
+# child stubs _run_query, so no loader ever starts. Reverting #542's fix leaves
+# this test green — checked, not assumed. The race itself is covered by
+# tests/test_shutdown_stops_every_worker.py, which drives real QThreads.
+#
+# It is still worth closing here: "closeEvent runs to completion on a real,
+# fully-built window" is a claim no other test makes.
+win.close()
+app.processEvents()
+
 print("SMOKE_OK")
 """
 
