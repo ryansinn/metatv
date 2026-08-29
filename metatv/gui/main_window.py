@@ -909,6 +909,23 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         open_config_action.triggered.connect(self.open_config_folder)
         tools_menu.addAction(open_config_action)
+        log_viewer_action = QAction(
+            f"{_icons.log_viewer_icon}  Log viewer", self
+        )
+        log_viewer_action.setToolTip(
+            "Watch the log as it happens, in a window you can move aside — "
+            "with save, filter and diagnostics for a bug report"
+        )
+        log_viewer_action.triggered.connect(self.show_log_viewer)
+        tools_menu.addAction(log_viewer_action)
+        clear_log_action = QAction(
+            f"{_icons.clear_log_icon}  Clear log files", self
+        )
+        clear_log_action.setToolTip(
+            "Delete every log file, rotated copies included, to reclaim disk"
+        )
+        clear_log_action.triggered.connect(self.clear_log_files)
+        tools_menu.addAction(clear_log_action)
 
         # Help menu
         # The way BACK. The header's Tools button opens this same menu, so
@@ -2450,6 +2467,72 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Show operations panel"""
         logger.info("Show operations panel")
     
+    def show_log_viewer(self) -> None:
+        """Open (or re-raise) the floating log window.
+
+        One window, kept on the instance: opening it twice would attach a
+        second loguru sink and show every line twice, and the second window
+        would keep streaming after the first was closed.
+        """
+        from metatv.gui.log_viewer_window import LogViewerWindow
+
+        existing = self.__dict__.get("_log_viewer")
+        if existing is not None:
+            try:
+                existing.show()
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:  # silent: the previous window's C++ object is
+                # gone (the user closed it and Qt collected it); fall through
+                # and build a new one, which is what they asked for anyway.
+                pass
+        viewer = LogViewerWindow(self.config, self)
+        self._log_viewer = viewer
+        viewer.show()
+        viewer.raise_()
+
+    def clear_log_files(self) -> None:
+        """Delete every log file after confirming, and report what was freed.
+
+        Confirmed because it is not reversible and the logs are the evidence
+        for whatever the user is about to report. Routed through the viewer
+        module's helper so this and the viewer's own button cannot become two
+        answers to "which files count as the log".
+        """
+        from PyQt6.QtWidgets import QMessageBox
+
+        from metatv.core.log_paths import all_log_files
+        from metatv.gui.log_viewer_window import clear_log_files
+
+        files = all_log_files(self.config)
+        if not files:
+            self.status_bar.showMessage("No log files to clear", 4000)
+            return
+        total = 0
+        for path in files:
+            try:
+                total += path.stat().st_size
+            except OSError:  # silent: a file that vanished cannot be offered
+                # for deletion, and excluding it from the total is correct.
+                continue
+        answer = QMessageBox.question(
+            self,
+            "Clear log files",
+            f"Delete {len(files)} log file(s), freeing "
+            f"{total / 1_048_576:.1f} MB?\n\n"
+            "This cannot be undone. Save anything you still need first.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        removed, freed = clear_log_files(self.config)
+        self.status_bar.showMessage(
+            f"Cleared {removed} log file(s), freeing {freed / 1_048_576:.1f} MB",
+            6000,
+        )
+
     def open_config_folder(self) -> None:
         """Reveal the config directory in the system file manager.
 

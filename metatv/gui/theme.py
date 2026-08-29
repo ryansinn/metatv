@@ -273,6 +273,19 @@ def _build_semantic_constants() -> dict[str, object]:
     # across the palettes — in Daylight the × was very nearly invisible.
     CLOSE_BTN = "color: " + COLOR_TEXT + "; border: none; background: transparent; font-size: " + FONT_2XL + ";"
     EYE_BTN = "border: none; padding: 0; color: " + COLOR_TEXT + ";"
+
+    # The log viewer's stream. COLOR_BG_DEEP rather than the card surface: it
+    # is a wall of dense monospace text, and the deepest ground is what gives
+    # the smallest legible type the most contrast to work with. The family is
+    # set on the widget (Qt resolves "monospace" per platform through a
+    # StyleHint, which a stylesheet string cannot do), so only colour and size
+    # come from here.
+    LOG_STREAM = (
+        "QPlainTextEdit { background: " + COLOR_BG_DEEP + "; color: " + COLOR_TEXT
+        + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM
+        + "; padding: 6px; font-size: " + FONT_SM + "; }"
+    )
+    LOG_STATUS = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
     # A control at rest gets the CONTAINER surface, not COLOR_LINE — that is a
     # separator hairline, and pairing it with COLOR_DIM measured 2.70:1 in every
     # palette. Same mistake, same family, as the results list reading COLOR_LINE
