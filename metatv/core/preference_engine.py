@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from metatv.core.filter_utils import normalize_genre
 from metatv.core.media_mix import (
     MEDIA_MIX_AUTOMATIC, mix_media_types, resolve_media_share,
 )
@@ -843,7 +844,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         kws    = extract_keywords(meta.plot) if meta.plot else []
 
         _muted       = muted_attrs or {}
-        muted_genres = set(_muted.get("genres",    []))
+        # Normalised for the same reason the genres themselves are: a user who
+        # mutes "Drama" means the genre, not the English spelling of it.
+        muted_genres = {normalize_genre(g) for g in _muted.get("genres", [])}
         muted_dirs   = set(_muted.get("directors", []))
         muted_actors = set(_muted.get("actors",    []))
         muted_kws    = set(_muted.get("keywords",  []))
@@ -1085,15 +1088,55 @@ def _split_directors(director: str) -> list[str]:
 
 
 def _split_genres(genre_value) -> list[str]:
-    """Split genres — handles both list-of-strings and slash/comma-delimited strings."""
+    """Split genres, then canonicalise each one to a single spelling.
+
+    Handles list-of-strings and slash/comma-delimited strings.
+
+    Why the normalisation is HERE
+    -----------------------------
+    Taste weights are a plain dict keyed on the genre string, so two spellings
+    of one genre are two unrelated preferences. A library assembled from
+    international providers carries five languages' worth of the same handful
+    of genres::
+
+        Drama    70,689 mentions  <-  Drama 51,226 · دراما 8,337 · Drame 8,140 · Dramat 1,558
+        Comedy   28,603 mentions  <-  Comedy 16,354 · Comédie 3,605 · كوميديا 2,779 · Komödie 2,330
+
+    Measured on the owner's library: 743 distinct genre strings collapse to 394,
+    and 66,206 of 231,814 genre mentions (28.6%) sit on a non-canonical key.
+    Every one of those scored a structural 0.0 against a preference learned in
+    English — the engine considered *Drame* unrelated to *Drama*.
+
+    This function is the one place both sides go through: the weight builder
+    (`build_*` / `compute_weights`) and `score_candidates`. Normalising here
+    means the write key and the read key cannot disagree, which is the property
+    that was actually missing — normalising at only one end would have made it
+    worse, not better.
+
+    ``normalize_genre`` is the project's existing canonical helper
+    (`filter_utils.py`); the tag layer has always routed through it. This is
+    that same chokepoint, finally shared.
+
+    Duplicates are collapsed after normalising, order preserved: a title tagged
+    both *Drama* and *Drame* is one Drama, not a double-weighted one.
+    """
     if isinstance(genre_value, list):
         result = []
         for g in genre_value:
             result.extend(_split_names(g) if isinstance(g, str) else [])
-        return result
-    if isinstance(genre_value, str):
-        return _split_names(genre_value)
-    return []
+    elif isinstance(genre_value, str):
+        result = _split_names(genre_value)
+    else:
+        return []
+
+    seen: set[str] = set()
+    canonical: list[str] = []
+    for genre in result:
+        name = normalize_genre(genre)
+        if name and name not in seen:
+            seen.add(name)
+            canonical.append(name)
+    return canonical
 
 
 def _loads(value) -> list | None:
