@@ -57,12 +57,30 @@ _HAS_SOMETHING = " OR ".join(
               "release_date", "cover", "stream_icon", "backdrop_path")
 )
 
+# ``run`` writes nothing for a result with no title, so a row with no usable
+# title is a candidate the task can never satisfy — and because needs_run reads
+# the data rather than a stamp, it re-arms on EVERY launch forever. One row in
+# the owner's 417k-title library did exactly that (name '', rating '0', which
+# _HAS_SOMETHING accepts), announcing "migration in progress" at every start.
+#
+# The predicate below is not a patch for that row: it is the SQL half of the
+# same question ``run`` asks in Python. metadata_from_raw resolves the title as
+# ``info.name`` when it differs from the channel name, else ``detected_title or
+# name`` — so a title exists exactly when one of those three is non-blank.
+# test_migration_predicate_matches_acceptance.py pins the two halves together.
+_HAS_TITLE = (
+    "TRIM(COALESCE(json_extract(raw_data, '$.info.name'), '')) != '' "
+    "OR TRIM(COALESCE(detected_title, '')) != '' "
+    "OR TRIM(COALESCE(name, '')) != ''"
+)
+
 _CANDIDATES = (
     "SELECT id FROM channels "
     "WHERE metadata_id IS NULL AND is_hidden = 0 "
     "AND media_type IN ('movie', 'series') "
     "AND raw_data IS NOT NULL AND json_valid(raw_data) "
-    f"AND ({_HAS_SOMETHING})"
+    f"AND ({_HAS_SOMETHING}) "
+    f"AND ({_HAS_TITLE})"
 )
 _PAGE = _CANDIDATES + " AND id > :after ORDER BY id LIMIT :n"
 
