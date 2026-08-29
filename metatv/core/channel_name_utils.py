@@ -611,6 +611,12 @@ PLATFORM_CODES: frozenset[str] = frozenset({
     #   YP   730  "ASIA | YUPP TV ..." — YuppTV, an Indian streaming platform
     # Both were rendering as geographic chips.
     "OD", "YP",
+    # PORNBOX is a streaming platform, and without this it fell through to the
+    # geographic chip — 30 channels in the owner's library rendered as though
+    # "PORNBOX" were a country or language. Owner report. Same shape as the
+    # "A+" gap recorded above: the fix is the lookup table, never a special
+    # case at a render site.
+    "PORNBOX",
 })
 
 # Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
@@ -1683,13 +1689,46 @@ def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> 
 # surfaces (Discover/recommendations/browse) when adult_mode="hide", so only
 # unambiguous explicit-content markers are curated in.
 #
-# RESTRICTED_NAME_TOKENS is scanned as whole words anywhere in the channel name.
-# RESTRICTED_PREFIX_TOKENS additionally includes a bare "X" — too ambiguous to
-# word-scan across a full name (would false-positive on "X Factor", "Generation X",
-# "Malcolm X" style titles) but a confirmed adult marker when it IS the channel's
-# entire leading prefix token (mirrors BASE_PREFIX_GROUPS["Adult"] =
-# ["X", "XXX", "ADULT"] in config.py — the existing "Adult" content-descriptor group).
-def is_restricted(detected_prefix: Optional[str], name: str, config=None) -> bool:
+# NOTE: this block used to describe RESTRICTED_NAME_TOKENS and
+# RESTRICTED_PREFIX_TOKENS. NEITHER EXISTS. The function below matches on two
+# things only: the user's "Adult" prefix GROUP (BASE_PREFIX_GROUPS["Adult"] plus
+# their overrides) and config.restricted_keywords, which is empty by default.
+# The stale text cost real time — it reads as though a shipped word-scan catches
+# "XXX" anywhere in a name, and nothing does.
+#
+# Prefix-scoped matching is the DESIGN, not an omission, and the owner put the
+# case better than the old comment did: a title containing "XXX" is not adult
+# content. There is a whole `xXx` action franchise, and `A's to XXX` is a
+# documentary ABOUT the industry rather than an example of it. A whole-name scan
+# would hide both. The same applies to a bare "X" — "X Factor", "Generation X",
+# "Malcolm X".
+#
+# That is why the only name-based signal is config.restricted_keywords, which
+# ships EMPTY: the user decides, because only the user knows what they meant.
+#: Provider COLLECTION labels that denote adult content on their own.
+#:
+#: Matched EXACTLY (case- and spacing-normalised), never as a substring. That is
+#: deliberate and it is the same lesson as the title case above: "Young Adult"
+#: is a legitimate genre, and a substring match on "ADULT" would hide it. Exact
+#: match trades recall for precision, which is the right direction when the cost
+#: of a false positive is hiding content the user wanted.
+#:
+#: A collection is a far better signal than a prefix code, because it does not
+#: require anyone to have guessed the code. On the owner's library "FOR ADULTS"
+#: holds 212 channels of which 184 were ALREADY flagged by prefix — the other 28
+#: were the PORNBOX ones nobody had curated in yet. The collection knew.
+ADULT_COLLECTION_LABELS: frozenset[str] = frozenset({
+    "FOR ADULTS",
+})
+
+
+def _normalise_collection(value: Optional[str]) -> str:
+    """Upper-case and collapse whitespace, for exact collection matching."""
+    return " ".join((value or "").split()).upper()
+
+
+def is_restricted(detected_prefix: Optional[str], name: str, config=None,
+                  collection: Optional[str] = None) -> bool:
     """True when a channel is restricted, per the USER's own configuration.
 
     Deliberately makes no judgement of its own about what counts as restricted.
@@ -1722,6 +1761,13 @@ def is_restricted(detected_prefix: Optional[str], name: str, config=None) -> boo
             adult_codes = set()  # silent: no Adult group configured — nothing to match
         if detected_prefix.strip().upper() in adult_codes:
             return True
+
+    # A curated COLLECTION label. Checked after the prefix and before the
+    # user's keywords, because it needs nobody to have guessed a provider's
+    # code: "FOR ADULTS" carried 28 channels whose PORNBOX prefix was not in
+    # any table. Exact match only — see ADULT_COLLECTION_LABELS.
+    if collection and _normalise_collection(collection) in ADULT_COLLECTION_LABELS:
+        return True
 
     keywords = getattr(config, "restricted_keywords", None) or []
     if keywords and name:

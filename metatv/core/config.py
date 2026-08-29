@@ -21,7 +21,12 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     # instead of each surfacing separately under "Other". Note: bare "X" is ambiguous
     # in general but confirmed adult in this library; remove via user_prefix_overrides
     # if it ever mis-groups a non-adult "X …" channel.
-    "Adult":            ["X", "XXX", "ADULT"],
+    # PORNBOX added on an owner report: 30 channels, 2 flagged. is_restricted's
+    # own docstring already cited it — "real libraries carry codes nobody would
+    # guess — one provider uses PORNBOX" — so the code knew about it and the
+    # table did not. Unambiguous, which is the bar here: a false positive HIDES
+    # legitimate content when adult_mode="hide". Users can still override.
+    "Adult":            ["X", "XXX", "ADULT", "PORNBOX"],
     "Albanian":         ["AL", "ALB"],
     # ── Arabic locale sub-groups ──────────────────────────────────────────────
     # "Arabic" = all Arabic-speaking regions (aggregate).
