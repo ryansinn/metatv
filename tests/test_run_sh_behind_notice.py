@@ -46,8 +46,6 @@ def repo(tmp_path: Path) -> Path:
     origin, work = tmp_path / "origin", tmp_path / "work"
     origin.mkdir()
     _sh("git", "init", "-q", "-b", "main", str(origin))
-    for name in ("git", "config"):
-        pass
     _sh("git", "config", "user.email", "t@e.com", cwd=origin)
     _sh("git", "config", "user.name", "T", cwd=origin)
     (origin / "f.txt").write_text("one")
