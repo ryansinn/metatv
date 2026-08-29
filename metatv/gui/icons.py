@@ -123,6 +123,10 @@ provider_icon: str = "📡"
 watch_alerts_icon: str = "⚠"
 info_icon: str = "ℹ"
 missing_data_icon: str = "🗄"   # U+1F5C4 FILE CABINET — Missing TMDb data diagnostic view
+#: Tools ▸ "Open config folder". A FOLDER rather than a document, because the
+#: action reveals the directory — config.yaml sits beside the logs, and a user
+#: sent to fetch one usually needs the other.
+config_folder_icon: str = "📂"  # U+1F4C2 OPEN FILE FOLDER
 reconnect_icon: str = "🔌"     # U+1F50C ELECTRIC PLUG — Reconnect Engaged Content diagnostic view
 watchlist_icon: str = "⏰"
 calendar_icon: str = "📅"

@@ -884,6 +884,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         metadata_enrich_action.triggered.connect(self.enter_metadata_enrichment_mode)
         tools_menu.addAction(metadata_enrich_action)
+        open_config_action = QAction(
+            f"{_icons.config_folder_icon}  Open config folder", self
+        )
+        open_config_action.setToolTip(
+            "Reveal the folder holding config.yaml and the logs, for support "
+            "and manual edits"
+        )
+        open_config_action.triggered.connect(self.open_config_folder)
+        tools_menu.addAction(open_config_action)
 
         # Help menu
         # The way BACK. The header's Tools button opens this same menu, so
@@ -2400,6 +2409,40 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Show operations panel"""
         logger.info("Show operations panel")
     
+    def open_config_folder(self) -> None:
+        """Reveal the config directory in the system file manager.
+
+        The folder, not ``config.yaml`` itself. Three reasons: a ``.yaml`` file
+        has no registered handler on many systems, so opening it can silently do
+        nothing or launch something unhelpful; the logs live in the same folder
+        and someone fetching one usually needs the other; and revealing a
+        directory cannot put an editor in front of a file the user did not mean
+        to change.
+
+        Uses ``QDesktopServices`` so each platform's own file manager opens —
+        Finder, Explorer, or whatever the desktop registers.
+        """
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        path = self.config.config_dir
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.exception("Could not create the config folder at {}", path)
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            logger.info("Opened config folder: {}", path)
+            return
+
+        # No file manager, or the desktop refused. Say where it is rather than
+        # failing silently — the path is the useful half of this action.
+        logger.warning("Could not open a file manager for {}", path)
+        self.notification_manager.show(
+            f"Config folder: {path}",
+            duration_ms=12000,
+        )
+
     def show_diagnostics(self):
         """Show diagnostics window"""
         logger.info("Show diagnostics")
