@@ -8,6 +8,21 @@ import yaml
 from pydantic import BaseModel, Field
 from loguru import logger
 
+#: PyYAML's C emitter when the platform has libyaml, else the pure-Python one.
+#:
+#: Measured on the owner's 130 KB config: 69.5 ms pure Python, 12.2 ms with
+#: libyaml — and ``yaml.dump`` was 69 of the 75 ms a save costs, so this IS the
+#: cost of saving. The startup log showed 13 saves in 57 seconds, 1.8 s of
+#: blocking work on the UI thread.
+#:
+#: The two emitters differ only in where they wrap long lines; the parsed
+#: result is identical, verified against every key in that config. Falls back
+#: silently because libyaml is optional and macOS CI may not have it.
+_YamlDumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+#: Likewise for reading.
+_YamlLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 
 # ---------------------------------------------------------------------------
 # Base lookup tables — shipped with the app, never written to config.yaml.
@@ -1827,7 +1842,7 @@ class Config(BaseModel):
         if config_file.exists():
             try:
                 with open(config_file) as f:
-                    data = yaml.safe_load(f) or {}
+                    data = yaml.load(f, Loader=_YamlLoader) or {}
 
                 # Check if config is empty/corrupt (missing database_url indicates corruption)
                 if not data or not data.get("database_url"):
@@ -1837,7 +1852,7 @@ class Config(BaseModel):
                         logger.warning("Attempting to restore from backup")
                         try:
                             with open(backup_file) as f:
-                                data = yaml.safe_load(f) or {}
+                                data = yaml.load(f, Loader=_YamlLoader) or {}
                             if data:
                                 recovered_from_backup = True
                                 logger.info("Successfully restored config from backup")
@@ -1863,7 +1878,7 @@ class Config(BaseModel):
                     logger.warning("Config parse error, attempting backup restore")
                     try:
                         with open(backup_file) as f:
-                            data = yaml.safe_load(f) or {}
+                            data = yaml.load(f, Loader=_YamlLoader) or {}
                         if data:
                             config = cls(**data)
                             config._inject_new_sections()
@@ -1927,7 +1942,7 @@ class Config(BaseModel):
                 suffix='.yaml'
             ) as tmp:
                 tmp_path = Path(tmp.name)
-                yaml.dump(data, tmp, default_flow_style=False)
+                yaml.dump(data, tmp, Dumper=_YamlDumper, default_flow_style=False)
 
             # Atomically replace original file
             tmp_path.replace(config_file)
