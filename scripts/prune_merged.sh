@@ -28,6 +28,8 @@
 #
 #   scripts/prune_merged.sh            Prune now.
 #   scripts/prune_merged.sh --dry-run  Show every action; change nothing.
+#   scripts/prune_merged.sh --remote   ALSO delete remote branches whose PR is
+#                                      MERGED (opt-in — affects every clone).
 #   scripts/prune_merged.sh --force    Remove prunable worktrees even if dirty.
 #   scripts/prune_merged.sh -h|--help  Show this help.
 #
@@ -49,6 +51,10 @@ USAGE
   scripts/prune_merged.sh            Prune merged-PR worktrees & stale branches.
   scripts/prune_merged.sh --dry-run  Print every action it WOULD take; touch
                                      nothing.
+  scripts/prune_merged.sh --remote   Also delete REMOTE branches whose PR is
+                                     merged. Opt-in: a remote ref is shared, so
+                                     this affects every clone. Closed-but-never-
+                                     merged branches are reported, never deleted.
   scripts/prune_merged.sh --force    Remove prunable worktrees even if they have
                                      uncommitted changes.
   scripts/prune_merged.sh -h|--help  Show this help and exit.
@@ -64,11 +70,13 @@ EOF
 # ── argument parsing ──────────────────────────────────────────────────────────
 DRY=0
 FORCE=0
+REMOTE=0
 for arg in "$@"; do
     case "$arg" in
         -h|--help|help) usage; exit 0 ;;
         --dry-run|-n) DRY=1 ;;
         --force|-f) FORCE=1 ;;
+        --remote) REMOTE=1 ;;
         *) echo "prune_merged.sh: unexpected argument '$arg'" >&2; usage >&2; exit 64 ;;
     esac
 done
@@ -197,12 +205,17 @@ delete_branch() {  # name (confirmed prunable → -D is safe)
 
 # ── result trackers ───────────────────────────────────────────────────────────
 removed=()
+kept_foreign=()
 kept_unmerged=()
 kept_active=()       # attached worktrees with no unique commits (possibly live)
 kept_protected=()
 skipped_dirty=()
 
 # ── pass 1: worktrees in scope ────────────────────────────────────────────────
+# Branches held by a worktree this script does NOT manage. Recorded so pass 2
+# can REPORT them rather than silently skip them.
+declare -A foreign_wt=()
+
 wt_path=""; wt_head=""; wt_branch=""; wt_detached=0
 
 reset_record() { wt_path=""; wt_head=""; wt_branch=""; wt_detached=0; }
@@ -216,7 +229,18 @@ process_worktree() {
         "$main"/.claude/worktrees/*) in_scope=1 ;;
         "$main"-pr-*) in_scope=1; pr_n="${wt_path##*-pr-}" ;;
     esac
-    [ "$in_scope" = 1 ] || return 0
+    if [ "$in_scope" != 1 ]; then
+        # A worktree somewhere else — a session scratchpad, a manual `git
+        # worktree add`. Pass 1 does not touch it (it is not this script's to
+        # manage), but its BRANCH must not therefore become invisible: pass 2
+        # used to skip every branch that had a worktree anywhere, so a branch
+        # parked in an out-of-scope worktree fell through BOTH passes and was
+        # never pruned by anything. That is how 33 local and 248 remote
+        # branches accumulated behind a script whose whole job was to prevent
+        # exactly that.
+        [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ] && foreign_wt["$wt_branch"]="$wt_path"
+        return 0
+    fi
 
     local label="$wt_path"
     if [ -n "$pr_n" ]; then label="$wt_path (PR #$pr_n)"
@@ -301,14 +325,24 @@ while IFS= read -r line; do
 done < <( { git -C "$main" worktree list --porcelain; printf '\n'; } )
 
 # ── pass 2: local branches with no worktree ───────────────────────────────────
+# Only branches whose worktree pass 1 actually PROCESSED are "handled" — a
+# branch in an out-of-scope worktree is not, and must be reported.
 declare -A wt_branches=()
 while IFS= read -r b; do
-    [ -n "$b" ] && wt_branches["$b"]=1
+    [ -n "$b" ] || continue
+    [ -n "${foreign_wt[$b]:-}" ] && continue
+    wt_branches["$b"]=1
 done < <(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')
 
 while IFS= read -r br; do
     [ -n "$br" ] || continue
     [ -n "${wt_branches[$br]:-}" ] && continue            # handled in pass 1
+    if [ -n "${foreign_wt[$br]:-}" ]; then
+        # Cannot delete a checked-out branch, and this script does not own that
+        # worktree — so say so out loud instead of skipping in silence.
+        echo "KEPT (worktree outside scope): branch $br — ${foreign_wt[$br]}"
+        kept_foreign+=( "branch $br (${foreign_wt[$br]})" ); continue
+    fi
     if is_protected "$br"; then
         echo "KEPT (protected): branch $br"
         kept_protected+=( "branch $br" ); continue
@@ -329,6 +363,51 @@ while IFS= read -r br; do
         echo "  warning: failed to delete branch $br" >&2
     fi
 done < <(git -C "$main" for-each-ref --format='%(refname:short)' refs/heads/)
+
+# ── pass 3: REMOTE branches whose PR is merged ────────────────────────────────
+# Opt-in (--remote), because deleting a remote ref affects everyone with a clone.
+#
+# There was no remote pass at all, and nothing else deletes these: `gh pr merge
+# --delete-branch` only covers PRs merged through THIS script, so every PR
+# merged from the GitHub web UI left its branch behind. 248 of them had
+# accumulated by 2026-08-29 against 6 open PRs. The durable fix is the
+# repository's own `delete_branch_on_merge` setting (now enabled), which covers
+# every merge path including the UI; this pass exists to sweep up if it is ever
+# turned off again, or for a repo that cannot set it.
+#
+# Only MERGED is swept. A CLOSED PR's branch holds work that never landed —
+# deleting it discards the only copy — so those are reported, never removed.
+if [ "$REMOTE" = 1 ] && [ "$have_origin" = 1 ] && gh_ok; then
+    echo
+    echo "── pass 3: remote branches with a MERGED PR ──"
+    remote_deleted=0
+    while IFS= read -r rb; do
+        [ -n "$rb" ] || continue
+        [ "$rb" = "$BASE_REF" ] && continue
+        is_protected "$rb" && { echo "KEPT (protected): origin/$rb"; continue; }
+        st="$(gh pr list --state all --head "$rb" --limit 1 --json state \
+              --jq '.[0].state' 2>/dev/null || echo "")"
+        case "$st" in
+            MERGED)
+                if [ "$DRY" = 1 ]; then
+                    echo "  [dry-run] WOULD delete origin/$rb (PR merged)"
+                else
+                    if git -C "$main" push origin --delete "$rb" >/dev/null 2>&1; then
+                        echo "PRUNE: origin/$rb — PR merged"
+                        remote_deleted=$(( remote_deleted + 1 ))
+                        removed+=( "origin/$rb" )
+                    else
+                        echo "  warning: failed to delete origin/$rb" >&2
+                    fi
+                fi
+                ;;
+            CLOSED) echo "KEPT (PR closed, never merged — holds unlanded work): origin/$rb" ;;
+            OPEN)   echo "KEPT (PR open): origin/$rb" ;;
+            *)      echo "KEPT (no PR): origin/$rb" ;;
+        esac
+    done < <(git -C "$main" ls-remote --heads origin 2>/dev/null | sed 's#.*refs/heads/##')
+    echo "  remote branches deleted: $remote_deleted"
+fi
 
 # ── tidy bookkeeping ──────────────────────────────────────────────────────────
 echo
@@ -360,4 +439,7 @@ if [ "${#kept_active[@]}" -gt 0 ]; then
 fi
 if [ "${#kept_protected[@]}" -gt 0 ]; then
     print_bucket "kept-protected" "${kept_protected[@]}"
+fi
+if [ "${#kept_foreign[@]}" -gt 0 ]; then
+    print_bucket "kept-foreign-wt" "${kept_foreign[@]}"
 fi
