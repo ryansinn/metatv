@@ -172,8 +172,7 @@ def _region_label(code: str) -> str:
     """Human-readable name for a region/language code, for hover copy only.
 
     Reads the curated ``REGION_FULL_NAMES`` table (CLAUDE.md's lookup-table
-    rule — never a parallel dict here) and falls back to the raw code, which is
-    what an unmapped or provider-invented token should show.
+    rule — never a parallel dict here) and falls back to the raw code.
     """
     from metatv.core.channel_name_utils import REGION_FULL_NAMES, normalize_region_code
 
@@ -181,6 +180,52 @@ def _region_label(code: str) -> str:
         return ""
     full = REGION_FULL_NAMES.get(normalize_region_code(code))
     return f"{full} ({code})" if full else code
+
+
+def _code_is_named(code: str) -> bool:
+    """True when the curated table can put a name to *code*.
+
+    Split out because the tooltip has to say something DIFFERENT when it
+    cannot. A hover reading "Language: AR" repeats the chip the pointer is
+    already on and asserts a fact — that AR is a language — which the app does
+    not actually know for an unmapped code.
+    """
+    from metatv.core.channel_name_utils import REGION_FULL_NAMES, normalize_region_code
+
+    return bool(code) and bool(REGION_FULL_NAMES.get(normalize_region_code(code)))
+
+
+def _code_tip(code: str, *, kind: str, action: str) -> str:
+    """Hover copy for a region/language chip, honest about what is known.
+
+    Owner: *"hovering over a language chip presented a tooltip that said
+    'Language: ' but then it just gave the same abbreviation as the chip, so
+    worthless."*
+
+    Two cases, and the second is the one that was wrong:
+
+    * the code is named — "Language: Arabic (AR)", which is the whole point of
+      a tooltip: it tells you what the abbreviation MEANS;
+    * the code is not named — the old text still said "Language: XX", which
+      repeats the chip AND claims the code is a language. For an unmapped code
+      the app does not know that. It might be a region, a platform, or a label
+      the provider invented. Saying "source code" is the true statement.
+
+    After the prefix-naming pass this is the minority case: 725,026 of 752,550
+    channels with a prefix now resolve to a name (96%), leaving 27,524 across
+    280 rare codes here.
+
+    Args:
+        code: The raw chip text.
+        kind: What the code means when it IS known ("Language", "Region").
+        action: Trailing click hint, already phrased.
+
+    Returns:
+        The tooltip string.
+    """
+    if _code_is_named(code):
+        return f"{kind}: {_region_label(code)} — {action}"
+    return f"Source code “{code}” (no known {kind.lower()}) — {action}"
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +326,8 @@ def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
         )
     return _Cell(code, False, _theme.COLOR_ROW_REGION,
                  facet="region", value=code,
-                 tip=f"Region: {_region_label(code)} — click to show only this region")
+                 tip=_code_tip(code, kind="Region",
+                               action="click to show only this region"))
 
 
 def _language_cell(text: str, *, filterable: bool = True) -> Optional[_Cell]:
@@ -310,7 +356,8 @@ def _language_cell(text: str, *, filterable: bool = True) -> Optional[_Cell]:
     return _Cell(text, True, _theme.COLOR_ROW_LANGUAGE,
                  _theme.COLOR_ROW_LANGUAGE_FILL,
                  facet="language", value=text,
-                 tip=f"Language: {_region_label(text)} — click to show only this language")
+                 tip=_code_tip(text, kind="Language",
+                               action="click to show only this language"))
 
 
 def _genre_cell(genre: str) -> Optional[_Cell]:

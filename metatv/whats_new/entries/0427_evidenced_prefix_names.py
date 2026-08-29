@@ -16,6 +16,12 @@ ENTRY = WhatsNewEntry(
         "Each name was read from the source's own category labels rather than "
         "guessed. Two codes that genuinely mean two different things are left "
         "unnamed on purpose.",
+        "Hovering a language or region chip now tells you something. It used "
+        "to read 'Language: AR' - the same abbreviation you were already "
+        "pointing at. It now reads 'Language: Arabic (AR)'.",
+        "For the few codes still without a name, the tooltip says so plainly "
+        "instead of calling an unknown code a language. 96% of channels with a "
+        "prefix now get a real name on hover.",
     ),
     test_steps=(
         "Browse channels whose prefix is AR and confirm the chip reads Arabic.",
@@ -24,5 +30,10 @@ ENTRY = WhatsNewEntry(
         "Confirm OD and YP channels show as services (Odido, YuppTV) rather "
         "than as countries.",
         "Confirm filtering by one of these names selects the right channels.",
+        "Hover a language chip and confirm the tooltip names the language "
+        "rather than repeating the abbreviation on the chip.",
+        "Hover a chip with an unusual code and confirm the tooltip does not "
+        "claim it is a language it cannot name, and still offers the click "
+        "action.",
     ),
 )
