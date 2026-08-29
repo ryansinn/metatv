@@ -87,6 +87,8 @@ def _bare_dialog(qapp) -> SettingsDialog:
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
 
     # Player group
     dlg._player_combo = QComboBox()

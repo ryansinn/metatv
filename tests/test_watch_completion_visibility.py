@@ -120,6 +120,8 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
     dlg.config = _FakeThresholdConfig(threshold=threshold)
 
     dlg._player_combo = QComboBox()

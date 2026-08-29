@@ -903,6 +903,33 @@ def wire_settings_playback_widgets(dlg) -> None:
     dlg._recheck_failed_on_refresh_check.setChecked(True)
 
 
+def wire_settings_content_widgets(dlg) -> None:
+    """Attach the Settings → Content tab's widgets to a skeleton dialog.
+
+    Same shape, and same reason, as :func:`wire_settings_playback_widgets`:
+    ``_load_values``/``_save_values`` touch every tab's widgets, so a skeleton
+    ``SettingsDialog.__new__`` missing one raises the moment either runs. And it
+    raises loudly rather than quietly — the skeleton never ran ``QDialog.__init__``,
+    so sip raises ``RuntimeError: super-class __init__() of type SettingsDialog
+    was never called`` instead of the ``AttributeError`` a ``hasattr`` guard
+    would absorb.
+
+    Adding ``_adult_mode_combo`` to the Content tab broke **37 tests across six
+    files** that the PR never touched — the exact blind spot the local
+    ``--quick`` gate has by construction, and CI caught it. One factory makes
+    the next Content widget a single edit here.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QComboBox
+
+    dlg._adult_mode_combo = QComboBox()
+    dlg._adult_mode_combo.addItem("Show everything", userData="all")
+    dlg._adult_mode_combo.addItem("Hide adult content", userData="hide")
+    dlg._adult_mode_combo.addItem("Show only adult content", userData="only")
+
+
 # ---------------------------------------------------------------------------
 # MainWindow channel-render skeleton stubs
 # ---------------------------------------------------------------------------

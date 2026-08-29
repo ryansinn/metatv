@@ -353,6 +353,8 @@ def _bare_split_dialog(qapp, split: bool = False):
     )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
     dlg.config = _FakeDlgConfig(split=split)
 
     # Playback group widgets (all needed by _load_values / _save_values)
