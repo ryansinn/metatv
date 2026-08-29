@@ -672,11 +672,17 @@ def _build_semantic_constants() -> dict[str, object]:
         "; letter-spacing: 1px; padding: 4px 0;"
     )
     SECTION_HINT      = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; padding: 2px 0 6px 0;"
-    # Warning banner for stale/out-of-date EPG guide data (EPG view).
-    EPG_STALE_NOTICE  = (
+    # A bordered warn-coloured notice block. Generic on purpose: this shape was
+    # defined once for the EPG stale-guide banner and immediately wanted by the
+    # connection-diagnosis panel, which is the point at which a second copy
+    # would have been the wrong answer.
+    NOTICE_WARN = (
         "color: " + COLOR_WARN + "; font-size: " + FONT_MD + ";"
         " border: 1px solid " + COLOR_WARN + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_MD + ";"
     )
+    # Warning banner for stale/out-of-date EPG guide data (EPG view). Kept as a
+    # name because call sites read better for it; it is the same style.
+    EPG_STALE_NOTICE  = NOTICE_WARN
     # Browse timeline-scrubber current-position label (Phase 2).
     EPG_SCRUBBER_POS  = (
         "color: " + COLOR_ACCENT_HOVER + "; font-size: " + FONT_LG + "; font-weight: bold;"
