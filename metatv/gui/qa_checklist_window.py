@@ -578,6 +578,13 @@ def _write_flagged_digest(config: "Config", addressed: dict | None = None) -> st
 
 # ── background workers ────────────────────────────────────────────────────────
 
+#: How long ``QAChecklistWindow.closeEvent`` waits for a worker to stop. The
+#: git-ref worker checks for interruption between entries (~8.6 ms apart), so
+#: this is generous; it exists so a worker that ignores interruption cannot
+#: hang the close instead.
+_WORKER_SHUTDOWN_MS = 3_000
+
+
 class _GitRefWorker(QThread):
     """Off-thread worker that resolves PR# / commit hash for each open entry.
 
@@ -602,6 +609,20 @@ class _GitRefWorker(QThread):
         base_url = _resolve_base_url()
         results: dict[int, dict] = {}
         for eid in self._entry_ids:
+            # One `git log` subprocess per entry, ~8.6 ms each — 3.5 s across
+            # the 402 entries in the tree, and longer on CI's colder disk.
+            #
+            # This check is what makes an interruption request mean anything.
+            # tests/conftest.py's teardown sweep ALREADY calls
+            # requestInterruption() before waiting a thread out; this loop never
+            # asked, so the request did nothing, the sweep's 3 s budget expired
+            # ("these workers finish in tens of ms", says the comment beside
+            # it), and it went on to drain deferred deletes with the thread
+            # still running. Destroying a running QThread is qFatal: Abort
+            # trap 6, exit 134, no Python traceback. That is the macOS release
+            # failure, and it gets likelier with every What's New entry added.
+            if self.isInterruptionRequested():
+                return
             ref = _resolve_entry_ref(eid, self._entries_dir)
             ref["base_url"] = base_url
             results[eid] = ref
@@ -2422,3 +2443,56 @@ class QAChecklistWindow(QWidget):
 
         self._refresh()
         self._write_digest()
+
+    def _owned_workers(self) -> "list[QThread]":
+        """Every worker QThread this window owns, however it is stored.
+
+        Derived from the window's own attributes rather than a hand-written
+        list, because the hand-written list is the thing that goes stale: a
+        fourth worker added later is caught here without anyone remembering to
+        register it. Hopping through plain lists is what finds ``_log_workers``.
+        """
+        found: list[QThread] = []
+        for value in vars(self).values():
+            candidates = value if isinstance(value, (list, tuple)) else [value]
+            for item in candidates:
+                if isinstance(item, QThread) and item not in found:
+                    found.append(item)
+        return found
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Stop and wait out every worker before the window goes away.
+
+        A ``QThread`` destroyed while still running is an ABORT, not an
+        exception — ``Abort trap: 6``, exit 134, no traceback from the C++ side.
+        This window starts three kinds of worker and had no ``closeEvent`` at
+        all, so nothing ever waited for them.
+
+        It showed up as the macOS release build failing: the git-ref worker
+        makes one subprocess call per What's New entry (402 of them, ~3.5 s),
+        so it comfortably outlives the test that opened the window, and the
+        harness's teardown sweep only waits out threads owned by a widget the
+        SAME test leaked. ``tests/conftest.py``'s ``_owned_qthreads`` says so in
+        its own docstring — "would surface as a loud abort in testing if it
+        mattered". It mattered: 19 of the last 60 release runs failed, and the
+        rolling build is what the tester downloads.
+
+        Interruption first so the wait is short, then a bounded wait, because a
+        thread that ignores both must not hang the app on close.
+
+        Args:
+            event: The Qt close event.
+        """
+        for worker in self._owned_workers():
+            try:
+                if not worker.isRunning():
+                    continue
+                worker.requestInterruption()
+                if not worker.wait(_WORKER_SHUTDOWN_MS):
+                    logger.warning(
+                        "QA checklist: {} did not stop within {} ms",
+                        type(worker).__name__, _WORKER_SHUTDOWN_MS,
+                    )
+            except RuntimeError:
+                continue  # already destroyed by Qt; nothing to wait for
+        super().closeEvent(event)
