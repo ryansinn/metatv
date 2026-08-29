@@ -42,7 +42,10 @@ if TYPE_CHECKING:
 #       detection via channel_name_utils.is_restricted_name()) for every existing row,
 #       via the same update_detected_prefixes() pass that computes the other
 #       detected_* fields.
-CURRENT_VERSION: int = 1
+# 1 -> 2: PORNBOX joined BASE_PREFIX_GROUPS["Adult"]. detected_restricted is
+# computed at INGESTION and stored, so a table fix does not reach rows already
+# written — 30 of them here. Bumping the version is what re-sweeps them.
+CURRENT_VERSION: int = 2
 
 
 class RestrictedBackfillTask:

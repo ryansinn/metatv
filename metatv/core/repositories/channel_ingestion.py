@@ -575,7 +575,9 @@ class ChannelIngestionMixin:
             # same pass is judged on its new prefix. Separate provenance from
             # is_adult — never overwrites it. Detection is the user own "Adult" prefix
             # group + their (empty by default) restricted_keywords list.
-            new_restricted = is_restricted(prefix, channel.name, config)
+            new_restricted = is_restricted(
+                prefix, channel.name, config, collection=new_collection
+            )
 
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.
