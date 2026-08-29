@@ -39,18 +39,23 @@ from metatv.core.sql_batching import CHUNK_SIZE, chunked, fetch_in_chunks
 
 
 def _variable_ceiling() -> int:
-    """Binary-search this build's actual SQLITE_LIMIT_VARIABLE_NUMBER."""
+    """Return this build's SQLITE_LIMIT_VARIABLE_NUMBER.
+
+    Asked directly (``Connection.getlimit``, 3 microseconds) rather than found
+    by binary search. The search version bound up to two million parameters per
+    probe across ~21 probes, which is minutes and gigabytes on a CI runner —
+    the first version of this file failed macOS CI for that reason alone, with
+    nothing wrong in the code it was testing.
+
+    The point stands either way: this is a COMPILE-TIME constant of whatever
+    SQLite the interpreter links against, so the test adapts to the build it
+    runs on instead of hardcoding a number that is only true here.
+    """
     conn = sqlite3.connect(":memory:")
-    lo, hi = 1, 2_000_000
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        try:
-            conn.execute("SELECT 1 WHERE 1 IN (%s)" % ",".join("?" * mid), [0] * mid)
-            lo = mid
-        except Exception:
-            hi = mid - 1
-    conn.close()
-    return lo
+    try:
+        return conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+    finally:
+        conn.close()
 
 
 def test_a_single_in_past_the_ceiling_really_does_raise():
@@ -67,7 +72,14 @@ def test_chunking_binds_the_same_ids_without_raising():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE metadata (id INTEGER PRIMARY KEY)")
     ids = list(range(_variable_ceiling() + 5_000))
-    conn.executemany("INSERT INTO metadata VALUES (?)", [(i,) for i in ids[:50_000]])
+    # Derived from the id list, never a fixed number. The first version
+    # asserted 50,000 rows while inserting ids[:50_000] from a list only as
+    # long as the ceiling — so on macOS, where SQLite ships a SMALLER variable
+    # limit, the list was shorter than the slice and 37,766 rows came back
+    # against an expected 50,000. The test failed for its own arithmetic, on a
+    # platform difference it exists to be robust to.
+    present = min(10_000, len(ids))
+    conn.executemany("INSERT INTO metadata VALUES (?)", [(i,) for i in ids[:present]])
 
     rows = fetch_in_chunks(
         lambda chunk: conn.execute(
@@ -78,7 +90,7 @@ def test_chunking_binds_the_same_ids_without_raising():
     )
     conn.close()
 
-    assert len(rows) == 50_000, (
+    assert len(rows) == present, (
         "chunking lost or duplicated rows; it must be a pure regrouping"
     )
 
