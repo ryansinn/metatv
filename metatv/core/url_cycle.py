@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from loguru import logger
 
 from metatv.core.url_policy import UrlRankingPolicy, get_url_ranking_policy
+from metatv.core.connection_diagnosis import REFUSAL_STATUSES
 from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 
 
@@ -90,8 +91,14 @@ class UrlCycler:
                 continue
             health = pu.health_score(policy.health_decay)
             latency = pu.median_latency_ms()
-            in_cooldown = bool(pu.recent_attempts) and not pu.recent_attempts[-1].success \
-                and (now - pu.recent_attempts[-1].timestamp) <= cooldown
+            # A host refused for an account-level reason is not benched: all of
+            # them would be, so the cooldown would delay every retry rather
+            # than steer around a bad address.
+            last = pu.recent_attempts[-1] if pu.recent_attempts else None
+            in_cooldown = (
+                last is not None and not last.success and last.host_at_fault
+                and (now - last.timestamp) <= cooldown
+            )
             parts.append(
                 f"{base_url} [health={health:.2f} latency={latency}ms cooldown={in_cooldown}]"
             )
@@ -142,7 +149,8 @@ class UrlCycler:
         self._dirty = True
         logger.info(f"{self.operation}: recorded success for {base_url}")
 
-    def record_failure(self, base_url: str, error: str, response_time_ms: int | None = None) -> None:
+    def record_failure(self, base_url: str, error: str, response_time_ms: int | None = None,
+                       status: int | None = None) -> None:
         """Record a failed attempt against *base_url*.
 
         Bumps ``failure_count``, stamps ``last_failure``, and stores *error*
@@ -156,6 +164,16 @@ class UrlCycler:
             error: Error message to store as ``last_error``.
             response_time_ms: Elapsed time of the attempt in milliseconds
                 before it failed, or ``None`` if unknown/not timed.
+            status: HTTP status when the host answered, else ``None``. Pass
+                ``getattr(exc, "status", None)`` — ``aiohttp.ClientResponseError``
+                carries it. A REFUSAL status marks the attempt as not the
+                host's fault: it is recorded for history and diagnosis, but
+                does not bump ``failure_count``, does not drag ``health_score``
+                down, and does not put the host in cooldown.
+
+                Taken as an int rather than sniffed out of *error*: the message
+                is ``str(exc)``, which embeds the URL — so a host on port 8403
+                would read as a 403 forever.
         """
         pu = self._find(base_url)
         if pu is None:
@@ -163,14 +181,27 @@ class UrlCycler:
                 f"{self.operation}: no ProviderURL entry for {base_url!r} — failure not recorded"
             )
             return
-        pu.failure_count += 1
+        # A refusal is about the caller (blocked IP, dead subscription) and is
+        # returned identically by every host on the account, so it is no
+        # evidence about THIS address.
+        host_at_fault = status is None or str(status) not in REFUSAL_STATUSES
+
+        if host_at_fault:
+            pu.failure_count += 1
         pu.last_failure = datetime.now()
         pu.last_error = error
         pu.add_attempt(ConnectionAttempt(
-            success=False, error_message=error, response_time_ms=response_time_ms
+            success=False, error_message=error, response_time_ms=response_time_ms,
+            host_at_fault=host_at_fault,
         ))
         self._dirty = True
-        logger.warning(f"{self.operation}: recorded failure for {base_url}: {error}")
+        if host_at_fault:
+            logger.warning(f"{self.operation}: recorded failure for {base_url}: {error}")
+        else:
+            logger.warning(
+                f"{self.operation}: {base_url} refused with HTTP {status} — recorded, but "
+                f"not counted against this host (every host on the account returns it): {error}"
+            )
 
     @property
     def dirty(self) -> bool:
