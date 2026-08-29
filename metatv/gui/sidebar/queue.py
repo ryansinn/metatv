@@ -242,9 +242,17 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         )
 
     def news(self) -> str:
-        """Unviewed watch-for matches — the "a new season dropped" signal."""
+        """Unviewed watch-for matches — the "a new season dropped" signal.
+
+        Rendered "+N", the sidebar's one news-pill form — see
+        ``alerts_common.count_label``, which states it, and the Alerts section
+        and VOD rows that use it. This slot read "N new" instead, so the same
+        fact wore two spellings depending on which section reported it, and the
+        word cost width in a chip narrow enough that the number is the only
+        thing worth the space.
+        """
         count = self.__dict__.get("_new_match_count", 0)
-        return f"{count} new" if count else ""
+        return f"+{count}" if count else ""
 
     def update_new_match_count(self, count: int) -> None:
         """Show/hide the pinned green new-matches banner.
