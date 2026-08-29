@@ -12,19 +12,32 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
-#: Health at or above this reads as healthy.
+#: At or above this reads as healthy.
 #:
 #: Bands, not a gradient: the useful question is "is this address fine, flaky,
 #: or broken", and three answers are readable at a glance where a continuous
 #: ramp is not.
-_HEALTHY_AT = 0.90
+_HEALTHY_AT = 0.80
 
 #: Below this reads as failing rather than merely flaky.
-_FAILING_BELOW = 0.50
+_FAILING_BELOW = 0.40
 
 
 def reliability_tint_token(pu: ProviderURL) -> "str | None":
     """Name of the overlay TOKEN tinting a URL row, or ``None`` for no tint.
+
+    Reads ``reliability_score`` — THE NUMBER PRINTED ON THE ROW.
+
+    The first version of this read ``health_score`` instead, reasoning that the
+    tint should follow whatever ``ordered_urls`` sorts by. That produced a
+    screen contradicting itself: on the owner's TREX source every host's recent
+    attempts had failed, so health was 0.00 for all six while the printed
+    figures ranged 0% to 86% — and an 86% row was tinted identically to a 0%
+    one. Owner: *"86% and 68% should not have the same as 0% and 1%."*
+
+    A colour must never disagree with the number beside it. If the row ever
+    starts PRINTING the recency-weighted score, this should read that instead —
+    the rule is that they match, not which one wins.
 
     A token rather than three dedicated theme roles. Three roles differing only
     in which colour they name is a near-twin cluster, and the role-duplication
@@ -51,9 +64,7 @@ def reliability_tint_token(pu: ProviderURL) -> "str | None":
     if pu.success_count + pu.failure_count == 0:
         return None
 
-    from metatv.core.url_policy import get_url_ranking_policy
-
-    health = pu.health_score(get_url_ranking_policy().health_decay)
+    health = pu.reliability_score / 100.0
     if health >= _HEALTHY_AT:
         return "OVERLAY_GREEN_15"
     if health < _FAILING_BELOW:
@@ -75,12 +86,6 @@ class URLRowWidget(QWidget):
         # Reinforcement for the reliability text already on this row, never a
         # replacement for it. Untested rows stay untinted — see the helper.
         tint_token = reliability_tint_token(provider_url)
-        if tint_token:
-            # style_fn, so the tint is re-read on a theme switch rather than
-            # baked in at construction (CLAUDE.md's theme-registry rule).
-            _theme.style_fn(self, lambda t=tint_token: (
-                f"background-color: {getattr(_theme, t)}; border-radius: 3px;"
-            ))
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -110,8 +115,16 @@ class URLRowWidget(QWidget):
         _theme.style(badge, "META_HINT")
         layout.addWidget(badge)
 
-        # URL + stats column
-        info_col = QVBoxLayout()
+        # URL + stats column.
+        #
+        # The tint goes on THIS block, not on the row. Tinting the row put a
+        # colour wash behind the reorder arrows, the #N badge and the remove
+        # button — controls whose appearance has nothing to do with how well
+        # the address works. Owner: "both lines don't need to be tinted
+        # either. just the url and # fields."
+        self._info_widget = QWidget()
+        info_col = QVBoxLayout(self._info_widget)
+        info_col.setContentsMargins(6, 3, 6, 3)
         info_col.setSpacing(2)
 
         url_label = QLabel(provider_url.url)
@@ -122,7 +135,13 @@ class URLRowWidget(QWidget):
         self._stats_label = QLabel(self._build_stats(provider_url))
         _theme.style(self._stats_label, "META_HINT")
         info_col.addWidget(self._stats_label)
-        layout.addLayout(info_col, 1)
+        if tint_token:
+            # style_fn, so the tint is re-read on a theme switch rather than
+            # baked in at construction (CLAUDE.md's theme-registry rule).
+            _theme.style_fn(self._info_widget, lambda t=tint_token: (
+                f"background-color: {getattr(_theme, t)}; border-radius: 3px;"
+            ))
+        layout.addWidget(self._info_widget, 1)
 
         # Live test result badge (hidden until a test runs)
         self._result_badge = QLabel("")
