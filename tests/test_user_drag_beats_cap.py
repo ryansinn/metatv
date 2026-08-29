@@ -21,9 +21,7 @@ was missing.
 
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QSplitter
 
