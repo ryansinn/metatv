@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Optional
 from loguru import logger
-import aiohttp
 
 from metatv.core.models import ProviderURL, ConnectionAttempt
 
@@ -13,14 +12,31 @@ class ConnectionTracker:
     
     @staticmethod
     async def get_client_ip() -> Optional[str]:
-        """Get client's public IP address"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get('https://api.ipify.org?format=text', timeout=aiohttp.ClientTimeout(total=5)) as response:
-                    if response.status == 200:
-                        return await response.text()
-        except Exception as e:
-            logger.debug(f"Could not fetch client IP: {e}")
+        """Always None. The public-IP lookup this used to do is gone.
+
+        It fetched ``https://api.ipify.org`` — an HTTPS round-trip to a third
+        party, on the failure path, telling that third party the user's address
+        every time a provider URL misbehaved. It shipped in the initial commit
+        and was never revisited.
+
+        It is removed rather than fixed because the feature it fed never
+        worked. ``ProviderURL.failed_client_ips`` counts failures per IP and
+        ``is_ip_blocked`` reads that count — but of **280 recorded attempts in
+        the owner's library, 280 have ``client_ip: null``**, so the dict is
+        always empty and the check always False. Meanwhile ``url_cycle.py``,
+        the actual chokepoint for URL cycling, documents that it deliberately
+        does NOT route through this class precisely because of the ipify
+        round-trip.
+
+        So the app paid a privacy cost for a signal nothing ever read.
+
+        The method is KEPT, returning None, so the two call sites and the
+        stored JSON shape stay valid. If per-network failure detection is
+        wanted later, store a salted hash of the address rather than the
+        address: it answers "these failures are all on the network you are on
+        now" without keeping anything identifying, which matters in a codebase
+        that has already leaked credentials into shareable log files once.
+        """
         return None
     
     @staticmethod
@@ -39,7 +55,10 @@ class ConnectionTracker:
         provider_url.last_success = datetime.now()
         provider_url.last_error = None
         
-        logger.info(f"Connection success: {provider_url.url} from IP {client_ip} (score: {provider_url.reliability_score:.1f}%)")
+        logger.info(
+            f"Connection success: {provider_url.url} "
+            f"(score: {provider_url.reliability_score:.1f}%)"
+        )
     
     @staticmethod
     async def record_failure(provider_url: ProviderURL, error_message: str):
@@ -57,17 +76,15 @@ class ConnectionTracker:
         provider_url.last_failure = datetime.now()
         provider_url.last_error = error_message
         
-        # Check if this IP appears blocked
-        if client_ip and provider_url.is_ip_blocked(client_ip):
-            logger.warning(
-                f"Connection failure: {provider_url.url} from IP {client_ip} - "
-                f"POSSIBLY BLOCKED ({provider_url.get_ip_failure_count(client_ip)} failures) - {error_message}"
-            )
-        else:
-            logger.warning(
-                f"Connection failure: {provider_url.url} from IP {client_ip} - {error_message} "
-                f"(score: {provider_url.reliability_score:.1f}%)"
-            )
+        # The "is this IP blocked" branch is gone with the lookup that fed it:
+        # client_ip is always None now, so it could never be taken. The
+        # per-network signal it wanted is worth having — see get_client_ip's
+        # note on hashing — but it needs building, not a dead branch pretending
+        # to provide it.
+        logger.warning(
+            f"Connection failure: {provider_url.url} - {error_message} "
+            f"(score: {provider_url.reliability_score:.1f}%)"
+        )
     
     @staticmethod
     def reset_stats(provider_url: ProviderURL):
