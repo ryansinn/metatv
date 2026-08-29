@@ -1383,9 +1383,45 @@ class _ChannelListMixin:
         self._bypass_keyword_exclusions = True
         self.load_channels()
 
+    #: How long to wait for the filter state to settle before reloading.
+    #:
+    #: Every filter widget connects to on_filter_changed and it reloaded
+    #: immediately, so one gesture that touches several widgets — a state
+    #: restore, a Clear, a chip that implies others — fired one full reload per
+    #: widget. The owner's startup log shows five reloads inside seven seconds,
+    #: each a query over 785,162 channels, all but the last thrown away:
+    #:
+    #:     15:01:12.895  set_channels gen=2
+    #:     15:01:18.393  set_channels gen=3
+    #:     15:01:18.832  set_channels gen=4
+    #:     15:01:19.406  set_channels gen=5
+    #:     15:01:32.223  set_channels gen=6
+    #:
+    #: 120 ms matches the existing batch debounce in discover_view: below what
+    #: a person notices, above the gap between two widgets changing in one pass.
+    _FILTER_RELOAD_DEBOUNCE_MS = 120
+
     def on_filter_changed(self):
-        """Handle filter changes from FilterBar or media chips"""
-        logger.info("Filter changed, reloading channels...")
+        """Coalesce a burst of filter changes into one reload.
+
+        The state is captured on EVERY call — only the query is deferred — so
+        the reload that eventually runs uses the final state, and anything
+        reading ``current_filter_state`` in between still sees the truth.
+        """
+        from PyQt6.QtCore import QTimer
+
+        self._capture_filter_state()
+
+        timer = getattr(self, "_filter_reload_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._reload_after_filter_change)
+            self._filter_reload_timer = timer
+        timer.start(self._FILTER_RELOAD_DEBOUNCE_MS)
+
+    def _capture_filter_state(self):
+        """Read the filter widgets into ``current_filter_state``. Cheap; no query."""
         self._bypass_tier1_filters = False  # user changed filters — cancel any bypass
         self._clear_id_filter()             # a filter change drops the ephemeral alert id-filter
         self.current_filter_state = (
@@ -1398,6 +1434,10 @@ class _ChannelListMixin:
         # Reset the cursor so a subsequent source click toggles on rather than off.
         self.selected_provider_id = None
         self._sync_filter_chips()   # chips describe the state about to be queried
+
+    def _reload_after_filter_change(self):
+        """Run the deferred reload. One per burst."""
+        logger.info("Filter changed, reloading channels...")
         self.load_channels(None)
 
     def initialize_filter_stats(self) -> None:
