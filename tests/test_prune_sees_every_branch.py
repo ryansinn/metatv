@@ -96,3 +96,39 @@ def test_remote_pass_is_opt_in(repo: Path) -> None:
     assert "pass 3" not in (res.stdout + res.stderr), (
         "the remote pass ran without --remote"
     )
+
+
+def test_no_script_uses_a_bash_4_associative_array() -> None:
+    """macOS ships bash 3.2, which has no ``declare -A``.
+
+    ``prune_merged.sh`` carried one for months. It was never caught because
+    nothing in CI executed the script — the moment a test did, macOS failed
+    with::
+
+        declare: usage: declare [-afFirtx] [-p] [name[=value] ...]
+        prune_merged.sh: line 241: feature: unbound variable
+
+    and Linux passed the same commit, because bash 4+ is fine with it. That
+    asymmetry is the whole reason this guard scans the SOURCE rather than
+    relying on a run: a green Linux job proves nothing about the shell the
+    other half of CI uses.
+
+    Scanning every script, not a list of known ones, so a new script is
+    covered the day it is added.
+    """
+    import re
+
+    scripts = sorted((Path(__file__).resolve().parent.parent / "scripts").glob("*.sh"))
+    assert scripts, "no shell scripts found — has the directory moved?"
+
+    offenders = []
+    for script in scripts:
+        for n, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+            if re.match(r"\s*declare\s+-A\b", line):
+                offenders.append(f"{script.name}:{n}")
+
+    assert not offenders, (
+        "bash 3.2 (the macOS system shell) has no associative arrays, so these "
+        f"lines abort the script there: {offenders}. Use TAB-separated lines "
+        "plus a small awk/grep lookup, as prune_merged.sh does."
+    )

@@ -214,7 +214,25 @@ skipped_dirty=()
 # ── pass 1: worktrees in scope ────────────────────────────────────────────────
 # Branches held by a worktree this script does NOT manage. Recorded so pass 2
 # can REPORT them rather than silently skip them.
-declare -A foreign_wt=()
+# Branch -> worktree path, as TAB-separated lines.
+#
+# NOT an associative array: macOS ships bash 3.2, which does not have them.
+# The second one below predates this change, which means the script had never
+# actually run on a stock macOS shell — it dies with "declare: usage:" and then
+# an "unbound variable" on the first subscript write. Nothing noticed, because
+# nothing executed the script in CI until tests/test_prune_sees_every_branch.py
+# did, and it failed there on its first run.
+foreign_wt_lines=""
+
+foreign_wt_put() {  # branch, path
+    foreign_wt_lines="${foreign_wt_lines}$1	$2
+"
+}
+
+foreign_wt_get() {  # branch -> path on stdout; empty when absent
+    [ -n "$foreign_wt_lines" ] || return 0
+    printf '%s' "$foreign_wt_lines" | awk -F'\t' -v b="$1" '$1 == b { print $2; exit }'
+}
 
 wt_path=""; wt_head=""; wt_branch=""; wt_detached=0
 
@@ -238,7 +256,9 @@ process_worktree() {
         # never pruned by anything. That is how 33 local and 248 remote
         # branches accumulated behind a script whose whole job was to prevent
         # exactly that.
-        [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ] && foreign_wt["$wt_branch"]="$wt_path"
+        if [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ]; then
+            foreign_wt_put "$wt_branch" "$wt_path"
+        fi
         return 0
     fi
 
@@ -327,21 +347,28 @@ done < <( { git -C "$main" worktree list --porcelain; printf '\n'; } )
 # ── pass 2: local branches with no worktree ───────────────────────────────────
 # Only branches whose worktree pass 1 actually PROCESSED are "handled" — a
 # branch in an out-of-scope worktree is not, and must be reported.
-declare -A wt_branches=()
+wt_branch_lines=""
 while IFS= read -r b; do
     [ -n "$b" ] || continue
-    [ -n "${foreign_wt[$b]:-}" ] && continue
-    wt_branches["$b"]=1
+    [ -n "$(foreign_wt_get "$b")" ] && continue
+    wt_branch_lines="${wt_branch_lines}${b}
+"
 done < <(git -C "$main" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')
+
+wt_branch_has() {  # branch -> 0 when pass 1 already handled it
+    [ -n "$wt_branch_lines" ] || return 1
+    printf '%s' "$wt_branch_lines" | grep -qxF "$1"
+}
 
 while IFS= read -r br; do
     [ -n "$br" ] || continue
-    [ -n "${wt_branches[$br]:-}" ] && continue            # handled in pass 1
-    if [ -n "${foreign_wt[$br]:-}" ]; then
+    wt_branch_has "$br" && continue                       # handled in pass 1
+    foreign_path="$(foreign_wt_get "$br")"
+    if [ -n "$foreign_path" ]; then
         # Cannot delete a checked-out branch, and this script does not own that
         # worktree — so say so out loud instead of skipping in silence.
-        echo "KEPT (worktree outside scope): branch $br — ${foreign_wt[$br]}"
-        kept_foreign+=( "branch $br (${foreign_wt[$br]})" ); continue
+        echo "KEPT (worktree outside scope): branch $br — $foreign_path"
+        kept_foreign+=( "branch $br ($foreign_path)" ); continue
     fi
     if is_protected "$br"; then
         echo "KEPT (protected): branch $br"
