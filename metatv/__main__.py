@@ -59,7 +59,23 @@ def setup_logging():
         retention="7 days",
         level=level,
     )
-    logger.info("MetaTV starting...")
+    # Name the build in the FIRST line, not just the About dialog. Under
+    # rolling releases every push ships, so "0.56.0" no longer identifies a
+    # build — a pasted log has to say which commit produced it or a report
+    # about it cannot be checked out. Owner: "shouldn't the console log state
+    # which version of MetaTV is being launched? it's kind of weird to omit
+    # that".
+    #
+    # Reuses the identity the title bar already shows rather than composing a
+    # second one, so the window and the log can never disagree about which build
+    # is running. window_title() resolves to "MetaTV (branch sha)" in a checkout
+    # and "MetaTV 0.56.0+20260829.a3e7a28" in a packaged build, where the stamped
+    # id names the exact commit; the version rides alongside because the branch
+    # form does not carry it.
+    from metatv import __version__
+    from metatv.core.build_info import window_title
+
+    logger.info(f"{window_title()} starting — v{__version__}")
 
 
 def main():
