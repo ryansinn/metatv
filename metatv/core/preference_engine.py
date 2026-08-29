@@ -300,34 +300,15 @@ WEIGHTS_TTL_S: float = 600.0
 
 
 def _taste_signature(session, dials: "RecScoringSettings") -> tuple:
-    """A cheap fingerprint of everything the weights depend on.
-
-    Measured on the owner's library: 0.2 ms, against 2,077 ms to recompute — so
-    asking is ~10,000x cheaper than answering.
-
-    **The signature must cover exactly what ``compute_weights`` READS.** It
-    previously covered one input the function does not read and missed one it
-    does, so it was wrong in both directions at once:
-
-    * ``MAX(last_played)`` moved on **every play**, invalidating a cache whose
-      answer could not have changed — ``compute_weights`` never looks at watch
-      history. Its implicit signal is ``is_favorite``, not ``last_played``
-      (the docstring here claimed otherwise; the code disagreed). Measured
-      cost of that mistake: play anything, and the NEXT channel you select
-      pays 2,118 ms on the UI thread rebuilding a 121,667-plot TF-IDF index.
-      That is the "app hangs for 5-10 seconds" the owner reported, and the
-      watchdog named it — a 5,087 ms stall seconds after launch.
-    * ``is_favorite`` **is** read (favorites are the implicit +0.5 signal) and
-      was absent, so favoriting something did not invalidate anything and the
-      taste weights stayed stale until the TTL expired ten minutes later.
-
-    Counts alone would miss a rating CHANGED in place, so the newest timestamp
-    rides along with the ratings. Favorites need no timestamp — the column is a
-    boolean, so the count moves whenever the set does.
-
-    The plot corpus is deliberately NOT in the signature: background enrichment
-    grows it continuously, so including it would restore the every-call miss
-    this fix removes. ``WEIGHTS_TTL_S`` is the backstop for that drift.
+    """A cheap fingerprint of the weights' inputs: 0.2 ms vs 2,077 ms to recompute.
+    **Must cover exactly what ``compute_weights`` READS**, and once got that
+    wrong both ways: it keyed on ``MAX(last_played)``, which the weights never
+    read (so every PLAY discarded a still-valid answer and the next selection
+    rebuilt a 121,667-plot TF-IDF index on the UI thread — 2,118 ms), and it
+    omitted ``is_favorite``, which they do. Ratings carry a timestamp (counts
+    miss an edit in place); favorites, being boolean, do not. The plot corpus is
+    excluded on purpose — enrichment grows it continuously, so keying on it
+    restores the every-call miss ``WEIGHTS_TTL_S`` exists to backstop.
     """
     from sqlalchemy import text
 
@@ -475,9 +456,7 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     # single-appearance performers below (corroboration gate).
     actor_support: Counter = Counter()
 
-    # Column-only fetch for plots. The row count in this comment used to read
-    # "~1,300"; it is 121,667 on the owner's library, which is why this call is
-    # cached rather than merely narrow — see _taste_signature.
+    # Column-only fetch for plots — 121,667 of them, not the "~1,300" this said.
     all_plots = [
         row[0] for row in
         session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
