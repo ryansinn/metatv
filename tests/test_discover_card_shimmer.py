@@ -37,13 +37,42 @@ def qapp():
 
 
 class _FakeImageCache(QObject):
-    """Minimal stand-in for ImageCache: exposes the two signals, no I/O."""
+    """Minimal stand-in for ImageCache: the two signals plus subscribe(), no I/O.
+
+    ``subscribe`` is what a card uses now — a poster is routed to the one card
+    that asked for it rather than broadcast to every waiting card. The signals
+    are kept because the one-per-view listeners (details pane, lightbox, trail
+    map, channel-list thumbnails) still use them, and because these tests drive
+    delivery by emitting.
+
+    Emission therefore also has to reach subscribers, or a card built through
+    the real code path would never hear about its own image.
+    """
 
     image_loaded = pyqtSignal(str, QPixmap)
     image_failed = pyqtSignal(str, str)
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._subs: dict[str, list[tuple]] = {}
+        self.image_loaded.connect(
+            lambda url, pixmap: self._deliver(url, 0, url, pixmap)
+        )
+        self.image_failed.connect(
+            lambda url, error: self._deliver(url, 1, url, error)
+        )
+
+    def subscribe(self, url: str, on_loaded, on_failed=None) -> None:  # noqa: ANN001
+        self._subs.setdefault(url, []).append((on_loaded, on_failed))
+
+    def _deliver(self, url: str, index: int, *args) -> None:  # noqa: ANN002
+        for entry in self._subs.pop(url, ()):
+            callback = entry[index]
+            if callback is not None:
+                callback(*args)
+
     def get_image_async(self, url: str, provider_urls=None) -> None:  # noqa: ANN001
-        # Do nothing — tests drive the signals manually.
+        # Do nothing — tests drive delivery by emitting.
         pass
 
 
