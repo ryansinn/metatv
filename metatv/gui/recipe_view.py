@@ -459,33 +459,19 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
     def _global_exclusion_sets(self) -> tuple[set[str], set[str], set[str], set[str]]:
         """Resolve the user's Global Exclusions for the faceted queries.
 
-        The control layer (DR-0007): we read ``Config`` here on the main thread
-        and hand plain sets to the engine, which never touches Config itself.
-        Delegates to the SAME ``filter_utils`` resolvers the main channel list uses
-        (one chokepoint), and is paused-aware (all sets empty when paused).
+        Delegates to :func:`~metatv.core.filter_utils.global_exclusion_sets`,
+        which is where this composition now lives — a saved recipe rendered as
+        a Discover shelf must apply exactly these exclusions, and two copies
+        of the composition is how the same recipe comes to show different
+        content on different screens.
 
         Returns:
             ``(excluded_prefixes, excluded_categories, excluded_content_types,
             excluded_keywords)``.
         """
-        from metatv.core.filter_utils import (
-            get_active_category_filter,
-            get_excluded_prefixes,
-            excluded_tag_content_types,
-            keyword_exclusion_list,
-        )
+        from metatv.core.filter_utils import global_exclusion_sets
 
-        cfg = self._config
-        if getattr(cfg, "global_filter_paused", False):
-            return set(), set(), set(), set()
-        _cat_excluded, _ = get_active_category_filter(cfg)
-        excluded_prefixes: set[str] = set(_cat_excluded or []) | get_excluded_prefixes(cfg)
-        excluded_categories: set[str] = set(
-            getattr(cfg, "global_filter_excluded_user_categories", []) or []
-        )
-        excluded_content_types: set[str] = excluded_tag_content_types(cfg)
-        excluded_keywords: set[str] = set(keyword_exclusion_list(cfg))
-        return excluded_prefixes, excluded_categories, excluded_content_types, excluded_keywords
+        return global_exclusion_sets(self._config)
 
     # The masonry cluster-grid overview + center-mode switch live in
     # _RecipeClusterMixin; the Saved round-trip lives in _RecipeSavedMixin.
