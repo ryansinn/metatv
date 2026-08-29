@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from tests.conftest import wire_sidebar_membership
+
 import pytest
 
 
@@ -117,6 +119,7 @@ def _make_streaming_host():
     host.executor = MagicMock()
     host.config = MagicMock()
     host.config.playback_resume_mode = "resume"
+    wire_sidebar_membership(host)
     return host
 
 
@@ -275,7 +278,10 @@ def _make_host_for_stream_ready():
     host.executor = MagicMock()
     host._watch_tracking = {}
     host._provider_icons = {}
-    # MainWindow-only methods stubbed directly (not in the mixin):
+    # MainWindow-only methods stubbed directly (not in the mixin). The
+    # membership seam comes from the shared helper first, so its defaults are
+    # the ones that get overridden here rather than the other way round.
+    wire_sidebar_membership(host)
     host.load_history = MagicMock()
     host.load_favorites = MagicMock()
     host._refresh_queue_section = MagicMock()

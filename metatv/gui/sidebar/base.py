@@ -486,6 +486,37 @@ class InPlaceRowMixin:
         """Hook for post-removal bookkeeping (headers, counts, empty state)."""
         return None
 
+    def has_row(self, key) -> bool:
+        """True when a row matching *key* is currently rendered here.
+
+        Shares ``_removal_list``/``_row_matches`` with :meth:`remove_row` on
+        purpose: "is this row here" and "remove this row" must agree, and two
+        definitions of it would drift the first time a section changed how it
+        keys a row.
+
+        Exists so a caller can ask before rebuilding. Playing a channel used to
+        refresh Favorites and the Watch Queue unconditionally — re-reading the
+        table off-thread and rebuilding every row widget — whether or not the
+        channel was in either. Owner: "the watch queue completely reloads when
+        switching content not even in the watch queue."
+
+        Args:
+            key: The row key, normally a channel id.
+
+        Returns:
+            True if at least one rendered row matches.
+        """
+        try:
+            lst = self._removal_list()
+        except Exception:  # silent: a section whose list widget is gone or not
+            # yet built is simply not showing this row. The caller's next step
+            # on False is a full refresh, which is the correct answer either
+            # way, so there is no failure here to report.
+            return False
+        if lst is None:
+            return False
+        return any(self._row_matches(lst.item(i), key) for i in range(lst.count()))
+
     def remove_row(self, key) -> bool:
         """Remove the row(s) matching *key*. True if anything was removed.
 

@@ -1593,3 +1593,39 @@ def make_provider_load_thread(db, provider_id: str, provider_name: str = "Test S
     thread.db = db
     thread.provider = provider
     return thread
+
+
+def wire_sidebar_membership(host, *, shows: bool = False) -> None:
+    """Give a skeleton playback host the sidebar-membership seam a play now uses.
+
+    Starting playback used to rebuild Favorites and the Watch Queue every time,
+    for a channel that was usually in neither — the owner's "the watch queue
+    completely reloads when switching content not even in the watch queue". It
+    now asks ``_sidebar_shows_channel`` first.
+
+    That method lives on ``_FavoritesMixin``, beside ``_remove_sidebar_row``
+    which answers the same question for deletions. A real ``MainWindow`` has
+    both mixins; a hand-built ``_StreamingMixin.__new__`` double has only one,
+    so the seam is missing and the play path dies with ``AttributeError``. That
+    is the same shape as ``wire_nav_host``: a cross-cutting seam whose
+    requirements land on every hand-built double at once, three test files here
+    that the change never touched.
+
+    Wired HERE rather than guarded in production, because a ``hasattr`` on a
+    ``__new__``'d QObject raises ``RuntimeError`` instead of returning False —
+    the guard would explode where it was meant to protect.
+
+    Args:
+        host: The skeleton host to wire.
+        shows: What the seam should answer. False (the default) is the common
+            case — the channel is in neither list — and is what keeps a test
+            from asserting against an incidental rebuild.
+    """
+    # Assigned outright, never via getattr/hasattr: on a ``__new__``'d QObject
+    # BOTH raise ``RuntimeError`` rather than reporting absence, so a "read the
+    # existing value if there is one" helper explodes on exactly the doubles it
+    # exists to serve. (Written that way first; six tests said so.)
+    host.sidebar_sections = {}
+    host._sidebar_shows_channel = lambda section_key, channel_id: shows
+    host.load_favorites = lambda: None
+    host._refresh_queue_section = lambda: None
