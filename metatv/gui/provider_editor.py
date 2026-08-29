@@ -719,7 +719,26 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
                 logger.error(f"ProviderEditorView: provider not found: {provider_id}")
                 return
             provider = repos.providers.to_model(db_prov)
-            self._provider_urls = list(provider.urls)
+            # Most reliable first, which is what the group box has always
+            # CLAIMED ("sorted by reliability") and never did — the list was
+            # stored order, so a 0% address could sit above an 86% one. Owner
+            # asked for the sort; the label was already promising it.
+            #
+            # Sorted on load only. The arrows below still reorder freely from
+            # there and that order is what gets saved, so a deliberate manual
+            # ranking is not fought by a re-sort on every repaint.
+            #
+            # Untested addresses (reliability_score returns 100.0 for "no
+            # attempts yet") are placed after tested ones rather than at the
+            # top: an address nobody has reached is not the most reliable one,
+            # it is the least known.
+            self._provider_urls = sorted(
+                provider.urls,
+                key=lambda pu: (
+                    (pu.success_count + pu.failure_count) == 0,
+                    -pu.reliability_score,
+                ),
+            )
 
             # Populate fields
             self._name_input.setText(db_prov.name)
