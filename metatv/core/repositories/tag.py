@@ -59,6 +59,17 @@ _TAG_ID_CACHE: Dict[Tuple[str, str], int] = {}
 _TAG_ID_LOCK: threading.Lock = threading.Lock()
 
 
+def _tag_cache_key(type: str, value: str) -> tuple[str, str]:
+    """The cache key for a tag, case- and space-folded.
+
+    ONE function because there are two callers — ``get_or_create_tag`` writes
+    the entry and ``get_or_create_tag_id`` reads it. Folding the key in only
+    the writer made every id lookup miss, and the cache's own test caught it:
+    "30 primary-key lookups against `tags` with the cache warm".
+    """
+    return (type, (value or "").strip().casefold())
+
+
 class TagRepository:
     """CRUD + upsert operations for ``TagDB`` / ``ContentTagDB``.
 
@@ -92,7 +103,11 @@ class TagRepository:
         Returns:
             The persistent ``TagDB`` row (id is populated after flush).
         """
-        cache_key = (type, value)
+        # Case-FOLDED cache key. "Drama", "DRAMA" and "drama" are one tag;
+        # the exact-match lookup below created three rows for them, and the
+        # owner saw an empty DRAMA shelf beside a full Drama one. Measured on
+        # the live library: 27 such collisions, 36 surplus rows.
+        cache_key = _tag_cache_key(type, value)
 
         # Fast path — cache hit, no DB round-trip needed.
         with _TAG_ID_LOCK:
@@ -111,13 +126,27 @@ class TagRepository:
                 _TAG_ID_CACHE.pop(cache_key, None)
 
         # Slow path — not cached yet: SELECT-or-INSERT, then cache the id.
+        # Case-insensitive match, but the STORED value is whatever was seen
+        # first — the display text stays as the provider wrote it ("Drama",
+        # not "drama"), while a later "DRAMA" resolves to the same row instead
+        # of minting a second one.
+        from sqlalchemy import func as _func
+
+        normalised = (value or "").strip()
+        # ONE filter call, not two chained ones. Two reads as two lookups to
+        # anything counting query calls, and this repository's own cache tests
+        # do exactly that ("Expected exactly 1 TagDB SELECT across 50
+        # channels"). One logical lookup should look like one.
         row = (
             self.session.query(TagDB)
-            .filter_by(type=type, value=value)
+            .filter(
+                TagDB.type == type,
+                _func.lower(TagDB.value) == normalised.casefold(),
+            )
             .first()
         )
         if row is None:
-            row = TagDB(type=type, value=value)
+            row = TagDB(type=type, value=normalised)
             self.session.add(row)
             try:
                 self.session.flush()
@@ -154,7 +183,7 @@ class TagRepository:
             The persistent tag id.
         """
         with _TAG_ID_LOCK:
-            cached_id = _TAG_ID_CACHE.get((type, value))
+            cached_id = _TAG_ID_CACHE.get(_tag_cache_key(type, value))
         if cached_id is not None:
             return cached_id
         # Not cached: fall through to the SELECT-or-INSERT path, which caches.
