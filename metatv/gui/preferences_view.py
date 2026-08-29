@@ -603,7 +603,17 @@ class PreferencesView(QWidget):
         self.refresh()
 
     def on_deactivate(self) -> None:
+        """Mark inactive and stop the owned pool.
+
+        The pool used to be stopped only by ``MainWindow.closeEvent`` naming
+        this view as a special case — so switching AWAY from Preferences left
+        its worker running, and only quitting stopped it. A view's own
+        deactivate is where that belongs.
+        """
         self._active = False
+        executor = self.__dict__.get("_executor")
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this view's own persistent chrome

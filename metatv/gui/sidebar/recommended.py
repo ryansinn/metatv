@@ -27,6 +27,22 @@ _REC_LOAD_ERROR = object()
 
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
+    def shutdown(self) -> None:
+        """Stop the owned worker pool.
+
+        This section extends ``CollapsibleSection`` directly rather than
+        composing ``BackgroundRefreshMixin``, so it does not inherit that
+        mixin's stop — it makes its own pool and needed its own. Found by
+        deriving pool owners rather than listing them; a list would have
+        stopped at the six sections that DO use the mixin.
+
+        Safe before the pool exists and safe twice.
+        """
+        executor = self.__dict__.get("_executor")
+        if executor is None:
+            return
+        executor.shutdown(wait=False, cancel_futures=True)
+
     def budgeted_list(self):
         """The rows this section fits to its height (see
         ``CollapsibleSection.apply_row_budget``)."""
