@@ -160,11 +160,41 @@ def test_a_non_view_attribute_is_left_alone():
     )
 
 
+@pytest.fixture
+def pool():
+    """Hand out ThreadPoolExecutors and guarantee they are stopped.
+
+    ``test_in_flight_work_finishes_before_close_returns`` built one, waited for
+    its work, asserted, and never shut it down — so its idle workers outlived
+    the test. conftest's teardown sweep has been reporting that on every run
+    ("2 test(s) left stray Python thread(s)") and failing nothing.
+
+    That is not cosmetic: a thread alive when pytest-qt drains the Qt event
+    loop at teardown is what produces ``Fatal Python error: Aborted`` /
+    ``Abort trap: 6`` on macOS, which has reddened this suite three times in a
+    day for reasons unrelated to the change under test.
+
+    A fixture rather than a ``finally`` per test, so the next test to want a
+    pool gets the cleanup without having to remember it.
+    """
+    made: list[ThreadPoolExecutor] = []
+
+    def _make(**kwargs) -> ThreadPoolExecutor:
+        executor = ThreadPoolExecutor(**kwargs)
+        made.append(executor)
+        return executor
+
+    yield _make
+
+    for executor in made:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
 # ── the pool that outlived the database ─────────────────────────────────────
 
-def test_in_flight_work_finishes_before_close_returns():
+def test_in_flight_work_finishes_before_close_returns(pool):
     """THE other assertion. The database is closed on the next line."""
-    executor = ThreadPoolExecutor(max_workers=2)
+    executor = pool(max_workers=2)
     finished = threading.Event()
 
     def _slow():
@@ -182,14 +212,14 @@ def test_in_flight_work_finishes_before_close_returns():
     )
 
 
-def test_queued_work_is_cancelled_rather_than_waited_for():
+def test_queued_work_is_cancelled_rather_than_waited_for(pool):
     """What makes the wait short enough to be acceptable.
 
     Two halves, in the order closeEvent runs them: the cleanup registry calls
     ``shutdown(wait=False, cancel_futures=True)``, then the waiter joins. The
     cancel is what keeps the join bounded by one task rather than a backlog.
     """
-    executor = ThreadPoolExecutor(max_workers=1)
+    executor = pool(max_workers=1)
     ran = []
     gate = threading.Event()
 
