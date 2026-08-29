@@ -355,8 +355,17 @@ class EpgManager(QObject):
         try:
             from metatv.core.repositories.epg import EpgRepository
             epg_repo = EpgRepository(session)
+            # is_active alone is not the gate. An EXPIRED subscription stays
+            # active until the user removes it, and fetching its guide means
+            # cycling every host for a 451 apiece — the owner's TREX expired at
+            # 16:00 and the app spent the evening doing exactly that.
+            # get_hidden_provider_ids is the canonical inactive ∪ expired ∪
+            # orphaned set the visibility layer already uses.
+            hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             for provider in providers:
+                if provider.id in hidden:
+                    continue  # expired / hidden — nothing it returns is usable
                 if not getattr(provider, "epg_enabled", True):
                     continue  # user disabled EPG for this provider
                 eff_url = self.effective_epg_url(provider)
