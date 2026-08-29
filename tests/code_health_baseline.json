@@ -8,7 +8,7 @@
     "metatv/core/epg_manager.py": 1239,
     "metatv/core/filter_utils.py": 1332,
     "metatv/core/players/mpv.py": 1350,
-    "metatv/core/preference_engine.py": 1083,
+    "metatv/core/preference_engine.py": 1108,
     "metatv/core/provider_loader.py": 1273,
     "metatv/core/repositories/channel.py": 3188,
     "metatv/core/repositories/channel_ingestion.py": 1299,

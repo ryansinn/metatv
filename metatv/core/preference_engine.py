@@ -607,9 +607,12 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     """
     from datetime import datetime
     from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB
+    from sqlalchemy.orm import defer
+
     from metatv.core.content_dedup import (
         build_dedup_key, build_engaged_normalized, is_content_key_dedup,
     )
+    from metatv.core.sql_batching import fetch_in_chunks
 
     if weights.is_empty():
         return []
@@ -719,17 +722,39 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         ),
         channel_cls=ChannelDB,
     )
-    candidates = candidates_q.all()
+    # raw_data is deferred, not selected. It is roughly half the channels table
+    # (386 MB) and nothing on the scoring path reads it — the only mention of
+    # it anywhere in this module or content_dedup is a COMMENT saying a
+    # column-only query avoids loading it. Every candidate row was carrying and
+    # JSON-decoding that blob for nothing: measured at -29% wall clock and -25%
+    # peak memory on the owner's 106,918 candidates.
+    candidates = candidates_q.options(defer(ChannelDB.raw_data)).all()
 
-    # Batch-fetch all MetadataDB rows needed for the candidates loop in one IN query.
-    # The candidate filter guarantees metadata_id IS NOT NULL, so every candidate needs it.
+    # Batch-fetch the MetadataDB rows the candidates loop needs.
+    #
+    # CHUNKED, because this list is as long as the candidate set and SQLite
+    # compiles a bound-parameter ceiling into the library. On the owner's
+    # library with his 158 prefix exclusions the list is 106,918 and fits; with
+    # NO exclusions — a new install, which is also the "good on raw, messy
+    # data" case the product thesis names — it is 414,759 and the query does
+    # not degrade, it RAISES:
+    #
+    #     OperationalError: too many SQL variables
+    #
+    # which sidebar/recommended.py catches and renders as "Couldn't load
+    # recommendations". The ceiling is a compile-time constant of whatever
+    # SQLite the interpreter is linked against, so it differs between this
+    # machine, CI, and a packaged build — the reason it could ship unseen.
     candidate_metadata_ids = [ch.metadata_id for ch in candidates if ch.metadata_id]
-    candidate_meta_map: dict[str, MetadataDB] = {}
-    if candidate_metadata_ids:
-        for meta in session.query(MetadataDB).filter(
-            MetadataDB.id.in_(candidate_metadata_ids)
-        ).all():
-            candidate_meta_map[meta.id] = meta
+    candidate_meta_map: dict[str, MetadataDB] = {
+        meta.id: meta
+        for meta in fetch_in_chunks(
+            lambda ids: session.query(MetadataDB)
+            .filter(MetadataDB.id.in_(ids))
+            .all(),
+            candidate_metadata_ids,
+        )
+    }
 
     # Implicit prefix preference: count how often the user has positively engaged with
     # each prefix (favorites, queued, liked, and watched).  Used as a tiebreaker when
