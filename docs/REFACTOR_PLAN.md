@@ -452,3 +452,45 @@ them as optional-but-recommended P1.5 work, each behind its own design discussio
 
 Do **not** silently rewrite these — each changes a documented convention. Propose the change,
 update CLAUDE.md's rule text in the *same* commit, and keep the old rule's intent intact.
+
+## Variant collapsing — the open performance decision (2026-08-29)
+
+`ChannelRepository._get_all_collapsed` (`channel.py:583`) costs **5.94 s** per
+list load on the owner's library against **0.04 s** with collapsing off — 150×,
+and **LIMIT-independent**, because the window function runs over the whole
+corpus before `LIMIT` can apply. Every search, filter change, exclusion toggle
+and provider click pays it. This is the "brutally slow" report.
+
+Two routes were investigated and **neither is ready to apply**; recording both
+so the next attempt does not re-derive them.
+
+**An expression index does not fix it.** `CREATE INDEX ... ON channels
+(COALESCE(content_key,'id:'||id), id)` removes one of the three temp B-trees
+but saves only ~12% (0.42 s → 0.37 s on a 300k-row synthetic corpus). A
+covering form adds nothing. The cost is materialising the window over the full
+set, not the partition sort. **Do not spend a slice on this.**
+
+**`GROUP BY` + `MIN()` of a packed sort key is 3.1× faster** (0.40 s → 0.13 s
+on the same corpus, two temp B-trees instead of three) — but the form measured
+is **not semantically equivalent**, and the gap is the whole problem:
+
+* Election needs `MIN(rank || id)`, where `rank` must be **fixed width** so the
+  prefix dominates the lexicographic comparison. With the #454 exclusion
+  penalty prepended that is two rank digits, so the `substr()` offset changes
+  with the rank encoding — an off-by-one silently elects the wrong row.
+* Ordering is the real obstacle. The current query orders by the
+  **representative's** `name`; the fast form has only aggregates, and
+  `MIN(name)` is the alphabetically smallest name in the group, which is a
+  different row. Recovering the representative's name means a join back over
+  every group before `ORDER BY name LIMIT n`, and that sort is a large part of
+  what is being paid now.
+
+**The third route** — electing the representative at ingestion and storing
+`is_variant_rep` (the project's own "compute once at write time" principle) —
+is blocked on the same #454 constraint from the other side: the penalty depends
+on the user's *current* exclusion sets, which are runtime config, so a stored
+representative needs a read-time correction for groups whose stored rep is
+excluded. #454 is the bug where getting that wrong made **18,486 titles
+disappear**, each with at least one variant the user had not excluded.
+
+Owner's call. The three routes differ in risk, not just in speed.
