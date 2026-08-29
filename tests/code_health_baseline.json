@@ -25,7 +25,7 @@
     "metatv/gui/main_window_series.py": 1253,
     "metatv/gui/main_window_streaming.py": 1543,
     "metatv/gui/provider_editor.py": 1007,
-    "metatv/gui/qa_checklist_window.py": 2424,
+    "metatv/gui/qa_checklist_window.py": 2498,
     "metatv/gui/sidebar/base.py": 1433,
     "metatv/gui/theme.py": 2324
   },
