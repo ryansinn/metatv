@@ -956,11 +956,17 @@ class EpgManager(QObject):
         """Background worker: re-link EPG rows for all active, EPG-enabled providers."""
         session = self.db.get_session()
         try:
-            providers = (
-                session.query(ProviderDB)
-                .filter_by(is_active=True)
-                .all()
-            )
+            # Same gate as the fetch scan above, and for the same reason: an
+            # EXPIRED subscription stays is_active until the user removes it,
+            # so is_active alone still admits sources whose content is hidden
+            # everywhere else in the app. #536 fixed the fetch loop and left
+            # this one and the watchlist check behind — the fix was applied at
+            # one call site instead of the three that share the mistake.
+            hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
+            providers = [
+                p for p in session.query(ProviderDB).filter_by(is_active=True).all()
+                if p.id not in hidden
+            ]
             grand_total = 0
             changed_provider_ids: list[str] = []
             for provider in providers:
@@ -1185,7 +1191,16 @@ class EpgManager(QObject):
         try:
             from metatv.core.repositories.epg import EpgRepository
             repo = EpgRepository(session)
-            providers = session.query(ProviderDB).filter_by(is_active=True).all()
+            # Hidden sources must not raise watch alerts. This is the one of
+            # the three that a user would actually SEE: a notification for a
+            # programme on an expired source is an alert about something they
+            # cannot watch, which is the "disabled/expired is an absolute gate"
+            # rule failing in the most visible way available to it.
+            hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
+            providers = [
+                p for p in session.query(ProviderDB).filter_by(is_active=True).all()
+                if p.id not in hidden
+            ]
             provider_ids = [p.id for p in providers if self.effective_epg_url(p)]
 
             if not provider_ids:

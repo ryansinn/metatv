@@ -35,6 +35,14 @@ _CATALOG_COLS: tuple[str, ...] = (
     "category",
     "category_id",
     "logo_url",
+    # The provider has parsed this since forever (xtream.py:357) and this list
+    # dropped it, so it was NULL on all 785,163 rows in the owner's library
+    # while 20,506 live channels carried a real one in raw_data. EPG tier-1
+    # matching — the "highest confidence" path — could therefore never fire.
+    # See test_catalog_columns_cover_the_channel.py: the list is now checked
+    # against what the Channel model actually provides, so the next field
+    # someone adds cannot be silently discarded here.
+    "epg_channel_id",
     "media_type",
     "quality",
     "is_adult",
@@ -314,6 +322,7 @@ class ProviderLoadThread(QThread):
                     "category": channel.category,
                     "category_id": channel.category_id,
                     "logo_url": channel.logo_url,
+                    "epg_channel_id": channel.epg_channel_id,
                     "media_type": channel.media_type,
                     "quality": channel.quality.value,
                     "is_adult": is_adult,

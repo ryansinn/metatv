@@ -100,6 +100,7 @@ def test_happy_path_unchanged(tmp_db, fake_provider):
     stub_channel_1.category = "Live"
     stub_channel_1.category_id = "1"
     stub_channel_1.logo_url = ""
+    stub_channel_1.epg_channel_id = None
     stub_channel_1.media_type = "live"
     stub_channel_1.quality.value = "UNKNOWN"
     stub_channel_1.raw_data = {}
@@ -114,6 +115,7 @@ def test_happy_path_unchanged(tmp_db, fake_provider):
     stub_channel_2.category = "Movies"
     stub_channel_2.category_id = "2"
     stub_channel_2.logo_url = ""
+    stub_channel_2.epg_channel_id = None
     stub_channel_2.media_type = "movie"
     stub_channel_2.quality.value = "UNKNOWN"
     stub_channel_2.raw_data = {}
