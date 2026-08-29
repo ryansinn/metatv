@@ -2,6 +2,7 @@
 
 import base64
 import re
+import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -101,6 +102,14 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
     return yr_a is None or yr_b is None or yr_a == yr_b
 
 
+
+
+#: How long ``closeEvent`` waits for in-flight background work before closing
+#: the database under it. Sized ABOVE the slowest single query a worker runs —
+#: a channel-list load with variant collapsing is ~6 s on a large library — so
+#: the wait ends because the work finished, not because the budget expired.
+#: Queued work is cancelled first, so this only ever covers what already began.
+_SHUTDOWN_POOL_WAIT_S = 8.0
 
 
 class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
@@ -495,7 +504,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         # Initialize before load_channels() which uses these
         self.executor = ThreadPoolExecutor(max_workers=4)
-        self._register_cleanable("executor", lambda: self.executor.shutdown(wait=False))
+        # cancel_futures drops work that has not started, which is what makes
+        # the join in _await_background_pools short: only genuinely in-flight
+        # work is waited for. The shutdown lives HERE, at the registration
+        # point, and the waiter below only joins — calling shutdown twice would
+        # be two owners for one pool.
+        self._register_cleanable(
+            "executor", lambda: self.executor.shutdown(wait=False, cancel_futures=True)
+        )
         self._load_channels_token: list[int] = [0]
         self._epg_count_token: list[int] = [0]
         self._filter_stats_token: list[int] = [0]
@@ -3168,6 +3184,72 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         except Exception as e:
             logger.warning(f"Could not save sidebar section sizes: {e}")
     
+    def _deactivate_all_views(self) -> None:
+        """Call ``on_deactivate`` on every content view that has one.
+
+        Derived from this window's own attributes rather than a list of names.
+        Twelve views define ``on_deactivate``; the list it replaced named four,
+        and required the view to be visible — which excludes precisely the case
+        that matters, a hidden view whose loader is still running.
+
+        Each is guarded individually: one view failing to stop must not prevent
+        the next from being asked, or a single bad teardown takes the rest of
+        the shutdown with it.
+        """
+        seen: set[int] = set()
+        for name, value in list(vars(self).items()):
+            if not name.endswith("_view"):
+                continue
+            deactivate = getattr(value, "on_deactivate", None)
+            if not callable(deactivate) or id(value) in seen:
+                continue
+            seen.add(id(value))
+            try:
+                deactivate()
+            except Exception as exc:
+                logger.warning("Deactivating {} failed: {}", name, exc)
+
+        # PreferencesView owns a long-lived executor that on_deactivate does
+        # not stop. Named explicitly because it is an exception to the rule
+        # above, not an instance of it.
+        prefs = vars(self).get("preferences_view")
+        prefs_executor = getattr(prefs, "_executor", None)
+        if prefs_executor is not None:
+            prefs_executor.shutdown(wait=False, cancel_futures=True)
+
+    def _await_background_pools(self) -> None:
+        """Drop queued work and wait, bounded, for what is already running.
+
+        ``shutdown(wait=False)`` returns while its threads are still going, and
+        the next statement in ``closeEvent`` used to be ``db.close()`` — so a
+        worker could still be mid-query when the engine was disposed under it.
+        The owner's log shows exactly that: series-monitor output timestamped
+        after "Database connection closed".
+
+        This only JOINS. The pool's ``shutdown(wait=False, cancel_futures=True)``
+        runs earlier, from the cleanup registry where it is owned — dropping
+        queued work there is what makes this join short, because only genuinely
+        in-flight work is left to wait for.
+        """
+        executor = vars(self).get("executor")
+        if executor is None:
+            return
+        deadline = time.monotonic() + _SHUTDOWN_POOL_WAIT_S
+        for thread in list(getattr(executor, "_threads", ()) or ()):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(remaining)
+
+        stragglers = [
+            t.name for t in (getattr(executor, "_threads", ()) or ()) if t.is_alive()
+        ]
+        if stragglers:
+            logger.warning(
+                "Background pool still running at close after {}s: {}",
+                _SHUTDOWN_POOL_WAIT_S, stragglers,
+            )
+
     def _register_cleanable(self, name: str, fn: callable) -> None:
         """Register a cleanup callable for closeEvent. Call this after creating each manager."""
         self._cleanables.append((name, fn))
@@ -3203,17 +3285,32 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             except Exception as e:
                 logger.warning(f"Cleanup of {_name} failed: {e}")
 
-        # Stop background work owned by the active content view (its on_deactivate
-        # quits loader threads); _hide_all_content_views only runs on view switches,
-        # not on app close, so do it explicitly here.
-        for _attr in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
-            _view = getattr(self, _attr, None)
-            if _view is not None and _view.isVisible():
-                _view.on_deactivate()
-        # PreferencesView owns a long-lived executor that on_deactivate does not stop.
-        _prefs = getattr(self, "preferences_view", None)
-        if _prefs is not None and hasattr(_prefs, "_executor"):
-            _prefs._executor.shutdown(wait=False)
+        # Stop background work owned by EVERY content view. on_deactivate quits
+        # loader threads, and _hide_all_content_views only runs on view
+        # switches, not on app close, so it has to happen explicitly here.
+        #
+        # This was a hand-written tuple of four names, and twelve views define
+        # on_deactivate — so eight views' loaders were never stopped at close.
+        # It also required isVisible(), which is backwards: a view that is not
+        # on screen but still has a loader running is exactly the one that
+        # needs stopping. A QObject destroyed while its worker is mid-run is a
+        # RuntimeError at best and a SIGSEGV at worst, and the owner hit both:
+        #
+        #   RuntimeError: wrapped C/C++ object of type _LoaderWorker
+        #                 has been deleted
+        #   fish: Job 1, './run.sh' terminated by signal SIGSEGV
+        #
+        # Derived from __dict__ so a thirteenth view is covered on the day it
+        # is written, by someone who never has to learn this list exists.
+        self._deactivate_all_views()
+
+        # Wait for the background pool BEFORE closing the database underneath
+        # it. shutdown(wait=False) returns immediately and leaves its threads
+        # running; the owner's log shows worker output arriving after
+        # "Database connection closed". Bounded, because a close must never
+        # hang on a slow query — but bounded ABOVE the slowest thing a worker
+        # does, which a 5 s budget written for millisecond queries no longer is.
+        self._await_background_pools()
 
         # Close database
         self.db.close()

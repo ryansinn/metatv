@@ -81,14 +81,30 @@ def test_preferences_executor_shutdown_called_on_close():
     win.preferences_view._executor.shutdown.assert_called_once()
 
 
-def test_visible_view_on_deactivate_called_on_close():
-    """The active content view's on_deactivate() must be called on close (F3-1)."""
+def test_every_view_is_deactivated_on_close_visible_or_not():
+    """Both views' on_deactivate() must be called on close.
+
+    This test used to assert the opposite of its second half — "A hidden view
+    must not be deactivated" — and that assertion was the bug, not a spec. A
+    view that is off screen but whose loader is still running is exactly the
+    one whose QObject gets destroyed mid-``run()``, which is a RuntimeError if
+    Python is on the stack and a SIGSEGV if it is not. The owner hit both on
+    2026-08-29::
+
+        RuntimeError: wrapped C/C++ object of type _LoaderWorker has been deleted
+        fish: Job 1, './run.sh' terminated by signal SIGSEGV
+
+    Visibility says where a view is drawn. It says nothing about whether it has
+    a thread running, which is the only thing closing has to care about.
+    """
     win = _build_mock_window()
     win.discover_view.isVisible.return_value = True
+    win.epg_view.isVisible.return_value = False
+
     win.closeEvent(_make_close_event())
+
     win.discover_view.on_deactivate.assert_called_once()
-    # A hidden view must not be deactivated.
-    win.epg_view.on_deactivate.assert_not_called()
+    win.epg_view.on_deactivate.assert_called_once()
 
 
 def test_existing_cleanup_still_runs():
