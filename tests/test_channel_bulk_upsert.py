@@ -17,6 +17,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.conftest import make_channel_double
+
 from metatv.core.database import Database, ChannelDB
 from metatv.core.provider_loader import ProviderLoadThread, _STORE_BATCH
 from metatv.core.models import Provider
@@ -68,23 +70,20 @@ def _make_channel(
     detected_tmdb_id: str | None = None,
 ) -> MagicMock:
     """Return a fake Channel-like object (duck-typing; no import of Channel dataclass)."""
-    ch = MagicMock()
-    ch.id = ch_id
-    ch.source_id = ch_id
-    ch.provider_id = "test_prov"
-    ch.name = name
-    ch.stream_url = stream_url
-    ch.category = category
-    ch.category_id = "cat_1"
-    ch.logo_url = ""
-    ch.media_type = media_type
-    ch.quality = MagicMock()
-    ch.quality.value = quality
-    ch.raw_data = raw_data if raw_data is not None else {}
-    # Provider-captured tmdb id (catalog column, default None) — a real Channel
-    # sets this from raw_data["tmdb"]; explicit here so the mock is bindable.
-    ch.detected_tmdb_id = detected_tmdb_id
-    return ch
+    return make_channel_double(
+        id=ch_id,
+        source_id=ch_id,
+        provider_id="test_prov",
+        name=name,
+        stream_url=stream_url,
+        category=category,
+        category_id="cat_1",
+        logo_url="",
+        media_type=media_type,
+        quality=quality,
+        raw_data=raw_data if raw_data is not None else {},
+        detected_tmdb_id=detected_tmdb_id,
+    )
 
 
 def _read_channel(db: Database, ch_id: str) -> dict:

@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+from tests.conftest import make_channel_double
 from loguru import logger
 
 from metatv.core.database import ChannelDB, Database, UserRatingDB, WatchQueueDB
@@ -96,21 +98,14 @@ def _seed_channel(db: Database, **kwargs) -> None:
 
 def _fake_channel(ch_id: str, name: str, provider_id: str = "p1") -> MagicMock:
     """Duck-typed Channel-like object accepted by ProviderLoadThread._store_channels."""
-    ch = MagicMock()
-    ch.id = ch_id
-    ch.source_id = ch_id
-    ch.provider_id = provider_id
-    ch.name = name
-    ch.stream_url = "http://example.com/stream"
-    ch.category = "General"
-    ch.category_id = "cat1"
-    ch.logo_url = ""
-    ch.media_type = "movie"
-    ch.quality = MagicMock()
-    ch.quality.value = "hd"
-    ch.raw_data = {"info": {"name": name}}
-    ch.detected_tmdb_id = None
-    return ch
+    return make_channel_double(
+        id=ch_id,
+        source_id=ch_id,
+        provider_id=provider_id,
+        name=name,
+        media_type="movie",
+        raw_data={"info": {"name": name}},
+    )
 
 
 def _warned_about(lines: list[str], *needles: str) -> bool:

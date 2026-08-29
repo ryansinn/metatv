@@ -1629,3 +1629,57 @@ def wire_sidebar_membership(host, *, shows: bool = False) -> None:
     host._sidebar_shows_channel = lambda section_key, channel_id: shows
     host.load_favorites = lambda: None
     host._refresh_queue_section = lambda: None
+
+
+def make_channel_double(**overrides: object) -> "MagicMock":
+    """A Channel-like double for the `_store_channels` bulk-upsert path.
+
+    Why this is derived and not hand-listed
+    ---------------------------------------
+    A bare ``MagicMock()`` answers *every* attribute with another MagicMock,
+    which SQLite cannot bind. So the moment `_CATALOG_COLS` gains a column, any
+    double that did not happen to set that attribute dies with
+    ``Error binding parameter N: type 'MagicMock' is not supported`` — and the
+    double never warned anybody, because a mock's whole job is to say yes.
+
+    That already happened once. ``test_channel_bulk_upsert.py`` carried the
+    line ``ch.detected_tmdb_id = detected_tmdb_id`` under the comment *"explicit
+    here so the mock is bindable"* — one file patched, the trap left armed, and
+    three files' worth of it went red when ``epg_channel_id`` was added.
+
+    So the defaults are read from ``_CATALOG_COLS`` itself: every column gets a
+    bindable ``None`` unless named below. A column added tomorrow is covered
+    the day it is added, by the same tuple production reads. This is CLAUDE.md's
+    shared-factory rule and its derived-guard rule pointing the same way.
+
+    Args:
+        **overrides: Any channel attribute to set explicitly. ``quality`` is
+            special-cased: pass the string (``quality="hd"``) and it is wrapped
+            in the ``.value`` shape production reads.
+
+    Returns:
+        The configured double.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.provider_loader import _CATALOG_COLS
+
+    ch = MagicMock()
+    for col in _CATALOG_COLS:
+        setattr(ch, col, None)
+
+    ch.raw_data = {}
+    ch.media_type = "live"
+    ch.stream_url = "http://example.com/stream"
+    ch.category = "General"
+    ch.category_id = "cat1"
+    ch.logo_url = ""
+    ch.name = "Test Channel"
+
+    quality = overrides.pop("quality", "hd")
+    ch.quality = MagicMock()
+    ch.quality.value = quality
+
+    for key, value in overrides.items():
+        setattr(ch, key, value)
+    return ch

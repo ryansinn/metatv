@@ -119,3 +119,38 @@ def test_the_primary_key_is_not_updated_on_conflict():
     """`id` is the conflict target; updating it would be nonsense."""
     assert "id" in _CATALOG_COLS
     assert "id" not in _CATALOG_UPDATE_COLS
+
+
+def test_channel_double_binds_every_catalog_column() -> None:
+    """The shared double must give every catalog column a value SQLite can bind.
+
+    This is the guard for the failure that took three test files down at once:
+    a bare ``MagicMock`` answers any attribute with another MagicMock, so adding
+    ``epg_channel_id`` to ``_CATALOG_COLS`` produced
+    ``Error binding parameter 9: type 'MagicMock' is not supported`` in every
+    file whose hand-written double had not been taught the new column.
+
+    Asserting over ``_CATALOG_COLS`` rather than a copied list is the whole
+    point — a column added tomorrow is checked tomorrow, by the same tuple
+    production reads.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.provider_loader import _CATALOG_COLS
+    from tests.conftest import make_channel_double
+
+    channel = make_channel_double(id="c1", source_id="c1", provider_id="p1")
+
+    unbindable = []
+    for col in _CATALOG_COLS:
+        value = getattr(channel, col)
+        # `quality` is read as `.value` by the loader, not directly.
+        if col == "quality":
+            value = value.value
+        if isinstance(value, MagicMock):
+            unbindable.append(col)
+
+    assert not unbindable, (
+        "make_channel_double leaves these catalog columns as MagicMock, which "
+        f"SQLite cannot bind: {unbindable}. Give them a default in the factory."
+    )
