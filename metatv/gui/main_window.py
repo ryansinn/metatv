@@ -443,6 +443,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # around it — it just re-runs the same update_detected_prefixes() pass.
         from metatv.core.migrations.restricted_backfill import RestrictedBackfillTask
         self.migration_manager.register(RestrictedBackfillTask(self.db))
+        from metatv.core.migrations.tag_case_merge import TagCaseMergeTask
+        self.migration_manager.register(TagCaseMergeTask(self.db))
         # Owner-reported gap: provider category strings carrying a leading
         # "|EN| ANIME"-style marker that duplicates channel-name language info —
         # one-time backfill of stored detected_collection(_language|_subdub) for

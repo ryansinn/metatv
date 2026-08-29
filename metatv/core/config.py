@@ -1182,6 +1182,8 @@ class Config(BaseModel):
     # populating ChannelDB.detected_restricted (computed at ingestion via
     # channel_name_utils.is_restricted_prefix()) for pre-existing rows.
     restricted_backfill_version: int = 0
+    #: Version of the case-variant tag merge that has been applied.
+    tag_case_merge_version: int = 0
 
     # Internal migration version for the category-marker backfill (owner-reported
     # gap — provider category strings carrying a leading "|EN| ANIME"-style marker

@@ -475,13 +475,26 @@ class TestTagIdCache:
         def counting_query(model):
             result = original_query(model)
             if model is TagDB:
+                # Counts BOTH .filter_by() and .filter(). This intercepted only
+                # filter_by, so when the lookup became case-insensitive (and
+                # therefore .filter(lower(value) == ...)) the counter silently
+                # saw ZERO queries and the test failed claiming no SELECT had
+                # happened. The query was running fine; the probe was blind to
+                # it. What the test means is "one lookup, then cache hits" —
+                # not "one lookup spelled a particular way".
                 original_filter_by = result.filter_by
+                original_filter = result.filter
 
                 def tracking_filter_by(**kw):
                     select_calls[0] += 1
                     return original_filter_by(**kw)
 
+                def tracking_filter(*a, **kw):
+                    select_calls[0] += 1
+                    return original_filter(*a, **kw)
+
                 result.filter_by = tracking_filter_by
+                result.filter = tracking_filter
             return result
 
         with file_db.session_scope() as session:
@@ -514,8 +527,15 @@ class TestTagIdCache:
             tag_id = tag.id
 
         # The cache should now hold (region, US) → tag_id.
-        assert ("region", "US") in _TAG_ID_CACHE
-        assert _TAG_ID_CACHE[("region", "US")] == tag_id
+        from metatv.core.repositories.tag import _tag_cache_key
+
+        assert _tag_cache_key("region", "US") in _TAG_ID_CACHE
+        # Via the key helper, not a literal tuple: the key is case-folded now
+        # ("region", "us"), and pinning its spelling made a correct change look
+        # like a regression. What matters is that the id is cached and reused.
+        from metatv.core.repositories.tag import _tag_cache_key
+
+        assert _TAG_ID_CACHE[_tag_cache_key("region", "US")] == tag_id
 
     def test_same_tag_across_many_channels_one_select(self, file_db):
         """Tagging 50 channels with the same tag triggers one SELECT (on the first) only.
@@ -547,13 +567,21 @@ class TestTagIdCache:
             def counting_query(model):
                 result = original_query(model)
                 if model is TagDB:
+                    # Both .filter_by() and .filter() — see the note on the
+                    # other counting_query in this file.
                     original_filter_by = result.filter_by
+                    original_filter = result.filter
 
                     def tracking_filter_by(**kw):
                         select_calls[0] += 1
                         return original_filter_by(**kw)
 
+                    def tracking_filter(*a, **kw):
+                        select_calls[0] += 1
+                        return original_filter(*a, **kw)
+
                     result.filter_by = tracking_filter_by
+                    result.filter = tracking_filter
                 return result
 
             session.query = counting_query  # type: ignore[method-assign]
