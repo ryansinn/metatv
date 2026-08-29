@@ -282,15 +282,20 @@ class _FavoritesMixin:
         Returns:
             True if that section is showing that channel right now.
         """
-        section = self.sidebar_sections.get(section_key)
-        has_row = getattr(section, "has_row", None)
-        if not callable(has_row):
-            return False
         try:
+            section = self.sidebar_sections.get(section_key)
+            has_row = getattr(section, "has_row", None)
+            if not callable(has_row):
+                return False
             return bool(has_row(channel_id))
+        except RuntimeError:  # silent: a half-built host (MainWindow.__new__ in
+            # a test double) raises this from PyQt rather than AttributeError.
+            # Answering "not shown" makes the caller do the full refresh it
+            # would have done anyway; there is nothing to report.
+            return False
         except Exception:
             logger.exception(
-                "sidebar: could not test %s for %s", section_key, channel_id
+                "sidebar: could not test {} for {}", section_key, channel_id
             )
             return False
 

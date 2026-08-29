@@ -508,7 +508,10 @@ class InPlaceRowMixin:
         """
         try:
             lst = self._removal_list()
-        except Exception:
+        except Exception:  # silent: a section whose list widget is gone or not
+            # yet built is simply not showing this row. The caller's next step
+            # on False is a full refresh, which is the correct answer either
+            # way, so there is no failure here to report.
             return False
         if lst is None:
             return False

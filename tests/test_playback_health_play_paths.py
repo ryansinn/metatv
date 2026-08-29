@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from tests.conftest import wire_sidebar_membership
+
 import pytest
 
 
@@ -40,6 +42,7 @@ def _bare_window(qapp):
     win.loading_channels = set()
     win._provider_icons = {}                             # source-glyph cache for the readout
     win.stream_retry_manager = MagicMock()               # failure path records here
+    wire_sidebar_membership(win)                          # play asks before rebuilding
     win.load_history = MagicMock()
     win.load_favorites = MagicMock()
     win._refresh_queue_section = MagicMock()
