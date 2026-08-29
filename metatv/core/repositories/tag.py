@@ -1489,19 +1489,9 @@ class TagRepository:
     # Variant-collapse helper (shared chokepoint for dedup Slice 2)
     # ------------------------------------------------------------------
 
-    # Quality rank constants used in the representative-pick CASE expression.
-    # Lower rank = higher quality = preferred representative.
-    # All tiers: 4K/8K/UHD=0, FHD/HDR=1, HD=2, everything else (SD/LQ/NULL)=3.
-    _QUALITY_RANK_CASE = (
-        "CASE detected_quality"
-        " WHEN '4K'  THEN 0"
-        " WHEN '8K'  THEN 0"
-        " WHEN 'UHD' THEN 0"
-        " WHEN 'FHD' THEN 1"
-        " WHEN 'HDR' THEN 1"
-        " WHEN 'HD'  THEN 2"
-        " ELSE 3 END"
-    )
+    # (A third hardcoded quality ladder lived here as _QUALITY_RANK_CASE with
+    # NO callers — dead, but the next person to need a rank would have found it
+    # and used it. Deleted; the rank comes from QUALITY_TIER_RANK below.)
 
     def _build_collapsed_sample_query(
         self,
@@ -1537,7 +1527,11 @@ class TagRepository:
             ``.offset(n).limit(k).all()``.
         """
         from metatv.core.database import ChannelDB
-        from sqlalchemy import func as _func, text as _text
+        from sqlalchemy import case as _case, func as _func
+
+        from metatv.core.channel_name_utils import (
+            QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT,
+        )
 
         # ── INNER ── join ChannelDB to the faceted match set; apply name filter.
         _title_expr = _func.coalesce(
@@ -1558,15 +1552,27 @@ class TagRepository:
             inner.c.content_key,
             _func.concat("id:", inner.c.id),
         )
-        _rep_rank = _text(
-            "CASE inner_ch.detected_quality"
-            " WHEN '4K'  THEN 0"
-            " WHEN '8K'  THEN 0"
-            " WHEN 'UHD' THEN 0"
-            " WHEN 'FHD' THEN 1"
-            " WHEN 'HDR' THEN 1"
-            " WHEN 'HD'  THEN 2"
-            " ELSE 3 END"
+        # Built from QUALITY_TIER_RANK, not a local ladder. This was a
+        # hardcoded CASE, and it DISAGREED with the canonical table on ordering
+        # — not just on values:
+        #
+        #   HDR   canonical: unranked → default, BELOW HD (it is a dynamic-range
+        #         descriptor, not a resolution tier, and the table says so in as
+        #         many words: "not comparable to a resolution tier, so they fall
+        #         back to _QUALITY_TIER_RANK_DEFAULT rather than a made-up
+        #         position")
+        #         local:     1, tied with FHD and ABOVE HD — the made-up
+        #         position the table exists to prevent
+        #   8K    canonical: beats 4K.        local: tied with it
+        #   SD    canonical: beats LQ.        local: tied with it
+        #
+        # So a title with an HD copy and an HDR copy elected HD in the channel
+        # list and HDR in Discover: two surfaces, same data, different answer.
+        _max_rank = max(QUALITY_TIER_RANK.values())
+        _rep_rank = _case(
+            *[(inner.c.detected_quality == tok, _max_rank - rank)
+              for tok, rank in QUALITY_TIER_RANK.items()],
+            else_=_max_rank - _QUALITY_TIER_RANK_DEFAULT,
         )
 
         # SQLAlchemy doesn't have a first-class window-function API that maps
