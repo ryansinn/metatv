@@ -14,7 +14,9 @@ precisely to test what they have.
 from __future__ import annotations
 
 import shutil
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -30,14 +32,47 @@ def _sh(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
 
 
+def _extract_function(name: str) -> str:
+    """Return just *name*'s definition from run.sh, as text.
+
+    Sliced in PYTHON rather than with ``source <(sed -n ...)``. That version
+    passed on Linux and failed on every macOS CI run with
+    ``warn_if_behind: command not found`` — the extraction silently produced
+    nothing, so the test reported a missing function rather than anything about
+    the behaviour it guards. Process substitution and sed dialects are two
+    portability bets this test never needed to make.
+    """
+    lines = RUN_SH.read_text().splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.startswith(f"{name}()"))
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("}"))
+    return "\n".join(lines[start:end + 1])
+
+
 def _call_notice(cwd: Path, target: Path) -> str:
     """Run only warn_if_behind, so nothing launches the app."""
-    script = (
-        f'source <(sed -n "/^warn_if_behind()/,/^}}/p" {RUN_SH}); '
-        f'warn_if_behind "{target}"'
-    )
-    out = _sh("bash", "-c", script, cwd=cwd)
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
+        fh.write(_extract_function("warn_if_behind"))
+        fn_path = fh.name
+    try:
+        out = _sh(
+            "bash", "-c", f'source "{fn_path}"; warn_if_behind "{target}"', cwd=cwd
+        )
+    finally:
+        os.unlink(fn_path)
     return out.stdout + out.stderr
+
+
+def test_the_function_is_actually_extracted():
+    """Guards the harness itself.
+
+    The macOS failures were the extraction returning nothing, which every other
+    test in this file then reported as "command not found" — a harness fault
+    wearing the costume of a behaviour fault.
+    """
+    body = _extract_function("warn_if_behind")
+    assert body.startswith("warn_if_behind()")
+    assert body.rstrip().endswith("}")
+    assert len(body.splitlines()) > 3, "extracted an empty or truncated function"
 
 
 @pytest.fixture()
