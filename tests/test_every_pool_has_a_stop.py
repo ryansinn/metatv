@@ -69,6 +69,48 @@ def _stop_methods_for(cls: ast.ClassDef) -> "set[str]":
     return found
 
 
+def _with_helpers_called(cls: ast.ClassDef, methods: list[ast.FunctionDef]) -> str:
+    """Source of *methods* plus any of the class's OWN methods they call.
+
+    One level of indirection, because a stop method is allowed to delegate.
+    ``EpgView.on_deactivate`` calls ``self._dispose_executor()``, which is
+    where the shutdown lives — a purely textual scan of ``on_deactivate``
+    reported that as "never shuts a pool down", which is the guard failing to
+    read code it should understand rather than a defect in the code.
+
+    Deliberately not solved by adding ``_dispose_executor`` to the evidence
+    tokens: that is a hand-maintained list of helper names, and the next one
+    would be missing from it.
+    """
+    known = _all_classes()
+    own: dict[str, ast.FunctionDef] = {}
+    stack = [cls]
+    seen: set[str] = set()
+    while stack:
+        node = stack.pop()
+        if node.name in seen:
+            continue
+        seen.add(node.name)
+        for n in node.body:
+            if isinstance(n, ast.FunctionDef):
+                own.setdefault(n.name, n)
+        for base in node.bases:
+            name = getattr(base, "id", None) or getattr(base, "attr", None)
+            if name in known:
+                stack.append(known[name])
+
+    src = [ast.unparse(m) for m in methods]
+    for method in methods:
+        for call in (n for n in ast.walk(method) if isinstance(n, ast.Call)):
+            func = call.func
+            if (isinstance(func, ast.Attribute)
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "self"
+                    and func.attr in own):
+                src.append(ast.unparse(own[func.attr]))
+    return "\n".join(src)
+
+
 def _stop_source_for(cls: ast.ClassDef) -> str:
     """Source of every stop method available to *cls*, own and inherited."""
     known = _all_classes()
@@ -80,10 +122,10 @@ def _stop_source_for(cls: ast.ClassDef) -> str:
         if node.name in seen:
             continue
         seen.add(node.name)
-        src += [
-            ast.unparse(n) for n in node.body
+        src.append(_with_helpers_called(cls, [
+            n for n in node.body
             if isinstance(n, ast.FunctionDef) and n.name in _STOP_METHODS
-        ]
+        ]))
         for base in node.bases:
             name = getattr(base, "id", None) or getattr(base, "attr", None)
             if name in known:
@@ -185,3 +227,101 @@ def test_the_registry_stops_every_pool_owner_the_window_holds_directly():
     # registered under.
     for key in ("trail_map", "lightbox"):
         assert key in registered, f"{key} is not in the cleanup registry"
+
+
+def _views_the_window_embeds() -> dict[str, str]:
+    """``{attribute: class}`` for pool-owning classes assigned to ``self.<x>``.
+
+    Derived from main_window's own AST rather than named, so a view added
+    tomorrow is covered on the day it is added.
+    """
+    src = (GUI / "main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    pool_owning = {cls.name for _path, cls in _classes_owning_a_pool()}
+
+    held: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        ctor = getattr(node.value.func, "id", None) or getattr(node.value.func, "attr", None)
+        if ctor not in pool_owning:
+            continue
+        for target in node.targets:
+            if (isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "self"):
+                held[target.attr] = ctor
+    return held
+
+
+#: Stop methods the HOST actually calls on an embedded view. ``closeEvent`` is
+#: deliberately absent: Qt fires it when a WIDGET is closed, and a view living
+#: in the main window's layout never is.
+_HOST_CALLED_STOPS = {"shutdown", "on_deactivate"}
+
+
+def _host_called_stop_source(cls: ast.ClassDef) -> str:
+    """Source of only those stop methods the host will actually invoke."""
+    known = _all_classes()
+    seen: set[str] = set()
+    src: list[str] = []
+    stack = [cls]
+    while stack:
+        node = stack.pop()
+        if node.name in seen:
+            continue
+        seen.add(node.name)
+        src.append(_with_helpers_called(cls, [
+            n for n in node.body
+            if isinstance(n, ast.FunctionDef) and n.name in _HOST_CALLED_STOPS
+        ]))
+        for base in node.bases:
+            name = getattr(base, "id", None) or getattr(base, "attr", None)
+            if name in known:
+                stack.append(known[name])
+    return "\n".join(src)
+
+
+def test_an_embedded_view_stops_its_pool_from_a_method_the_host_calls():
+    """A stop path that cannot run is not a stop path.
+
+    ``EpgView`` passed every other test in this file. It defines
+    ``closeEvent``; that ``closeEvent`` really does call
+    ``self._executor.shutdown``; ``closeEvent`` is in ``_STOP_METHODS``. All
+    true — and ``EpgView_0`` was still alive after ``win.close()``, measured
+    rather than inferred. Qt calls ``closeEvent`` when a WIDGET is closed, and
+    a view inside the main window's layout never is.
+
+    Its ``on_deactivate`` existed too, which is why "the only stop is
+    closeEvent" would not have caught it either: the method was there and
+    stopped a TIMER, not the pool.
+
+    So the question this asks is the one that matters: among the methods the
+    host actually invokes — ``on_deactivate`` on every view switch and on
+    close, or a registered ``shutdown`` — does anything stop the pool?
+
+    ``PreferencesView`` has done this since #549. This is the same rule
+    applied to the view that was missed.
+    """
+    embedded = _views_the_window_embeds()
+    assert embedded, "no pool-owning view found on the window — the scan is broken"
+
+    by_name = {cls.name: cls for _path, cls in _classes_owning_a_pool()}
+    _EVIDENCE = ("shutdown(", "_stop_loader", "quit()", "join(",
+                 "_await_background_pools", "_cleanables")
+
+    offenders = {}
+    for attr, ctor in embedded.items():
+        cls = by_name.get(ctor)
+        if cls is None:
+            continue
+        src = _host_called_stop_source(cls)
+        if not any(tok in src for tok in _EVIDENCE):
+            offenders[attr] = ctor
+
+    assert not offenders, (
+        "these embedded views never stop their pool from a method the host "
+        f"calls, so the pool outlives the window: {offenders}. closeEvent does "
+        "not count — Qt never fires it for a child widget. Stop the pool in "
+        "on_deactivate, as PreferencesView does."
+    )

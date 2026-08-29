@@ -127,7 +127,8 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         super().__init__(config, parent)
         self.db = db
         self.epg_manager = epg_manager
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="EpgView")
+        # The pool itself is created lazily by the _executor property below,
+        # so on_deactivate can dispose it and re-entering the view revives it.
         self._provider_ids: list[str] = []
         self._channel_name_map: dict[str, str] = {}    # channel_db_id → name
         self._channel_quality_map: dict[str, str] = {}  # channel_db_id → quality (e.g. "hd")
@@ -505,8 +506,58 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self.epg_manager.relink_all()
         self._live_refresh_timer.start()
 
+    @property
+    def _executor(self) -> ThreadPoolExecutor:
+        """The view's worker pool, created on first use and after disposal.
+
+        A property rather than a plain attribute because ``on_deactivate`` has
+        to be able to DISPOSE of the pool — a shut-down executor raises
+        ``RuntimeError: cannot schedule new futures after shutdown`` on the
+        next submit, so stopping it on the way out would otherwise break
+        re-entering the view.
+
+        Six ``self._executor.submit(...)`` call sites across four mixins keep
+        working unchanged; rewriting each of them to ask for a live pool is
+        exactly the per-call-site enumeration this codebase keeps paying for.
+        """
+        executor = self.__dict__.get("_executor_pool")
+        if executor is None:
+            executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="EpgView")
+            self.__dict__["_executor_pool"] = executor
+        return executor
+
+    @_executor.setter
+    def _executor(self, executor) -> None:
+        """Allow assignment, which several tests use to inject a fake pool.
+
+        Turning the attribute into a property would otherwise raise
+        ``AttributeError: property '_executor' has no setter`` at every
+        ``view._executor = FakeExecutor()`` — nine of them, none of which are
+        doing anything wrong.
+        """
+        self.__dict__["_executor_pool"] = executor
+
+    def _dispose_executor(self) -> None:
+        """Stop the pool and forget it, so the property builds a fresh one."""
+        executor = self.__dict__.pop("_executor_pool", None)
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     def on_deactivate(self) -> None:
+        """Stop the timer AND the owned pool.
+
+        The pool was stopped only by ``closeEvent``, which Qt never calls for a
+        child widget sitting in the main window's layout — closing a window
+        does not close its children. So ``EpgView_0`` outlived both the view
+        switch and the window: measured alive after ``win.close()``.
+
+        ``PreferencesView.on_deactivate`` has done exactly this since #549;
+        this is the same view-owns-its-pool rule, applied to the view that was
+        missed. A thread still running while the objects it touches are
+        destroyed is what aborts the process on quit.
+        """
         self._live_refresh_timer.stop()
+        self._dispose_executor()
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this view's own persistent chrome —
@@ -885,6 +936,9 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             session.close()
 
     def closeEvent(self, event) -> None:
-        self._executor.shutdown(wait=False)
+        # Via _dispose_executor so this does not CREATE a pool through the
+        # property just to shut it down. Qt does not call this for a child
+        # widget anyway — on_deactivate is the path that actually runs.
+        self._dispose_executor()
         super().closeEvent(event)
 
