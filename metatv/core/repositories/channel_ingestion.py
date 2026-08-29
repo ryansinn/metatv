@@ -907,69 +907,108 @@ class ChannelIngestionMixin:
         if provider_id:
             idless_q = idless_q.filter(ChannelDB.provider_id == provider_id)
 
+        # Paged with a keyset cursor, NOT streamed with yield_per. This loop
+        # commits, and a commit hands the connection back to the pool — which
+        # CLOSES it when it was an overflow connection. The pass runs on a
+        # worker thread beside the EPG fetch, the series monitor and the UI, so
+        # it usually IS one. The cursor yield_per left open then raises
+        # ``sqlite3.ProgrammingError: Cannot operate on a closed database``,
+        # _propagate_after_drain logs it and abandons the pass, and adoption
+        # stops after a single batch — six times in the owner's log, against a
+        # library with 237,490 idless rows to work through.
+        #
+        # Paging closes the cursor before any write, so a commit has nothing
+        # left to invalidate. A keyset cursor rather than OFFSET because this
+        # loop writes the very column the filter tests: rows leave the result
+        # set as it runs, and OFFSET would step over their neighbours.
         adopted = 0
         pending = 0
-        for cid, det_title, mt, det_year in idless_q.yield_per(_BATCH):
-            norm = normalize_title_for_key(det_title or "")
-            if not norm:
-                continue
-            bucket = groups.get((norm, mt or ""))
-            if not bucket:
-                continue
-            my_year = _start_year_int(det_year)
-            # Tier 1 — EXACT year. When this row and a sibling both carry a
-            # real year and those years are equal, that sibling identifies the
-            # same production by the system's own axiom (movie identity is
-            # title+year: it is what the fallback key itself keys on). A remake
-            # elsewhere in the catalogue is irrelevant to a match this precise,
-            # so it must not veto — and under the coarse tier below it does,
-            # because that bucket spans every year and a ±1 window treats a
-            # stored None as compatible with everything.
-            #
-            # Measured on the owner's library: 109 idless rows across 88 groups
-            # sit beside exactly one id-bearing sibling at their own explicit
-            # year and are refused today. It is deliberately not more. Grouping
-            # "same title, NEITHER has a year" as a year match would reach 6,297
-            # rows — and that is the coarse merge this system refuses on
-            # purpose, the one that put a Disney animation, an anime and a
-            # documentary under one `aladdin|movie|` key. A missing year is not
-            # a matching year.
-            exact_ids = (
-                {tid for tid, syear in bucket.items() if syear == my_year}
-                if my_year is not None
-                else set()
+        committed = False
+        after = ""
+        while True:
+            page = (
+                idless_q.filter(ChannelDB.id > after)
+                .order_by(ChannelDB.id)
+                .limit(_BATCH)
+                .all()
             )
-            if len(exact_ids) == 1:
-                compat_ids = exact_ids
-            else:
-                # Tier 2 — the coarse year-compatible bucket, unchanged. Carries
-                # the yearless rows, where a ±1 window over an unknown year is
-                # the only evidence available.
-                compat_ids = {
-                    tid
-                    for tid, syear in bucket.items()
-                    if my_year is None or syear is None or abs(my_year - syear) <= 1
-                }
-            if len(compat_ids) != 1:
-                continue  # no candidate, or ambiguous remake split → don't guess
-            tmdb = next(iter(compat_ids))
-            proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=mt or "", id=cid)
-            self.session.execute(
-                update(ChannelDB)
-                .where(ChannelDB.id == cid)
-                .values(
-                    detected_tmdb_id=tmdb,
-                    content_key=content_key_for(proxy),
-                    tmdb_enrich_state="propagated",
+            if not page:
+                break
+            after = page[-1][0]
+            for cid, det_title, mt, det_year in page:
+                norm = normalize_title_for_key(det_title or "")
+                if not norm:
+                    continue
+                bucket = groups.get((norm, mt or ""))
+                if not bucket:
+                    continue
+                my_year = _start_year_int(det_year)
+                # Tier 1 — EXACT year. When this row and a sibling both carry a
+                # real year and those years are equal, that sibling identifies the
+                # same production by the system's own axiom (movie identity is
+                # title+year: it is what the fallback key itself keys on). A remake
+                # elsewhere in the catalogue is irrelevant to a match this precise,
+                # so it must not veto — and under the coarse tier below it does,
+                # because that bucket spans every year and a ±1 window treats a
+                # stored None as compatible with everything.
+                #
+                # Measured on the owner's library: 109 idless rows across 88 groups
+                # sit beside exactly one id-bearing sibling at their own explicit
+                # year and are refused today. It is deliberately not more. Grouping
+                # "same title, NEITHER has a year" as a year match would reach 6,297
+                # rows — and that is the coarse merge this system refuses on
+                # purpose, the one that put a Disney animation, an anime and a
+                # documentary under one `aladdin|movie|` key. A missing year is not
+                # a matching year.
+                exact_ids = (
+                    {tid for tid, syear in bucket.items() if syear == my_year}
+                    if my_year is not None
+                    else set()
                 )
-            )
-            adopted += 1
-            pending += 1
-            if pending >= _BATCH:
+                if len(exact_ids) == 1:
+                    compat_ids = exact_ids
+                else:
+                    # Tier 2 — the coarse year-compatible bucket, unchanged. Carries
+                    # the yearless rows, where a ±1 window over an unknown year is
+                    # the only evidence available.
+                    compat_ids = {
+                        tid
+                        for tid, syear in bucket.items()
+                        if my_year is None or syear is None or abs(my_year - syear) <= 1
+                    }
+                if len(compat_ids) != 1:
+                    continue  # no candidate, or ambiguous remake split → don't guess
+                tmdb = next(iter(compat_ids))
+                proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=mt or "", id=cid)
+                self.session.execute(
+                    update(ChannelDB)
+                    .where(ChannelDB.id == cid)
+                    .values(
+                        detected_tmdb_id=tmdb,
+                        content_key=content_key_for(proxy),
+                        tmdb_enrich_state="propagated",
+                    )
+                )
+                adopted += 1
+                pending += 1
+            # One commit per page — outside the row loop, where this page's
+            # cursor is already exhausted.
+            if pending:
                 self.session.commit()
+                committed = True
                 pending = 0
 
-        self.session.commit()
+        # Every pass still ends on exactly ONE commit per unit of work, and on
+        # at least one commit even having adopted nothing: it closes the read
+        # transaction this pass opened, and TestBackfillTaskSurvivesPropagationLock
+        # counts on each propagation phase reaching a commit it can fail so the
+        # lock retry is exercised. What changed is that a page-committing pass
+        # no longer ALSO commits at the end — that made it commit twice, which
+        # TestPropagationLockRetry caught as a fourth attempt where it expects
+        # three.
+        if not committed:
+            self.session.commit()
+
         if adopted:
             logger.info(
                 "tmdb_sibling_propagation: adopted {} idless row(s) from title siblings",

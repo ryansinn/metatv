@@ -11,7 +11,7 @@
     "metatv/core/preference_engine.py": 1083,
     "metatv/core/provider_loader.py": 1273,
     "metatv/core/repositories/channel.py": 3188,
-    "metatv/core/repositories/channel_ingestion.py": 1260,
+    "metatv/core/repositories/channel_ingestion.py": 1299,
     "metatv/core/repositories/tag.py": 1775,
     "metatv/gui/details_sections.py": 1797,
     "metatv/gui/discover_view.py": 1023,
