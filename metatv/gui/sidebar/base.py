@@ -686,6 +686,35 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         """
         return None
 
+    @staticmethod
+    def count_content_rows(lst) -> int:
+        """Rows in *lst* that are CONTENT, not chrome.
+
+        Counts what qualifies rather than subtracting what does not. The four
+        sections each carried their own version that excluded the ``+N more``
+        tail by role — and only that. Group headings ("Continue Watching") and
+        the empty-state placeholders ("No favorites yet") are list items too, so
+        they were counted as content: Favorites read **2** with no favorites at
+        all, because the two lines telling the user there are none are two rows.
+        Watch Queue read 5 for three titles under two headings.
+
+        Every kind of chrome here is non-selectable — placeholders and headings
+        are built with ``NoItemFlags``, and the more-row clears
+        ``ItemIsSelectable`` — while every real row is selectable so it can be
+        clicked. One predicate therefore covers all three, and covers a fourth
+        kind nobody has invented yet, which an exclusion list cannot.
+
+        Args:
+            lst: The section's ``QListWidget``.
+
+        Returns:
+            The number of selectable rows.
+        """
+        return sum(
+            1 for i in range(lst.count())
+            if lst.item(i).flags() & Qt.ItemFlag.ItemIsSelectable
+        )
+
     def header_status(self) -> str:
         """The text in the header's right-hand slot: news if any, else a count."""
         headline = self.news()

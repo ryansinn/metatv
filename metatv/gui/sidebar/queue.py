@@ -227,19 +227,16 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         quiet.
 
         Read off the list itself rather than tracked separately, so the header
-        cannot claim a number the rows disagree with. The ``+N more`` tail is
-        excluded: it is chrome, not content.
+        cannot claim a number the rows disagree with — counted through the one
+        shared ``count_content_rows``, which counts SELECTABLE rows so group
+        headings, empty-state placeholders and the ``+N more`` tail are all
+        excluded as the chrome they are.
         """
-
-        from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 
         lst = self.__dict__.get("_list")
         if lst is None:
             return None
-        return sum(
-            1 for i in range(lst.count())
-            if lst.item(i).data(_MORE_ROLE) != _MORE_ROW
-        )
+        return self.count_content_rows(lst)
 
     def news(self) -> str:
         """Unviewed watch-for matches — the "a new season dropped" signal.
