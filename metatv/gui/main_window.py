@@ -3052,8 +3052,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.setVisible(sid in visible_ids)
     
     def show_about(self):
-        """Show about dialog"""
-        logger.info("Show about")
+        """Open the About dialog.
+
+        This logged "Show about" and returned for as long as the menu item has
+        existed — a discoverable entry point that did nothing, and nothing
+        tested it, so nothing said so.
+        """
+        from metatv.gui.about_dialog import AboutDialog
+
+        AboutDialog(self).exec()
 
     # ------------------------------------------------------------------
     # What's New

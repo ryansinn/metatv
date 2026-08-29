@@ -983,9 +983,13 @@ def _build_semantic_constants() -> dict[str, object]:
     # is what they are.  Owner: "what's new content could be sized down
     # slightly. same with the title of the whats new entry (not the 'What's
     # New' title)".
-    WHATS_NEW_TITLE = (
+    # The heading at the top of a dialog. Generic because a second dialog
+    # (About) wanted the identical style — the moment a copy would be wrong.
+    DIALOG_TITLE = (
         "font-size: " + FONT_XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     )
+    # Kept as a name because the What's New call site reads better for it.
+    WHATS_NEW_TITLE = DIALOG_TITLE
     WHATS_NEW_META = (
         "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )
