@@ -1,7 +1,7 @@
 """Main entry point for MetaTV application"""
 
 import sys
-from pathlib import Path
+import os
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
@@ -19,8 +19,9 @@ from metatv.core.url_policy import UrlRankingPolicy, set_url_ranking_policy
 
 def setup_logging():
     """Configure application logging"""
-    log_dir = Path.home() / ".config" / "metatv" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    from metatv.core.log_paths import ACTIVE_LOG_NAME, log_directory
+
+    log_dir = log_directory(create=True)
 
     # Redact credentials on EVERY record, before any sink sees it.
     #
@@ -43,11 +44,20 @@ def setup_logging():
 
     logger.configure(patcher=_scrub)
 
+    # DEBUG was hardcoded here, in the shipped app. Two logger.debug calls in
+    # the raw-metadata parser fired 650,101 times each and produced 1.30M of
+    # 1.44M lines — 330 MB across the retention window, which then held 8 days
+    # of noise where it would otherwise hold 76 days of signal. The level is
+    # now INFO by default and DEBUG on request, via METATV_LOG_LEVEL, so a
+    # support session can turn it up without a rebuild.
+    level = os.environ.get("METATV_LOG_LEVEL", "INFO").upper()
+    if level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+        level = "INFO"
     logger.add(
-        log_dir / "metatv.log",
+        log_dir / ACTIVE_LOG_NAME,
         rotation="10 MB",
         retention="7 days",
-        level="DEBUG"
+        level=level,
     )
     logger.info("MetaTV starting...")
 
