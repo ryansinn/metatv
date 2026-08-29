@@ -424,6 +424,9 @@ class _ProviderEditorTabsMixin:
         max_pri = max((u.priority for u in self._provider_urls), default=-1)
         self._provider_urls.append(ProviderURL(url=url, priority=max_pri + 1))
         self._new_url_input.clear()
+        # Caret back in the empty field: adding several fallback URLs in a row
+        # is the normal case, and this surface already accepted Enter.
+        self._new_url_input.setFocus()
         self._rebuild_url_list()
 
     def _remove_url(self, idx: int) -> None:

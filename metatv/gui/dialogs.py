@@ -53,17 +53,20 @@ class AddProviderDialog(QDialog):
         url_layout = QVBoxLayout(url_container)
         url_layout.setContentsMargins(0, 0, 0, 0)
         
-        # URL list with priorities
-        self.url_list = QListWidget()
-        self.url_list.setMaximumHeight(100)
+        # URL entry FIRST, then the list it fills — the same order the source
+        # editor uses. These two surfaces do the same job and had the field on
+        # opposite sides of the list, so the muscle memory from one was wrong
+        # in the other.
         url_layout.addWidget(QLabel("DNS/URLs (priority order):"))
-        url_layout.addWidget(self.url_list)
-        
-        # URL input and buttons
+
         url_input_layout = QHBoxLayout()
         self.url_input = QLineEdit()
         self.url_input.setClearButtonEnabled(True)
         self.url_input.setPlaceholderText("http://example.com:8000")
+        # Enter adds the URL. Typing a URL and pressing Enter is what everyone
+        # tries first; without this it did nothing here, while the source
+        # editor accepted it — the same keystroke, two different outcomes.
+        self.url_input.returnPressed.connect(self.add_url)
         url_input_layout.addWidget(self.url_input)
         
         add_url_btn = QPushButton(_icons.add_icon)
@@ -79,6 +82,11 @@ class AddProviderDialog(QDialog):
         url_input_layout.addWidget(remove_url_btn)
         
         url_layout.addLayout(url_input_layout)
+
+        self.url_list = QListWidget()
+        self.url_list.setMaximumHeight(100)
+        url_layout.addWidget(self.url_list)
+
         form.addRow("", url_container)
         
         self.username_input = QLineEdit()
@@ -134,11 +142,19 @@ class AddProviderDialog(QDialog):
         layout.addWidget(button_box)
     
     def add_url(self):
-        """Add URL to list"""
+        """Add the typed URL to the list and return the caret for the next one.
+
+        Entering several fallback URLs is the normal case for a source, so the
+        field keeps focus: type, Enter, type, Enter. Without the refocus the
+        caret was left wherever Qt put it and the second URL had to be
+        clicked for.
+        """
         url = self.url_input.text().strip()
-        if url:
-            self.url_list.addItem(url)
-            self.url_input.clear()
+        if not url:
+            return
+        self.url_list.addItem(url)
+        self.url_input.clear()
+        self.url_input.setFocus()
     
     def remove_url(self):
         """Remove selected URL from list"""
