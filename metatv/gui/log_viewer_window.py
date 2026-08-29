@@ -184,7 +184,11 @@ class LogViewerWindow(QWidget):
         root.addLayout(buttons)
 
         self.status_lbl = QLabel("")
-        _theme.style(self.status_lbl, "LOG_STATUS")
+        # META_HINT, not a new role: it is already "small text, body colour",
+        # which is exactly what this line is. A LOG_STATUS defined here would
+        # have been a duplicate shape (the theme suite counts those) and would
+        # have reached for COLOR_MUTED, which cannot clear 4.5:1 on any surface.
+        _theme.style(self.status_lbl, "META_HINT")
         root.addWidget(self.status_lbl)
         self._update_status()
 

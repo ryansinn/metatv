@@ -135,4 +135,20 @@ _IDENTICAL_GROUP_BUDGET = 25
 # The heading joined the cluster when its colour moved OFF COLOR_MUTED — muted
 # measured 4.15:1 and failed the 4.5 text floor in four of six palettes — which
 # is a fix, not debt.
-_SHAPE_CLUSTER_BUDGET = 42
+# 42 -> 43, justified rather than absorbed.
+#
+# The new cluster is LOG_STREAM / QA_FAIL_NOTE_BOX. Both declare background,
+# color, border, border-radius, padding and font-size on QPlainTextEdit — the
+# same property NAMES, which is what this test compares — and every value
+# differs, because they are opposite kinds of surface:
+#
+#   LOG_STREAM         the deepest app ground and a neutral border: a full-panel
+#                      wall of dense monospace in its own window, where the
+#                      darkest ground gives the smallest legible type the most
+#                      contrast to work with
+#   QA_FAIL_NOTE_BOX   an error TINT and an error border: a small inline box
+#                      revealed beneath a failed step, where the colour is the
+#                      signal
+#
+# Merging them would paint the log viewer as a failure notice. Kept apart.
+_SHAPE_CLUSTER_BUDGET = 43

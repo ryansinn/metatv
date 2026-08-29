@@ -285,7 +285,6 @@ def _build_semantic_constants() -> dict[str, object]:
         + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM
         + "; padding: 6px; font-size: " + FONT_SM + "; }"
     )
-    LOG_STATUS = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
     # A control at rest gets the CONTAINER surface, not COLOR_LINE — that is a
     # separator hairline, and pairing it with COLOR_DIM measured 2.70:1 in every
     # palette. Same mistake, same family, as the results list reading COLOR_LINE
