@@ -923,6 +923,7 @@ class ChannelIngestionMixin:
         # set as it runs, and OFFSET would step over their neighbours.
         adopted = 0
         pending = 0
+        committed = False
         after = ""
         while True:
             page = (
@@ -994,9 +995,20 @@ class ChannelIngestionMixin:
             # cursor is already exhausted.
             if pending:
                 self.session.commit()
+                committed = True
                 pending = 0
 
-        self.session.commit()
+        # Every pass still ends on exactly ONE commit per unit of work, and on
+        # at least one commit even having adopted nothing: it closes the read
+        # transaction this pass opened, and TestBackfillTaskSurvivesPropagationLock
+        # counts on each propagation phase reaching a commit it can fail so the
+        # lock retry is exercised. What changed is that a page-committing pass
+        # no longer ALSO commits at the end — that made it commit twice, which
+        # TestPropagationLockRetry caught as a fourth attempt where it expects
+        # three.
+        if not committed:
+            self.session.commit()
+
         if adopted:
             logger.info(
                 "tmdb_sibling_propagation: adopted {} idless row(s) from title siblings",
