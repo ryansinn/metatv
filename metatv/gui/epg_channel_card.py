@@ -40,12 +40,45 @@ if TYPE_CHECKING:
     from metatv.core.database import EpgProgramDB
 
 
+#: What a pinned channel's card says when it has no programme, by why.
+#:
+#: "No EPG data" used to cover all three. Only the first is temporary; the
+#: other two mean the alert can NEVER fire, and the owner had one of each
+#: pinned with nothing on screen distinguishing them from a channel whose
+#: guide had simply not loaded yet.
+#: ``state -> (line on the card, what to do about it)``. The second half is
+#: state-specific on purpose: "re-enable the source" is good advice for a
+#: source that was switched off and nonsense for one that no longer exists.
+_STATE_MESSAGE: dict[str, tuple[str, str]] = {
+    "ok": ("No EPG data", ""),
+    "source_off": (
+        "Source is turned off — this alert cannot fire",
+        "Turn the source back on in Sources, or remove this channel from Watch Alerts.",
+    ),
+    "gone": (
+        "Source was removed — this channel no longer exists",
+        "Nothing can restore this one. Remove it from Watch Alerts, or pin the "
+        "same channel from a source you still have.",
+    ),
+}
+
+
 def build_pinned_channel_card(view, channel_db_id: str, channel_name: str,
-                              prog: "EpgProgramDB | None") -> QWidget:
+                              prog: "EpgProgramDB | None",
+                              state: str = "ok") -> QWidget:
     """Build a watchlist channel card from stored detected_* fields.
 
     Reads ``_channel_*`` maps populated by ``_build_name_map`` — no
     ``parse_channel_name()`` call (ingestion-only rule, CLAUDE.md).
+
+    Args:
+        view: The EpgView (for its maps, config and action handlers).
+        channel_db_id: Channel id.
+        channel_name: Fallback display name.
+        prog: The programme on now, or None.
+        state: Why there is no programme — ``"ok"``, ``"source_off"`` or
+            ``"gone"``. Computed at load from ``get_hidden_provider_ids()``,
+            not re-derived here.
     """
     w = QWidget()
     w.setMinimumWidth(280)
@@ -126,8 +159,18 @@ def build_pinned_channel_card(view, channel_db_id: str, channel_name: str,
         _theme.style_fn(prog_lbl, lambda: f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
         layout.addWidget(prog_lbl)
     else:
-        no_epg = QLabel("  No EPG data")
-        _theme.style_fn(no_epg, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
+        # A dead pin is warned about, not merely described. Colour alone would
+        # not carry it (CLAUDE.md's accessibility rule), so the WORDS differ:
+        # the message names the cause and says the alert cannot fire.
+        message, advice = _STATE_MESSAGE.get(state, _STATE_MESSAGE["ok"])
+        dead = bool(advice)
+        no_epg = QLabel(f"  {message}")
+        _theme.style_fn(no_epg, lambda dead=dead: (
+            f"color: {_theme.COLOR_WARN if dead else _theme.COLOR_TEXT};"
+            f" font-size: {_theme.FONT_MD}; padding-left: 16px;"
+        ))
+        if advice:
+            no_epg.setToolTip(advice)
         layout.addWidget(no_epg)
 
     return w

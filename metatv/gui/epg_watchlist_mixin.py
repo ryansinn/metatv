@@ -268,10 +268,30 @@ class _EpgWatchlistMixin:
             channel_ids = self.config.epg_watchlist_channels
             channel_now: dict[str, EpgProgramDB | None] = {}
             channel_names: dict[str, str] = {}
+            # Why each pinned channel can or cannot produce an alert.
+            #
+            # The card said "No EPG data" for every channel without a current
+            # programme, which conflates three different situations: a guide
+            # that simply does not cover it right now (transient, worth
+            # waiting for), a source the user has switched off, and a provider
+            # that no longer exists. The last two can NEVER fire, and the owner
+            # had one of each pinned with nothing on screen saying so.
+            #
+            # excluded_ch_provider_ids is get_hidden_provider_ids() — inactive
+            # ∪ expired ∪ orphaned — the canonical gate, already computed above
+            # for the queries. Read here rather than re-derived (CLAUDE.md:
+            # never rebuild that set ad hoc).
+            channel_state: dict[str, str] = {}
             for cid in channel_ids:
                 channel_now[cid] = repo.get_now_for_channel(cid)
                 ch = session.query(ChannelDB).filter_by(id=cid).first()
                 channel_names[cid] = ch.name if ch else cid
+                if ch is None:
+                    channel_state[cid] = "gone"
+                elif ch.provider_id in excluded_ch_provider_ids:
+                    channel_state[cid] = "source_off"
+                else:
+                    channel_state[cid] = "ok"
 
             self._data_loaded.emit({
                 "tab": "watchlist",
@@ -281,6 +301,7 @@ class _EpgWatchlistMixin:
                 "dismissed": dismissed,
                 "channel_now": channel_now,
                 "channel_names": channel_names,
+                "channel_state": channel_state,
             })
         except Exception as e:
             logger.error(f"EpgView watchlist fetch error: {e}")
@@ -301,6 +322,7 @@ class _EpgWatchlistMixin:
                 payload["dismissed"],
                 payload.get("channel_now", {}),
                 payload.get("channel_names", {}),
+                payload.get("channel_state", {}),
             )
         elif tab == "on_now":
             self._render_on_now(payload["programs"])
@@ -352,7 +374,8 @@ class _EpgWatchlistMixin:
     def _render_watchlist(self, watchlist_data: dict, live_data: dict,
                           recommendations: list, dismissed: set,
                           channel_now: dict | None = None,
-                          channel_names: dict | None = None) -> None:
+                          channel_names: dict | None = None,
+                          channel_state: dict | None = None) -> None:
 
         old_wl = self.watchlist_scroll.takeWidget()
         if old_wl:
@@ -455,10 +478,13 @@ class _EpgWatchlistMixin:
         if not channel_ids:
             self.channels_layout.addWidget(self.ch_empty_label)
         else:
+            channel_state = channel_state or {}
             for cid in channel_ids:
                 prog = channel_now.get(cid)
                 name = channel_names.get(cid, cid)
-                self.channels_layout.addWidget(self._make_channel_item(cid, name, prog))
+                self.channels_layout.addWidget(
+                    self._make_channel_item(cid, name, prog, channel_state.get(cid, "ok"))
+                )
 
         # Recommendations
         while self.rec_layout.count():
@@ -839,7 +865,8 @@ class _EpgWatchlistMixin:
         return w
 
     def _make_channel_item(self, channel_db_id: str, channel_name: str,
-                           prog: EpgProgramDB | None) -> QWidget:
+                           prog: EpgProgramDB | None,
+                           state: str = "ok") -> QWidget:
         """The pinned-channel card — built by ``epg_channel_card``.
 
         Kept as a method because that is what every caller (and the card's own
@@ -847,7 +874,7 @@ class _EpgWatchlistMixin:
         """
         from metatv.gui.epg_channel_card import build_pinned_channel_card
 
-        return build_pinned_channel_card(self, channel_db_id, channel_name, prog)
+        return build_pinned_channel_card(self, channel_db_id, channel_name, prog, state)
 
     def _make_recommendation_item(self, channel_db_id: str, channel_name: str, count: int) -> QWidget:
         # Outer container holds header row + expandable matches sub-list.
