@@ -231,9 +231,36 @@ def test_the_search_placeholder_says_enter_searches_off_the_search_view(window):
 def test_diagnose_survived_into_the_tools_menu(window):
     """It had a permanent button in the bottom bar — a niche action pinned on
     screen beside the primary navigation. Deleting the bar must move it, not
-    lose it (R5)."""
-    actions = [a.text() for a in window._tools_menu.actions()]
-    assert any("stream quality" in a.lower() for a in actions)
+    lose it (R5).
+
+    Asserts the entry exists, is UNIQUE, and is actually connected — not that
+    its label contains a particular phrase. The label check this replaced
+    ("stream quality") pinned wording, so renaming the entry to "Stream
+    diagnostics" — to match the dialog it opens, once the dead second
+    "Diagnostics" entry beside it was deleted — failed a test whose subject was
+    whether the action still existed at all.
+
+    ``receivers()`` rather than triggering it: the entry opens a modal, and
+    rebinding ``window.on_diagnose_clicked`` cannot intercept it anyway, since
+    the connection captured the bound method when the menu was built.
+    """
+    candidates = [
+        a for a in window._tools_menu.actions()
+        if "diagnos" in a.text().lower()
+    ]
+    assert candidates, (
+        "no diagnostics entry in the Tools menu — the bottom-bar action was "
+        "lost rather than rehomed"
+    )
+    assert len(candidates) == 1, (
+        f"{len(candidates)} diagnostics entries: {[a.text() for a in candidates]} "
+        f"— a dead one sat beside the real one and must not come back"
+    )
+    action = candidates[0]
+    assert action.receivers(action.triggered) > 0, (
+        "the diagnostics entry is connected to nothing — exactly the defect "
+        "that made the deleted entry useless"
+    )
     assert callable(window.on_diagnose_clicked)
 
 
