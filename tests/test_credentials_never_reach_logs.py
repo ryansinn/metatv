@@ -104,25 +104,69 @@ def test_non_credential_text_is_untouched(sink):
     assert "Loaded 492,511 channels from provider TREX in 41.2s" in sink.read_text()
 
 
-def test_the_patcher_is_actually_installed_by_the_app():
-    """The tests above prove the mechanism; this proves it is WIRED.
+def test_the_app_wiring_actually_redacts(tmp_path):
+    """Run the app's OWN setup_logging() and read the file it really writes.
 
-    Structural on purpose: the alternative is booting the real app and reading
-    its log, and a mechanism that works but is never installed is precisely the
-    state this bug shipped in for months.
+    This replaces a structural check that could not fail. It asserted three
+    substrings of ``inspect.getsource(app_main)``::
+
+        assert "logger.configure(patcher=" in source
+        assert "_redact" in source
+        assert source.index("logger.configure(patcher=") < source.index("logger.add(")
+
+    Every one of those survives the removal of the redaction itself. Replacing
+    the patcher body with ``record["message"] = record["message"]`` leaves the
+    ``configure`` call in place, leaves the ordering intact, and leaves
+    ``_redact`` in the source — because ``__main__`` still IMPORTS it on line
+    11. A dead import kept the guard green while credentials went to disk. Run
+    against that mutant, this file passed 12 of 12.
+
+    The old docstring called the structural form deliberate: *"the alternative
+    is booting the real app and reading its log"*. That was the wrong pair of
+    options. ``setup_logging()`` is an ordinary function — no Qt, no window, no
+    event loop — so the real wiring can simply be CALLED, which is what happens
+    here. The conftest ``_isolate_user_config`` fixture already points
+    ``Path.home()`` at a tmp dir, so the sink lands under *tmp_path*'s sibling
+    and never touches the developer's own logs.
+    """
+    from metatv import __main__ as app_main
+    from metatv.core.log_paths import active_log_file
+
+    url = f"http://box.example:8080/movie/{USER}/{SECRET}/1234.mkv"
+    api = f"http://box.example:8080/player_api.php?username={USER}&password={SECRET}"
+
+    logger.remove()
+    try:
+        app_main.setup_logging()
+        # Written the way an author who has never heard of _redact writes it.
+        logger.info(f"GET {url}")
+        logger.error(f"failed {api}")
+        logger.complete()
+
+        written = active_log_file().read_text(encoding="utf-8", errors="replace")
+    finally:
+        logger.remove()
+        logger.configure(patcher=None)
+
+    assert SECRET not in written, "the password reached the app's real log file"
+    assert USER not in written, "the username reached the app's real log file"
+    # Redaction has to leave the record diagnosable, or people turn it off.
+    assert "box.example" in written, "the host was scrubbed away with the secret"
+
+
+def test_the_patcher_is_installed_before_the_sink():
+    """Ordering still deserves a check: a sink added first sees raw records.
+
+    Kept structural because it is a statement about the ORDER of two lines,
+    which has no runtime signature once both have run — but it is now the only
+    structural assertion here, and the behavioural test above is what proves
+    redaction actually happens.
     """
     import inspect
 
     from metatv import __main__ as app_main
 
     source = inspect.getsource(app_main)
-    assert "logger.configure(patcher=" in source, "no patcher installed at startup"
-    assert "_redact" in source, "the patcher does not redact"
-    # Anchored on the sink call itself, not on how its path happens to be
-    # spelled. This asserted ``source.index('log_dir / "metatv.log"')`` and
-    # broke the day the filename moved into a named constant — raising
-    # ValueError from .index(), so the failure did not even name the real
-    # property. "logger.add(" is the thing the ordering is actually ABOUT.
     assert source.index("logger.configure(patcher=") < source.index("logger.add("), (
         "the patcher is installed AFTER the file sink, so early records leak"
     )
