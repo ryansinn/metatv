@@ -449,6 +449,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             EpgChannelIdBackfillTask,
         )
         self.migration_manager.register(EpgChannelIdBackfillTask(self.db))
+        from metatv.core.migrations.metadata_year_backfill import (
+            MetadataYearBackfillTask,
+        )
+        self.migration_manager.register(MetadataYearBackfillTask(self.db))
         # Owner-reported gap: provider category strings carrying a leading
         # "|EN| ANIME"-style marker that duplicates channel-name language info —
         # one-time backfill of stored detected_collection(_language|_subdub) for
