@@ -140,7 +140,77 @@ def fetch_cards_for_key(
         return get_by_user_category(session, cat_name, limit=limit, **sk, **fk, **af, **ek)
     if shelf_key.startswith("collection:"):
         return get_by_collection(session, shelf_key[11:], limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith(_RECIPE_PREFIX):
+        return _cards_for_saved_recipe(
+            session, config, shelf_key[len(_RECIPE_PREFIX):], limit,
+        )
     return []
+
+
+#: Shelf-key namespace for a saved recipe, mirroring ``user_cat:``.
+_RECIPE_PREFIX = "recipe:"
+
+
+def _cards_for_saved_recipe(session, config: Config, name: str,
+                            limit: int) -> list[ContentCard]:
+    """Cards matching the saved recipe called *name*.
+
+    Deliberately NOT routed through the ``sk``/``fk``/``af``/``ek`` kwargs the
+    other shelves use. A recipe is a facet query, and the one that already
+    answers it is ``TagRepository.sample_channels_by_tag_facets`` — the same
+    call the Recipe view's own results shelf makes. Reusing it is what
+    guarantees a recipe shows the SAME titles on both screens; a second query
+    assembled from the shelf kwargs would drift the first time either changed.
+
+    The exclusion sets come from ``filter_utils.global_exclusion_sets``, which
+    is also what the Recipe view resolves — including the excluded-user-category
+    axis the shelf kwargs fold into ``excluded_prefixes`` and cannot express
+    separately.
+
+    Args:
+        session: Open DB session.
+        config: The application Config (holds ``saved_recipes``).
+        name: The recipe's name, from the shelf key.
+        limit: Card cap.
+
+    Returns:
+        Matching cards, or an empty list when the recipe no longer exists.
+    """
+    from metatv.core.filter_utils import global_exclusion_sets
+    from metatv.core.repositories import RepositoryFactory
+
+    recipe = next(
+        (r for r in (getattr(config, "saved_recipes", None) or [])
+         if isinstance(r, dict) and r.get("name") == name),
+        None,
+    )
+    if recipe is None:
+        return []
+
+    includes = {k: set(v) for k, v in (recipe.get("includes") or {}).items() if v}
+    excludes = {k: set(v) for k, v in (recipe.get("excludes") or {}).items() if v}
+    if not includes and not excludes:
+        return []
+
+    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
+    repos = RepositoryFactory(session)
+    return repos.tags.sample_channels_by_tag_facets(
+        includes=includes,
+        excludes=excludes,
+        # NOT ``or None``. The sampler applies EVERY global-exclusion axis
+        # inside a block gated on ``excluded_provider_ids is not None``, so
+        # passing None when no source happens to be hidden silently disables
+        # the prefix, category, content-type and keyword exclusions too. An
+        # empty list is the correct "nothing hidden" value, and is what the
+        # Recipe view passes.
+        excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+        excluded_prefixes=prefixes or None,
+        excluded_categories=categories or None,
+        excluded_tag_content_types=content_types or None,
+        excluded_keywords=keywords or None,
+        limit=limit,
+        collapse_variants=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +507,37 @@ class _LoaderWorker(QObject):
                 else:
                     emit(_ShelfData(cat["name"], key, [], is_user_category=True,
                                     header_only=True))
+
+            # ── Saved-recipe shelves — the user's own facet queries ────────────
+            #
+            # Owner: "saved recipes should be available as Discover Shelves".
+            # A recipe already IS a shelf in everything but where it appears —
+            # a named facet query the user built and kept. Placed beside the
+            # user-category shelves because they are the same kind of thing:
+            # curated by the user, so they come before the catalogue's own.
+            #
+            # Named "Recipe: X" rather than bare "X" so a recipe and a user
+            # category of the same name stay distinguishable in the shelf
+            # manager, where both appear as reorderable rows.
+            for recipe in (getattr(self._config, "saved_recipes", None) or []):
+                if self._cancelled:
+                    return
+                if not isinstance(recipe, dict):
+                    continue
+                recipe_name = (recipe.get("name") or "").strip()
+                if not recipe_name:
+                    continue
+                key = f"{_RECIPE_PREFIX}{recipe_name}"
+                if key in hidden:
+                    continue
+                title = f"Recipe: {recipe_name}"
+                if _zone(key) in (_ZONE_PINNED, _ZONE_EXPANDED):
+                    emit(_ShelfData(title, key, fetch_cards_for_key(
+                        session, self._config, key, 30,
+                        sk=sk, fk=fk, af=af, ek=ek,
+                    )))
+                else:
+                    emit(_ShelfData(title, key, [], header_only=True))
 
             # ── Fixed shelves ─────────────────────────────────────────────────
             for key, title in (

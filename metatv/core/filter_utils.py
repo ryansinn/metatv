@@ -527,6 +527,45 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
 # the keyword list every one of those callers reads from ``Config``.
 
 
+def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[str]]":
+    """Resolve the user's Global Exclusions as four plain sets.
+
+    The control layer's answer to "what may a faceted query return" (DR-0007):
+    read ``Config`` here, hand plain sets to the engine, which never touches
+    Config itself. Composes the four single-axis resolvers in this module
+    rather than re-deriving any of them, and is paused-aware — every set is
+    empty while Global Exclusions are paused.
+
+    Lifted out of ``RecipeView._global_exclusion_sets`` when a second caller
+    arrived. A saved recipe rendered as a Discover shelf has to apply exactly
+    the exclusions the recipe view applies, or the same recipe shows different
+    content depending on which screen you look at it from — and the Discover
+    worker's own kwargs are close but not identical (it folds excluded user
+    categories into the prefix set and has no separate category axis).
+
+    Args:
+        config: The application Config.
+
+    Returns:
+        ``(excluded_prefixes, excluded_categories, excluded_content_types,
+        excluded_keywords)``.
+    """
+    if getattr(config, "global_filter_paused", False):
+        return set(), set(), set(), set()
+
+    category_excluded, _ = get_active_category_filter(config)
+    excluded_prefixes = set(category_excluded or []) | get_excluded_prefixes(config)
+    excluded_categories = set(
+        getattr(config, "global_filter_excluded_user_categories", []) or []
+    )
+    return (
+        excluded_prefixes,
+        excluded_categories,
+        excluded_tag_content_types(config),
+        set(keyword_exclusion_list(config)),
+    )
+
+
 def keyword_exclusion_list(config) -> list[str]:
     """Return the user's active keyword Global Exclusions.
 
