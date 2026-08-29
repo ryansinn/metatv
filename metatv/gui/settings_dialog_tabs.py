@@ -281,6 +281,56 @@ class SettingsTabsMixin:
         layout.addStretch()
         return tab
 
+    def _build_content_tab(self) -> QWidget:
+        """Build the Content tab — what the library is allowed to show you.
+
+        Home for ``filter_adult_mode``, which had no reachable control at all.
+
+        The combo existed in the filter bar, built hidden with the comment
+        "shown via set_adult_filter_visible()" — and ``set_adult_filter_visible``
+        was defined and called by nobody. So the widget was constructed
+        invisible and stayed invisible, while the setting defaulted to "hide".
+
+        Owner: *"I don't see anywhere in the interface to enable or disable
+        adult content"*, and then, separately: *"clicking on the PornBox
+        category or the For Adults collection shows ZERO results, with no
+        notice anything is being filtered out."* Those were one bug. All 28
+        PORNBOX channels are flagged, so at "hide" the category returns 0 of
+        28 and nothing on screen could change it.
+
+        Settings is the durable home because a setting you cannot find is the
+        same as one that does not exist. The filter bar's own combo stays as a
+        quick toggle for when it is visible.
+        """
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        adult_group = QGroupBox("Restricted content")
+        adult_form = QFormLayout(adult_group)
+        adult_form.setSpacing(8)
+
+        self._adult_mode_combo = QComboBox()
+        self._adult_mode_combo.addItem("Show everything", userData="all")
+        self._adult_mode_combo.addItem("Hide adult content", userData="hide")
+        self._adult_mode_combo.addItem("Show only adult content", userData="only")
+        self._adult_mode_combo.setToolTip(
+            "Whether channels flagged as adult appear anywhere in the app.\n"
+            "\n"
+            "• Show everything — no filtering by this flag.\n"
+            "• Hide adult content — they are hidden everywhere (default).\n"
+            "• Show only adult content — everything else is hidden.\n"
+            "\n"
+            "While hidden, a category or collection made up of flagged channels\n"
+            "will look empty. The channel list says so when that happens."
+        )
+        adult_form.addRow("Adult content:", self._adult_mode_combo)
+
+        layout.addWidget(adult_group)
+        layout.addStretch()
+        return tab
+
     def _build_recommendations_tab(self) -> QWidget:
         """Build the Recommendations tab — steering dials for the preference engine.
 

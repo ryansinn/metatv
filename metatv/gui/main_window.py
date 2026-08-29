@@ -2608,6 +2608,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_sidebar_row_density)
         dialog.settings_applied.connect(self.refresh_theme)
         dialog.settings_applied.connect(self._apply_collapse_variants_setting)
+        # Settings → Content is the ONLY reachable adult-mode control, so its
+        # change has to reach both the filter bar's (hidden) combo and the list.
+        dialog.settings_applied.connect(self._apply_adult_mode_setting)
         # alerts_show_idle_items changes WHICH rows the section lists, so it has
         # to re-render; the existing alert-visibility chokepoint already does it.
         dialog.settings_applied.connect(self._refresh_vod_alerts_section)
@@ -3012,6 +3015,50 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # value Settings had actually set hit the "already that" early-return in
         # _set_density_from_menu and did nothing, which reads as a dead menu.
         self._sync_style_menu_state()
+
+    def _open_adult_settings(self) -> None:
+        """Open Settings → Content from the adult-gate segment of the filter bar.
+
+        The segment's click target, and deliberately not a bypass: see the
+        construction comment on ``_channel_adult_btn``. Uses the section LABEL
+        because ``open_settings`` forwards it to ``select_section_by_label``.
+        """
+        self.open_settings("Content")
+
+    def _apply_adult_mode_setting(self) -> None:
+        """Push a Settings → Content adult-mode change into the filter bar, then reload.
+
+        Two steps, and the first is the one that is easy to miss. ``config`` is
+        the source of truth for ``filter_adult_mode``, but ``FilterBar`` keeps a
+        *cache* of it in ``adult_mode_combo`` — ``restore_state()`` seeds the
+        combo from config at startup, and ``get_filter_state()`` reads the combo
+        (never config) on every subsequent query, with ``save_filter_state()``
+        writing the combo's value back to config.
+
+        So without this sync, changing the setting would appear to work and then
+        silently revert: the next filter interaction would call
+        ``save_filter_state()``, which would overwrite the freshly-saved config
+        value with the stale combo index. The setting has to be written INTO the
+        cache, not just past it.
+
+        Then ``load_channels()`` — the same narrow reload chokepoint
+        ``_apply_collapse_variants_setting`` uses, and for the same reason: this
+        changes the row SET, not row painting, so a repaint cannot show it.
+        """
+        bar = getattr(self, "filter_bar", None)
+        combo = getattr(bar, "adult_mode_combo", None) if bar is not None else None
+        if combo is not None:
+            mode = getattr(self.config, "filter_adult_mode", "hide")
+            index = {"all": 0, "hide": 1, "only": 2}.get(mode, 1)
+            # blockSignals: setCurrentIndex fires currentIndexChanged →
+            # on_filter_changed → a reload we are about to do ourselves anyway.
+            # Programmatic state restoration blocks signals first (CLAUDE.md).
+            previous = combo.blockSignals(True)
+            try:
+                combo.setCurrentIndex(index)
+            finally:
+                combo.blockSignals(previous)
+        self.load_channels()
 
     def _apply_collapse_variants_setting(self) -> None:
         """Re-query the channel list after the collapse-variants checkbox changes.

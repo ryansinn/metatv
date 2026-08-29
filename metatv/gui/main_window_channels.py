@@ -805,6 +805,37 @@ class _ChannelListMixin:
                 raw_visible=params['raw_fetched'], raw_comparison=_raw_with_keywords)
             params['hidden_by_keywords_is_floor'] = floor_keywords
 
+        # ── Filter layer 5 — the adult-content gate ───────────────────────────────
+        # Measured like the keyword axis (re-run with ONLY this axis lifted), with
+        # one deliberate difference: **only when the page came back empty.**
+        #
+        # The other four axes measure on every load. This one must not, because
+        # its trigger condition is the DEFAULT (`adult_mode` ships as "hide"), so
+        # an unconditional probe would add a second full get_all() to every single
+        # channel-list load on a 785k-row corpus — a permanent tax on the hot path
+        # to answer a question nobody asked, on a screen already showing results.
+        #
+        # An empty page is exactly when the question IS asked, and it is the bug
+        # this exists to fix: every PORNBOX channel is flagged, so opening that
+        # category returned 0 of 28 rows under a message that read "try a
+        # different search" — blaming the user's search for a content gate they
+        # had never been shown a control for.
+        hidden_by_adult = 0
+        if (not channels and not hidden_only and not id_filter_show_all
+                and params['adult_mode'] != 'all' and has_adult):
+            with_adult = repos.channels.get_all(**{**_axes, 'adult_mode': 'all'})
+            _raw_with_adult = len(with_adult)
+            # Mirror the Python-side exclusion filtering applied to `channels` so the
+            # diff isolates ONLY the adult axis (never the layer-1 exclusions).
+            if exclusions_applied:
+                with_adult = _apply_python_exclusions(
+                    with_adult, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                )
+            hidden_by_adult, floor_adult = _ChannelListMixin._hidden_by_axis(
+                channels, with_adult, _page_size,
+                raw_visible=params['raw_fetched'], raw_comparison=_raw_with_adult)
+            params['hidden_by_adult_is_floor'] = floor_adult
+
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
         watched_hidden_count = 0
@@ -836,6 +867,7 @@ class _ChannelListMixin:
         params['hidden_by_search']     = hidden_by_search
         params['hidden_by_dead']       = hidden_by_dead
         params['hidden_by_keywords']   = hidden_by_keywords
+        params['hidden_by_adult']      = hidden_by_adult
         params['id_filter_active']  = id_filter_active
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
@@ -897,6 +929,7 @@ class _ChannelListMixin:
         hidden_search = params.get('hidden_by_search', 0)
         hidden_dead   = params.get('hidden_by_dead', 0)
         hidden_kw     = params.get('hidden_by_keywords', 0)
+        hidden_adult  = params.get('hidden_by_adult', 0)
 
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
@@ -922,18 +955,19 @@ class _ChannelListMixin:
                 else:
                     self.status_bar.showMessage("No channels match — try a different search or check filter settings")
                     self.stats_label.setText(f"Showing 0 of {total_channels:,}")
-            elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
+            elif hidden_excl or hidden_search or hidden_dead or hidden_kw or hidden_adult:
                 # Results exist but are hidden by one or more filter layers — show the
                 # per-layer breakdown so the user can reveal each independently.
                 self._show_channel_filter_breakdown(
-                    hidden_excl, hidden_search, hidden_dead, hidden_kw,
+                    hidden_excl, hidden_search, hidden_dead, hidden_kw, hidden_adult,
                     hidden_by_exclusions_is_floor=params.get(
                         'hidden_by_exclusions_is_floor', False),
                     hidden_by_search_is_floor=params.get('hidden_by_search_is_floor', False),
                     hidden_by_dead_is_floor=params.get('hidden_by_dead_is_floor', False),
                     hidden_by_keywords_is_floor=params.get('hidden_by_keywords_is_floor', False),
+                    hidden_by_adult_is_floor=params.get('hidden_by_adult_is_floor', False),
                 )
-                total_hidden = hidden_excl + hidden_search + hidden_dead + hidden_kw
+                total_hidden = hidden_excl + hidden_search + hidden_dead + hidden_kw + hidden_adult
                 self.status_bar.showMessage(
                     f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
                 )
@@ -1191,6 +1225,7 @@ class _ChannelListMixin:
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
+        hidden_by_adult: int = 0,
         # Keyword-only, and AFTER the counts. Callers pass the counts
         # positionally, so a flag inserted between them silently rebinds every
         # later argument — `hidden_search` landed in `hidden_by_exclusions_is_floor`
@@ -1201,6 +1236,7 @@ class _ChannelListMixin:
         hidden_by_search_is_floor: bool = False,
         hidden_by_dead_is_floor: bool = False,
         hidden_by_keywords_is_floor: bool = False,
+        hidden_by_adult_is_floor: bool = False,
     ) -> None:
         """Render the per-layer filter-transparency bar.
 
@@ -1220,6 +1256,9 @@ class _ChannelListMixin:
             hidden_by_dead: Results dropped via the dead-stream gate.
             hidden_by_keywords: Results dropped via the Global Exclusions keyword
                 axis (user-defined free-text terms matched against the title).
+            hidden_by_adult: Dropped by the adult gate (``filter_adult_mode``);
+                measured only on an empty page — see "Filter layer 5" in
+                ``_query_channels`` for why.
             hidden_by_exclusions_is_floor: True when the page cap means more were
                 dropped beyond what was fetched. Siblings likewise.
         """
@@ -1232,12 +1271,14 @@ class _ChannelListMixin:
                 "search": hidden_by_search,
                 "dead": hidden_by_dead,
                 "keywords": hidden_by_keywords,
+                "adult": hidden_by_adult,
             },
             floors={
                 "exclusions": hidden_by_exclusions_is_floor,
                 "search": hidden_by_search_is_floor,
                 "dead": hidden_by_dead_is_floor,
                 "keywords": hidden_by_keywords_is_floor,
+                "adult": hidden_by_adult_is_floor,
             },
         )
 

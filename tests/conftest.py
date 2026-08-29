@@ -857,6 +857,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_sidebar_row_density",
     "refresh_theme",
     "_apply_collapse_variants_setting",
+    "_apply_adult_mode_setting",
     "_sync_split_toggle",
     "_apply_menu_bar_setting",
     "_refresh_vod_alerts_section",
@@ -932,6 +933,10 @@ def wire_channel_banner_widgets(win) -> None:
     win._channel_filter_bar = QWidget()
     win._channel_exclusion_btn = QPushButton()
     win._channel_filter_btn = QPushButton()
+    # Segment 5 of the transparency bar. Guarded by __dict__.get in production
+    # (so its absence is survivable), but wired here so a test can assert the
+    # adult-gate notice actually renders instead of silently no-opping.
+    win._channel_adult_btn = QPushButton()
     win._no_sources_banner = QWidget()
 
 
