@@ -746,8 +746,22 @@ class _ChannelListMixin:
         # whole block (nothing to measure), or when the user already revealed this
         # layer for the view (bypass_dead_gate) — the main query above already
         # returned the dead rows, so there is nothing further hidden to report.
+        #
+        # Also skipped when NO channel is in the dead state, which is a one-row
+        # probe (`has_dead`) against a table that is empty for most users and
+        # for the owner. The gate cannot hide what does not exist, so the count
+        # is exactly 0 — the floor semantics are untouched — and the comparison
+        # is a provable no-op. It is not a cheap no-op: the comparison inherits
+        # the same variant-collapse window function as the main query, measured
+        # at 6.5 s on the owner's library. ED-6 sized this pair against a 1.1 ms
+        # load, which predates the collapse path.
         hidden_by_dead = 0
-        dead_active = not hidden_only and not id_filter_show_all and not bypass_dead_gate
+        dead_active = (
+            not hidden_only
+            and not id_filter_show_all
+            and not bypass_dead_gate
+            and repos.stream_retry.has_dead()
+        )
         if dead_active:
             with_dead = repos.channels.get_all(**{**_axes, 'include_dead': True})
             _raw_with_dead = len(with_dead)
