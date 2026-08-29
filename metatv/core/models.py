@@ -124,6 +124,18 @@ class ConnectionAttempt:
     client_ip: Optional[str] = None
     error_message: Optional[str] = None
     response_time_ms: Optional[int] = None
+    #: False when the failure says nothing about THIS host.
+    #:
+    #: A 403/405/401/429 is a statement about the caller — a blocked VPN exit
+    #: IP, an expired subscription — and every host on the account returns it
+    #: identically. Counting it against a host demotes a perfectly good address
+    #: for something it did not do, and when all hosts are refused it demotes
+    #: all of them equally while also putting every one into cooldown, so the
+    #: next genuine attempt is delayed across the board.
+    #:
+    #: The attempt is still RECORDED, because the history is true and the
+    #: diagnosis reads it. It just does not count toward health or cooldown.
+    host_at_fault: bool = True
 
 
 @dataclass
@@ -196,6 +208,12 @@ class ProviderURL:
             weight_total = 0.0
             weight = 1.0
             for attempt in reversed(self.recent_attempts):
+                # A refusal aimed at the account, not this host, is skipped
+                # entirely rather than counted as a failure — including its
+                # weight, so it does not even push older evidence down the
+                # decay curve.
+                if not attempt.success and not attempt.host_at_fault:
+                    continue
                 weighted_success += weight * (1.0 if attempt.success else 0.0)
                 weight_total += weight
                 weight *= decay

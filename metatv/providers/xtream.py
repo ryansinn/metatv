@@ -412,7 +412,7 @@ class XtreamProvider(ProviderPlugin):
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last_error = str(e)
                 logger.warning(f"Connection failed for {base_url}: {e}")
-                cycler.record_failure(base_url, last_error)
+                cycler.record_failure(base_url, last_error, status=getattr(e, "status", None))
                 if idx < len(urls_to_try) - 1:
                     logger.info("Trying next URL…")
                 continue
@@ -479,7 +479,8 @@ class XtreamProvider(ProviderPlugin):
                     return categories
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"get_categories: {base_url} failed: {e}, trying next…")
-                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000))
+                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000),
+                                      status=getattr(e, "status", None))
         logger.error(f"get_categories: all URLs failed for provider '{provider.name}'")
         return []
 
@@ -498,7 +499,8 @@ class XtreamProvider(ProviderPlugin):
                     cycler.record_failure(base_url, "empty response", response_time_ms=elapsed_ms)
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_series_info: {base_url} failed: {e}, trying next…")
-                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000))
+                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000),
+                                      status=getattr(e, "status", None))
         logger.error(f"fetch_series_info: all URLs failed for provider '{provider.name}'")
         return None
 
@@ -517,7 +519,8 @@ class XtreamProvider(ProviderPlugin):
                     cycler.record_failure(base_url, "empty response", response_time_ms=elapsed_ms)
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_vod_info: {base_url} failed: {e}, trying next…")
-                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000))
+                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000),
+                                      status=getattr(e, "status", None))
         logger.error(f"fetch_vod_info: all URLs failed for provider '{provider.name}'")
         return None
 
@@ -536,7 +539,8 @@ class XtreamProvider(ProviderPlugin):
                     cycler.record_failure(base_url, "empty response", response_time_ms=elapsed_ms)
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"get_server_info: {base_url} failed: {e}, trying next…")
-                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000))
+                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000),
+                                      status=getattr(e, "status", None))
         logger.error(f"get_server_info: all URLs failed for provider '{provider.name}'")
         return None
 
@@ -555,6 +559,7 @@ class XtreamProvider(ProviderPlugin):
                     cycler.record_failure(base_url, "empty response", response_time_ms=elapsed_ms)
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_account_info: {base_url} failed: {e}, trying next…")
-                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000))
+                cycler.record_failure(base_url, str(e), response_time_ms=int((monotonic() - t0) * 1000),
+                                      status=getattr(e, "status", None))
         logger.error(f"fetch_account_info: all URLs failed for provider '{provider.name}'")
         return None
