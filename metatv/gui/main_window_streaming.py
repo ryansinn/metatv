@@ -736,10 +736,24 @@ class _StreamingMixin:
                 self._playing_channels: dict[str, str] = {}
             self._playing_channels[_watch_key] = channel_id
 
-            # Update UI lists in real-time (main thread)
+            # Update UI lists in real-time (main thread).
+            #
+            # History always changes — the play IS the new entry. Favorites and
+            # the Watch Queue only change if this channel is IN them, so they
+            # are asked first. They used to be rebuilt unconditionally: every
+            # play re-read the table off-thread and rebuilt every row widget in
+            # both sections, for a channel that was usually in neither. Owner:
+            # "the watch queue completely reloads when switching content not
+            # even in the watch queue."
+            #
+            # Same grain as _remove_sidebar_row, which exists for the same
+            # complaint about deletions ("the entire watch queue still refreshes
+            # when a single line is removed") — this is the playback half of it.
             self.load_history()
-            self.load_favorites()
-            self._refresh_queue_section()
+            if self._sidebar_shows_channel("favorites", channel_id):
+                self.load_favorites()
+            if self._sidebar_shows_channel("queue", channel_id):
+                self._refresh_queue_section()
 
             # Warm the source-glyph cache so the health readout can label which
             # stream its data refers to (one trivial PK read per new source).

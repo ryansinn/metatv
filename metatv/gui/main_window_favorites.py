@@ -262,6 +262,38 @@ class _FavoritesMixin:
         self._refresh_recommended_section()
         self.channel_state_bus.publish(channel_id, in_queue=False)
 
+    def _sidebar_shows_channel(self, section_key: str, channel_id: str) -> bool:
+        """True when *section_key* currently renders a row for *channel_id*.
+
+        The cheap question to ask before an expensive rebuild. A section that
+        does not exist yet, is not loaded, or does not hold the channel needs no
+        refresh — and rebuilding it anyway is what made playback rebuild every
+        row of Favorites and the Watch Queue on every track change.
+
+        Conservative on the unknown: a section without ``has_row`` (a test
+        double, a section that keeps no list) answers False rather than
+        triggering a rebuild, because the callers here refresh only for a
+        channel the section is already showing.
+
+        Args:
+            section_key: Sidebar section id, e.g. ``"queue"``.
+            channel_id: The channel that just changed.
+
+        Returns:
+            True if that section is showing that channel right now.
+        """
+        section = self.sidebar_sections.get(section_key)
+        has_row = getattr(section, "has_row", None)
+        if not callable(has_row):
+            return False
+        try:
+            return bool(has_row(channel_id))
+        except Exception:
+            logger.exception(
+                "sidebar: could not test %s for %s", section_key, channel_id
+            )
+            return False
+
     def _refresh_queue_section(self) -> None:
         section = self.sidebar_sections.get("queue")
         if section:

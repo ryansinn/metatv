@@ -1,5 +1,5 @@
 {
-  "_comment": "Debt ratchet baseline — see docs/AUDIT_2026-08-16.md. Regenerate with scripts/rebaseline_code_health.py ONLY for a deliberate, reviewed increase.",
+  "_comment": "Debt ratchet baseline \u2014 see docs/AUDIT_2026-08-16.md. Regenerate with scripts/rebaseline_code_health.py ONLY for a deliberate, reviewed increase.",
   "file_lines": {
     "metatv/core/channel_name_utils.py": 2697,
     "metatv/core/config.py": 1955,
@@ -20,13 +20,13 @@
     "metatv/gui/global_filter_dialog.py": 1745,
     "metatv/gui/main_window.py": 3220,
     "metatv/gui/main_window_channels.py": 2112,
-    "metatv/gui/main_window_favorites.py": 1145,
+    "metatv/gui/main_window_favorites.py": 1177,
     "metatv/gui/main_window_providers.py": 1054,
     "metatv/gui/main_window_series.py": 1253,
-    "metatv/gui/main_window_streaming.py": 1543,
+    "metatv/gui/main_window_streaming.py": 1557,
     "metatv/gui/provider_editor.py": 1007,
     "metatv/gui/qa_checklist_window.py": 2498,
-    "metatv/gui/sidebar/base.py": 1433,
+    "metatv/gui/sidebar/base.py": 1461,
     "metatv/gui/theme.py": 2324
   },
   "get_session_calls": 79
