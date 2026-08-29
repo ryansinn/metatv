@@ -606,6 +606,11 @@ AUDIO_KEY_ANCHOR_TOKENS: frozenset[str] = frozenset({"multi", "muti"})
 PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
     "ASTRO", "F1TV", "A+",
+    # Read off the provider's own categories, same pass as the region codes:
+    #   OD   901  "NL| ODIDO ..."      — Odido, a Dutch telecom TV service
+    #   YP   730  "ASIA | YUPP TV ..." — YuppTV, an Indian streaming platform
+    # Both were rendering as geographic chips.
+    "OD", "YP",
 })
 
 # Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
@@ -1214,9 +1219,44 @@ _ALIAS_MAP: dict[str, str] = {
 }
 
 REGION_FULL_NAMES: dict[str, str] = {
+    # ── Codes evidenced from the owner's library, 2026-08-29 ────────────────
+    # 293 of 421 distinct prefixes resolved to no name at all, so ~111,000
+    # channels rendered with a blank geographic chip. These were not guessed:
+    # every one was read off the PROVIDER'S OWN category label, which spells
+    # the code out. That is a better source than an ISO table, because the
+    # provider is the one who chose the code.
+    #
+    #   AR    68,593  categories in Arabic script ("|AR| أفلام أجنبية"), plus
+    #                 an "|AR-SUB|" variant — a LANGUAGE marker, not Argentina
+    #   EX    14,798  "|EXYU| STRANI FILMOVI" — ex-Yugoslavia, not "extra"
+    #   TM     7,036  "|IN| TAMIL MOVIES"
+    #   TG     4,388  "|IN| TELEGU MOVIES"
+    #   TL     4,293  "|IN| TELEGU MOVIES" + "|TL| TELUGU" (second Telugu code)
+    #   AF     3,719  "|AF| AFRICAN MOVIES" — Africa, not Afrikaans
+    #   SW     3,183  "|SW| SWEDEN" (2,632) + "EU| SVERIGE" (81) + Scandinavia
+    #                 (75) vs "CH| SWITZERLAND" (194). ~93% Sweden. The Swiss
+    #                 minority is a PROVIDER inconsistency — it files Swiss
+    #                 channels under both SW and CH. Labelled Sweden because a
+    #                 93%-correct chip beats 3,183 blank ones; the ~6% is a
+    #                 known, recorded imperfection rather than an oversight.
+    #   UR     1,894  "|IN| URDU MOVIES"
+    #   SCAN   1,260  "|SCAN| SCANDINAVIA"
+    #   KD       969  "|IN| KANNADA MOVIES"
+    #   IS       844  "IS| HEBREW SDAROT" — Israel
+    #
+    # DELIBERATELY NOT ADDED, because the evidence is genuinely split:
+    #   SO     1,688  "|IN| SOUTH HINDI DUBBED" (1,344) AND "|AF| SO FANPROJ"
+    #                 (158, a Somali brand). Two different meanings in one
+    #                 library; a single label would be wrong for one of them.
+    #   MULTI  5,284  "|MULTI| NETFLIX" — a multi-audio marker, not a region.
+    #                 It needs its own concept, not a country name.
+    "AR": "Arabic", "EX": "Ex-Yugoslavia", "TM": "Tamil", "TG": "Telugu",
+    "TL": "Telugu", "AF": "Africa", "SW": "Sweden", "UR": "Urdu",
+    "SCAN": "Scandinavia", "KD": "Kannada", "IS": "Israel",
     # Streaming platforms
     "NF": "Netflix", "D+": "Disney+", "HBO": "HBO Max", "PRIME": "Amazon Prime",
     "TUBI": "Tubi", "PEACOCK": "Peacock", "APPLE": "Apple TV+",
+    "OD": "Odido", "YP": "YuppTV",
     # 2-letter ISO
     "US": "United States", "UK": "United Kingdom", "FR": "France",
     "DE": "Germany", "ES": "Spain", "IT": "Italy", "PT": "Portugal",
