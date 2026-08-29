@@ -77,6 +77,13 @@ _LANGUAGE_OR_AGGREGATE_DISPLAYS = frozenset(
         "English", "Hindi", "Tamil", "Telugu", "Malayalam", "Kannada",
         "Bengali", "Marathi", "Gujarati", "Punjabi", "Odia", "Bhojpuri",
         "Farsi / Persian", "Kurdish",
+        # Arabic joined the display table once the live library settled what AR
+        # means: 68,593 channels, categories in Arabic script, an "|AR-SUB|"
+        # variant. CODE_FACETS has classified AR as ('language', 'Arabic', 0.9)
+        # all along — it was only the DISPLAY table that had nothing, which is
+        # the contradiction this class exists to catch, in the direction nobody
+        # was watching.
+        "Arabic",
         "Latin America", "Latin America (Spanish)", "Ex-Yugoslavia",
         "Scandinavian",
     }
@@ -147,10 +154,23 @@ class TestDisplayLanguageAlignment:
             f"(the AR→Argentina class): {offenders}"
         )
 
-    def test_ar_not_displayed_as_argentina(self):
-        """AR must not resolve to a display name at all (Argentina = ARG)."""
-        assert "AR" not in REGION_FULL_NAMES
-        assert REGION_FULL_NAMES.get("AR", "") != "Argentina"
+    def test_ar_is_displayed_as_arabic_never_as_argentina(self):
+        """AR is the Arabic LANGUAGE. Argentina is ARG.
+
+        This asserted ``"AR" not in REGION_FULL_NAMES`` — no display name at
+        all — which was the safe answer while nobody knew which meaning the
+        real data used. The live library settles it: 68,593 channels, beIN
+        Sport, categories in Arabic script, and an "|AR-SUB|" (Arabic
+        subtitles) variant. ``CODE_FACETS`` has said ``('language', 'Arabic',
+        0.9)`` the whole time.
+
+        Absence was never the requirement — "not Argentina" was. Leaving it
+        unnamed showed a bare code on 68,593 channels to avoid a wrong name,
+        and this class's own purpose is that the display must AGREE with the
+        language classification, which it now does.
+        """
+        assert REGION_FULL_NAMES.get("AR") == "Arabic"
+        assert REGION_FULL_NAMES.get("AR") != "Argentina"
 
     def test_arg_still_argentina(self):
         """ARG (the real Argentine country code) still displays 'Argentina'."""
