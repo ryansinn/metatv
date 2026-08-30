@@ -47,7 +47,7 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
         and serving, with a subscription that is nearly up. A disabled provider
         with no subscription concern appears in neither.
     """
-    from metatv.gui.provider_editor import subscription_color
+    from metatv.gui.subscription_status import subscription_color
 
     active = expiring = 0
     for p in providers:

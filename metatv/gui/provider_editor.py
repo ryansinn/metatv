@@ -255,45 +255,6 @@ class ProviderIconPicker(QWidget):
         self._update_selection(self._icon)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Subscription time helper
-# ──────────────────────────────────────────────────────────────────────────────
-
-def subscription_color(exp_date: Optional[datetime], created_at: Optional[datetime],
-                       now: Optional[datetime] = None) -> str:
-    """Return a CSS hex color for the subscription time remaining.
-
-    Args:
-        exp_date: When the subscription lapses; ``None`` yields "".
-        created_at: When it began, so "low" is a fraction of the term rather
-            than a fixed number of days.
-        now: Reference point; defaults to ``datetime.now()``. **Injectable, and
-            callers that take a ``now`` of their own must pass it.**
-            ``summarize_providers`` did not, so half its classification honoured
-            the injected clock and half reached for the real one — its test
-            pinned a fixed NOW, passed on 2026-08-29 and failed on 2026-08-30,
-            and took three unrelated PRs red with it when UTC rolled over.
-    """
-    if exp_date is None:
-        return ""
-    now = now or datetime.now()
-    if exp_date <= now:
-        return _theme.COLOR_MUTED  # expired — gray
-    days_remaining = (exp_date - now).days
-    if created_at and created_at < exp_date:
-        total_days = (exp_date - created_at).days
-        pct = days_remaining / total_days if total_days > 0 else 1.0
-    else:
-        pct = min(1.0, days_remaining / 30.0)  # fallback: 30-day window
-
-    if pct > 0.15 and days_remaining > 7:
-        return _theme.COLOR_OK   # green — plenty of time
-    elif pct > 0.05 or days_remaining > 2:
-        return _theme.COLOR_WARN   # amber — getting close
-    else:
-        return _theme.COLOR_ERR   # red — expiring very soon
-
-
 class _CopyableLabel(QLabel):
     """A small label whose full text copies to the clipboard on click.
 

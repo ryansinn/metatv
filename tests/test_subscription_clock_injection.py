@@ -28,7 +28,7 @@ FIXTURE_NOW = datetime(2026, 8, 25)
 
 
 def test_subscription_color_honours_an_injected_now(qapp):
-    from metatv.gui.provider_editor import subscription_color
+    from metatv.gui.subscription_status import subscription_color
     from metatv.gui import theme as _theme
 
     exp = FIXTURE_NOW + timedelta(days=5)          # 2026-08-30

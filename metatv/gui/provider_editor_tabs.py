@@ -253,7 +253,7 @@ class _ProviderEditorTabsMixin:
 
         # Remaining bar
         if exp_dt:
-            from metatv.gui.provider_editor import subscription_color
+            from metatv.gui.subscription_status import subscription_color
             now = datetime.now()
             col = subscription_color(exp_dt, created_dt)
             if exp_dt > now:
