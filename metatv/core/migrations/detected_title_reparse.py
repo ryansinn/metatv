@@ -110,7 +110,22 @@ if TYPE_CHECKING:
 #       Reboot") — those keep their text and still gain the year.
 #       Verified against all 466,061 distinct names: 2,038 gain a year, 0 lose
 #       one, 0 lose a cast blob.
-CURRENT_VERSION: int = 10
+#
+# v11 — Scene-release filenames. 1,268 rows rendered a torrent filename as
+#       their title: "Onder.Het.Maaiveld.2023.DUTCH.1080p.WEB.h264-TRIPEL",
+#       "Ceu.em.Chamas-Skyfire.2019.1080p.WEB-DL.x264.DUAL-COMANDO.TO". The
+#       end-anchored strip could not reach any of them — it walks BACKWARDS and
+#       stops at the first unknown token, and a scene name ends in a
+#       release-group tag ("-TURG", "XT", "COMANDO.TO") that no vocabulary will
+#       ever contain, so one unknown token at the tail hid everything in front
+#       of it. channel_name_utils._extract_scene_release is a forward pass that
+#       finds where the TITLE stops instead. HDTV also joined the quality
+#       vocabulary and normalizes onto HD, which clears it out of "NBA TV HDTV"
+#       and "WFOR CBS 4 HDTV".
+#       Verified against all 467,373 distinct names: 484 parse differently, 481
+#       of those a title change, and the 1,138 assertions in the 48 existing
+#       test files that touch the parser all held.
+CURRENT_VERSION: int = 11
 
 
 class DetectedTitleReparseTask:
