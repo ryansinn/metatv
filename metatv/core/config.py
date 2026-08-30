@@ -1205,6 +1205,10 @@ class Config(BaseModel):
     metadata_year_backfill_version: int = 0
     #: Version of the MetadataDB.runtime backfill that has been applied.
     runtime_backfill_version: int = 0
+    #: Version of the sports/PPV/event classifier the stored rows were
+    #: labelled by. Bump CURRENT_VERSION in migrations/sports_reclassify.py
+    #: whenever special_content.py's classification changes.
+    sports_reclassify_version: int = 0
 
     # Internal migration version for the category-marker backfill (owner-reported
     # gap — provider category strings carrying a leading "|EN| ANIME"-style marker

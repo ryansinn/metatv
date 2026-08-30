@@ -458,6 +458,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # runtime; cached metadata is not re-derived on read.
         from metatv.core.migrations.runtime_backfill import RuntimeBackfillTask
         self.migration_manager.register(RuntimeBackfillTask(self.db))
+        # The classifier only runs on rows it has never seen (ProviderLoader
+        # filters special_view IS NULL), so a fix to special_content.py reaches
+        # new rows only. This is the pass that re-labels the existing ones.
+        from metatv.core.migrations.sports_reclassify import SportsReclassifyTask
+        self.migration_manager.register(SportsReclassifyTask(self.db))
         # Owner-reported gap: provider category strings carrying a leading
         # "|EN| ANIME"-style marker that duplicates channel-name language info —
         # one-time backfill of stored detected_collection(_language|_subdub) for

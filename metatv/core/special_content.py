@@ -80,6 +80,11 @@ _TRAILING_JUNK = re.compile(r'[\[\(].*$')  # Strip trailing "[EVENT]", "(HD)", e
 _BUNDLED_DEFINITIONS = Path(__file__).parent.parent / 'data' / 'sports_definitions.yaml'
 
 
+#: (path, mtime_ns) -> (sport_keywords, league_keywords). Not lru_cache: the
+#: key has to include the file's mtime, and ``config`` is not hashable.
+_DEFINITIONS_CACHE: "dict[tuple[str, int | None], Tuple[Dict, Dict]]" = {}
+
+
 def get_user_definitions_path(config=None) -> Path:
     """Return path to the user's personal definitions override file.
 
@@ -116,6 +121,30 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
     Returns:
         Tuple of (sport_keywords, league_keywords) dicts.
     """
+    # Cached on the override file's identity + mtime, so a Settings edit still
+    # takes effect on the next call while a re-read costs nothing.
+    #
+    # This is called ONCE PER CHANNEL by parse_sports_channel, and reading and
+    # parsing the bundled YAML takes **4.34 ms**. That was the entire cost of
+    # parse_sports_channel — measured, 4.34 ms of 4.34 ms. On the owner's
+    # library it made the classification pass 736 rows/s, so re-classifying
+    # 785,163 rows took 18 minutes, and ProviderLoader's own categorize step
+    # was paying the same toll on every refresh.
+    #
+    # Someone already knew: channel_name_utils._sports_keywords_flat() carries
+    # an lru_cache and a comment saying load_sports_definitions() reads a YAML
+    # file. The cache went on the call site that was noticed rather than on the
+    # function, so the hot caller kept paying.
+    user_path = get_user_definitions_path(config)
+    try:
+        stamp = user_path.stat().st_mtime_ns
+    except OSError:
+        stamp = None                      # no override file — a valid state
+    cache_key = (str(user_path), stamp)
+    cached = _DEFINITIONS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     # Load bundled defaults
     try:
         sport_kw, league_kw = _load_definitions_file(_BUNDLED_DEFINITIONS)
@@ -125,7 +154,6 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
         league_kw = {k: list(v) for k, v in _DEFAULT_LEAGUE_KEYWORDS.items()}
 
     # Merge user overrides if the settings UI has created them
-    user_path = get_user_definitions_path(config)
     if user_path.exists():
         try:
             user_sports, user_leagues = _load_definitions_file(user_path)
@@ -139,6 +167,9 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
         except Exception as e:
             logger.warning(f"Failed to read user sports definitions ({user_path}): {e}")
 
+    # Callers only READ these (parse_sports_channel iterates them), so one
+    # shared object per key is correct. Anything that needs to mutate must copy.
+    _DEFINITIONS_CACHE[cache_key] = (sport_kw, league_kw)
     return sport_kw, league_kw
 
 
@@ -176,6 +207,33 @@ def _matches_keyword(keywords: "list[str]", *haystacks: str) -> bool:
         _keyword_pattern(kw).search(hay)
         for kw in keywords
         if kw and kw.strip()
+        for hay in haystacks
+    )
+
+
+@lru_cache(maxsize=256)
+def _stem_pattern(stem: str) -> "re.Pattern[str]":
+    """A word-START matcher for one descriptive sport word.
+
+    Whole-token matching is right for an acronym and WRONG for a stem, and the
+    difference is not stylistic. ``sport`` under a whole-token rule matches
+    "SPORT TV" and misses "SPORTSNET 360", "SPECTRUM SPORTS 1" and "CBS SPORTS
+    NETWORK" — measured, that single keyword took **11,451 real sports channels
+    out of the sports view**, which is a far bigger error than the false
+    positives whole-token matching was introduced to remove.
+
+    So the guard is only on the LEFT edge: "firefighter" does not contain the
+    word ``fight``, but "fighting" does.
+    """
+    return re.compile(rf"(?<![a-z0-9]){re.escape(stem.strip().lower())}")
+
+
+def _matches_stem(stems: "tuple[str, ...]", *haystacks: str) -> bool:
+    """Whether any stem starts a word in any haystack."""
+    return any(
+        _stem_pattern(stem).search(hay)
+        for stem in stems
+        if stem and stem.strip()
         for hay in haystacks
     )
 
@@ -289,6 +347,46 @@ def detect_platform_event_channel(channel: ChannelDB) -> bool:
     return bool(pe and (pe.start_time is not None or pe.always_available))
 
 
+#: Keywords matched at the START of a word. Each one is here because the data
+#: says prefix matching adds real sports channels and adds almost nothing else —
+#: measured across the owner's 467,373 distinct names, counting exactly what the
+#: prefix rule catches that a whole-token rule misses:
+#:
+#:   sport    2,545 rows  SPORTS(2300) SPORTSNET(113) SPORTOWE SPORTING SPORT1
+#:   moto       270 rows  MOTOR(66) MOTOGP(64) MOTORVISION(32) MOTORSPORT(8)
+#:   formula     73 rows  FORMULA1(71) FORMULA2
+#:   f1          35 rows  F1TV — and the left guard still blocks TF1
+#:   rugby       27 rows  RUGBYPASS(26) RUGBYSTAR
+#:   espn        10 rows  ESPN2 ESPNU ESPN3 ESPN8 ESPNEWS
+#:   tsn          5 rows  TSN1..TSN5
+#:
+#: The only false catch in all of that is MOTOWN (7 rows), which lands in the
+#: sports view with no sport and no league. That is the trade, stated.
+SPORTS_GATE_STEMS: tuple[str, ...] = (
+    'sport', 'moto', 'formula', 'f1', 'rugby', 'espn', 'tsn',
+)
+
+#: Keywords matched as WHOLE tokens, because prefix matching demonstrably pulls
+#: in the wrong thing:
+#:
+#:   bein      "BEING MARY JANE", "Being Flynn"      137 wrong rows
+#:   fight     "Freedom Fighters"                    300 wrong rows
+#:   football  "FOOTBALLERS WIVES"
+#:   cricket   "The Crickets Dance", "THE CRICKETER"
+#:   hockey    "HOCKEYVADERS"        baseball  "The Baseballs" (a band)
+#:
+#: and the acronyms, which hide inside unrelated words — nba in GREENBAY, nfl in
+#: Conflict. For soccer/boxing/basketball the two rules matched identically on
+#: real data, so they sit here with the rest of the vocabulary.
+SPORTS_GATE_TOKENS: tuple[str, ...] = (
+    'nba', 'nfl', 'nhl', 'mlb', 'ufc',
+    'bein', 'sky sports', 'fox sports', 'nbc sports',
+    'football', 'soccer', 'boxing', 'kickboxing', 'basketball', 'baseball',
+    'cricket', 'tennis', 'hockey', 'racing', 'fight',
+    'premier league', 'champions league', 'la liga', 'bundesliga',
+)
+
+
 def detect_sports_channel(channel: ChannelDB) -> bool:
     """Detect if channel is a sports channel
     
@@ -296,16 +394,9 @@ def detect_sports_channel(channel: ChannelDB) -> bool:
     """
     name = channel.name.lower()
     category = (channel.category or "").lstrip('#').strip().lower()
-    
-    sports_keywords = [
-        'sport', 'football', 'soccer', 'nba', 'nfl', 'nhl', 'mlb',
-        'boxing', 'ufc', 'fight', 'racing', 'cricket', 'tennis',
-        'rugby', 'hockey', 'basketball', 'baseball', 'f1', 'moto',
-        'premier league', 'champions league', 'la liga', 'bundesliga',
-        'espn', 'sky sports', 'bein', 'tsn', 'fox sports', 'nbc sports',
-    ]
-    
-    return any(kw in name or kw in category for kw in sports_keywords)
+
+    return (_matches_stem(SPORTS_GATE_STEMS, name, category)
+            or _matches_keyword(list(SPORTS_GATE_TOKENS), name, category))
 
 
 def parse_ppv_event(channel: ChannelDB) -> Dict[str, Any]:
@@ -363,19 +454,23 @@ def parse_ppv_event(channel: ChannelDB) -> Dict[str, Any]:
     
     # Extract sport type from channel name
     name_lower = channel.name.lower()
+    # (stems matched at a word start, tokens matched whole) — the same split
+    # detect_sports_channel uses, for the same reason: 'football' must reach
+    # FOOTBALLERS while 'nfl' must not reach CONFLICT.
     sport_keywords = {
-        'soccer': ['soccer', 'football', 'fifa'],
-        'basketball': ['basketball', 'nba'],
-        'football': ['nfl', 'american football'],
-        'boxing': ['boxing', 'fight'],
-        'mma': ['ufc', 'mma', 'bellator'],
-        'racing': ['f1', 'formula', 'racing', 'nascar'],
-        'hockey': ['hockey', 'nhl'],
-        'baseball': ['baseball', 'mlb'],
+        'soccer':     (('soccer', 'football'), ('fifa',)),
+        'basketball': (('basketball',), ('nba',)),
+        'football':   (('american football',), ('nfl',)),
+        'boxing':     (('boxing', 'fight'), ()),
+        'mma':        (('bellator',), ('ufc', 'mma')),
+        'racing':     (('formula', 'racing', 'nascar'), ('f1',)),
+        'hockey':     (('hockey',), ('nhl',)),
+        'baseball':   (('baseball',), ('mlb',)),
     }
-    
-    for sport, keywords in sport_keywords.items():
-        if any(kw in name_lower for kw in keywords):
+
+    for sport, (stems, tokens) in sport_keywords.items():
+        if (_matches_stem(stems, name_lower)
+                or _matches_keyword(list(tokens), name_lower)):
             result['sport_type'] = sport
             break
     
