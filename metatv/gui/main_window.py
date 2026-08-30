@@ -902,12 +902,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # screen beside the primary navigation forever; the header's Tools
         # button opens this menu instead (R5).
         #
-        # This used to sit under a SECOND entry called "Diagnostics", whose
-        # handler logged one line and returned — so the menu offered two
-        # diagnostics items, one of which did nothing. Owner: "no point to
-        # having a diagnostics menu item that goes no where and a stream
-        # diagnostic menu item". The dead one is gone and the real one carries
-        # the name, matching the dialog's own title bar.
+        # This sat under a SECOND entry called "Diagnostics" whose handler
+        # logged one line and returned — two diagnostics items, one dead. The
+        # dead one is gone; the real one carries the name, matching its dialog.
         diagnose_action = QAction(f"{_icons.diagnose_icon}  Stream &diagnostics", self)
         diagnose_action.setToolTip(
             "Measure the selected channel's stream: reachability, time to first "
@@ -916,10 +913,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         diagnose_action.triggered.connect(self.on_diagnose_clicked)
         tools_menu.addAction(diagnose_action)
         # "Global Exclusions", never "Filters" — the app's one name for this.
-        # Its handler was a stub too, and unlike Diagnostics it had a LIVE
-        # trigger: the details pane's "Manage content filters…" context item
-        # emits manage_filters_requested straight into it, so that menu entry
-        # had been doing nothing at all.
+        # Its handler was a stub too, and had a LIVE trigger beyond the menu:
+        # the details pane emits manage_filters_requested straight into it.
         exclusions_action = QAction(
             f"{_icons.global_exclusion_icon}  Global &Exclusions", self
         )
@@ -2585,22 +2580,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     def manage_filters(self):
         """Open Global Exclusions — the real surface, not a log line.
 
-        This was a stub that logged "Manage filters" and returned, which made
-        two separate entry points inert: the Tools menu item, and the details
-        pane's "Manage content filters…" context action, which emits
-        ``manage_filters_requested`` into this slot (wired in ``setup_ui``).
-        A user clicking either got nothing, with no error to explain it.
+        This was a stub that logged and returned, which made TWO entry points
+        inert: the Tools item, and the details pane's context action, which
+        emits ``manage_filters_requested`` into this slot. Either click did
+        nothing, with no error to explain it.
 
-        Delegates rather than reimplements: ``_open_global_filter_dialog`` is
-        the one path that opens the dialog AND runs the refresh tail every
-        dependent view needs afterwards (channel list, Discover, preferences,
-        recipes, Recommended). A second opener here would have been a copy of
-        that tail, and the copy is what goes stale.
-
-        Its sibling stub ``show_diagnostics`` was deleted rather than filled
-        in: the Tools menu already had a working stream-diagnostics entry, so
-        the honest fix was to remove the duplicate rather than invent a second
-        diagnostics surface.
+        Delegates rather than reimplements — ``_open_global_filter_dialog`` also
+        runs the refresh tail every dependent view needs, and a second opener
+        would be a copy of that tail.
         """
         self._open_global_filter_dialog()
 
