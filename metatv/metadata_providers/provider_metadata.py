@@ -1,5 +1,6 @@
 """Provider metadata plugin - extracts from raw_data field"""
 from typing import Optional, Dict, List, Any
+import json
 import re
 
 from loguru import logger
@@ -35,13 +36,19 @@ def _parse_rating(rating_value) -> Optional[float]:
         return None
 
 def _parse_runtime(duration_value) -> Optional[int]:
-    """Parse runtime from various formats
+    """Parse a runtime in minutes from whatever shape the provider used.
 
     Args:
-        duration_value: Could be string like "120 min" or int
+        duration_value: ``"120 min"``, ``"45"``, ``120`` — or junk.
 
     Returns:
-        Runtime in minutes as int, or None
+        Runtime in minutes, or ``None``.
+
+    Notes:
+        ``"0"`` yields ``None``, not ``0``. Providers use zero as "unknown", and
+        the string is truthy so the guard below cannot catch it — a stored 0
+        would render as a real "0 min" runtime, which is worse than showing
+        nothing.
     """
     if not duration_value:
         return None
@@ -49,18 +56,65 @@ def _parse_runtime(duration_value) -> Optional[int]:
     try:
         # If already an int, return it
         if isinstance(duration_value, int):
-            return duration_value
+            return duration_value or None
 
         # Try to extract number from string
         duration_str = str(duration_value)
         match = re.search(r'(\d+)', duration_str)
         if match:
-            return int(match.group(1))
+            return int(match.group(1)) or None
 
     except (ValueError, TypeError):
         pass
 
     return None
+
+
+def runtime_from_raw(raw_data) -> Optional[int]:
+    """Return the runtime in minutes a provider payload implies, or None.
+
+    The single definition of *where the runtime lives*. Ingestion
+    (``metadata_from_raw``) and the one-time backfill
+    (``core.migrations.runtime_backfill``) both call this, so a new provider
+    shape is taught here once rather than drifting between the two.
+
+    Three keys, in precedence order:
+
+    * ``info.duration`` — the movie shape (``"120 min"`` / ``120``).
+    * ``info.episode_run_time`` — a nested series shape.
+    * ``raw_data.episode_run_time`` — the series shape the owner's three
+      providers actually send: a bare minutes string at the TOP level, with no
+      ``info`` sub-dict at all.
+
+    The third key is why this is not simply ``info.get('duration')``. Nothing
+    read it, so ``MetadataDB.runtime`` was populated on **0 of 652,216 rows** —
+    the one surface that renders a runtime never had one to show. Of the
+    owner's 127,552 series, 48,322 resolve a real value here; the remaining
+    79,230 send ``"0"``, which ``_parse_runtime`` deliberately maps to None.
+
+    Args:
+        raw_data: A stored provider blob — dict, JSON string, or None.
+
+    Returns:
+        Runtime in minutes, or None when the payload implies none.
+    """
+    if not raw_data:
+        return None
+    if isinstance(raw_data, str):
+        try:
+            raw_data = json.loads(raw_data)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(raw_data, dict):
+        return None
+    info = raw_data.get('info') or {}
+    if not isinstance(info, dict):
+        info = {}
+    return _parse_runtime(
+        info.get('duration')
+        or info.get('episode_run_time')
+        or raw_data.get('episode_run_time')
+    )
 
 
 def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
@@ -146,7 +200,7 @@ def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
         rating=_parse_rating(info.get('rating')) or _parse_rating(raw_rating),
 
         # Technical
-        runtime=_parse_runtime(info.get('duration')),
+        runtime=runtime_from_raw(raw_data),
         release_date=info.get('releaseDate') or info.get('release_date'),
 
         # Links
