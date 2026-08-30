@@ -63,17 +63,25 @@ _INTERFACE_ROW = _LABELS.index("Interface")
 
 
 # --------------------------------------------------------------------------- #
-# 1. Five sections, in order, no "Sidebar" section
+# 1. Every declared section, in order, no "Sidebar" section
 # --------------------------------------------------------------------------- #
 
-def test_five_sections_in_order(qapp, tmp_path):
+def test_every_declared_section_renders_in_order(qapp, tmp_path):
+    """Counted against ``_SECTIONS``, not a copy of its labels.
+
+    ``_setup_ui`` pairs sections with builders via ``zip``, which truncates
+    SILENTLY — a section declared without a builder never appears and nothing
+    raises. A literal list cannot tell that apart from someone adding a section,
+    so it just goes red and gets bumped, which is how the check stops meaning
+    anything.
+    """
     dlg = SettingsDialog(_make_config(tmp_path), parent=None)
 
     labels = [dlg._nav.section_list.item(i).text()
               for i in range(dlg._nav.section_list.count())]
-    assert labels == ["Playback", "Interaction", "Recommendations",
-                       "Metadata & API Keys", "Interface"]
-    assert dlg._nav.stack.count() == 5
+    assert labels == [label for _, label in _SECTIONS]
+    assert len(labels) >= 6
+    assert dlg._nav.stack.count() == len(_SECTIONS)
     assert "Sidebar" not in labels
 
     dlg.reject()

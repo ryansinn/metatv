@@ -3017,33 +3017,22 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._sync_style_menu_state()
 
     def _open_adult_settings(self) -> None:
-        """Open Settings → Content from the adult-gate segment of the filter bar.
+        """Open Settings → Content — the adult segment's click target.
 
-        The segment's click target, and deliberately not a bypass: see the
-        construction comment on ``_channel_adult_btn``. Uses the section LABEL
-        because ``open_settings`` forwards it to ``select_section_by_label``.
+        Deliberately not a bypass; see the segment table's comment. The section
+        LABEL, because ``open_settings`` forwards it to ``select_section_by_label``.
         """
         self.open_settings("Content")
 
     def _apply_adult_mode_setting(self) -> None:
         """Push a Settings → Content adult-mode change into the filter bar, then reload.
 
-        Two steps, and the first is the one that is easy to miss. ``config`` is
-        the source of truth for ``filter_adult_mode``, but ``FilterBar`` keeps a
-        *cache* of it in ``adult_mode_combo`` — ``restore_state()`` seeds the
-        combo from config at startup, and ``get_filter_state()`` reads the combo
-        (never config) on every subsequent query, with ``save_filter_state()``
-        writing the combo's value back to config.
-
-        So without this sync, changing the setting would appear to work and then
-        silently revert: the next filter interaction would call
-        ``save_filter_state()``, which would overwrite the freshly-saved config
-        value with the stale combo index. The setting has to be written INTO the
-        cache, not just past it.
-
-        Then ``load_channels()`` — the same narrow reload chokepoint
-        ``_apply_collapse_variants_setting`` uses, and for the same reason: this
-        changes the row SET, not row painting, so a repaint cannot show it.
+        ``config`` owns ``filter_adult_mode`` but ``FilterBar`` CACHES it in
+        ``adult_mode_combo``, and ``save_filter_state()`` writes that cache back
+        — so the setting must be written INTO the combo or the user's next
+        filter click overwrites what they just chose. Then ``load_channels()``,
+        the same reload chokepoint ``_apply_collapse_variants_setting`` uses:
+        this changes the row SET, not row painting.
         """
         bar = getattr(self, "filter_bar", None)
         combo = getattr(bar, "adult_mode_combo", None) if bar is not None else None

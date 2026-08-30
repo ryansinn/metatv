@@ -805,28 +805,19 @@ class _ChannelListMixin:
                 raw_visible=params['raw_fetched'], raw_comparison=_raw_with_keywords)
             params['hidden_by_keywords_is_floor'] = floor_keywords
 
-        # ── Filter layer 5 — the adult-content gate ───────────────────────────────
-        # Measured like the keyword axis (re-run with ONLY this axis lifted), with
-        # one deliberate difference: **only when the page came back empty.**
-        #
-        # The other four axes measure on every load. This one must not, because
-        # its trigger condition is the DEFAULT (`adult_mode` ships as "hide"), so
-        # an unconditional probe would add a second full get_all() to every single
-        # channel-list load on a 785k-row corpus — a permanent tax on the hot path
-        # to answer a question nobody asked, on a screen already showing results.
-        #
-        # An empty page is exactly when the question IS asked, and it is the bug
-        # this exists to fix: every PORNBOX channel is flagged, so opening that
-        # category returned 0 of 28 rows under a message that read "try a
-        # different search" — blaming the user's search for a content gate they
-        # had never been shown a control for.
+        # ── Filter layer 5 — the adult gate ───────────────────────────────────────
+        # Measured like the keyword axis (re-run with only this axis lifted), but
+        # ONLY on an empty page. Its trigger is the DEFAULT, so probing on every
+        # load would add a second full get_all() to every channel-list load on a
+        # 785k-row corpus to answer a question nobody asked. An empty page is when
+        # it IS asked — every PORNBOX channel is flagged, so that category
+        # returned 0 of 28 under "try a different search".
         hidden_by_adult = 0
         if (not channels and not hidden_only and not id_filter_show_all
                 and params['adult_mode'] != 'all' and has_adult):
             with_adult = repos.channels.get_all(**{**_axes, 'adult_mode': 'all'})
             _raw_with_adult = len(with_adult)
-            # Mirror the Python-side exclusion filtering applied to `channels` so the
-            # diff isolates ONLY the adult axis (never the layer-1 exclusions).
+            # Mirror the layer-1 filtering so the diff isolates only this axis.
             if exclusions_applied:
                 with_adult = _apply_python_exclusions(
                     with_adult, excluded_prefixes, excluded_user_cats, excluded_ct_ids
