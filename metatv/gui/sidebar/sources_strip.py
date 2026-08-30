@@ -47,13 +47,17 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
         and serving, with a subscription that is nearly up. A disabled provider
         with no subscription concern appears in neither.
     """
-    from metatv.gui.provider_editor import subscription_color
+    from metatv.gui.subscription_status import subscription_color
 
     active = expiring = 0
     for p in providers:
         is_expired = bool(p.account_exp_date and p.account_exp_date <= now)
         color = (
-            subscription_color(p.account_exp_date, p.account_created_at)
+            # ``now`` threaded through: this function takes one, and a
+            # classification that honoured it for `is_expired` while
+            # subscription_color reached for the real clock is not deterministic
+            # at all — it just looked it.
+            subscription_color(p.account_exp_date, p.account_created_at, now)
             if p.account_exp_date else ""
         )
         concerning = is_expired or color in (_theme.COLOR_WARN, _theme.COLOR_ERR)

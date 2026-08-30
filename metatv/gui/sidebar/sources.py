@@ -315,7 +315,7 @@ class SourcesSection(CollapsibleSection):
         try:
             from datetime import datetime
             from metatv.core.epg_manager import EpgManager
-            from metatv.gui.provider_editor import subscription_color
+            from metatv.gui.subscription_status import subscription_color
             repos = RepositoryFactory(session)
             providers = repos.providers.get_all()
             self.set_empty(len(providers) == 0)

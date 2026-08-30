@@ -255,32 +255,6 @@ class ProviderIconPicker(QWidget):
         self._update_selection(self._icon)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Subscription time helper
-# ──────────────────────────────────────────────────────────────────────────────
-
-def subscription_color(exp_date: Optional[datetime], created_at: Optional[datetime]) -> str:
-    """Return a CSS hex color for the subscription time remaining."""
-    if exp_date is None:
-        return ""
-    now = datetime.now()
-    if exp_date <= now:
-        return _theme.COLOR_MUTED  # expired — gray
-    days_remaining = (exp_date - now).days
-    if created_at and created_at < exp_date:
-        total_days = (exp_date - created_at).days
-        pct = days_remaining / total_days if total_days > 0 else 1.0
-    else:
-        pct = min(1.0, days_remaining / 30.0)  # fallback: 30-day window
-
-    if pct > 0.15 and days_remaining > 7:
-        return _theme.COLOR_OK   # green — plenty of time
-    elif pct > 0.05 or days_remaining > 2:
-        return _theme.COLOR_WARN   # amber — getting close
-    else:
-        return _theme.COLOR_ERR   # red — expiring very soon
-
-
 class _CopyableLabel(QLabel):
     """A small label whose full text copies to the clipboard on click.
 

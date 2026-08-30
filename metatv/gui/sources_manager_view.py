@@ -196,7 +196,7 @@ class SourcesManagerView(QWidget):
         self.sources_tree.clear()
         self._item_widgets = {}
 
-        from metatv.gui.provider_editor import subscription_color
+        from metatv.gui.subscription_status import subscription_color
 
         with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
