@@ -126,6 +126,22 @@ AXES: tuple[TransparencyAxis, ...] = (
             "restores the view."
         ),
     ),
+    TransparencyAxis(
+        key="adult",
+        attr="_channel_adult_btn",
+        icon=_icons.adult_filter_icon,
+        # The odd one out, and deliberately so — this OPENS THE SETTING rather
+        # than lifting the layer for one view. The four above are filters a user
+        # can trip by accident; the gate is a choice they made, so the honest
+        # response is to name it and hand over the switch.
+        handler="_open_adult_settings",
+        suffix="hidden as adult content  —  change in Settings",
+        tooltip=(
+            "These results are flagged as adult content, which is hidden by your\n"
+            "current setting.\nClick to open Settings → Content and change it.\n"
+            "Nothing is deleted — this is a setting, not a filter on this view."
+        ),
+    ),
 )
 
 #: Every button attribute the bar owns — the one list ``refresh_theme`` and any

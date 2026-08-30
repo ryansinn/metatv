@@ -160,6 +160,7 @@ def _save_theme_combo(combo: QComboBox, config) -> None:
 _SECTIONS: tuple[tuple[str, str], ...] = (
     ("playback", "Playback"),
     ("interaction", "Interaction"),
+    ("content", "Content"),
     ("recommendations", "Recommendations"),
     ("metadata", "Metadata & API Keys"),
     ("interface", "Interface"),
@@ -174,6 +175,10 @@ _SECTION_HELP: dict[str, str] = {
     "interaction": "What a double-click and a middle-click do on a channel row. These are "
                    "shortcuts, not required setup — right-click any movie for a one-time "
                    "override without changing either default.",
+    "content": "What the library is allowed to show you. Adult content is hidden by "
+               "default; this is where that is changed. While it is hidden, a category "
+               "made up entirely of flagged channels will look empty — the channel list "
+               "says when that is why.",
     "recommendations": "Steering dials for the Recommendations engine: the movie/series "
                         "mix and how much weight genre, director, cast, and keywords "
                         "carry. Every dial ships at a sane default, so an untouched tab "
@@ -253,6 +258,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         builders = (
             self._build_playback_tab,
             self._build_interaction_tab,
+            self._build_content_tab,
             self._build_recommendations_tab,
             self._build_metadata_tab,
             self._build_interface_tab,
@@ -336,6 +342,13 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
 
         # Interaction
         resume_mode = getattr(c, "playback_resume_mode", "resume")
+        adult_idx = self._adult_mode_combo.findData(
+            getattr(self.config, "filter_adult_mode", "hide")
+        )
+        self._adult_mode_combo.setCurrentIndex(
+            adult_idx if adult_idx >= 0 else self._adult_mode_combo.findData("hide")
+        )
+
         resume_idx = self._resume_mode_combo.findData(resume_mode)
         self._resume_mode_combo.setCurrentIndex(
             resume_idx if resume_idx >= 0 else self._resume_mode_combo.findData("resume")
@@ -536,6 +549,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
 
         # Interaction
         c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
+        c.filter_adult_mode = self._adult_mode_combo.currentData() or "hide"
         c.middle_click_action = (
             self._middle_click_combo.currentData() or DEFAULT_MIDDLE_CLICK_ACTION
         )

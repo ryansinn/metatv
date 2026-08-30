@@ -857,6 +857,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_sidebar_row_density",
     "refresh_theme",
     "_apply_collapse_variants_setting",
+    "_apply_adult_mode_setting",
     "_sync_split_toggle",
     "_apply_menu_bar_setting",
     "_refresh_vod_alerts_section",
@@ -902,6 +903,33 @@ def wire_settings_playback_widgets(dlg) -> None:
     dlg._recheck_failed_on_refresh_check.setChecked(True)
 
 
+def wire_settings_content_widgets(dlg) -> None:
+    """Attach the Settings → Content tab's widgets to a skeleton dialog.
+
+    Same shape, and same reason, as :func:`wire_settings_playback_widgets`:
+    ``_load_values``/``_save_values`` touch every tab's widgets, so a skeleton
+    ``SettingsDialog.__new__`` missing one raises the moment either runs. And it
+    raises loudly rather than quietly — the skeleton never ran ``QDialog.__init__``,
+    so sip raises ``RuntimeError: super-class __init__() of type SettingsDialog
+    was never called`` instead of the ``AttributeError`` a ``hasattr`` guard
+    would absorb.
+
+    Adding ``_adult_mode_combo`` to the Content tab broke **37 tests across six
+    files** that the PR never touched — the exact blind spot the local
+    ``--quick`` gate has by construction, and CI caught it. One factory makes
+    the next Content widget a single edit here.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QComboBox
+
+    dlg._adult_mode_combo = QComboBox()
+    dlg._adult_mode_combo.addItem("Show everything", userData="all")
+    dlg._adult_mode_combo.addItem("Hide adult content", userData="hide")
+    dlg._adult_mode_combo.addItem("Show only adult content", userData="only")
+
+
 # ---------------------------------------------------------------------------
 # MainWindow channel-render skeleton stubs
 # ---------------------------------------------------------------------------
@@ -932,6 +960,10 @@ def wire_channel_banner_widgets(win) -> None:
     win._channel_filter_bar = QWidget()
     win._channel_exclusion_btn = QPushButton()
     win._channel_filter_btn = QPushButton()
+    # Segment 5 of the transparency bar. Guarded by __dict__.get in production
+    # (so its absence is survivable), but wired here so a test can assert the
+    # adult-gate notice actually renders instead of silently no-opping.
+    win._channel_adult_btn = QPushButton()
     win._no_sources_banner = QWidget()
 
 

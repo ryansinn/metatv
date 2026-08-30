@@ -173,6 +173,8 @@ def test_settings_checkbox_loads_from_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
     # Provide all widgets _load_values touches (minimal set for this test)
     _wire_minimal_dialog(dlg, qapp)
 
@@ -194,6 +196,8 @@ def test_settings_checkbox_saves_to_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
     _wire_minimal_dialog(dlg, qapp)
 
     cfg = _minimal_config(refresh_all_includes_inactive=True)

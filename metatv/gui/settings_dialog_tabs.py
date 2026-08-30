@@ -281,6 +281,36 @@ class SettingsTabsMixin:
         layout.addStretch()
         return tab
 
+    def _build_content_tab(self) -> QWidget:
+        """Build the Content tab — what the library may show you.
+        Home for ``filter_adult_mode``, whose only control was built
+        ``setVisible(False)``. A setting you cannot find does not exist.
+        """
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        adult_group = QGroupBox("Restricted content")
+        adult_form = QFormLayout(adult_group)
+        adult_form.setSpacing(8)
+
+        self._adult_mode_combo = QComboBox()
+        self._adult_mode_combo.addItem("Show everything", userData="all")
+        self._adult_mode_combo.addItem("Hide adult content", userData="hide")
+        self._adult_mode_combo.addItem("Show only adult content", userData="only")
+        self._adult_mode_combo.setToolTip(
+            "Whether channels flagged as adult appear anywhere in the app.\n"
+            "\n"
+            "While hidden, a category made up of flagged channels will look\n"
+            "empty — the channel list says when that is why."
+        )
+        adult_form.addRow("Adult content:", self._adult_mode_combo)
+
+        layout.addWidget(adult_group)
+        layout.addStretch()
+        return tab
+
     def _build_recommendations_tab(self) -> QWidget:
         """Build the Recommendations tab — steering dials for the preference engine.
 

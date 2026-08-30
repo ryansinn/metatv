@@ -4,7 +4,7 @@ Pins three regressions that would break if the tabs were mis-arranged or a
 widget's load/save wiring was dropped during the reorg:
 
 1. Tab structure: exactly 5 tabs named
-   ["Playback", "Interaction", "Recommendations", "Metadata & API Keys", "Interface"];
+   every section declared in _SECTIONS, in order (derived, so it cannot go stale);
    no "Sidebar" tab.
 2. EPG under Metadata: _epg_interval_combo is built inside _build_metadata_tab, so the
    Metadata tab widget tree contains it.
@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
 )
 
-from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
+from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS, _SECTIONS
 from tests.conftest import (
     wire_settings_density_widget,
     wire_settings_epg_widgets,
@@ -97,6 +97,12 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._middle_click_combo = QComboBox()
     for _action in MIDDLE_CLICK_ACTIONS:
         dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
+    # -- Content tab widgets --
+    dlg._adult_mode_combo = QComboBox()
+    dlg._adult_mode_combo.addItem("Show everything", userData="all")
+    dlg._adult_mode_combo.addItem("Hide adult content", userData="hide")
+    dlg._adult_mode_combo.addItem("Show only adult content", userData="only")
+
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
@@ -153,32 +159,60 @@ def _full_dialog(qapp) -> SettingsDialog:
 # 1. Tab structure: 3 tabs, correct names, no "Sidebar" tab                   #
 # --------------------------------------------------------------------------- #
 
-def test_settings_dialog_has_exactly_five_tabs(qapp):
-    """The dialog must have exactly 5 sections after the Recommendations tab was added.
+def test_settings_dialog_nav_and_stack_agree(qapp):
+    """The left nav and the page stack must carry one entry per declared section.
 
-    Post three-panel-layout: the left-nav QListWidget (``_nav.section_list``)
-    replaces the old QTabWidget's tab bar; the center QStackedWidget
-    (``_nav.stack``) must carry the same number of pages.
+    Counted against ``_SECTIONS`` rather than a literal, which is what this
+    assertion is actually for: ``_setup_ui`` pairs sections with builders using
+    ``zip``, so a section declared without a builder is dropped **silently** and
+    the nav and stack simply come up short. A hardcoded "== 5" cannot tell that
+    apart from someone legitimately adding a sixth section — it just goes red
+    and gets bumped to 6, which is how the check stops meaning anything.
+
+    The floor keeps it honest if ``_SECTIONS`` is ever gutted.
     """
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    assert dlg._nav.section_list.count() == 5
-    assert dlg._nav.stack.count() == 5
+    expected = len(_SECTIONS)
+    assert expected >= 6
+    assert dlg._nav.section_list.count() == expected, (
+        "a declared section is missing from the nav — zip dropped it"
+    )
+    assert dlg._nav.stack.count() == expected, (
+        "a declared section is missing from the page stack — zip dropped it"
+    )
 
     dlg.close()
 
 
 def test_settings_dialog_tab_names(qapp):
-    """Sections must be named Playback, Interaction, Recommendations, Metadata & API Keys,
-    Interface in order."""
+    """The nav must render EVERY declared section, in declared order.
+
+    Derived from ``_SECTIONS`` rather than a hand-copied list of labels, because
+    ``_setup_ui`` builds the nav with ``zip(_SECTIONS, builders)`` and **zip
+    truncates silently**: declare a section and forget its builder and the
+    section simply never appears, with nothing raised. A hardcoded label list
+    cannot see that — it goes stale the moment a section is added, and its
+    failure reads as "the list needs updating" rather than "a section vanished".
+
+    The floor + anchors below keep it from passing vacuously on an empty or
+    gutted ``_SECTIONS``.
+    """
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
     tab_titles = [dlg._nav.section_list.item(i).text()
                   for i in range(dlg._nav.section_list.count())]
-    assert tab_titles == ["Playback", "Interaction", "Recommendations",
-                          "Metadata & API Keys", "Interface"]
+
+    declared = [label for _, label in _SECTIONS]
+    assert tab_titles == declared, (
+        f"nav renders {tab_titles} but _SECTIONS declares {declared} — a section "
+        f"was declared without a builder (zip truncated it), or the two are out of order"
+    )
+    assert len(tab_titles) >= 6
+    assert tab_titles[0] == "Playback"
+    assert "Content" in tab_titles
 
     dlg.close()
 

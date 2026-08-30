@@ -162,6 +162,8 @@ def _bare_dialog(qapp):
     )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
+    from tests.conftest import wire_settings_content_widgets
+    wire_settings_content_widgets(dlg)
 
     dlg._player_combo = QComboBox()
     dlg._player_combo.addItems(["mpv", "vlc", "custom"])
