@@ -1930,51 +1930,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
             f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
         )
-        # Segment 1 — Global Exclusions layer.
-        self._channel_exclusion_btn = QPushButton()
-        self._channel_exclusion_btn.setVisible(False)
-        self._channel_exclusion_btn.setStyleSheet(_seg_style)
-        self._channel_exclusion_btn.setToolTip(
-            "Your Global Exclusions are hiding these results (their region / category "
-            "is excluded).\nClick to temporarily show them for this view only.\n"
-            "Your Global Exclusions are not changed; searching or changing filters restores the view."
-        )
-        self._channel_exclusion_btn.clicked.connect(self._show_exclusion_hidden)
-        _cfb_layout.addWidget(self._channel_exclusion_btn)
-        # Segment 2 — search / Tier-1 filter layer.
-        self._channel_filter_btn = QPushButton()
-        self._channel_filter_btn.setVisible(False)
-        self._channel_filter_btn.setStyleSheet(_seg_style)
-        self._channel_filter_btn.setToolTip(
-            "Your current Category / Quality / Platform filters are hiding these results.\n"
-            "Click to temporarily show them. Filters are not changed.\n"
-            "Changing filters or searching again restores normal filtered view."
-        )
-        self._channel_filter_btn.clicked.connect(self._show_filtered_results)
-        _cfb_layout.addWidget(self._channel_filter_btn)
-        # Segment 3 — dead-stream gate (repeated play failures).
-        self._channel_dead_btn = QPushButton()
-        self._channel_dead_btn.setVisible(False)
-        self._channel_dead_btn.setStyleSheet(_seg_style)
-        self._channel_dead_btn.setToolTip(
-            "These channels have repeatedly failed to play and are held back from "
-            "the list.\nClick to temporarily show them for this view only.\n"
-            "Nothing is deleted; searching or changing filters restores the view."
-        )
-        self._channel_dead_btn.clicked.connect(self._show_dead_hidden)
-        _cfb_layout.addWidget(self._channel_dead_btn)
-        # Segment 4 — Global Exclusions keyword axis.
-        self._channel_keyword_btn = QPushButton()
-        self._channel_keyword_btn.setVisible(False)
-        self._channel_keyword_btn.setStyleSheet(_seg_style)
-        self._channel_keyword_btn.setToolTip(
-            "Your Global Exclusions keyword list is hiding these results (their\n"
-            "title matches one of your keywords).\nClick to temporarily show them "
-            "for this view only.\n"
-            "Your keyword list is not changed; searching or changing filters restores the view."
-        )
-        self._channel_keyword_btn.clicked.connect(self._show_keyword_hidden)
-        _cfb_layout.addWidget(self._channel_keyword_btn)
+        # One descriptor per axis, in metatv/gui/channel_transparency.py. This
+        # was five near-identical blocks; see that module's docstring for why an
+        # enumeration here was the bug rather than merely the verbosity.
+        from metatv.gui import channel_transparency as _transparency
+
+        _transparency.build_segments(self, _cfb_layout, _seg_style)
         _cfb_layout.addStretch(1)
         self._list_layout.addWidget(self._channel_filter_bar)
 
@@ -2756,8 +2717,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
                 f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
             )
-            for btn_name in ("_channel_exclusion_btn", "_channel_filter_btn", "_channel_dead_btn", "_channel_keyword_btn"):
-                getattr(self, btn_name).setStyleSheet(_seg_style)
+            # BUTTON_ATTRS, not a re-typed list: a new axis is styled on a
+            # theme switch without anyone remembering to add it here.
+            from metatv.gui.channel_transparency import BUTTON_ATTRS
+
+            for btn_name in BUTTON_ATTRS:
+                button = self.__dict__.get(btn_name)
+                if button is not None:
+                    button.setStyleSheet(_seg_style)
 
         if hasattr(self, "stats_label"):
             _theme.style_fn(self.stats_label, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
