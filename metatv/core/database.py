@@ -243,6 +243,14 @@ class ChannelDB(Base):
     # collection: tags, the provider's denoted and this one inferred, which is
     # what lets one title carry several collections at all.
     detected_name_collection     = Column(String, index=True, nullable=True)
+    # Episode identity lifted out of the NAME at ingestion. 960 rows in the
+    # owner's library are 48 series whose provider filed every episode as a
+    # separate movie, and the "S01E57" in the name is what made them look
+    # distinct — strip it and content_key collapses 414 Konusanlar rows into
+    # one card. Stored as the provider wrote them ("01", "57"), so a display
+    # keeps the zero-padding and a sort can int() at that point.
+    detected_season              = Column(String, nullable=True)
+    detected_episode             = Column(String, index=True, nullable=True)
 
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
@@ -782,6 +790,8 @@ class Database:
             # Collection lifted from the name after a mid-year marker; an
             # inference, see ChannelDB.detected_name_collection above.
             ("channels",     "detected_name_collection",      "TEXT"),
+            ("channels",     "detected_season",               "TEXT"),
+            ("channels",     "detected_episode",              "TEXT"),
             # Wave 4 — episode-grain metadata lifted from raw_data at ingestion
             # (#247); computed at ingestion, see EpisodeDB.plot/air_date/rating/
             # still_url above. Pre-existing rows backfilled by

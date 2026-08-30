@@ -35,6 +35,9 @@ class ParsedChannel(NamedTuple):
                     ``quality`` for the reason ledger F17 gave for HDR: an
                     encoding is not a resolution tier, and letting it stand in
                     for one means an HEVC channel reports no resolution at all.
+        season:     Season number as it appeared ("01", "2"), or "". Present only
+                    for the SxxExx form — see :data:`_EPISODE_MARKER_RE`.
+        episode:    Episode number as it appeared ("57", "004"), or "".
         audio_codec: Audio codec ("DD+ 5.1", "AAC 2.0"), or "". Distinct from
                     ``audio``, which is presentation (Multi/Dub/Sub).
         trailing_meta: ``(kind, value)`` when the text after a mid-string year was
@@ -58,6 +61,8 @@ class ParsedChannel(NamedTuple):
     tier: str = ""
     encoding: str = ""
     audio_codec: str = ""
+    season: str = ""
+    episode: str = ""
 
 
 # ── Provider decoration vocabularies ────────────────────────────────────────── #
@@ -2406,6 +2411,56 @@ def _collapse_same_rank(quality: list[str]) -> list[str]:
     return deduped
 
 
+#: An episode marker inside a VOD title: ``S01E57``, ``S2 E4``, ``S01.E05``.
+#:
+#: **Only this form.** The ``1x05`` spelling was measured across the owner's
+#: 785,163 names and matched 14 rows, ALL of them real film titles — "10x10
+#: (2018)", "8x10 Tasveer", "12x12". "Season N Episode N" matched nothing at
+#: all. So the vocabulary is one pattern, not three, and it is one pattern
+#: because that is what the data supports.
+#:
+#: SxxExx itself matched 960 rows and every one is a series episode the provider
+#: filed as a movie — 48 shows, led by Konusanlar with 414 episodes. Nothing in
+#: the library is a film with S..E.. in its name.
+_EPISODE_MARKER_RE = re.compile(
+    r"(?<![A-Za-z0-9])S(\d{1,2})[ ._-]?E(\d{1,3})(?![0-9])", re.IGNORECASE)
+
+
+def _extract_episode_marker(bare: str) -> "tuple[str, str, str]":
+    """Pull an ``SxxExx`` marker out of a title.
+
+    A provider that files 414 episodes of one show as 414 separate movies gives
+    the owner 414 rows where there should be one card. The marker is what makes
+    them look distinct: strip it and ``content_key`` — computed from
+    ``detected_title`` — collapses them the way it already collapses every other
+    cross-source duplicate.
+
+    The numbers are kept as strings exactly as written, not ``int``: "01" and
+    "1" are the same episode but a provider is consistent within a show, and a
+    string preserves the zero-padding a display might want. Callers that need to
+    sort should ``int()`` at that point.
+
+    Args:
+        bare: A channel name with its provider prefix already removed.
+
+    Returns:
+        ``(title, season, episode)``; season and episode are "" when there is
+        no marker, and *title* is then returned unchanged.
+
+    Examples:
+        >>> _extract_episode_marker("Konusanlar S01E57")
+        ('Konusanlar', '01', '57')
+        >>> _extract_episode_marker("10x10")
+        ('10x10', '', '')
+    """
+    match = _EPISODE_MARKER_RE.search(bare)
+    if not match:
+        return bare, "", ""
+    title = (bare[: match.start()] + " " + bare[match.end():])
+    title = re.sub(r"\s{2,}", " ", title)
+    return _SCENE_EDGE_RE.sub("", title), match.group(1), match.group(2)
+
+
 # --- Scene-release filenames -------------------------------------------------
 #
 # 1,268 rows in the owner's library render a torrent filename as their title:
@@ -2999,6 +3054,12 @@ def parse_channel_name(name: str) -> ParsedChannel:
     else:
         _scene_attrs = None
 
+    # 1a-ii. Episode marker. AFTER the scene cut, because "Konusanlar S01E57
+    # 1080p EXXEN WEB-DL AAC H264-TURG" only exposes its marker once the tail
+    # is gone, and BEFORE the year strip, because removing "S01E57" can leave a
+    # trailing year the end-anchored pass should then see.
+    bare, _season, _episode = _extract_episode_marker(bare)
+
     trailing = ""
 
     # 1b. Pre-cut: relocate a real 4-digit year in parens that has trailing FREE-TEXT
@@ -3248,7 +3309,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
                          _audio_langs, _dub_langs, _sub_langs, trailing,
-                         trailing_meta, tier, encoding, audio_codec)
+                         trailing_meta, tier, encoding, audio_codec,
+                         _season, _episode)
 
 
 # ── EPG TLD compatibility (region-gated fuzzy matching, Wave 3 Slice 3B) ─────── #
