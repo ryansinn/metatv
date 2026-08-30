@@ -1243,6 +1243,57 @@ class _StreamingMixin:
             channel_id=channel_id,
         )
 
+    def play_trailer(self, url: str, title: str) -> None:
+        """Play a trailer URL in its own player window.
+
+        Args:
+            url: The trailer URL (a YouTube watch URL for all but a handful of
+                the owner's 114,308; mpv resolves it through yt-dlp).
+            title: Window title, e.g. "Dune — Trailer".
+
+        Notes:
+            ``provider_id=None`` on purpose. A trailer is not the provider's
+            stream, so it must not consume a slot in the provider's connection
+            budget or land in that provider's Split-Streams window — it still
+            goes through ``PlayerManager`` (never ``MPVPlayer`` directly), which
+            is what the keying rule actually requires.
+
+            ``force_new_window=True`` because a trailer is a side trip: watching
+            one must not stop whatever is already playing.
+        """
+        logger.info("Playing trailer: {}", title or url)
+        ok = self.player_manager.play(
+            url, title or "Trailer",
+            provider_id=None,
+            force_new_window=True,
+        )
+        if not ok:
+            # Same shape as the "Stream Unavailable" notice, and it names the
+            # recovery the right-click menu already offers rather than leaving
+            # the viewer with a button that silently did nothing.
+            self.notification_manager.show(
+                title="Trailer unavailable",
+                message=(f"{title or 'The trailer'} could not be opened.\n"
+                         "Right-click the Trailer button → Play trailer on "
+                         "YouTube."),
+                type="error",
+                dismissible=True,
+                auto_dismiss_seconds=8,
+            )
+
+    def open_trailer_in_browser(self, url: str) -> None:
+        """Open a trailer URL in the system browser.
+
+        Args:
+            url: The trailer URL.
+        """
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        logger.info("Opening trailer in browser: {}", url)
+        QDesktopServices.openUrl(QUrl(url))
+
+
     def _show_capacity_warning(
         self,
         provider_id: str,

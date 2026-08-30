@@ -48,6 +48,8 @@ class DetailsPaneWidget(QWidget):
     hide_requested             = pyqtSignal(str)        # channel_id
     unhide_requested           = pyqtSignal(str)        # channel_id
     clear_epg_link_requested   = pyqtSignal(str)        # channel_id — toggles clear/re-link per current blocked state
+    trailer_requested          = pyqtSignal(str, str)  # url, title — play it here
+    trailer_youtube_requested  = pyqtSignal(str)       # url — open it in the browser
     watched_toggled            = pyqtSignal(str, bool)  # channel_id, is_watched (VOD)
     channel_versions_requested = pyqtSignal(str)        # channel_id
     version_selected           = pyqtSignal(str)        # channel_id — show details
@@ -81,6 +83,10 @@ class DetailsPaneWidget(QWidget):
         # host reads on play_episode_requested; _in_episode_mode routes the Play click.
         self.current_episode = None
         self._in_episode_mode: bool = False
+        # Trailer URL + display title for the CURRENT channel; cleared by
+        # clear() so the button can never play the previous title's trailer.
+        self._trailer_url: str = ""
+        self._trailer_title: str = ""
         self.provider_urls: list = []
         self._provider_map: dict = {}
         # "Currently playing" indicator — last play-state report from the host's
@@ -204,6 +210,11 @@ class DetailsPaneWidget(QWidget):
         # episode view had hidden.
         self._in_episode_mode = False
         self.current_episode = None
+        # Forget the previous title's trailer. _apply_metadata only runs when
+        # this channel HAS metadata, so without this the button would keep the
+        # last one's URL and play the wrong trailer on the next channel.
+        self._trailer_url = ""
+        self._trailer_title = ""
         self._byline.hide()
         self._episode_rating_lbl.hide()
         self._episode_air_date_lbl.hide()
@@ -486,6 +497,7 @@ class DetailsPaneWidget(QWidget):
             play=self._action_bar.play_button,
             resume=self._action_bar.resume_button,
             queue=self._action_bar.queue_button,
+            trailer=self._action_bar.trailer_button,
             like=self._action_bar.like_button,
             not_interested=self._action_bar.not_interested_button,
             dislike=self._action_bar.dislike_button,
@@ -577,6 +589,8 @@ class DetailsPaneWidget(QWidget):
         ab.watchlist_clicked.connect(self._on_watchlist)
         ab.monitor_clicked.connect(self._on_monitor)
         ab.clear_epg_link_clicked.connect(self._on_clear_epg_link)
+        ab.trailer_clicked.connect(self._on_trailer)
+        ab.trailer_youtube_clicked.connect(self._on_trailer_youtube)
 
         # Collapse state persistence
         # One connection per section, from the same tuple that restored them —
@@ -597,6 +611,12 @@ class DetailsPaneWidget(QWidget):
 
     def _apply_metadata(self, metadata: MetadataResult) -> None:
         self._meta.load_metadata(metadata)
+        # Trailer — the button appears only when there is something behind it.
+        # Held on the pane rather than read back off the button, because the
+        # button carries a label, not a URL.
+        self._trailer_url = metadata.trailer_url or ""
+        self._trailer_title = f"{metadata.title or ''} — Trailer".strip(" —")
+        self._action_bar.set_trailer(bool(self._trailer_url))
         # Always route through _plot.load — it shows the section when a plot is
         # present and hides the whole 'Overview' box when it is empty.
         self._plot.load(metadata.plot)
@@ -662,6 +682,16 @@ class DetailsPaneWidget(QWidget):
     # ------------------------------------------------------------------ #
     # Action bar wrappers (add channel_id to signals)                      #
     # ------------------------------------------------------------------ #
+
+    def _on_trailer(self) -> None:
+        """Play the current title's trailer, if one was resolved."""
+        if self._trailer_url:
+            self.trailer_requested.emit(self._trailer_url, self._trailer_title)
+
+    def _on_trailer_youtube(self) -> None:
+        """Open the current title's trailer in the system browser."""
+        if self._trailer_url:
+            self.trailer_youtube_requested.emit(self._trailer_url)
 
     def _on_play(self) -> None:
         # In episode mode the primary button plays the selected episode, not the

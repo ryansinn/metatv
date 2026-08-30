@@ -454,10 +454,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             MetadataYearBackfillTask,
         )
         self.migration_manager.register(MetadataYearBackfillTask(self.db))
-        # One-time pass for rows ingested before provider_metadata read the
-        # runtime; cached metadata is not re-derived on read.
-        from metatv.core.migrations.runtime_backfill import RuntimeBackfillTask
-        self.migration_manager.register(RuntimeBackfillTask(self.db))
+        # One-time pass for rows ingested before provider_metadata read a
+        # field the provider was already sending; cached metadata is not
+        # re-derived on read. A new field is a row in its FIELDS table, not a
+        # new task here.
+        from metatv.core.migrations.raw_field_backfill import RawFieldBackfillTask
+        self.migration_manager.register(RawFieldBackfillTask(self.db))
         # The classifier only runs on rows it has never seen (ProviderLoader
         # filters special_view IS NULL), so a fix to special_content.py reaches
         # new rows only. This is the pass that re-labels the existing ones.
@@ -765,6 +767,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         self.details_pane.resume_episode_requested.connect(self._on_details_resume_episode)
         self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
+        self.details_pane.trailer_requested.connect(self.play_trailer)
+        self.details_pane.trailer_youtube_requested.connect(
+            self.open_trailer_in_browser)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
         self.details_pane.episode_favorite_toggled.connect(self._on_details_episode_favorite_toggle)

@@ -24,6 +24,8 @@ import pytest
 
 from PyQt6.QtCore import Qt
 
+from tests.conftest import wire_details_action_buttons
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -72,19 +74,7 @@ def _build(qapp):
     cfg = _make_config()
     poster = _PosterSection(cfg, MagicMock())
     action_bar = _ActionBar(cfg)
-    poster.set_action_buttons(
-        favorite=action_bar.favorite_button,
-        play=action_bar.play_button,
-        resume=action_bar.resume_button,
-        queue=action_bar.queue_button,
-        like=action_bar.like_button,
-        not_interested=action_bar.not_interested_button,
-        dislike=action_bar.dislike_button,
-        watchlist=action_bar.watchlist_button,
-        monitor=action_bar.monitor_button,
-        clear_epg_link=action_bar.clear_epg_link_button,
-        hide=action_bar.hide_button,
-    )
+    wire_details_action_buttons(poster, action_bar)
     return poster, action_bar
 
 
@@ -325,13 +315,7 @@ def test_play_anchored_below_live_logo_footprint(qapp):
     cache.get_image_sync.return_value = None
     poster = _PosterSection(cfg, cache)
     ab = _ActionBar(cfg)
-    poster.set_action_buttons(
-        favorite=ab.favorite_button, play=ab.play_button, resume=ab.resume_button,
-        queue=ab.queue_button, like=ab.like_button,
-        not_interested=ab.not_interested_button, dislike=ab.dislike_button,
-        watchlist=ab.watchlist_button, monitor=ab.monitor_button,
-        clear_epg_link=ab.clear_epg_link_button, hide=ab.hide_button,
-    )
+    wire_details_action_buttons(poster, ab)
     poster.set_mode(is_live=True)
     poster.load_live_logo("http://logo/x.png")
 

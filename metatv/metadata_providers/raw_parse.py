@@ -152,3 +152,66 @@ def harvest_detail_metadata(data: Any) -> dict:
         "poster_url": poster,
         "backdrop_url": backdrop,
     }
+
+
+#: A bare YouTube video id: exactly 11 characters of the base64url alphabet.
+#: 68,282 of the owner's 68,299 trailers arrive in this form — an id, not a URL.
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+#: The keys a trailer arrives under, in precedence order. ``trailer`` is the
+#: top-level Xtream VOD key and the one that carries essentially all of them;
+#: ``youtube_trailer`` is the nested-``info`` spelling that was the only key read.
+_TRAILER_KEYS = ("youtube_trailer", "trailer", "trailer_url")
+
+
+def extract_trailer(info: dict) -> Optional[str]:
+    """Return a playable trailer URL from a provider payload, or None.
+
+    Sibling of :func:`extract_artwork`: the one place that knows where a trailer
+    lives and what shape it arrives in, so no caller re-derives it.
+
+    ``metadata_from_raw`` read ``info.get('youtube_trailer')`` alone. Measured on
+    the owner's library, **68,299 movies carry a trailer** and 46,327 metadata
+    rows had one stored — the ~22,000 difference is the top-level ``trailer``
+    key, which is where Xtream VOD rows actually put it.
+
+    Shapes seen in real data, all normalised to a watch URL:
+
+    ===============================  ============================================
+    ``AklEaZVdm3c``                  a bare id — 68,282 rows
+    ``qYU_1Q8uc4A?si=PCziQRV4T2s``   an id with a share-tracking query — 4 rows
+    ``watch?v=aYNwBsXWNVM``          a relative watch path — 1 row
+    ``https://youtu.be/c3dukvXxtsc`` a full URL — 3 rows
+    ``https://dai.ly/x92o7oa``       not YouTube at all — 2 rows
+    ===============================  ============================================
+
+    A full URL is returned untouched, whatever the host: the field means "a
+    trailer lives here", and rejecting Dailymotion would drop a working link for
+    no reason. Only the bare-id forms are expanded, and only when they look like
+    a YouTube id — an unrecognised fragment yields None rather than a guess.
+
+    Args:
+        info: The resolved info dict (nested ``raw_data['info']`` when present,
+            otherwise the flat ``raw_data`` itself, exactly as
+            ``metadata_from_raw`` resolves it).
+
+    Returns:
+        A playable URL, or None when the payload carries no usable trailer.
+    """
+    for key in _TRAILER_KEYS:
+        value = info.get(key)
+        if not value or not isinstance(value, str):
+            continue
+        value = value.strip()
+        if not value:
+            continue
+        if value.startswith(("http://", "https://")):
+            return value
+        # "watch?v=ID" — a relative path off youtube.com.
+        if value.startswith("watch?v="):
+            value = value[len("watch?v="):]
+        # "ID?si=..." — a share link's tracking query, arriving without its host.
+        value = value.split("?", 1)[0].split("&", 1)[0]
+        if _YOUTUBE_ID_RE.match(value):
+            return f"https://www.youtube.com/watch?v={value}"
+    return None

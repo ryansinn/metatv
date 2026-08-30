@@ -34,6 +34,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.conftest import wire_details_action_buttons
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -53,19 +55,7 @@ def _wired_poster(cfg):
 
     poster = _PosterSection(cfg, MagicMock())
     ab = _ActionBar(cfg)
-    poster.set_action_buttons(
-        favorite=ab.favorite_button,
-        play=ab.play_button,
-        resume=ab.resume_button,
-        queue=ab.queue_button,
-        like=ab.like_button,
-        not_interested=ab.not_interested_button,
-        dislike=ab.dislike_button,
-        watchlist=ab.watchlist_button,
-        monitor=ab.monitor_button,
-        clear_epg_link=ab.clear_epg_link_button,
-        hide=ab.hide_button,
-    )
+    wire_details_action_buttons(poster, ab)
     return poster, ab
 
 
@@ -111,11 +101,12 @@ def test_row_order_is_watch_later_then_the_rating_trio(qapp):
     poster, ab = _wired_poster(_make_config())
 
     assert _row_widgets(poster) == [
+        ab.trailer_button,
         ab.queue_button,
         ab.like_button,
         ab.not_interested_button,
         ab.dislike_button,
-    ], "the secondary row must read [Watch Later] → 👍 → 🙅 → 👎"
+    ], "the secondary row must read [Trailer] [Watch Later] → 👍 → 🙅 → 👎"
 
 
 def test_rating_controls_are_right_aligned_by_the_queue_stretch(qapp):
@@ -123,8 +114,9 @@ def test_rating_controls_are_right_aligned_by_the_queue_stretch(qapp):
     poster, ab = _wired_poster(_make_config())
     lay = poster._secondary_row_layout
 
-    assert lay.stretch(0) == 1, "Watch Later must absorb the spare width"
-    for idx in (1, 2, 3):
+    assert lay.stretch(0) == 0, "Trailer is fixed-width and must not stretch"
+    assert lay.stretch(1) == 1, "Watch Later must absorb the spare width"
+    for idx in (2, 3, 4):
         assert lay.stretch(idx) == 0, "the rating chips must not stretch"
 
 

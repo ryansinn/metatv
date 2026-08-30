@@ -1203,8 +1203,10 @@ class Config(BaseModel):
     epg_channel_id_backfill_version: int = 0
     #: Version of the metadata.year derivation that has been applied.
     metadata_year_backfill_version: int = 0
-    #: Version of the MetadataDB.runtime backfill that has been applied.
-    runtime_backfill_version: int = 0
+    #: Version of the raw_data -> MetadataDB field backfill that has been
+    #: applied (see migrations/raw_field_backfill.FIELDS). Supersedes the
+    #: runtime-only version this generalised.
+    raw_field_backfill_version: int = 0
     #: Version of the sports/PPV/event classifier the stored rows were
     #: labelled by. Bump CURRENT_VERSION in migrations/sports_reclassify.py
     #: whenever special_content.py's classification changes.

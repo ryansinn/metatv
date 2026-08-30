@@ -609,12 +609,16 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-color: " + COLOR_TEXT_HI + "; }"
     )
 
-    # Details-pane SECONDARY action button — the full-width labeled "Watch Later"
-    # (queue) promoted out of the rail to sit directly under the primary Play/Resume
-    # row.  Outline by default; :checked (already queued) fills subtly so the state
-    # reads at a glance.  Neutral palette — orange is reserved for Resume, green for a
-    # future "now playing" indicator.
-    DETAIL_QUEUE_BTN = (
+    # Details-pane SECONDARY action row — the tier-2 labeled buttons that sit
+    # directly under the primary Play/Resume row: "Watch Later" (queue) and
+    # "Trailer".  Outline by default; :checked (already queued) fills subtly so
+    # the state reads at a glance, and is simply inert on the buttons that are
+    # not checkable.  Neutral palette — orange is reserved for Resume, green for
+    # the "now playing" indicator.
+    #
+    # Named for the ROW, not for the queue button, because two widgets share it
+    # and a role named after one of them is how a second copy gets pasted.
+    DETAIL_SECONDARY_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
         " padding: 6px 12px; font-size: " + FONT_LG + "; background: transparent;"
         " color: " + COLOR_TEXT + "; }"

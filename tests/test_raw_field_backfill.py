@@ -16,7 +16,7 @@ could not catch it, and a stored 0 renders as a real "0 min" — worse than
 showing nothing.
 
 Fixing ingestion alone would only reach content the owner happens to re-refresh
-(cached metadata is not re-derived on read), hence ``RuntimeBackfillTask``.
+(cached metadata is not re-derived on read), hence ``RawFieldBackfillTask``.
 
 The tests below execute the real resolver and the real migration against a real
 file-backed database, and each was confirmed to FAIL against the pre-fix code:
@@ -30,8 +30,8 @@ import pytest
 from sqlalchemy import text
 
 from metatv.core.database import ChannelDB, Database, MetadataDB
-from metatv.core.migrations.runtime_backfill import (
-    CURRENT_VERSION, RuntimeBackfillTask,
+from metatv.core.migrations.raw_field_backfill import (
+    CURRENT_VERSION, FIELDS, RawFieldBackfillTask,
 )
 from metatv.metadata_providers.provider_metadata import (
     metadata_from_raw, runtime_from_raw,
@@ -110,7 +110,7 @@ class _Cfg:
     """Config double: only the version field and save() are touched."""
 
     def __init__(self):
-        self.runtime_backfill_version = 0
+        self.raw_field_backfill_version = 0
         self.saved = 0
 
     def save(self):
@@ -133,7 +133,7 @@ def _runtimes(db):
 
 
 def _run(db, cfg=None, is_cancelled=lambda: False):
-    task = RuntimeBackfillTask(db)
+    task = RawFieldBackfillTask(db)
     calls = []
     task.run(lambda done, total: calls.append((done, total)), is_cancelled)
     if cfg is not None:
@@ -181,7 +181,7 @@ def test_pages_past_the_rows_it_writes(db):
     The seed alternates writable and unwritable payloads so a skip is
     guaranteed to lose real work, and it is deliberately larger than one batch.
     """
-    import metatv.core.migrations.runtime_backfill as mod
+    import metatv.core.migrations.raw_field_backfill as mod
     monkey_batch, mod._BATCH = mod._BATCH, 10
     try:
         payloads = [{"episode_run_time": "45"} if i % 2 == 0
@@ -208,7 +208,7 @@ def test_second_run_is_a_no_op(db):
 
 def test_cancel_stops_and_keeps_committed_work(db):
     """A cancel returns early; batches already committed stay written."""
-    import metatv.core.migrations.runtime_backfill as mod
+    import metatv.core.migrations.raw_field_backfill as mod
     monkey_batch, mod._BATCH = mod._BATCH, 10
     try:
         _seed(db, [{"episode_run_time": "45"}] * 100)
@@ -228,11 +228,11 @@ def test_cancel_stops_and_keeps_committed_work(db):
 
 def test_version_gate(db):
     """``needs_run`` is the only thing that keeps this off every launch."""
-    task = RuntimeBackfillTask(db)
+    task = RawFieldBackfillTask(db)
     cfg = _Cfg()
     assert task.needs_run(cfg) is True
     task.on_completed(cfg)
-    assert cfg.runtime_backfill_version == CURRENT_VERSION
+    assert cfg.raw_field_backfill_version == CURRENT_VERSION
     assert cfg.saved == 1
     assert task.needs_run(cfg) is False
 
@@ -241,7 +241,7 @@ def test_version_gate_survives_a_config_without_the_field(db):
     """An older config on disk has no such attribute — it must still run."""
     class _Old:
         pass
-    assert RuntimeBackfillTask(db).needs_run(_Old()) is True
+    assert RawFieldBackfillTask(db).needs_run(_Old()) is True
 
 
 def test_config_declares_the_version_field():
@@ -253,8 +253,8 @@ def test_config_declares_the_version_field():
     exist at all.
     """
     from metatv.core.config import Config
-    assert "runtime_backfill_version" in Config.model_fields
-    assert Config().runtime_backfill_version == 0
+    assert "raw_field_backfill_version" in Config.model_fields
+    assert Config().raw_field_backfill_version == 0
 
 
 def test_registered_with_the_migration_manager():
@@ -262,5 +262,79 @@ def test_registered_with_the_migration_manager():
     from pathlib import Path
     import metatv.gui.main_window as mw
     source = Path(mw.__file__).read_text()
-    assert "RuntimeBackfillTask" in source
-    assert "self.migration_manager.register(RuntimeBackfillTask(self.db))" in source
+    assert "RawFieldBackfillTask" in source
+    assert "self.migration_manager.register(RawFieldBackfillTask(self.db))" in source
+
+
+# --------------------------------------------------------------------------
+# The table — a second field must not mean a second migration
+# --------------------------------------------------------------------------
+
+def test_trailer_url_is_filled_too(db):
+    """The second field, and the reason this stopped being runtime-only.
+
+    ``trailer_url`` was stored on 46,148 rows out of the 114,308 whose payload
+    carries one: the code read the nested ``info.youtube_trailer`` and Xtream
+    VOD rows put it at the top level under ``trailer``. Exactly the runtime
+    miss, one field over — which is why this is a table now.
+    """
+    _seed(db, [
+        {"trailer": "AklEaZVdm3c"},                 # top-level bare id
+        {"info": {"youtube_trailer": "BklEaZVdm3c"}},   # nested spelling
+        {"name": "no trailer here"},
+    ])
+    _run(db)
+    with db.session_scope() as session:
+        rows = {r[0]: r[1] for r in session.execute(text(
+            "SELECT id, trailer_url FROM metadata")).all()}
+    assert rows["m00000"] == "https://www.youtube.com/watch?v=AklEaZVdm3c"
+    assert rows["m00001"] == "https://www.youtube.com/watch?v=BklEaZVdm3c"
+    assert rows["m00002"] is None
+
+
+def test_both_fields_are_filled_in_one_pass(db):
+    """One payload, two columns — the task must not stop at the first field."""
+    _seed(db, [{"episode_run_time": "45", "trailer": "AklEaZVdm3c"}])
+    _run(db)
+    with db.session_scope() as session:
+        row = session.execute(text(
+            "SELECT runtime, trailer_url FROM metadata")).first()
+    assert row[0] == 45
+    assert row[1] == "https://www.youtube.com/watch?v=AklEaZVdm3c"
+
+
+def test_an_existing_trailer_is_left_alone(db):
+    """Enrichment may have a better URL; the filter is IS NULL per column."""
+    _seed(db, [{"trailer": "AklEaZVdm3c"}])
+    with db.session_scope() as session:
+        session.query(MetadataDB).first().trailer_url = "https://kept/"
+    _run(db)
+    with db.session_scope() as session:
+        assert session.query(MetadataDB).first().trailer_url == "https://kept/"
+
+
+def test_every_field_names_a_real_metadata_column():
+    """A typo in FIELDS would raise on getattr at migration time, on a worker
+    thread, on the owner's launch. Catch it here instead."""
+    from metatv.core.database import MetadataDB
+
+    for column in FIELDS:
+        assert hasattr(MetadataDB, column), f"{column} is not a MetadataDB column"
+
+
+def test_every_resolver_is_the_one_ingestion_uses():
+    """The table's whole purpose: a field cannot drift between the ingestion
+    path and the backfill, because they are the same function object."""
+    from metatv.metadata_providers.provider_metadata import (
+        runtime_from_raw, trailer_from_raw,
+    )
+    assert FIELDS["runtime"] is runtime_from_raw
+    assert FIELDS["trailer_url"] is trailer_from_raw
+
+
+def test_the_version_is_ahead_of_the_field_count():
+    """CURRENT_VERSION must be bumped when a field is added, or libraries that
+    already ran the earlier version never get the new column filled."""
+    assert CURRENT_VERSION >= len(FIELDS), (
+        f"{len(FIELDS)} fields but CURRENT_VERSION is {CURRENT_VERSION} — a "
+        "field was added without bumping it, so existing installs skip it")
