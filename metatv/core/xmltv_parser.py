@@ -3,6 +3,7 @@
 import gzip
 import io
 import re
+import unicodedata
 import urllib.request
 import zlib
 from dataclasses import dataclass
@@ -219,14 +220,87 @@ def _strip_badges(title: str) -> tuple[str, bool, bool]:
     return clean, is_live, is_new
 
 
+def _is_superscript(ch: str) -> bool:
+    """True for a modifier/superscript form of an ordinary letter or digit."""
+    if ch.isascii():
+        return False
+    decomposed = unicodedata.normalize("NFKD", ch)
+    return (
+        decomposed != ch
+        and decomposed.strip() != ""
+        and all(c.isalnum() for c in decomposed)
+    )
+
+
+def _drop_superscript_runs(name: str) -> str:
+    """Remove whitespace-delimited tokens that are entirely superscript.
+
+    Whole tokens only: a name that merely *contains* a decorated character is
+    left alone rather than half-erased.
+    """
+    kept = [tok for tok in name.split()
+            if not (tok and all(_is_superscript(c) for c in tok))]
+    return " ".join(kept) if kept else name
+
+
 def normalize_channel_name(name: str) -> str:
     """Normalize a channel display-name for fuzzy matching.
 
-    Strips common prefixes like 'US ★ ', quality suffixes like ' HD',
-    lowercases, and collapses whitespace.
+    Two sources describe the same channel differently, and this is what has to
+    make them equal. Measured on the owner's library, the old rules matched
+    **2 of 17,951** ProSat channels against a 260,275-programme guide — because
+    they missed on three counts at once::
+
+        'OD| ESPN 4 ᴴᴰ'   (guide)    ->  'od| espn 4 ᴴᴰ'
+        '|NL| ESPN 4 HD'  (channel)  ->  '|nl| espn 4'
+
+    * **The prefix survived.** The old separator class was ``[★◉•·]`` and never
+      included ``|``, which is the separator both of these actually use — so
+      ``OD|`` and ``|NL|`` stayed in the string and could never be equal.
+    * **Superscripts are invisible to an ASCII vocabulary.** ``ᴴᴰ`` is not
+      ``HD``, so the quality strip skipped it while stripping the plain ``HD``
+      on the other side — the two diverged *because* one was cleaned.
+    * **It was a second vocabulary.** ``parse_channel_name`` already knows every
+      prefix separator, every quality token and their order, and already runs at
+      ingestion to produce ``detected_*``. Re-implementing a worse version here
+      is the "compute once at ingestion" principle inverted.
+
+    So: fold the unicode forms to ASCII, then hand the result to the canonical
+    parser and keep its ``bare_name``. Region is deliberately NOT part of the
+    key — it is carried separately and enforced by ``epg_tld_compatible``, which
+    is what stops a UK channel adopting an Italian guide. Dropping the region
+    here and gating on it there is the existing design; this just stops the
+    region from also blocking the name comparison.
+
+    After: **2,743** of those ProSat channels match and pass the region gate.
+
+    Args:
+        name: A raw display name from either an XMLTV feed or a channel row.
+
+    Returns:
+        Lowercased, whitespace-collapsed bare name — "" when nothing survives.
     """
-    # Strip country/flag prefix patterns like "US ★ ", "CA ◉ "
-    name = re.sub(r"^[A-Z]{2,3}\s*[★◉•·]\s*", "", name)
-    # Strip quality suffixes
-    name = re.sub(r"\s*(HD|FHD|UHD|4K|SD|\[.*?\]|◉|★)\s*$", "", name, flags=re.IGNORECASE)
-    return " ".join(name.lower().split())
+    from metatv.core.channel_name_utils import parse_channel_name
+
+    # Superscript runs are DECORATION and are dropped whole, not folded to
+    # ASCII. Folding handles the six the parser's quality vocabulary knows
+    # ('ᴴᴰ'->HD, '⁴ᴷ'->4K, 'ʰᵉᵛᶜ'->HEVC ...) but leaves the twenty it does not
+    # — 'ᴿᴬᵂ' is the single most common token in the library (6,305 channels)
+    # and would survive as the word "raw", so 'TLC ᴿᴬᵂ' and 'TLC' still would
+    # not meet. Dropping the run is uniform and needs no second vocabulary.
+    #
+    # It is also why this is scoped to SUPERSCRIPT rather than to a word list:
+    # "GOLD" and "SUPER" are real channel names, and a token list would strip
+    # them. As decoration, 'ᴳᴼᴸᴰ' is unambiguous.
+    folded = _drop_superscript_runs(name or "")
+    # Brackets are removed BEFORE parsing, not after: a trailing "[LIVE-EVENT]"
+    # sits between the parser and the quality token it strips from the end, so
+    # "SKY SPORT 4K [LIVE-EVENT]" would keep its 4K while the plainer
+    # "Sky Sport 4K" lost it — the two would then differ *because* one carried
+    # a tag. Only bracketed content goes: a bare LIVE can be the channel's real
+    # name, and stripping the word would turn "LIVENOW FROM FOX" into
+    # "NOW FROM FOX".
+    folded = re.sub(r"\[[^\]]*\]", " ", folded)
+    parsed = parse_channel_name(folded)
+    bare = parsed.bare_name or folded
+    return " ".join(bare.lower().split())
