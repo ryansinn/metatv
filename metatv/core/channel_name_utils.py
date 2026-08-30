@@ -321,9 +321,18 @@ _COMPOUND_PREFIX_RE = re.compile(
 # Quality tokens at end of bare name (including codecs and source indicators)
 # RAW, LIVE, CAM removed — these are ambiguous when bare (e.g., "WWE Raw" shouldn't become
 # title="WWE"). They must appear bracketed [RAW] or as superscript to count as quality.
+#: Broadcast/source tags that DO carry a resolution meaning, normalized onto the
+#: one ladder. "WFOR CBS 4 HDTV" and "NBA TV HDTV" rendered the tag as part of
+#: their title; HDTV is 720p/1080i, so it is an HD channel and says so with the
+#: same chip every other HD channel uses rather than a vocabulary of one.
+#: The other source tags (WEB-DL, BluRay, REMUX) say where a file came from and
+#: nothing about its resolution — they mark the cut in _extract_scene_release and
+#: are then discarded, never turned into a chip.
+_SOURCE_QUALITY_NORM: dict[str, str] = {"HDTV": "HD"}
+
 _QUALITY_SUFFIX_RE = re.compile(
     r'\s+\b('
-    r'4K|8K|UHD|FHD|HDR10\+?|HDR|HD|SD|HQ|LQ'               # tiers
+    r'4K|8K|UHD|FHD|HDR10\+?|HDR|HDTV|HD|SD|HQ|LQ'          # tiers
     # RAW is deliberately ABSENT: 'EN - WWE Raw (2023)' is a title, not a
     # quality, and tests/test_raw_live_cam_fix.py has guarded that since
     # regression B0. RAW is recognised only where it CANNOT be a title word —
@@ -2368,6 +2377,209 @@ class _Attributes(NamedTuple):
     audio_codec: str
 
 
+def _collapse_same_rank(quality: list[str]) -> list[str]:
+    """Drop quality tokens that repeat a rung of the ladder already taken.
+
+    "UHD 3840P" resolves to UHD and 4K — the same rung said twice, which would
+    render as two chips meaning one thing. The first token of a rank wins.
+    Unranked tokens (RAW, 60fps, HDR, HEVC) all share the default rank and are
+    NOT collapsed into each other: they are different facts, not competing
+    resolutions.
+
+    Args:
+        quality: Tokens in the order they should be preferred.
+
+    Returns:
+        The same list with same-rank repeats removed.
+    """
+    deduped: list[str] = []
+    seen_ranks: set[int] = set()
+    for token in quality:
+        rank = QUALITY_TIER_RANK.get(token)
+        if rank is None:
+            deduped.append(token)
+            continue
+        if rank in seen_ranks:
+            continue
+        seen_ranks.add(rank)
+        deduped.append(token)
+    return deduped
+
+
+# --- Scene-release filenames -------------------------------------------------
+#
+# 1,268 rows in the owner's library render a torrent filename as their title:
+# "Onder.Het.Maaiveld.2023.DUTCH.1080p.WEB.h264-TRIPEL",
+# "Ceu.em.Chamas-Skyfire.2019.1080p.WEB-DL.x264.DUAL-COMANDO.TO". The
+# end-anchored loop in _strip_attributes cannot reach them: it walks backwards
+# one token at a time and stops at the first thing it does not recognise, and
+# these names END in a release-group tag ("-TURG", "XT", "COMANDO.TO") that no
+# vocabulary will ever contain. One unknown token at the tail hides everything
+# in front of it.
+#
+# So this is a FORWARD pass. It finds where the title stops rather than where
+# the junk starts, which is the only direction that works when the tail is
+# open-ended.
+#
+# HARD markers are the vocabulary that qualifies a name AND marks the cut. Each
+# was measured across the owner's 467,373 distinct names and none appears as a
+# real title word. A pixel height and an encoding never do; the source tags are
+# the same words a torrent group uses and nothing else.
+_SCENE_HARD_RE = re.compile(
+    r"(?<![A-Za-z0-9])("
+    r"(?:2160|1440|1080|720|576|480|360)[pi]"          # resolution
+    r"|x26[45]|[Hh][._ ]?26[45]|HEVC|XviD|DivX"        # encoding
+    r"|WEB[._ -]?DL|WEB[._ -]?Rip|Blu[._ -]?Ray"       # source
+    r"|BD[._ -]?Rip|BR[._ -]?Rip|BRRp|HD[._ -]?Rip"
+    r"|HDTV|DVD[._ -]?Rip|REMUX"
+    r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# SOFT markers are harvested only from the tail of a name that has ALREADY
+# qualified on two hard markers. They are held back because each one is a real
+# title somewhere: "GR - Opus (2025)" is a film, and DTS, Atmos and FLAC are all
+# plausible channel names. Position, not vocabulary, is what makes them safe
+# here — everything after the cut is provider junk by construction.
+_SCENE_SOFT_AUDIO_RE = re.compile(
+    r"(?<![A-Za-z0-9])("
+    r"DDP?[._ -]?5[._ ]1|DD\+|E[-._ ]?AC[-._ ]?3|AC[-._ ]?3"
+    r"|AAC(?:[._ -]?2[._ ]0)?|DTS(?:[-._ ]?HD)?|TrueHD|Atmos|Opus|FLAC"
+    r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+#: Two hard markers, not one. "BLURAY-DE - Bonhoeffer (2024)" carries exactly
+#: one and is NOT a scene release — BLURAY-DE is the provider's category prefix,
+#: which the prefix pass already strips correctly. Cutting on a single marker
+#: would turn that title into "-DE - Bonhoeffer". Likewise "UK| MORE4 HEVC HD"
+#: has one, and cutting there would throw away the HD that follows it.
+_SCENE_MIN_HARD_MARKERS = 2
+
+#: Separators a scene filename uses in place of spaces. Converted only in the
+#: surviving title, never in the tail — "DDP5.1" must keep its dot long enough
+#: to be recognised.
+_SCENE_TRAILING_YEAR_RE = re.compile(r"\s+((?:19|20)\d{2})$")
+_SCENE_SEP_RE = re.compile(r"[._]+")
+_SCENE_EDGE_RE = re.compile(r"^[\s\-–—_.|]+|[\s\-–—_.|]+$")
+
+
+def _sub_outside_brackets(pattern: "re.Pattern[str]", repl: str, text: str) -> str:
+    """Apply a substitution to ``text``, leaving bracketed spans untouched.
+
+    Args:
+        pattern: What to replace.
+        repl: Replacement string.
+        text: Subject text; ``(...)`` and ``[...]`` spans are passed through.
+
+    Returns:
+        The substituted text.
+    """
+    out: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch in "([":
+            if depth == 0:
+                out.append(pattern.sub(repl, text[start:i]))
+                start = i
+            depth += 1
+        elif ch in ")]" and depth:
+            depth -= 1
+            if depth == 0:
+                out.append(text[start:i + 1])
+                start = i + 1
+    tail = text[start:]
+    out.append(tail if depth else pattern.sub(repl, tail))
+    return "".join(out)
+
+
+def _canonical_audio_codec(token: str) -> str:
+    """Fold a scene filename's spelling of a codec onto an AUDIO_CODEC_NORM key.
+
+    A filename writes the same codec five ways — ``DDP5.1``, ``DDP.5.1``,
+    ``DDP 5.1``, ``DDP-5.1``, ``DDP_5_1`` — because the separator is whatever
+    the release group used, and it is the same character that separates every
+    other field. Stripping separators outright is wrong: it turns ``DDP5.1``
+    into ``DDP51``, which is in no vocabulary, and it welds ``DTS-HD`` shut.
+
+    Args:
+        token: The codec exactly as it appeared in the name.
+
+    Returns:
+        A key suitable for ``AUDIO_CODEC_NORM``, or the folded token when the
+        vocabulary has no entry for it.
+    """
+    t = re.sub(r"\s+", " ", token.upper().replace("_", " ")
+               .replace(".", " ").replace("-", " ")).strip()
+    t = re.sub(r"^E\s*A\s*C\s*3$", "EAC3", t)
+    t = re.sub(r"^A\s*C\s*3$", "AC3", t)
+    t = t.replace("DTS HD", "DTS-HD").replace("TRUE HD", "TRUEHD")
+    return re.sub(r"^(DDP?|AAC)\s*(\d)\s*(\d)$", r"\1\2.\3", t)
+
+
+def _extract_scene_release(bare: str) -> "tuple[str, _Attributes] | None":
+    """Split a scene-release filename into its title and its attributes.
+
+    Returns ``None`` when the name is not a scene release, so the caller falls
+    through to the ordinary end-anchored passes unchanged. This is deliberately
+    a hard gate: the pass rewrites a title, and rewriting one that was already
+    right is worse than leaving junk on one that was already wrong.
+
+    Args:
+        bare: A channel name with its provider prefix already removed.
+
+    Returns:
+        ``(title, attributes)`` for a scene release, else ``None``.
+
+    Examples:
+        >>> t, a = _extract_scene_release("Atlas.2024.1080p.WEB-DL.x264.DDP5.1")
+        >>> t, a.quality, a.encoding, a.audio_codec
+        ('Atlas 2024', ['FHD'], 'H.264', 'DD+ 5.1')
+    """
+    hard = list(_SCENE_HARD_RE.finditer(bare))
+    if len(hard) < _SCENE_MIN_HARD_MARKERS:
+        return None
+
+    head, tail = bare[: hard[0].start()], bare[hard[0].start():]
+
+    quality: list[str] = []
+    encoding = audio_codec = ""
+    for match in hard:
+        token = match.group(1).upper().replace(".", "").replace(" ", "").replace("-", "")
+        if token in RESOLUTION_TO_QUALITY:
+            token = RESOLUTION_TO_QUALITY[token]
+        if token in ENCODING_NORM:
+            encoding = encoding or ENCODING_NORM[token]
+            continue
+        if token in _SOURCE_QUALITY_NORM:
+            token = _SOURCE_QUALITY_NORM[token]
+        elif token not in QUALITY_TIER_RANK:
+            # A source tag with no quality meaning (WEBDL, BLURAY, REMUX). It
+            # told us where the cut goes; it is not an attribute.
+            continue
+        if token not in quality:
+            quality.append(token)
+
+    if (am := _SCENE_SOFT_AUDIO_RE.search(tail)):
+        codec = _canonical_audio_codec(am.group(1))
+        audio_codec = AUDIO_CODEC_NORM.get(codec, codec)
+
+    # Dots are the filename's word separator — but only OUTSIDE a bracket. An
+    # episode's air date rides along in parentheses ("Kral Kaybederse 10 BLM
+    # (22.04.2025)") and converting those dots turns a date into three numbers.
+    title = _SCENE_EDGE_RE.sub("", _sub_outside_brackets(_SCENE_SEP_RE, " ", head))
+    title = re.sub(r"\s{2,}", " ", title)
+    # "Atlas.2024.1080p…" leaves "Atlas 2024", and step 5's year strip requires
+    # parentheses — deliberately, because "Blade Runner 2049" is a title. Here
+    # the position settles it: a bare year directly before the first scene
+    # marker IS the release year, that being the whole convention. Re-punctuate
+    # rather than extract, so the ONE year strip stays the only one.
+    title = _SCENE_TRAILING_YEAR_RE.sub(r" (\1)", title)
+
+    return title, _Attributes(_collapse_same_rank(quality), "", encoding, audio_codec)
+
+
 def _strip_quality(bare: str) -> tuple[str, list[str]]:
     """Strip trailing quality tokens, returning (bare, tokens).
 
@@ -2413,6 +2625,8 @@ def _strip_attributes(bare: str) -> tuple[str, _Attributes]:
 
         if token in RESOLUTION_TO_QUALITY:
             token = RESOLUTION_TO_QUALITY[token]
+        elif token in _SOURCE_QUALITY_NORM:
+            token = _SOURCE_QUALITY_NORM[token]
         if token in ENCODING_NORM:
             encoding = encoding or ENCODING_NORM[token]
             continue
@@ -2427,22 +2641,7 @@ def _strip_attributes(bare: str) -> tuple[str, _Attributes]:
         if token not in quality:
             quality.insert(0, token)
 
-    # "UHD 3840P" resolves to UHD and 4K — the same rung of the ladder said
-    # twice, which would render as two chips meaning one thing. Collapse
-    # same-rank tiers, keeping the first; non-tier tokens (RAW, 60fps, HDR) all
-    # share the unranked default and must NOT be collapsed into each other.
-    deduped: list[str] = []
-    seen_ranks: set[int] = set()
-    for token in quality:
-        rank = QUALITY_TIER_RANK.get(token)
-        if rank is None:
-            deduped.append(token)
-            continue
-        if rank in seen_ranks:
-            continue
-        seen_ranks.add(rank)
-        deduped.append(token)
-    return bare, _Attributes(deduped, tier, encoding, audio_codec)
+    return bare, _Attributes(_collapse_same_rank(quality), tier, encoding, audio_codec)
 
 
 # Bracket classification result — kind drives which field the value lands in.
@@ -2787,6 +2986,19 @@ def parse_channel_name(name: str) -> ParsedChannel:
                             _prefix_quality = dq.group(1).upper()
                             bare = dq.group(2).strip()
 
+    # 1a. Scene-release filename ("Atlas.2024.1080p.WEB-DL.x264.DDP5.1").
+    # Runs here — after the prefix pass, before every end-anchored pass — for
+    # two reasons. The prefix pass must go first or "BLURAY-DE - Bonhoeffer
+    # (2024)" loses its title to its own category label. And the end-anchored
+    # passes must come after, because this pass turns "Atlas.2024" into
+    # "Atlas 2024" and it is step 5's year strip, not this one, that knows what
+    # a trailing year means.
+    _scene = _extract_scene_release(bare)
+    if _scene is not None:
+        bare, _scene_attrs = _scene
+    else:
+        _scene_attrs = None
+
     trailing = ""
 
     # 1b. Pre-cut: relocate a real 4-digit year in parens that has trailing FREE-TEXT
@@ -2849,6 +3061,15 @@ def parse_channel_name(name: str) -> ParsedChannel:
     bare, _attrs = _strip_attributes(bare)
     quality = _attrs.quality
     tier, encoding, audio_codec = _attrs.tier, _attrs.encoding, _attrs.audio_codec
+    if _scene_attrs is not None:
+        # Step 1a already read the tail this name will never reach. Its findings
+        # go FIRST: a resolution stated in the filename is more specific than
+        # anything the surviving head can offer, and only one of the two can win.
+        quality = _scene_attrs.quality + [
+            q for q in quality if q not in _scene_attrs.quality
+        ]
+        encoding = encoding or _scene_attrs.encoding
+        audio_codec = audio_codec or _scene_attrs.audio_codec
 
     # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end.
     # Also strips content-origin brackets like [UK], [US] (2-3 alpha letters,
@@ -3022,20 +3243,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
         encoding = encoding or _extra.encoding
         audio_codec = audio_codec or _extra.audio_codec
 
-    # Same-rank collapse as _strip_attributes: "UHD" from a suffix and "4K" from
-    # a decoration are one rung said twice.
-    _deduped: list[str] = []
-    _seen_ranks: set[int] = set()
-    for _q in quality:
-        _rank = QUALITY_TIER_RANK.get(_q)
-        if _rank is None:
-            _deduped.append(_q)
-            continue
-        if _rank in _seen_ranks:
-            continue
-        _seen_ranks.add(_rank)
-        _deduped.append(_q)
-    quality = _deduped
+    # "UHD" from a suffix and "4K" from a decoration are one rung said twice.
+    quality = _collapse_same_rank(quality)
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
                          _audio_langs, _dub_langs, _sub_langs, trailing,
