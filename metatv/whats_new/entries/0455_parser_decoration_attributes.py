@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=452,
+    id=455,
     version="0.57.0",
     date="2026-08-30",
     title="Channel names stop carrying their own labels",
