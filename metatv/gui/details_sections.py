@@ -222,6 +222,10 @@ class _PosterSection(QWidget):
     # minimum is (3 × chip) + spacing — never the button's text width.
     _SECONDARY_ROW_SPACING: int = 6
     _SENTIMENT_BTN_W: int = _RAIL_W
+    #: Trailer button width. Fixed, so it does not compete with Watch Later for
+    #: slack and does not add its label width to the row's minimum. Sized for
+    #: "Trailer ▶" at FONT_LG with the role's 12px horizontal padding.
+    _TRAILER_BTN_W = 92
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -436,6 +440,7 @@ class _PosterSection(QWidget):
         play,
         resume,
         queue,
+        trailer,
         like,
         not_interested,
         dislike,
@@ -453,8 +458,9 @@ class _PosterSection(QWidget):
         * **Primary row** (below the poster): play + resume, full-size and labeled,
           each with equal stretch (50/50 when both show; Play full-width when Resume
           is hidden).  Resume is the dominant one when present.
-        * **Secondary row** (one line under the primary row): the labeled "Watch
-          Later" (queue) button on the LEFT, absorbing all slack, then the
+        * **Secondary row** (one line under the primary row): "Trailer" pinned
+          left (fixed width, hidden unless the provider sent one), then the
+          labeled "Watch Later" (queue) button absorbing all slack, then the
           like · not-interested · dislike trio right-aligned.  Position separates
           collection (left) from judgment (right), so neither side needs a caption.
           The trio was promoted out of the rail so the rating controls sit legibly
@@ -492,6 +498,13 @@ class _PosterSection(QWidget):
         srow = self._secondary_row_layout
         while srow.count():
             srow.takeAt(0)
+        # Trailer sits FIRST, hard against the left edge under Play — it is the
+        # "before you decide" action, and it reads as part of the watch cluster
+        # rather than the judgment one. Fixed width like the sentiment trio, so
+        # it neither drives the pane's minimum (docs/DETAILS_PANE_DESIGN.md →
+        # "Width discipline") nor steals the slack Watch Later absorbs.
+        trailer.setFixedWidth(self._TRAILER_BTN_W)
+        srow.addWidget(trailer, 0)
         q_policy = queue.sizePolicy()
         q_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
         queue.setSizePolicy(q_policy)

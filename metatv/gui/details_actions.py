@@ -3,8 +3,9 @@ import time
 from dataclasses import dataclass
 
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
+from metatv.gui import cursor_affordance as _cursor
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -134,6 +135,8 @@ class _ActionBar(QWidget):
     watchlist_clicked       = pyqtSignal()
     monitor_clicked         = pyqtSignal()
     clear_epg_link_clicked  = pyqtSignal()
+    trailer_clicked         = pyqtSignal()
+    trailer_youtube_clicked = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -220,9 +223,29 @@ class _ActionBar(QWidget):
             self,
         )
         self.queue_button.setCheckable(True)
-        _theme.style(self.queue_button, "DETAIL_QUEUE_BTN")
+        _theme.style(self.queue_button, "DETAIL_SECONDARY_BTN")
         self.queue_button.setToolTip("Add to Watch Later")
         self.queue_button.clicked.connect(self._on_queue_clicked)
+
+        # Trailer — tier 2, beside Watch Later. Shown only when the provider
+        # actually sent one, which is 114,308 of the owner's channels; a button
+        # that is present but dead on the other 670,000 is worse than absent.
+        #
+        # Left-click plays it; right-click offers the same thing on YouTube, for
+        # the times mpv's extractor is out of date or the viewer wants the page
+        # (comments, related, a different quality). The icon trails the word
+        # because the label is the noun and the glyph is the verb applied to it.
+        self.trailer_button = QPushButton(f"Trailer {self.config.play_icon}", self)
+        self.trailer_button.setToolTip(
+            "Play the trailer  ·  right-click for more")
+        _theme.style(self.trailer_button, "DETAIL_SECONDARY_BTN")
+        self.trailer_button.clicked.connect(self.trailer_clicked)
+        self.trailer_button.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.trailer_button.customContextMenuRequested.connect(
+            self._show_trailer_menu)
+        _cursor.set_clickable(self.trailer_button)
+        self.trailer_button.hide()
 
         self.hide_button = self._mk(self.config.hide_icon, "Hide this channel from all views")
         # hide/unhide wired in _sync_hide_button (it reconnects on state change)
@@ -296,6 +319,38 @@ class _ActionBar(QWidget):
         self._is_hidden = state.is_hidden
         self.set_epg_link_blocked(state.epg_link_blocked)
         self._sync_all()
+
+    def set_trailer(self, has_trailer: bool) -> None:
+        """Show the Trailer button only when there is a trailer to play.
+
+        Args:
+            has_trailer: Whether the current channel resolved a trailer URL.
+        """
+        self.trailer_button.setVisible(bool(has_trailer))
+
+    def _show_trailer_menu(self, pos) -> None:
+        """Right-click menu on the Trailer button.
+
+        Two entries, because they fail in different ways: mpv plays it inline
+        via yt-dlp, which is the better experience and the one that breaks when
+        the extractor goes stale; the browser always works and is where the
+        page's own context lives.
+
+        Args:
+            pos: Click position in the button's coordinates.
+        """
+        from PyQt6.QtWidgets import QMenu
+
+        # Unstyled, like every menu in channel_menu.py: the QPalette floor
+        # themes a widget with no stylesheet, which is what it is for.
+        menu = QMenu(self.trailer_button)
+        menu.addAction(
+            f"Play trailer {self.config.play_icon}"
+        ).triggered.connect(self.trailer_clicked)
+        menu.addAction(
+            "Play trailer on YouTube"
+        ).triggered.connect(self.trailer_youtube_clicked)
+        menu.exec(self.trailer_button.mapToGlobal(pos))
 
     def set_mode(self, is_live: bool) -> None:
         """Show/hide sentiment buttons (VOD only) and watchlist/clear-EPG-link (live only)."""
@@ -570,6 +625,7 @@ class _ActionBar(QWidget):
         self.set_epg_link_blocked(False)
         self.monitor_button.setVisible(False)
         self.resume_button.setVisible(False)
+        self.trailer_button.setVisible(False)
         self.watchlist_button.setChecked(False)
         self.clear_playing()
         self._sync_all()

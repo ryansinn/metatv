@@ -263,7 +263,7 @@ def test_the_details_rail_and_primary_actions_are_readable(qapp, palette_name):
     """
     failures = measure(palette_name)
     watched = {"DETAIL_RAIL_BTN", "DETAIL_RAIL_BTN_ALERT", "DETAIL_RAIL_BTN_FAV",
-               "DETAIL_RESUME_BTN", "DETAIL_PLAY_BTN", "DETAIL_QUEUE_BTN",
+               "DETAIL_RESUME_BTN", "DETAIL_PLAY_BTN", "DETAIL_SECONDARY_BTN",
                "PANEL_BTN", "CLOSE_BTN", "FILTER_ONLY_BTN"}
     hit = {k: v for k, v in failures.items() if k[0] in watched}
     assert not hit, (

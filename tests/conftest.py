@@ -1747,3 +1747,34 @@ def make_channel_double(**overrides: object) -> "MagicMock":
     for key, value in overrides.items():
         setattr(ch, key, value)
     return ch
+
+
+def wire_details_action_buttons(poster, action_bar) -> None:
+    """Reparent every _ActionBar button into its _PosterSection slot.
+
+    The one place the argument list lives. Four test files each hand-wrote this
+    call, so adding a twelfth button broke four files at once and the fix was
+    the same edit copied four times — the enumeration failure CLAUDE.md names,
+    in test clothing.
+
+    Passing ``**vars``-style would hide a genuinely missing button, so the names
+    stay explicit; they are just written once.
+
+    Args:
+        poster: A ``_PosterSection``.
+        action_bar: An ``_ActionBar`` whose buttons get reparented into it.
+    """
+    poster.set_action_buttons(
+        favorite=action_bar.favorite_button,
+        play=action_bar.play_button,
+        resume=action_bar.resume_button,
+        queue=action_bar.queue_button,
+        trailer=action_bar.trailer_button,
+        like=action_bar.like_button,
+        not_interested=action_bar.not_interested_button,
+        dislike=action_bar.dislike_button,
+        watchlist=action_bar.watchlist_button,
+        monitor=action_bar.monitor_button,
+        clear_epg_link=action_bar.clear_epg_link_button,
+        hide=action_bar.hide_button,
+    )

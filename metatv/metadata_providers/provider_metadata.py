@@ -8,6 +8,7 @@ from loguru import logger
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
 from metatv.metadata_providers.raw_parse import (
     extract_artwork,
+    extract_trailer,
     parse_cast_string,
     parse_genres,
 )
@@ -70,12 +71,71 @@ def _parse_runtime(duration_value) -> Optional[int]:
     return None
 
 
+def _info_of(raw_data) -> "dict | None":
+    """Resolve a stored blob to the info dict ``metadata_from_raw`` would use.
+
+    The flat ``raw_data`` is the base and a nested ``raw_data['info']`` is
+    layered on top, so a TOP-level key (``episode_run_time``, ``trailer``)
+    stays reachable even when the provider also sends an info dict. Both fields
+    were missed for the same reason, so the resolution lives in one place
+    rather than being re-derived per field.
+
+    Only for the technical fields that read it — ``duration``,
+    ``episode_run_time``, ``trailer``, ``youtube_trailer``. Do NOT reuse this
+    for ``rating``: ``metadata_from_raw`` deliberately drops the top-level
+    ``rating``/``rating_5based``, which are Xtream stream-API placeholders
+    (always "10"/"5"), and a merged view would put them back.
+
+    Args:
+        raw_data: A stored provider blob — dict, JSON string, or None.
+
+    Returns:
+        The info dict, or None when there is nothing to read.
+    """
+    if not raw_data:
+        return None
+    if isinstance(raw_data, str):
+        try:
+            raw_data = json.loads(raw_data)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(raw_data, dict):
+        return None
+    info = raw_data.get('info')
+    if not isinstance(info, dict) or not info:
+        return raw_data
+    # MERGED, not "nested wins outright". A payload can carry a non-empty info
+    # dict AND a top-level episode_run_time, and returning info alone made the
+    # top-level key unreachable — a regression the existing runtime tests
+    # caught. Nested values win where both spell the same key.
+    merged = dict(raw_data)
+    merged.update(info)
+    return merged
+
+
+def trailer_from_raw(raw_data) -> Optional[str]:
+    """Return the trailer URL a provider payload implies, or None.
+
+    Sibling of :func:`runtime_from_raw`, for the same reason: ingestion and the
+    one-time backfill must agree on where a field lives, so they call the same
+    function. The shapes themselves live in ``raw_parse.extract_trailer``.
+
+    Args:
+        raw_data: A stored provider blob — dict, JSON string, or None.
+
+    Returns:
+        A playable URL, or None.
+    """
+    info = _info_of(raw_data)
+    return extract_trailer(info) if info is not None else None
+
+
 def runtime_from_raw(raw_data) -> Optional[int]:
     """Return the runtime in minutes a provider payload implies, or None.
 
     The single definition of *where the runtime lives*. Ingestion
     (``metadata_from_raw``) and the one-time backfill
-    (``core.migrations.runtime_backfill``) both call this, so a new provider
+    (``core.migrations.raw_field_backfill``) both call this, so a new provider
     shape is taught here once rather than drifting between the two.
 
     Three keys, in precedence order:
@@ -98,23 +158,10 @@ def runtime_from_raw(raw_data) -> Optional[int]:
     Returns:
         Runtime in minutes, or None when the payload implies none.
     """
-    if not raw_data:
+    info = _info_of(raw_data)
+    if info is None:
         return None
-    if isinstance(raw_data, str):
-        try:
-            raw_data = json.loads(raw_data)
-        except (ValueError, TypeError):
-            return None
-    if not isinstance(raw_data, dict):
-        return None
-    info = raw_data.get('info') or {}
-    if not isinstance(info, dict):
-        info = {}
-    return _parse_runtime(
-        info.get('duration')
-        or info.get('episode_run_time')
-        or raw_data.get('episode_run_time')
-    )
+    return _parse_runtime(info.get('duration') or info.get('episode_run_time'))
 
 
 def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
@@ -204,7 +251,7 @@ def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
         release_date=info.get('releaseDate') or info.get('release_date'),
 
         # Links
-        trailer_url=info.get('youtube_trailer'),
+        trailer_url=extract_trailer(info),
         tmdb_id=str(info.get('tmdb_id', '')) if info.get('tmdb_id') else None,
 
         # Metadata
