@@ -300,25 +300,25 @@ WEIGHTS_TTL_S: float = 600.0
 
 
 def _taste_signature(session, dials: "RecScoringSettings") -> tuple:
-    """A cheap fingerprint of everything the weights depend on.
-
-    Measured on the owner's library: 5.5 ms, against 3,900 ms to recompute — so
-    asking is ~700x cheaper than answering.
-
-    Covers both signals the engine consumes: explicit ratings, and the watch
-    history behind the implicit ones. Counts alone would miss a rating CHANGED
-    in place, so the newest timestamp rides along with each.
+    """A cheap fingerprint of the weights' inputs: 0.2 ms vs 2,077 ms to recompute.
+    **Must cover exactly what ``compute_weights`` READS**, and once got that
+    wrong both ways: it keyed on ``MAX(last_played)``, which the weights never
+    read (so every PLAY discarded a still-valid answer and the next selection
+    rebuilt a 121,667-plot TF-IDF index on the UI thread — 2,118 ms), and it
+    omitted ``is_favorite``, which they do. Ratings carry a timestamp (counts
+    miss an edit in place); favorites, being boolean, do not. The plot corpus is
+    excluded on purpose — enrichment grows it continuously, so keying on it
+    restores the every-call miss ``WEIGHTS_TTL_S`` exists to backstop.
     """
     from sqlalchemy import text
 
     ratings = session.execute(
         text("SELECT COUNT(*), MAX(rated_at) FROM user_ratings")
     ).first()
-    history = session.execute(
-        text("SELECT COUNT(*), MAX(last_played) FROM channels "
-             "WHERE last_played IS NOT NULL")
+    favorites = session.execute(
+        text("SELECT COUNT(*) FROM channels WHERE is_favorite = 1")
     ).first()
-    return (tuple(ratings or ()), tuple(history or ()), dials)
+    return (tuple(ratings or ()), tuple(favorites or ()), dials)
 
 
 def _remember_weights(key, weights: AttributeWeights) -> AttributeWeights:
@@ -456,7 +456,7 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     # single-appearance performers below (corroboration gate).
     actor_support: Counter = Counter()
 
-    # Column-only fetch for plots — avoids loading full ORM rows for ~1,300 metadata rows
+    # Column-only fetch for plots — 121,667 of them, not the "~1,300" this said.
     all_plots = [
         row[0] for row in
         session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()

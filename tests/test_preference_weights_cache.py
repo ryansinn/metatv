@@ -131,3 +131,118 @@ def test_a_signature_failure_still_returns_weights(db, monkeypatch):
         weights = pe.compute_weights(s)
     assert weights is not None
     assert not pe._WEIGHTS_CACHE, "nothing should be stored under a failed key"
+
+
+# ---------------------------------------------------------------------------
+# WHICH inputs the signature covers.
+#
+# Everything above tests the cache MECHANISM — that it stores, reuses, expires
+# and survives a failed signature. None of it tested WHAT the key is taken over,
+# which is where the real bug lived: the signature covered an input
+# ``compute_weights`` does not read and missed one it does, so it was wrong in
+# both directions at once and the mechanism tests all stayed green.
+# ---------------------------------------------------------------------------
+
+
+def _play(db, channel_id="c1"):
+    """Stamp last_played, exactly as marking a channel played does."""
+    from datetime import datetime, timedelta
+    with db.session_scope() as s:
+        ch = s.query(ChannelDB).filter_by(id=channel_id).first()
+        ch.last_played = datetime.now() + timedelta(seconds=1)
+
+
+def _favorite(db, channel_id="c1", value=True):
+    with db.session_scope() as s:
+        ch = s.query(ChannelDB).filter_by(id=channel_id).first()
+        ch.is_favorite = value
+
+
+def test_playing_something_does_not_invalidate(db):
+    """The reported hang: play anything, and the next selection rebuilt the corpus.
+
+    ``compute_weights`` never reads ``last_played`` — its implicit signal is
+    ``is_favorite``. Keying on watch history therefore threw the answer away on
+    every play and made the NEXT channel selection pay a full TF-IDF rebuild on
+    the UI thread: measured at **2,118 ms** against the owner's 121,667-plot
+    library, and named by the main-thread watchdog as a 5,087 ms stall.
+
+    Asserts object identity: an equal-but-rebuilt result is exactly the bug.
+    """
+    _rate(db)
+    with db.session_scope(commit=False) as s:
+        before = pe.compute_weights(s)
+    _play(db)
+    with db.session_scope(commit=False) as s:
+        after = pe.compute_weights(s)
+    assert after is before, (
+        "playing a channel threw away the cached weights — but the weights do "
+        "not depend on watch history, so the rebuild produced the same answer "
+        "at a cost of ~2 s on the UI thread"
+    )
+
+
+def test_favoriting_something_does_invalidate(db):
+    """The other half: favorites ARE read, and were absent from the signature.
+
+    Favorites enter as the implicit +0.5 signal, so a new favorite genuinely
+    changes the weights — and used to be invisible to the cache until the
+    ten-minute TTL expired.
+    """
+    _rate(db)
+    with db.session_scope(commit=False) as s:
+        before = pe.compute_weights(s)
+    _favorite(db, "c1")
+    with db.session_scope(commit=False) as s:
+        after = pe.compute_weights(s)
+    assert after is not before, (
+        "favoriting a title was served the previous weights — is_favorite is an "
+        "input to compute_weights and must be part of its cache key"
+    )
+
+
+def test_unfavoriting_also_invalidates(db):
+    """The set shrinking is as much a change as it growing."""
+    _rate(db)
+    _favorite(db, "c1", True)
+    with db.session_scope(commit=False) as s:
+        before = pe.compute_weights(s)
+    _favorite(db, "c1", False)
+    with db.session_scope(commit=False) as s:
+        after = pe.compute_weights(s)
+    assert after is not before
+
+
+def test_the_signature_is_cheap_enough_to_ask_every_time(db):
+    """The cache only pays off if asking costs far less than answering.
+
+    Not a wall-clock threshold (which would be flaky on a loaded CI box) — it
+    asserts the SHAPE that makes it cheap: two aggregate queries, no per-row
+    work, and nothing touching the plot corpus the rebuild exists to avoid.
+    """
+    _rate(db)
+    statements = []
+    with db.session_scope(commit=False) as s:
+        original = s.execute
+
+        def _recording(stmt, *a, **k):
+            statements.append(str(stmt))
+            return original(stmt, *a, **k)
+
+        s.execute = _recording
+        pe._taste_signature(s, pe.DEFAULT_REC_SETTINGS)
+
+    assert len(statements) == 2, (
+        f"signature took {len(statements)} queries; it runs on every call to "
+        f"every one of six surfaces"
+    )
+    joined = " ".join(statements).lower()
+    assert "count(*)" in joined
+    assert "plot" not in joined, (
+        "the signature touched the plot corpus — that is the expensive thing "
+        "it exists to avoid"
+    )
+    assert "last_played" not in joined, (
+        "watch history is back in the signature; compute_weights does not read "
+        "it, so this reintroduces a rebuild on every play"
+    )
