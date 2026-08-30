@@ -158,11 +158,24 @@ class TestMidNameYearPreCut:
         assert r.year == "1993-2002", f"Expected '1993-2002', got {r.year!r}"
 
     def test_hevc_before_year_unaffected(self):
-        """Pre-existing docstring example: 'AR - Bob Marley: One Love HEVC (2024)'."""
+        """Pre-existing docstring example: 'AR - Bob Marley: One Love HEVC (2024)'.
+
+        The title and year assertions are the point of this test and are
+        unchanged. What moved is where HEVC lands: it is now ``encoding``, not
+        ``quality`` — a DELIBERATE reclassification, on the same reasoning
+        ledger F17 applied to HDR, which ranks BELOW HD in ``QUALITY_TIER_RANK``
+        because a dynamic-range descriptor is not a resolution tier.
+
+        An encoding is not a tier either, and letting it sit in ``quality``
+        meant an HEVC channel reported no resolution at all — 1,534 rows whose
+        only quality chip said "HEVC" while the actual resolution went
+        unrecorded.
+        """
         r = self._parse("AR - Bob Marley: One Love HEVC (2024)")
         assert r.bare_name == "Bob Marley: One Love"
         assert r.year == "2024"
-        assert r.quality == ["HEVC"]
+        assert r.quality == [], f"HEVC should no longer be a quality: {r.quality}"
+        assert r.encoding == "H.265"
 
 
 # ---------------------------------------------------------------------------
