@@ -28,6 +28,7 @@ from PyQt6.QtCore import QTimer
 from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
+from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
 
@@ -483,8 +484,9 @@ class _ChannelListMixin:
             on_error=self._on_channels_load_error,
         )
 
-    # Rendered prefix for a count that only knows a lower bound.
-    _AT_LEAST = "\u2265"
+    #: Rendered prefix for a count that only knows a lower bound. Aliases the
+    #: one definition in ``channel_transparency`` so the two cannot drift.
+    _AT_LEAST = _transparency_at_least
 
     @staticmethod
     def _hidden_by_axis(
@@ -1173,8 +1175,15 @@ class _ChannelListMixin:
 
     @staticmethod
     def _count_label(n: int, is_floor: bool) -> str:
-        """Format a hidden-count, marking a floor as one rather than a total."""
-        return f"{_ChannelListMixin._AT_LEAST} {n:,}" if is_floor else f"{n:,}"
+        """Format a hidden-count, marking a floor as one rather than a total.
+
+        Delegates: the definition lives beside the segments that render it, in
+        :mod:`metatv.gui.channel_transparency`. Kept here because callers and
+        tests reach it through the mixin.
+        """
+        from metatv.gui.channel_transparency import count_label
+
+        return count_label(n, is_floor)
 
     def _show_channel_filter_breakdown(
         self,
@@ -1182,7 +1191,7 @@ class _ChannelListMixin:
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
         hidden_by_keywords: int = 0,
-        # Keyword-only, and AFTER the four counts. Callers pass the counts
+        # Keyword-only, and AFTER the counts. Callers pass the counts
         # positionally, so a flag inserted between them silently rebinds every
         # later argument — `hidden_search` landed in `hidden_by_exclusions_is_floor`
         # and CI caught it as a duplicate-argument TypeError. Keyword-only makes
@@ -1193,69 +1202,44 @@ class _ChannelListMixin:
         hidden_by_dead_is_floor: bool = False,
         hidden_by_keywords_is_floor: bool = False,
     ) -> None:
-        """Render the per-layer filter-transparency bar (up to four clickable segments).
+        """Render the per-layer filter-transparency bar.
 
-        Each segment appears only when its hidden-count is > 0 and links to a
-        view-scoped reveal that never changes the user's stored settings:
+        The named parameters are kept as the call signature — several callers and
+        tests pass them by name — but the SEGMENTS live in
+        :mod:`metatv.gui.channel_transparency`, one descriptor per axis. What
+        each segment says, which icon it carries and what its click does are data
+        there; this method only forwards the numbers.
 
-        * 🔒 Global Exclusions            → :meth:`_show_exclusion_hidden`
-        * 🔎 search / Tier-1               → :meth:`_show_filtered_results`
-        * ⚠ dead-stream gate (play fails) → :meth:`_show_dead_hidden`
-        * 🔤 Global Exclusions keywords    → :meth:`_show_keyword_hidden`
-
-        Coexists with the suspend banner (``_channel_banner``): after revealing one
-        layer its count is 0, so only the still-hidden layer's segment remains.
+        Coexists with the suspend banner (``_channel_banner``): after revealing
+        one layer its count is 0, so only the still-hidden layer's segment
+        remains.
 
         Args:
             hidden_by_exclusions: Results this view dropped via Global Exclusions.
-            hidden_by_exclusions_is_floor: True when the page cap means more
-                were dropped beyond what was fetched.
-            hidden_by_search: Results this view dropped via search / Tier-1 filters.
-            hidden_by_dead: Results this view dropped via the dead-stream gate
-                (channels with repeated play failures).
-            hidden_by_keywords: Results this view dropped via the Global Exclusions
-                keyword axis (user-defined free-text terms matched against the title).
+            hidden_by_search: Results dropped via search / Tier-1 filters.
+            hidden_by_dead: Results dropped via the dead-stream gate.
+            hidden_by_keywords: Results dropped via the Global Exclusions keyword
+                axis (user-defined free-text terms matched against the title).
+            hidden_by_exclusions_is_floor: True when the page cap means more were
+                dropped beyond what was fetched. Siblings likewise.
         """
-        from metatv.gui import icons as _icons
-        if not hasattr(self, '_channel_filter_bar'):
-            return
-        show_excl = hidden_by_exclusions > 0
-        show_search = hidden_by_search > 0
-        show_dead = hidden_by_dead > 0
-        show_kw = hidden_by_keywords > 0
-        if hasattr(self, '_channel_exclusion_btn'):
-            if show_excl:
-                self._channel_exclusion_btn.setText(
-                    f"{_icons.global_exclusion_icon} "
-                    f"{self._count_label(hidden_by_exclusions, hidden_by_exclusions_is_floor)} "
-                    f"hidden by Global Exclusions  —  show"
-                )
-            self._channel_exclusion_btn.setVisible(show_excl)
-        if hasattr(self, '_channel_filter_btn'):
-            if show_search:
-                self._channel_filter_btn.setText(
-                    f"{_icons.search_filter_icon} {self._count_label(hidden_by_search, hidden_by_search_is_floor)} hidden by "
-                    f"search filters  —  show"
-                )
-            self._channel_filter_btn.setVisible(show_search)
-        # __dict__.get, not hasattr: PyQt raises RuntimeError for attribute
-        # access on a __new__'d MainWindow and hasattr only swallows
-        # AttributeError (same trap as #351/#375).
-        if self.__dict__.get('_channel_dead_btn') is not None:
-            if show_dead:
-                self._channel_dead_btn.setText(
-                    f"{_icons.dead_stream_icon} {self._count_label(hidden_by_dead, hidden_by_dead_is_floor)} unavailable "
-                    f"(repeated play failures)  —  show"
-                )
-            self._channel_dead_btn.setVisible(show_dead)
-        if self.__dict__.get('_channel_keyword_btn') is not None:
-            if show_kw:
-                self._channel_keyword_btn.setText(
-                    f"{_icons.keyword_exclusion_icon} {self._count_label(hidden_by_keywords, hidden_by_keywords_is_floor)} hidden by "
-                    f"keywords  —  show"
-                )
-            self._channel_keyword_btn.setVisible(show_kw)
-        self._channel_filter_bar.setVisible(show_excl or show_search or show_dead or show_kw)
+        from metatv.gui import channel_transparency as _transparency
+
+        _transparency.render(
+            self,
+            counts={
+                "exclusions": hidden_by_exclusions,
+                "search": hidden_by_search,
+                "dead": hidden_by_dead,
+                "keywords": hidden_by_keywords,
+            },
+            floors={
+                "exclusions": hidden_by_exclusions_is_floor,
+                "search": hidden_by_search_is_floor,
+                "dead": hidden_by_dead_is_floor,
+                "keywords": hidden_by_keywords_is_floor,
+            },
+        )
 
     def _hide_channel_banners(self) -> None:
         """Hide the info banner, the filter-transparency bar, and the
