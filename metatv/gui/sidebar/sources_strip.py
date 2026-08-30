@@ -53,7 +53,11 @@ def summarize_providers(providers: list["ProviderDB"], now: datetime) -> tuple[i
     for p in providers:
         is_expired = bool(p.account_exp_date and p.account_exp_date <= now)
         color = (
-            subscription_color(p.account_exp_date, p.account_created_at)
+            # ``now`` threaded through: this function takes one, and a
+            # classification that honoured it for `is_expired` while
+            # subscription_color reached for the real clock is not deterministic
+            # at all — it just looked it.
+            subscription_color(p.account_exp_date, p.account_created_at, now)
             if p.account_exp_date else ""
         )
         concerning = is_expired or color in (_theme.COLOR_WARN, _theme.COLOR_ERR)
