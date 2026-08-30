@@ -51,7 +51,77 @@ def _contains(filename: str, pattern: str) -> bool:
 
 
 def _method_contains(filename: str, funcname: str, pattern: str) -> bool:
-    return pattern in _func_source(filename, funcname)
+    """Whether *funcname* contains *pattern*, wherever it now lives.
+
+    *filename* is a STARTING POINT, not a requirement. MainWindow's behaviour is
+    spread over a dozen ``main_window_*.py`` mixins and methods move between them
+    as files are split — ``clear_history`` moved from ``main_window_favorites``
+    to ``main_window_history``, and pinning the filename turned that into a
+    failure reading "clear_history not found in main_window_favorites.py", which
+    describes the test's assumption rather than any defect.
+
+    What this guard is actually about is that the METHOD uses ``session_scope``.
+    So: look where told, then fall back to searching the mixins.
+    """
+    try:
+        return pattern in _func_source(filename, funcname)
+    except AssertionError:
+        pass
+    from pathlib import Path
+
+    gui = Path(__file__).resolve().parents[1] / "metatv" / "gui"
+    for candidate in sorted(gui.glob("main_window*.py")):
+        try:
+            return pattern in _func_source(candidate.name, funcname)
+        except AssertionError:
+            continue
+    raise AssertionError(
+        f"{funcname} not found in {filename} or any metatv/gui/main_window*.py"
+    )
+
+
+def _uses_session_scope(funcname: str, filename: str = "main_window_favorites.py") -> bool:
+    """Whether *funcname* opens a session correctly, directly or one call down.
+
+    A handler may do the work itself or hand it to a shared helper.
+    ``clear_history``, ``clear_history_older_than`` and ``clear_history_group``
+    now share ``_confirm_and_clear_history`` — which is the POINT, since the
+    thing all three were forgetting was not the session but the refresh tail
+    after it. Reading only the handler's own body would fail them for having
+    been deduplicated, which is the opposite of what this guard is for.
+
+    One level, deliberately: deeper and it stops being a check on the handler.
+    """
+    if _method_contains(filename, funcname, "session_scope"):
+        return True
+    import re as _re
+
+    body = _func_source(filename, funcname) if _has(filename, funcname) else _find(funcname)
+    for callee in set(_re.findall(r"self\.(_[A-Za-z0-9_]+)\(", body)):
+        try:
+            if _method_contains(filename, callee, "session_scope"):
+                return True
+        except AssertionError:
+            continue
+    return False
+
+
+def _has(filename: str, funcname: str) -> bool:
+    try:
+        _func_source(filename, funcname)
+        return True
+    except AssertionError:
+        return False
+
+
+def _find(funcname: str) -> str:
+    from pathlib import Path
+
+    gui = Path(__file__).resolve().parents[1] / "metatv" / "gui"
+    for candidate in sorted(gui.glob("main_window*.py")):
+        if _has(candidate.name, funcname):
+            return _func_source(candidate.name, funcname)
+    raise AssertionError(f"{funcname} not found in any main_window*.py")
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +215,7 @@ def test_write_handlers_use_session_scope():
         "clear_history",
     ]
     for fn in handlers:
-        assert _method_contains("main_window_favorites.py", fn, "session_scope"), (
-            f"{fn} must use session_scope()"
-        )
+        assert _uses_session_scope(fn), f"{fn} must use session_scope()"
 
 
 def test_play_handlers_use_session_scope():

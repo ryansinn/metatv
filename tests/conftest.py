@@ -934,6 +934,38 @@ def wire_settings_content_widgets(dlg) -> None:
 # MainWindow channel-render skeleton stubs
 # ---------------------------------------------------------------------------
 
+def first_chip_row(list_widget):
+    """The first CHANNEL row in a sidebar list, skipping any group heading.
+
+    Three test modules defined this as "the first item that has a widget",
+    which was right while headings were plain item text. History now renders
+    ``GroupHeading`` widgets ("Today", "Older") through ``setItemWidget``, so
+    that definition returns a HEADING and every assertion about the row then
+    fails somewhere far away — ``AttributeError: 'NoneType' object has no
+    attribute 'text'``, in a file the change never touched.
+
+    A heading is identified by its bucket role rather than by widget type, so a
+    section that grows a different heading widget still works.
+
+    Args:
+        list_widget: A ``QListWidget`` populated by a sidebar section.
+
+    Returns:
+        The first row widget, or ``None`` when the list holds no channel rows.
+    """
+    from PyQt6.QtCore import Qt
+
+    role_bucket = Qt.ItemDataRole.UserRole + 8
+    for i in range(list_widget.count()):
+        item = list_widget.item(i)
+        if item.data(role_bucket) is not None:
+            continue                      # a time-group heading, not a row
+        widget = list_widget.itemWidget(item)
+        if widget is not None:
+            return widget
+    return None
+
+
 def wire_channel_banner_widgets(win) -> None:
     """Attach the banner widgets ``_hide_channel_banners`` resets to a skeleton window.
 

@@ -201,7 +201,10 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         def _paint_glyph() -> str:
             forget.setIcon(
                 _icon_utils.resolve_icon(
-                    _icons.vector_key("delete"), _theme.COLOR_MUTED_2
+                    # Matches the role's resting colour — a glyph painted from
+                    # a different token than the sheet declares is exactly what
+                    # the contrast guard cannot see.
+                    _icons.vector_key("delete"), _theme.COLOR_TEXT
                 )
             )
             forget.setIconSize(QSize(13, 13))

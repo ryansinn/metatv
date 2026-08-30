@@ -101,6 +101,20 @@ def _chip_title(list_widget, i):
     return lbl.text() if lbl else None
 
 
+def _row_positions(list_widget):
+    """Indices of CHANNEL rows, skipping any group heading.
+
+    History renders time-group headings ("Today", "Older") as real widgets, so
+    a row is no longer at the index its position in the DTO list suggests —
+    every index shifts by the headings above it.
+    """
+    from PyQt6.QtCore import Qt
+
+    role_bucket = Qt.ItemDataRole.UserRole + 8
+    return [i for i in range(list_widget.count())
+            if list_widget.item(i).data(role_bucket) is None]
+
+
 def _ids(list_widget):
     """UserRole ids for non-header rows (headers carry no UserRole data).
 
@@ -292,14 +306,18 @@ def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
     obj._on_data_ready(dtos)
 
     assert _ids(obj.history_list) == ["c1", "c2"]   # history preserves order, no split
+    # Addressed by ROW rather than by list index: these two sit under a time
+    # heading now, so index 0 is "Older", not "My Show".
+    rows = _row_positions(obj.history_list)
+    assert len(rows) == 2, f"expected two rows, got {len(rows)}"
     # V3: the episode code moved OFF the title and onto the meta line, where it is
     # always fully visible instead of competing with the title for width.
-    assert _chip_title(obj.history_list, 0) == "My Show"
-    assert _chip_icon_role(obj.history_list, 0) == _icon_role_key("series")
-    assert _chip_title(obj.history_list, 1) == "A Film"
+    assert _chip_title(obj.history_list, rows[0]) == "My Show"
+    assert _chip_icon_role(obj.history_list, rows[0]) == _icon_role_key("series")
+    assert _chip_title(obj.history_list, rows[1]) == "A Film"
     # Nothing to say on a second line (no episode, no year, never played) — so the
     # row does not grow one. A blank meta line would be a row of wasted height.
-    assert _chip_icon_role(obj.history_list, 1) == _icon_role_key("movie")
+    assert _chip_icon_role(obj.history_list, rows[1]) == _icon_role_key("movie")
 
 
 def test_history_on_data_ready_none_shows_error_row(qapp):
