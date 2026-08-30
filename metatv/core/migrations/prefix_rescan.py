@@ -37,7 +37,26 @@ if TYPE_CHECKING:
 #       before it existed have it empty on every row — measured 0 populated of
 #       414,800 VOD rows on the owner's library. Runs BEFORE TagBackfill
 #       (registration order) so the name_cast feeder has something to read.
-CURRENT_PREFIX_SCAN_VERSION = 4
+# v5 — decoration attributes. parse_channel_name learned to read what the
+# provider was already sending and the parser was dropping on the floor:
+# superscript quality (`ESPN NEWS ᴴᴰ` — 15,676 channels carried one, and 3,405
+# of those had NO quality recorded while the plain `HD` on the same channel from
+# another source was captured), pixel heights folded into the one tier ladder
+# (`3840P` → 4K), slash-joined pairs (`HD/RAW`), frame rate, encodings routed
+# out of `quality`, and tier markers routed out of `lang` — where
+# `_classify_bracket`'s any-two-or-three-letters rule had been filing `[VIP]`
+# as a region code.
+#
+# Re-running the existing rescan IS the backfill; there is no second migration,
+# because this task's whole job is "re-parse every name and write what changed".
+# Measured on the owner's library: 17,883 titles change (16,686 of them
+# shorter) and 14,597 rows gain a quality they always had in their name.
+#
+# detected_title feeds content_key, so dedup groupings shift for the rows whose
+# title loses decoration — that is the point (`ESPN NEWS ᴴᴰ ⁶⁰ᶠᵖˢ` and
+# `ESPN NEWS` are the same channel and were two content keys), but it is a real
+# data change and the reason this is a version bump rather than a quiet edit.
+CURRENT_PREFIX_SCAN_VERSION = 5
 
 # The compound-prefix parse version that the old nav-mixin tracked separately.
 # We persist this into config.prefix_parse_version on completion so existing

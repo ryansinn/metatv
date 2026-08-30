@@ -1,5 +1,6 @@
 """Shared channel name parsing — prefix extraction, region normalization, quality/year/audio detection."""
 import re
+import unicodedata
 from datetime import datetime
 from functools import lru_cache
 from typing import NamedTuple, Optional
@@ -26,6 +27,16 @@ class ParsedChannel(NamedTuple):
                     to be dropped on the floor — not merely unused, but never
                     surfaced to any caller. Callers decide what it means; the
                     parser only refuses to throw it away.
+        tier:       Package/tier marker ("VIP", "PPV", "GOLD"), or "". NOT quality
+                    and NOT a language — before this existed, a bracketed
+                    ``[VIP]`` fell through ``_classify_bracket``'s 2-3-letter
+                    rule and was stored as a region.
+        encoding:   Video encoding ("H.264", "H.265", "AV1"), or "". Split out of
+                    ``quality`` for the reason ledger F17 gave for HDR: an
+                    encoding is not a resolution tier, and letting it stand in
+                    for one means an HEVC channel reports no resolution at all.
+        audio_codec: Audio codec ("DD+ 5.1", "AAC 2.0"), or "". Distinct from
+                    ``audio``, which is presentation (Multi/Dub/Sub).
         trailing_meta: ``(kind, value)`` when the text after a mid-string year was
                     RECOGNISED provider metadata rather than cast — e.g.
                     ``("collection", "Hallmark")`` for "... (2021) Hallmark".
@@ -44,6 +55,74 @@ class ParsedChannel(NamedTuple):
     sub_langs: list[str] = []
     trailing: str = ""
     trailing_meta: Optional[tuple[str, str]] = None
+    tier: str = ""
+    encoding: str = ""
+    audio_codec: str = ""
+
+
+# ── Provider decoration vocabularies ────────────────────────────────────────── #
+# Single source of truth for these token classes (CLAUDE.md: lookup tables live
+# here and nowhere else). Measured across the owner's 785,163-name library.
+
+#: Package/tier markers. NOT quality — a VIP feed is not a higher resolution —
+#: and NOT a language, which is where they land today: ``_classify_bracket``
+#: treats any 2-3 letter bracket as a region, so ``SKY SPORTS [VIP]`` parses to
+#: ``lang='VIP'``. 20,341 channels carry one.
+#:
+#: RAW is deliberately ABSENT. It is a stream-quality marker in 12,476 of its
+#: 12,551 uses and is already handled as quality; listing it here as well would
+#: put one token in two facets meaning two different things. The 75 exceptions
+#: are wrestling titles, and they stay findable by SEARCHING "raw" — a facet
+#: narrows by attribute, search finds a word wherever it sits.
+TIER_TOKENS: frozenset[str] = frozenset({
+    "VIP", "PPV", "GOLD", "ULTRA", "PREMIUM", "PLUS",
+})
+
+#: Video encodings. Kept apart from ``quality`` because they are not resolution
+#: tiers — the same reasoning ledger F17 applied to HDR, which ranks BELOW HD in
+#: ``QUALITY_TIER_RANK`` precisely because a dynamic-range descriptor is not a
+#: tier. Moving these out means an HEVC channel reports the resolution it
+#: actually has (or none) instead of "HEVC" standing in for one.
+ENCODING_NORM: dict[str, str] = {
+    "H264": "H.264", "H.264": "H.264", "X264": "H.264", "AVC": "H.264",
+    "H265": "H.265", "H.265": "H.265", "X265": "H.265", "HEVC": "H.265",
+    "MPEG2": "MPEG-2", "AV1": "AV1", "VP9": "VP9",
+}
+
+#: Audio CODECS, distinct from ``_AUDIO_NORM`` which records audio
+#: PRESENTATION (Multi / Dub / Sub — how many tracks and in what role).
+#: A scene release carries both: "...DDP5.1.H.264-TURG" is codec + encoding.
+AUDIO_CODEC_NORM: dict[str, str] = {
+    "DDP": "DD+", "DDP2.0": "DD+ 2.0", "DDP5.1": "DD+ 5.1", "DDP7.1": "DD+ 7.1",
+    "DD": "DD", "DD2.0": "DD 2.0", "DD5.1": "DD 5.1",
+    "AC3": "AC3", "EAC3": "EAC3",
+    "AAC": "AAC", "AAC2.0": "AAC 2.0", "AAC5.1": "AAC 5.1",
+    "DTS": "DTS", "DTS-HD": "DTS-HD", "TRUEHD": "TrueHD", "ATMOS": "Atmos",
+    "FLAC": "FLAC", "OPUS": "Opus", "MP3": "MP3",
+}
+
+#: Pixel-height markers that mean a tier we already have a name for. The chip
+#: shows the TIER, never the pixel count, so one ladder stays authoritative
+#: (``QUALITY_TIER_RANK``).
+RESOLUTION_TO_QUALITY: dict[str, str] = {
+    "4320P": "8K",
+    "2160P": "4K", "3840P": "4K",
+    "1440P": "FHD", "1080P": "FHD", "1080I": "FHD",
+    "720P": "HD",
+    "576P": "SD", "540P": "SD", "480P": "SD", "480I": "SD", "360P": "SD",
+}
+
+#: Frame-rate markers. Kept as a quality token because it is a real
+#: watchability attribute the owner asked to surface as its own chip.
+_FPS_RE = re.compile(r"\b(\d{2,3})\s?FPS\b", re.IGNORECASE)
+
+#: "HD/RAW" → "HD RAW". Bounded to alphanumeric-slash-alphanumeric so "AC/DC"
+#: keeps its slash (it is one word) and so does a date.
+_SLASH_JOINED_RE = re.compile(
+    r"\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H\.?26[45]|X26[45]|HD|SD|HQ|LQ|RAW)"
+    r"/(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H\.?26[45]|X26[45]|HD|SD|HQ|LQ|RAW)\b",
+    re.IGNORECASE,
+)
 
 
 # ── Separator patterns ──────────────────────────────────────────────────────── #
@@ -251,7 +330,14 @@ _COMPOUND_PREFIX_RE = re.compile(
 # RAW, LIVE, CAM removed — these are ambiguous when bare (e.g., "WWE Raw" shouldn't become
 # title="WWE"). They must appear bracketed [RAW] or as superscript to count as quality.
 _QUALITY_SUFFIX_RE = re.compile(
-    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ)\b\s*$',
+    r'\s+\b('
+    r'4K|8K|UHD|FHD|HDR10\+?|HDR|HD|SD|HQ|LQ|RAW'          # tiers + the RAW marker
+    r'|HEVC|H\.?26[45]|X26[45]|AVC|AV1|VP9|MPEG-?2'         # encodings (routed out)
+    r'|\d{3,4}[pPiI]'                                       # 1080p, 3840P, 480i
+    r'|\d{2,3}\s?FPS'                                       # 60fps
+    r'|VIP|PPV|GOLD|ULTRA|PREMIUM'                          # tiers (routed out)
+    r'|DDP?[0-9.]*|E?AC3|AAC[0-9.]*|DTS(?:-HD)?|TRUEHD|ATMOS|FLAC|OPUS'  # audio codecs
+    r')\b\s*$',
     re.IGNORECASE,
 )
 
@@ -2277,16 +2363,90 @@ def collection_display(collection: str | None, platform_code: str | None = None)
     return working
 
 
+class _Attributes(NamedTuple):
+    """What a trailing-token sweep pulled off a name."""
+
+    quality: list[str]
+    tier: str
+    encoding: str
+    audio_codec: str
+
+
 def _strip_quality(bare: str) -> tuple[str, list[str]]:
-    """Strip all trailing quality tokens from bare, returning (bare, tokens)."""
-    tokens: list[str] = []
+    """Strip trailing quality tokens, returning (bare, tokens).
+
+    Kept as the narrow two-value form because two call sites want exactly that.
+    :func:`_strip_attributes` is the richer sweep underneath it.
+    """
+    bare, attrs = _strip_attributes(bare)
+    return bare, attrs.quality
+
+
+def _strip_attributes(bare: str) -> tuple[str, _Attributes]:
+    """Pull every trailing decoration off a name, each into its own class.
+
+    One loop rather than four passes, because these arrive interleaved —
+    ``ESPN NEWS HD 60fps``, ``... 1080p WEB-DL DDP5.1 H.264`` — and a pass that
+    only knows one class stops at the first token it does not recognise, which
+    is why ``UHD`` survived in ``RELAX ᵁᴴᴰ 3840P``: the loop hit ``3840P``,
+    did not know it, and gave up with the UHD still attached.
+
+    Classification, in order:
+
+    * a pixel height becomes its TIER (``3840P`` → ``4K``) so one ladder stays
+      authoritative and the chip never shows a pixel count;
+    * an encoding goes to ``encoding``, not ``quality`` — ledger F17's argument
+      for HDR applies exactly: it is not a resolution tier, and letting it stand
+      in for one means an HEVC channel reports no resolution at all;
+    * a tier marker goes to ``tier``, which is the field that did not exist when
+      ``[VIP]`` started being stored as a language;
+    * an audio codec goes to ``audio_codec``, distinct from ``audio``
+      (presentation: Multi/Dub/Sub).
+
+    Duplicates collapse and the first of each class wins, so
+    ``HD/RAW`` yields ``["HD", "RAW"]`` once each.
+    """
+    quality: list[str] = []
+    tier = encoding = audio_codec = ""
     while True:
         qm = _QUALITY_SUFFIX_RE.search(bare)
         if not qm:
             break
-        tokens.insert(0, qm.group(1).upper())
+        token = qm.group(1).upper().replace(" ", "")
         bare = bare[: qm.start()].strip()
-    return bare, tokens
+
+        if token in RESOLUTION_TO_QUALITY:
+            token = RESOLUTION_TO_QUALITY[token]
+        if token in ENCODING_NORM:
+            encoding = encoding or ENCODING_NORM[token]
+            continue
+        if token in TIER_TOKENS:
+            tier = tier or token
+            continue
+        if token in AUDIO_CODEC_NORM:
+            audio_codec = audio_codec or AUDIO_CODEC_NORM[token]
+            continue
+        if _FPS_RE.fullmatch(token):
+            token = token.upper().replace("FPS", "fps")
+        if token not in quality:
+            quality.insert(0, token)
+
+    # "UHD 3840P" resolves to UHD and 4K — the same rung of the ladder said
+    # twice, which would render as two chips meaning one thing. Collapse
+    # same-rank tiers, keeping the first; non-tier tokens (RAW, 60fps, HDR) all
+    # share the unranked default and must NOT be collapsed into each other.
+    deduped: list[str] = []
+    seen_ranks: set[int] = set()
+    for token in quality:
+        rank = QUALITY_TIER_RANK.get(token)
+        if rank is None:
+            deduped.append(token)
+            continue
+        if rank in seen_ranks:
+            continue
+        seen_ranks.add(rank)
+        deduped.append(token)
+    return bare, _Attributes(deduped, tier, encoding, audio_codec)
 
 
 # Bracket classification result — kind drives which field the value lands in.
@@ -2310,6 +2470,17 @@ def _classify_bracket(content: str) -> _BracketClass:
     """
     if (canon := _AUDIO_NORM.get(content)):
         return _BracketClass("audio", canon)
+    # BEFORE the quality tests: HEVC/H264/H265 appear in QUALITY_TOKENS too, so
+    # whichever vocabulary is consulted first decides the field. They are
+    # encodings, not resolution tiers (ledger F17's argument for HDR).
+    if content in ENCODING_NORM:
+        return _BracketClass("encoding", ENCODING_NORM[content])
+    if (codec := AUDIO_CODEC_NORM.get(content.replace(" ", ""))):
+        return _BracketClass("audio_codec", codec)
+    if content in TIER_TOKENS:
+        return _BracketClass("tier", content)
+    if (res := RESOLUTION_TO_QUALITY.get(content)):
+        return _BracketClass("quality", res)
     if (q := _BRACKET_QUALITY_ALIASES.get(content)):
         return _BracketClass("quality", q)
     if content in QUALITY_TOKENS:
@@ -2318,6 +2489,9 @@ def _classify_bracket(content: str) -> _BracketClass:
         return _BracketClass("origin", code)
     if content in PLATFORM_CODES:
         return _BracketClass("origin", content)
+    # The generic fallback, and the reason [VIP] used to be a language: ANY two
+    # or three letters became a region code. Every class that is NOT a region
+    # has to be recognised above this line, or it is silently stored as one.
     if len(content) in (2, 3) and content.isalpha() and content not in QUALITY_TOKENS:
         return _BracketClass("origin", normalize_region_code(content))
     return _BracketClass("unknown", content)
@@ -2370,6 +2544,38 @@ def clean_control_chars(name: str) -> str:
     return cleaned
 
 
+def _fold_superscripts(name: str) -> str:
+    """Rewrite superscript/modifier letters to their ordinary forms.
+
+    Providers decorate names with ``ᴴᴰ``, ``ᴿᴬᵂ``, ``⁶⁰ᶠᵖˢ``, ``ⱽᴵᴾ``. These are
+    real attributes wearing a costume the parser's ASCII vocabulary cannot see,
+    so today they survive into ``detected_title`` — 15,676 channels carry one,
+    and 3,405 of those end up with NO quality recorded at all while the plain
+    ``HD`` on an identical channel from another source is captured correctly.
+
+    Folded PER CHARACTER, never with a blanket ``NFKD`` over the whole string:
+    NFKD would also decompose ``Á`` into ``A`` + a combining accent and quietly
+    rewrite every accented title in the library. The test below is what keeps
+    them apart — a superscript decomposes to something wholly alphanumeric,
+    an accented letter decomposes to a letter plus a non-alphanumeric mark.
+    """
+    if name.isascii():
+        return name
+    out = []
+    for ch in name:
+        if ch.isascii():
+            out.append(ch)
+            continue
+        decomposed = unicodedata.normalize("NFKD", ch)
+        if decomposed != ch and decomposed.strip() and all(
+            c.isalnum() for c in decomposed
+        ):
+            out.append(decomposed)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def parse_channel_name(name: str) -> ParsedChannel:
     """Parse a raw channel name into structured components.
 
@@ -2398,6 +2604,13 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # every derived detected_* field — and the content_key built from detected_title —
     # is computed from clean text and never carries the non-printing artifact.
     bare = clean_control_chars(name)
+    # Decoration → ordinary letters, so the vocabularies below can see it.
+    bare = _fold_superscripts(bare)
+    # "ESPN HD/RAW" is two attributes joined by a slash, and neither is read
+    # while they are glued together. Space them so the ordinary token passes
+    # finds both. Only between two WORD characters, so a real "AC/DC" title or
+    # a date "01/08" is untouched by the same rule.
+    bare = _SLASH_JOINED_RE.sub(r"\1 \2", bare)
     if not bare:
         return ParsedChannel("", "", [], "", "", "")
     region = ""
@@ -2558,7 +2771,9 @@ def parse_channel_name(name: str) -> ParsedChannel:
                 ).strip()
 
     # 2. Strip quality tokens from end (first pass)
-    bare, quality = _strip_quality(bare)
+    bare, _attrs = _strip_attributes(bare)
+    quality = _attrs.quality
+    tier, encoding, audio_codec = _attrs.tier, _attrs.encoding, _attrs.audio_codec
 
     # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end.
     # Also strips content-origin brackets like [UK], [US] (2-3 alpha letters,
@@ -2588,7 +2803,19 @@ def parse_channel_name(name: str) -> ParsedChannel:
         elif bc.kind == "origin":
             _bracket_origin = bc.value
             bare = bare[: bsm.start()].strip()
-        # "unknown": bracket stays in bare name
+        elif bc.kind == "tier":
+            tier = tier or bc.value
+            bare = bare[: bsm.start()].strip()
+        elif bc.kind == "encoding":
+            encoding = encoding or bc.value
+            bare = bare[: bsm.start()].strip()
+        elif bc.kind == "audio_codec":
+            audio_codec = audio_codec or bc.value
+            bare = bare[: bsm.start()].strip()
+        # "unknown": bracket stays in bare name. A kind added to
+        # _classify_bracket but not handled here lands in "unknown" and the
+        # bracket silently survives into the title — which is how [VIP] was
+        # both misfiled AND still visible.
 
     # 4. Strip explicit lang/region qualifier from end: (EN), (JP)
     # Parenthetical form overrides bracket form if both are present.
@@ -2649,7 +2876,11 @@ def parse_channel_name(name: str) -> ParsedChannel:
         # audio in step 6a is unusual and not expected; unknown stays in bare
 
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
-    bare, quality2 = _strip_quality(bare)
+    bare, _attrs2 = _strip_attributes(bare)
+    quality2 = _attrs2.quality
+    tier = tier or _attrs2.tier
+    encoding = encoding or _attrs2.encoding
+    audio_codec = audio_codec or _attrs2.audio_codec
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
 
     # 6c. Trailing-qualifier strip loop — catches single-token parenthetical/bracket
@@ -2696,11 +2927,17 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
     # wins when both are present (e.g. "[US] 4K-DE - Movie UHD" → quality[0] = "UHD").
     if _prefix_quality and _prefix_quality not in quality:
-        quality = quality + [_prefix_quality]
+        # Same-rank guard as _strip_attributes: a "4K|" prefix on a name whose
+        # suffix already said UHD is one tier stated twice, and would render as
+        # two chips meaning one thing.
+        _prefix_rank = QUALITY_TIER_RANK.get(_prefix_quality)
+        _have_rank = {QUALITY_TIER_RANK.get(q) for q in quality}
+        if _prefix_rank is None or _prefix_rank not in _have_rank:
+            quality = quality + [_prefix_quality]
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
                          _audio_langs, _dub_langs, _sub_langs, trailing,
-                         trailing_meta)
+                         trailing_meta, tier, encoding, audio_codec)
 
 
 # ── EPG TLD compatibility (region-gated fuzzy matching, Wave 3 Slice 3B) ─────── #
