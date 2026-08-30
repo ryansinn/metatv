@@ -1203,6 +1203,8 @@ class Config(BaseModel):
     epg_channel_id_backfill_version: int = 0
     #: Version of the metadata.year derivation that has been applied.
     metadata_year_backfill_version: int = 0
+    #: Version of the MetadataDB.runtime backfill that has been applied.
+    runtime_backfill_version: int = 0
 
     # Internal migration version for the category-marker backfill (owner-reported
     # gap — provider category strings carrying a leading "|EN| ANIME"-style marker
