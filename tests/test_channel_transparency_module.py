@@ -79,14 +79,19 @@ def test_every_icon_comes_from_the_icons_module():
 # The extraction changed no rendered text.
 # --------------------------------------------------------------------------- #
 
-#: What each segment said BEFORE the extraction, transcribed from the four
-#: hand-written blocks. A refactor that reworded the UI would be a behaviour
-#: change wearing a refactor's clothes.
-_PRE_REFACTOR = {
+#: The exact text each segment renders. The first four were transcribed from the
+#: hand-written blocks that existed BEFORE the extraction — a refactor that
+#: reworded the UI would be a behaviour change wearing a refactor's clothes.
+#:
+#: The parametrised test below covers every axis in AXES, so a new one fails
+#: here with a KeyError until its rendered string is written down. That is the
+#: guard working: the adult gate arrived this way.
+_EXPECTED = {
     "exclusions": "🔒 4 hidden by Global Exclusions  —  show",
     "search":     "🔎 4 hidden by search filters  —  show",
     "dead":       "⚠ 4 unavailable (repeated play failures)  —  show",
     "keywords":   "🔤 4 hidden by keywords  —  show",
+    "adult":      "🔞 4 hidden as adult content  —  change in Settings",
 }
 
 
@@ -100,10 +105,12 @@ class _Host:
 
 
 @pytest.mark.parametrize("axis", ct.AXES, ids=lambda a: a.key)
-def test_each_segment_still_says_what_it_said_before(qapp, axis):
+def test_each_segment_renders_its_expected_text(qapp, axis):
     host = _Host(qapp)
     ct.render(host, counts={axis.key: 4}, floors={})
-    assert getattr(host, axis.attr).text() == _PRE_REFACTOR[axis.key]
+    assert getattr(host, axis.attr).text() == _EXPECTED[axis.key], (
+        f"{axis.key} renders {getattr(host, axis.attr).text()!r}"
+    )
 
 
 def test_a_floor_count_is_marked_as_one(qapp):

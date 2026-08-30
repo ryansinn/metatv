@@ -3019,8 +3019,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     def _open_adult_settings(self) -> None:
         """Open Settings → Content — the adult segment's click target.
 
-        Deliberately not a bypass; see the segment table's comment. The section
-        LABEL, because ``open_settings`` forwards it to ``select_section_by_label``.
+        The section LABEL: ``open_settings`` forwards it to
+        ``select_section_by_label``.
         """
         self.open_settings("Content")
 
