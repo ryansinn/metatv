@@ -99,8 +99,17 @@ def test_a_pixel_height_becomes_its_tier(pixels, tier):
 
 def test_one_tier_stated_twice_yields_one_chip():
     """"UHD 3840P" is the same rung said two ways; two chips would mean one
-    thing. Non-tier tokens share the unranked default and must NOT collapse."""
-    assert parse_channel_name("4K| RELAX ᵁᴴᴰ 3840P").quality == ["UHD"]
+    thing. Non-tier tokens share the unranked default and must NOT collapse.
+
+    Asserts the RANK, not which of the two synonyms survives: UHD and 4K are
+    both rank 5 and either label is correct, so pinning the token would make
+    this fail on a harmless change to merge order — which it did.
+    """
+    from metatv.core.channel_name_utils import QUALITY_TIER_RANK
+
+    quality = parse_channel_name("4K| RELAX ᵁᴴᴰ 3840P").quality
+    assert len(quality) == 1, f"one rung, one chip: {quality}"
+    assert QUALITY_TIER_RANK.get(quality[0]) == 5, quality
     both = parse_channel_name("US| ESPN HD 60fps HDR").quality
     assert "HD" in both and "60fps" in both and "HDR" in both
 
