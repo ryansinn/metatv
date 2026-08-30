@@ -109,13 +109,26 @@ def test_an_empty_group_draws_no_heading(section):
 
 
 def test_a_heading_counts_its_own_rows(section):
+    """Ages in DAYS, not hours, so the three cannot land in different groups.
+
+    Seeded at 5/6/7 hours this passed most of the day and failed near dawn: run
+    at 06:00, "5 hours ago" is today while "7 hours ago" is yesterday, so the
+    three split across two headings and the count is 2 and 1. Three-to-five days
+    is "Earlier this week" at every hour of every day.
+
+    Same defect as the one that took three PRs red today — a fixture whose
+    meaning depends on when it runs.
+    """
     section._populate_rows([
-        _dto("a", "One", ago=timedelta(hours=5)),
-        _dto("b", "Two", ago=timedelta(hours=6)),
-        _dto("c", "Three", ago=timedelta(hours=7)),
+        _dto("a", "One", ago=timedelta(days=3)),
+        _dto("b", "Two", ago=timedelta(days=4)),
+        _dto("c", "Three", ago=timedelta(days=5)),
     ])
-    heading = next(w for k, w in _items(section) if k == "heading")
-    assert heading.count_label.text().strip() == "3"
+    headings = [w for k, w in _items(section) if k == "heading"]
+    assert len(headings) == 1, (
+        f"the three rows split across {len(headings)} groups"
+    )
+    assert headings[0].count_label.text().strip() == "3"
 
 
 # --------------------------------------------------------------------------- #

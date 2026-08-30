@@ -74,16 +74,10 @@ class GroupHeading(QWidget):
                 caller, the same way ``chip_row``'s row indent is, because the
                 widget cannot know how deep it has been put.
             tooltip: Hover text; a sensible default is supplied when interactive.
-            trailing_button: An action belonging to the GROUP rather than to any
-                row — History's per-group "forget these" control. Pinned to the
-                right edge, past the stretch, so it lands in the same column on
-                every heading rather than wandering with the label's width.
-
-                It is the caller's widget: this only places it. A button here
-                also means the heading can no longer be mouse-transparent, the
-                same trade ``chip_row`` makes for its own trailing button — a
-                QPushButton must receive its own press, and transparency on an
-                ancestor hides the whole subtree from hit-testing.
+            trailing_button: An action belonging to the GROUP rather than a row
+                — History's per-group "forget these". Pinned past the stretch so
+                it lands in the same column on every heading. The caller's
+                widget; this only places it.
             parent: Qt parent.
         """
         super().__init__(parent)
