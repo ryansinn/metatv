@@ -27,6 +27,7 @@ from metatv.core.repositories.dtos import (
     ReconnectCandidateDTO, ReconnectMatchDTO,
 )
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
+from metatv.core.repositories.channel_history import _ChannelHistoryMixin
 # Facet lenses + the predicates the channel-list person/genre filters share with
 # them — one definition, so "See all in Search" lands on the set the lens showed.
 from metatv.core.repositories.channel_ingestion import (
@@ -278,7 +279,8 @@ def _collapse_rank_penalty(
     return _case(*branches, else_=0)
 
 
-class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin):
+class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
+                        _ChannelHistoryMixin):
     """Repository for channel data access"""
     
     def __init__(self, session: Session):
@@ -1282,59 +1284,10 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin):
         self.session.commit()
         return completed
 
-    def clear_history(self):
-        """Clear all playback history"""
-        count = self.session.query(ChannelDB).filter(
-            ChannelDB.last_played.isnot(None)
-        ).update({
-            ChannelDB.last_played: None,
-            ChannelDB.play_count: 0
-        })
-        self.session.commit()
-        logger.info(f"Cleared history for {count} channels")
-        return count
-    
-    def clear_history_older_than(self, days: int) -> int:
-        """Forget playback older than ``days``, keeping everything since.
 
-        The blunt :meth:`clear_history` is all-or-nothing, which makes tidying
-        up an all-or-nothing decision too — owner: "people aren't wiping
-        history daily ... maybe add a second wipe history option that wipes
-        history older than a month or older than two weeks."
 
-        Args:
-            days: Age threshold. Rows last played strictly before this many
-                days ago are cleared.
 
-        Returns:
-            How many channels were cleared.
-        """
-        from datetime import datetime, timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        count = self.session.query(ChannelDB).filter(
-            ChannelDB.last_played.isnot(None),
-            ChannelDB.last_played < cutoff,
-        ).update({
-            ChannelDB.last_played: None,
-            ChannelDB.play_count: 0,
-        }, synchronize_session=False)
-        self.session.commit()
-        logger.info(f"Cleared history older than {days}d for {count} channels")
-        return count
-
-    def remove_from_history(self, channel_id: str) -> bool:
-        """Remove single channel from history"""
-        channel = self.get_by_id(channel_id)
-        if channel:
-            channel.last_played = None
-            channel.play_count = 0
-            channel.updated_at = datetime.now()
-            self.session.commit()
-            logger.info(f"Removed {channel.name} from history")
-            return True
-        return False
-    
     def set_hidden(self, channel_id: str, hidden: bool) -> None:
         """Set channel hidden status (removes from all views)."""
         channel = self.get_by_id(channel_id)

@@ -614,6 +614,10 @@ VECTOR_KEYS: dict[str, str] = {
     # "Play the next episode" — the transport control for skipping AHEAD, not
     # ">>", which is the fast-forward glyph and means "speed up".
     "next_episode": "mdi6.skip-next",
+    # History's per-group "forget these" control. A VECTOR, not the delete_icon
+    # emoji: a colour emoji set as a button's TEXT is drawn at the font size and
+    # gets clipped in a 20x20 button (ledger F13).
+    "delete": "mdi6.trash-can-outline",
     "as_grid": "mdi6.view-grid-outline",
     "as_list": "mdi6.view-list-outline",
 }

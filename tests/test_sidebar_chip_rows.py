@@ -59,12 +59,10 @@ def _seed_db(path: Path):
 
 
 def _first_chip_row(list_widget):
-    """First item that hosts a setItemWidget chip row (skips plain header items)."""
-    for i in range(list_widget.count()):
-        w = list_widget.itemWidget(list_widget.item(i))
-        if w is not None:
-            return w
-    return None
+    """The first channel ROW, skipping group headings (shared: conftest)."""
+    from tests.conftest import first_chip_row
+
+    return first_chip_row(list_widget)
 
 
 def _texts(row):
@@ -189,15 +187,22 @@ def test_history_row_is_honest_chip_row(qapp, tmp_path):
     obj.set_empty = lambda *_: None
     obj._populate_rows(dtos)
 
-    # History's meta line is deliberately NOT the other sections': it reads
-    # "1998 · just now" — the identifying fact and then WHEN, because History is
-    # a list ordered by exactly that. Language and quality are not what tells one
-    # history entry from another.
+    # A DELIBERATE reversal. This used to read "1998 · just now" — the year and
+    # then WHEN — on the reasoning that History is ordered by time and quality
+    # and language do not tell its rows apart. Real rows disproved the second
+    # half: two copies of one film at different qualities were indistinguishable,
+    # and the time was the one fact the ORDER already gave you. The time moved up
+    # to a group heading and the freed space went to quality (beside the title)
+    # and language.
     row = _first_chip_row(obj.history_list)
     _assert_clean_title_and_no_region(row)
     parts = _meta_parts(row)
-    assert parts[0] == "1998", f"the year should lead the line: {parts}"
-    assert len(parts) == 2 and parts[1], f"a time should close the line: {parts}"
+    assert "1998" in parts, f"the year must still be shown: {parts}"
+    assert "4K" in parts, f"quality is what separates two copies of a title: {parts}"
+    assert "EN" in parts, f"language was added alongside it: {parts}"
+    assert not any(p.endswith(("h", "m")) and p[:-1].isdigit() for p in parts), (
+        f"the terse age is back on the row; the heading above it says when: {parts}"
+    )
     db.close()
 
 

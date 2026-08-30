@@ -620,28 +620,12 @@ class _FavoritesMixin:
         if channel:
             self.details_pane.show_channel(channel)
 
-    def load_history(self):
-        """Load playback history into sidebar"""
-        if "history" in self.sidebar_sections:
-            self.sidebar_sections["history"].refresh()
 
     def load_favorites(self):
         """Load favorites into sidebar"""
         if "favorites" in self.sidebar_sections:
             self.sidebar_sections["favorites"].refresh()
 
-    def show_history_context_menu(self, position, list_widget=None):
-        if list_widget is None:
-            if "history" in self.sidebar_sections:
-                list_widget = self.sidebar_sections["history"].history_list
-            else:
-                return
-        item = list_widget.itemAt(position)
-        if not item or not item.data(Qt.ItemDataRole.UserRole):
-            return
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
-        gp = list_widget.mapToGlobal(position)
-        self._show_context_menu_for(channel_id, gp.x(), gp.y(), "history")
 
     def _hide_channel_from_history(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
@@ -720,61 +704,9 @@ class _FavoritesMixin:
             logger.info(f"Removed {channel_name} from history")
             self.load_history()
 
-    def clear_history_older_than(self, days: int) -> None:
-        """Forget playback older than ``days``, keeping everything since.
 
-        Same confirmation as the full clear — it is still destructive, just
-        narrower — but it names what SURVIVES, which is the whole reason to
-        offer it.
-        """
-        from PyQt6.QtWidgets import QMessageBox
 
-        reply = QMessageBox.question(
-            self,
-            "Clear Old History",
-            f"Forget everything you played more than {days} days ago?\n\n"
-            "Anything played since then is kept, as are favorites.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        try:
-            with self.db.session_scope() as session:
-                count = RepositoryFactory(session).channels.clear_history_older_than(days)
-            self.status_bar.showMessage(
-                f"Cleared {count} item(s) older than {days} days"
-                if count else "Nothing was older than that"
-            )
-            self.load_history()
-            self.load_favorites()
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to clear old history: {e}")
-            self.status_bar.showMessage(f"Error clearing history: {e}")
 
-    def clear_history(self):
-        """Clear all history"""
-        from PyQt6.QtWidgets import QMessageBox
-
-        reply = QMessageBox.question(
-            self,
-            "Clear History",
-            "Are you sure you want to clear all playback history?\n\nThis will not remove favorites.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                with self.db.session_scope() as session:
-                    RepositoryFactory(session).channels.clear_history()
-                self.status_bar.showMessage("History cleared")
-                logger.info("Cleared all playback history")
-                self.load_history()
-                self.load_favorites()
-            except Exception as e:
-                logger.error(f"Failed to clear history: {e}")
-                self.status_bar.showMessage(f"Error clearing history: {e}")
 
     def show_favorites_context_menu(self, position, list_widget=None):
         if list_widget is None:

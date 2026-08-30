@@ -4,12 +4,16 @@ from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.history_buckets import BUCKETS, bucket_for
 from metatv.gui.chip_row import (
-    CHIP_YEAR, build_chip_row, media_icon_role, sidebar_meta_line,
+    CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, media_icon_role,
+    sidebar_meta_line,
 )
-from metatv.gui.relative_time import humanize_ago, humanize_ago_terse
+from metatv.gui.relative_time import humanize_ago
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
+from metatv.gui.sidebar.base import (
+    GroupHeading, SectionAction, CollapsibleSection, make_seamless,
+)
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -25,6 +29,13 @@ HISTORY_ROW_LIMIT = 300
 #: The episode this row names, kept off ``UserRole`` — that holds the channel
 #: id and a dozen handlers read it back.
 _ROLE_EPISODE_ID = Qt.ItemDataRole.UserRole + 7
+
+#: Marks a list item as a time-group heading rather than a channel row. Read by
+#: click handling and by in-place removal, both of which must skip headings —
+#: ``UserRole`` alone is not enough, because ``itemAt()`` still returns a
+#: heading under the cursor and it would fall through to the row branch with a
+#: null channel id.
+_ROLE_BUCKET = Qt.ItemDataRole.UserRole + 8
 
 
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
@@ -63,6 +74,10 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     clearHistoryClicked = pyqtSignal()
     #: Age-scoped clear; carries the day threshold.
     clearOldHistoryClicked = pyqtSignal(int)
+    #: One time group's clear; carries the bucket key ("yesterday", "older", …).
+    #: The per-group counterpart to ``clearHistoryClicked`` — the ⋯ menu keeps
+    #: "Clear all history", so a heading only ever forgets its own group.
+    clearHistoryGroupClicked = pyqtSignal(str)
     playNextClicked     = pyqtSignal(str)  # episode_id — the row's ">>" "Play Next Episode" button
     # "Explore →" (open the Watch-History trail-map) is the shared base-class
     # ``exploreClicked`` signal — see CollapsibleSection._add_explore_link.
@@ -131,48 +146,131 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             )
 
     def _populate_rows(self, dtos) -> None:
-        """Main-thread slot: populate history_list from DTOs."""
+        """Main-thread slot: populate history_list from DTOs, grouped by when.
+
+        The rows carry no timestamp of their own any more; the GROUP does. This
+        is a list ordered by exactly one thing — when you watched something —
+        and every row spent a slot repeating the fact the order already told
+        you, while two rows for the same film at different qualities looked
+        identical because the chip that tells them apart had nowhere to go.
+        Owner: *"rather than having the time on the same line as the history
+        entries, why not just have subdivisions … does it really matter when
+        someone watched something? it's already in chronological order"*, and
+        of the duplicate rows: *"you play a 4k and the user chooses a lower
+        quality but then when they go back to resume there are just two with
+        the same title and no indication of what the difference is."*
+
+        The freed slot goes to quality, beside the title — where V3 settled it
+        belongs (ledger F10) — with language after the year in the right rail.
+        """
         self.set_empty(len(dtos) == 0)
         if not dtos:
             return
 
+        # One pass, in the order the DTOs already arrive (newest first), so the
+        # groups come out newest-first too without a second sort.
+        grouped: dict[str, list] = {}
         for dto in dtos:
-            item = QListWidgetItem(self.history_list)
-            item.setData(Qt.ItemDataRole.UserRole, dto.id)
-            item.setData(_ROLE_EPISODE_ID, dto.episode_id or "")
-            title = dto.detected_title or dto.name
-            trailing_button = self._build_play_next_button(dto) if dto.has_next else None
-            # The episode code moves OFF the title and onto the meta line, where
-            # the V3 render puts it. It used to be appended as "→ S01E02" so
-            # middle-elision would preserve it, which worked but spent title
-            # width on it; on its own line it is always fully visible and the
-            # title gets the whole row. The identifying fact leads (the episode
-            # you were on, or the year that tells two same-named films apart)
-            # and the time closes the line, which is how the render reads:
-            # "S18E01 · 2 hours ago", "1984 · yesterday", "3 days ago".
-            # History spends its ONE chip on what tells its rows apart — the
-            # episode you were on, or the year that separates two same-named
-            # films — and its tail on WHEN, because this is a list ordered by
-            # exactly that. The language chip other sections show would say the
-            # same thing on every row of a personal history.
-            marker = dto.episode_code or dto.detected_year
-            row = build_chip_row(
-                title=title,
-                icon_role=media_icon_role(dto.media_type),
-                chips=((CHIP_YEAR, marker),),
-                tail=humanize_ago_terse(dto.last_played),
-                meta=sidebar_meta_line(marker, humanize_ago(dto.last_played)),
-                density=self._row_density(),
-                trailing_button=trailing_button,
+            grouped.setdefault(bucket_for(dto.last_played), []).append(dto)
+
+        for bucket in BUCKETS:
+            rows = grouped.get(bucket.key)
+            if not rows:
+                continue          # an empty group draws no heading
+            self._add_group_heading(bucket, len(rows))
+            for dto in rows:
+                self._add_history_row(dto)
+
+    def _add_group_heading(self, bucket, count: int) -> None:
+        """Insert one time-group heading, with its own "forget these" control."""
+        item = QListWidgetItem(self.history_list)
+        item.setData(_ROLE_BUCKET, bucket.key)
+        # No UserRole: a heading is not a channel, and every click handler reads
+        # UserRole back as a channel id.
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+
+        forget = QPushButton()
+        forget.setFixedSize(20, 20)
+        forget.setToolTip(f"Forget everything under {bucket.label}")
+        forget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        # A VECTOR glyph, not the delete_icon emoji: an emoji set as a button's
+        # TEXT is drawn at the font size and clips inside a 20x20 button (ledger
+        # F13). Repainted through style_fn so it recolours on a palette switch —
+        # an already-rasterised pixmap cannot.
+        def _paint_glyph() -> str:
+            forget.setIcon(
+                _icon_utils.resolve_icon(
+                    # Matches the role's resting colour — a glyph painted from
+                    # a different token than the sheet declares is exactly what
+                    # the contrast guard cannot see.
+                    _icons.vector_key("delete"), _theme.COLOR_TEXT
+                )
             )
-            # Width 0 → the item spans the viewport (no sideways scroll); the row's own
-            # height governs the row height.
-            item.setSizeHint(QSize(0, row.sizeHint().height()))
-            self.history_list.setItemWidget(item, row)
+            forget.setIconSize(QSize(13, 13))
+            return _theme.HISTORY_GROUP_FORGET_BUTTON
+
+        _theme.style_fn(forget, _paint_glyph)
+        forget.clicked.connect(
+            lambda _checked=False, key=bucket.key:
+            self.clearHistoryGroupClicked.emit(key)
+        )
+
+        heading = GroupHeading(
+            bucket.label, count,
+            tooltip=f"{count} played — {bucket.label.lower()}",
+            trailing_button=forget,
+        )
+        item.setSizeHint(QSize(0, heading.sizeHint().height()))
+        self.history_list.setItemWidget(item, heading)
+
+    def _add_history_row(self, dto) -> None:
+        """Insert one channel row."""
+        item = QListWidgetItem(self.history_list)
+        item.setData(Qt.ItemDataRole.UserRole, dto.id)
+        item.setData(_ROLE_EPISODE_ID, dto.episode_id or "")
+        title = dto.detected_title or dto.name
+        trailing_button = self._build_play_next_button(dto) if dto.has_next else None
+        # The episode code or the year still leads the meta line — it is the
+        # identifying fact — but the time no longer closes it, because the
+        # heading above the row now says when.
+        marker = dto.episode_code or dto.detected_year
+        row = build_chip_row(
+            title=title,
+            icon_role=media_icon_role(dto.media_type),
+            # Quality travels WITH the title (V3, ledger F10): it is what tells
+            # two rows for the same film apart, so it has to sit where the eye
+            # compares them rather than in the right rail.
+            title_chips=((CHIP_QUALITY, dto.detected_quality),),
+            chips=((CHIP_YEAR, marker), (CHIP_LANG, dto.detected_prefix)),
+            meta=sidebar_meta_line(marker, humanize_ago(dto.last_played)),
+            density=self._row_density(),
+            trailing_button=trailing_button,
+        )
+        # Width 0 → the item spans the viewport (no sideways scroll); the row's own
+        # height governs the row height.
+        item.setSizeHint(QSize(0, row.sizeHint().height()))
+        self.history_list.setItemWidget(item, row)
 
     def _after_rows_removed(self, list_widget) -> None:
-        """In-place removal upkeep. History renders no group headers, so this is
-        only the section's own empty state (rows key on a plain UserRole id)."""
+        """In-place removal upkeep: drop headings whose group just emptied.
+
+        History DOES render group headings now, so removing the last row under
+        one leaves a heading standing over nothing — with a count of N and a
+        "forget these" button that would forget an empty set. This walks
+        backwards (so indices stay valid as items are taken) and removes any
+        heading not followed by at least one row.
+        """
+        for index in range(list_widget.count() - 1, -1, -1):
+            item = list_widget.item(index)
+            if item.data(_ROLE_BUCKET) is None:
+                continue
+            nxt = list_widget.item(index + 1)
+            # A heading is orphaned when the next item is another heading, or
+            # when it is the last item in the list.
+            if nxt is None or nxt.data(_ROLE_BUCKET) is not None:
+                list_widget.takeItem(index)
+
         if list_widget.count() == 0:
             self.set_empty(True)
 

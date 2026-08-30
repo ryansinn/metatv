@@ -22,6 +22,7 @@ from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
+from metatv.gui.main_window_history import _HistoryMixin
 from metatv.gui.main_window_async import _AsyncMixin
 from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_series import _SeriesMixin
@@ -112,7 +113,7 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -1168,6 +1169,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
             section.clearOldHistoryClicked.connect(self.clear_history_older_than)
+            section.clearHistoryGroupClicked.connect(self.clear_history_group)
             # "Play Next Episode" >> button (Wave 5) — routes through the existing
             # play_episode_by_id chokepoint (same as Watch Queue / Favorites episode rows).
             section.playNextClicked.connect(self.play_episode_by_id)

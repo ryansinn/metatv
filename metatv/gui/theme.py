@@ -549,6 +549,18 @@ def _build_semantic_constants() -> dict[str, object]:
     # blue-tinted chip button that sits outside the row's mouse-transparent pass-through
     # area (see chip_row.build_chip_row's trailing_button slot), so it stays independently
     # clickable rather than falling through to list-item selection like the rest of the row.
+    # History's per-group "forget these". Restrained — no fill until hovered, so
+    # it does not read as the group's purpose — but on the TEXT ramp, not the
+    # muted one. COLOR_MUTED_2 measured 1.68:1 in Daylight and under 3:1 in
+    # every palette: "quiet" had become "cannot be seen", on a destructive
+    # control. COLOR_TEXT is >= 5.22:1 everywhere.
+    HISTORY_GROUP_FORGET_BUTTON = (
+        "QPushButton { background-color: transparent; border: none;"
+        " border-radius: " + RADIUS_SM + "; color: " + COLOR_TEXT + "; }"
+        "QPushButton:hover { background-color: " + OVERLAY_ERR_15 + ";"
+        " color: " + COLOR_ERR + "; }"
+    )
+
     HISTORY_PLAY_NEXT_BUTTON = (
         "QPushButton { background-color: " + OVERLAY_BLUE_20 + ";"
         " border: 1px solid " + COLOR_ACCENT_BLUE + "; border-radius: " + RADIUS_SM + ";"

@@ -10,7 +10,7 @@
     "metatv/core/players/mpv.py": 1350,
     "metatv/core/preference_engine.py": 1151,
     "metatv/core/provider_loader.py": 1282,
-    "metatv/core/repositories/channel.py": 3243,
+    "metatv/core/repositories/channel.py": 3196,
     "metatv/core/repositories/channel_ingestion.py": 1301,
     "metatv/core/repositories/tag.py": 1810,
     "metatv/gui/details_sections.py": 1797,
@@ -18,17 +18,17 @@
     "metatv/gui/epg_watchlist_mixin.py": 1061,
     "metatv/gui/filter_panel.py": 1049,
     "metatv/gui/global_filter_dialog.py": 1745,
-    "metatv/gui/main_window.py": 3465,
+    "metatv/gui/main_window.py": 3467,
     "metatv/gui/main_window_channels.py": 2187,
-    "metatv/gui/main_window_favorites.py": 1182,
+    "metatv/gui/main_window_favorites.py": 1114,
     "metatv/gui/main_window_providers.py": 1054,
     "metatv/gui/main_window_series.py": 1281,
     "metatv/gui/main_window_streaming.py": 1557,
     "metatv/gui/provider_editor.py": 1043,
     "metatv/gui/qa_checklist_window.py": 2502,
     "metatv/gui/settings_dialog_tabs.py": 1000,
-    "metatv/gui/sidebar/base.py": 1464,
-    "metatv/gui/theme.py": 2346
+    "metatv/gui/sidebar/base.py": 1474,
+    "metatv/gui/theme.py": 2358
   },
   "get_session_calls": 79
 }

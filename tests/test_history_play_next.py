@@ -96,12 +96,11 @@ def _seed_episode(db: Database, *, provider_id: str = "p1", series_source_id: st
     return ep_id
 
 
-def _first_chip_row(list_widget: QListWidget):
-    for i in range(list_widget.count()):
-        w = list_widget.itemWidget(list_widget.item(i))
-        if w is not None:
-            return w
-    return None
+def _first_chip_row(list_widget):
+    """The first channel ROW, skipping group headings (shared: conftest)."""
+    from tests.conftest import first_chip_row
+
+    return first_chip_row(list_widget)
 
 
 def _new_history_section(dtos) -> HistorySection:
@@ -343,8 +342,17 @@ class TestHistorySectionPlayNextButton:
         ]
         section = _new_history_section(dtos)
 
-        rows = [section.history_list.itemWidget(section.history_list.item(i))
-                for i in range(section.history_list.count())]
+        # Rows only — index 0 is a time-group heading now, and its own trailing
+        # button is the group's "forget these", not a row's ">>".
+        from PyQt6.QtCore import Qt
+
+        role_bucket = Qt.ItemDataRole.UserRole + 8
+        rows = [
+            section.history_list.itemWidget(section.history_list.item(i))
+            for i in range(section.history_list.count())
+            if section.history_list.item(i).data(role_bucket) is None
+        ]
+        assert len(rows) == 3, f"expected three rows, got {len(rows)}"
         buttons = [row_trailing_button(row) for row in rows]
 
         assert buttons[0] is not None, "has_next row must show the >> button"
