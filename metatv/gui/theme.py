@@ -549,6 +549,17 @@ def _build_semantic_constants() -> dict[str, object]:
     # blue-tinted chip button that sits outside the row's mouse-transparent pass-through
     # area (see chip_row.build_chip_row's trailing_button slot), so it stays independently
     # clickable rather than falling through to list-item selection like the rest of the row.
+    # History's per-group "forget these" control. Quiet until hovered: it sits on
+    # every time heading, and a destructive action drawn as loudly as the count
+    # beside it would read as the group's PURPOSE rather than as an action on it.
+    # Danger colour arrives on hover, when the pointer has already committed.
+    HISTORY_GROUP_FORGET_BUTTON = (
+        "QPushButton { background-color: transparent; border: none;"
+        " border-radius: " + RADIUS_SM + "; color: " + COLOR_MUTED_2 + "; }"
+        "QPushButton:hover { background-color: " + OVERLAY_ERR_15 + ";"
+        " color: " + COLOR_ERR + "; }"
+    )
+
     HISTORY_PLAY_NEXT_BUTTON = (
         "QPushButton { background-color: " + OVERLAY_BLUE_20 + ";"
         " border: 1px solid " + COLOR_ACCENT_BLUE + "; border-radius: " + RADIUS_SM + ";"

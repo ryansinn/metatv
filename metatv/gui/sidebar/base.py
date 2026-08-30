@@ -46,7 +46,8 @@ class GroupHeading(QWidget):
 
     def __init__(self, text: str, count: int | None = None, *,
                  interactive: bool = False, tooltip: str = "", news: int = 0,
-                 indent: int = 0, leading_mark: str = "", parent=None):
+                 indent: int = 0, leading_mark: str = "",
+                 trailing_button: "QPushButton | None" = None, parent=None):
         """
         Args:
             text: The group's name. Rendered uppercase by ``QFont`` capitalisation,
@@ -73,6 +74,16 @@ class GroupHeading(QWidget):
                 caller, the same way ``chip_row``'s row indent is, because the
                 widget cannot know how deep it has been put.
             tooltip: Hover text; a sensible default is supplied when interactive.
+            trailing_button: An action belonging to the GROUP rather than to any
+                row — History's per-group "forget these" control. Pinned to the
+                right edge, past the stretch, so it lands in the same column on
+                every heading rather than wandering with the label's width.
+
+                It is the caller's widget: this only places it. A button here
+                also means the heading can no longer be mouse-transparent, the
+                same trade ``chip_row`` makes for its own trailing button — a
+                QPushButton must receive its own press, and transparency on an
+                ancestor hides the whole subtree from hit-testing.
             parent: Qt parent.
         """
         super().__init__(parent)
@@ -130,6 +141,11 @@ class GroupHeading(QWidget):
         self.tail_chip = chip_widget(CHIP_YEAR, "")
         row.addWidget(self.tail_chip)
         self.set_tail("")
+
+        self.trailing_button = trailing_button
+        if trailing_button is not None:
+            row.addSpacing(4)
+            row.addWidget(trailing_button)
 
         if interactive:
             cursor_affordance.set_clickable(self)

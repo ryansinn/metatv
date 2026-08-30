@@ -216,9 +216,29 @@ def test_the_tail_rides_the_right_edge_in_compact_only(qtbot):
 
 # ── The sections spend their chips on what tells THEIR rows apart ────────────
 
-def test_history_spends_its_chips_on_the_episode_and_the_age(qtbot, tmp_path):
-    """Q2 option A. A language chip would say the same thing on every row of a
-    personal history; when you watched it is what separates them."""
+def test_history_spends_its_chips_on_what_tells_its_rows_apart(qtbot, tmp_path):
+    """A DELIBERATE reversal of the previous rule, not a regression.
+
+    This used to assert the opposite on both counts — that the row carried the
+    terse age ("history dropped the age it is ordered by") and did NOT carry a
+    language chip ("history spent a chip on a constant"). Both were reasonable
+    until the owner looked at real rows:
+
+        Deathstalker   2025  1h
+        Deathstalker   2025  1h
+
+    The age is the one fact the ORDER already gives you, and repeating it per
+    row consumed the slot that would have told those two apart. So the time
+    moved up to a group heading ("Today", "Older") and the row spends its space
+    on quality — beside the title, where the eye compares — plus language,
+    which is not the constant it was assumed to be once a title exists in more
+    than one dub.
+
+    Owner: *"rather than having the time on the same line as the history
+    entries, why not just have subdivisions"*, and *"probably worth including
+    language if there is room as well."*
+    """
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QListWidget
     from metatv.core.repositories.dtos import HistoryDTO
     from metatv.gui.sidebar.history import HistorySection
@@ -232,14 +252,25 @@ def test_history_spends_its_chips_on_the_episode_and_the_age(qtbot, tmp_path):
     obj._populate_rows([
         HistoryDTO(id="1", name="It's Always Sunny", media_type="series",
                    episode_code="S18E01", last_played=now - timedelta(hours=2),
-                   detected_title="It's Always Sunny", detected_prefix="EN"),
+                   detected_title="It's Always Sunny", detected_prefix="EN",
+                   detected_quality="4K"),
     ])
 
-    row = obj.history_list.itemWidget(obj.history_list.item(0))
+    # item(0) is the group heading now; find the first actual row.
+    _ROLE_BUCKET = Qt.ItemDataRole.UserRole + 8
+    row_item = next(
+        obj.history_list.item(i) for i in range(obj.history_list.count())
+        if obj.history_list.item(i).data(_ROLE_BUCKET) is None
+    )
+    row = obj.history_list.itemWidget(row_item)
     texts = _all_text(row)
+
     assert "S18E01" in texts, texts
-    assert "2h" in texts, f"history dropped the age it is ordered by: {texts}"
-    assert "EN" not in texts, f"history spent a chip on a constant: {texts}"
+    assert "4K" in texts, f"history dropped the quality that separates copies: {texts}"
+    assert "EN" in texts, f"history dropped the language: {texts}"
+    assert "2h" not in texts, (
+        f"the age is back on the row; the heading above it already says when: {texts}"
+    )
 
 
 def test_queue_shows_quality_year_and_language(qtbot):

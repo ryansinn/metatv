@@ -1168,6 +1168,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
             section.clearOldHistoryClicked.connect(self.clear_history_older_than)
+            section.clearHistoryGroupClicked.connect(self.clear_history_group)
             # "Play Next Episode" >> button (Wave 5) — routes through the existing
             # play_episode_by_id chokepoint (same as Watch Queue / Favorites episode rows).
             section.playNextClicked.connect(self.play_episode_by_id)
