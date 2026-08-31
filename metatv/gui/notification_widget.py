@@ -10,6 +10,7 @@ from metatv.core.notifications import Notification, NotificationType, StepStatus
 from metatv.core.config import Config
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.flow_layout import FlowLayout, enable_height_for_width
 
 # Status glyph for each step state — reuses migration icons for visual consistency.
 _STEP_GLYPH: dict[StepStatus, str] = {
@@ -153,19 +154,37 @@ class NotificationCard(QFrame):
             layout.addWidget(self.message_label)
 
         # Action buttons (e.g. "Undo")
+        #
+        # A FLOW layout, not a QHBoxLayout. A stream-failure toast offers one
+        # action per alternative source — the owner's had SEVEN ("Try Any",
+        # "Try AR", "Try ES", "Try LA", two "Rate…", "Copy Error") — and an
+        # hbox divides the toast's fixed width between them, so each button was
+        # crushed to a few characters and CUT, not elided: "r Any", "Try AF",
+        # "ate _", "py Er". Unreadable, and no way to tell which was which.
+        #
+        # Flowing them wraps to a second row instead of shrinking.
         if self.notification.actions:
-            action_layout = QHBoxLayout()
+            action_container = QWidget()
+            action_layout = FlowLayout(action_container, spacing=6)
             action_layout.setContentsMargins(0, 4, 0, 0)
-            action_layout.addStretch()
+            enable_height_for_width(action_container)
             for label, callback in self.notification.actions:
                 btn = QPushButton(label)
                 _theme.style_fn(btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
                     " border-radius: 3px; padding: 2px 8px; }"
                     f"QPushButton:hover {{ background: {_theme.OVERLAY_15}; }}")
                 btn.setToolTip(label)
+                # Belt and braces. Isolated by mutation: the FLOW LAYOUT above
+                # is what actually fixes the crushing — swapping it back for a
+                # QHBoxLayout re-breaks the row even with this line present,
+                # and removing this line alone changes nothing. It stays
+                # because it states the invariant the test asserts directly,
+                # so a future layout change cannot quietly reintroduce a
+                # button narrower than its own label.
+                btn.setMinimumWidth(btn.sizeHint().width())
                 btn.clicked.connect(lambda _, cb=callback: (cb(), self.dismiss()))
                 action_layout.addWidget(btn)
-            layout.addLayout(action_layout)
+            layout.addWidget(action_container)
 
         # Progress bar — shown for PROGRESS notifications that have show_progress_bar=True.
         # Pass show_bar=False (via show_progress(..., show_bar=False)) to suppress for

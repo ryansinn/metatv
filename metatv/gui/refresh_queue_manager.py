@@ -277,7 +277,7 @@ class RefreshQueueManager(QObject):
         from metatv.gui.main_window_providers import (
             _advance_steps, _has_epg_steps,
         )
-        from metatv.core.notifications import NotificationType
+        from metatv.core.notifications import NotificationType, condense_error
 
         logger.info(
             f"RefreshQueueManager: thread finished for {entry.provider_name!r} "
@@ -305,7 +305,10 @@ class RefreshQueueManager(QObject):
                 active_notif_id,
                 type=NotificationType.ERROR,
                 title="Refresh Failed",
-                message=message,
+                # The cause, not the statement. The full traceback is already
+                # in the log at this moment; a toast that scrolls the reason off
+                # the top has told the user nothing.
+                message=condense_error(message),
                 dismissible=True,
                 auto_dismiss_seconds=5,
             )

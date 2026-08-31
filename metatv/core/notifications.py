@@ -13,6 +13,41 @@ except ImportError:
     QT_AVAILABLE = False
 
 
+#: Longest an error message may be before it is cut. Generous for a sentence,
+#: far under anything that turns a toast into a wall.
+_MAX_ERROR_CHARS = 240
+
+
+def condense_error(text: str) -> str:
+    """Reduce an exception's text to the one line a person can act on.
+
+    A failed provider refresh put the WHOLE SQLAlchemy error in a toast —
+    including the statement — so the notification was several thousand
+    characters of ``(?, ?, ?, …)`` with the actual cause, "database is locked",
+    scrolled off the top. The screenshot of it is unreadable in every sense.
+
+    SQLAlchemy formats errors as ``(sqlite3.OperationalError) database is
+    locked\n[SQL: …]\n[parameters: …]``, so the first line IS the cause and
+    everything after it is diagnostic detail that belongs in the log — where it
+    already is, in full, at the same moment.
+
+    Args:
+        text: The raw exception text.
+
+    Returns:
+        A single line, at most ``_MAX_ERROR_CHARS`` characters, ellipsised if
+        it had to be cut.
+    """
+    first = (text or "").strip().split("\n", 1)[0].strip()
+    # Some drivers put the statement on the SAME line as the message.
+    for marker in ("[SQL:", "[parameters:"):
+        if marker in first:
+            first = first.split(marker, 1)[0].strip()
+    if len(first) > _MAX_ERROR_CHARS:
+        first = first[:_MAX_ERROR_CHARS - 1].rstrip() + "…"
+    return first or "Unknown error"
+
+
 class NotificationType(Enum):
     """Type of notification"""
     INFO = "info"
