@@ -18,6 +18,7 @@ So there are two families of verdict and they must never be conflated:
     connection   refused / gone / unknown          we never got to look
 """
 
+import sys
 import pytest
 
 from metatv.core import stream_probe as sp
@@ -264,3 +265,67 @@ def test_settings_are_frozen():
     s = sp.ProbeSettings()
     with pytest.raises(dataclasses.FrozenInstanceError):
         s.sample_seconds = 99
+
+
+# ── giving the connection back ──────────────────────────────────────────────
+
+def test_a_cancelled_probe_returns_in_well_under_the_timeout(monkeypatch):
+    """The whole reason probe_stream is Popen and not subprocess.run.
+
+    Every provider on this account allows ONE connection, so a probe holds the
+    one a Play press needs. subprocess.run cannot be interrupted, which meant a
+    4-second sample plus the 14-second margin could make Play wait ~18s.
+
+    Uses a real long-running child process, because a mocked Popen would prove
+    only that the code calls kill() — not that the call actually returns.
+    """
+    import threading
+    import time
+
+    from metatv.core import stream_probe
+
+    monkeypatch.setattr(stream_probe, "ffmpeg_available", lambda: True)
+    monkeypatch.setattr(stream_probe, "_build_command",
+                        lambda *a, **k: [sys.executable, "-c",
+                                         "import time; time.sleep(30)"])
+
+    cancel = threading.Event()
+    threading.Timer(0.2, cancel.set).start()
+
+    began = time.monotonic()
+    result = stream_probe.probe_stream("http://example/live.ts", cancel=cancel)
+    elapsed = time.monotonic() - began
+
+    assert elapsed < 3.0, f"took {elapsed:.1f}s to give the connection back"
+    assert result.verdict == stream_probe.CANCELLED
+
+
+def test_a_cancelled_probe_is_not_evidence_about_the_stream():
+    """Otherwise ordinary viewing would accumulate a dead streak on a fine channel.
+
+    Every Play press cancels whatever probe is running. If that counted as a
+    failed check, a channel would be marked dead air precisely because the user
+    keeps watching things — and `hide_dead_events` would then hide it.
+    """
+    from metatv.core import stream_probe
+
+    result = stream_probe.ProbeResult(verdict=stream_probe.CANCELLED)
+
+    assert result.is_failure is False
+    assert result.is_inconclusive is True
+    assert stream_probe.CANCELLED not in stream_probe.FAILED_VERDICTS
+
+
+def test_an_uncancelled_probe_still_completes_normally(monkeypatch):
+    """The cancel path must not have broken the ordinary one."""
+    from metatv.core import stream_probe
+
+    monkeypatch.setattr(stream_probe, "ffmpeg_available", lambda: True)
+    monkeypatch.setattr(stream_probe, "_build_command",
+                        lambda *a, **k: [sys.executable, "-c",
+                                         "import sys; sys.stderr.write('frame=  120\\n')"])
+
+    result = stream_probe.probe_stream("http://example/live.ts")
+
+    assert result.verdict != stream_probe.CANCELLED
+    assert result.frames == 120

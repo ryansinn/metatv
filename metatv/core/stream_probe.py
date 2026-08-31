@@ -33,6 +33,8 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 
 from loguru import logger
@@ -45,6 +47,11 @@ DEFAULT_SAMPLE_SECONDS = 3
 #: Hard ceiling per probe, on top of the sample. A stream that has not produced
 #: a frame by then is answering the question by not answering it.
 _TIMEOUT_MARGIN_SECONDS = 14
+
+#: How often the run loop checks whether the caller wants its connection back.
+#: This IS the delay a Play press waits for, so it is short — the cost is one
+#: poll() syscall per tick against a process that runs for seconds.
+_CANCEL_POLL_SECONDS = 0.05
 
 #: Socket read timeout handed to ffmpeg (microseconds). Without it a hung
 #: connection sits until the outer timeout, turning a 1.2 s "dead" into 17 s.
@@ -82,6 +89,7 @@ LIVE = "live"           # a moving picture
 REFUSED = "refused"     # 401/403 — auth, or the connection budget is spent
 GONE = "gone"           # 404 / host down — the channel is not there
 UNKNOWN = "unknown"     # could not run the probe
+CANCELLED = "cancelled"  # we gave the connection back before it answered
 
 #: Verdicts that mean "there is nothing to watch here". REFUSED and GONE are
 #: deliberately absent: a 403 is the provider declining to answer, and marking a
@@ -90,7 +98,11 @@ UNKNOWN = "unknown"     # could not run the probe
 FAILED_VERDICTS = frozenset({DEAD, BLACK, FROZEN})
 
 #: Verdicts where the stream was never reached, so a retry is warranted.
-INCONCLUSIVE_VERDICTS = frozenset({REFUSED, GONE, UNKNOWN})
+#: CANCELLED belongs here and NOT in FAILED_VERDICTS: giving the connection
+#: back to a Play press says nothing whatever about the stream, and recording
+#: it as evidence would let ordinary viewing accumulate a dead streak against a
+#: channel that is fine.
+INCONCLUSIVE_VERDICTS = frozenset({REFUSED, GONE, UNKNOWN, CANCELLED})
 
 #: ffmpeg reports the HTTP status in prose, not a field.
 _REFUSED_RE = re.compile(r"(40[13]) Forbidden|(40[13]) Unauthorized|"
@@ -302,7 +314,37 @@ class ProbeSettings:
         )
 
 
-def probe_stream(url: str, settings: "ProbeSettings | None" = None) -> ProbeResult:
+
+def _run_ffmpeg(command: "list[str]", *, timeout: float,
+                cancel: "threading.Event | None"):
+    """Run ffmpeg, killing it if ``cancel`` is set. None when cancelled.
+
+    ``subprocess.run`` is not interruptible, so this polls instead. The poll
+    interval is what a Play press actually waits for, which is why it is short
+    — the cost is one ``poll()`` syscall per tick on a process that is going to
+    run for seconds.
+    """
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, errors="replace")
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel is not None and cancel.is_set():
+            proc.kill()
+            proc.communicate()
+            return None
+        if proc.poll() is not None:
+            break
+        if time.monotonic() >= deadline:
+            proc.kill()
+            proc.communicate()
+            raise subprocess.TimeoutExpired(command, timeout)
+        time.sleep(_CANCEL_POLL_SECONDS)
+    stdout, stderr = proc.communicate()
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+
+
+def probe_stream(url: str, settings: "ProbeSettings | None" = None,
+                 *, cancel: "threading.Event | None" = None) -> ProbeResult:
     """Sample one stream and rule on whether it carries a picture.
 
     Blocking, and it spends one provider connection for its whole duration —
@@ -312,10 +354,18 @@ def probe_stream(url: str, settings: "ProbeSettings | None" = None) -> ProbeResu
     Args:
         url: The stream URL.
         settings: Resolved thresholds; the shipped defaults when omitted.
+        cancel: Set this to abandon the probe and kill ffmpeg. **Required for
+            any caller that shares a connection with playback.** Every provider
+            here allows one connection at a time, so a probe holds *the* one; a
+            4-second sample plus the timeout margin means a Play press could
+            otherwise wait ~18 seconds for ffmpeg to finish. ``subprocess.run``
+            cannot be interrupted, which is why this is ``Popen`` and a poll.
 
     Returns:
         A :class:`ProbeResult`; ``UNKNOWN`` when ffmpeg is missing or the probe
         could not be run at all, which is not the same as the stream being dead.
+        ``CANCELLED`` when the caller gave up the connection — a verdict that
+        must never be recorded as evidence about the stream.
     """
     settings = settings or ProbeSettings()
     seconds = settings.sample_seconds
@@ -327,13 +377,17 @@ def probe_stream(url: str, settings: "ProbeSettings | None" = None) -> ProbeResu
     import time
     started = time.monotonic()
     try:
-        proc = subprocess.run(
+        proc = _run_ffmpeg(
             _build_command(url, seconds,
                            black_pixel=settings.black_pixel_threshold,
                            freeze_seconds=settings.freeze_seconds),
-            capture_output=True, text=True, errors="replace",
             timeout=seconds + _TIMEOUT_MARGIN_SECONDS,
+            cancel=cancel,
         )
+        if proc is None:
+            elapsed = int((time.monotonic() - started) * 1000)
+            return ProbeResult(verdict=CANCELLED, elapsed_ms=elapsed,
+                               detail="gave the connection back before finishing")
     except subprocess.TimeoutExpired:
         elapsed = int((time.monotonic() - started) * 1000)
         # A stream that will not produce a frame inside the window has
