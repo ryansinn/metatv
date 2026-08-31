@@ -1,7 +1,7 @@
 """Database models and connection management"""
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 import json as _json
 import threading
 import time
@@ -588,16 +588,21 @@ class RecordingDB(Base):
     can replace the channel row this came from, and a file on disk must not lose
     its name because a stream id was recycled.
 
-    ``starts_at``/``ends_at`` are **UTC-naive**, matching EPG ``start_time``/
-    ``stop_time`` (CLAUDE.md: convert for display via ``epg_utils.to_local``,
-    never store a local time). They already include any padding — padding is
-    applied once at schedule time, so the window here is the literal window the
-    recorder honours and a user editing it later is not fighting an invisible
-    offset.
+    **The stop time is NOT stored.** It is computed from the guide window plus
+    the offsets on every scheduler tick, because a running recording can be
+    extended in real time and a frozen stop time makes that impossible — the
+    design note is explicit: *"the live extend is the one that saves an event,
+    and it is the reason the recorder must not compute its stop time once at the
+    start."* ``effective_start``/``effective_end`` below are the only readers.
 
-    There is no ``paused_by_playback`` twin of the download column: a recording
-    is never paused by playback. That asymmetry is the feature — see
-    :mod:`metatv.core.recording_manager`.
+    Offsets are **signed**, not "record extra": someone skipping a pregame hour
+    wants ``-20 min`` on the start as legitimately as ``+20`` on the end. The
+    shipped defaults are 2 minutes early and 15 minutes late, because sport
+    overruns, always.
+
+    Times are **UTC-naive**, matching EPG ``start_time``/``stop_time``
+    (CLAUDE.md: convert for display via ``epg_utils.to_local``, never store a
+    local time).
     """
     __tablename__ = "recordings"
 
@@ -612,14 +617,42 @@ class RecordingDB(Base):
     #: scheduled | recording | completed | failed | cancelled
     state         = Column(String, nullable=False, default="scheduled", index=True)
 
-    starts_at     = Column(DateTime, nullable=False, index=True)  # UTC-naive
-    ends_at       = Column(DateTime, nullable=False)              # UTC-naive
+    #: The guide's window, unpadded — what the programme itself claims.
+    programme_start = Column(DateTime, nullable=False, index=True)  # UTC-naive
+    programme_end   = Column(DateTime, nullable=False)              # UTC-naive
+
+    #: Signed offsets applied to the guide window. Negative starts earlier /
+    #: ends earlier; positive starts later / ends later.
+    pad_start_seconds = Column(Integer, nullable=False, default=-120)
+    pad_end_seconds   = Column(Integer, nullable=False, default=900)
+    #: Live extension, added to the end. Mutable while recording — this is the
+    #: field "extend a running recording in real time" writes to.
+    extend_seconds    = Column(Integer, nullable=False, default=0)
+
+    #: Whether this recording may take the connection off playback. Per-recording
+    #: because "warn and take" is the default but not a law.
+    preempt_playback = Column(Boolean, nullable=False, default=True)
 
     recorded_bytes = Column(Integer, nullable=False, default=0)
     error          = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def effective_start(self) -> datetime:
+        """When the recorder should begin: guide start plus the signed offset."""
+        return self.programme_start + timedelta(seconds=self.pad_start_seconds)
+
+    @property
+    def effective_end(self) -> datetime:
+        """When the recorder should stop, recomputed every read.
+
+        Includes ``extend_seconds``, so extending a running recording moves the
+        stop time immediately rather than at the next schedule.
+        """
+        return self.programme_end + timedelta(
+            seconds=self.pad_end_seconds + self.extend_seconds)
 
 
 class WatchQueueDB(Base):

@@ -44,7 +44,8 @@ class _DownloadsMixin:
         # downloads and are evicted by nothing. See core/recording_manager.py.
         self.recording_manager = RecordingManager(
             self.db, self.config, accountant,
-            on_conflict=self._on_recording_blocked)
+            on_conflict=self._on_recording_blocked,
+            on_countdown=self._on_recording_countdown)
         self.recording_manager.start()
         self._register_cleanable("recordings", self.recording_manager.shutdown)
         logger.debug("Download and recording managers ready")
@@ -135,27 +136,63 @@ class _DownloadsMixin:
             starts_at, ends_at, title, pad = (
                 now, now + timedelta(minutes=minutes), "", False)
 
-        recording_id = self.recording_manager.schedule(
+        outcome = self.recording_manager.schedule(
             channel_id=channel.id, provider_id=channel.provider_id,
             channel_name=channel.name, source_url=channel.stream_url,
-            starts_at=starts_at, ends_at=ends_at,
-            programme_title=title, pad=pad)
+            starts_at=starts_at, ends_at=ends_at, programme_title=title,
+            **({} if pad else {"pad_start_seconds": 0, "pad_end_seconds": 0}))
 
-        if recording_id is None:
+        if not outcome.scheduled:
             self.notification_manager.show(
                 title=f"{title or channel.name} is already being recorded",
                 message="", type="info", dismissible=True)
             return
-        # The STORED window, not the guide's — schedule() padded it, and a
-        # message promising a stop five minutes before the recorder actually
+
+        # The EFFECTIVE window, not the guide's — the offsets move it, and a
+        # message promising a stop fifteen minutes before the recorder actually
         # stops is the kind of small lie that teaches people to distrust the app.
-        window = self.recording_manager.window_of(recording_id)
+        window = self.recording_manager.window_of(outcome.recording_id)
         ends_local = to_local(window[1] if window else ends_at)
+
+        if outcome.conflicts:
+            # Surfaced now rather than at start time, which is the whole point
+            # of detecting it here: the user can still drop one.
+            others = ", ".join(name for _rid, name in outcome.conflicts)
+            self.notification_manager.show(
+                title=f"Recording {title or channel.name} — but it clashes",
+                message=(f"This source allows one connection and {others} "
+                         f"already wants it at the same time. One of them will "
+                         f"not record."),
+                type="warning", dismissible=True)
+            return
+
         self.notification_manager.show(
             title=f"Recording {title or channel.name}",
-            message=(f"Until {ends_local:%H:%M}. It keeps going if you watch "
-                     f"something else, and pauses your downloads instead."),
+            message=(f"Until {ends_local:%H:%M}. MetaTV has to be running, and "
+                     f"it will take this source's connection off whatever you "
+                     f"are watching — with a countdown you can cancel."),
             type="info", dismissible=True)
+
+    def _on_recording_countdown(self, recording_id: str, title: str,
+                                seconds: int) -> None:
+        """Warn that a recording is about to take the stream you are watching.
+
+        Fires at 10 min / 5 / 1 / 30 s, once each, and only while something is
+        actually playing on that source — an idle app is never interrupted.
+        Every one of these is a chance to cancel, which is what makes taking
+        the connection acceptable rather than hostile.
+
+        Called from the worker thread, so it hops to the main thread before
+        touching the notification manager.
+        """
+        when = (f"{seconds // 60} minutes" if seconds >= 60
+                else f"{seconds} seconds")
+        QTimer.singleShot(0, lambda: self.notification_manager.show(
+            title=f"Recording {title} in {when}",
+            message=("It needs this source's only connection, so your stream "
+                     "will stop. Cancel the recording if you would rather keep "
+                     "watching."),
+            type="warning", dismissible=True))
 
     def _on_recording_blocked(self, recording_id: str, channel_name: str) -> None:
         """Say once that a recording is waiting on the source's only connection.

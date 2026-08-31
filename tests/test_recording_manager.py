@@ -36,8 +36,8 @@ def db(tmp_path):
 def config(tmp_path):
     class _Config:
         download_dir = str(tmp_path / "library")
-        recording_pad_start_seconds = 60
-        recording_pad_end_seconds = 300
+        recording_pad_start_seconds = -120
+        recording_pad_end_seconds = 900
     return _Config()
 
 
@@ -64,56 +64,76 @@ def _window(minutes_from_now=0, length=30):
 
 # ── the priority inversion ──────────────────────────────────────────────────
 
-def test_a_recording_evicts_a_download_but_playback_does_not_evict_it(accountant):
-    """The whole design in one test.
+def test_a_recording_takes_the_connection_off_playback(accountant):
+    """Settled 2026-08-30: warn and take. This is the take half.
 
-    Downloads and recordings sit on opposite sides of the recoverability axis:
-    a paused download loses time, a paused recording loses the content. So a
-    recording takes a download's slot, and playback — which evicts downloads —
-    leaves a recording alone.
+    A programme missed is gone; a viewer interrupted can watch the recording
+    afterwards. What makes it acceptable is the countdown, tested below — not
+    the recording yielding, which was my earlier reading and was wrong.
     """
+    assert accountant.acquire("p1", "playback", "watching-something").granted
+
+    result = accountant.acquire("p1", "recording", "rec-1",
+                                preempt_kinds=RECORDING_PREEMPTS)
+
+    assert result.granted, "the recording did not take the stream"
+    assert result.preempted == ("watching-something",)
+    assert "playback" in RECORDING_PREEMPTS
+
+
+def test_a_recording_takes_a_download_too(accountant):
+    """A download loses only time, so it yields to everything."""
+    assert accountant.acquire("p1", "download", "dl-1").granted
+    result = accountant.acquire("p1", "recording", "rec-1",
+                                preempt_kinds=RECORDING_PREEMPTS)
+    assert result.granted
+    assert result.preempted == ("dl-1",)
+
+
+def test_a_polite_recording_leaves_playback_alone_but_still_takes_downloads(
+        accountant):
+    """`preempt_playback` is per-recording — "take it" is the default, not a law."""
+    from metatv.core.recording_manager import _POLITE_PREEMPTS
+
+    assert accountant.acquire("p1", "playback", "watching").granted
+    assert not accountant.acquire("p1", "recording", "rec-1",
+                                  preempt_kinds=_POLITE_PREEMPTS).granted
+    assert "playback" not in _POLITE_PREEMPTS
+    assert "download" in _POLITE_PREEMPTS, "a download loses nothing by waiting"
+
+
+def test_playback_does_not_evict_a_recording(accountant):
+    """The other direction stays closed: pressing Play must not kill a recording."""
     from metatv.core.player_manager import PLAYBACK_PREEMPTS
 
-    assert accountant.acquire("p1", "download", "dl-1").granted
-
-    # A recording takes the slot off a download.
-    result = accountant.acquire("p1", "recording", "rec-1",
-                                preempt_kinds=RECORDING_PREEMPTS)
-    assert result.granted, "a recording must be able to displace a download"
-    assert result.preempted == ("dl-1",), "the download must be the evicted holder"
-
-    # Playback now finds the slot held by a recording and does NOT take it.
-    playback = accountant.acquire("p1", "playback", "play-1",
-                                  preempt_kinds=PLAYBACK_PREEMPTS)
-    assert not playback.granted, (
-        "playback evicted a recording — those minutes are unrecoverable")
+    assert accountant.acquire("p1", "recording", "rec-1").granted
+    assert not accountant.acquire("p1", "playback", "play-1",
+                                  preempt_kinds=PLAYBACK_PREEMPTS).granted
     assert "recording" not in PLAYBACK_PREEMPTS
-
-
-def test_a_recording_does_not_evict_playback_either(accountant):
-    """Yanking the stream from someone who is watching is not on the table."""
-    assert accountant.acquire("p1", "playback", "play-1").granted
-    result = accountant.acquire("p1", "recording", "rec-1",
-                                preempt_kinds=RECORDING_PREEMPTS)
-    assert not result.granted
-    assert "playback" not in RECORDING_PREEMPTS
 
 
 # ── the retry window ────────────────────────────────────────────────────────
 
-def test_a_blocked_recording_keeps_its_row_and_is_announced_once(manager, accountant):
-    """Partial beats nothing: it waits for the slot rather than failing at once.
+def test_a_polite_recording_that_is_blocked_waits_and_is_announced_once(
+        manager, accountant, db):
+    """Only a recording told NOT to take the stream can be blocked at all.
 
-    And the user hears about it exactly once, not every five seconds for the
+    It then waits out its window rather than failing at once — partial beats
+    nothing — and the user hears about it once, not every five seconds for the
     length of a football match.
     """
+    from metatv.core.database import RecordingDB
+
     seen = []
     manager._on_conflict = lambda rid, name: seen.append((rid, name))
     accountant.acquire("p1", "playback", "someone-watching")
 
     start, end = _window(minutes_from_now=-1)
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
-                           start, end, pad=False)
+                           start, end, pad_start_seconds=0, pad_end_seconds=0,
+                           preempt_playback=False).recording_id
+    with db.session_scope() as session:
+        assert session.get(RecordingDB, rid).preempt_playback is False
 
     manager._stop.set()          # so the retry wait returns at once
     manager._record(manager._next_due())
@@ -127,7 +147,7 @@ def test_a_window_that_passed_with_no_bytes_fails_visibly(manager, db):
     """A silent miss is the worst outcome — the row must end up visibly failed."""
     start, end = _window(minutes_from_now=-120)
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
-                           start, end, pad=False)
+                           start, end, pad_start_seconds=0, pad_end_seconds=0).recording_id
 
     manager._retire_missed()
 
@@ -141,7 +161,7 @@ def test_a_window_that_passed_with_bytes_is_completed_not_failed(manager, db):
     """Partial IS the success case the retry policy exists to produce."""
     start, end = _window(minutes_from_now=-120)
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
-                           start, end, pad=False)
+                           start, end, pad_start_seconds=0, pad_end_seconds=0).recording_id
     with db.session_scope() as session:
         session.get(RecordingDB, rid).recorded_bytes = 4096
 
@@ -159,45 +179,51 @@ def test_padding_is_applied_once_at_schedule_time(manager, db):
     """Broadcasters overrun. The stored window is the literal one honoured."""
     start, end = _window()
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
-                           programme_title="The Match", pad=True)
+                           programme_title="The Match").recording_id
 
     with db.session_scope() as session:
         row = session.get(RecordingDB, rid)
-        assert row.starts_at == start - timedelta(seconds=60)
-        assert row.ends_at == end + timedelta(seconds=300)
+        # The GUIDE window is stored unchanged; the offsets sit beside it.
+        assert (row.programme_start, row.programme_end) == (start, end)
+        assert row.pad_start_seconds == -120, "2 minutes early, per the spec"
+        assert row.pad_end_seconds == 900, "15 minutes late — sport overruns"
+        assert row.effective_start == start - timedelta(minutes=2)
+        assert row.effective_end == end + timedelta(minutes=15)
 
 
 def test_record_for_n_minutes_is_not_padded(manager, db):
     """The user already said what they meant; padding would contradict them."""
     start, end = _window()
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
-                           pad=False)
+                           pad_start_seconds=0, pad_end_seconds=0).recording_id
 
     with db.session_scope() as session:
         row = session.get(RecordingDB, rid)
-        assert (row.starts_at, row.ends_at) == (start, end)
+        assert (row.effective_start, row.effective_end) == (start, end)
 
 
 def test_the_same_programme_is_not_scheduled_twice(manager):
     start, end = _window()
     first = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end)
     second = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end)
-    assert first is not None
-    assert second is None, "a double-click must not produce two recordings"
+    assert first.scheduled
+    assert not second.scheduled, "a double-click must not produce two recordings"
+    assert second.reason == "already scheduled"
 
 
 def test_a_backwards_window_is_refused(manager):
     start, end = _window()
-    assert manager.schedule("c1", "p1", "BBC One", "u", end, start) is None
+    assert not manager.schedule("c1", "p1", "BBC One", "u", end, start).scheduled
 
 
 def test_a_cancelled_window_does_not_block_rescheduling(manager):
     """Cancel then change your mind — the clash check must ignore terminal rows."""
     start, end = _window()
-    first = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end)
+    first = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                             start, end).recording_id
     manager.cancel(first)
     assert manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
-                            start, end) is not None
+                            start, end).scheduled
 
 
 # ── progress is wall-clock, because a live stream has no total ──────────────
@@ -312,7 +338,7 @@ def test_a_recording_captures_bytes_and_stops_at_its_deadline(
     start = now_utc() - timedelta(seconds=1)
     end = start + timedelta(seconds=3)
     rid = manager.schedule("c1", "p1", "BBC One", endless_server,
-                           start, end, pad=False)
+                           start, end, pad_start_seconds=0, pad_end_seconds=0).recording_id
 
     began = time.monotonic()
     manager._record(manager._next_due())
@@ -329,8 +355,10 @@ def test_a_recording_captures_bytes_and_stops_at_its_deadline(
         assert row.state == "completed", f"did not finish cleanly: {row.error}"
         assert row.recorded_bytes > 0, "recorded nothing off a stream of bytes"
 
-    dest = tmp_path / "library"
+    dest = tmp_path / "library" / "Recordings"
     captured = list(dest.glob("*.ts"))
+    assert not list((tmp_path / "library").glob("*.ts")), (
+        "a recording landed beside the downloads instead of in Recordings/")
     assert captured, "no .ts file was written to the library"
     size = captured[0].stat().st_size
     assert size > 0
@@ -352,7 +380,7 @@ def test_a_reconnection_appends_rather_than_truncating(
     start = now_utc() - timedelta(seconds=1)
     end = start + timedelta(seconds=2)
     rid = manager.schedule("c1", "p1", "BBC One", endless_server,
-                           start, end, pad=False)
+                           start, end, pad_start_seconds=0, pad_end_seconds=0).recording_id
     with db.session_scope() as session:
         dest = Path(session.get(RecordingDB, rid).dest_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -401,7 +429,8 @@ def test_a_recording_actually_pauses_a_running_download(db, config, accountant,
 
     start = now_utc() - timedelta(seconds=1)
     rid = recordings.schedule("c1", "p1", "BBC One", endless_server,
-                              start, start + timedelta(seconds=2), pad=False)
+                              start, start + timedelta(seconds=2),
+                              pad_start_seconds=0, pad_end_seconds=0).recording_id
     recordings._record(recordings._next_due())
 
     with db.session_scope() as session:
@@ -423,10 +452,243 @@ def test_window_of_reports_the_padded_window_not_the_guides(manager):
     """
     start, end = _window()
     rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
-                           programme_title="The Match", pad=True)
+                           programme_title="The Match").recording_id
 
     stored = manager.window_of(rid)
 
-    assert stored == (start - timedelta(seconds=60), end + timedelta(seconds=300))
+    assert stored == (start - timedelta(minutes=2), end + timedelta(minutes=15))
     assert stored[1] != end, "returned the caller's own unpadded value"
     assert manager.window_of("no-such-id") is None
+
+
+# ── warn and take: the countdown is what makes taking acceptable ────────────
+
+def test_no_countdown_when_nothing_is_playing(manager, accountant):
+    """"Notify only when it matters" — an idle app is never interrupted."""
+    seen = []
+    manager._on_countdown = lambda rid, title, secs: seen.append(secs)
+    start = now_utc() + timedelta(seconds=20)
+    manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                     start, start + timedelta(minutes=30),
+                     pad_start_seconds=0, pad_end_seconds=0)
+
+    manager._announce_countdowns()
+
+    assert seen == [], "warned about taking a stream nobody was watching"
+
+
+def test_the_countdown_escalates_and_each_step_fires_once(
+        manager, accountant, monkeypatch):
+    """10 min / 5 / 1 / 30 s, once each — not every two seconds for a match.
+
+    One recording, a moving clock. Re-scheduling at each distance would give a
+    new id and reset the fired-step memory, which is the very thing under test.
+    """
+    import metatv.core.recording_manager as module
+    from metatv.core.recording_manager import COUNTDOWN_STEPS
+
+    assert COUNTDOWN_STEPS == (600, 300, 60, 30)
+    accountant.acquire("p1", "playback", "watching")
+
+    seen = []
+    manager._on_countdown = lambda rid, title, secs: seen.append(secs)
+    start = now_utc() + timedelta(hours=2)
+    manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                     start, start + timedelta(minutes=30),
+                     pad_start_seconds=0, pad_end_seconds=0)
+
+    for gap, expected in ((700, None), (590, 600), (580, None), (400, None),
+                          (290, 300), (100, None), (55, 60), (40, None),
+                          (28, 30), (5, None)):
+        monkeypatch.setattr(module, "now_utc",
+                            lambda g=gap: start - timedelta(seconds=g))
+        before = len(seen)
+        manager._announce_countdowns()
+        fired = seen[before:]
+        assert fired == ([expected] if expected else []), (
+            f"at {gap}s left, expected {expected}, got {fired}")
+
+    assert seen == [600, 300, 60, 30]
+
+
+def test_a_late_start_warns_with_the_tightest_step_not_the_loosest(
+        manager, accountant, monkeypatch):
+    """Open the app 28 seconds before a recording takes your stream.
+
+    Every step has been crossed at once, so a naive loop announces "in 10
+    minutes". The only useful sentence is "in 30 seconds", and it is said once.
+    """
+    import metatv.core.recording_manager as module
+
+    accountant.acquire("p1", "playback", "watching")
+    seen = []
+    manager._on_countdown = lambda rid, title, secs: seen.append(secs)
+    start = now_utc() + timedelta(hours=2)
+    manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                     start, start + timedelta(minutes=30),
+                     pad_start_seconds=0, pad_end_seconds=0)
+
+    monkeypatch.setattr(module, "now_utc", lambda: start - timedelta(seconds=28))
+    manager._announce_countdowns()
+    monkeypatch.setattr(module, "now_utc", lambda: start - timedelta(seconds=20))
+    manager._announce_countdowns()
+
+    assert seen == [30], f"announced a step other than the tightest: {seen}"
+
+
+def test_a_start_that_drifts_later_warns_again(manager, accountant, monkeypatch):
+    """Guide start times move after you schedule; the spec says re-check.
+
+    If a recording that was 30 seconds away becomes 15 minutes away, the user
+    who already got the 30-second warning should get the approach warnings for
+    the NEW time rather than silence.
+    """
+    import metatv.core.recording_manager as module
+    from metatv.core.database import RecordingDB
+
+    accountant.acquire("p1", "playback", "watching")
+    seen = []
+    manager._on_countdown = lambda rid, title, secs: seen.append(secs)
+    start = now_utc() + timedelta(hours=2)
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                           start, start + timedelta(minutes=30),
+                           pad_start_seconds=0, pad_end_seconds=0).recording_id
+
+    monkeypatch.setattr(module, "now_utc", lambda: start - timedelta(seconds=28))
+    manager._announce_countdowns()
+    assert seen == [30]
+
+    # The guide moves the programme half an hour out.
+    with manager.db.session_scope() as session:
+        session.get(RecordingDB, rid).programme_start = start + timedelta(minutes=30)
+
+    manager._announce_countdowns()          # now ~30 min away: nothing crossed
+    monkeypatch.setattr(module, "now_utc",
+                        lambda: start + timedelta(minutes=30) - timedelta(seconds=590))
+    manager._announce_countdowns()
+
+    assert seen == [30, 600], "a drifted start went silent instead of re-warning"
+
+
+def test_a_countdown_step_is_not_repeated_on_the_next_tick(manager, accountant):
+    """The scheduler ticks every 2s; the ten-minute warning must fire once."""
+    accountant.acquire("p1", "playback", "watching")
+    seen = []
+    manager._on_countdown = lambda rid, title, secs: seen.append(secs)
+    start = now_utc() + timedelta(seconds=59)
+    manager.schedule("c1", "p1", "BBC One", "http://x/live.ts",
+                     start, start + timedelta(minutes=30),
+                     pad_start_seconds=0, pad_end_seconds=0)
+
+    manager._announce_countdowns()
+    manager._announce_countdowns()
+    manager._announce_countdowns()
+
+    assert seen == [60], f"repeated the warning: {seen}"
+
+
+# ── the live extend, and why the stop time is never frozen ──────────────────
+
+def test_extending_a_running_recording_moves_its_stop_time(manager, db):
+    """"The live extend is the one that saves an event."
+
+    A frozen stop time makes this impossible, which is why effective_end is
+    computed from three columns on every read rather than stored.
+    """
+    start, end = _window()
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                           pad_start_seconds=0, pad_end_seconds=0).recording_id
+
+    new_end = manager.extend(rid, 20 * 60)
+
+    assert new_end == end + timedelta(minutes=20)
+    assert manager.window_of(rid)[1] == end + timedelta(minutes=20)
+
+
+def test_a_negative_extension_ends_a_recording_early(manager):
+    """Stopping early is the same operation — the offsets are signed throughout."""
+    start, end = _window()
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                           pad_start_seconds=0, pad_end_seconds=0).recording_id
+
+    assert manager.extend(rid, -10 * 60) == end - timedelta(minutes=10)
+
+
+def test_a_negative_start_offset_records_from_before_the_programme(manager, db):
+    """Signed both ways: skipping a pregame hour is -3600 on the start."""
+    from metatv.core.database import RecordingDB
+
+    start, end = _window()
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                           pad_start_seconds=3600, pad_end_seconds=0).recording_id
+
+    with db.session_scope() as session:
+        row = session.get(RecordingDB, rid)
+        assert row.effective_start == start + timedelta(hours=1), (
+            "a positive start offset must start LATER, not record extra")
+
+
+# ── conflicts, found while the user can still act on them ──────────────────
+
+def test_an_overlapping_recording_on_one_source_is_reported_at_schedule_time(
+        manager):
+    """"Detect at schedule time, not at start time. Offer to drop one."
+
+    Being told at 19:00 that two recordings want one connection is useless.
+    """
+    start, end = _window()
+    manager.schedule("c1", "p1", "BBC One", "http://x/1.ts", start, end,
+                     programme_title="The Match",
+                     pad_start_seconds=0, pad_end_seconds=0)
+
+    clash = manager.schedule("c2", "p1", "ITV", "http://x/2.ts",
+                             start + timedelta(minutes=10), end,
+                             programme_title="The Other Match",
+                             pad_start_seconds=0, pad_end_seconds=0)
+
+    assert clash.scheduled, "the second is still scheduled — the user chooses"
+    assert [name for _rid, name in clash.conflicts] == ["The Match"]
+
+
+def test_a_different_source_is_not_a_conflict(manager):
+    """Each provider has its own connection; two sources at once is fine."""
+    start, end = _window()
+    manager.schedule("c1", "p1", "BBC One", "http://x/1.ts", start, end,
+                     pad_start_seconds=0, pad_end_seconds=0)
+    other = manager.schedule("c2", "p2", "ITV", "http://x/2.ts", start, end,
+                             pad_start_seconds=0, pad_end_seconds=0)
+
+    assert other.scheduled
+    assert other.conflicts == []
+
+
+def test_back_to_back_recordings_do_not_conflict(manager):
+    """Touching windows are not overlapping ones — off-by-one here nags forever."""
+    start, end = _window(length=30)
+    manager.schedule("c1", "p1", "BBC One", "http://x/1.ts", start, end,
+                     pad_start_seconds=0, pad_end_seconds=0)
+    following = manager.schedule("c2", "p1", "ITV", "http://x/2.ts",
+                                 end, end + timedelta(minutes=30),
+                                 pad_start_seconds=0, pad_end_seconds=0)
+
+    assert following.conflicts == []
+
+
+def test_the_default_padding_creates_a_conflict_that_bare_windows_would_not(
+        manager):
+    """The offsets are part of the conflict question, not decoration.
+
+    Two programmes an hour apart do not overlap; with a 15-minute run-over and
+    a 2-minute lead-in they can. Comparing guide windows would miss it.
+    """
+    start, end = _window(length=60)
+    manager.schedule("c1", "p1", "BBC One", "http://x/1.ts", start, end,
+                     programme_title="First")
+
+    following = manager.schedule("c2", "p1", "ITV", "http://x/2.ts",
+                                 end + timedelta(minutes=5),
+                                 end + timedelta(minutes=65),
+                                 programme_title="Second")
+
+    assert [n for _r, n in following.conflicts] == ["First"], (
+        "the 15-minute run-over overlaps the next programme and was missed")

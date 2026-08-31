@@ -747,12 +747,15 @@ class Config(BaseModel):
     download_dir: str = "~/Videos/MetaTV"
     #: Global stop — no download runs at all while this is set.
     downloads_paused: bool = False
-    #: Lead-in and run-over applied when a recording is scheduled from the EPG.
-    #: Broadcasters overrun and guide clocks disagree with the stream, so a
-    #: programme recorded to its listed second loses the end of the match.
-    #: Applied ONCE at schedule time, so the stored window is the literal one.
-    recording_pad_start_seconds: int = 60
-    recording_pad_end_seconds: int = 300
+    #: SIGNED offsets on a recording's guide window, in seconds. Negative
+    #: starts (or ends) earlier, positive later — "record extra" is only half
+    #: of it: skipping a pregame hour is -3600 on the start, as legitimate as
+    #: +900 on the end. Defaults are 2 minutes early and 15 minutes late,
+    #: because sport overruns, always.
+    #: Stored per recording, never folded into the window: a running recording
+    #: can be extended, so the stop time has to stay computable.
+    recording_pad_start_seconds: int = -120
+    recording_pad_end_seconds: int = 900
     #: Fallback window for "record what's on" when the channel has no EPG.
     #: A third of this catalogue has no guide data, and a recording that
     #: silently does not happen is worse than one the user can see and cancel.

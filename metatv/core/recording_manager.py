@@ -1,46 +1,45 @@
-"""Record a live channel to disk on a schedule — and never yield the slot.
+"""Record a live channel to disk — warn, count down, then take the connection.
 
-**The priority rule is inverted from downloads, and that inversion is the whole
-design.** A paused download loses nothing: it resumes at the byte it reached and
-the file is identical. A paused recording loses the minutes it was paused for,
-and those minutes are not coming back. So recordings sit on the other side of
-the recoverability axis:
+Built to the decisions settled 2026-08-30 (design artifact "Catch, Keep,
+Record"), which are not re-litigated here.
 
-===================  =========================  ==========================
-                     Download                   Recording
-===================  =========================  ==========================
-Evicted by playback  yes — resumes by itself    **no**
-Evicts downloads     no                         **yes**
-Evicts playback      no                         no — see below
-Interruption costs   time                       **the content**
-===================  =========================  ==========================
+**Warn and take.** One connection per source means a recording and playback
+cannot both have it, and the recording wins: a programme missed is gone, and
+the viewer can watch the recording afterwards. What makes taking acceptable is
+that it is never a surprise —
 
-**Why a recording does not evict playback either.** Yanking the stream out from
-under someone who is sitting there watching is the most hostile thing a media
-app can do, and it would arrive with no warning at a programme boundary. Instead
-a recording that cannot get a slot KEEPS TRYING for its whole window: stop
-watching twenty minutes in and the last forty minutes are recorded. Partial beats
-nothing, and it beats a stolen stream. The user is told once, when the first
-attempt fails, so a silent miss is impossible.
+    if nothing is playing        the recording just starts, silently.
+                                 An idle app is not interrupted.
+    if you are watching          the countdown escalates at 10 min / 5 / 1
+                                 / 30 s, and EVERY step can cancel the
+                                 recording.
 
-**Why a direct HTTP GET and not mpv ``--stream-record``.** Same conclusion as
-downloads, different reason. There, resume settled it. Here it is ownership: the
-recorder must not share an mpv instance with the player, and spawning a second
-one purely to write bytes to a file buys a process, a socket and an instance-key
-collision to solve nothing. A live Xtream URL is an endless MPEG-TS — reading it
-until a deadline IS the recording.
+``preempt_playback`` is per-recording, so "take it" is the default and not a
+law.
 
-There is no Range request and no resume: a live stream has no meaningful byte
-offset, and a reconnection starts from "now" whatever we ask for. A dropped
-connection inside the window reconnects and APPENDS, so a blip costs the blip
-rather than the recording.
+**The stop time is never frozen.** ``RecordingDB.effective_end`` is recomputed
+on every tick from the guide window plus the signed offsets plus
+``extend_seconds``, because a running recording can be extended in real time —
+the one thing that saves an event that ran long. Offsets are signed: skipping a
+pregame hour is ``-60 min`` on the start, as legitimate as ``+15`` on the end.
+
+**Conflicts are found when you schedule, not when it starts.** Being told at
+19:00 that two recordings want the same connection is useless; being told when
+you add the second one is actionable.
+
+**Recordings/ and Downloads/ are separate folders under the same root.**
+
+**Direct HTTP GET, not mpv ``--stream-record``.** The recorder must not share an
+mpv instance with the player. A dropped connection reconnects and APPENDS, so a
+blip costs the blip rather than the recording. There is no Range request and no
+resume: a live stream has no meaningful byte offset.
 """
 
 from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
@@ -49,6 +48,17 @@ import requests
 from loguru import logger
 
 from metatv.core.download_manager import library_dir, safe_filename
+
+
+def recordings_dir(config) -> "Path":
+    """``<root>/Recordings`` — a sibling of Downloads, never the same folder.
+
+    Settled 2026-08-30: "Separate folder, same root. Downloads/ and Recordings/
+    side by side." A recording is a different KIND of thing from a saved film —
+    it is dated, it may be partial, and it is the one a media server should not
+    file as a movie.
+    """
+    return library_dir(config) / "Recordings"
 from metatv.core.epg_utils import now_utc
 from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
@@ -67,11 +77,40 @@ POLL_SECONDS = 2.0
 #: Short, because the whole point is to catch the moment playback ends.
 RETRY_SECONDS = 5.0
 
-#: Kinds a recording may evict. Downloads yield to us; playback does not.
-RECORDING_PREEMPTS: tuple[str, ...] = ("download",)
+#: Kinds a recording may evict. It takes playback's slot too — that is the
+#: settled rule, softened by the countdown rather than by yielding. A recording
+#: with ``preempt_playback`` cleared falls back to ``_POLITE_PREEMPTS``.
+RECORDING_PREEMPTS: tuple[str, ...] = ("download", "playback")
+
+#: What a recording may evict when the user has told THIS one not to take the
+#: stream. Downloads still yield — they lose nothing by waiting.
+_POLITE_PREEMPTS: tuple[str, ...] = ("download",)
+
+#: Seconds before the start at which the user is warned, longest first. Every
+#: one of these is a chance to cancel, which is what makes taking acceptable.
+COUNTDOWN_STEPS: tuple[int, ...] = (600, 300, 60, 30)
 
 #: Terminal states — a row in one of these is never picked up again.
 TERMINAL_STATES = ("completed", "failed", "cancelled")
+
+
+@dataclass(frozen=True)
+class ScheduleOutcome:
+    """What scheduling did, including collisions the caller must resolve.
+
+    ``conflicts`` is a list of ``(recording_id, title)`` already wanting this
+    source's one connection for an overlapping window. Reported at SCHEDULE
+    time by design — the caller offers to drop one while the user is still
+    thinking about it, rather than discovering it at 19:00.
+    """
+
+    recording_id: "str | None"
+    conflicts: "list[tuple[str, str]]" = field(default_factory=list)
+    reason: str = ""
+
+    @property
+    def scheduled(self) -> bool:
+        return self.recording_id is not None
 
 
 @dataclass(frozen=True)
@@ -115,7 +154,8 @@ class RecordingManager:
 
     def __init__(self, db: "Database", config,
                  accountant: "ConnectionAccountant",
-                 *, on_conflict: Optional[Callable[[str, str], None]] = None):
+                 *, on_conflict: Optional[Callable[[str, str], None]] = None,
+                 on_countdown: Optional[Callable[[str, str, int], None]] = None):
         """
         Args:
             db: Database handle; every read/write goes through ``session_scope``.
@@ -130,6 +170,10 @@ class RecordingManager:
         self.config = config
         self.accountant = accountant
         self._on_conflict = on_conflict
+        self._on_countdown = on_countdown
+        #: recording_id -> the COUNTDOWN_STEPS already announced for it, so a
+        #: ten-minute warning is given once rather than every two seconds.
+        self._counted_down: dict[str, set[int]] = {}
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -167,68 +211,118 @@ class RecordingManager:
 
     def schedule(self, channel_id: str, provider_id: str, channel_name: str,
                  source_url: str, starts_at: datetime, ends_at: datetime,
-                 *, programme_title: str = "", pad: bool = True) -> Optional[str]:
-        """Schedule a recording. Returns its id, or None if it duplicates one.
+                 *, programme_title: str = "",
+                 pad_start_seconds: "int | None" = None,
+                 pad_end_seconds: "int | None" = None,
+                 preempt_playback: bool = True) -> "ScheduleOutcome":
+        """Schedule a recording of a guide programme.
 
         Args:
-            starts_at: UTC-naive, like every other time in this codebase
-                (CLAUDE.md: EPG times are UTC-naive; convert for display only).
-            ends_at: UTC-naive. Must be after ``starts_at``.
-            pad: Apply the configured lead-in/run-over. True for a programme
-                picked from the EPG — broadcasters overrun and clocks disagree.
-                False for "record for exactly N minutes", where the user has
-                already said what they mean.
+            starts_at: The PROGRAMME's start, UTC-naive and unpadded. Padding is
+                not folded in here — the offsets are stored beside it so the
+                stop time stays computable, and extendable, later.
+            ends_at: The programme's end, UTC-naive and unpadded.
+            pad_start_seconds: Signed offset on the start; the configured
+                default when omitted. Negative starts earlier.
+            pad_end_seconds: Signed offset on the end. Positive runs over.
+            preempt_playback: Whether this one may take the connection off
+                playback after its countdown.
 
         Returns:
-            The new recording's id, or ``None`` if an identical window on this
-            channel is already scheduled.
+            A :class:`ScheduleOutcome`. ``conflicts`` is non-empty when another
+            recording already wants this source's connection for an overlapping
+            window — reported HERE rather than at start time, because being told
+            at 19:00 that two recordings collide is useless and being told while
+            adding the second one is actionable.
         """
         if ends_at <= starts_at:
             logger.warning("Refusing a recording that ends before it starts: "
                            "{} .. {}", starts_at, ends_at)
-            return None
-        if pad:
-            starts_at -= timedelta(seconds=int(self.config.recording_pad_start_seconds))
-            ends_at += timedelta(seconds=int(self.config.recording_pad_end_seconds))
+            return ScheduleOutcome(recording_id=None, reason="backwards window")
 
         from metatv.core.database import RecordingDB
 
+        if pad_start_seconds is None:
+            pad_start_seconds = int(self.config.recording_pad_start_seconds)
+        if pad_end_seconds is None:
+            pad_end_seconds = int(self.config.recording_pad_end_seconds)
+
+        window_start = starts_at + timedelta(seconds=pad_start_seconds)
+        window_end = ends_at + timedelta(seconds=pad_end_seconds)
         title = programme_title or channel_name
-        dest = library_dir(self.config) / safe_filename(
-            f"{title} {starts_at:%Y-%m-%d %H%M}", source_url, default_suffix=".ts")
+        dest = recordings_dir(self.config) / safe_filename(
+            f"{title} {window_start:%Y-%m-%d %H%M}", source_url,
+            default_suffix=".ts")
 
         with self.db.session_scope() as session:
-            clash = session.query(RecordingDB).filter(
-                RecordingDB.channel_id == channel_id,
-                RecordingDB.starts_at == starts_at,
-                RecordingDB.state.notin_(TERMINAL_STATES),
-            ).first()
-            if clash is not None:
-                return None
+            live = session.query(RecordingDB).filter(
+                RecordingDB.state.notin_(TERMINAL_STATES)).all()
+
+            for row in live:
+                if (row.channel_id == channel_id
+                        and row.programme_start == starts_at):
+                    return ScheduleOutcome(recording_id=None,
+                                           reason="already scheduled")
+
+            # A conflict is same SOURCE (one connection) and overlapping window.
+            # A different source is not a conflict at all — its connection is
+            # its own.
+            conflicts = [
+                (row.id, row.programme_title or row.channel_name)
+                for row in live
+                if row.provider_id == provider_id
+                and row.effective_start < window_end
+                and window_start < row.effective_end
+            ]
+
             recording_id = str(uuid.uuid4())
             session.add(RecordingDB(
                 id=recording_id, channel_id=channel_id, provider_id=provider_id,
                 channel_name=channel_name, programme_title=programme_title,
                 source_url=source_url, dest_path=str(dest),
-                starts_at=starts_at, ends_at=ends_at, state="scheduled"))
+                programme_start=starts_at, programme_end=ends_at,
+                pad_start_seconds=pad_start_seconds,
+                pad_end_seconds=pad_end_seconds,
+                preempt_playback=preempt_playback,
+                state="scheduled"))
         self._wake.set()
-        logger.info("Recording scheduled: {} {} .. {}", title, starts_at, ends_at)
-        return recording_id
+        logger.info("Recording scheduled: {} {} .. {} ({} conflict(s))",
+                    title, window_start, window_end, len(conflicts))
+        return ScheduleOutcome(recording_id=recording_id, conflicts=conflicts)
 
-    def window_of(self, recording_id: str) -> "tuple[datetime, datetime] | None":
-        """The window as STORED, padding included — what the recorder honours.
+    def extend(self, recording_id: str, seconds: int) -> "datetime | None":
+        """Push a recording's stop time out (or in) while it runs.
 
-        The caller that schedules a programme holds the guide's times, not the
-        padded ones, so a notification built from those would promise a stop
-        five minutes before the recording actually stops. Reading the row back
-        is one primary-key lookup and it is authoritative, which recomputing the
-        padding at the call site would not be.
+        The reason the stop time is never frozen. Returns the new effective end,
+        or None if the recording is gone. Accepts a negative value — stopping a
+        recording early is the same operation.
         """
         from metatv.core.database import RecordingDB
 
         with self.db.session_scope() as session:
             row = session.get(RecordingDB, recording_id)
-            return (row.starts_at, row.ends_at) if row is not None else None
+            if row is None:
+                return None
+            row.extend_seconds = int(row.extend_seconds) + int(seconds)
+            new_end = row.effective_end
+        self._wake.set()
+        logger.info("Recording {} now ends {}", recording_id, new_end)
+        return new_end
+
+    def window_of(self, recording_id: str) -> "tuple[datetime, datetime] | None":
+        """The EFFECTIVE window right now — offsets and any live extension.
+
+        A caller that schedules a programme holds the guide's times, not these,
+        so a notification built from the guide would promise a stop fifteen
+        minutes before the recording actually stops. Recomputed on read rather
+        than stored, so it stays right after ``extend``.
+        """
+        from metatv.core.database import RecordingDB
+
+        with self.db.session_scope() as session:
+            row = session.get(RecordingDB, recording_id)
+            return ((row.effective_start, row.effective_end)
+                    if row is not None else None)
 
     def cancel(self, recording_id: str) -> None:
         """Cancel a scheduled or running recording.
@@ -250,7 +344,8 @@ class RecordingManager:
             return [RecordingProgress(
                 recording_id=r.id, channel_id=r.channel_id,
                 channel_name=r.channel_name, programme_title=r.programme_title or "",
-                state=r.state, starts_at=r.starts_at, ends_at=r.ends_at,
+                state=r.state, starts_at=r.effective_start,
+                ends_at=r.effective_end,
                 recorded_bytes=r.recorded_bytes, dest_path=r.dest_path,
                 error=r.error,
                 waiting_for_slot=r.id in self._conflict_announced
@@ -270,12 +365,69 @@ class RecordingManager:
             self._wake.clear()
 
     def _step(self) -> None:
-        """Retire windows that have passed, then run whatever is due now."""
+        """Retire dead windows, warn about imminent takes, then run what is due."""
         self._retire_missed()
+        self._announce_countdowns()
         row = self._next_due()
         if row is None:
             return
         self._record(row)
+
+    def _announce_countdowns(self) -> None:
+        """Warn before a recording takes the connection off playback.
+
+        Only when it MATTERS: if nothing is holding a playback slot on that
+        source, an idle app is not interrupted and nothing is emitted. When
+        something is playing, each threshold in ``COUNTDOWN_STEPS`` fires once,
+        and every one of them is a chance for the user to cancel — which is
+        what makes taking the stream acceptable rather than hostile.
+        """
+        from metatv.core.database import RecordingDB
+
+        now = now_utc()
+        with self.db.session_scope() as session:
+            pending = [
+                (r.id, r.programme_title or r.channel_name, r.provider_id,
+                 r.effective_start)
+                for r in session.query(RecordingDB).filter(
+                    RecordingDB.state == "scheduled").all()
+                if r.preempt_playback and r.effective_start > now
+            ]
+
+        for recording_id, title, provider_id, starts in pending:
+            if not self._playback_holds(provider_id):
+                continue
+            remaining = (starts - now).total_seconds()
+            crossed = [step for step in COUNTDOWN_STEPS if remaining <= step]
+            if not crossed:
+                continue
+            # The TIGHTEST crossed step is the one worth saying. With 59s left
+            # the honest warning is "in 1 minute", not "in 10 minutes" — which
+            # is what a first-match loop over the steps announced.
+            #
+            # Only that step is marked spent. Marking every looser one too was
+            # my first version and it is wrong: the single case where the two
+            # differ is a guide start DRIFTING LATER after a warning fired, and
+            # there the user should get the approach warnings again rather than
+            # silence. A mutation test caught it as unjustifiable code.
+            tightest = min(crossed)
+            fired = self._counted_down.setdefault(recording_id, set())
+            if tightest not in fired:
+                fired.add(tightest)
+                self._emit_countdown(recording_id, title, tightest)
+
+    def _playback_holds(self, provider_id: str) -> bool:
+        """Whether something is actually playing on this source right now."""
+        return any(h.kind == "playback"
+                   for h in self.accountant.holders(provider_id))
+
+    def _emit_countdown(self, recording_id: str, title: str, seconds: int) -> None:
+        if self._on_countdown is None:
+            return
+        try:
+            self._on_countdown(recording_id, title, seconds)
+        except Exception:                            # pragma: no cover - guard
+            logger.exception("Recording countdown callback failed")
 
     def _retire_missed(self) -> None:
         """Fail any recording whose whole window went by without a slot.
@@ -290,10 +442,12 @@ class RecordingManager:
 
         now = now_utc()
         with self.db.session_scope() as session:
-            for row in session.query(RecordingDB).filter(
-                RecordingDB.ends_at <= now,
-                RecordingDB.state.notin_(TERMINAL_STATES),
-            ).all():
+            # Filtered in Python, not SQL: effective_end is computed from three
+            # columns plus a live extension, so there is no column to compare.
+            # The non-terminal set is small — it is what is scheduled, not history.
+            candidates = session.query(RecordingDB).filter(
+                RecordingDB.state.notin_(TERMINAL_STATES)).all()
+            for row in [r for r in candidates if r.effective_end <= now]:
                 if row.recorded_bytes > 0:
                     row.state = "completed"
                 else:
@@ -309,19 +463,19 @@ class RecordingManager:
 
         now = now_utc()
         with self.db.session_scope() as session:
-            row = session.query(RecordingDB).filter(
-                RecordingDB.starts_at <= now,
-                RecordingDB.ends_at > now,
-                RecordingDB.state.in_(("scheduled", "recording")),
-            ).order_by(RecordingDB.starts_at).first()
-            if row is None:
+            due = [r for r in session.query(RecordingDB).filter(
+                RecordingDB.state.in_(("scheduled", "recording"))
+            ).order_by(RecordingDB.programme_start).all()
+                if r.effective_start <= now < r.effective_end]
+            if not due:
                 return None
+            row = due[0]
             return {"id": row.id, "channel_id": row.channel_id,
                     "provider_id": row.provider_id,
                     "channel_name": row.channel_name,
                     "programme_title": row.programme_title or "",
                     "source_url": row.source_url, "dest_path": row.dest_path,
-                    "ends_at": row.ends_at,
+                    "preempt_playback": bool(row.preempt_playback),
                     "recorded_bytes": row.recorded_bytes}
 
     def _record(self, row: dict) -> None:
@@ -332,13 +486,24 @@ class RecordingManager:
         """
         recording_id = row["id"]
         holder = f"recording:{recording_id}"
+        # The countdown has already run by now, so taking the stream here is
+        # the announced outcome rather than a surprise. A recording the user
+        # told not to preempt still displaces downloads — they lose nothing.
+        preempts = (RECORDING_PREEMPTS if row["preempt_playback"]
+                    else _POLITE_PREEMPTS)
         result = self.accountant.acquire(
-            row["provider_id"], "recording", holder,
-            preempt_kinds=RECORDING_PREEMPTS)
+            row["provider_id"], "recording", holder, preempt_kinds=preempts)
         if not result.granted:
+            # Only reachable for a polite recording, or a source at capacity
+            # with something this one may not evict. It keeps trying for the
+            # rest of its window — partial beats nothing.
             self._announce_conflict(recording_id, row["channel_name"])
             self._stop.wait(RETRY_SECONDS)
             return
+        if result.preempted:
+            logger.info("Recording {} took the connection from {}",
+                        recording_id, list(result.preempted))
+        self._counted_down.pop(recording_id, None)
 
         self._conflict_announced.discard(recording_id)
         self._set_state(recording_id, "recording")
@@ -355,7 +520,13 @@ class RecordingManager:
                         continue
                     handle.write(chunk)
                     written += len(chunk)
-                    if self._stop.is_set() or now_utc() >= row["ends_at"]:
+                    if self._stop.is_set():
+                        break
+                    # Re-read, never cache: extend() may have moved the stop
+                    # time since this loop began, and honouring a cached one is
+                    # exactly the frozen-stop-time bug the design forbids.
+                    ends_at = self._ends_at(recording_id)
+                    if ends_at is None or now_utc() >= ends_at:
                         break
                     if self._state_of(recording_id) == "cancelled":
                         break
@@ -369,7 +540,8 @@ class RecordingManager:
             self.accountant.release(row["provider_id"], holder)
 
         self._flush(recording_id, written)
-        if now_utc() >= row["ends_at"]:
+        final_end = self._ends_at(recording_id)
+        if final_end is not None and now_utc() >= final_end:
             self._set_state(recording_id, "completed")
             logger.info("Recording finished: {} ({} bytes)",
                         row["programme_title"] or row["channel_name"], written)
@@ -386,6 +558,14 @@ class RecordingManager:
                 logger.exception("Recording conflict callback failed")
 
     # ── row helpers ──────────────────────────────────────────────────────────
+
+    def _ends_at(self, recording_id: str) -> "datetime | None":
+        """The CURRENT stop time, including any live extension."""
+        from metatv.core.database import RecordingDB
+
+        with self.db.session_scope() as session:
+            row = session.get(RecordingDB, recording_id)
+            return row.effective_end if row is not None else None
 
     def _state_of(self, recording_id: str) -> str:
         from metatv.core.database import RecordingDB
