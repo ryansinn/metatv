@@ -20,7 +20,15 @@ What's left to build. Completed features live in git history.
 
 - [~] **EPG settings UI** — per-provider EPG enable/disable, XMLTV URL override, refresh-interval throttle dropdown, and guide-freshness display are now in the source editor (#14). Global default refresh interval dropdown added to Settings dialog. **Notification minutes-before and the global auto-refresh toggle SHIPPED v0.18.0 (#207).** Remaining config-file-only: filler-match patterns.
 - [~] **Watchlist persistence** — watchlist entries are **config-persisted** and already survive restarts (this line's "memory-only" premise was stale). Remaining: move them to the database proper, which is what multi-device sync (future) would need.
-- [ ] **Watchlist match prioritization** — when a keyword matches many channels (e.g. "fifa world cup" → 40+), currently the display is arbitrary. Apply ranking: (1) highest quality (4K > FHD > HD > SD), (2) previously-watched channels float up, (3) user can hide/demote individual entries. Also add a "Show all in Search" button on the watchlist keyword card title to jump to the Search tab pre-filled with the keyword, showing all matching results without the card display limit.
+
+  **Scoped 2026-08-31 — the destination table already exists and has never been used.** `AlertPatternDB` (`alert_patterns`) and `AlertMatchDB` (`alert_matches`) are built, indexed, and carry a RICHER schema than the config list (`pattern_type`, `applies_to`, `is_enabled`, `last_checked`). Measured on the owner's database: **0 rows in each**, while the real watchlist is **6 plain strings** in `config.epg_watchlist_patterns` plus 2 pinned ids in `epg_watchlist_channels`.
+
+  `core/alerts.py` (`AlertPattern`, `AlertScanner`) has **zero importers**, and `RepositoryFactory.alerts` is registered but **never called** — the whole DB alert stack is orphaned scaffolding. The live Watch Alerts UI is `gui/sidebar/alerts*.py`, which reads config. So this is not "converge two stores": it is *populate the store nobody ever wired*.
+
+  **The same shape as the Sports-view freeze** — a working capability that was never packaged, sitting beside the one actually in use. Check whether the orphaned stack is the right destination before adopting it; a schema with no users has never been pressure-tested.
+
+  Work: a migration defaulting the 6 strings to `pattern_type="keyword"`, `applies_to="all"`, `is_enabled=True` (**user data is sacrosanct** — these are the owner's real alerts), then repoint the **10 GUI modules** that read `epg_watchlist_patterns` at a repository. The read fan-out, not the migration, is the size of this slice.
+- [x] **Watchlist match prioritization** — **SHIPPED, and this line claimed otherwise for weeks.** `_watchlist_rank_key` (`gui/epg_watchlist_mixin.py:507`) sorts by quality → previously-watched → name at both call sites; "Show all in Search" is built (`epg_watchlist_mixin.py:567`, wired through `main_window.py:2093`); hide/demote is built. Covered by `tests/test_epg_watchlist_ranking.py`. Verified 2026-08-31 — the inverse of the usual roadmap drift, and just as misleading: it sends the next session to rebuild something that exists.
 - [ ] **EPG → Watchlist tab needs a pass — play buttons first** — *(owner, 2026-08-26; deferred, "maybe later")*. The Watchlist tab predates the V3 row grammar and still uses the old static play affordance, but it turns out to be doing real work by accident and **that behaviour must survive whatever replaces it**.
 
   **What is actually there** (`metatv/gui/epg_watchlist_mixin.py`):
@@ -510,7 +518,7 @@ This section lists only what is still open.
 Confirmed against the tree on 2026-08-31: **downloads and DVR/recording are NOT
 BUILT** (no module, no class, no What's New entry), and **the watchlist is
 partially built** — entries persist to config and survive restarts, but the
-database move, match prioritization and preferred-playback-source are all open.
+the database move and preferred-playback-source are open; match prioritization SHIPPED (see the Watchlist section — verified 2026-08-31).
 Their full specs already live above under **Playback & Queue**; this is only the
 order to build them in and what each one blocks.
 
