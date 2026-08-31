@@ -360,14 +360,25 @@ class MetadataEnrichmentQueue(QObject):
         called only AFTER that row's ``await get_metadata(...)`` has returned.
         """
         interval = self._compute_min_interval()
-        last_request = 0.0
+        # None, not 0.0. time.monotonic() is measured from an arbitrary origin —
+        # in CPython, process start — so a sentinel of 0.0 made the FIRST request
+        # compute `interval - uptime` and sleep whenever the process was younger
+        # than the interval. Nothing had been requested yet, so there was nothing
+        # to space it from.
+        #
+        # Small in production today (TMDb allows 40/second, so a 0.025s interval)
+        # but unbounded for any slower-limited provider, and it is what made
+        # test_rate_limit_spacing_honored_without_real_sleep fail on FAST CI
+        # shards and pass on slow ones — the test only ever sees one sleep once
+        # the process has been up longer than the interval.
+        last_request: "float | None" = None
 
         for row in batch:
             with self._lock:
                 if self._shutdown or self._cancelled or self._paused:
                     return
 
-            if interval > 0:
+            if interval > 0 and last_request is not None:
                 wait = interval - (time.monotonic() - last_request)
                 if wait > 0:
                     await asyncio.sleep(wait)

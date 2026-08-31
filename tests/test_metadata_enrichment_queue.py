@@ -455,3 +455,54 @@ def test_no_db_session_open_during_network_await(db, config_obj, qapp, make_queu
     assert all(n == 0 for n in observed), (
         f"a DB session was open during a simulated network call: {observed}"
     )
+
+
+def test_the_first_request_never_waits_on_an_empty_history(
+    db, config_obj, qapp, monkeypatch, make_queue
+):
+    """Nothing has been requested yet, so there is nothing to space it from.
+
+    ``last_request`` used to start at ``0.0`` while ``time.monotonic()`` counts
+    from process start, so the first request computed ``interval - uptime`` and
+    slept whenever the process was younger than the interval.
+
+    **The clock is pinned deliberately.** Without it this test inherits the very
+    dependency it exists to kill: on a machine where the suite has already run
+    for longer than the interval, ``interval - uptime`` is negative and the bug
+    cannot show. That is exactly why the spacing test above failed on FAST CI
+    shards and passed on slow ones, and why a first attempt at this test passed
+    against the unfixed code.
+    """
+    import metatv.core.metadata_enrichment_queue as meq
+    import metatv.core.metadata_manager as mm_mod
+
+    with db.session_scope() as session:
+        _provider(session, "p1")
+        ids = [_channel(session, "p1", name="OnlyOne")]
+
+    provider = _FakeProvider(results={cid: f"T-{cid}" for cid in ids}, rate_limit=(1, 100))
+    queue = make_queue(provider)
+
+    # A young process: 5 seconds up, against a 100-second interval.
+    monkeypatch.setattr(meq.time, "monotonic", lambda: 5.0)
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(meq.asyncio, "sleep", fake_sleep)
+
+    async def _noop_wait(self) -> None:
+        return None
+
+    monkeypatch.setattr(mm_mod.RateLimiter, "wait_if_needed", _noop_wait)
+
+    queue.start()
+    _wait_idle(queue)
+
+    assert queue.get_status().done == 1
+    assert sleep_calls == [], (
+        "a single request must not be throttled against a request that never "
+        f"happened; slept {sleep_calls}"
+    )
