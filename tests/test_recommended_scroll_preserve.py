@@ -50,6 +50,8 @@ def _rec(i: int) -> SimpleNamespace:
         channel_id=f"ch-{i}",
         channel_name=f"Recommendation {i}",
         detected_title=f"Recommendation {i}",
+        # ScoredChannel exposes this as a property; a namespace has to carry it.
+        display_title=f"Recommendation {i}",
         media_type="movie",
         reason="because you liked things",
         variant_count=1,

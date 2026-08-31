@@ -250,6 +250,7 @@ class TestTheOtherSections:
         def rec(i):
             return SimpleNamespace(
                 channel_id=f"r{i}", channel_name=f"Rec {i}", detected_title=f"Rec {i}",
+                display_title=f"Rec {i}",
                 media_type="movie", reason="because", variant_count=1,
                 metadata_rating=7.0, rec_shown_count=0, matching_genres=["Drama"],
                 already_liked=False, detected_year="2024", detected_quality="",
