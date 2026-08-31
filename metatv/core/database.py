@@ -642,8 +642,20 @@ class ContentTagDB(Base):
     __tablename__ = "content_tags"
 
     id         = Column(Integer, primary_key=True)
-    channel_id = Column(String, ForeignKey("channels.id"), index=True, nullable=False)
-    tag_id     = Column(Integer, ForeignKey("tags.id"), index=True, nullable=False)
+    # NEITHER FK CARRIES index=True, and that is deliberate — both single-column
+    # indexes were strict left-prefixes of wider indexes that already exist, so
+    # they cost 221 MB on the owner's database and bought nothing:
+    #
+    #   channel_id  -> leading column of UNIQUE(channel_id, tag_id, source),
+    #                  whose autoindex SQLite creates whether we like it or not
+    #   tag_id      -> leading column of ix_content_tags_tag_channel
+    #
+    # Three independent auditors reached this separately, and EXPLAIN QUERY PLAN
+    # on the real call sites (tags_for, channels_for_tag) shows the wider
+    # indexes already serving every shape. The planner picked the narrow ones
+    # only because they were smaller, not because anything needed them.
+    channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
+    tag_id     = Column(Integer, ForeignKey("tags.id"), nullable=False)
     source     = Column(String, nullable=False, default="generated")  # "generated" | "user"
     feeders    = Column(JSONEncoded)      # list[str] of contributing feeder names
     confidence = Column(Float, default=1.0)
@@ -826,6 +838,14 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_metadata_enrich_state ON channels (metadata_enrich_state)",
+                # Redundant single-column indexes on content_tags — each a strict
+                # left-prefix of an index that already exists. 221 MB on the
+                # owner's 3.1M-row table, plus two extra b-tree writes on every
+                # tag insert, for query shapes the wider indexes already serve.
+                # Dropped here rather than left to new installs alone, because
+                # the model change only helps a database created from scratch.
+                "DROP INDEX IF EXISTS ix_content_tags_channel_id",
+                "DROP INDEX IF EXISTS ix_content_tags_tag_id",
             ]
             for idx_sql in index_migrations:
                 try:
