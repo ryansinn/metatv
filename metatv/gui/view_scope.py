@@ -25,7 +25,7 @@ def resolve_visibility_scope(repos, config):
     Returns:
         A fully-resolved ``VisibilityScope``.
     """
-    from metatv.core.filter_utils import resolve_scope
+    from metatv.core.visibility_resolver import resolve_scope
 
     # Delegates rather than composing the axes itself. It used to build the
     # scope here from four sets, and quietly omitted the adult gate and the

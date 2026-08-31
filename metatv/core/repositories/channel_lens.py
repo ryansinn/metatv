@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, List, Optional, Set
 from loguru import logger
 
 from metatv.core import channel_visibility
-from metatv.core.filter_utils import resolve_scope
+from metatv.core.visibility_resolver import resolve_scope
 from sqlalchemy import or_
 
 from metatv.core.filter_utils import normalize_genre

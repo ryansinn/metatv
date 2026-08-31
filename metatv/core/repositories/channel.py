@@ -16,7 +16,7 @@ from metatv.core.database import (
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
     ContentTagDB, StreamRetryDB,
 )
-from metatv.core import channel_visibility
+from metatv.core import channel_visibility, visibility_resolver
 from metatv.core.channel_name_utils import (
     QUALITY_TIER_RANK,
     quality_tier_rank,
@@ -2329,10 +2329,9 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         # tagged rows could surface in all three Similar surfaces while every
         # other view hid them. Adding an axis to VisibilityScope now reaches this
         # query without anyone remembering it exists.
-        from metatv.core.filter_utils import resolve_scope
-        q = channel_visibility.apply(
-            q, resolve_scope(self.session, config,
-                             excluded_provider_ids=excluded_provider_ids or ()))
+        q = channel_visibility.apply(q, visibility_resolver.resolve_scope(
+            self.session, config,
+            excluded_provider_ids=excluded_provider_ids or ()))
         candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
 
         threshold = max(1, len(words) // 2)
