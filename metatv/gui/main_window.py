@@ -23,6 +23,7 @@ from metatv.gui.watchlist_write_notifier import install_watchlist_writes
 from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
+from metatv.gui.main_window_downloads import _DownloadsMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
 from metatv.gui.main_window_history import _HistoryMixin
 from metatv.gui.main_window_async import _AsyncMixin
@@ -117,7 +118,7 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -310,6 +311,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Watch list -> database, written off-thread; see core/watchlist.py.
         self._watchlist_notifier = install_watchlist_writes(self)
         watchlist.migrate_from_config(config)
+        self._setup_downloads()
 
         # Initialize metadata system
         self.image_cache = ImageCache(

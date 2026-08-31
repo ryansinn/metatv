@@ -43,6 +43,7 @@ play_icon: str = "▶"
 browse_icon: str = "🗂"  # U+1F5C2 CARD INDEX DIVIDERS — series primary button: open seasons/episodes
 play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
 open_ended_buffer_icon: str = "∞"  # U+221E INFINITY — open-ended disk-backed buffer (monochrome, "buffer without end")
+download_icon: str = "⬇"   # U+2B07 DOWNWARDS ARROW — save a VOD to the library
 deep_cache_icon: str = "💽"  # U+1F4BD COMPUTER DISK — deep-cache "Buffer without limit" (VOD pre-load-to-disk), distinct from ∞ open-ended buffer
 play_from_beginning_icon: str = "▶"  # U+25B6 play triangle — force start from position 0; gray, distinct from the orange ⏩ resume affordance by COLOUR (⏮ U+23EE rendered as a tofu/box in many fonts)
 resume_from_icon: str = "⏩"  # U+23E9 BLACK RIGHT-POINTING DOUBLE TRIANGLE — resume from saved position
@@ -626,6 +627,9 @@ VECTOR_KEYS: dict[str, str] = {
     "delete": "mdi6.trash-can-outline",
     "as_grid": "mdi6.view-grid-outline",
     "as_list": "mdi6.view-list-outline",
+    # Save a VOD to disk PERMANENTLY — the tray, not a cloud: nothing here
+    # comes from a service, and the file lands on the local library dir.
+    "download": "mdi6.tray-arrow-down",
     # ── sports, keyed by the stored ``sport_type`` value ──────────────────
     # The nav chip for the whole view keeps its whistle ("any one sport's ball
     # would say the other three are somewhere else"). That reasoning is right

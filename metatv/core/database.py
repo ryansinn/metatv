@@ -543,6 +543,44 @@ class UserRatingDB(Base):
     rated_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class DownloadDB(Base):
+    """One VOD saved (or being saved) to the local library.
+
+    Denormalized the same way ``WatchQueueDB`` is, and for the same reason: a
+    provider refresh can replace the channel row this came from, and a file
+    already on disk must not lose its name because its source id was recycled.
+
+    The URL is stored because it is what gets resumed against. Xtream VOD URLs
+    are static files (``/movie/<user>/<pass>/<id>.mkv``), which is what makes an
+    HTTP Range resume possible at all — and why this is a direct GET rather
+    than mpv ``--stream-record``: a preempted download has to CONTINUE, not
+    start again.
+    """
+    __tablename__ = "downloads"
+
+    id            = Column(String, primary_key=True)          # uuid4
+    channel_id    = Column(String, nullable=False, index=True)  # no FK — see above
+    provider_id   = Column(String, nullable=False, index=True)  # whose connection slot it takes
+    channel_name  = Column(String, nullable=False, default="")  # denormalized
+    source_url    = Column(String, nullable=False)
+    dest_path     = Column(String, nullable=False)
+
+    #: queued | running | paused | completed | failed
+    #: "paused" covers BOTH a user pause and a preemption by playback: the
+    #: difference is `paused_by_playback`, because only one of them should
+    #: resume by itself when the slot frees.
+    state         = Column(String, nullable=False, default="queued", index=True)
+    paused_by_playback = Column(Boolean, nullable=False, default=False)
+
+    total_bytes      = Column(Integer, nullable=True)   # None until the server says
+    downloaded_bytes = Column(Integer, nullable=False, default=0)
+    error            = Column(Text, nullable=True)
+
+    position   = Column(Integer, nullable=False, default=0)   # queue order
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WatchQueueDB(Base):
     """Ordered watch queue — content the user wants to watch soon.
 
