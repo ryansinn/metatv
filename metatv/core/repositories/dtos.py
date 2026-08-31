@@ -664,3 +664,57 @@ def build_history_dtos(
             next_episode_code=next_episode_code,
         ))
     return result
+
+
+@dataclass(frozen=True)
+class SportsChannelDTO:
+    """One row in the Sports or Events view.
+
+    Its own DTO rather than three more fields on :class:`ChannelListDTO`:
+    that one is built for every row of the main list — 785,163 of them on the
+    owner's library — and ``sport_type``/``league_name``/``team_name`` are NULL
+    for 96% of them. A dedicated shape keeps the hot path's memory where it is.
+
+    Built inside a ``session_scope()`` by :meth:`from_orm`, so no ORM object
+    crosses the worker→main-thread boundary (CLAUDE.md: a detached ORM object's
+    next attribute access raises ``DetachedInstanceError``).
+    """
+
+    id: str
+    name: str
+    provider_id: str
+    media_type: str | None
+    special_view: str | None
+    sport_type: str | None
+    league_name: str | None
+    team_name: str | None
+    detected_title: str | None
+    detected_quality: str | None
+    is_favorite: bool = False
+    #: Parsed event start for ppv/live_event rows; None for a plain sports channel.
+    event_start_time: "datetime | None" = None
+
+    @classmethod
+    def from_orm(cls, channel) -> "SportsChannelDTO":
+        """Build from a ``ChannelDB`` row.
+
+        Args:
+            channel: A live ``ChannelDB`` instance, inside its session.
+
+        Returns:
+            The frozen DTO.
+        """
+        return cls(
+            id=channel.id,
+            name=channel.name,
+            provider_id=channel.provider_id,
+            media_type=channel.media_type,
+            special_view=channel.special_view,
+            sport_type=channel.sport_type,
+            league_name=channel.league_name,
+            team_name=channel.team_name,
+            detected_title=channel.detected_title,
+            detected_quality=channel.detected_quality,
+            is_favorite=bool(channel.is_favorite),
+            event_start_time=channel.event_start_time,
+        )
