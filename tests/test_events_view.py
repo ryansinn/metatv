@@ -374,3 +374,85 @@ def test_the_count_says_how_much_is_still_ahead(view):
 def test_an_undated_feed_is_not_counted_as_upcoming(view):
     """"Always available" is not a future event — it is on now."""
     assert EventsView._count_line([_dto(1, None)], _NOW) == "1 event · none upcoming"
+
+
+# ---------------------------------------------------------------------------
+# Title box — rendered geometry, not token existence (owner report 2026-08-31)
+# ---------------------------------------------------------------------------
+
+def _long_title_card(qapp):
+    """A card whose title is a real fixture name — the reported case."""
+    from datetime import datetime, timedelta
+
+    from metatv.gui.events_view import _EventCard
+
+    title = ("Manchester United v Ipswich Town  Premier League "
+             "Matchweek 2 2026/2027")
+    dto = _dto(detected_title=title, name=title,
+               event_start_time=datetime.now() + timedelta(hours=1))
+    card = _EventCard(dto, None)
+    card.adjustSize()
+    qapp.processEvents()
+    return card, title
+
+
+def test_a_long_event_title_is_not_clipped_mid_glyph(qapp):
+    """The reported defect: titles "too large and unreadable".
+
+    The title was styled with ``DIALOG_TITLE`` — 17px bold, correct for the top
+    of a modal — so a fixture name wrapped to three lines inside a box a wrapped
+    QLabel had size-hinted for one, and was cut through the middle of the
+    glyphs, top and bottom.
+
+    Asserts the PAINTED box is a whole number of lines. A test on the token
+    ("is the font 15px?") passes for a box of any height, including the broken
+    one, which is the distinction this file's other geometry tests already make.
+    """
+    card, _ = _long_title_card(qapp)
+    label = card.title_label
+    line = label.fontMetrics().lineSpacing()
+
+    assert label.height() == line * 2, (
+        f"title box is {label.height()}px against a {line}px line — a box that "
+        f"is not a whole number of lines clips through the glyphs")
+
+
+def test_the_title_box_does_not_depend_on_the_title(qapp):
+    """Every card in the grid must be the same height.
+
+    A wrapped label that sizes to its content makes each tile a different
+    height, which is what produced the ragged grid in the report alongside the
+    clipping.
+    """
+    from datetime import datetime, timedelta
+
+    from metatv.gui.events_view import _EventCard
+
+    heights = set()
+    for title in ("A", "Race 2: Grand Prix of Milwaukee",
+                  "Manchester United v Ipswich Town  Premier League "
+                  "Matchweek 2 2026/2027"):
+        dto = _dto(detected_title=title, name=title,
+                   event_start_time=datetime.now() + timedelta(hours=1))
+        heights.add(_EventCard(dto, None).sizeHint().height())
+
+    assert len(heights) == 1, f"cards vary in height by title: {heights}"
+
+
+def test_the_full_title_stays_reachable(qapp):
+    """Two lines is a cap, so the text it cuts has to survive somewhere."""
+    card, title = _long_title_card(qapp)
+    assert card.title_label.toolTip() == title
+
+
+def test_the_card_title_is_not_a_dialog_heading(qapp):
+    """It was literally ``EVENT_CARD_TITLE = DIALOG_TITLE``.
+
+    Guarding the alias, not the pixel value: an improvement is free to move the
+    size, but re-pointing a card title at the modal-heading role is the specific
+    regression, and it is invisible until someone opens Events.
+    """
+    from metatv.gui import theme as _t
+
+    assert _t.EVENT_CARD_TITLE != _t.DIALOG_TITLE, (
+        "the event card title is aliased to the dialog heading role again")

@@ -1,0 +1,101 @@
+"""The test-running script must keep the two properties it exists for.
+
+Both were learned the same day. A full local suite duplicates the CI gate that
+runs on every PR, and a grep of a pytest summary reported "1 failed, 8044
+passed" as GREEN — twice. A script fixes those only while it still has them,
+so they are asserted rather than trusted.
+"""
+
+import pathlib
+import subprocess
+
+SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "pytest_verdict.sh"
+
+
+def test_the_script_exists_and_is_executable():
+    assert SCRIPT.exists(), "scripts/pytest_verdict.sh is gone"
+    assert SCRIPT.stat().st_mode & 0o111, "not executable"
+
+
+def test_it_refuses_a_full_suite_with_no_reason():
+    """The whole point: running everything must be a deliberate act."""
+    result = subprocess.run(
+        [str(SCRIPT)], capture_output=True, text=True, timeout=60,
+        cwd=SCRIPT.parent.parent, env={"PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 64, (
+        f"expected the no-reason refusal (64), got {result.returncode}")
+    assert "REFUSING" in result.stderr
+
+
+def test_it_decides_on_the_exit_code_not_a_grep():
+    """The false-GREEN came from parsing the summary. Assert it does not.
+
+    Reading the script rather than running a failing suite: what matters is
+    that the verdict branch tests ``$code``, and that no ``grep`` output is
+    ever assigned to something the verdict depends on.
+    """
+    src = SCRIPT.read_text()
+    assert 'if [ "$code" -eq 0 ]' in src, (
+        "the verdict must branch on pytest's exit code")
+    assert 'exit "$code"' in src, "the script must propagate pytest's exit code"
+    verdict = src[src.index("# The verdict is the exit code"):]
+    assert "grep" not in verdict, (
+        "a grep appeared in the verdict section — that is the exact bug this "
+        "script was written to prevent")
+
+
+def test_ci_never_uses_a_gnu_only_xargs_flag():
+    """`xargs -a` is a GNU extension; BSD xargs on macos-14 has no such flag.
+
+    All four macOS shards died in seventeen seconds with a usage message the
+    first time this ran. Cheap to assert, and invisible on Linux — which is the
+    whole reason the matrix runs both platforms.
+    """
+    import pathlib
+
+    import yaml
+
+    ci_path = (pathlib.Path(__file__).resolve().parent.parent
+               / ".github" / "workflows" / "ci.yml")
+    spec = yaml.safe_load(ci_path.read_text())
+
+    # Only the COMMANDS, and with shell comments stripped: the comment
+    # explaining why `xargs -a` must not be used legitimately contains the
+    # string, and a whole-file search cannot tell prose from a command. That
+    # distinction has already produced one false failure in this session.
+    for job in spec["jobs"].values():
+        for step in job.get("steps", []):
+            run = step.get("run")
+            if not run:
+                continue
+            commands = "\n".join(
+                line for line in run.splitlines()
+                if not line.lstrip().startswith("#"))
+            assert "xargs -a" not in commands, (
+                f"step {step.get('name')!r} uses xargs -a, which is GNU-only "
+                f"and fails on the macOS runners")
+
+
+def test_the_shard_split_is_complete_and_disjoint():
+    """Every test file in exactly one shard — silently dropping a file would
+    make the gate pass by not running things."""
+    import pathlib
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    seen: list[str] = []
+    for shard in (1, 2, 3, 4):
+        out = subprocess.run(
+            [sys.executable, "scripts/ci_shard.py", "--shard", str(shard), "--of", "4"],
+            capture_output=True, text=True, cwd=root, timeout=60,
+        )
+        assert out.returncode == 0, out.stderr
+        seen.extend(out.stdout.split())
+
+    expected = sorted(str(p.relative_to(root))
+                      for p in (root / "tests").glob("test_*.py"))
+    assert sorted(seen) == expected, (
+        f"shards cover {len(seen)} files, tests/ has {len(expected)} — the "
+        f"split is dropping or duplicating files")

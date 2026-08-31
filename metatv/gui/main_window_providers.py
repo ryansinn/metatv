@@ -257,14 +257,14 @@ class _ProviderMixin:
     def enter_provider_analytics_mode(self, provider_id: str):
         """Switch center panel to source analytics for the given provider."""
         self._hide_all_content_views()
-        self.source_analytics.setVisible(True)
-        self.source_analytics.on_activate(provider_id)
+        self.source_analytics_view.setVisible(True)
+        self.source_analytics_view.on_activate(provider_id)
         self.stats_label.setText("Analyzing source — click a source to switch")
         self._deactivate_view_chips()
 
     def exit_provider_analytics_mode(self):
         """Return to the normal channel list view."""
-        self.source_analytics.on_deactivate()
+        self.source_analytics_view.on_deactivate()
         self.switch_to_list_view()
 
     def enter_missing_tmdb_mode(self):

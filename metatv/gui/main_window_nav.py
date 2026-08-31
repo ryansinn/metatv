@@ -28,7 +28,7 @@ CONTENT_VIEW_ATTRS: tuple[str, ...] = (
     "preferences_view",
     "discover_view",
     "provider_editor",
-    "source_analytics",
+    "source_analytics_view",
     "recipe_view",
     "sports_view",
     "events_view",
@@ -52,6 +52,8 @@ _NAV_VIEW_TARGETS: dict[str, tuple[str, str | None]] = {
     "recipe": ("switch_to_recipe_view", "recipe_chip"),
     "epg": ("switch_to_epg_view", "epg_chip"),
     "preferences": ("switch_to_preferences_view", "prefs_chip"),
+    "sports": ("switch_to_sports_view", "sports_chip"),
+    "events": ("switch_to_events_view", "events_chip"),
     "history": ("switch_to_full_history_view", None),
 }
 

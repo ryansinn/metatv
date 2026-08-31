@@ -1047,7 +1047,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # An Events card's title is the same sheet. Aliased rather than
     # re-declared: a near-twin declaration is what test_theme_role_duplication
     # exists to stop, and WHATS_NEW_TITLE above is the precedent for the alias.
-    EVENT_CARD_TITLE = DIALOG_TITLE
+    EVENT_CARD_TITLE = "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     WHATS_NEW_META = (
         "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )

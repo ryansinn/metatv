@@ -225,6 +225,18 @@ class ScoredChannel:
     # within-generation people-diversity re-rank so the same face doesn't fill the list.
     score_people:      tuple[str, ...] = ()
 
+    @property
+    def display_title(self) -> str:
+        """What a person should SEE — the cleaned title, raw name as fallback.
+
+        ``channel_name`` is the provider's raw string and 94.9% of rows differ
+        from their cleaned title. It is the obvious attribute, which is why the
+        Preferences dashboard rendered raw strings while the sidebar, scoring
+        the same objects from the same call, rendered "The Matrix". One
+        definition, on the object, shorter to type than the wrong form.
+        """
+        return self.detected_title or self.channel_name
+
 
 def version_score(channel, config) -> int:
     """Score a channel against the user's version preferences (prefix/provider/quality).

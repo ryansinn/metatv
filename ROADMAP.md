@@ -221,6 +221,176 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 
 ## Code Health / Refactor
 
+### Sports/PPV event titles are not parsed at all (owner report, 2026-08-31)
+
+**NOT a rendering bug — an ingestion gap.** The Sports view shows raw provider
+strings because `detected_title` *is* the raw string for this whole family:
+
+```
+MAJOR LEAGUE BASEBALL CARDINALS - ORIOLES | Thu 27 Aug 20:00 CEST (SE) | 8K EXCLUSIVE | SE: VIAPLAY PPV 9
+Cardinals - Cubs | Major League Baseball 2026 | 2026-05-31 | 23:00 (GMT) | 8K EXCLUSIVE | ...
+```
+
+**Measured on the owner's library:** 7,660 of 28,018 sports rows (**27%**) still
+contain a `|` in `detected_title`. Pipe-field counts: 1→1,248, 2→5,700, 3→514,
+4→25, 5→159, 6→14 — so it is not one format, but it is a small number of them.
+
+**The structure is unusually parseable** — this is not scene-release soup. The
+fields are pipe-delimited and positional:
+
+| field | example | maps to |
+|---|---|---|
+| event | `CARDINALS - ORIOLES` | `detected_title`, and both `team_name`s |
+| league | `MAJOR LEAGUE BASEBALL` / `Major League Baseball 2026` | `league_name` (+ year) |
+| when | `Thu 27 Aug 20:00 CEST` / `2026-05-31 | 23:00 (GMT)` | `event_start_time` — **currently NULL for these** |
+| region | `(SE)`, `(DK)`, `(NO)`, `(FI)` | `detected_region` |
+| quality | `8K EXCLUSIVE` | `detected_quality` |
+| source | `SE: VIAPLAY PPV 9` | provider channel, not part of the title |
+
+**Two things fall out of parsing it that are worth more than the tidier title:**
+
+1. **`event_start_time` for the Events view.** These rows carry a real date and
+   time in the string and reach `event_start_time = NULL`, so they land in the
+   "undated / always-on" bucket rather than the countdown. The Events view was
+   built assuming dated rows are the exception; here they are the majority,
+   mis-filed.
+2. **Cross-region dedup.** The SAME event is a separate row per country feed —
+   `(SE)`, `(DK)`, `(NO)`, `(FI)` of one Cardinals–Orioles game, four rows and
+   four cards. Parsing the event out of the string is what would let
+   `content_key` collapse them into one title with four sources, which is
+   exactly what "Other Versions" exists for.
+
+**And a third finding, separate and immediate: 5,473 rows say literally
+`NO EVENT STREAMING NOW -`.** That is ~20% of the Sports view, and ~72% of the
+unparsed population — placeholder channels the provider leaves standing between
+events. They are not dead streams to be *probed*; they announce their own
+emptiness in the title, so they can be filed cheaply at ingestion without
+opening a single connection. This is the biggest single win available to the
+"verify events" sweep, and it needs none of the sweep's machinery.
+
+**Owner's call: note it, do not fix it now.** Recorded because it is invisible
+from the code — the render path is correct and reads a stored field, exactly as
+the rules require; the field itself is what was never computed.
+
+### Componentization backlog — from the 2026-08-31 audit
+
+Three parallel audits looked for one shape: **a capability that works but was
+never packaged, sitting next to a packaged one that is wrong for the job.** The
+worked example was the virtualized channel list — model + delegate + view +
+thumbnail hydrator, ~50 lines hand-wired inside `main_window.setup_ui()`, so
+nothing in the tree said "this is how you render results" — while
+`chip_row.build_chip_row` IS one obvious call and is correct only for a bounded
+sidebar section. Sports used it for 28,018 rows and froze the app for minutes.
+
+**The predictor is asymmetry**: how much easier is the wrong path than the right
+one. Each item below carries that score (1–5). Fixed items are in git history
+and the What's New entries; only what is still open is listed here.
+
+- [ ] **`CollapsibleHeader` stopped at the details pane — 14 hand-rolled copies.**
+  *Asymmetry 5.* `gui/details_section_header.py` already exists, and its own
+  docstring is the finding: *"The details pane had four hand-rolled collapsible
+  sections… Four copies is why they had drifted."* Six adopters, all in the
+  details pane. Fourteen copies elsewhere — `preferences_view` (three),
+  `filter_group_row` (two), `global_filter_dialog` (two, using a **`QLabel`** as
+  the chevron so there is no pointer cursor and no keyboard focus),
+  `categories_dialog`, `discover_shelf`, `details_versions` (three, in a file
+  that also uses the mixin), `discover_view`, `qa_checklist_window` (three).
+  Twenty sites read the glyph from `config.*` and fourteen from `icons.*`, which
+  happen to be identical strings today — one edit to either renders two
+  different chevrons for the same idea. **Do:** widen `CollapsibleHeader` with an
+  optional `body` + `persist_key` so a non-details caller gets save/restore for
+  free, then migrate. **Guard:** AST walk — no file outside
+  `details_section_header.py` / `sidebar/base.py` / `icons.py` / `config.py` may
+  mention `expand_icon` or `collapse_icon`.
+
+- [ ] **Four flow layouts, three visibility policies.** *Asymmetry 4.* The
+  packaged `flow_layout.FlowLayout` is used LEAST (3 sites) and is the one that
+  lays out hidden children, leaving a hole; `details_versions._FlowLayout` and
+  `weighted_tag_cloud._FlowLayout` skip them. Two of the four are not `QLayout`s
+  at all — `discover_card._FlowLayout` and `weighted_tag_cloud._FlowLayout`
+  position by manual `setGeometry`, so every host hand-rolls its own reflow.
+  `weighted_tag_cloud` says so outright: *"We define our own copy here rather
+  than importing the private class."* `tests/test_flow_layout_wrap.py`
+  parametrizes over two of the four, because the other two structurally cannot be
+  tested that way — the enumeration lesson again. **Do:** keep
+  `flow_layout.FlowLayout`, add `h_spacing`/`v_spacing` and a `skip` predicate
+  defaulting to `isHidden`, migrate all 11 construction sites, delete the host
+  `resizeEvent`/`setFixedHeight` plumbing the manual copies force.
+  **Note:** `UniformCardGrid` (added for the browse grid) is NOT one of these —
+  it is a virtualizer for uniform items, not a measuring flow layout.
+
+- [ ] **The poster well is written four times.** *Asymmetry 3.* Scale into a
+  fixed box with `KeepAspectRatioByExpanding`, set the pixmap, clear the
+  placeholder — in `trail_map_detail`, `similar_lightbox_card` (twice),
+  `trail_map_view`, `discover_card` (which then hand-rolls a centre-crop that
+  `AlignCenter` already achieves). Plus two independent `_poster_targets`
+  fan-out dicts with the same name and shape. The four `KeepAspectRatio` (fit,
+  not fill) sites are a deliberate policy difference — a live logo and a
+  full-screen lightbox letterbox on purpose — and must not be folded in.
+  **Do:** `gui/poster_well.py` with `PosterWell(size, fill=FILL|FIT)` and
+  `.bind(cache, url)` over `ImageCache.subscribe()`, exposing `full_pixmap()`
+  for the enlarge affordance. **Guard:** AST — no `.scaled(…)` mentioning
+  `KeepAspectRatioByExpanding` outside that module.
+
+- [ ] **`HierarchicalFilterDropdown` is a copy-and-extend of `FilterDropdown`.**
+  *Asymmetry 3.* It re-implements `get_selected`, `select_all`, `clear_all`,
+  `update_button_label`, `show_menu` and the checkbox handler — the label logic
+  character-for-character. The footer labels are shared constants as of
+  2026-08-31 (they had drifted to "Clear" and "Clear All" on the same bar), but
+  the classes are still two. The flat one also shows per-item counts and the
+  hierarchical one does not. **Do:** make hierarchy a PARAMETER —
+  `FilterDropdown(label, groups, hierarchy=None)` — driving only the menu
+  builder; delete the second class. **Constraint:** `update_hierarchy` preserves
+  `selected_items` across a rebuild, which the sport→league→team cascade depends
+  on; `update_groups` must keep that.
+
+- [ ] **`main_window_metadata.py` hand-rolls the async read seam four times.**
+  *Asymmetry 3.* Four `executor.submit` + bespoke-signal pairs beside the
+  documented single `_run_query` seam, each needing its own `pyqtSignal` on the
+  MainWindow class body. **Two swallow the exception entirely** —
+  `_bg_fetch_action_state` and `_bg_fetch_episode_action_state` log and return
+  without emitting, so on a DB error the details pane keeps showing the PREVIOUS
+  channel's action state with no visible failure. `_run_query` always marshals
+  back precisely to prevent that. One of them also rebuilds
+  `RatingRepository.get_all_map()` inline. **Do:** migrate all four, delete the
+  four signals.
+
+- [ ] **The Preferences recommendation row is hand-rolled (`_RecRow`).**
+  *Asymmetry 4.* Its own layout, label, buttons, middle-click and context menu,
+  beside `build_chip_row` — "the one row builder" — which the sidebar uses for
+  the same `ScoredChannel` objects. So the dashboard shows no media-type glyph,
+  no quality/year/language chips, and ignores `sidebar_row_density`; its two
+  buttons are styled with raw `setStyleSheet`, so they go stale on a theme
+  switch. (The raw-title half of this shipped 2026-08-31 via
+  `ScoredChannel.display_title`.) **Constraint:** `build_chip_row` sets
+  `WA_TransparentForMouseEvents` unless given a `trailing_button`; two buttons
+  plus a row-level middle-click needs the untransparent branch.
+
+- [ ] **Pay down the 138 skeleton-host attribute probes.**
+  `tests/test_skeleton_host_attribute_probes.py` freezes them shrink-only.
+  `hasattr(self, "x")` and `getattr(self, "x", None)` both raise `RuntimeError`
+  on a `MainWindow.__new__` host rather than returning a default, so a guard
+  meant to skip an absent widget explodes instead — and two test files already
+  hand-roll a `SimpleNamespace` workaround rather than fix production. Convert to
+  `"x" in self.__dict__` **with per-site verification**: `__dict__.get` differs
+  from `getattr` for class attributes, properties and anything inherited, so a
+  blind sweep can silently change what a branch reads. Lower the budget as you go.
+
+- [ ] **Incidental, from the same audit.** `preferences_view._update_excl_toggle_label`
+  runs `get_rec_suppressed()` synchronously on the UI thread (and on a legacy
+  bare session) from a disclosure click; `record_impressions` likewise runs on
+  the UI thread inside the render path. `trail_map_view._on_image_loaded`
+  early-returns on `not isVisible()` *before* draining `_poster_targets`, so an
+  image that lands while the trail map is hidden is dropped and the label keeps
+  its placeholder until the next rebuild. The browse filter box is undebounced
+  (every other search box in the app uses 300 ms). `EpgRepository.search_upcoming_by_patterns`
+  has zero callers. `EpgManager.watchlist_notification` is emitted and never
+  connected — decide whether it is the hook for the parked "Alerts Matched"
+  queue or dead. `SourcesSection` (`gui/sidebar/sources.py`) is never
+  instantiated — Sources moved out of the sidebar stack in Wave 6.
+
+## Code Health / Refactor
+
 - [ ] **Document the title pipeline end to end — ingestion → identity → storage → query → exclusion → collapse → render (owner request, 2026-08-24).** Partial docs exist and none of them joins up: `docs/FILTERING_DESIGN.md` (the opt-out philosophy), `docs/FILTERING_INTEGRATION.md` (a wiring guide, likely stale), `docs/CONTENT_IDENTITY.md` (the `content_key` spec), `docs/METADATA_SYSTEM.md` (the enrichment chain), `docs/SOURCE_INGESTION_GENERALIZATION.md` (scoping for one problem source), plus DR-0007 and `docs/CRITICAL_RULES.md#channel-visibility`. What is missing is the **single narrative**: what happens to one provider row from the moment it arrives to the moment it becomes a row on screen, and — critically — **which decisions happen at which stage, and where each one can go wrong.**
   **Why it is worth writing, from one session's evidence.** Every defect found on 2026-08-24 was at a seam between two stages, and each took a fresh reverse-engineering pass to locate:
   1. **Identity.** The yearless `content_key` fallback silently merges distinct films (see the entry above). The rule is documented; the *consequence of an omitted year* is not.
@@ -301,6 +471,65 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 
 Shipped work is not kept here — git history and the What's New entries are the record.
 This section lists only what is still open.
+
+### The three big unbuilt features — sequencing (owner question, 2026-08-31)
+
+Confirmed against the tree on 2026-08-31: **downloads and DVR/recording are NOT
+BUILT** (no module, no class, no What's New entry), and **the watchlist is
+partially built** — entries persist to config and survive restarts, but the
+database move, match prioritization and preferred-playback-source are all open.
+Their full specs already live above under **Playback & Queue**; this is only the
+order to build them in and what each one blocks.
+
+**They share one dependency, and it already exists.** `ConnectionAccountant`
+(`core/connection_accountant.py`) arbitrates the per-source connection limit —
+every provider here is `max_connections = 1` — and its docstring already
+anticipates `"download"` and `"recording"` as future holder kinds. All three
+features are consumers of that one arbiter. **Do not add a second counter**;
+that is the single constraint most likely to be violated by building them
+separately.
+
+The priority axis is **not** foreground-vs-background — it is how recoverable
+the content is:
+
+| Holder | Yields to | Rationale |
+|---|---|---|
+| Playback | nothing | the user is watching now |
+| Download | playback | VOD is still there later |
+| Scheduled recording | **nothing** — warns instead | the moment is gone forever |
+| Signal-check sweep | everything | diagnostic, resumable |
+
+1. **Watchlist finish first.** It is the cheapest and it de-risks the other two,
+   because recording is *scheduled from* a watchlist/EPG entry. Three pieces:
+   move entries from config to the database (needed for any future multi-device
+   sync); rank a keyword's matches instead of showing them arbitrarily (quality,
+   then previously-watched, then user demote) — the **same ranking** the
+   preferred-playback-source item needs, so build it once; and remember which
+   source the user actually picked for a title.
+
+2. **Downloads second.** VOD only. Direct HTTP GET of the static Xtream VOD URL
+   **reusing the canonical headers/User-Agent** (dropping them is a known bug
+   class here), with a queue, resume-partial via HTTP Range, and progress
+   notifications. Range support is why direct GET beats `--stream-record`: a
+   preempted download must continue, not restart. Per-source scheduling — a
+   download on source B keeps running while you watch source A — plus a global
+   pause. This is where the accountant grows its `"download"` kind and where the
+   yields-to-playback rule gets its first real exercise.
+
+3. **Recording/DVR third**, because it needs both: the watchlist/EPG entry to
+   schedule from, and the accountant already carrying a second non-playback
+   kind. Record a live channel for a window, scheduled straight off an
+   `EpgProgramDB` row with pre/post padding. The behavioural difference from
+   downloads is the whole point: a recording **reserves** its slot and makes a
+   conflicting play warn the user rather than silently killing it.
+   **Known limitation:** "leave the app up" needs the GUI process running; a
+   true unattended PVR is the headless-backend stretch in PRODUCT_VISION.
+
+**Also queued, and unrelated to the above:** the signal-check sweep ("verify
+events") is specced and partly built — `core/stream_probe.py` and its settings
+exist; the storage columns, sweep engine, persistent notification and
+`hide_dead_events` wiring do not. It is the fourth consumer of the accountant
+and the lowest priority of all four, by design.
 
 **Next.**
 

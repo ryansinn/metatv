@@ -12,29 +12,33 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
-from metatv.gui.discover_card import _ContentCard, _FlowLayout
+from metatv.gui.discover_card import UniformCardGrid, card_metrics, _ContentCard
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
 
-_BROWSE_SCROLL_BATCH = 40
-
 
 class _BrowseContainer(QWidget):
+    """Host for the virtualized card grid.
+
+    Its height is computed from the card COUNT rather than from the widgets
+    that exist, so the scrollbar is correct for the whole result set while only
+    a viewport's worth of cards is alive.
+    """
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._flow: _FlowLayout | None = None
+        self._on_resize = None
 
-    def set_flow(self, flow: _FlowLayout) -> None:
-        self._flow = flow
+    def set_resize_handler(self, handler) -> None:
+        self._on_resize = handler
 
     def resizeEvent(self, event) -> None:
-        if self._flow:
-            h = self._flow.relayout(self.width())
-            self.setFixedHeight(max(h + 16, 100))
         super().resizeEvent(event)
+        if self._on_resize is not None:
+            self._on_resize()
 
 
 class _BrowseView(QWidget):
@@ -63,10 +67,8 @@ class _BrowseView(QWidget):
         self._image_cache = image_cache
         self._config = config
         self._all_cards: list[ContentCard] = []
-        self._flow: _FlowLayout | None = None
-        self._card_widgets: list[_ContentCard] = []
         self._all_pending_cards: list[ContentCard] = []
-        self._created_count: int = 0
+        self._grid: UniformCardGrid | None = None
         self._grid_mode = True
         # Pagination state for callers that page from the DB (recipe "Show all").
         # _has_more gates whether a near-bottom scroll may emit loadMoreRequested;
@@ -116,6 +118,12 @@ class _BrowseView(QWidget):
         self._grid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._grid_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._grid_container = _BrowseContainer()
+        m = card_metrics(getattr(self._config, "discover_zoom", 1.0))
+        self._grid = UniformCardGrid(
+            self._grid_container, item_w=m.card_w, item_h=m.card_h,
+            spacing=8, factory=self._build_card,
+        )
+        self._grid_container.set_resize_handler(self._relayout_grid)
         self._grid_scroll.setWidget(self._grid_container)
         self._grid_scroll.verticalScrollBar().valueChanged.connect(self._load_visible_browse)
         self._stack.addWidget(self._grid_scroll)
@@ -237,18 +245,11 @@ class _BrowseView(QWidget):
         self._load_visible_browse()
 
     def _rebuild(self, cards: list[ContentCard]) -> None:
-        if self._flow:
-            self._flow.clear()
-        self._card_widgets.clear()
         self._all_pending_cards = list(cards)
-        self._created_count = 0
-
-        self._flow = _FlowLayout(self._grid_container, spacing=8)
-        self._grid_container.set_flow(self._flow)
-
-        self._create_next_card_batch()
-        self._grid_container.resizeEvent(None)
-        QTimer.singleShot(80, self._load_visible_browse)
+        self._grid.set_cards(self._all_pending_cards)
+        self._relayout_grid()
+        self._grid_scroll.verticalScrollBar().setValue(0)
+        QTimer.singleShot(0, self._load_visible_browse)
 
         self._list_widget.clear()
         for card in cards:
@@ -263,44 +264,55 @@ class _BrowseView(QWidget):
                 item.setToolTip(f"{card.variant_count} source / quality variants of this title available")
             self._list_widget.addItem(item)
 
-    def _create_next_card_batch(self) -> None:
-        """Instantiate the next batch of pending card widgets and add to the flow layout."""
-        end = min(self._created_count + _BROWSE_SCROLL_BATCH, len(self._all_pending_cards))
-        for i in range(self._created_count, end):
-            card = self._all_pending_cards[i]
-            w = _ContentCard(card, self._image_cache, self._config,
-                             parent=self._grid_container)
-            w.clicked.connect(self.cardClicked)
-            w.doubleClicked.connect(self.cardDoubleClicked)
-            w.middleClicked.connect(self.cardMiddleClicked)
-            w.contextMenuRequested.connect(self.cardContextMenu)
-            self._flow.add(w)
-            w.show()
-            self._card_widgets.append(w)
-        self._created_count = end
-        self._grid_container.resizeEvent(None)
+    def _build_card(self, card: ContentCard) -> "_ContentCard":
+        """Make one card widget. Called by the grid when a card scrolls in.
+
+        May be called again for the same card after it scrolls out and back —
+        the widget carries no user-editable state, and the shared image cache
+        makes the second build free.
+        """
+        w = _ContentCard(card, self._image_cache, self._config,
+                         parent=self._grid_container)
+        w.clicked.connect(self.cardClicked)
+        w.doubleClicked.connect(self.cardDoubleClicked)
+        w.middleClicked.connect(self.cardMiddleClicked)
+        w.contextMenuRequested.connect(self.cardContextMenu)
+        return w
+
+    def _relayout_grid(self) -> None:
+        """Re-height the container for the CARD COUNT and re-window the grid.
+
+        The height comes from the count, not from the widgets that happen to
+        exist, so the scrollbar spans the whole result set immediately.
+        """
+        width = self._grid_scroll.viewport().width()
+        if width <= 0:
+            return
+        self._grid_container.setFixedHeight(
+            max(self._grid.total_height(width) + 16, 100))
+        self._grid.sync(
+            self._grid_scroll.verticalScrollBar().value(),
+            self._grid_scroll.viewport().height(),
+            width,
+        )
 
     def _load_visible_browse(self) -> None:
+        """Re-window the grid, hydrate what is on screen, page if near the end.
+
+        The image request goes only to the LIVE widgets — the window — rather
+        than to every card ever created, so this is a viewport-sized loop
+        whatever the result count is.
+        """
         vp_h = self._grid_scroll.viewport().height()
         if vp_h == 0:
             QTimer.singleShot(80, self._load_visible_browse)
             return
-        scroll_y = self._grid_scroll.verticalScrollBar().value()
 
-        if self._created_count < len(self._all_pending_cards) and self._card_widgets:
-            last_bottom = self._card_widgets[-1].y() + self._card_widgets[-1].height()
-            if last_bottom < scroll_y + vp_h * 2:
-                self._create_next_card_batch()
+        self._relayout_grid()
+        for card in self._grid.live_widgets():
+            card.request_image()
 
-        for card in self._card_widgets:
-            top = card.y()
-            if top + card.height() >= scroll_y and top <= scroll_y + vp_h:
-                card.request_image()
-
-        # All known cards rendered + near the bottom + caller has more → page.
-        if self._created_count >= len(self._all_pending_cards):
-            sb = self._grid_scroll.verticalScrollBar()
-            self._maybe_request_more(sb)
+        self._maybe_request_more(self._grid_scroll.verticalScrollBar())
 
     def _maybe_request_more_list(self) -> None:
         """List-view scroll handler: emit loadMoreRequested when near the bottom."""

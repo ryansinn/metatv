@@ -122,6 +122,23 @@ def test_all_views_are_deactivated_not_a_chosen_few():
         "epg_view": _View(visible=False),
         "explore_view": _View(visible=False),
         "events_view": _View(visible=False),
+        # This one was the bug. SourceAnalyticsView was held as
+        # `self.source_analytics` — no _view suffix — and `_deactivate_all_views`
+        # derives its list by filtering `vars(self)` on exactly that suffix, so
+        # it was silently never deactivated. Its `on_deactivate` is real work:
+        # five stale-result tokens guarding four concurrent `_run_query` calls,
+        # which could otherwise land in a window already being torn down.
+        #
+        # The test was ALSO wrong, in the way that made this invisible: it keyed
+        # "source_analytics_view", a name that existed nowhere in production, so
+        # the guard passed while guarding nothing.
+        #
+        # Fixed by renaming the attribute rather than dropping the suffix
+        # filter. The filter is load-bearing —
+        # `test_a_non_view_attribute_is_left_alone` below requires that a
+        # MANAGER defining `on_deactivate` is NOT swept here, because managers
+        # are stopped through the cleanup registry and doing both stops them
+        # twice.
         "source_analytics_view": _View(visible=False),
     }
     host = _Host(**views)

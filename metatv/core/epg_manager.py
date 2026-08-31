@@ -1206,7 +1206,12 @@ class EpgManager(QObject):
             if not provider_ids:
                 return
 
-            upcoming = repo.get_programs_starting_soon(minutes, provider_ids)
+            # `hidden` on BOTH axes: the feed list above, and the matched
+            # CHANNEL here. Different sets — cross-provider matching is
+            # deliberate — and only doing the first let 18 future programmes
+            # on 6 channels stay eligible to raise a toast.
+            upcoming = repo.get_programs_starting_soon(
+                minutes, provider_ids, excluded_channel_provider_ids=hidden)
             for prog in upcoming:
                 if prog.id in self._notified_this_session:
                     continue
