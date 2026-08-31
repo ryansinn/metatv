@@ -199,6 +199,43 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 
 ## Discovery & Recommendations
 
+- [ ] **Version Preferences — rename to Language/Region, fix the quality match, and rework the UI**
+  — *(owner, 2026-08-31, spotted in the Recommendations view)*. The feature is **built and wired**:
+  `version_score()` (`core/preference_engine.py:242`) feeds `collapse_best_variant`
+  (`repositories/channel_lens.py`), Discover, and three call sites in `main_window_metadata.py`, so
+  it already elects which variant of a bundled title you see. Its two INPUTS are wrong.
+
+  **1. "Preferred prefixes" should be Preferred Language (+ Region).** It matches
+  `channel.detected_prefix`, the raw conflated token. Measured: `detected_prefix` is **100%
+  populated** on 656,089 VOD rows across 147 values, and the top ones are overwhelmingly languages
+  — EN 91,082 · AR 62,348 · FR 59,132 · DE 46,840 · PL 41,006. `detected_region` is a separate
+  stored field at 76.3%. The parsing that makes the split possible now exists; the setting predates
+  it.
+
+  **2. "Preferred quality" is an over-matching substring bug.** It tests
+  `config.preferred_version_quality.upper() in channel.name.upper()` — a substring of the NAME,
+  which (a) re-parses at runtime against the project's compute-at-ingestion rule when
+  `detected_quality` is stored, and (b) over-matches badly. Setting **HD** boosts **3,084** VOD rows
+  when only **303** are HD: it matches "Ba**ghd**ad", "Savage Ra**ghd**a", "Touc**hd**own", and every
+  **F**HD/**U**HD row. **2,781 rows get a boost they should not.**
+
+  **3. The axis that matters is language, and the mockup should say so.** Of 109,398 bundled titles
+  with 2+ variants: **42% differ by language/prefix** (the preference genuinely decides), only **5%
+  differ by quality**. And quality is a LIVE convention — `detected_quality` is set on 35.6% of live
+  rows but just **3.4%** of VOD — so a VOD quality preference is near-inert *even done correctly*.
+  Scope and explain it rather than promoting it beside language.
+
+  **4. Two collapse paths, and only one honours the preference.**
+  `channel_lens.collapse_best_variant` elects by `version_score`; the main channel list/search uses
+  a separate `collapse_variants` (`config.collapse_variants_in_list`). Confirm both elect the same
+  way — the owner's ask is that *search results* show the preferred version, which is where a
+  divergence would be most visible.
+
+  **5. UI.** Buried in a section collapsed by default (`preferences_version_prefs_expanded=False`),
+  with a bare `QListWidget`, a 48px "Add" and three 28px icon buttons. Wants the settled chip
+  grammar. **Owner asked for a full mockup artifact before any build.**
+
+
 - [ ] **Related content suggestions** — in details pane, beyond current Similar Titles lightbox
 - [ ] **Finish the Similar Titles lightbox — surface "why similar" per title.** The #327 redesign delivered the see-and-pick core: the lightbox now shows a **scrollable contextual strip of the similar set** (poster + rating/runtime/type + source) with a ⤢ dive-in on every row, so you no longer cycle blindly through prev/next arrows (`similar_lightbox.py`, `similar_lightbox_card.py`). **Remaining:** surface **why each is similar** — the link reason (a shared *title token* for Similar Titles, or shared genre/cast/director for the metadata "Similar Content" sibling), tying to the "why was this recommended?" explainer. Broader vector: surface "more like this" in more places (inline details, **post-playback "similar next"**, History/Recent, "because you watched X"). It renders the same `discover_card` + adjacency plumbing as Discover (DR-0002). **Cleanup when touched:** audit the redesigned `similar_lightbox.py` for any remaining inline color literals (tokenize to `theme.COLOR_*`, CLAUDE.md no-inline-color rule).
 - [ ] **Adjacency navigation breadcrumb — the deep-rabbit-hole trail.** *(LARGELY SHIPPED v0.14.1: the **Explore trail-map** (#336) — a cascading-columns adjacency browser opened from the lightbox, seeded with the walked trail — realizes "see the whole trail", with path-aware **breadcrumb highlighting** (#338, part E); an in-lightbox one-line breadcrumb remains the lighter inline variant.)* Non-destructive adjacency is now complete: the #327 redesign made *in-lightbox* exploration non-destructive (**Back** with Backspace, **Esc** returns to your anchor), and a details-pane Similar-title click now **opens the lightbox by default** instead of replacing the pane — the per-row ⤢ button was removed (the row itself is the trigger; right-click still commits to the full details pane). **Remaining:** a *deep* rabbit hole (A→B→C→D inside the overlay) still benefits from seeing the whole trail — add a **subtle in-lightbox breadcrumb** (*Origin › A › B*), **not a button**, which makes the thread legible (see "Two contextual discovery sections" below and DR-0003 — a weak "just a shared word" hop is the feature working, not a defect). Keep on the canonical details/lightbox surface (DR-0002).

@@ -180,8 +180,11 @@ def humanize_countdown(start: "datetime | None", now: "datetime") -> str:
     actually wants.
 
     So the ladder here goes UP into days rather than switching to a clock, and
-    it goes DOWN to seconds, because the last minute before a live event is the
-    one where a ticking number means something.
+    it STOPS at minutes. It used to go down to seconds on the argument that the
+    last minute before an event is where a ticking number means something; the
+    owner overruled that — "ticking down by seconds seems busy and obnoxious" —
+    and the cost was real, since a seconds rung forces a 1 Hz repaint of the
+    whole grid to move one digit. Under a minute now reads "any moment".
 
     ``now`` is passed in and is never re-read from the clock inside — the whole
     point is that a repaint tick supplies it, and a function that quietly asks
@@ -193,7 +196,7 @@ def humanize_countdown(start: "datetime | None", now: "datetime") -> str:
         now: The instant to measure from. Same naivety as *start*.
 
     Returns:
-        ``"in 3d 4h"`` / ``"in 4h 12m"`` / ``"in 12m 30s"`` / ``"in 47s"`` for
+        ``"in 3d 4h"`` / ``"in 4h 12m"`` / ``"in 12m"`` / ``"any moment"`` for
         the future; ``"ended"`` or ``"ended 3d ago"`` for the past; ``""`` when
         *start* is None.
     """
@@ -211,25 +214,69 @@ def humanize_countdown(start: "datetime | None", now: "datetime") -> str:
     if hours:
         return f"in {hours}h {minutes}m"
     if minutes:
-        return f"in {minutes}m {seconds}s"
-    return f"in {seconds}s"
+        return f"in {minutes}m"
+    return "any moment"
+
+
+#: How long after its start an event is still shown as under way. No provider
+#: sends an end time and no row has both a parsed start and an EPG stop_time
+#: (measured 2026-08-31: 377 of 31,296 sports rows have EPG at all, and ZERO
+#: have both), so "still on" is a window rather than a fact.
+ELAPSED_WINDOW_S = 4 * _HOUR
 
 
 def is_countdown_live(start: "datetime | None", now: "datetime") -> bool:
-    """Whether :func:`humanize_countdown` would change within the next second.
+    """Whether this row's time string still moves and is worth repainting.
 
-    The Events view repaints on a 1 Hz timer, and a grid of 2,800 cards that
+    The Events view repaints on a MINUTE timer, and a grid of 2,800 rows that
     all read ``"in 3d 4h"`` gains nothing from ticking — the string is stable
-    for the next hour. Only cards under a day are worth repainting per second.
+    for the next hour. Rows under a day out, or under way within
+    :data:`ELAPSED_WINDOW_S`, are the ones whose text actually changes.
 
     Args:
         start: The event's start, or None.
         now: The instant to measure from.
 
     Returns:
-        True when *start* is in the future and less than a day away.
+        True when *start* is within a day ahead or the elapsed window behind.
     """
     if start is None:
         return False
     delta = (start - now).total_seconds()
-    return 0 <= delta < _DAY
+    return -ELAPSED_WINDOW_S <= delta < _DAY
+
+
+def humanize_elapsed(start: "datetime | None", now: "datetime") -> str:
+    """How long an event has been under way — ``"58m in"``, ``"2h 5m in"``.
+
+    **Deliberately not a progress bar.** A bar needs an end, and there is none
+    to be had: no provider sends a duration, ``event_metadata`` carries only a
+    start, and of 31,296 sports rows exactly **zero** have both a parsed start
+    and an EPG ``stop_time`` to borrow one from. A bar would therefore have to
+    invent its denominator from an assumed match length — and it would read
+    "94%" on a game in extra time, which is the same shape of confident wrongness
+    as the provider's own ``LIVE`` token that this view already declines to trust.
+
+    Elapsed is what is actually known. When a sports data feed lands (ROADMAP:
+    live event status) a real bar becomes possible and this is where it goes.
+
+    Args:
+        start: When the event began, or None.
+        now: The instant to measure from.
+
+    Returns:
+        ``"just started"`` / ``"58m in"`` / ``"2h 5m in"``; ``""`` when *start*
+        is None or still in the future.
+    """
+    if start is None:
+        return ""
+    delta = int((now - start).total_seconds())
+    if delta < 0:
+        return ""
+    hours, rem = divmod(delta, _HOUR)
+    minutes = rem // _MINUTE
+    if hours:
+        return f"{hours}h {minutes}m in"
+    if minutes:
+        return f"{minutes}m in"
+    return "just started"

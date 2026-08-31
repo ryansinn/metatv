@@ -1052,6 +1052,9 @@ class Config(BaseModel):
     # That file is created on first run and is freely editable.
     sports_filter_state: dict = Field(default_factory=dict)
     events_filter_state: dict = Field(default_factory=dict)
+    #: Events time rendering: "elapsed" (default) | "countdowns" | "off".
+    #: Seconds were rejected as "busy and obnoxious"; see events_view._TICK_MS.
+    events_live_timing: str = "elapsed"
 
     # EPG settings
     epg_default_refresh_interval: str = "auto"  # Global default interval; sources inherit this when per-source = "default"

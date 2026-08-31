@@ -34,7 +34,8 @@ from metatv.gui import theme as _theme
 from metatv.gui.content_view import ContentView
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
-from metatv.gui.relative_time import humanize_countdown, is_countdown_live
+from metatv.gui.relative_time import (
+    ELAPSED_WINDOW_S, humanize_countdown, humanize_elapsed, is_countdown_live)
 from metatv.gui.view_scope import resolve_visibility_scope
 
 #: (bucket, label, tooltip). ``""`` means both buckets — the default, because
@@ -47,7 +48,10 @@ SCOPES: tuple[tuple[str, str, str], ...] = (
 
 #: Repaint cadence for the countdowns. Only cards under a day away are ticked —
 #: see is_countdown_live.
-_TICK_MS = 1000
+#: One minute, not one second. The owner's call — "ticking down by seconds
+#: seems busy and obnoxious" — and it repaints the grid 60x less to lose
+#: nothing, because humanize_countdown no longer has a seconds rung to move.
+_TICK_MS = 60_000
 
 
 class _EventCard(QFrame):
@@ -184,12 +188,15 @@ class _EventCard(QFrame):
             out.append(self.dto.detected_quality.upper())
         return out[:3]
 
-    def refresh_countdown(self, now: datetime) -> None:
+    def refresh_countdown(self, now: datetime, mode: str = "elapsed") -> None:
         """Re-render the time strings against *now*.
 
         Args:
             now: The tick's instant, supplied by the view — never read from the
                 clock in here, so the whole grid renders one consistent frame.
+            mode: ``config.events_live_timing``, passed down rather than read
+                here: the view owns the Config and a card that reaches for one
+                would need it threaded through every construction site.
         """
         start = self.dto.event_start_time
         if start is None:
@@ -200,7 +207,22 @@ class _EventCard(QFrame):
             self.countdown_label.setText("")
             return
         self.when_label.setText(start.strftime("%a %b %-d, %-I:%M %p"))
-        self.countdown_label.setText(humanize_countdown(start, now))
+
+        if mode == "off":
+            self.countdown_label.setText("")
+        elif 0 <= (now - start).total_seconds() < ELAPSED_WINDOW_S:
+            # Under way. Elapsed rather than a progress bar: a bar needs an end,
+            # and NO row has one — of 31,296 sports rows, 377 have EPG and zero
+            # have both a parsed start and an EPG stop_time. A bar would invent
+            # its denominator and read "94%" on a game in extra time.
+            #
+            # Bounded by the window, because without an end time "under way" has
+            # to expire: a fixture that started 20 hours ago is over, and
+            # "20h 0m in" says the opposite with confidence.
+            self.countdown_label.setText(
+                humanize_elapsed(start, now) if mode == "elapsed" else "")
+        else:
+            self.countdown_label.setText(humanize_countdown(start, now))
 
     def wants_ticks(self, now: datetime) -> bool:
         """Whether this card's countdown changes within the second."""
@@ -363,11 +385,12 @@ class EventsView(ContentView):
             return
         now = datetime.now()
         self._clear()
+        mode = getattr(self.config, "events_live_timing", "elapsed")
         for dto in self._ordered(rows, now):
             card = _EventCard(dto, self.grid_container)
             card.play_requested.connect(self.playRequested)
             card.select_requested.connect(self.channelSelected)
-            card.refresh_countdown(now)
+            card.refresh_countdown(now, mode)
             self._cards.append(card)
             self.grid.addWidget(card)
         self.count_label.setText(self._count_line(rows, now))
@@ -437,10 +460,13 @@ class EventsView(ContentView):
         "in 3d 4h" and that is stable for the next hour; ticking 2,800 of them
         at 1 Hz would burn the UI thread to change nothing.
         """
+        if getattr(self.config, "events_live_timing", "elapsed") == "off":
+            return
         now = datetime.now()
+        mode = getattr(self.config, "events_live_timing", "elapsed")
         for card in self._cards:
             if card.wants_ticks(now):
-                card.refresh_countdown(now)
+                card.refresh_countdown(now, mode)
 
     # ------------------------------------------------------------------ #
     # State                                                               #

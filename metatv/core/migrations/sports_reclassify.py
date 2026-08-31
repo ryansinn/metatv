@@ -82,10 +82,13 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v3 (2026-08-31): two more date forms — a trailing parenthesised timestamp
+#: (842 rows stored nothing, 603 of them on the 'sports' branch) and the
+#: '@ Aug 27 11:00 AM' form (205 rows). Corpus coverage 1,527 -> 4,205.
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
