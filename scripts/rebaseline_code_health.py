@@ -80,6 +80,27 @@ def measure_get_session_calls(root: Path = METATV_ROOT) -> int:
     return total
 
 
+#: Files the SIZE ratchet does not apply to, and why. A size ratchet asks
+#: "is this file doing too many things?" — a fair question about a module and a
+#: meaningless one about a REGISTER, where every entry is one independent
+#: declaration and length is a count of features, not of tangling.
+#:
+#: ``config.py`` is the settings register. It sat at exactly its baseline, which
+#: meant *no new setting could be added without re-baselining* — so the ratchet
+#: fired on every feature that has a preference, and the fix was always "raise
+#: the number". A guard whose only remedy is to disable it teaches people to
+#: disable guards, and it costs the signal on the files where growth really does
+#: mean tangling.
+#:
+#: Exempt from SIZE only. Every other check (get_session drift, the probe
+#: budget, composed-stylesheet budget) still applies here.
+SIZE_EXEMPT: dict[str, str] = {
+    "metatv/core/config.py":
+        "settings register — length is a count of user preferences, not of "
+        "responsibilities, and a shrink-only cap forbids adding a setting",
+}
+
+
 def check_sizes(measured: dict[str, int], baseline: dict[str, int]) -> list[str]:
     """Return one actionable violation message per file over its ratchet limit.
 
@@ -88,9 +109,14 @@ def check_sizes(measured: dict[str, int], baseline: dict[str, int]) -> list[str]
     from the baseline is capped at the flat floor. Every violation is
     reported (not just the first), and each message names the file, its
     baseline, its current size, the overage, and both remediation options.
+
+    Files in :data:`SIZE_EXEMPT` are skipped — see the note there for why a
+    register is not a module.
     """
     violations: list[str] = []
     for path, lines in sorted(measured.items()):
+        if path in SIZE_EXEMPT:
+            continue
         recorded = baseline.get(path, 0)
         limit = max(SIZE_FLOOR, recorded)
         if lines > limit:
