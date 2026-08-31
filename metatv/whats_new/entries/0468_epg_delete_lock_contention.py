@@ -24,14 +24,12 @@ ENTRY = WhatsNewEntry(
         "programmes, and deleting a source.",
     ),
     test_steps=(
-        ("Refresh a source that has a TV guide loaded and let it run to the "
-         "end. It should report success, not \"database is locked\".",
-         "view:sources"),
+        "Refresh a source that has a TV guide loaded and let it run to the "
+        "end. It should report success, not \"database is locked\".",
         "While that refresh is running, start a second source refreshing. "
         "Both should finish successfully.",
-        ("Turn EPG off for a source with a full guide, then confirm On Now "
-         "and Watch Alerts show no leftover programmes from it.",
-         "view:sources"),
+        "Turn EPG off for a source with a full guide, then confirm On Now "
+        "and Watch Alerts show no leftover programmes from it.",
         "Turn EPG back on and refresh the guide; confirm programmes reappear "
         "and the app stays responsive throughout.",
         "Delete a source that has a guide loaded and confirm the delete "
