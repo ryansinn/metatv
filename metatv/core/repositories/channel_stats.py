@@ -5,11 +5,15 @@ query methods into a mixin, keeping channel.py under the 1000-line rule. No logi
 changed — ChannelRepository composes _ChannelStatsMixin.
 """
 import re
+from dataclasses import replace
 from typing import Optional, List, Dict
 
 from sqlalchemy import func, or_
 
+from metatv.core import channel_visibility
+from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB
+from metatv.core.repositories.dtos import SportsChannelDTO
 from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
 
@@ -233,11 +237,61 @@ class _ChannelStatsMixin:
     # Special content queries
     # -------------------------------------------------------------------------
 
+    def _special_content_query(
+        self,
+        special_view: str,
+        scope: "VisibilityScope",
+        *columns,
+    ):
+        """Base query for one ``special_view`` bucket, visibility applied.
+
+        The four public methods below each hand-wrote the same four clauses —
+        ``special_view == X``, ``is_hidden == False``, a non-NULL stream_url and
+        ``NOT LIKE '#%'`` — and **none of them excluded a hidden provider.**
+        On the owner's library that is not a rounding error: 16,715 of the
+        35,181 sports rows belong to TREX Shared, which is ``is_active = 0``.
+        A Sports view built on those queries would have shown 16,715 channels
+        from a source the owner had switched off, which the project treats as an
+        absolute gate rather than a soft filter.
+
+        So the exclusion axes come from :class:`VisibilityScope` (CLAUDE.md:
+        never hand-thread an axis onto a channel query), and *scope* is
+        REQUIRED — there were no callers, so making it impossible to forget cost
+        nothing and is the whole reason the gap existed.
+
+        ``is_hidden`` stays here rather than in the scope: these buckets are
+        forward-looking browse surfaces where a user-hidden channel must not
+        appear, and passing ``include_hidden=True`` lets the scope's own gate
+        stand down in favour of this one — the same split ``discovery_engine``
+        documents.
+
+        Args:
+            special_view: ``'sports'``, ``'live_event'`` or ``'ppv'``.
+            scope: Resolved exclusions from the control layer.
+            *columns: Columns to select; the whole ``ChannelDB`` when omitted.
+
+        Returns:
+            A SQLAlchemy ``Query``, unordered.
+        """
+        query = self.session.query(*(columns or (ChannelDB,))).filter(
+            ChannelDB.special_view == special_view,
+            ChannelDB.is_hidden == False,  # noqa: E712
+            ChannelDB.stream_url.isnot(None),
+            # TREX-style organizational headers are not channels.
+            ~ChannelDB.name.like('#%'),
+        )
+        return channel_visibility.apply(
+            query,
+            replace(scope, include_hidden=True),
+            channel_cls=ChannelDB,
+        )
+
     def get_sports_channels(
         self,
+        scope: VisibilityScope,
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
-    ) -> List[ChannelDB]:
+    ) -> List["SportsChannelDTO"]:
         """Get sports channels with optional cascade filters.
 
         Empty or None filter lists mean "no filter — include all".
@@ -248,15 +302,15 @@ class _ChannelStatsMixin:
             sport_types: Canonical sport names to include (e.g. ['hockey', 'soccer']).
             league_names: League display names to include (e.g. ['NHL', 'Premier League']).
 
+        Args (continued):
+            scope: Resolved visibility exclusions. REQUIRED — see
+                :meth:`_special_content_query` for why it is not optional.
+
         Returns:
-            Channels ordered by sport_type, league_name, name.
+            DTOs ordered by sport_type, league_name, name. Never ORM objects:
+            the caller reads them on the main thread, after the session closed.
         """
-        query = self.session.query(ChannelDB).filter(
-            ChannelDB.special_view == 'sports',
-            ChannelDB.is_hidden == False,
-            ChannelDB.stream_url.isnot(None),
-            ~ChannelDB.name.like('#%'),
-        )
+        query = self._special_content_query('sports', scope)
 
         if sport_types:
             lower_types = [s.lower() for s in sport_types]
@@ -271,24 +325,37 @@ class _ChannelStatsMixin:
         if league_names:
             query = query.filter(ChannelDB.league_name.in_(league_names))
 
-        return query.order_by(
+        rows = query.order_by(
             ChannelDB.sport_type, ChannelDB.league_name, ChannelDB.name
         ).all()
+        return [SportsChannelDTO.from_orm(c) for c in rows]
 
-    def get_events_channels(self) -> List[ChannelDB]:
-        """Get all live event channels (special_view == 'live_event').
+    def get_events_channels(
+        self,
+        scope: VisibilityScope,
+        special_view: str = 'live_event',
+    ) -> List["SportsChannelDTO"]:
+        """Get one events bucket.
+
+        Parameterised by bucket rather than split into two near-identical
+        methods: the mockup settled Events as ONE view with a scope switch over
+        ``live_event`` and ``ppv``, because the rows are the same shape and the
+        difference is a stored enum.
+
+        Args:
+            scope: Resolved visibility exclusions.
+            special_view: ``'live_event'`` (default) or ``'ppv'``.
 
         Returns:
-            Channels ordered by name.
+            DTOs ordered by name.
         """
-        return self.session.query(ChannelDB).filter(
-            ChannelDB.special_view == 'live_event',
-            ChannelDB.is_hidden == False,
-            ChannelDB.stream_url.isnot(None),
-            ~ChannelDB.name.like('#%'),
-        ).order_by(ChannelDB.name).all()
+        rows = self._special_content_query(special_view, scope).order_by(
+            ChannelDB.name).all()
+        return [SportsChannelDTO.from_orm(c) for c in rows]
 
-    def get_sports_taxonomy(self) -> Dict[str, Dict[str, List[str]]]:
+    def get_sports_taxonomy(
+        self, scope: VisibilityScope,
+    ) -> Dict[str, Dict[str, List[str]]]:
         """Build the sport → league → team hierarchy for cascade filter dropdowns.
 
         Channels without a sport_type are placed under the key ``'unknown'``.
@@ -300,15 +367,9 @@ class _ChannelStatsMixin:
             Nested dict: ``{sport: {league: [team, ...]}}`` — leagues and teams
             are sorted alphabetically.
         """
-        rows = self.session.query(
-            ChannelDB.sport_type,
-            ChannelDB.league_name,
-            ChannelDB.team_name,
-        ).filter(
-            ChannelDB.special_view == 'sports',
-            ChannelDB.is_hidden == False,
-            ChannelDB.stream_url.isnot(None),
-            ~ChannelDB.name.like('#%'),
+        rows = self._special_content_query(
+            'sports', scope,
+            ChannelDB.sport_type, ChannelDB.league_name, ChannelDB.team_name,
         ).distinct().all()
 
         taxonomy: Dict[str, Dict[str, set]] = {}
@@ -325,20 +386,14 @@ class _ChannelStatsMixin:
             for sport, leagues in sorted(taxonomy.items())
         }
 
-    def get_sports_counts(self) -> Dict[str, int]:
+    def get_sports_counts(self, scope: VisibilityScope) -> Dict[str, int]:
         """Return channel counts grouped by sport_type, for dropdown badges.
 
         Returns:
             Dict mapping sport display name (or 'unknown') to channel count.
         """
-        rows = self.session.query(
-            ChannelDB.sport_type,
-            func.count(ChannelDB.id),
-        ).filter(
-            ChannelDB.special_view == 'sports',
-            ChannelDB.is_hidden == False,
-            ChannelDB.stream_url.isnot(None),
-            ~ChannelDB.name.like('#%'),
+        rows = self._special_content_query(
+            'sports', scope, ChannelDB.sport_type, func.count(ChannelDB.id),
         ).group_by(ChannelDB.sport_type).all()
 
         return {(sport if sport else 'unknown'): count for sport, count in rows}

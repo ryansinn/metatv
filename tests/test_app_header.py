@@ -118,12 +118,22 @@ def test_the_header_reads_brand_search_switcher_then_actions(window):
     ]
 
 
-def test_the_switcher_carries_all_five_views(window):
-    labels = [window._nav_track.layout().itemAt(i).widget().text()
+def test_the_switcher_renders_exactly_what_it_declares(window):
+    """The rendered chips must match NAV_CHIP_SPECS exactly, in order.
+
+    Was a hand-written list of five labels, which a sixth view broke. Deriving
+    the expectation is not tautological: the assertion is that the RENDERING
+    LOOP produces one chip per spec, in spec order, with the spec's label — a
+    dropped chip, a duplicate, or a reordering all still fail. The concrete
+    anchor below keeps a wholesale corruption of the list catchable.
+    """
+    from metatv.gui.app_header import NAV_CHIP_SPECS
+
+    labels = [window._nav_track.layout().itemAt(i).widget().text().strip()
               for i in range(window._nav_track.layout().count())]
-    assert [t.strip() for t in labels] == [
-        "Search", "EPG", "Recommended", "Discover", "Recipe",
-    ]
+    assert labels == [label for _, label, *_ in NAV_CHIP_SPECS]
+    assert labels[0] == "Search", "Search is the switcher's home position"
+    assert "Sports" in labels
 
 
 def test_settings_is_not_in_the_header(window):
@@ -334,3 +344,56 @@ def test_clicking_the_playback_health_readout_reaches_its_slot(window):
 
     label.mousePressEvent(_press(Qt.MouseButton.RightButton))
     assert fired == [1], "right click emitted clicked; the button test is dead"
+
+
+def test_the_sports_chip_switches_to_the_sports_view(window):
+    """The real host, not a stub: chip → switch → view shown → chip alone lit.
+
+    Every piece of this wiring is a hand-edit in a different file — the spec
+    tuple, the registration, the switch method, the toggle slot, and the
+    deactivation branch — and a miss in any one of them fails only when a user
+    clicks the chip. A stub host would not have caught a signal connected to a
+    handler with the wrong arity either.
+
+    Restores the previous view, per this module's fixture contract.
+    """
+    from metatv.gui.app_header import NAV_CHIP_SPECS
+
+    previous = window.view_mode
+    try:
+        window.sports_chip.set_enabled(True)
+        window.on_sports_view_toggle()
+
+        assert window.view_mode == "sports"
+        assert not window.sports_view.isHidden()
+        assert window.stats_label.text() == "Sports"
+
+        lit = [attr for attr, *_ in NAV_CHIP_SPECS
+               if getattr(window, attr).is_enabled()]
+        assert lit == ["sports_chip"], (
+            f"chips lit while Sports is showing: {lit} — a chip missing from "
+            "the deactivation list stays lit and nothing raises")
+    finally:
+        window.switch_to_list_view()
+        window.view_mode = previous
+
+
+def test_switching_away_hides_the_sports_view(window):
+    """Two views drawn at once is what a missed hide looks like.
+
+    Only the HIDING is asserted here. Deactivation is gated on
+    ``view.isVisible()``, which is False for every child of a window this
+    fixture never shows — the token behaviour is covered against a live view in
+    ``test_sports_view.test_deactivate_invalidates_an_in_flight_result``.
+    """
+    previous = window.view_mode
+    try:
+        window.sports_chip.set_enabled(True)
+        window.on_sports_view_toggle()
+        assert not window.sports_view.isHidden()
+
+        window.switch_to_list_view()
+        assert window.sports_view.isHidden(), (
+            "the view stayed visible behind the channel list")
+    finally:
+        window.view_mode = previous

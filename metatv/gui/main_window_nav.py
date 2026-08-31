@@ -1,7 +1,9 @@
 """Nav/view-switching mixin — chip toggling, view activation, filter controls.
 
 Extracted from MainWindow; mixed in via:
-    class MainWindow(_NavMixin, ..., QMainWindow): ...
+
+
+class MainWindow(_NavMixin, ..., QMainWindow): ...
 
 All methods access state set in MainWindow.__init__ via ``self.*``.
 """
@@ -9,6 +11,32 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 from __future__ import annotations
 
 from loguru import logger
+
+
+#: Every host-owned widget that occupies the content area, in no particular
+#: order. ``_hide_all_content_views`` iterates it to deactivate and hide them —
+#: one list, so a view added to the deactivation half and forgotten in the
+#: hiding half cannot happen again (it happened).
+#:
+#: Lazily-built views are simply absent from the host until first use, so the
+#: loop reads ``self.__dict__`` — see the note at the loop for why that is not
+#: interchangeable with ``getattr``.
+CONTENT_VIEW_ATTRS: tuple[str, ...] = (
+    "channels_list",
+    "series_tree",
+    "epg_view",
+    "preferences_view",
+    "discover_view",
+    "provider_editor",
+    "source_analytics",
+    "recipe_view",
+    "sports_view",
+    "missing_tmdb_view",
+    "reconnect_engaged_view",
+    "metadata_enrichment_view",
+    "sources_manager_view",
+)
+
 
 
 # ── QA deep-link target registry (single source of truth) ────────────────────
@@ -48,81 +76,52 @@ class _NavMixin:
         which is the enumeration that leaves the next view out.
         """
         self.status_bar.clearMessage()
-        if self.epg_view.isVisible():
-            self.epg_view.on_deactivate()
-        if self.discover_view.isVisible():
-            self.discover_view.on_deactivate()
-        if self.preferences_view.isVisible():
-            self.preferences_view.on_deactivate()
-        # Deactivate source analytics view if it exists and is visible
-        if "source_analytics" in self.__dict__:
-            if self.source_analytics.isVisible():
-                self.source_analytics.on_deactivate()
-        # Deactivate recipe view if it exists and is visible
-        if "recipe_view" in self.__dict__:
-            if self.recipe_view.isVisible():
-                self.recipe_view.on_deactivate()
-        # Deactivate the Missing TMDb diagnostic view if it exists and is visible
-        if "missing_tmdb_view" in self.__dict__:
-            if self.missing_tmdb_view.isVisible():
-                self.missing_tmdb_view.on_deactivate()
-        # Deactivate the Reconnect Engaged Content view if it exists and is visible
-        if "reconnect_engaged_view" in self.__dict__:
-            if self.reconnect_engaged_view.isVisible():
-                self.reconnect_engaged_view.on_deactivate()
-        # Deactivate the background metadata enrichment progress view if it
-        # exists and is visible (the queue itself keeps running regardless).
-        if "metadata_enrichment_view" in self.__dict__:
-            if self.metadata_enrichment_view.isVisible():
-                self.metadata_enrichment_view.on_deactivate()
-        # Deactivate the Sources manager view if it exists and is visible (Wave 6 —
-        # Sources moved out of the sidebar stack into the status strip + this view).
-        if "sources_manager_view" in self.__dict__:
-            if self.sources_manager_view.isVisible():
-                self.sources_manager_view.on_deactivate()
-        # Deactivate whichever Explore view (History / Favorites / Queue /
-        # Recommended) is currently visible.  They are built lazily, so the dict may
-        # be absent (early call) or empty.
+        # ONE list, both operations. This method used to carry two: a
+        # hand-written sequence of ``if visible: view.on_deactivate()`` and a
+        # separate hand-written sequence of ``view.setVisible(False)``. Adding
+        # the Sports view to the first and not the second left it VISIBLE
+        # behind the next view — nothing raised, and the only symptom was two
+        # views drawn at once.
+        #
+        # ``getattr(view, "on_deactivate", None)`` is polymorphism, not a
+        # defensive hasattr: the list genuinely mixes ContentViews with a
+        # QTreeView and a QListView, and only the former have a lifecycle.
+        for attr in CONTENT_VIEW_ATTRS:
+            # ``self.__dict__.get``, NOT ``getattr(self, attr, None)``. On a
+            # skeleton host (``MainWindow.__new__``, which several lifecycle
+            # tests use) attribute access goes through Qt and raises
+            # RuntimeError — which a None default does not absorb, because it
+            # is not AttributeError. The line each lazy view used to carry,
+            # ``if "recipe_view" in self.__dict__``, was dodging exactly this.
+            view = self.__dict__.get(attr)
+            if view is None:
+                continue
+            deactivate = getattr(view, "on_deactivate", None)
+            if deactivate is not None and view.isVisible():
+                deactivate()
+            view.setVisible(False)
+
+        # Explore views (History / Favorites / Queue / Recommended) are built
+        # lazily into a DICT rather than as attributes, so they are their own
+        # loop — and their deactivation restores the flanking panels the
+        # activation auto-collapsed, which nothing else in the list needs.
         if "explore_views" in self.__dict__:
             for view in self.explore_views.values():
-                if not view.isVisible():
-                    continue
-                view.on_deactivate()
-                # Symmetric restore: re-expand exactly the flanking panels the
-                # Explore activation auto-collapsed (see switch_to_explore_view), so
-                # the sidebar + details pane return to their prior widths.
-                splitter = getattr(self, "main_splitter", None)
-                if splitter is not None:
-                    for i in getattr(self, "_explore_restored_panels", (0, 2)):
-                        splitter.expand_panel(i)
-                    self._explore_restored_panels = []
-        # EPG stats-line controls (source status + Refresh) belong to the EPG view
-        # only — hide them whenever we blank the content area (guarded: the stats
-        # line is built after this mixin's earliest possible call).
+                if view.isVisible():
+                    view.on_deactivate()
+                    splitter = getattr(self, "main_splitter", None)
+                    if splitter is not None:
+                        for i in getattr(self, "_explore_restored_panels", (0, 2)):
+                            splitter.expand_panel(i)
+                        self._explore_restored_panels = []
+                view.setVisible(False)
+
+        # EPG stats-line controls (source status + Refresh) belong to the EPG
+        # view only — hide them whenever we blank the content area (guarded:
+        # the stats line is built after this mixin's earliest possible call).
         if "epg_status_label" in self.__dict__:
             self.epg_status_label.setVisible(False)
             self.epg_refresh_btn.setVisible(False)
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.preferences_view.setVisible(False)
-        self.discover_view.setVisible(False)
-        self.provider_editor.setVisible(False)
-        if "source_analytics" in self.__dict__:
-            self.source_analytics.setVisible(False)
-        if "recipe_view" in self.__dict__:
-            self.recipe_view.setVisible(False)
-        if "missing_tmdb_view" in self.__dict__:
-            self.missing_tmdb_view.setVisible(False)
-        if "reconnect_engaged_view" in self.__dict__:
-            self.reconnect_engaged_view.setVisible(False)
-        if "metadata_enrichment_view" in self.__dict__:
-            self.metadata_enrichment_view.setVisible(False)
-        if "sources_manager_view" in self.__dict__:
-            self.sources_manager_view.setVisible(False)
-        if "explore_views" in self.__dict__:
-            for view in self.explore_views.values():
-                view.setVisible(False)
         self.search_controls.setVisible(False)
         self._sync_header_search_visibility(False)
         self._hidden_banner.setVisible(False)
@@ -322,6 +321,15 @@ class _NavMixin:
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
 
+    def switch_to_sports_view(self) -> None:
+        """Switch content area to the Sports view."""
+        self.__dict__.pop("_first_source_pending", None)
+        self.view_mode = "sports"
+        self._hide_all_content_views()
+        self.sports_view.setVisible(True)
+        self.stats_label.setText("Sports")
+        self.sports_view.on_activate()
+
     def switch_to_sources_manager(self) -> None:
         """Switch content area to the Sources manager view.
 
@@ -491,10 +499,23 @@ class _NavMixin:
             self.details_pane.show_channel(channel)
 
     def _deactivate_view_chips(self, *keep) -> None:
-        """Deactivate all view chips except those in keep."""
-        chips = [self.search_chip, self.epg_chip, self.prefs_chip, self.discover_chip]
-        if "recipe_chip" in self.__dict__:
-            chips.append(self.recipe_chip)
+        """Deactivate all view chips except those in keep.
+
+        Derived from ``app_header.NAV_CHIP_SPECS`` — the same tuple that BUILDS
+        the switcher — rather than a second hand-written list. A chip missing
+        from a hand-written copy stays lit while another view is showing, and
+        nothing fails; the sixth chip is what made that worth fixing rather than
+        extending.
+
+        ``getattr`` with a default because the chips are created together but
+        this can be reached before ``_create_nav_group`` on an early path.
+        """
+        from metatv.gui.app_header import NAV_CHIP_SPECS
+
+        chips = [
+            chip for attr, *_ in NAV_CHIP_SPECS
+            if (chip := getattr(self, attr, None)) is not None
+        ]
         for chip in chips:
             if chip not in keep:
                 chip.blockSignals(True)
@@ -526,6 +547,13 @@ class _NavMixin:
         if self.recipe_chip.is_enabled():
             self._deactivate_view_chips(self.recipe_chip)
             self.switch_to_recipe_view()
+        else:
+            self.switch_to_list_view()
+
+    def on_sports_view_toggle(self) -> None:
+        if self.sports_chip.is_enabled():
+            self._deactivate_view_chips(self.sports_chip)
+            self.switch_to_sports_view()
         else:
             self.switch_to_list_view()
 

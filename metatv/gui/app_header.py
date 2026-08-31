@@ -66,6 +66,32 @@ def _search_sheet() -> str:
             f"QLineEdit:focus {{ border-color: {_theme.COLOR_ACCENT}; }}")
 
 
+#: The view switcher, in display order: (attribute, label, vector role,
+#: tooltip, handler NAME on the host).
+#:
+#: Module-level and iterated rather than written out inside
+#: ``_create_nav_group``, because ``main_window_nav._deactivate_view_chips``
+#: ALSO needs the list — it had its own copy, and a chip missing from that copy
+#: stays lit while another view is showing. The handler is named rather than
+#: bound so this can be read without a live host (the guard test does exactly
+#: that).
+NAV_CHIP_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("search_chip", "Search", "search", "Channel list and search",
+     "on_search_view_toggle"),
+    ("epg_chip", "EPG", "epg", "EPG — programme guide, watchlist, on-now",
+     "on_special_view_toggle"),
+    ("prefs_chip", "Recommended", "recommended",
+     "Personalised recommendations", "on_preferences_view_toggle"),
+    ("discover_chip", "Discover", "discover",
+     "Browse by genre, decade, actor, director", "on_discover_view_toggle"),
+    ("recipe_chip", "Recipe", "recipe",
+     "Build a recipe from facets — genre, language, region, decade…",
+     "on_recipe_view_toggle"),
+    ("sports_chip", "Sports", "sports",
+     "Sports channels by sport, league and team", "on_sports_view_toggle"),
+)
+
+
 class _ClickableNavLabel(QLabel):
     """A QLabel variant that emits ``clicked`` on left mouse-press.
 
@@ -121,19 +147,8 @@ class _AppHeaderMixin:
         nav_layout.setSpacing(0)
 
         specs = [
-            ("search_chip", "Search", "search", "Channel list and search",
-             self.on_search_view_toggle),
-            ("epg_chip", "EPG", "epg",
-             "EPG — programme guide, watchlist, on-now",
-             self.on_special_view_toggle),
-            ("prefs_chip", "Recommended", "recommended",
-             "Personalised recommendations", self.on_preferences_view_toggle),
-            ("discover_chip", "Discover", "discover",
-             "Browse by genre, decade, actor, director",
-             self.on_discover_view_toggle),
-            ("recipe_chip", "Recipe", "recipe",
-             "Build a recipe from facets — genre, language, region, decade…",
-             self.on_recipe_view_toggle),
+            (attr, label, role, tip, getattr(self, slot_name))
+            for attr, label, role, tip, slot_name in NAV_CHIP_SPECS
         ]
         for i, (attr, label, role, tip, slot) in enumerate(specs):
             segment = ("first" if i == 0
