@@ -10,6 +10,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
+from metatv.core.event_datetime import parse_event_datetime
 
 
 # Built-in sport keyword map: canonical sport name → list of keywords to match
@@ -423,23 +424,12 @@ def parse_ppv_event(channel: ChannelDB) -> Dict[str, Any]:
         if event_name and event_name.lower() not in ['all', 'end', 'live']:
             result['event_name'] = event_name
     
-    # Extract date and time
-    date_match = re.search(r'(\d{2})-(\d{2})-(\d{4})', channel.name)
-    time_match = re.search(r'(\d{2}):(\d{2})', channel.name)
-    
-    if date_match and time_match:
-        try:
-            # Parse date (DD-MM-YYYY format)
-            day, month, year = date_match.groups()
-            hour, minute = time_match.groups()
-            
-            # Create datetime object
-            result['start_time'] = datetime(
-                int(year), int(month), int(day),
-                int(hour), int(minute)
-            )
-        except (ValueError, IndexError) as e:
-            logger.debug(f"Failed to parse PPV date/time from {channel.name}: {e}")
+    # Extract date and time — one chokepoint, all three provider date forms.
+    # This used to be a local DD-MM-YYYY regex plus `re.search(r'(\d{2}):(\d{2})')`,
+    # which (a) knew one of the three shapes, covering 654 of 1,358 dated rows,
+    # (b) ignored the timezone named in the string, and (c) took the FIRST HH:MM
+    # anywhere in the name — including one inside the event title.
+    result['start_time'] = parse_event_datetime(channel.name)
     
     # Extract quality markers
     name_upper = channel.name.upper()
@@ -567,5 +557,10 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         channel.sport_type = sports_data['sport_type']
         channel.league_name = sports_data['league_name']
         channel.team_name = sports_data['team_name']
+        # A dated fixture can classify as 'sports' rather than 'ppv' — 927 of them
+        # do — and this branch extracted no time at all, so the schedule column and
+        # the Q19 staleness cross-check had nothing to read. Same chokepoint as the
+        # ppv branch; None for the 24/7 racks, which is correct rather than a miss.
+        channel.event_start_time = parse_event_datetime(channel.name or "")
 
     return True
