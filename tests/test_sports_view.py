@@ -133,20 +133,36 @@ def test_switching_lanes_does_not_re_run_the_counts(view):
 
 
 def test_channel_queries_carry_a_stale_token(view):
-    """A fast sport→league→sport sequence issues three queries and only the
-    newest may render. The taxonomy load needs no token — it happens once."""
+    """A fast sport→league→sport sequence issues several queries and only the
+    newest may render. The taxonomy load needs no token — it happens once.
+
+    This used to assert that every token-carrying call shared ONE counter,
+    which was the bug written down as a requirement: ``_run_query`` bumps the
+    counter before each submit and drops any result tagged with an older value,
+    so two concurrent reads on one counter means the second cancels the first.
+    The rows read was discarded on every open of the view.
+    """
     _activate(view)
     channel_calls = [c for c in view._runner.calls if c["token"] is not None]
     assert channel_calls, "the channel query must pass token_ref"
-    assert all(c["token"] is view._token for c in channel_calls)
+
+    tokens = {id(c["token"]) for c in channel_calls}
+    assert len(tokens) == len(channel_calls), (
+        "two concurrent reads shared one token counter — the earlier one is "
+        "cancelled by the later one and can never render")
 
 
-def test_deactivate_invalidates_an_in_flight_result(view):
-    """Symmetric with on_activate (CLAUDE.md), and the bump IS the cancel."""
+def test_deactivate_invalidates_every_in_flight_result(view):
+    """Symmetric with on_activate (CLAUDE.md), and the bump IS the cancel.
+
+    BOTH counters, or the un-bumped read still paints over whatever view the
+    user switched to.
+    """
     _activate(view)
-    before = view._token[0]
+    before = (view._rows_token[0], view._counts_token[0])
     view.on_deactivate()
-    assert view._token[0] > before
+    assert view._rows_token[0] > before[0], "an in-flight rows read survived"
+    assert view._counts_token[0] > before[1], "an in-flight counts read survived"
 
 
 # --------------------------------------------------------------------------
