@@ -56,8 +56,67 @@ jobs:
       - name: Run ruff
         run: ruff check .
 
+  # Two to three minutes, and it exists because the full matrix takes
+  # seventeen. Every failure this repo has shipped to a PR so far would have
+  # been reported here instead: a ratchet breach, an import error, a launch
+  # crash. Waiting a quarter of an hour to be told a file is seven lines too
+  # long is the thing this removes.
+  #
+  # It does NOT replace the matrix — it is strictly a fast subset, and the
+  # matrix still decides. Nothing here is platform-specific, so it runs on
+  # Linux only.
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libdbus-1-3 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 \
+            libxcb-cursor0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Imports EVERY test module without running anything — which is the
+      # cheapest possible check that the tree is coherent, and it is DERIVED
+      # rather than a list someone maintains. It is also where the local-3.14
+      # vs CI-3.12 annotation class shows up: PEP 649 evaluates annotations
+      # lazily on 3.14, so a function annotated with a name its module never
+      # imports passes locally and fails at import here. Seconds, 525 files.
+      - name: Collect every test (import check)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ --collect-only -q
+
+      # The structural guards, which are near-instant and catch what actually
+      # breaks: a file grown past its pinned size, the app failing to boot, and
+      # tests writing the real user config (a real data-loss bug once).
+      - name: Structural guards
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest -q \
+            tests/test_code_health_ratchet.py \
+            tests/test_mainwindow_launch_smoke.py \
+            tests/test_config_isolation.py
+
   test:
-    name: tests (${{ matrix.os }})
+    name: tests (${{ matrix.os }}, ${{ matrix.shard }}/4)
     runs-on: ${{ matrix.os }}
     strategy:
       # Report both. Cancelling the sibling on first failure hides whether a
@@ -66,6 +125,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14]
+        # Four shards each. The suite is ~8,000 tests and seventeen minutes
+        # single-file; split four ways it is about five, which is the
+        # difference between waiting for the gate and working through it.
+        #
+        # Sharded by FILE, not by test, so ordering within a file is preserved
+        # and conftest fixtures behave exactly as they do locally. The split is
+        # a greedy longest-first bin-pack over file size (scripts/ci_shard.py)
+        # — deterministic, so every runner computes the same assignment without
+        # coordinating, and balanced, which round-robin is not: these files are
+        # wildly uneven and a job is only as fast as its slowest shard.
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,7 +165,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run the test suite
+      - name: Run the test suite (shard ${{ matrix.shard }} of 4)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest tests/ -q
+        run: |
+          python scripts/ci_shard.py --shard ${{ matrix.shard }} --of 4 > shard.txt
+          echo "$(wc -l < shard.txt) test files in this shard"
+          # xargs, not a shell variable: 130-odd paths, and the exit code has
+          # to be pytest's. A pipe here would eat it — that is the shell-
+          # discipline rule in CLAUDE.md, and it has shipped a red PR before.
+          xargs -a shard.txt python -m pytest -q
