@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=475,
-    version="0.63.0",
+    version="0.64.0",
     date="2026-08-31",
     title="Download a movie to keep",
     items=(
