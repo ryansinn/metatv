@@ -743,6 +743,10 @@ class Config(BaseModel):
     # _compose_deep_cache_args(). Str (not Path) + tilde literal, expanded at the
     # consumer — same pattern as image_cache_dir below.
     deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
+    #: Where saved VOD downloads land. Persistent, unlike deep_cache_dir.
+    download_dir: str = "~/Videos/MetaTV"
+    #: Global stop — no download runs at all while this is set.
+    downloads_paused: bool = False
     deep_cache_max_gb: int = 20  # soft cap; oldest files purged before it's exceeded
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
