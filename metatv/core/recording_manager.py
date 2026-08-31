@@ -188,10 +188,8 @@ class RecordingManager:
                            "{} .. {}", starts_at, ends_at)
             return None
         if pad:
-            starts_at -= timedelta(
-                seconds=int(getattr(self.config, "recording_pad_start_seconds", 60)))
-            ends_at += timedelta(
-                seconds=int(getattr(self.config, "recording_pad_end_seconds", 300)))
+            starts_at -= timedelta(seconds=int(self.config.recording_pad_start_seconds))
+            ends_at += timedelta(seconds=int(self.config.recording_pad_end_seconds))
 
         from metatv.core.database import RecordingDB
 
@@ -216,6 +214,21 @@ class RecordingManager:
         self._wake.set()
         logger.info("Recording scheduled: {} {} .. {}", title, starts_at, ends_at)
         return recording_id
+
+    def window_of(self, recording_id: str) -> "tuple[datetime, datetime] | None":
+        """The window as STORED, padding included — what the recorder honours.
+
+        The caller that schedules a programme holds the guide's times, not the
+        padded ones, so a notification built from those would promise a stop
+        five minutes before the recording actually stops. Reading the row back
+        is one primary-key lookup and it is authoritative, which recomputing the
+        padding at the call site would not be.
+        """
+        from metatv.core.database import RecordingDB
+
+        with self.db.session_scope() as session:
+            row = session.get(RecordingDB, recording_id)
+            return (row.starts_at, row.ends_at) if row is not None else None
 
     def cancel(self, recording_id: str) -> None:
         """Cancel a scheduled or running recording.

@@ -412,3 +412,21 @@ def test_a_recording_actually_pauses_a_running_download(db, config, accountant,
             "parked as a USER pause — it would never resume by itself")
         assert parked.downloaded_bytes == 1024, "progress was discarded"
         assert session.get(RecordingDB, rid).recorded_bytes > 0
+
+
+def test_window_of_reports_the_padded_window_not_the_guides(manager):
+    """What a notification must quote.
+
+    The caller holds the guide's times; schedule() padded them. A message built
+    from the caller's copy promises a stop five minutes before the recording
+    actually stops.
+    """
+    start, end = _window()
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                           programme_title="The Match", pad=True)
+
+    stored = manager.window_of(rid)
+
+    assert stored == (start - timedelta(seconds=60), end + timedelta(seconds=300))
+    assert stored[1] != end, "returned the caller's own unpadded value"
+    assert manager.window_of("no-such-id") is None

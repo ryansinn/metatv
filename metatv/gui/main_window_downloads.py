@@ -131,7 +131,7 @@ class _DownloadsMixin:
             starts_at, ends_at, title = airing
             pad = True
         else:
-            minutes = int(getattr(self.config, "recording_default_minutes", 120))
+            minutes = int(self.config.recording_default_minutes)
             starts_at, ends_at, title, pad = (
                 now, now + timedelta(minutes=minutes), "", False)
 
@@ -146,7 +146,11 @@ class _DownloadsMixin:
                 title=f"{title or channel.name} is already being recorded",
                 message="", type="info", dismissible=True)
             return
-        ends_local = to_local(ends_at)
+        # The STORED window, not the guide's — schedule() padded it, and a
+        # message promising a stop five minutes before the recorder actually
+        # stops is the kind of small lie that teaches people to distrust the app.
+        window = self.recording_manager.window_of(recording_id)
+        ends_local = to_local(window[1] if window else ends_at)
         self.notification_manager.show(
             title=f"Recording {title or channel.name}",
             message=(f"Until {ends_local:%H:%M}. It keeps going if you watch "
