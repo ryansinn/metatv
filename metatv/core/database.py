@@ -581,6 +581,47 @@ class DownloadDB(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class RecordingDB(Base):
+    """One live programme recorded (or scheduled to be) to the local library.
+
+    Denormalized like ``DownloadDB`` and for the same reason: a provider refresh
+    can replace the channel row this came from, and a file on disk must not lose
+    its name because a stream id was recycled.
+
+    ``starts_at``/``ends_at`` are **UTC-naive**, matching EPG ``start_time``/
+    ``stop_time`` (CLAUDE.md: convert for display via ``epg_utils.to_local``,
+    never store a local time). They already include any padding — padding is
+    applied once at schedule time, so the window here is the literal window the
+    recorder honours and a user editing it later is not fighting an invisible
+    offset.
+
+    There is no ``paused_by_playback`` twin of the download column: a recording
+    is never paused by playback. That asymmetry is the feature — see
+    :mod:`metatv.core.recording_manager`.
+    """
+    __tablename__ = "recordings"
+
+    id            = Column(String, primary_key=True)          # uuid4
+    channel_id    = Column(String, nullable=False, index=True)  # no FK — see above
+    provider_id   = Column(String, nullable=False, index=True)  # whose slot it takes
+    channel_name  = Column(String, nullable=False, default="")  # denormalized
+    programme_title = Column(String, nullable=False, default="")
+    source_url    = Column(String, nullable=False)
+    dest_path     = Column(String, nullable=False)
+
+    #: scheduled | recording | completed | failed | cancelled
+    state         = Column(String, nullable=False, default="scheduled", index=True)
+
+    starts_at     = Column(DateTime, nullable=False, index=True)  # UTC-naive
+    ends_at       = Column(DateTime, nullable=False)              # UTC-naive
+
+    recorded_bytes = Column(Integer, nullable=False, default=0)
+    error          = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WatchQueueDB(Base):
     """Ordered watch queue — content the user wants to watch soon.
 
