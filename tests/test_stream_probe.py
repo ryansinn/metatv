@@ -207,3 +207,60 @@ def test_the_command_carries_all_three_detectors():
         "without a socket timeout a hung connection sits until the outer "
         "timeout, turning a 1.2s answer into 17s")
     assert "-t 3" in cmd
+
+
+# --------------------------------------------------------------------------
+# Settings — the thresholds are the owner's, not mine
+# --------------------------------------------------------------------------
+
+class _Cfg:
+    signal_sample_seconds = 6
+    signal_black_fraction = 0.8
+    signal_black_pixel_threshold = 0.25
+    signal_freeze_seconds = 3
+
+
+def test_settings_come_from_config():
+    s = sp.ProbeSettings.from_config(_Cfg())
+    assert (s.sample_seconds, s.black_fraction) == (6, 0.8)
+    assert (s.black_pixel_threshold, s.freeze_seconds) == (0.25, 3)
+
+
+def test_a_freeze_longer_than_the_sample_is_clamped():
+    """Otherwise the setting silently does nothing — freezedetect can never
+    observe 10 motionless seconds inside a 4-second sample."""
+    class _Bad:
+        signal_sample_seconds = 4
+        signal_freeze_seconds = 10
+    assert sp.ProbeSettings.from_config(_Bad()).freeze_seconds == 4
+
+
+def test_an_older_config_still_yields_the_shipped_defaults():
+    """A config file on disk can predate the code that reads it."""
+    s = sp.ProbeSettings.from_config(object())
+    assert s.sample_seconds == sp.DEFAULT_SAMPLE_SECONDS
+    assert 0 < s.black_fraction <= 1
+
+
+def test_the_black_fraction_actually_changes_the_verdict():
+    """The setting has to reach the ruling, not just be stored."""
+    lenient = sp.interpret(BLACK_SCREEN, 0, seconds=4, black_fraction=0.99)
+    strict = sp.interpret(BLACK_SCREEN, 0, seconds=4, black_fraction=0.5)
+    assert strict.verdict == sp.BLACK
+    assert lenient.verdict == sp.LIVE, (
+        "3.92s of 4s is 98% — a 99% threshold must let it through")
+
+
+def test_the_thresholds_reach_the_ffmpeg_command():
+    cmd = " ".join(sp._build_command("u", 5, black_pixel=0.25, freeze_seconds=3))
+    assert "pix_th=0.25" in cmd
+    assert "freezedetect=n=-60dB:d=3" in cmd
+
+
+def test_settings_are_frozen():
+    """A worker reading live settings mid-sweep would judge the first half of a
+    run by one rule and the second half by another."""
+    import dataclasses
+    s = sp.ProbeSettings()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        s.sample_seconds = 99

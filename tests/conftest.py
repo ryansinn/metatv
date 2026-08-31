@@ -1948,3 +1948,77 @@ def wire_epg_manager_skeleton(mgr, db, *, accountant=None) -> None:
     mgr.db = db
     mgr._shutting_down = False
     mgr._accountant = accountant
+def wire_settings_signal_widgets(dlg) -> None:
+    """Attach the Settings → Signal checking tab's widgets to a skeleton dialog.
+
+    Same shape and same reason as its siblings: ``_load_values`` and
+    ``_save_values`` touch every tab, so a skeleton missing one widget raises
+    the moment either runs — and raises ``RuntimeError``, not the
+    ``AttributeError`` a ``hasattr`` guard would absorb, because the skeleton
+    never ran ``QDialog.__init__``. Adding ``_adult_mode_combo`` to the Content
+    tab once broke 37 tests across six files this way.
+
+    Args:
+        dlg: A ``SettingsDialog.__new__`` skeleton.
+    """
+    from PyQt6.QtWidgets import QCheckBox, QSpinBox
+
+    dlg._signal_sample_spin = QSpinBox()
+    dlg._signal_sample_spin.setRange(1, 30)
+    dlg._signal_black_spin = QSpinBox()
+    dlg._signal_black_spin.setRange(10, 100)
+    dlg._signal_pixel_spin = QSpinBox()
+    dlg._signal_pixel_spin.setRange(1, 50)
+    dlg._signal_freeze_spin = QSpinBox()
+    dlg._signal_freeze_spin.setRange(1, 30)
+    dlg._hide_dead_check = QCheckBox()
+    dlg._signal_streak_spin = QSpinBox()
+    dlg._signal_streak_spin.setRange(1, 10)
+
+
+def wire_settings_widgets(dlg) -> None:
+    """Attach EVERY settings tab's widgets to a skeleton dialog.
+
+    Eight test files list the per-tab factories by hand, so a seventh tab meant
+    editing all eight — and a file that missed the edit failed on a tab it had
+    nothing to do with. This is the one call a NEW test should use; the existing
+    hand-listed runs are left alone deliberately (collapsing them safely needs
+    per-file import surgery, logged in the ledger rather than done with a
+    regex that broke three files when tried).
+
+    Args:
+        dlg: A ``SettingsDialog.__new__`` skeleton.
+    """
+    wire_settings_playback_widgets(dlg)
+    wire_settings_content_widgets(dlg)
+    wire_settings_epg_widgets(dlg)
+    wire_settings_recommendation_widgets(dlg)
+    wire_settings_theme_widget(dlg)
+    wire_settings_density_widget(dlg)
+    wire_settings_signal_widgets(dlg)
+
+
+def settings_config_double(**overrides):
+    """A config for a Settings-dialog test that CANNOT drift from the model.
+
+    ``_load_values`` and ``_save_values`` touch every field the dialog knows
+    about, so a hand-written stub class breaks the day a tab gains a setting —
+    on a test that has nothing to do with that tab. Five such stubs
+    (``_FakeConfig``, ``_FakeDlgConfig``, ``_FakeSettingsConfig``,
+    ``_FakeThresholdConfig``, ``_Cfg``) went red together when the Signal
+    checking tab was added, in files that never mentioned signals.
+
+    A real :class:`Config` cannot have that problem: pydantic fills every
+    declared default, so a field added tomorrow is present here the same day.
+    The autouse ``_isolate_user_config`` fixture already redirects
+    ``Path.home()``, so constructing one touches no real user data.
+
+    Args:
+        **overrides: Any field to set explicitly.
+
+    Returns:
+        A real ``Config``.
+    """
+    from metatv.core.config import Config
+
+    return Config(**overrides)

@@ -173,8 +173,9 @@ def test_settings_checkbox_loads_from_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets
+    from tests.conftest import wire_settings_content_widgets, wire_settings_signal_widgets
     wire_settings_content_widgets(dlg)
+    wire_settings_signal_widgets(dlg)
     # Provide all widgets _load_values touches (minimal set for this test)
     _wire_minimal_dialog(dlg, qapp)
 
@@ -196,8 +197,9 @@ def test_settings_checkbox_saves_to_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets
+    from tests.conftest import wire_settings_content_widgets, wire_settings_signal_widgets
     wire_settings_content_widgets(dlg)
+    wire_settings_signal_widgets(dlg)
     _wire_minimal_dialog(dlg, qapp)
 
     cfg = _minimal_config(refresh_all_includes_inactive=True)
@@ -237,6 +239,12 @@ def _minimal_config(*, refresh_all_includes_inactive: bool = True):
         mpv_extra_args: list = []
         prebuffer_before_play = False
         prebuffer_wait_secs = 10
+        signal_sample_seconds = 4
+        signal_black_fraction = 0.5
+        signal_black_pixel_threshold = 0.1
+        signal_freeze_seconds = 2
+        hide_dead_events = False
+        signal_dead_streak_to_hide = 2
         mpv_args_override_all = False
         split_streams_by_source = False
         remember_search = True
@@ -270,6 +278,7 @@ def _wire_minimal_dialog(dlg, qapp):
         wire_settings_epg_widgets,
         wire_settings_playback_widgets,
         wire_settings_recommendation_widgets,
+        wire_settings_signal_widgets,
         wire_settings_theme_widget,
     )
 
@@ -331,4 +340,5 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
     wire_settings_density_widget(dlg)
+    wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)

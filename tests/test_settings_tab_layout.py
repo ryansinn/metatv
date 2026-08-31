@@ -29,6 +29,7 @@ from tests.conftest import (
     wire_settings_epg_widgets,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
+    wire_settings_signal_widgets,
     wire_settings_theme_widget,
 )
 
@@ -58,6 +59,12 @@ class _FakeConfig:
         self.mpv_extra_args: list[str] = []
         self.prebuffer_before_play = False
         self.prebuffer_wait_secs = 10
+        self.signal_sample_seconds = 4
+        self.signal_black_fraction = 0.5
+        self.signal_black_pixel_threshold = 0.1
+        self.signal_freeze_seconds = 2
+        self.hide_dead_events = False
+        self.signal_dead_streak_to_hide = 2
         self.mpv_args_override_all = False
         self.split_streams_by_source = False
         self.remember_search: bool = True
@@ -150,6 +157,7 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
     wire_settings_density_widget(dlg)
+    wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
 
     return dlg

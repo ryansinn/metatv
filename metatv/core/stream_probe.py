@@ -151,23 +151,33 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def _build_command(url: str, seconds: int) -> list[str]:
-    """The one ffmpeg invocation, with all three video/audio detectors."""
+def _build_command(url: str, seconds: int, *,
+                   black_pixel: float = _BLACK_PIXEL_THRESHOLD,
+                   freeze_seconds: int = _FREEZE_MIN_DURATION) -> list[str]:
+    """The one ffmpeg invocation, with all three video/audio detectors.
+
+    Args:
+        url: The stream URL.
+        seconds: Sample length.
+        black_pixel: How dark counts as black, as a fraction of full scale.
+        freeze_seconds: Motionless seconds before the picture is called frozen.
+    """
     return [
         "ffmpeg", "-hide_banner", "-nostdin",
         "-rw_timeout", str(_RW_TIMEOUT_US),
         "-i", url,
         "-t", str(seconds),
         "-vf", (f"blackdetect=d={_BLACK_MIN_DURATION}:"
-                f"pix_th={_BLACK_PIXEL_THRESHOLD},"
-                f"freezedetect=n={_FREEZE_NOISE_DB}:d={_FREEZE_MIN_DURATION}"),
+                f"pix_th={black_pixel},"
+                f"freezedetect=n={_FREEZE_NOISE_DB}:d={freeze_seconds}"),
         "-af", f"silencedetect=n={_SILENCE_NOISE_DB}:d={_SILENCE_MIN_DURATION}",
         "-f", "null", "-",
     ]
 
 
 def interpret(stderr: str, returncode: int, seconds: int,
-              elapsed_ms: int = 0) -> ProbeResult:
+              elapsed_ms: int = 0,
+              black_fraction: float = _BLACK_VERDICT_RATIO) -> ProbeResult:
     """Turn ffmpeg's stderr into a verdict.
 
     Split out from :func:`probe_stream` so the ruling can be tested against
@@ -180,6 +190,11 @@ def interpret(stderr: str, returncode: int, seconds: int,
         returncode: Its exit status.
         seconds: The sample length that was requested.
         elapsed_ms: Wall-clock cost, passed through to the result.
+        black_fraction: Share of the sample that must be black before the
+            verdict is "black". Settable because the right answer is
+            provider-dependent — a channel that runs a four-second bumper
+            between segments needs a different number than one that cuts
+            straight to programme.
 
     Returns:
         The :class:`ProbeResult`.
@@ -225,7 +240,7 @@ def interpret(stderr: str, returncode: int, seconds: int,
 
     # Black is judged as a FRACTION of the sample. A bumper or a fade is black
     # for a moment; half the sample is not a bumper.
-    if seconds > 0 and black >= seconds * _BLACK_VERDICT_RATIO:
+    if seconds > 0 and black >= seconds * black_fraction:
         return ProbeResult(
             verdict=BLACK,
             detail=f"black for {black:.1f}s of a {seconds}s sample",
@@ -248,7 +263,46 @@ def interpret(stderr: str, returncode: int, seconds: int,
     return ProbeResult(verdict=LIVE, detail=", ".join(bits), **common)
 
 
-def probe_stream(url: str, seconds: int = DEFAULT_SAMPLE_SECONDS) -> ProbeResult:
+@dataclass(frozen=True)
+class ProbeSettings:
+    """The thresholds, resolved from Config by the caller.
+
+    A frozen bag rather than a ``Config`` handed down: the probe layer holds no
+    Config (same rule ``VisibilityScope`` follows), and a worker thread reading
+    live settings mid-sweep would judge the first half of a run by one rule and
+    the second half by another.
+    """
+
+    sample_seconds: int = DEFAULT_SAMPLE_SECONDS
+    black_fraction: float = _BLACK_VERDICT_RATIO
+    black_pixel_threshold: float = _BLACK_PIXEL_THRESHOLD
+    freeze_seconds: int = _FREEZE_MIN_DURATION
+
+    @classmethod
+    def from_config(cls, config) -> "ProbeSettings":
+        """Read the thresholds off a Config, tolerating an older file.
+
+        Args:
+            config: The application Config, or anything with these attributes.
+
+        Returns:
+            The resolved settings. A freeze longer than the sample can never be
+            observed, so it is clamped rather than silently doing nothing.
+        """
+        sample = int(getattr(config, "signal_sample_seconds", DEFAULT_SAMPLE_SECONDS))
+        return cls(
+            sample_seconds=sample,
+            black_fraction=float(getattr(config, "signal_black_fraction",
+                                         _BLACK_VERDICT_RATIO)),
+            black_pixel_threshold=float(getattr(
+                config, "signal_black_pixel_threshold", _BLACK_PIXEL_THRESHOLD)),
+            freeze_seconds=min(
+                int(getattr(config, "signal_freeze_seconds", _FREEZE_MIN_DURATION)),
+                sample),
+        )
+
+
+def probe_stream(url: str, settings: "ProbeSettings | None" = None) -> ProbeResult:
     """Sample one stream and rule on whether it carries a picture.
 
     Blocking, and it spends one provider connection for its whole duration —
@@ -257,13 +311,14 @@ def probe_stream(url: str, seconds: int = DEFAULT_SAMPLE_SECONDS) -> ProbeResult
 
     Args:
         url: The stream URL.
-        seconds: Sample length. The wall-clock cost is dominated by connect and
-            buffer, so a longer sample is cheaper than it looks.
+        settings: Resolved thresholds; the shipped defaults when omitted.
 
     Returns:
         A :class:`ProbeResult`; ``UNKNOWN`` when ffmpeg is missing or the probe
         could not be run at all, which is not the same as the stream being dead.
     """
+    settings = settings or ProbeSettings()
+    seconds = settings.sample_seconds
     if not ffmpeg_available():
         return ProbeResult(verdict=UNKNOWN, detail="ffmpeg is not installed")
     if not url:
@@ -273,7 +328,9 @@ def probe_stream(url: str, seconds: int = DEFAULT_SAMPLE_SECONDS) -> ProbeResult
     started = time.monotonic()
     try:
         proc = subprocess.run(
-            _build_command(url, seconds),
+            _build_command(url, seconds,
+                           black_pixel=settings.black_pixel_threshold,
+                           freeze_seconds=settings.freeze_seconds),
             capture_output=True, text=True, errors="replace",
             timeout=seconds + _TIMEOUT_MARGIN_SECONDS,
         )
@@ -289,4 +346,5 @@ def probe_stream(url: str, seconds: int = DEFAULT_SAMPLE_SECONDS) -> ProbeResult
         return ProbeResult(verdict=UNKNOWN, detail=f"could not run ffmpeg: {exc}")
 
     elapsed = int((time.monotonic() - started) * 1000)
-    return interpret(proc.stderr or "", proc.returncode, seconds, elapsed)
+    return interpret(proc.stderr or "", proc.returncode, seconds, elapsed,
+                     black_fraction=settings.black_fraction)
