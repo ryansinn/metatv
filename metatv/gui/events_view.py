@@ -91,6 +91,26 @@ class _EventCard(QFrame):
         self.title_label = QLabel(title, self)
         self.title_label.setWordWrap(True)
         _theme.style(self.title_label, "EVENT_CARD_TITLE")
+        # Exactly TWO lines, always. A wrapped QLabel in a QVBoxLayout reports a
+        # one-line sizeHint, so a three-line title was drawn into a box sized for
+        # less and clipped through the middle of the glyphs. Pinning the height
+        # to a whole number of lines means an over-long title is cut at a LINE
+        # boundary instead, and every card in the grid is the same height.
+        #
+        # Two rather than one because these are fixture names — "X v Y <League>
+        # <Matchweek>" — where one line loses the teams. The full text is the
+        # tooltip either way.
+        # ensurePolished() first: a stylesheet font is resolved at POLISH time,
+        # so fontMetrics() straight after _theme.style() still reports the
+        # inherited font and pins the box to the wrong number of pixels — 34
+        # where the styled font needs 40, which reintroduces the clipping this
+        # is fixing.
+        self.title_label.ensurePolished()
+        _fm = self.title_label.fontMetrics()
+        self.title_label.setFixedHeight(_fm.lineSpacing() * 2)
+        self.title_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.title_label.setToolTip(title)
         layout.addWidget(self.title_label)
 
         self.when_label = QLabel("", self)
