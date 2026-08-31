@@ -56,6 +56,7 @@ from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
 from metatv.gui.recipe_view import RecipeView
+from metatv.gui.events_view import EventsView
 from metatv.gui.sports_view import SportsView
 from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
@@ -2143,6 +2144,16 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             self._on_rec_channel_context_menu)
         self.sports_view.setVisible(False)
         self._list_layout.addWidget(self.sports_view)
+
+        # Events view (hidden by default) — the dated half of special_view.
+        self.events_view = EventsView(self.db, self.config, self._run_query, self)
+        self.events_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.events_view.playRequested.connect(self.play_channel_by_id)
+        self.events_view.channelMiddleClicked.connect(self._dispatch_middle_click)
+        self.events_view.channelContextMenuRequested.connect(
+            self._on_rec_channel_context_menu)
+        self.events_view.setVisible(False)
+        self._list_layout.addWidget(self.events_view)
 
         # Explore views (History / Favorites / Watch Queue / Recommended) — ONE
         # embedded trail-map component per sidebar entry point, each seeded from that

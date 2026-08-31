@@ -13,7 +13,7 @@ from sqlalchemy import func, or_
 from metatv.core import channel_visibility
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB
-from metatv.core.repositories.dtos import SportsChannelDTO
+from metatv.core.repositories.dtos import SpecialContentDTO
 from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
 
@@ -291,7 +291,7 @@ class _ChannelStatsMixin:
         scope: VisibilityScope,
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
-    ) -> List["SportsChannelDTO"]:
+    ) -> List["SpecialContentDTO"]:
         """Get sports channels with optional cascade filters.
 
         Empty or None filter lists mean "no filter — include all".
@@ -328,13 +328,13 @@ class _ChannelStatsMixin:
         rows = query.order_by(
             ChannelDB.sport_type, ChannelDB.league_name, ChannelDB.name
         ).all()
-        return [SportsChannelDTO.from_orm(c) for c in rows]
+        return [SpecialContentDTO.from_orm(c) for c in rows]
 
     def get_events_channels(
         self,
         scope: VisibilityScope,
         special_view: str = 'live_event',
-    ) -> List["SportsChannelDTO"]:
+    ) -> List["SpecialContentDTO"]:
         """Get one events bucket.
 
         Parameterised by bucket rather than split into two near-identical
@@ -351,7 +351,7 @@ class _ChannelStatsMixin:
         """
         rows = self._special_content_query(special_view, scope).order_by(
             ChannelDB.name).all()
-        return [SportsChannelDTO.from_orm(c) for c in rows]
+        return [SpecialContentDTO.from_orm(c) for c in rows]
 
     def get_sports_taxonomy(
         self, scope: VisibilityScope,

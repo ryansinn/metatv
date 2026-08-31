@@ -18,7 +18,7 @@ it asserts the painted QRect instead.
 import pytest
 
 from metatv.core.config import Config
-from metatv.core.repositories.dtos import SportsChannelDTO
+from metatv.core.repositories.dtos import SpecialContentDTO
 from metatv.gui.sports_view import SportsView
 
 
@@ -38,7 +38,7 @@ def _row_texts(view) -> set:
             for w in row.findChildren(QLabel) + row.findChildren(QPushButton)}
 
 
-def _dto(**over) -> SportsChannelDTO:
+def _dto(**over) -> SpecialContentDTO:
     base = {
         "id": "c1", "name": "NHL-TEAM| CALGARY FLAMES HD", "provider_id": "p",
         "media_type": "live", "special_view": "sports", "sport_type": "hockey",
@@ -46,7 +46,7 @@ def _dto(**over) -> SportsChannelDTO:
         "detected_title": "NHL-TEAM Calgary Flames", "detected_quality": "HD",
     }
     base.update(over)
-    return SportsChannelDTO(**base)
+    return SpecialContentDTO(**base)
 
 
 class _Runner:

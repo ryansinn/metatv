@@ -397,3 +397,46 @@ def test_switching_away_hides_the_sports_view(window):
             "the view stayed visible behind the channel list")
     finally:
         window.view_mode = previous
+
+
+def test_the_events_chip_switches_to_the_events_view(window):
+    """The real host — six hand-edits in five files, and a miss in any one of
+    them fails only when a user clicks the chip."""
+    from metatv.gui.app_header import NAV_CHIP_SPECS
+
+    previous = window.view_mode
+    try:
+        window.events_chip.set_enabled(True)
+        window.on_events_view_toggle()
+
+        assert window.view_mode == "events"
+        assert not window.events_view.isHidden()
+        assert window.stats_label.text() == "Events"
+
+        lit = [attr for attr, *_ in NAV_CHIP_SPECS
+               if getattr(window, attr).is_enabled()]
+        assert lit == ["events_chip"], f"chips lit alongside Events: {lit}"
+    finally:
+        window.switch_to_list_view()
+        window.view_mode = previous
+
+
+def test_switching_away_hides_the_events_view(window):
+    """Only the hiding — this fixture never shows the window.
+
+    Deactivation is gated on ``view.isVisible()``, which is False for every
+    child of an unshown window, so the timer's stop cannot be observed here.
+    It is asserted against a live view in
+    ``test_events_view.test_the_timer_runs_only_while_the_view_is_active``, and
+    the host path was checked by hand against a shown window.
+    """
+    previous = window.view_mode
+    try:
+        window.events_chip.set_enabled(True)
+        window.on_events_view_toggle()
+        assert not window.events_view.isHidden()
+
+        window.switch_to_list_view()
+        assert window.events_view.isHidden()
+    finally:
+        window.view_mode = previous

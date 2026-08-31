@@ -31,6 +31,7 @@ CONTENT_VIEW_ATTRS: tuple[str, ...] = (
     "source_analytics",
     "recipe_view",
     "sports_view",
+    "events_view",
     "missing_tmdb_view",
     "reconnect_engaged_view",
     "metadata_enrichment_view",
@@ -86,6 +87,16 @@ class _NavMixin:
         # ``getattr(view, "on_deactivate", None)`` is polymorphism, not a
         # defensive hasattr: the list genuinely mixes ContentViews with a
         # QTreeView and a QListView, and only the former have a lifecycle.
+        #
+        # The ``isVisible()`` gate is deliberate and tested
+        # (test_hide_skips_on_deactivate_when_not_visible). It looks like an
+        # asymmetry — activation is unconditional — and it was checked against
+        # a SHOWN window before being left alone: the timer starts on activate
+        # and stops on switch-away exactly as it should. ``isVisible()`` is
+        # False only for a widget whose ancestor chain is hidden, which in a
+        # running app means "this view is not the one on screen". A test
+        # fixture that never calls ``show()`` sees it as False for everything,
+        # and that is the fixture's limit, not a bug to code around.
         for attr in CONTENT_VIEW_ATTRS:
             # ``self.__dict__.get``, NOT ``getattr(self, attr, None)``. On a
             # skeleton host (``MainWindow.__new__``, which several lifecycle
@@ -321,6 +332,15 @@ class _NavMixin:
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
 
+    def switch_to_events_view(self) -> None:
+        """Switch content area to the Events view."""
+        self.__dict__.pop("_first_source_pending", None)
+        self.view_mode = "events"
+        self._hide_all_content_views()
+        self.events_view.setVisible(True)
+        self.stats_label.setText("Events")
+        self.events_view.on_activate()
+
     def switch_to_sports_view(self) -> None:
         """Switch content area to the Sports view."""
         self.__dict__.pop("_first_source_pending", None)
@@ -547,6 +567,13 @@ class _NavMixin:
         if self.recipe_chip.is_enabled():
             self._deactivate_view_chips(self.recipe_chip)
             self.switch_to_recipe_view()
+        else:
+            self.switch_to_list_view()
+
+    def on_events_view_toggle(self) -> None:
+        if self.events_chip.is_enabled():
+            self._deactivate_view_chips(self.events_chip)
+            self.switch_to_events_view()
         else:
             self.switch_to_list_view()
 

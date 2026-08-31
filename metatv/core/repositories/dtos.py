@@ -667,13 +667,18 @@ def build_history_dtos(
 
 
 @dataclass(frozen=True)
-class SportsChannelDTO:
-    """One row in the Sports or Events view.
+class SpecialContentDTO:
+    """One row of ``special_view`` content — a sports channel or a dated event.
 
-    Its own DTO rather than three more fields on :class:`ChannelListDTO`:
-    that one is built for every row of the main list — 785,163 of them on the
-    owner's library — and ``sport_type``/``league_name``/``team_name`` are NULL
-    for 96% of them. A dedicated shape keeps the hot path's memory where it is.
+    Named for the FIELD, not for either of the two views that read it. It was
+    ``SportsChannelDTO`` for about an hour, until the Events view needed the
+    same shape — a type named after one of its users is how the second copy
+    gets written.
+
+    Its own DTO rather than more fields on :class:`ChannelListDTO`: that one is
+    built for every row of the main list — 785,163 of them on the owner's
+    library — and these columns are NULL for 96% of them. A dedicated shape
+    keeps the hot path's memory where it is.
 
     Built inside a ``session_scope()`` by :meth:`from_orm`, so no ORM object
     crosses the worker→main-thread boundary (CLAUDE.md: a detached ORM object's
@@ -691,11 +696,18 @@ class SportsChannelDTO:
     detected_title: str | None
     detected_quality: str | None
     is_favorite: bool = False
-    #: Parsed event start for ppv/live_event rows; None for a plain sports channel.
+    #: Parsed event start for ppv/live_event rows; None for a plain sports
+    #: channel, and for the 923 live_event rows whose availability is "always".
     event_start_time: "datetime | None" = None
+    #: The classifier's parsed blob. The two buckets carry different keys and
+    #: that is the providers' doing, not ours: ppv rows have event_name,
+    #: quality, sport_type, stream_number; live_event rows have event_name,
+    #: network, channel_num, region, availability. Only ``event_name`` is
+    #: common to both, so a renderer reads defensively or shows nothing.
+    event_metadata: "dict | None" = None
 
     @classmethod
-    def from_orm(cls, channel) -> "SportsChannelDTO":
+    def from_orm(cls, channel) -> "SpecialContentDTO":
         """Build from a ``ChannelDB`` row.
 
         Args:
@@ -717,4 +729,7 @@ class SportsChannelDTO:
             detected_quality=channel.detected_quality,
             is_favorite=bool(channel.is_favorite),
             event_start_time=channel.event_start_time,
+            # Copied, not referenced: JSONEncoded hands back a live dict and a
+            # frozen DTO promising immutability must not share it with the ORM.
+            event_metadata=dict(channel.event_metadata or {}) or None,
         )

@@ -177,7 +177,10 @@ def _relative(p: Path) -> str:
 #
 #   badge_utils        region/platform/audio chips: white on a near-white tint,
 #                      1.59-1.75:1 in Daylight — on the MAIN results rows
-#   ppv_view           quality / sport / play: white on mint and orange fills,
+#   events_view        the Play button: on_fill() over COLOR_PPV_ACCENT — the
+#                      composed form exists BECAUSE on_fill is defined after the
+#                      semantic-constant builder and cannot be called from it.
+#   (was ppv_view)     quality / sport / play: white on mint and orange fills,
 #                      1.88-2.51:1 in Midnight
 #   filter_bar         the "Genres v" dropdown: a hard-WHITE slab in the dark
 #   sports_filter_bar  themes, lettered in a hairline-separator colour
@@ -282,7 +285,7 @@ _MODULES_TO_SMOKE = [
     "metatv.gui.global_filter_dialog",
     "metatv.gui.icon_utils",
     "metatv.gui.notification_widget",
-    "metatv.gui.ppv_view",
+    "metatv.gui.events_view",
     "metatv.gui.preferences_view",
     "metatv.gui.settings_dialog",
     "metatv.gui.similar_lightbox",

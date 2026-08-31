@@ -29,6 +29,7 @@ from metatv.gui.chip_row import (
 )
 from metatv.gui.content_view import ContentView
 from metatv.gui.sports_filter_bar import SportsFilterBar
+from metatv.gui.view_scope import resolve_visibility_scope
 
 #: Item data role carrying the channel id, so a click can resolve the row.
 _ROLE_CHANNEL_ID = Qt.ItemDataRole.UserRole
@@ -135,7 +136,7 @@ class SportsView(ContentView):
         config = self.config
 
         def query(repos) -> dict:
-            scope = _visibility_scope(repos, config)
+            scope = resolve_visibility_scope(repos, config)
             return {
                 "taxonomy": repos.channels.get_sports_taxonomy(scope),
                 "counts": repos.channels.get_sports_counts(scope),
@@ -162,7 +163,7 @@ class SportsView(ContentView):
         config = self.config
 
         def query(repos) -> list:
-            scope = _visibility_scope(repos, config)
+            scope = resolve_visibility_scope(repos, config)
             return repos.channels.get_sports_channels(
                 scope,
                 sport_types=state.get("sport_types") or None,
@@ -207,7 +208,7 @@ class SportsView(ContentView):
         clickable, so neither may look it.
 
         Args:
-            dto: A ``SportsChannelDTO``.
+            dto: A ``SpecialContentDTO``.
         """
         item = QListWidgetItem()
         item.setData(_ROLE_CHANNEL_ID, dto.id)
@@ -289,30 +290,3 @@ class SportsView(ContentView):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         self.channel_list.addItem(item)
         self.count_label.setText("")
-
-
-def _visibility_scope(repos, config):
-    """Resolve every exclusion axis, in the worker, from already-read settings.
-
-    The control layer decides WHAT is excluded and the scope only encodes HOW
-    (DR-0007), which is why this reads ``config`` here rather than handing a
-    ``Config`` to the repository.
-
-    Args:
-        repos: A ``RepositoryFactory`` bound to the worker's session.
-        config: Live ``Config``.
-
-    Returns:
-        A fully-resolved ``VisibilityScope``.
-    """
-    from metatv.core.channel_visibility import VisibilityScope
-    from metatv.core.filter_utils import global_exclusion_sets
-
-    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
-    return VisibilityScope(
-        excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-        excluded_prefixes=set(prefixes or []),
-        excluded_categories=set(categories or []),
-        excluded_content_types=set(content_types or []),
-        excluded_keywords=set(keywords or []),
-    )

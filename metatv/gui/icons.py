@@ -583,6 +583,9 @@ VECTOR_KEYS: dict[str, str] = {
     # A whistle, not a ball: the view holds hockey, F1, UFC and tennis, and
     # any one sport's ball would say the other three are somewhere else.
     "sports": "mdi6.whistle",
+    # A ticket, not a calendar: the view is what you can BUY OR TUNE INTO at a
+    # time, and "calendar" is already the EPG's glyph.
+    "events": "mdi6.ticket-confirmation-outline",
     # "Manage these alerts" — the three-slider glyph. Its own role rather than
     # reusing "recipe" (also sliders): two different meanings sharing one glyph
     # is how an icon stops meaning anything.

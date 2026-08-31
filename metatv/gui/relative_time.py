@@ -166,3 +166,70 @@ def humanize_ago_terse(when: datetime | None, *, now: datetime | None = None) ->
     if days < 365:
         return f"{days // 30}mo"
     return f"{days // 365}y"
+
+
+def humanize_countdown(start: "datetime | None", now: "datetime") -> str:
+    """How long until a dated EVENT — ``"in 3d 4h"``, ``"in 47s"``, ``"ended"``.
+
+    A policy sibling of :func:`humanize_until`, not a duplicate of it, and the
+    difference is the subject rather than the wording. ``humanize_until`` serves
+    EPG programmes, where past an hour a countdown stops being readable ("in
+    143m") and a clock time is the more useful fact. A pay-per-view fight is
+    announced *days* out, and "Sat 9:00 PM" answers a different question than
+    "in 3d 4h" — the second is what a viewer deciding whether to wait around
+    actually wants.
+
+    So the ladder here goes UP into days rather than switching to a clock, and
+    it goes DOWN to seconds, because the last minute before a live event is the
+    one where a ticking number means something.
+
+    ``now`` is passed in and is never re-read from the clock inside — the whole
+    point is that a repaint tick supplies it, and a function that quietly asks
+    the real clock cannot be tested and drifts from its caller's frame.
+
+    Args:
+        start: When the event begins. ``None`` yields ``""`` so a caller can
+            render it without a guard.
+        now: The instant to measure from. Same naivety as *start*.
+
+    Returns:
+        ``"in 3d 4h"`` / ``"in 4h 12m"`` / ``"in 12m 30s"`` / ``"in 47s"`` for
+        the future; ``"ended"`` or ``"ended 3d ago"`` for the past; ``""`` when
+        *start* is None.
+    """
+    if start is None:
+        return ""
+    delta = int((start - now).total_seconds())
+    if delta < 0:
+        days = -delta // _DAY
+        return "ended" if days == 0 else f"ended {days}d ago"
+    days, rem = divmod(delta, _DAY)
+    hours, rem = divmod(rem, _HOUR)
+    minutes, seconds = divmod(rem, _MINUTE)
+    if days:
+        return f"in {days}d {hours}h"
+    if hours:
+        return f"in {hours}h {minutes}m"
+    if minutes:
+        return f"in {minutes}m {seconds}s"
+    return f"in {seconds}s"
+
+
+def is_countdown_live(start: "datetime | None", now: "datetime") -> bool:
+    """Whether :func:`humanize_countdown` would change within the next second.
+
+    The Events view repaints on a 1 Hz timer, and a grid of 2,800 cards that
+    all read ``"in 3d 4h"`` gains nothing from ticking — the string is stable
+    for the next hour. Only cards under a day are worth repainting per second.
+
+    Args:
+        start: The event's start, or None.
+        now: The instant to measure from.
+
+    Returns:
+        True when *start* is in the future and less than a day away.
+    """
+    if start is None:
+        return False
+    delta = (start - now).total_seconds()
+    return 0 <= delta < _DAY
