@@ -186,6 +186,26 @@ hypothetical — 58 failures accumulated across five merges in one week, and the
 failed on every push for three weeks with eight failures that pre-dated all of it.
 
 ### One gate, no double-testing
+
+**Decide with this table before running anything. There is no fourth row.**
+
+| Situation | Command |
+|---|---|
+| Building — you changed some files | `scripts/pytest_verdict.sh tests/test_those_files.py` |
+| Ready to push | push; **CI is the gate**, both platforms, every PR |
+| One gate for a merge batch / release / session wrap | `METATV_FULL_SUITE_REASON="…" scripts/pytest_verdict.sh` |
+
+**Always `scripts/pytest_verdict.sh`, never a bare `pytest` you then grep.**
+It decides on the exit code and prints the summary for humans. On 2026-08-31 a
+run that ended `1 failed, 8044 passed` was reported to the owner as GREEN,
+twice, because `grep -oE "[0-9]+ (passed|failed)" | tail -1` returns the
+PASSING number out of that string, and `grep -c "^FAILED"` matches nothing
+when pytest has written ANSI colour codes before the word. The redirect-to-a-log
+half of the shell-discipline rule was followed; the decision was still made on
+grep. The script refuses a full local suite with no reason given, because the
+rule below was already written, was clear, and was ignored anyway — the fix for
+that is a mechanical step, not another sentence.
+
 Since 2026-08-27 **CI runs the full suite on both platforms for every pull request** (`.github/workflows/ci.yml`), plus a `lint` job that reports in seconds. That is the real gate: never merge on a red or pending CI, and never re-run locally what CI has already reported. Local **`--quick`** (launch smoke + the PR's own changed test files, seconds) stays the fast in-loop check while building; run the FULL suite locally only when a change touches files broadly enough that `--quick`'s blind spot matters — it runs only a PR's OWN changed test files, so a moved contract breaks tests in files the PR never touched (233 files, 4 such breaks, found by CI after four green local gates). The **full** suite also runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
 Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
 
@@ -217,7 +237,7 @@ The owner UX-tests via `./run.sh` from this checkout — it always rests on the 
 This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
 
 ### Shell discipline for gates
-Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it.
+Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it. **Redirecting is only half of it: decide on the EXIT CODE, never on a grep of the log.** Greps of a pytest summary have now produced a false GREEN twice in one session — `tail -1` of `[0-9]+ (passed|failed)` reads the passing number out of "1 failed, 8044 passed", and `^FAILED` never matches a line pytest has prefixed with ANSI colour. `scripts/pytest_verdict.sh` exists so this decision is not re-implemented by hand each time.
 
 ### Design work
 Mockups start from a faithful inventory of the CURRENT app (code transcription with file:line anchors); proposals render side-by-side vs current with **every delta a numbered question** (Q-tags). Roadmap concepts are never pre-applied as settled layout.
@@ -237,7 +257,7 @@ On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: 
 ### Shipped means proven, never planned
 A wave/release scope list is intent, not evidence. **A claimed item with no What's New entry did not ship** — record it NOT BUILT (or cite a `file.py:line` anchor for genuinely invisible work), and never promote a plan, a brief, or an agent's self-report into a memory of delivered work. Ten releases drifted and three phantom Wave-7 items entered memory as fact before this was mechanical. Gates: `scripts/roadmap_audit.py` (+ `--version X.Y.Z`); detail: docs/SESSION_WRAP.md steps 3-4.
 
-Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict (`--quick` = launch smoke + the PR's own changed test files, for feature work — never for a release), `merge_pr.sh <PR#>` = verify→merge→prune in one command (takes `--quick` too), `prune_merged.sh` = safe merged-worktree/branch cleanup, `roadmap_audit.py` = roadmap reconciliation watermark + per-release claims audit.
+Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict (`--quick` = launch smoke + the PR's own changed test files, for feature work — never for a release), `merge_pr.sh <PR#>` = verify→merge→prune in one command (takes `--quick` too), `prune_merged.sh` = safe merged-worktree/branch cleanup, `roadmap_audit.py` = roadmap reconciliation watermark + per-release claims audit, `pytest_verdict.sh` = **the only sanctioned way to run tests** — decides on the exit code, prints the summary, and refuses a full local suite unless `METATV_FULL_SUITE_REASON` says why.
 
 ## Migration Status
 

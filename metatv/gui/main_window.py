@@ -2203,10 +2203,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         self._list_layout.addWidget(self.sources_manager_view)
 
         # Source analytics view (hidden by default)
-        self.source_analytics = SourceAnalyticsView(self)
-        self.source_analytics.done.connect(self.exit_provider_analytics_mode)
-        self.source_analytics.setVisible(False)
-        self._list_layout.addWidget(self.source_analytics)
+        self.source_analytics_view = SourceAnalyticsView(self)  # _view suffix is load-bearing
+        self.source_analytics_view.done.connect(self.exit_provider_analytics_mode)
+        self.source_analytics_view.setVisible(False)
+        self._list_layout.addWidget(self.source_analytics_view)
 
         # Missing TMDb data diagnostic view (hidden by default; Tools menu).
         from metatv.gui.missing_tmdb_view import MissingTmdbView

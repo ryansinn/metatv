@@ -227,20 +227,13 @@ class ScoredChannel:
 
     @property
     def display_title(self) -> str:
-        """What a person should SEE for this recommendation.
+        """What a person should SEE — the cleaned title, raw name as fallback.
 
-        ``channel_name`` is the provider's raw string — "EN| MOVIES: The Matrix
-        (1999) FHD" — and 745,097 of the owner's 785,163 rows (94.9%) differ
-        from their cleaned title. It is the obvious attribute name, which is
-        exactly why the Preferences dashboard reached for it and rendered raw
-        strings while the sidebar, scoring the very same objects from the very
-        same call, rendered "The Matrix".
-
-        So the correct form lives ON the object rather than in a convention
-        each caller has to know: there is now one definition, and it is the
-        shorter thing to type. The render-parse guard could never have caught
-        the old code — it looks for ``parse_channel_name()`` calls, and reading
-        the wrong stored field is not a parse.
+        ``channel_name`` is the provider's raw string and 94.9% of rows differ
+        from their cleaned title. It is the obvious attribute, which is why the
+        Preferences dashboard rendered raw strings while the sidebar, scoring
+        the same objects from the same call, rendered "The Matrix". One
+        definition, on the object, shorter to type than the wrong form.
         """
         return self.detected_title or self.channel_name
 
