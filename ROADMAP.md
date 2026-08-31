@@ -350,6 +350,33 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 
 ## Code Health / Refactor
 
+### Collapsing regional feed duplicates is BLOCKED on the parser (measured 2026-08-31)
+
+Mockup Q18 — "collapse regional feed duplicates into one fixture row with a feed
+count" — is **not ready to build**, and the measurement is why.
+
+A first pass with a crude key (strip a leading `REGION (NETWORK)` marker and a
+trailing feed number) reported **7,275 titles on more than one feed, 9,507 rows
+collapsible**. That number was garbage: the key reduced `CA| SUPER SPORTS CH 267`
+to `"ca"`, so it was grouping unrelated channels by region. Shipping it would
+have hidden ~9,500 genuinely different channels.
+
+With a real fixture identity — the parsed `event_start_time` plus the title's
+content words — the honest figure is **116 groups, 393 rows, 277 collapsible**.
+Two orders of magnitude smaller. And even that over-groups: `US Open: Court 14`,
+`Court 11` and `Court 5` at the same instant collapse into one row, because the
+court number is exactly the detail a words-based key discards.
+
+**So the blocker is the same one as everything else here: the title parser.** A
+correct key needs the team names (or court/venue) extracted, not inferred from
+leftover words. Until then a collapse hides real fixtures, which is the opposite
+of what the view is for — and the same shape as the sports-gate fix that removed
+11,451 real channels to catch ~2,000 false ones.
+
+What DID ship instead: the placeholder lane. 5,565 of 28,323 sports rows are
+literally named `NO EVENT STREAMING NOW - | …`. Those are unambiguous, so they
+get their own lane with its count rather than a heuristic collapse.
+
 ### Sports/PPV event titles are not parsed at all (owner report, 2026-08-31)
 
 **APPROVED 2026-08-31 — build it.** Deferred once ("don't get distracted by it now"), then

@@ -1052,6 +1052,8 @@ class Config(BaseModel):
     # That file is created on first run and is freely editable.
     sports_filter_state: dict = Field(default_factory=dict)
     events_filter_state: dict = Field(default_factory=dict)
+    #: Active Sports lane — see sports_view.LANE_LABELS.
+    sports_lane: str = "upcoming"
     #: Events time rendering: "elapsed" (default) | "countdowns" | "off".
     #: Seconds were rejected as "busy and obnoxious"; see events_view._TICK_MS.
     events_live_timing: str = "elapsed"

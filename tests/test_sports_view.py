@@ -95,7 +95,9 @@ def _activate(view, rows=(), taxonomy=None, counts=None):
 
 def test_activation_loads_the_taxonomy_then_the_channels(view):
     view.on_activate()
-    assert len(view._runner.calls) == 2
+    # Three: the taxonomy, the channel list, and the lane counts. The counts
+    # are a separate GROUP BY because they describe every lane, not the open one.
+    assert len(view._runner.calls) == 3
 
 
 def test_the_taxonomy_is_loaded_once_not_per_activation(view):
@@ -112,7 +114,22 @@ def test_changing_the_filter_re_queries(view):
     _activate(view)
     before = len(view._runner.calls)
     view.filter_bar.filter_changed.emit()
-    assert len(view._runner.calls) == before + 1
+    # Two: the list and the counts, because a facet change moves both.
+    assert len(view._runner.calls) == before + 2
+
+
+def test_switching_lanes_does_not_re_run_the_counts(view):
+    """The counts describe the whole facet-filtered set.
+
+    They cannot change because a different lane is open, so paying for a
+    GROUP BY on every lane click buys nothing.
+    """
+    _activate(view)
+    before = len(view._runner.calls)
+    view._on_lane_clicked("finished")
+    assert len(view._runner.calls) == before + 1, (
+        "a lane switch should re-query the LIST only"
+    )
 
 
 def test_channel_queries_carry_a_stale_token(view):
@@ -219,11 +236,14 @@ def test_a_channel_with_no_team_falls_back_to_its_title(view):
     assert "ESPN2" in _row_texts(view)
 
 
-def test_the_count_reads_back(view):
+def test_the_counts_land_on_the_lane_chips(view):
+    """The standalone count line is gone; each lane chip carries its own."""
     _activate(view, [_dto(id="a"), _dto(id="b")])
-    assert view.count_label.text() == "2 channels"
-    _activate(view, [_dto()])
-    assert view.count_label.text() == "1 channel", "singular, not '1 channels'"
+    view._on_lane_counts_loaded(
+        {"live": 2, "upcoming": 7, "channels": 3, "finished": 9, "placeholders": 5})
+    assert "(2)" in view._lane_chips["live"].text()
+    assert "(7)" in view._lane_chips["upcoming"].text()
+    assert "(5)" in view._lane_chips["placeholders"].text()
 
 
 # --------------------------------------------------------------------------
