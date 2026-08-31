@@ -260,6 +260,26 @@ fields are pipe-delimited and positional:
 | quality | `8K EXCLUSIVE` | `detected_quality` |
 | source | `SE: VIAPLAY PPV 9` | provider channel, not part of the title |
 
+**Three traps for whoever writes the parser** — measured 2026-08-31, before the
+naive version gets written:
+
+1. **There are THREE date formats, not one.** `| 27-08-2026 | 14:00 (GMT) |`
+   (numeric), `| Sat 29 Aug 14:00 CEST (DK) |` (day-name, **no year**), and
+   `| 2026-07-04 | 09:00 (GMT) |` (ISO). The day-name form is the one the `LIVE |`
+   rows use, and it carries no year — so it needs a nearest-plausible-year rule,
+   not `int(...)`.
+2. **The day-name form names a LOCAL timezone, and nothing reads it.** 307 rows
+   say `CEST`, 45 `EDT`, 27 `EEST`, 16 `UTC`, 2 `GMT`, 1 `NDT`. A parser that
+   assumes GMT puts 307 European fixtures one to two hours wrong — and they will
+   look *almost* right, which is the worst kind of wrong. `start_time`/`stop_time`
+   are UTC-naive by rule (`epg_utils.py`), so the zone must be resolved at
+   ingestion, not carried.
+3. **The provider's own `LIVE |` token is not evidence.** Of 640 rows currently
+   labelled live, 398 carry a parseable start time and **396 of those (99%)
+   started more than 24 hours ago**; the oldest genuine fixture has flown a LIVE
+   badge for 15.4 days. Treat the token as a hint and corroborate it against the
+   parsed time — never render a Live state the clock does not support.
+
 **Two things fall out of parsing it that are worth more than the tidier title:**
 
 1. **`event_start_time` for the Events view.** These rows carry a real date and
