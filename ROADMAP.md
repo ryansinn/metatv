@@ -221,6 +221,57 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 
 ## Code Health / Refactor
 
+### Sports/PPV event titles are not parsed at all (owner report, 2026-08-31)
+
+**NOT a rendering bug — an ingestion gap.** The Sports view shows raw provider
+strings because `detected_title` *is* the raw string for this whole family:
+
+```
+MAJOR LEAGUE BASEBALL CARDINALS - ORIOLES | Thu 27 Aug 20:00 CEST (SE) | 8K EXCLUSIVE | SE: VIAPLAY PPV 9
+Cardinals - Cubs | Major League Baseball 2026 | 2026-05-31 | 23:00 (GMT) | 8K EXCLUSIVE | ...
+```
+
+**Measured on the owner's library:** 7,660 of 28,018 sports rows (**27%**) still
+contain a `|` in `detected_title`. Pipe-field counts: 1→1,248, 2→5,700, 3→514,
+4→25, 5→159, 6→14 — so it is not one format, but it is a small number of them.
+
+**The structure is unusually parseable** — this is not scene-release soup. The
+fields are pipe-delimited and positional:
+
+| field | example | maps to |
+|---|---|---|
+| event | `CARDINALS - ORIOLES` | `detected_title`, and both `team_name`s |
+| league | `MAJOR LEAGUE BASEBALL` / `Major League Baseball 2026` | `league_name` (+ year) |
+| when | `Thu 27 Aug 20:00 CEST` / `2026-05-31 | 23:00 (GMT)` | `event_start_time` — **currently NULL for these** |
+| region | `(SE)`, `(DK)`, `(NO)`, `(FI)` | `detected_region` |
+| quality | `8K EXCLUSIVE` | `detected_quality` |
+| source | `SE: VIAPLAY PPV 9` | provider channel, not part of the title |
+
+**Two things fall out of parsing it that are worth more than the tidier title:**
+
+1. **`event_start_time` for the Events view.** These rows carry a real date and
+   time in the string and reach `event_start_time = NULL`, so they land in the
+   "undated / always-on" bucket rather than the countdown. The Events view was
+   built assuming dated rows are the exception; here they are the majority,
+   mis-filed.
+2. **Cross-region dedup.** The SAME event is a separate row per country feed —
+   `(SE)`, `(DK)`, `(NO)`, `(FI)` of one Cardinals–Orioles game, four rows and
+   four cards. Parsing the event out of the string is what would let
+   `content_key` collapse them into one title with four sources, which is
+   exactly what "Other Versions" exists for.
+
+**And a third finding, separate and immediate: 5,473 rows say literally
+`NO EVENT STREAMING NOW -`.** That is ~20% of the Sports view, and ~72% of the
+unparsed population — placeholder channels the provider leaves standing between
+events. They are not dead streams to be *probed*; they announce their own
+emptiness in the title, so they can be filed cheaply at ingestion without
+opening a single connection. This is the biggest single win available to the
+"verify events" sweep, and it needs none of the sweep's machinery.
+
+**Owner's call: note it, do not fix it now.** Recorded because it is invisible
+from the code — the render path is correct and reads a stored field, exactly as
+the rules require; the field itself is what was never computed.
+
 ### Componentization backlog — from the 2026-08-31 audit
 
 Three parallel audits looked for one shape: **a capability that works but was
