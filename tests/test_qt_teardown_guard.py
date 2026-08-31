@@ -153,6 +153,71 @@ def test_sweep_flags_stray_daemon_thread(qapp):
         t.join(timeout=2.0)
 
 
+def test_stray_thread_is_flagged_even_when_it_recycles_a_dead_ident(qapp):
+    """The bug this guard had: CPython hands a dead thread's ident to the next one.
+
+    Keyed by ``t.ident``, a brand-new thread that reuses a just-dead thread's
+    ident reads as pre-existing and is skipped — the sweep reports a clean run
+    while a thread leaks. Measured at 200/200 in a tight start/join loop, and it
+    failed a CI shard twice where a pool shut down mid-test.
+
+    The reuse is forced deterministically: the doomed thread is held alive with
+    an Event so it is genuinely captured by the snapshot, released, and only then
+    are the strays started. Against the ident-keyed snapshot the count assertion
+    fails; against object identity it passes.
+    """
+    release = threading.Event()
+    doomed = threading.Thread(target=release.wait, name="metatv-test-doomed")
+    doomed.start()
+    while doomed.ident is None:          # started, and visible to enumerate()
+        time.sleep(0.001)
+    assert doomed in threading.enumerate(), "doomed thread must be live at snapshot"
+
+    pre_ids, pre_threads = _qt_snapshot()   # captures doomed
+    doomed_ident = doomed.ident
+    release.set()
+    doomed.join(timeout=2.0)                # now its ident is free for reuse
+    assert not doomed.is_alive()
+
+    stop = threading.Event()
+    strays: list[threading.Thread] = []
+    try:
+        # Start several so at least one lands on the freed ident.
+        for _ in range(6):
+            t = threading.Thread(target=stop.wait, name="metatv-test-stray", daemon=True)
+            t.start()
+            strays.append(t)
+        if not any(t.ident == doomed_ident for t in strays):
+            pytest.skip("no stray recycled the freed ident on this run")
+
+        report = _qt_teardown_sweep(pre_ids, pre_threads)
+
+        assert report.threads.count("metatv-test-stray") == len(strays), (
+            f"expected all {len(strays)} strays reported, got "
+            f"{report.threads.count('metatv-test-stray')} — an ident-keyed "
+            "snapshot silently drops whichever stray recycled a dead ident"
+        )
+        assert not report.clean
+    finally:
+        stop.set()
+        for t in strays:
+            t.join(timeout=2.0)
+
+
+def test_a_thread_alive_at_snapshot_is_never_reported(qapp):
+    """The other direction: object identity must still treat pre-existing as pre-existing."""
+    stop = threading.Event()
+    incumbent = threading.Thread(target=stop.wait, name="metatv-test-incumbent", daemon=True)
+    incumbent.start()
+    try:
+        pre_ids, pre_threads = _qt_snapshot()   # taken AFTER it started
+        report = _qt_teardown_sweep(pre_ids, pre_threads)
+        assert "metatv-test-incumbent" not in report.threads
+    finally:
+        stop.set()
+        incumbent.join(timeout=2.0)
+
+
 def test_sweep_joins_finishing_non_daemon_thread(qapp):
     """A non-daemon thread that finishes quickly is reaped within the join budget."""
     pre_ids, pre_threads = _qt_snapshot()
