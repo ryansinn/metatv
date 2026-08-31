@@ -423,3 +423,34 @@ def test_cast_visibility_resets_across_reuse(qapp):
     s.clear()
     s.load(cast=[{"name": "B"}], director=None)
     assert not s.isHidden(), "must re-show when reused for a title with cast"
+
+
+# ── the details-pane watch bell ───────────────────────────────────────────────
+
+def test_the_watch_bell_toggles_without_raising(qapp, tmp_path):
+    """Every click of the bell toggled the rule and then raised NameError.
+
+    ``_on_watchlist`` ended with ``update_epg_title(title, patterns)`` and
+    ``patterns`` is not a name in ``details_pane`` — so the write landed, the
+    button never redrew, and the traceback surfaced as a dead-looking control.
+    ruff's F821 is in the project's ignore list (pyproject.toml), which is how
+    a second live undefined name stood after the first was fixed.
+    """
+    from metatv.core import watchlist
+    from metatv.core.config import Config
+    from metatv.core.image_cache import ImageCache
+    from metatv.gui.details_pane import DetailsPaneWidget
+
+    config = Config(config_dir=tmp_path)
+    pane = DetailsPaneWidget(config, ImageCache(cache_dir=tmp_path / "img"))
+    pane._on_epg_title_changed("Match of the Day")
+    assert pane._action_bar.watchlist_button.isChecked() is False
+
+    pane._on_watchlist()
+    assert watchlist.patterns(config) == ("Match of the Day",)
+    assert pane._action_bar.watchlist_button.isChecked() is True, (
+        "the bell did not redraw after the rule was added")
+
+    pane._on_watchlist()
+    assert watchlist.patterns(config) == ()
+    assert pane._action_bar.watchlist_button.isChecked() is False

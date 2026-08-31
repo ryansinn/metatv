@@ -69,11 +69,84 @@ reach new rows only and the stored data will drift again in the same way. There
 is no cheaper signal: the alternative is a per-row stamp of the classifier
 version, which is a column and a write on 785k rows to save a migration that
 runs once.
+
+Reading and writing are separate transactions
+---------------------------------------------
+The v3 run over the owner's 785,489 rows died at its own flush with
+``sqlite3.OperationalError: database is locked``, having waited out the whole
+30 s ``busy_timeout``, and four other writers failed the same way inside that
+two-minute window — the watch-list DELETE on the UI thread,
+``persist_url_stats``, ``apply_metadata_harvest`` and ``record_impressions``.
+SQLite has ONE writer, and this pass was the loudest one on the database.
+
+The shape that caused it: **one ``session_scope()`` per page, wrapped around a
+full ORM flush of up to 2,000 modified rows.** Measured with a listener timing
+each transaction from its first DML to the COMMIT returning (60,000 rows,
+154 MB, otherwise idle):
+
+    ==========================================  ========  =======
+                                                  before    after
+    ==========================================  ========  =======
+    statements inside the longest transaction       13         1
+    longest transaction, first DML -> COMMIT      18.8 ms   1.1 ms
+    total time any write lock was held             0.42s    0.02s
+    ==========================================  ========  =======
+
+Thirteen statements for twenty-four rows, because a flush emits one UPDATE per
+distinct *changed-column combination* and every one of them is a round trip
+taken while holding the lock. A bulk update of the same rows is a single
+``executemany``. Nothing about that is specific to a busy machine — it is 21x
+more lock time for the identical result, always.
+
+The other half is the page query. It loaded whole ORM rows, ``raw_data`` blob
+included, to read three strings off each one.
+
+So the pass now does what ``epg.delete_programmes_chunked`` does for the other
+big writer on this database (#601): bounded rows per transaction, committed per
+chunk. Concretely — a read-only scope loads a page of the **ten columns the
+classifier actually touches** (``CLASSIFIER_INPUTS`` + ``DERIVED_FIELDS``, not
+the ~45-column row), the scope closes, the page is classified against transient
+throwaway instances that are never attached to a session, and only the rows
+that CHANGED are written, ``WRITE_CHUNK`` at a time, each its own short
+transaction. Rows that do not change — 98.75% of the catalog, 9,825 of 785,489
+— now reach no write transaction at all.
+
+End to end, on a synthetic 515 MB / 200,000-row database with the production
+pragmas, 1.25% of rows changed, one probe running the small
+``UPDATE channels SET rec_shown_count=…`` from the crash log every 100 ms and a
+second holding ``busy_timeout=0`` to time the lock directly (worst of two runs
+each way):
+
+    ============================  ============  ===========
+                                        before        after
+    ============================  ============  ===========
+    longest single lock hold           90 ms         6 ms
+    total time the lock is held     2.88s (15%)  0.14s (1%)
+    concurrent writer, slowest        207 ms        36 ms
+    migration wall time               18.8s         12.0s
+    ============================  ============  ===========
+
+Scaled to the owner's 785k rows: roughly half a second of write lock across the
+whole pass, in 6 ms pieces, instead of eleven seconds in 90 ms pieces.
+
+The narrowed column list is not a hand-maintained guess:
+``tests/test_sports_reclassify.py`` AST-walks ``special_content.py`` for every
+``channel.<attr>`` it reads and fails if one escapes ``CLASSIFIER_INPUTS`` —
+so a classifier that starts reading ``raw_data`` is a red test, not a silently
+wrong migration.
+
+A crash still re-runs from the top, and that is correct rather than merely
+tolerable: ``MigrationManager._run_all`` skips ``on_completed`` on an
+exception, so the version stays unbumped, and the re-run writes NOTHING for the
+rows the first attempt already fixed — their ``before`` now equals their
+``after``. A stored resume watermark would save re-READING those rows and
+nothing else, at the cost of a persisted field that has to be invalidated
+whenever ``CURRENT_VERSION`` moves.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
@@ -97,9 +170,24 @@ DERIVED_FIELDS = (
     "event_start_time", "event_metadata",
 )
 
-#: Rows per commit. Matches ProviderLoader's own categorize batch, and bounds
-#: how many full ORM objects (raw_data included) are resident at once.
+#: Every channel attribute ``special_content.update_channel_special_content``
+#: READS. The page query loads these and ``DERIVED_FIELDS`` and nothing else,
+#: which is what keeps the 2 KB ``raw_data`` blob off the wire for 785k rows.
+#: Drift guard: ``test_the_classifier_reads_no_column_the_page_query_omits``
+#: AST-walks ``special_content.py`` and fails if a read escapes this tuple.
+CLASSIFIER_INPUTS = ("name", "category", "stream_url")
+
+#: Rows per page READ. Matches ProviderLoader's own categorize batch. Only ever
+#: a read now, in its own read-only scope, so it bounds memory rather than a
+#: lock hold.
 _BATCH = 2000
+
+#: Changed rows per write TRANSACTION — the number that bounds the lock hold,
+#: the same knob (and the same reason) as ``epg.DELETE_CHUNK``. Deliberately
+#: separate from ``_BATCH``: a page of 2,000 yields ~25 changed rows at the
+#: measured 1.25% change rate, so this caps the outlier page, not the typical
+#: one.
+WRITE_CHUNK = 500
 
 
 class SportsReclassifyTask:
@@ -127,26 +215,32 @@ class SportsReclassifyTask:
     ) -> None:
         """Reset and recompute the classifier's fields across all channels.
 
-        Runs on a worker thread. Ids are collected first and the rows loaded in
-        batches, so ``raw_data`` for 785k channels is never resident at once —
-        the same shape ``ProviderLoader._categorize_special_content`` uses.
+        Runs on a worker thread. Reads and writes are separate transactions —
+        see the module note. A page is read in a read-only scope which then
+        CLOSES; the classify loop runs against transient instances outside any
+        transaction; only the rows whose labels actually changed are written,
+        ``WRITE_CHUNK`` at a time, each chunk its own short commit.
 
         Exceptions propagate: the manager leaves the version unbumped on a
         crash, which is what makes the retry correct (#364).
 
         Args:
-            progress_cb: ``(done, total)`` after each batch commit.
+            progress_cb: ``(done, total)`` after each page.
             is_cancelled: True when the manager has been asked to stop.
             config: Passed through to the classifier for user keyword maps.
         """
         from metatv.core.database import ChannelDB
-        from metatv.core.special_content import update_channel_special_content
 
         logger.info("SportsReclassifyTask: starting (version={})", CURRENT_VERSION)
 
         with self._db.session_scope(commit=False) as session:
             total = session.query(ChannelDB.id).count()
         logger.info("SportsReclassifyTask: {:,} channels to re-classify", total)
+
+        columns = tuple(
+            getattr(ChannelDB, name)
+            for name in ("id",) + CLASSIFIER_INPUTS + DERIVED_FIELDS
+        )
 
         # Keyset pagination on the primary key. Not an id list + ``IN (...)``:
         # that materialises 785k ids in Python and binds 2,000 parameters per
@@ -160,25 +254,19 @@ class SportsReclassifyTask:
                 logger.info(
                     "SportsReclassifyTask: cancelled at {:,}/{:,}", done, total)
                 return
-            with self._db.session_scope() as session:
-                batch = (
-                    session.query(ChannelDB)
+            with self._db.session_scope(commit=False) as session:
+                page = (
+                    session.query(*columns)
                     .filter(ChannelDB.id > last_id)
                     .order_by(ChannelDB.id)
                     .limit(_BATCH)
                     .all()
                 )
-                if not batch:
-                    break
-                for channel in batch:
-                    before = tuple(getattr(channel, f) for f in DERIVED_FIELDS)
-                    for field in DERIVED_FIELDS:
-                        setattr(channel, field, None)
-                    update_channel_special_content(channel, config)
-                    if before != tuple(getattr(channel, f) for f in DERIVED_FIELDS):
-                        changed += 1
-                done += len(batch)
-                last_id = batch[-1].id
+            if not page:
+                break
+            last_id = page[-1][0]
+            done += len(page)
+            changed += self._write_changes(self._reclassify(page, config))
             progress_cb(min(done, total), total)
 
         progress_cb(total, total)
@@ -186,6 +274,64 @@ class SportsReclassifyTask:
             "SportsReclassifyTask: complete — {:,} scanned, {:,} re-classified",
             done, changed,
         )
+
+    def _reclassify(
+        self, page: list, config: "Config | None"
+    ) -> list[dict[str, Any]]:
+        """Classify one page off-session; return an update mapping per CHANGED row.
+
+        The row is rebuilt as a **transient** ``ChannelDB`` — constructed, never
+        added to a session — so nothing here can hold a transaction open or
+        leak a detached ORM object across a session boundary. It also makes the
+        reset free: a fresh instance has ``None`` in every derived field, which
+        is exactly what the old ``setattr(channel, field, None)`` sweep bought,
+        and it is the load-bearing half of the pass (a row that stops matching
+        must LOSE its label, and the classifier writes nothing in that case).
+
+        Args:
+            page: Rows from the page query, ``(id, *CLASSIFIER_INPUTS,
+                *DERIVED_FIELDS)``.
+            config: Passed to the classifier for user keyword maps.
+
+        Returns:
+            One ``{"id": …, **DERIVED_FIELDS}`` mapping per row whose labels
+            changed. Unchanged rows are omitted, which is what keeps 98.75% of
+            the catalog out of a write transaction entirely.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.special_content import update_channel_special_content
+
+        split = 1 + len(CLASSIFIER_INPUTS)
+        updates: list[dict[str, Any]] = []
+        for row in page:
+            scratch = ChannelDB(id=row[0], **dict(zip(CLASSIFIER_INPUTS, row[1:split])))
+            update_channel_special_content(scratch, config)
+            after = tuple(getattr(scratch, field) for field in DERIVED_FIELDS)
+            if after != tuple(row[split:]):
+                updates.append({"id": row[0], **dict(zip(DERIVED_FIELDS, after))})
+        return updates
+
+    def _write_changes(self, updates: list[dict[str, Any]]) -> int:
+        """Persist *updates* in ``WRITE_CHUNK``-sized transactions.
+
+        The commit per chunk IS the point — it is what releases the write lock,
+        the same reason ``epg.delete_programmes_chunked`` commits per chunk.
+
+        Args:
+            updates: Mappings from :meth:`_reclassify`, each keyed by primary key.
+
+        Returns:
+            How many rows were written.
+        """
+        from sqlalchemy import update as sql_update
+
+        from metatv.core.database import ChannelDB
+
+        for start in range(0, len(updates), WRITE_CHUNK):
+            chunk = updates[start:start + WRITE_CHUNK]
+            with self._db.session_scope() as session:
+                session.execute(sql_update(ChannelDB), chunk)
+        return len(updates)
 
     def on_completed(self, config: "Config") -> None:
         """Record the version so this does not run again."""

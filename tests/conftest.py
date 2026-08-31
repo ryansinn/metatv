@@ -1804,9 +1804,17 @@ def _unbind_watchlist_store():
     Found exactly that way: eight tests across two files passed alone and failed
     in a batch. Unbinding per test is the price of the binding, and it belongs
     here rather than repeated in every file that builds a window.
+
+    The write-error handler is cleared for the same reason and a sharper one:
+    ``MainWindow.__init__`` installs a ``WatchlistWriteNotifier``'s bound signal
+    there, and a bound signal whose QObject has been torn down is a SEGFAULT
+    when the next test's failed write emits into it — not an exception a test
+    can report.
     """
     from metatv.core import watchlist
 
     watchlist.unbind()
+    watchlist.set_write_error_handler(None)
     yield
     watchlist.unbind()
+    watchlist.set_write_error_handler(None)

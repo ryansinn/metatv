@@ -501,3 +501,335 @@ def test_the_cached_maps_are_not_mutated_by_a_caller(tmp_path):
     for name in ("US| NFL NETWORK HD", "4K - Conflict (2024)", "GO| ESPN2"):
         parse_sports_channel(_row(name, "Sports"), cfg)
     assert (sport_kw, league_kw) == snapshot
+
+
+# --------------------------------------------------------------------------
+# The lock the pass used to hold — see the module note in sports_reclassify.py
+# --------------------------------------------------------------------------
+
+class _TxnRecorder:
+    """Records what each WRITE transaction did, from SQLAlchemy's own events.
+
+    The observable is the SQL that actually reached the driver, not anything
+    the task reports about itself: DML statements are attributed to the
+    transaction in flight, and a COMMIT closes it. A transaction with no DML is
+    never recorded, because it took no write lock — which is the property the
+    98.75%-unchanged rows depend on.
+
+    Deliberately not ``session.dirty``/``session.deleted``: those are empty
+    under ``synchronize_session=False``, so an assertion over them is vacuously
+    true — which is how a chunking guard can pass on unchunked code.
+    """
+
+    def __init__(self, database):
+        from sqlalchemy import event
+
+        self.transactions: list[tuple[int, int]] = []   # (rows, statements)
+        self.selects: list[str] = []
+        self._rows = self._stmts = 0
+
+        @event.listens_for(database.engine, "before_cursor_execute")
+        def _dml(conn, cursor, statement, parameters, context, executemany):
+            head = statement.lstrip()[:6].upper()
+            if head in ("UPDATE", "INSERT", "DELETE"):
+                self._rows += len(parameters) if executemany else 1
+                self._stmts += 1
+            elif head == "SELECT":
+                self.selects.append(statement)
+
+        @event.listens_for(database.engine, "commit")
+        def _commit(conn):
+            if self._stmts:
+                self.transactions.append((self._rows, self._stmts))
+            self._rows = self._stmts = 0
+
+    @property
+    def rows_written(self) -> int:
+        return sum(rows for rows, _ in self.transactions)
+
+    @property
+    def widest(self) -> int:
+        return max((rows for rows, _ in self.transactions), default=0)
+
+    @property
+    def most_statements(self) -> int:
+        return max((stmts for _, stmts in self.transactions), default=0)
+
+
+def _stale_sports_rows(n):
+    """*n* rows wrongly labelled NFL — every one of them changes on a re-run."""
+    return [(f"4K - Conflict {i} (2024)", "Movies", "sports", "football", "NFL", "Bears")
+            for i in range(n)]
+
+
+def test_no_write_transaction_holds_more_rows_than_the_chunk(db):
+    """The lock-hold bound, measured on the SQL that reached the driver.
+
+    The old shape put every changed row of a page in ONE transaction, so a page
+    that changed 2,000 rows held the write lock for all 2,000. Chunking is the
+    same fix ``epg.delete_programmes_chunked`` applies to the other bulk writer
+    on this database (#601).
+    """
+    import metatv.core.migrations.sports_reclassify as mod
+
+    keep, mod._BATCH = mod._BATCH, 1200
+    try:
+        _seed(db, _stale_sports_rows(1200))
+        recorder = _TxnRecorder(db)
+        _run(db)
+    finally:
+        mod._BATCH = keep
+
+    assert recorder.rows_written == 1200, (
+        "nothing was written — the bound below would be vacuously true")
+    assert recorder.widest <= mod.WRITE_CHUNK, (
+        f"a transaction wrote {recorder.widest} rows, over the "
+        f"{mod.WRITE_CHUNK}-row chunk")
+    assert len(recorder.transactions) >= 3, (
+        "1,200 changed rows must span at least three chunks, not one transaction")
+
+
+def test_a_chunk_is_one_statement_not_one_per_changed_column_set(db):
+    """Where the 21x of lock time went.
+
+    A full ORM flush emits one UPDATE per distinct changed-COLUMN combination,
+    and each is a round trip taken while holding the write lock — 13 statements
+    for 24 rows, measured. The bulk update is a single ``executemany`` however
+    many column shapes the chunk contains, so this seeds two shapes on purpose.
+    """
+    _seed(db, [
+        # sport/league/team cleared -> one column shape
+        ("4K - Conflict (2024)", "Movies", "sports", "football", "NFL", "Bears"),
+        ("4K - Conflict 2 (2024)", "Movies", "sports", "football", "NBA", "Lakers"),
+        # gains a label -> a different column shape
+        ("US| NFL NETWORK HD", "US Sports", None, None, None, None),
+        ("UK: SKY SPORTS 1 FHD", "Sports", None, None, None, None),
+    ])
+    recorder = _TxnRecorder(db)
+    _run(db)
+
+    assert recorder.rows_written == 4, "all four rows must change, or this proves nothing"
+    assert recorder.most_statements == 1, (
+        f"{recorder.most_statements} statements inside one transaction — the "
+        "chunk must be a single executemany")
+
+
+def test_the_page_query_does_not_load_the_raw_data_blob(db):
+    """The read half: three strings per row, not a ~45-column row with its JSON.
+
+    ``raw_data`` averages 2 KB across the owner's 785k rows, and the classifier
+    never looks at it.
+    """
+    _seed(db, [("US| NFL NETWORK HD", "US Sports", None, None, None, None)])
+    recorder = _TxnRecorder(db)
+    _run(db)
+
+    pages = [s for s in recorder.selects if "channels.name" in s]
+    assert pages, "no page query was recorded — the assertion below is vacuous"
+    assert not any("raw_data" in s for s in pages), (
+        "the page query still loads raw_data")
+    assert any("channels.special_view" in s for s in pages), (
+        "the page query must load the derived fields, or nothing can be compared")
+
+
+def test_a_run_that_changes_nothing_takes_no_write_transaction_at_all(db):
+    """98.75% of the catalog must never reach a write lock.
+
+    A second pass over already-correct rows is the common case — every launch
+    after a bumped CURRENT_VERSION re-reads all 785k of them.
+    """
+    _seed(db, [("US| NFL NETWORK HD", "US Sports", None, None, None, None),
+               ("EN | Discovery Channel HD", "Docs", None, None, None, None)])
+    _run(db)                       # first pass: settles the labels
+
+    recorder = _TxnRecorder(db)
+    _run(db)                       # second pass: nothing to do
+    assert recorder.transactions == [], (
+        f"an unchanged pass still took the write lock: {recorder.transactions}")
+
+
+def test_a_concurrent_writer_gets_through_while_the_pass_runs(db, tmp_path):
+    """The four writers that failed in the owner's log were all small ones.
+
+    A second connection doing the ``UPDATE channels SET rec_shown_count=…`` from
+    the crash report must keep landing throughout, and the pass must still
+    finish — that is the shape that broke, so it is the shape that is pinned.
+    """
+    import threading
+
+    _seed(db, _stale_sports_rows(600) +
+          [("EN | Marker", "Docs", None, None, None, None)])
+
+    other = Database(f"sqlite:///{tmp_path / 'sports.db'}")
+    stop = threading.Event()
+    landed, failures = [], []
+
+    def _hammer():
+        while not stop.is_set():
+            try:
+                with other.session_scope() as session:
+                    row = session.get(ChannelDB, "c0600")
+                    row.rec_shown_count = (row.rec_shown_count or 0) + 1
+                landed.append(1)
+            except Exception as exc:                     # noqa: BLE001
+                failures.append(str(exc).split("\n")[0])
+
+    hammer = threading.Thread(target=_hammer, daemon=True)
+    hammer.start()
+    try:
+        _run(db)
+    finally:
+        stop.set()
+        hammer.join(timeout=10)
+
+    assert not failures, f"a concurrent writer was locked out: {failures[:2]}"
+    assert len(landed) > 1, "the probe never ran; this proves nothing"
+    with db.session_scope(commit=False) as session:
+        assert session.get(ChannelDB, "c0600").rec_shown_count == len(landed)
+        assert session.get(ChannelDB, "c0000").special_view is None, (
+            "the pass did not finish its work")
+
+
+# --------------------------------------------------------------------------
+# A partial run must not record itself complete, and must resume
+# --------------------------------------------------------------------------
+
+def _task_that_dies_on_the_second_chunk(db):
+    """A real task whose second write chunk raises 'database is locked'."""
+    task = SportsReclassifyTask(db)
+    original = task._write_changes
+    calls = {"n": 0}
+
+    def _die(updates):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("database is locked")
+        return original(updates)
+
+    task._write_changes = _die
+    return task, calls
+
+
+def test_a_crash_partway_leaves_the_version_unbumped(db, qapp):
+    """Driven through the REAL MigrationManager, because that is who decides.
+
+    ``_run_all`` skips ``on_completed`` when ``run`` raises, so the version
+    stays behind and the task retries next launch. A task that recorded itself
+    complete after a partial pass would burn the version permanently — which is
+    what happened to detected_title_reparse v8 (#364).
+    """
+    import threading
+    from unittest.mock import MagicMock
+
+    import metatv.core.migrations.sports_reclassify as mod
+    from metatv.core.migration_manager import MigrationManager
+
+    _seed(db, _stale_sports_rows(30))
+    task, calls = _task_that_dies_on_the_second_chunk(db)
+
+    mgr = MigrationManager.__new__(MigrationManager)
+    cfg = _Cfg()
+    mgr.config = cfg
+    mgr._cancel_event = threading.Event()
+    for name in ("_task_started", "_task_progress", "_task_finished", "_all_finished"):
+        setattr(mgr, name, MagicMock(emit=lambda *a: None))
+
+    keep, mod._BATCH = mod._BATCH, 10
+    try:
+        mgr._run_all([task])
+    finally:
+        mod._BATCH = keep
+
+    assert calls["n"] > 1, "the injected failure never fired"
+    assert cfg.sports_reclassify_version == 0, (
+        "a crashed pass recorded itself complete — it will never retry")
+    assert cfg.saved == 0
+    assert task.needs_run(cfg) is True
+
+
+def test_the_rerun_finishes_the_job_and_rewrites_nothing_it_already_fixed(db):
+    """Resumability, at the grain the migration framework defines it.
+
+    ``migrations/base.py``: "interrupting it mid-way leaves it in an
+    un-completed state so it will re-run on next launch". What makes that cheap
+    rather than merely correct is that the retry writes ONLY the rows the first
+    attempt did not reach — the ones it did now compare equal.
+    """
+    import metatv.core.migrations.sports_reclassify as mod
+
+    _seed(db, _stale_sports_rows(30))
+    task, _calls = _task_that_dies_on_the_second_chunk(db)
+
+    keep, mod._BATCH = mod._BATCH, 10
+    try:
+        with pytest.raises(RuntimeError):
+            task.run(lambda d, t: None, lambda: False, None)
+
+        with db.session_scope(commit=False) as session:
+            fixed = session.query(ChannelDB).filter(
+                ChannelDB.special_view.is_(None)).count()
+        assert fixed == 10, "the first chunk should have committed before the crash"
+
+        recorder = _TxnRecorder(db)
+        _run(db)                                     # the resumed run
+    finally:
+        mod._BATCH = keep
+
+    assert recorder.rows_written == 20, (
+        f"the retry rewrote {recorder.rows_written} rows; the 10 the first "
+        "attempt already fixed must compare equal and cost no write")
+    with db.session_scope(commit=False) as session:
+        assert session.query(ChannelDB).filter(
+            ChannelDB.special_view.isnot(None)).count() == 0
+
+
+def test_the_classifier_reads_no_column_the_page_query_omits():
+    """The drift guard that makes the narrowed SELECT safe to keep.
+
+    ``CLASSIFIER_INPUTS`` is the reason the page query can skip ``raw_data``,
+    and it is a hand-written tuple — so the day someone makes
+    ``special_content`` read another column, this fails and names it, instead
+    of the migration silently classifying every row against ``None``.
+    """
+    import ast
+    from pathlib import Path
+
+    import metatv.core.special_content as mod
+    from metatv.core.migrations.sports_reclassify import CLASSIFIER_INPUTS
+
+    tree = ast.parse(Path(mod.__file__).read_text())
+    touched = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "channel"
+    }
+    assert touched, "the AST walk found nothing — this guard is not looking at the code"
+    stray = touched - set(CLASSIFIER_INPUTS) - set(DERIVED_FIELDS)
+    assert not stray, (
+        f"special_content reads {sorted(stray)} off a channel, which the page "
+        "query in sports_reclassify.py does not load — add it to CLASSIFIER_INPUTS")
+
+
+def test_the_bulk_write_round_trips_json_and_datetime_columns(db):
+    """``event_metadata`` is JSONEncoded and ``event_start_time`` a DateTime.
+
+    The write moved from the ORM unit of work to a bulk UPDATE, and a bulk
+    UPDATE that bypassed the column types would store a repr instead of JSON.
+    """
+    from datetime import datetime
+
+    _seed(db, [
+        ("End | Rolling Loud | all | 11-05-2026 | 09:37 (GMT) | US: SOCCER PPV 1",
+         "PPV", None, None, None, None),
+    ])
+    _run(db)
+
+    with db.session_scope(commit=False) as session:
+        row = session.query(ChannelDB).one()
+        assert row.special_view == "ppv"
+        assert isinstance(row.event_metadata, dict), (
+            f"event_metadata came back as {type(row.event_metadata).__name__}")
+        assert isinstance(row.event_start_time, datetime)
+        assert row.updated_at is not None
