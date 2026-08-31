@@ -367,3 +367,48 @@ def test_a_reconnection_appends_rather_than_truncating(
         "the reconnection truncated the file and lost the first pass")
     with db.session_scope() as session:
         assert session.get(RecordingDB, rid).recorded_bytes > 700
+
+
+# ── the two engines against one accountant ──────────────────────────────────
+
+def test_a_recording_actually_pauses_a_running_download(db, config, accountant,
+                                                        endless_server):
+    """End to end, not just at the accountant.
+
+    Each engine's own tests prove its half. Neither proves the WIRING — that the
+    accountant's preempt callback reaches DownloadManager.on_preempted and moves
+    the row. That wiring lives in one line of _setup_downloads(), which is
+    exactly the kind of line a refactor drops silently, so it is asserted here
+    against real managers rather than mocks.
+    """
+    from metatv.core.database import DownloadDB
+    from metatv.core.download_manager import DownloadManager
+
+    downloads = DownloadManager(db, config, accountant)
+    recordings = RecordingManager(db, config, accountant)
+    accountant._on_preempt = downloads.on_preempted
+
+    # A download holding p1's only slot, exactly as the scheduler leaves it.
+    download_id = "dl-under-way"
+    with db.session_scope() as session:
+        session.add(DownloadDB(
+            id=download_id, channel_id="c9", provider_id="p1",
+            channel_name="A Movie", source_url=endless_server,
+            dest_path=str(tmp := Path(config.download_dir) / "movie.mp4"),
+            state="running", downloaded_bytes=1024))
+    assert accountant.acquire("p1", "download", download_id).granted
+    assert str(tmp)
+
+    start = now_utc() - timedelta(seconds=1)
+    rid = recordings.schedule("c1", "p1", "BBC One", endless_server,
+                              start, start + timedelta(seconds=2), pad=False)
+    recordings._record(recordings._next_due())
+
+    with db.session_scope() as session:
+        parked = session.get(DownloadDB, download_id)
+        assert parked.state == "paused", (
+            "the recording took the slot but the download never heard about it")
+        assert parked.paused_by_playback is True, (
+            "parked as a USER pause — it would never resume by itself")
+        assert parked.downloaded_bytes == 1024, "progress was discarded"
+        assert session.get(RecordingDB, rid).recorded_bytes > 0
