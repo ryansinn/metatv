@@ -626,6 +626,49 @@ VECTOR_KEYS: dict[str, str] = {
     "delete": "mdi6.trash-can-outline",
     "as_grid": "mdi6.view-grid-outline",
     "as_list": "mdi6.view-list-outline",
+    # ── sports, keyed by the stored ``sport_type`` value ──────────────────
+    # The nav chip for the whole view keeps its whistle ("any one sport's ball
+    # would say the other three are somewhere else"). That reasoning is right
+    # for a view and inverted for a facet: here the glyph names exactly one
+    # sport, which is the whole point — the filter strip and the row gutter
+    # share this vocabulary, so pressing a ball leaves the rows wearing it.
+    #
+    # Every key below was verified present in the bundled font before being
+    # written down, not assumed from its name.
+    "sport_soccer": "mdi6.soccer",
+    "sport_tennis": "mdi6.tennis",
+    "sport_basketball": "mdi6.basketball",
+    "sport_baseball": "mdi6.baseball",
+    "sport_hockey": "mdi6.hockey-puck",
+    "sport_field_hockey": "mdi6.hockey-sticks",
+    "sport_american_football": "mdi6.football",
+    "sport_rugby": "mdi6.rugby",
+    "sport_cricket": "mdi6.cricket",
+    "sport_golf": "mdi6.golf",
+    "sport_boxing": "mdi6.boxing-glove",
+    # mma and wrestling are distinct glyphs on purpose: they are separate
+    # stored sport_types (1,631 and 451 rows), and sharing mdi6.karate would
+    # make the filter strip show one facet twice. kabaddi is a grappling
+    # silhouette — the closest true shape to wrestling in this font.
+    #
+    # "mdi6.judo" and "mdi6.wrestling" do NOT exist, whatever their names
+    # suggest. A first probe reported both present because it ran WITHOUT a
+    # QApplication, which makes qtawesome answer for a font it has not loaded.
+    # Any icon-existence check has to construct one first.
+    "sport_mma": "mdi6.mixed-martial-arts",
+    "sport_wrestling": "mdi6.kabaddi",
+    "sport_racing": "mdi6.racing-helmet",
+    "sport_cycling": "mdi6.bike",
+    # The 15,944 multi-sport networks — Fox Sports 1, Sky Sports News, beIN.
+    # "General", not "Unclassified": a rack carries many sports, so having no
+    # single sport_type is correct rather than a classification failure.
+    #
+    # A stadium, NOT the whistle: the whistle is the nav chip for the whole
+    # Sports view, and the registry guard is right that two roles rendering the
+    # same glyph are indistinguishable to the user — the view chip and the
+    # General facet would have been pixel-identical. A venue that hosts many
+    # sports is also the better shape for "carries several of these".
+    "sport_general": "mdi6.stadium-variant",
 }
 
 

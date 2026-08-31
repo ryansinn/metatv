@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional
 
 from PyQt6.QtWidgets import (
+    QLineEdit,
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
     QMenu, QCheckBox, QScrollArea, QFrame, QWidgetAction,
 )
@@ -10,9 +11,12 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QFont
 
 from metatv.gui.filter_bar import (
-    DROPDOWN_CLEAR_LABEL, DROPDOWN_SELECT_ALL_LABEL, FilterDropdown,
+    DROPDOWN_CLEAR_LABEL, DROPDOWN_SELECT_ALL_LABEL,
 )
 from metatv.gui import theme as _theme
+from metatv.gui.filter_bar import ToggleChip
+from metatv.gui.flow_layout import FlowContainer
+from metatv.gui.icons import VECTOR_KEYS
 
 
 class HierarchicalFilterDropdown(QPushButton):
@@ -248,6 +252,24 @@ class HierarchicalFilterDropdown(QPushButton):
         self.menu.exec(QCursor.pos())
 
 
+#: Stored ``sport_type`` values are snake_case machine tokens; these are the
+#: words. "General" rather than "Unknown" — a multi-sport network genuinely has
+#: no single sport, which is not a classification failure (mockup Q22).
+_SPORT_WORDS = {
+    "american_football": "NFL",
+    "field_hockey": "Field hockey",
+    "mma": "MMA",
+    "unknown": "General",
+}
+
+
+def sport_display_name(sport: "str | None") -> str:
+    """The human name for a stored ``sport_type``."""
+    if not sport:
+        return _SPORT_WORDS["unknown"]
+    return _SPORT_WORDS.get(sport, sport.replace("_", " ").capitalize())
+
+
 class SportsFilterBar(QWidget):
     """Two-level cascade filter bar for the Sports view: Sport → League.
 
@@ -272,21 +294,72 @@ class SportsFilterBar(QWidget):
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("Sport:"))
-        self.sport_dropdown = FilterDropdown("All Sports", {}, all_selected=True)
-        self.sport_dropdown.filter_changed.connect(self._on_sport_changed)
-        layout.addWidget(self.sport_dropdown)
+        # The sport axis is a strip of icon buttons, not a dropdown. Owner's
+        # call: the cascade "is clunky, it's the old style". An icon carries the
+        # facet at a glance, and the SAME vocabulary appears in the row gutter —
+        # press the ball and the rows still wearing it are what remain.
+        #
+        # ToggleChip already renders a tinted vector icon from a `vector_role`,
+        # and FlowContainer already wraps and reports its height, so nothing new
+        # was built here.
+        self._strip_host = QWidget(self)
+        self._sport_strip = FlowContainer(self._strip_host, spacing=4)
+        self._sport_chips: "dict[str, ToggleChip]" = {}
+        self._strip_host.setMinimumHeight(30)
+        layout.addWidget(self._strip_host, 1)
 
         layout.addWidget(QLabel("League:"))
         self.league_dropdown = HierarchicalFilterDropdown("All Leagues")
         self.league_dropdown.filter_changed.connect(self._on_league_changed)
         layout.addWidget(self.league_dropdown)
 
-        layout.addStretch()
+        # Search narrows WITHIN the active lane and chips (mockup Q6) — a
+        # further filter, never a jump to a global result set.
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search fixtures…")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setMaximumWidth(200)
+        self.search_input.textChanged.connect(lambda _t: self.filter_changed.emit())
+        layout.addWidget(self.search_input)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def _rebuild_sport_chips(self, sports, counts) -> None:
+        """Rebuild the strip for the sports present, preserving selections.
+
+        Selections survive a taxonomy reload because a refresh must not silently
+        widen the user's filter back to everything.
+        """
+        selected = {name for name, chip in self._sport_chips.items() if chip.isChecked()}
+        self._sport_strip.clear()
+        self._sport_chips.clear()
+        for sport in sports:
+            role = f"sport_{sport}"
+            chip = ToggleChip(
+                sport_display_name(sport),
+                enabled=(sport in selected),
+                vector_role=role if role in VECTOR_KEYS else None,
+            )
+            chip.set_count(counts.get(sport, 0))
+            chip.setToolTip(f"Show only {sport_display_name(sport)}")
+            chip.clicked.connect(self._on_sport_changed)
+            self._sport_chips[sport] = chip
+            self._sport_strip.add(chip)
+            chip.show()
+        self._reflow_strip()
+
+    def _reflow_strip(self) -> None:
+        """Lay the chips out for the current width and size the host to fit."""
+        width = max(self._strip_host.width(), 200)
+        height = self._sport_strip.relayout(width)
+        self._strip_host.setMinimumHeight(max(height, 30))
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        """Reflow on resize — sixteen chips do not fit one line on a narrow window."""
+        super().resizeEvent(event)
+        self._reflow_strip()
 
     def load_taxonomy(
         self,
@@ -307,27 +380,11 @@ class SportsFilterBar(QWidget):
             sport: len(leagues) for sport, leagues in taxonomy.items()
         }
 
-        # Preserve current sport selections through taxonomy reload (refresh case).
-        # First load: groups dict is empty → select_all() for inclusive default.
-        # Subsequent loads (refresh): restore whatever was selected, intersected
-        # with sports that still exist in the new taxonomy.
-        is_first_load = not bool(self.sport_dropdown.groups)
-        prev_sports = set(self.sport_dropdown.get_selected())
-
-        self.sport_dropdown.blockSignals(True)
-        self.sport_dropdown.update_groups(counts)
-        if is_first_load or not prev_sports:
-            self.sport_dropdown.select_all()
-        else:
-            existing = set(counts.keys())
-            to_restore = prev_sports & existing or existing
-            self.sport_dropdown.selected_groups = to_restore
-            for key, cb in self.sport_dropdown.checkboxes.items():
-                cb.blockSignals(True)
-                cb.setChecked(key in to_restore)
-                cb.blockSignals(False)
-            self.sport_dropdown.update_button_label()
-        self.sport_dropdown.blockSignals(False)
+        # Biggest first: the strip is read left to right, and the sports the
+        # library actually holds should be the ones under the cursor. General
+        # sorts with the rest rather than being pinned — it is a real facet.
+        order = sorted(counts, key=lambda sp: (-counts.get(sp, 0), sp))
+        self._rebuild_sport_chips(order, counts)
 
         # League dropdown (HierarchicalFilterDropdown) self-preserves selected_items
         # across update_hierarchy() calls — no special handling needed here.
@@ -345,8 +402,10 @@ class SportsFilterBar(QWidget):
             Dict with keys ``sport_types`` and ``league_names``.
             Empty list means "no active filter — show all".
         """
-        sport_sel = self.sport_dropdown.get_selected()
-        sport_total = len(self.sport_dropdown.groups)
+        sport_sel = [name for name, chip in self._sport_chips.items() if chip.isChecked()]
+        sport_total = len(self._sport_chips)
+        # None selected and ALL selected both mean "no filter" — the second so a
+        # WHERE IN never silently drops rows whose sport_type is NULL.
         sport_types = [] if (not sport_sel or len(sport_sel) == sport_total) else sport_sel
 
         league_sel = self.league_dropdown.get_selected()
@@ -356,13 +415,23 @@ class SportsFilterBar(QWidget):
         return {
             'sport_types': sport_types,
             'league_names': league_names,
+            'search': self.search_input.text().strip(),
         }
 
     def clear_filters(self) -> None:
-        """Reset all filters to show everything."""
-        self.sport_dropdown.blockSignals(True)
-        self.sport_dropdown.select_all()
-        self.sport_dropdown.blockSignals(False)
+        """Reset every filter to show everything.
+
+        Clearing means UNCHECKING the strip, not checking all of it: none
+        selected and all selected both read as "no filter", and an empty strip
+        is the one a user can tell at a glance is not filtering.
+        """
+        for chip in self._sport_chips.values():
+            chip.blockSignals(True)
+            chip.setChecked(False)
+            chip.blockSignals(False)
+        self.search_input.blockSignals(True)
+        self.search_input.clear()
+        self.search_input.blockSignals(False)
         self._rebuild_league_dropdown()
         self.filter_changed.emit()
 
@@ -381,19 +450,16 @@ class SportsFilterBar(QWidget):
         saved_sports = set(state.get('sport_types', []))
         saved_leagues = set(state.get('league_names', []))
 
-        # Restore sport selections
-        self.sport_dropdown.blockSignals(True)
-        if saved_sports:
-            existing = set(self.sport_dropdown.groups.keys())
-            to_restore = saved_sports & existing
-            if to_restore:
-                self.sport_dropdown.selected_groups = to_restore
-                for key, cb in self.sport_dropdown.checkboxes.items():
-                    cb.blockSignals(True)
-                    cb.setChecked(key in to_restore)
-                    cb.blockSignals(False)
-                self.sport_dropdown.update_button_label()
-        self.sport_dropdown.blockSignals(False)
+        # Restore sport selections. A saved sport the taxonomy no longer holds
+        # is dropped silently — the source may simply have stopped carrying it.
+        for name, chip in self._sport_chips.items():
+            chip.blockSignals(True)
+            chip.setChecked(name in saved_sports)
+            chip.blockSignals(False)
+        if (saved_search := state.get("search", "")):
+            self.search_input.blockSignals(True)
+            self.search_input.setText(saved_search)
+            self.search_input.blockSignals(False)
 
         # Inject saved league selection before rebuild so update_hierarchy()
         # preserves them (it keeps items in selected_items that still exist).
@@ -414,8 +480,12 @@ class SportsFilterBar(QWidget):
         self.filter_changed.emit()
 
     def _active_sports(self) -> set:
-        """Return selected sports, or all sports when nothing is deselected."""
-        selected = set(self.sport_dropdown.get_selected())
+        """Selected sports, or every sport when none is picked.
+
+        None selected means "no filter", so the League list must widen to every
+        league rather than collapsing to nothing.
+        """
+        selected = {n for n, c in self._sport_chips.items() if c.isChecked()}
         return selected if selected else set(self.taxonomy.keys())
 
     def _rebuild_league_dropdown(self) -> None:

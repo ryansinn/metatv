@@ -225,6 +225,7 @@ class SportsView(ContentView):
                 scope,
                 sport_types=state.get("sport_types") or None,
                 league_names=state.get("league_names") or None,
+                search=state.get("search") or None,
                 lane=lane,
             )
 
@@ -234,6 +235,7 @@ class SportsView(ContentView):
                 scope,
                 sport_types=state.get("sport_types") or None,
                 league_names=state.get("league_names") or None,
+                search=state.get("search") or None,
             )
 
         self._run_query(
