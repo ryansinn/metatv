@@ -26,7 +26,7 @@ import pytest
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB, Database
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.dtos import SpecialContentDTO
+from metatv.core.repositories.dtos import ChannelListDTO, SpecialContentDTO
 
 
 @pytest.fixture
@@ -153,14 +153,30 @@ def test_sport_and_league_filters_still_narrow(db):
 
 def test_rows_survive_their_session(db):
     """An ORM object here raises DetachedInstanceError on the main thread —
-    which is exactly where these rows are read."""
+    which is exactly where these rows are read.
+
+    The two buckets return DIFFERENT DTOs on purpose. Sports returns the same
+    ``ChannelListDTO`` the main channel list uses, so it renders through the
+    shared virtualized model + delegate rather than a second row renderer;
+    Events still returns ``SpecialContentDTO`` because its cards need
+    ``event_start_time`` and ``event_metadata``, which are not channel-list
+    facts.
+    """
     _seed(db, _ROWS)
     with db.session_scope(commit=False) as session:
         rows = _repo(session).get_sports_channels(_ALL)
         events = _repo(session).get_events_channels(_ALL)
+
     # Session closed. Every attribute must still be readable.
-    assert all(isinstance(r, SpecialContentDTO) for r in rows)
-    for row in rows + events:
+    assert all(isinstance(r, ChannelListDTO) for r in rows)
+    for row in rows:
+        assert row.id and row.name
+        _ = (row.sport_type, row.league_name, row.detected_quality,
+             row.is_favorite, row.detected_title, row.poster_url,
+             row.user_rating, row.watch_percent)
+
+    assert all(isinstance(r, SpecialContentDTO) for r in events)
+    for row in events:
         assert row.id and row.name
         _ = (row.sport_type, row.league_name, row.team_name,
              row.detected_quality, row.is_favorite, row.event_start_time)

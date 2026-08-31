@@ -92,6 +92,8 @@ def _edged_on_selection(cell: _Cell) -> _Cell:
 CHIP_SLOT_QUALITY = "quality"
 CHIP_SLOT_VARIANTS = "variants"
 CHIP_SLOT_GENRE = "genre"
+CHIP_SLOT_SPORT = "sport"
+CHIP_SLOT_LEAGUE = "league"
 CHIP_SLOT_COLLECTION = "collection"
 CHIP_SLOT_YEAR = "year"
 CHIP_SLOT_REGION = "region"          # region OR platform — one field, two hues
@@ -117,6 +119,11 @@ ROW_META_ORDER: tuple[str, ...] = (
     CHIP_SLOT_YEAR,
     CHIP_SLOT_REGION,
     CHIP_SLOT_GENRE,
+    # Sport before league: broad then specific, the same reading order genre →
+    # collection already uses. Empty on ~96% of the library, and an empty slot
+    # costs one None check.
+    CHIP_SLOT_SPORT,
+    CHIP_SLOT_LEAGUE,
     CHIP_SLOT_COLLECTION,
     CHIP_SLOT_VARIANTS,
 )
@@ -259,6 +266,40 @@ def _year_cell(year) -> Optional[_Cell]:
     # collection / genre / language / quality / region), so there is nothing
     # to filter on. Tooltip only.
     return _Cell(str(year), False, _theme.COLOR_ROW_META, tip=f"Released {year}")
+
+
+def _sport_cell(sport: str) -> Optional[_Cell]:
+    """Sport — TIER 2, NEUTRAL text, for the same reason collection is neutral.
+
+    The palette publishes one hue per facet and guarantees no two share one, so
+    a new hue here would be either invented or borrowed from a facet that
+    already means something else. Sport is not one of the facets
+    ``tag_decomposer`` emits, so it gets the neutral meta colour and a tooltip,
+    exactly like the year.
+
+    The stored value is a slug (``american_football``); the underscores are a
+    storage detail and were being painted raw.
+    """
+    if not sport:
+        return None
+    label = str(sport).replace("_", " ").strip().title()
+    if not label:
+        return None
+    return _Cell(label, False, _theme.COLOR_ROW_META, tip=f"Sport: {label}")
+
+
+def _league_cell(league: str) -> Optional[_Cell]:
+    """League — TIER 2, NEUTRAL text. See :func:`_sport_cell`.
+
+    Painted as stored: a league name is an acronym or a proper noun ("NFL",
+    "Premier League"), so title-casing it would damage it.
+    """
+    if not league:
+        return None
+    label = str(league).strip()
+    if not label:
+        return None
+    return _Cell(label, False, _theme.COLOR_ROW_META, tip=f"League: {label}")
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:

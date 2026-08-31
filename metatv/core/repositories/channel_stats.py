@@ -13,7 +13,7 @@ from sqlalchemy import func, or_
 from metatv.core import channel_visibility
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB
-from metatv.core.repositories.dtos import SpecialContentDTO
+from metatv.core.repositories.dtos import ChannelListDTO, SpecialContentDTO
 from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
 
@@ -291,7 +291,7 @@ class _ChannelStatsMixin:
         scope: VisibilityScope,
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
-    ) -> List["SpecialContentDTO"]:
+    ) -> List["ChannelListDTO"]:
         """Get sports channels with optional cascade filters.
 
         Empty or None filter lists mean "no filter — include all".
@@ -307,8 +307,13 @@ class _ChannelStatsMixin:
                 :meth:`_special_content_query` for why it is not optional.
 
         Returns:
-            DTOs ordered by sport_type, league_name, name. Never ORM objects:
-            the caller reads them on the main thread, after the session closed.
+            ``ChannelListDTO`` rows ordered by sport_type, league_name, name —
+            the SAME DTO the main channel list uses, so the Sports view renders
+            through the same virtualized model + delegate instead of a parallel
+            path. The narrow SpecialContentDTO this used to return could not
+            carry a poster, a rating, or watch progress, so the view silently
+            lost all three. Never ORM objects: the caller reads them on the
+            main thread, after the session closed.
         """
         query = self._special_content_query('sports', scope)
 
@@ -328,7 +333,7 @@ class _ChannelStatsMixin:
         rows = query.order_by(
             ChannelDB.sport_type, ChannelDB.league_name, ChannelDB.name
         ).all()
-        return [SpecialContentDTO.from_orm(c) for c in rows]
+        return [ChannelListDTO.from_orm(c) for c in rows]
 
     def get_events_channels(
         self,

@@ -1,52 +1,64 @@
-"""The Sports view — 430 lines of finished widget that nothing imported.
+"""The Sports view — the channel list with a sport/league filter on it.
 
 ``sports_filter_bar.py`` and ``ChannelRepository.get_sports_channels`` were both
 complete and both unreachable. What was missing was never the widget: the
 queries behind it showed every channel from every source, including the 16,715
 sports rows belonging to a provider the owner had switched off (fixed in
-``_special_content_query``). This view is what finally calls them.
+``_special_content_query``).
 
-Rows come from ``chip_row.build_chip_row`` — the one row builder — rather than a
-second renderer, so a change to row grammar reaches Sports the same day it
-reaches History and Favorites.
+**Rows are VIRTUALIZED.** They come from the shared ``ChannelResultsList`` —
+``ChannelListModel`` + ``ChannelRowDelegate`` — the same pair the main channel
+list paints 785,163 rows with. The first version of this view built one live
+``QWidget`` per row via ``chip_row.build_chip_row``, which is correct for a
+bounded sidebar section and catastrophic here: at 28,018 sports rows it froze
+the UI for ~11 s measured offscreen, and minutes on the owner's machine. Hence
+``test_the_widget_count_does_not_scale_with_the_row_count`` at the bottom — the
+one test that would have caught it, and the only shape of test that can, since
+a per-row widget list passes every assertion about content and order.
 
-The geometry test at the bottom is the one that matters. A test asserting the
-list "contains" a row passes for any rendering, including a zero-height one — so
-it asserts the painted QRect instead.
+The geometry test is the other one that matters. A test asserting the list
+"contains" a row passes for any rendering, including a zero-height one — so it
+asserts the painted QRect instead.
 """
 
 import pytest
 
 from metatv.core.config import Config
-from metatv.core.repositories.dtos import SpecialContentDTO
+from metatv.core.repositories.dtos import ChannelListDTO
+from metatv.gui.channel_list_model import TITLE_ROLE
 from metatv.gui.sports_view import SportsView
 
 
-def _row_texts(view) -> set:
-    """Every piece of text drawn in the first row.
+def _index(view, row: int = 0):
+    """The model index for one row."""
+    return view.channel_list.model.index(row, 0)
 
-    Both widget classes: the title is a ``MiddleElideLabel`` but the CHIPS are
-    flat ``QPushButton``s — ``chip_row`` makes all three kinds the same widget
-    "so they share one box model and one padding". A QLabel-only search finds
-    the title and reports no chips at all, which is exactly what the first draft
-    of this file did.
+
+def _row_texts(view, row: int = 0) -> set:
+    """Every piece of text the delegate would PAINT in one row.
+
+    There is no per-row widget to interrogate any more — that is the point of
+    the change this file guards. The row's content is the set of cells the
+    delegate builds from the model's roles, which is what actually reaches the
+    screen, plus the title it paints against them.
     """
-    from PyQt6.QtWidgets import QLabel, QPushButton
+    idx = _index(view, row)
+    cells = view.channel_list.delegate._cells_by_slot(idx)
+    texts = {c.text.strip() for group in cells.values() for c in group}
+    texts.add((idx.data(TITLE_ROLE) or "").strip())
+    return {t for t in texts if t}
 
-    row = view.channel_list.itemWidget(view.channel_list.item(0))
-    return {w.text().strip()
-            for w in row.findChildren(QLabel) + row.findChildren(QPushButton)}
 
-
-def _dto(**over) -> SpecialContentDTO:
+def _dto(**over) -> ChannelListDTO:
     base = {
         "id": "c1", "name": "NHL-TEAM| CALGARY FLAMES HD", "provider_id": "p",
-        "media_type": "live", "special_view": "sports", "sport_type": "hockey",
-        "league_name": "NHL", "team_name": "Calgary Flames",
-        "detected_title": "NHL-TEAM Calgary Flames", "detected_quality": "HD",
+        "media_type": "live", "is_favorite": False, "category": "Sports",
+        "quality": None, "detected_prefix": "", "detected_region": "",
+        "detected_year": "", "sport_type": "hockey", "league_name": "NHL",
+        "detected_title": "Calgary Flames", "detected_quality": "HD",
     }
     base.update(over)
-    return SpecialContentDTO(**base)
+    return ChannelListDTO(**base)
 
 
 class _Runner:
@@ -172,16 +184,22 @@ def test_the_taxonomy_query_is_scoped_too(view):
 # Rendering
 # --------------------------------------------------------------------------
 
-def test_the_title_is_the_team_not_the_provider_string(view):
+def test_the_title_is_the_clean_title_not_the_provider_string(view):
     """"Calgary Flames" is what the owner is looking for. The raw name is
     "NHL-TEAM| CALGARY FLAMES HD", which repeats the league and the quality
-    that sit beside it as chips."""
-    from PyQt6.QtWidgets import QLabel
+    that sit beside it as chips.
 
+    The title is ``detected_title`` — the ingestion-computed field every other
+    view in the app shows — not ``team_name``, which the old renderer preferred.
+    team_name was present on only 2,740 of 28,018 sports rows (9.8%) and where
+    it differed it was often worse: "4K| V SPORT+ UHD" produced team_name
+    "4K| vs SPORT+ UHD", keeping the provider prefix the title exists to strip
+    and turning "V" into "vs", while detected_title gave "V SPORT+". One title
+    field for every surface is the point.
+    """
     _activate(view, [_dto()])
-    row = view.channel_list.itemWidget(view.channel_list.item(0))
-    texts = [w.text() for w in row.findChildren(QLabel)]
-    assert any("Calgary Flames" == t for t in texts), texts
+    texts = _row_texts(view)
+    assert "Calgary Flames" in texts, texts
     assert not any("NHL-TEAM|" in t for t in texts), (
         "the provider's raw string reached the row")
 
@@ -189,16 +207,16 @@ def test_the_title_is_the_team_not_the_provider_string(view):
 def test_the_raw_name_survives_as_the_tooltip(view):
     """The title deliberately replaced it, so it must remain reachable — and on
     the ITEM, because the chip row is mouse-transparent."""
+    from PyQt6.QtCore import Qt
+
     _activate(view, [_dto()])
-    assert view.channel_list.item(0).toolTip() == "NHL-TEAM| CALGARY FLAMES HD"
+    assert _index(view).data(Qt.ItemDataRole.ToolTipRole) == (
+        "NHL-TEAM| CALGARY FLAMES HD")
 
 
 def test_a_channel_with_no_team_falls_back_to_its_title(view):
-    from PyQt6.QtWidgets import QLabel
-
-    _activate(view, [_dto(team_name=None, detected_title="ESPN2")])
-    row = view.channel_list.itemWidget(view.channel_list.item(0))
-    assert any("ESPN2" == w.text() for w in row.findChildren(QLabel))
+    _activate(view, [_dto(detected_title="ESPN2")])
+    assert "ESPN2" in _row_texts(view)
 
 
 def test_the_count_reads_back(view):
@@ -215,21 +233,19 @@ def test_the_count_reads_back(view):
 def test_a_failed_load_shows_a_visible_row(view):
     """CLAUDE.md: never ``clear(); return`` — an empty list and a failed load
     must not look the same."""
-    from PyQt6.QtCore import Qt
-
     view.on_activate()
     view._runner.calls[1]["err"](RuntimeError("boom"))
-    assert view.channel_list.count() == 1
-    item = view.channel_list.item(0)
-    assert "Couldn't load" in item.text()
-    assert item.flags() == Qt.ItemFlag.NoItemFlags, "the error row must not be selectable"
+    assert view.channel_list.count() == 0, "no phantom row"
+    assert view.channel_list._error.isVisible() or view.channel_list._error.text()
+    assert "Couldn't load" in view.channel_list._error.text()
+    assert not view.channel_list.view.isVisible() or view.channel_list.count() == 0
 
 
 def test_a_none_result_is_also_an_error(view):
     """_run_query delivers None on failure when no on_error fires."""
     view.on_activate()
     view._runner.calls[1]["ok"](None)
-    assert "Couldn't load" in view.channel_list.item(0).text()
+    assert "Couldn't load" in view.channel_list._error.text()
 
 
 # --------------------------------------------------------------------------
@@ -241,9 +257,8 @@ def test_click_selects_and_double_click_plays(view):
     seen = []
     view.channelSelected.connect(lambda cid: seen.append(("select", cid)))
     view.playRequested.connect(lambda cid: seen.append(("play", cid)))
-    item = view.channel_list.item(0)
-    view._on_item_clicked(item)
-    view._on_item_double_clicked(item)
+    view.channel_list.view.setCurrentIndex(_index(view))
+    view.channel_list._on_activated(_index(view))
     assert seen == [("select", "c1"), ("play", "c1")]
 
 
@@ -253,7 +268,9 @@ def test_the_error_row_emits_nothing(view):
     view._runner.calls[1]["err"](RuntimeError("boom"))
     seen = []
     view.channelSelected.connect(seen.append)
-    view._on_item_clicked(view.channel_list.item(0))
+    # There is no row to click: the failure is a label, never a model row, so a
+    # click cannot resolve a phantom id in the first place.
+    view.channel_list._on_activated(_index(view))
     assert seen == []
 
 
@@ -264,26 +281,21 @@ def test_the_error_row_emits_nothing(view):
 def test_the_row_is_painted_with_real_height(view, qapp):
     """Membership passes for a zero-height row; geometry does not.
 
-    The size hint is ``QSize(0, row.height())`` — width 0 so the item spans the
-    viewport instead of forcing a horizontal scrollbar, height from the row.
-    Both halves are asserted because getting the width wrong is invisible until
-    someone resizes the pane.
+    The delegate owns the height now, so this asserts the rect the VIEW will
+    actually paint into — which is the thing a user sees either way.
     """
     _activate(view, [_dto()])
     view.channel_list.resize(600, 300)
     view.channel_list.show()
     qapp.processEvents()
 
-    item = view.channel_list.item(0)
-    row = view.channel_list.itemWidget(item)
-    assert item.sizeHint().width() == 0, (
-        "a non-zero width hint forces a horizontal scrollbar")
-    assert item.sizeHint().height() >= 16, (
-        f"row height {item.sizeHint().height()}px — the row is not painted")
-    rect = view.channel_list.visualItemRect(item)
-    assert rect.height() >= 16 and rect.width() > 100, (
-        f"painted rect is {rect.width()}x{rect.height()}")
-    assert row.geometry().height() > 0
+    idx = _index(view)
+    rect = view.channel_list.view.visualRect(idx)
+    assert rect.height() >= 16, (
+        f"row height {rect.height()}px — the row is not painted")
+    assert rect.width() > 100, (
+        f"painted rect is {rect.width()}x{rect.height()} — the row does not "
+        "span the viewport")
 
 
 def test_the_switcher_and_the_chip_deactivator_read_one_list():
@@ -348,8 +360,9 @@ def test_the_context_menu_signal_matches_the_host_handler(view):
         lambda cid, gx, gy: seen.append((cid, gx, gy)))
     _activate(view, [_dto()])
     view.channel_list.resize(400, 200)
-    view._on_context_menu(view.channel_list.visualItemRect(
-        view.channel_list.item(0)).center())
+    view.channel_list.show()
+    view.channel_list.view.customContextMenuRequested.emit(
+        view.channel_list.view.visualRect(_index(view)).center())
     assert len(seen) == 1
     cid, gx, gy = seen[0]
     assert cid == "c1" and isinstance(gx, int) and isinstance(gy, int)
@@ -373,8 +386,8 @@ def test_middle_click_plays(view, qapp):
 
     seen = []
     view.channelMiddleClicked.connect(seen.append)
-    rect = view.channel_list.visualItemRect(view.channel_list.item(0))
-    qapp.sendEvent(view.channel_list.viewport(), QMouseEvent(
+    rect = view.channel_list.view.visualRect(_index(view))
+    qapp.sendEvent(view.channel_list.view.viewport(), QMouseEvent(
         QEvent.Type.MouseButtonPress, QPointF(rect.center()),
         Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton,
         Qt.KeyboardModifier.NoModifier))
@@ -393,8 +406,8 @@ def test_a_left_click_is_not_a_middle_click(view, qapp):
 
     seen = []
     view.channelMiddleClicked.connect(seen.append)
-    rect = view.channel_list.visualItemRect(view.channel_list.item(0))
-    qapp.sendEvent(view.channel_list.viewport(), QMouseEvent(
+    rect = view.channel_list.view.visualRect(_index(view))
+    qapp.sendEvent(view.channel_list.view.viewport(), QMouseEvent(
         QEvent.Type.MouseButtonPress, QPointF(rect.center()),
         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier))
@@ -407,16 +420,35 @@ def test_every_declared_signal_is_actually_emitted():
     A signal the view never emits is wiring that looks connected and does
     nothing. Source-level, because emitting each one from a test would need a
     scenario per signal and the point is the ABSENCE of an emit.
+
+    Two things this test got wrong the first time, both worth keeping fixed:
+
+    1. It HAND-LISTED the four signals, so a fifth one added later would not be
+       checked — the guard had the exact blind spot it exists to close. The list
+       is now derived from the class.
+    2. It only accepted ``self.X.emit(``. Connecting a source signal straight to
+       a destination signal is Qt's own forwarding idiom and emits just as
+       really; the view now forwards the harness's signals that way, and the
+       test failed on working code.
     """
     from pathlib import Path
 
+    from PyQt6.QtCore import pyqtSignal
+
     import metatv.gui.sports_view as mod
+    from metatv.gui.sports_view import SportsView
+
+    declared = [name for name, value in vars(SportsView).items()
+                if isinstance(value, pyqtSignal)]
+    assert declared, "no signals found — the introspection broke, not the view"
 
     source = Path(mod.__file__).read_text()
-    for signal in ("channelSelected", "playRequested", "channelMiddleClicked",
-                   "channelContextMenuRequested"):
-        assert f"self.{signal}.emit(" in source, (
-            f"{signal} is declared and never emitted")
+    for signal in declared:
+        emitted = f"self.{signal}.emit(" in source
+        forwarded = f"connect(self.{signal})" in source
+        assert emitted or forwarded, (
+            f"{signal} is declared and never emitted — neither "
+            f"self.{signal}.emit(...) nor connect(self.{signal})")
 
 
 def test_a_failed_taxonomy_load_is_retried_next_activation(view):
@@ -428,7 +460,7 @@ def test_a_failed_taxonomy_load_is_retried_next_activation(view):
     """
     view.on_activate()
     view._runner.calls[0]["err"](RuntimeError("boom"))
-    assert "Couldn't load" in view.channel_list.item(0).text()
+    assert "Couldn't load" in view.channel_list._error.text()
 
     before = len(view._runner.calls)
     view.on_activate()
@@ -497,3 +529,43 @@ def test_the_row_shows_league_sport_and_quality(view):
                           detected_quality=None)])
     texts = _row_texts(view)
     assert "NHL" not in texts and "Hockey" not in texts and "HD" not in texts
+
+
+def test_the_widget_count_does_not_scale_with_the_row_count(view, qapp):
+    """The one test that would have caught the freeze — and the only shape that can.
+
+    Every other test in this file passes just as happily against a list that
+    builds one live ``QWidget`` per row: the content is right, the order is
+    right, the geometry is right. What is wrong is invisible to all of them, and
+    only shows up as time.
+
+    So this asserts the structural property instead. A virtualized list creates
+    a fixed number of widgets no matter how many rows it holds — the delegate
+    paints the rest. A per-row-widget list creates one (plus its four children)
+    per row, which at the owner's 28,018 sports rows meant ~11 s of frozen main
+    thread measured offscreen, and minutes on a real display competing with a
+    migration.
+
+    250x is a deliberately loose bound: it does not care how many chrome widgets
+    the harness has, only that the number does not TRACK the rows. The old
+    implementation produced ~5 widgets per row, so it fails this by three orders
+    of magnitude, not by a hair.
+    """
+    from PyQt6.QtWidgets import QWidget
+
+    def widget_count(n: int) -> int:
+        _activate(view, [_dto(id=f"c{i}", name=f"Channel {i}") for i in range(n)])
+        view.channel_list.resize(600, 400)
+        view.channel_list.show()
+        qapp.processEvents()
+        return len(view.channel_list.findChildren(QWidget))
+
+    few = widget_count(20)
+    many = widget_count(5000)
+
+    assert view.channel_list.count() == 5000, "the rows really are all there"
+    assert many <= few + 250, (
+        f"{few} widgets for 20 rows but {many} for 5000 — the list is building "
+        f"a widget per row again. Use the virtualized model+delegate "
+        f"(ChannelResultsList); see channel_results_list.py for why."
+    )

@@ -17,22 +17,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from loguru import logger
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QLabel, QListWidget, QListWidgetItem, QVBoxLayout,
+    QLabel, QVBoxLayout,
 )
 
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.chip_row import (
-    CHIP_QUALITY, CHIP_YEAR, build_chip_row, media_icon_role,
-)
+from metatv.gui.channel_results_list import ChannelResultsList
 from metatv.gui.content_view import ContentView
 from metatv.gui.sports_filter_bar import SportsFilterBar
 from metatv.gui.view_scope import resolve_visibility_scope
-
-#: Item data role carrying the channel id, so a click can resolve the row.
-_ROLE_CHANNEL_ID = Qt.ItemDataRole.UserRole
 
 
 class SportsView(ContentView):
@@ -51,7 +45,8 @@ class SportsView(ContentView):
     # fails only when someone actually right-clicks.
     channelContextMenuRequested = pyqtSignal(str, int, int)
 
-    def __init__(self, db, config, run_query: Callable, parent=None) -> None:
+    def __init__(self, db, config, run_query: Callable, parent=None,
+                 image_cache=None) -> None:
         """
         Args:
             db: Database instance (held for nothing but symmetry with siblings;
@@ -60,10 +55,14 @@ class SportsView(ContentView):
                 it before the worker ever sees a scope (DR-0007).
             run_query: ``MainWindow._run_query``, the single async-read seam.
             parent: Qt parent.
+            image_cache: Shared ``ImageCache``, so rows can show the same
+                poster thumbnails the main channel list does. Optional —
+                without it the list still paints, just without artwork.
         """
         super().__init__(config, parent)
         self._db = db
         self._run_query = run_query
+        self._image_cache = image_cache
         #: Stale-result token. A fast sport→league→sport click sequence issues
         #: three queries; only the newest may render.
         self._token: list[int] = [0]
@@ -92,15 +91,19 @@ class SportsView(ContentView):
         _theme.style(self.count_label, "ITEM_COUNT")
         layout.addWidget(self.count_label)
 
-        self.channel_list = QListWidget(self)
-        self.channel_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu)
-        self.channel_list.itemClicked.connect(self._on_item_clicked)
-        self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self.channel_list.customContextMenuRequested.connect(self._on_context_menu)
-        # Middle-click-to-play is an app-wide affordance, and QListWidget has no
-        # signal for it — the filter is how the other lists get it too.
-        self.channel_list.viewport().installEventFilter(self)
+        # The shared virtualized results list — NOT a QListWidget with a
+        # widget per row. This view once built one live QWidget per channel and
+        # froze the app for minutes on 9,769 rows; see channel_results_list.py
+        # for the measurement and why the wiring is packaged there.
+        self.channel_list = ChannelResultsList(
+            self, config=self.config, image_cache=self._image_cache,
+            # The title drops the league and quality the raw name carries
+            # ("NHL-TEAM| CALGARY FLAMES HD"); the raw string stays reachable.
+            raw_name_tooltip=True)
+        self.channel_list.channel_selected.connect(self.channelSelected)
+        self.channel_list.channel_activated.connect(self.playRequested)
+        self.channel_list.channel_middle_clicked.connect(self.channelMiddleClicked)
+        self.channel_list.channel_context_menu.connect(self._on_context_menu)
         layout.addWidget(self.channel_list, 1)
 
     # ------------------------------------------------------------------ #
@@ -182,9 +185,7 @@ class SportsView(ContentView):
         if rows is None:
             self._show_error("Couldn't load these channels")
             return
-        self.channel_list.clear()
-        for dto in rows:
-            self._add_row(dto)
+        self.channel_list.set_rows(rows)
         self.count_label.setText(
             f"{len(rows):,} channel{'' if len(rows) == 1 else 's'}")
 
@@ -192,87 +193,17 @@ class SportsView(ContentView):
     # Rendering                                                           #
     # ------------------------------------------------------------------ #
 
-    def _add_row(self, dto) -> None:
-        """Append one channel as the shared chip row.
-
-        The title is the TEAM when the classifier found one: "Calgary Flames"
-        is what the owner is looking for, and the raw name is
-        "NHL-TEAM| CALGARY FLAMES HD" — which repeats the league and the quality
-        that are already chips beside it.
-
-        Chips carry league, sport and quality. League and sport BOTH use
-        ``CHIP_YEAR`` — the family's neutral outline chip — rather than one of
-        them taking ``CHIP_LANG``: that role is documented in ``chip_roles`` as
-        "the only chip in the family that is a CONTROL", accent-blue because
-        blue already means interactive everywhere else. Neither of these is
-        clickable, so neither may look it.
-
-        Args:
-            dto: A ``SpecialContentDTO``.
-        """
-        item = QListWidgetItem()
-        item.setData(_ROLE_CHANNEL_ID, dto.id)
-        # The chip row is mouse-transparent, so the tooltip must live on the
-        # ITEM. It shows the provider's raw name, which the title deliberately
-        # replaced.
-        item.setToolTip(dto.name)
-
-        row = build_chip_row(
-            title=(dto.team_name or dto.detected_title or dto.name),
-            icon_role=media_icon_role(dto.media_type),
-            chips=(
-                (CHIP_QUALITY, (dto.detected_quality or "").upper()),
-                (CHIP_YEAR, dto.league_name or ""),
-                (CHIP_YEAR, (dto.sport_type or "").title()),
-            ),
-        )
-        # Width 0 → the item spans the viewport (no sideways scroll); the row's
-        # own height governs the row height. Same as every other chip-row list.
-        item.setSizeHint(QSize(0, row.sizeHint().height()))
-        self.channel_list.addItem(item)
-        self.channel_list.setItemWidget(item, row)
-
     # ------------------------------------------------------------------ #
     # Interaction                                                         #
     # ------------------------------------------------------------------ #
 
-    def _channel_id(self, item) -> str:
-        return item.data(_ROLE_CHANNEL_ID) if item else ""
-
-    def _on_item_clicked(self, item) -> None:
-        if (cid := self._channel_id(item)):
-            self.channelSelected.emit(cid)
-
-    def _on_item_double_clicked(self, item) -> None:
-        if (cid := self._channel_id(item)):
-            self.playRequested.emit(cid)
-
-    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
-        """Route a middle-click on a row to ``channelMiddleClicked``.
-
-        Args:
-            obj: The watched object (the list viewport).
-            event: The Qt event.
-
-        Returns:
-            False always — the event is observed, never consumed, so normal
-            selection and scrolling are untouched.
+    def _on_context_menu(self, channel_id: str, global_pos) -> None:
+        """Re-emit as (id, x, y) — the shape ``_on_rec_channel_context_menu``
+        takes. The harness hands over a QPoint because that is what QMenu wants;
+        this view's published signal predates it and other hosts connect to it.
         """
-        from PyQt6.QtCore import QEvent
-
-        if (obj is self.channel_list.viewport()
-                and event.type() == QEvent.Type.MouseButtonPress
-                and event.button() == Qt.MouseButton.MiddleButton):
-            item = self.channel_list.itemAt(event.position().toPoint())
-            if (cid := self._channel_id(item)):
-                self.channelMiddleClicked.emit(cid)
-        return super().eventFilter(obj, event)
-
-    def _on_context_menu(self, pos) -> None:
-        item = self.channel_list.itemAt(pos)
-        if (cid := self._channel_id(item)):
-            gpos = self.channel_list.viewport().mapToGlobal(pos)
-            self.channelContextMenuRequested.emit(cid, gpos.x(), gpos.y())
+        self.channelContextMenuRequested.emit(
+            channel_id, global_pos.x(), global_pos.y())
 
     # ------------------------------------------------------------------ #
     # Failure                                                             #
@@ -285,8 +216,5 @@ class SportsView(ContentView):
         like a silently-empty result — never ``clear(); return``.
         """
         logger.warning("SportsView: {}", message)
-        self.channel_list.clear()
-        item = QListWidgetItem(f"{_icons.notification_warning_icon} {message}")
-        item.setFlags(Qt.ItemFlag.NoItemFlags)
-        self.channel_list.addItem(item)
+        self.channel_list.show_error(message)
         self.count_label.setText("")

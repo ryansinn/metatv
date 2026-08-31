@@ -2136,7 +2136,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Sports view (hidden by default). Reads through the same _run_query
         # seam as Recipe, and emits the same signal names as DiscoverView so the
         # host wiring below is the wiring every content view already gets.
-        self.sports_view = SportsView(self.db, self.config, self._run_query, self)
+        self.sports_view = SportsView(self.db, self.config, self._run_query, self,
+                                      image_cache=self.image_cache)
         self.sports_view.channelSelected.connect(self.show_channel_details_by_id)
         self.sports_view.playRequested.connect(self.play_channel_by_id)
         self.sports_view.channelMiddleClicked.connect(self._dispatch_middle_click)
