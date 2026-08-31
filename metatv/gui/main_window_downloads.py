@@ -59,20 +59,14 @@ class _DownloadsMixin:
             self.drill_into_series(channel)
             return
 
-        manager = getattr(self, "download_manager", None)
-        if manager is None:
-            return
-        queued = manager.enqueue(
+        queued = self.download_manager.enqueue(
             channel_id=channel.id,
             provider_id=channel.provider_id,
             channel_name=channel.name,
             source_url=channel.stream_url,
         )
-        manager_ui = getattr(self, "notification_manager", None)
-        if manager_ui is None:
-            return
         if queued:
-            manager_ui.show(
+            self.notification_manager.show(
                 title=f"Downloading {channel.name}",
                 message="It pauses by itself while you watch anything on this source.",
                 type="info",
@@ -81,7 +75,7 @@ class _DownloadsMixin:
         else:
             # Already queued or already saved. Silence would read as a click
             # that did nothing, which is the same complaint as a dead button.
-            manager_ui.show(
+            self.notification_manager.show(
                 title=f"{channel.name} is already in your downloads",
                 message="",
                 type="info",
