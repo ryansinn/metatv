@@ -11,9 +11,14 @@ no Qt at all — this module is the wiring and the two sentences the user reads.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from loguru import logger
+from PyQt6.QtCore import QTimer
 
 from metatv.core.download_manager import DownloadManager
+from metatv.core.recording_manager import RecordingManager
+from metatv.core.epg_utils import to_local
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
 
@@ -34,7 +39,15 @@ class _DownloadsMixin:
         accountant._on_preempt = self.download_manager.on_preempted
         self.download_manager.start()
         self._register_cleanable("downloads", self.download_manager.shutdown)
-        logger.debug("Download manager ready")
+
+        # Recordings share the accountant but not the priority rule: they evict
+        # downloads and are evicted by nothing. See core/recording_manager.py.
+        self.recording_manager = RecordingManager(
+            self.db, self.config, accountant,
+            on_conflict=self._on_recording_blocked)
+        self.recording_manager.start()
+        self._register_cleanable("recordings", self.recording_manager.shutdown)
+        logger.debug("Download and recording managers ready")
 
     def download_channel_by_id(self, channel_id: str) -> None:
         """Queue a VOD for download to the local library.
@@ -81,3 +94,78 @@ class _DownloadsMixin:
                 type="info",
                 dismissible=True,
             )
+
+    def record_channel_by_id(self, channel_id: str) -> None:
+        """Record what is on this live channel now.
+
+        Window comes from the EPG programme currently airing when there is one —
+        that is the whole reason to prefer it over a fixed duration: "record
+        what's on" should end when the programme ends, not after an arbitrary
+        hour. With no EPG (and a third of this catalogue has none) it falls back
+        to ``config.recording_default_minutes``, which is a guess the user can
+        see and cancel rather than a silent failure.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.epg_utils import now_utc
+        from metatv.core.models import MediaType
+
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_playable_dto(channel_id)
+            # Read the programme's fields INSIDE the session. get_now_for_channel
+            # hands back an ORM row, and session_scope expires on commit, so the
+            # first attribute touched outside this block would raise
+            # DetachedInstanceError (CLAUDE.md: cross the boundary with plain data).
+            airing = None
+            if channel and channel.media_type == MediaType.LIVE:
+                row = repos.epg.get_now_for_channel(channel_id)
+                if row is not None:
+                    airing = (row.start_time, row.stop_time, row.title or "")
+        if not channel:
+            return
+
+        now = now_utc()
+        if airing is not None:
+            starts_at, ends_at, title = airing
+            pad = True
+        else:
+            minutes = int(getattr(self.config, "recording_default_minutes", 120))
+            starts_at, ends_at, title, pad = (
+                now, now + timedelta(minutes=minutes), "", False)
+
+        recording_id = self.recording_manager.schedule(
+            channel_id=channel.id, provider_id=channel.provider_id,
+            channel_name=channel.name, source_url=channel.stream_url,
+            starts_at=starts_at, ends_at=ends_at,
+            programme_title=title, pad=pad)
+
+        if recording_id is None:
+            self.notification_manager.show(
+                title=f"{title or channel.name} is already being recorded",
+                message="", type="info", dismissible=True)
+            return
+        ends_local = to_local(ends_at)
+        self.notification_manager.show(
+            title=f"Recording {title or channel.name}",
+            message=(f"Until {ends_local:%H:%M}. It keeps going if you watch "
+                     f"something else, and pauses your downloads instead."),
+            type="info", dismissible=True)
+
+    def _on_recording_blocked(self, recording_id: str, channel_name: str) -> None:
+        """Say once that a recording is waiting on the source's only connection.
+
+        Called from the recording worker thread, so it hops to the main thread
+        before touching the notification manager — Qt widgets are main-thread
+        only (CLAUDE.md: workers emit, only the main thread touches widgets).
+
+        A warning rather than an error: the recording has not failed, it is
+        retrying for its whole window, and stopping playback rescues it.
+        """
+        QTimer.singleShot(0, lambda: self.notification_manager.show(
+            title=f"Waiting to record {channel_name}",
+            message=("This source allows one connection and it is in use. The "
+                     "recording starts by itself as soon as you stop watching "
+                     "this source — whatever is left of the programme."),
+            type="warning", dismissible=True))

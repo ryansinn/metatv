@@ -89,13 +89,19 @@ def library_dir(config) -> Path:
     return path
 
 
-def safe_filename(name: str, url: str) -> str:
+def safe_filename(name: str, url: str, *, default_suffix: str = ".mp4") -> str:
     """A filename from the channel name, keeping the URL's extension.
 
     The name is the user's handle for the file, so it is what goes on disk —
     but a provider name can contain anything, including separators.
+
+    Args:
+        default_suffix: Used when the URL carries no extension. ``.mp4`` suits a
+            VOD; a recording passes ``.ts``, because what it captures off a live
+            channel IS an MPEG transport stream and calling it ``.mp4`` would be
+            a lie players have to guess their way out of.
     """
-    suffix = Path(url.split("?")[0]).suffix or ".mp4"
+    suffix = Path(url.split("?")[0]).suffix or default_suffix
     cleaned = "".join(c if (c.isalnum() or c in " ._-") else "_" for c in name).strip()
     cleaned = " ".join(cleaned.split()) or "download"
     return f"{cleaned[:120]}{suffix}"
@@ -243,7 +249,9 @@ class DownloadManager:
         """
         if kind != "download":
             return
-        logger.info("download {} yielded its slot on {} to playback", holder_id, provider_id)
+        # Not "to playback": recordings preempt downloads as well, and the
+        # accountant reports the EVICTED holder's kind, not the preemptor's.
+        logger.info("download {} yielded its slot on {}", holder_id, provider_id)
         self._set_state(holder_id, "paused", paused_by_playback=True)
         if self._active_id == holder_id:
             self._preempted.set()

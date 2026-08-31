@@ -747,6 +747,16 @@ class Config(BaseModel):
     download_dir: str = "~/Videos/MetaTV"
     #: Global stop — no download runs at all while this is set.
     downloads_paused: bool = False
+    #: Lead-in and run-over applied when a recording is scheduled from the EPG.
+    #: Broadcasters overrun and guide clocks disagree with the stream, so a
+    #: programme recorded to its listed second loses the end of the match.
+    #: Applied ONCE at schedule time, so the stored window is the literal one.
+    recording_pad_start_seconds: int = 60
+    recording_pad_end_seconds: int = 300
+    #: Fallback window for "record what's on" when the channel has no EPG.
+    #: A third of this catalogue has no guide data, and a recording that
+    #: silently does not happen is worse than one the user can see and cancel.
+    recording_default_minutes: int = 120
     deep_cache_max_gb: int = 20  # soft cap; oldest files purged before it's exceeded
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3

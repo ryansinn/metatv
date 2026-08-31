@@ -1776,6 +1776,7 @@ class _ChannelListMixin:
             "play_open_ended_buffer": lambda: self.play_channel_open_ended_buffer_by_id(cid),
             "play_deep_cache": lambda: self.play_channel_deep_cache_by_id(cid),
             "download": lambda: self.download_channel_by_id(cid),
+            "record": lambda: self.record_channel_by_id(cid),
             "play_from_beginning": lambda: self.play_channel_from_beginning_by_id(cid),
             "resume_from": lambda: self.play_channel_resume_by_id(cid),
             "favorite": lambda: self._toggle_favorite_by_id(
