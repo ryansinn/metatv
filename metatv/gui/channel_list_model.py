@@ -104,10 +104,8 @@ GENRE_ROLE = Qt.ItemDataRole.UserRole + 26                # detected_genre or ""
 # before the column existed and not yet re-swept.
 GENRES_ROLE = Qt.ItemDataRole.UserRole + 27               # tuple[str, ...] (possibly empty)
 
-#: Sport and league, for the Sports view. They ride on the SAME model and the
-#: SAME delegate as every other row rather than a parallel one — the Sports
-#: view is the channel list with a filter on it, so a second model would be a
-#: second place for row rendering to drift. Empty on every non-sports row.
+#: Sport and league — same model, same delegate as every other row, because the
+#: Sports view IS the channel list with a filter on it. Empty on non-sports rows.
 SPORT_ROLE = Qt.ItemDataRole.UserRole + 29
 LEAGUE_ROLE = Qt.ItemDataRole.UserRole + 30
 
@@ -192,8 +190,7 @@ class ChannelListModel(QAbstractListModel):
         # set_channels (read of config.get_unviewed_vod_match_ids); updated in place by
         # update_new_match_ids() when a match is cleared/found so the green flips live.
         self._new_match_ids: set[str] = set()
-        # Whether an unrated row's tooltip falls back to the provider's raw
-        # name. See the ToolTipRole branch in _channel_data.
+        # Unrated row's tooltip falls back to the raw name? See ToolTipRole.
         self._raw_name_tooltip: bool = False
 
         # Generation guard: incremented on every set_channels(); page results
@@ -272,17 +269,13 @@ class ChannelListModel(QAbstractListModel):
                 return f"You rated this {_icons.like_icon}"
             if channel.user_rating == -1:
                 return f"You rated this {_icons.dislike_icon}"
-            # Opt-in: the PROVIDER'S RAW NAME, when the row is showing a
-            # cleaned title instead. OFF by default because the main channel
-            # list deliberately shows no tooltip on an unrated row
-            # (test_tooltip_role_unrated_channel_returns_none says so in as
-            # many words) — this is a parameter rather than a behaviour change
-            # so the one surface that wants it can have it without moving the
-            # other. Sports turns it on: its titles drop a league and a quality
-            # that the raw name carries ("NHL-TEAM| CALGARY FLAMES HD"), and
-            # that raw string is what the provider's own app shows. A rating
-            # tooltip still outranks it — that states the user's OWN action,
-            # which the row cannot show any other way.
+            # Opt-in: the PROVIDER'S RAW NAME when the row shows a cleaned
+            # title. OFF by default — the main list deliberately shows no
+            # tooltip on an unrated row (test_tooltip_role_unrated_channel_
+            # returns_none says so), so this is a parameter, not a behaviour
+            # change. Sports turns it on: its titles drop the league and
+            # quality the raw name carries ("NHL-TEAM| CALGARY FLAMES HD").
+            # A rating tooltip outranks it — that states the user's OWN action.
             if (self._raw_name_tooltip and channel.detected_title
                     and channel.detected_title != channel.name):
                 return channel.name
