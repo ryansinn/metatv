@@ -162,7 +162,9 @@ class _TrailRow(QWidget):
         self._id = row.id
         self.setObjectName("trailmap_row")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        set_clickable(self)
+        # keyboard=True: the row itself is the control — the chevron beside it
+        # is a hint, not a target.
+        set_clickable(self, keyboard=True)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(6, 5, 6, 5)

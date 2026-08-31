@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 
 from loguru import logger
-from PyQt6.QtCore import QRect, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.flow_layout import FlowContainer
 
 # Maximum number of tags shown before the "+N more" cap button appears.
 _CAP: int = 40
@@ -104,62 +105,11 @@ def _fmt_count(n: int) -> str:
     return str(n)
 
 
-# ── private flow layout (reused from discover_card._FlowLayout pattern) ──────────
-
-class _FlowLayout:
-    """Simple flow-layout helper — arranges widgets left-to-right, wrapping.
-
-    This is the same layout primitive used by ``discover_card._FlowLayout``;
-    see that module for the full design rationale.  We define our own copy here
-    rather than importing the private class from ``discover_card`` so this widget
-    has no coupling to the Discover subsystem.
-    """
-
-    def __init__(self, container: QWidget, h_spacing: int = 6, v_spacing: int = 4) -> None:
-        self._container = container
-        self._items: list[QWidget] = []
-        self._h_spacing = h_spacing
-        self._v_spacing = v_spacing
-
-    def add(self, widget: QWidget) -> None:
-        widget.setParent(self._container)
-        self._items.append(widget)
-
-    def relayout(self, available_width: int) -> int:
-        """Position all cloud-visible items within *available_width*.
-
-        Uses ``cloud_visible`` (a ``_TagButton`` attribute) rather than
-        ``isVisible()`` because headless Qt widgets always report
-        ``isVisible() == False`` regardless of ``show()``/``hide()`` calls.
-
-        Returns the total height occupied.
-        """
-        x, y, row_h = 0, 0, 0
-        hs = self._h_spacing
-        vs = self._v_spacing
-        for w in self._items:
-            # Use cloud_visible if available (TagButton), else fall back to isVisible
-            logically_visible = getattr(w, "cloud_visible", w.isVisible())
-            if not logically_visible:
-                continue
-            ww = w.sizeHint().width()
-            wh = w.sizeHint().height()
-            if x + ww > available_width and x > 0:
-                x = 0
-                y += row_h + vs
-                row_h = 0
-            w.setGeometry(QRect(x, y, ww, wh))
-            x += ww + hs
-            row_h = max(row_h, wh)
-        return y + row_h if self._items else 0
-
-    def clear(self) -> None:
-        for w in self._items:
-            w.deleteLater()
-        self._items.clear()
-
-
-# ── tag button ────────────────────────────────────────────────────────────────────
+# The flow primitive is shared — see flow_layout.FlowContainer. This module used
+# to carry its own copy, whose docstring said so: "the same layout primitive used
+# by discover_card._FlowLayout … We define our own copy here rather than importing
+# the private class from discover_card so this widget has no coupling to the
+# Discover subsystem." Avoiding that coupling was right; a shared module is how.
 
 class _TagButton(QPushButton):
     """A single tag-cloud button: mark · value count.
@@ -245,15 +195,20 @@ class _TagButton(QPushButton):
 class _CloudBody(QWidget):
     """The flow-layout body of the cloud.
 
-    Owns _FlowLayout and reflows on every resize event.
+    Owns a FlowContainer and reflows on every resize event.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._flow = _FlowLayout(self)
+        # cloud_visible is the button's own filtered/unfiltered state, which is
+        # a different question from Qt visibility — so it is passed as the
+        # predicate rather than renamed into the shared default.
+        self._flow = FlowContainer(
+            self, spacing=6, v_spacing=4,
+            is_visible=lambda w: getattr(w, "cloud_visible", True))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-    def flow(self) -> _FlowLayout:
+    def flow(self) -> FlowContainer:
         return self._flow
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]

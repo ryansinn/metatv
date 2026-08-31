@@ -920,7 +920,7 @@ class _EpgWatchlistMixin:
 
         count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
         _theme.style(count_lbl, "DISCOVER_REC_COUNT")
-        cursor_affordance.set_clickable(count_lbl)
+        cursor_affordance.set_clickable(count_lbl, keyboard=True)
         layout.addWidget(count_lbl)
         layout.addStretch()
 

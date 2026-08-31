@@ -123,7 +123,7 @@ def test_genre_load_populates_flow_container(qapp):
     """After load_metadata with genres, _genres_container holds one chip per genre."""
     from PyQt6.QtWidgets import QPushButton
     from metatv.gui.details_sections import _MetadataSection
-    from metatv.gui.details_versions import _FlowLayout
+    from metatv.gui.flow_layout import FlowLayout as _FlowLayout
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())

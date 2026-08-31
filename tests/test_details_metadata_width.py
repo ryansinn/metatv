@@ -66,7 +66,7 @@ def test_media_row_uses_wrapping_flow_layout(qapp):
     """The media/badge row must be a wrapping _FlowLayout, never a QHBoxLayout —
     that's what keeps its minimum width to a single chip instead of the sum."""
     from metatv.gui.details_sections import _MetadataSection
-    from metatv.gui.details_versions import _FlowLayout
+    from metatv.gui.flow_layout import FlowLayout as _FlowLayout
 
     section = _MetadataSection(_make_config())
     assert isinstance(section._media_row.layout(), _FlowLayout), (
@@ -183,7 +183,7 @@ def test_tags_facet_row_wraps_not_crushes(qapp):
     every chip below its text width (center-elided "tion & Adver")."""
     from metatv.core.repositories.dtos import ChannelTagDTO
     from metatv.gui.details_sections import _TagsSection
-    from metatv.gui.details_versions import _FlowLayout
+    from metatv.gui.flow_layout import FlowLayout as _FlowLayout
 
     genres = [
         "Action & Adventure", "Sci-Fi & Fantasy", "Animation", "Comedy", "Drama",

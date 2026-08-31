@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel,
-    QLayout, QLayoutItem, QMenu, QLineEdit, QSizePolicy,
+    QMenu, QLineEdit, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal
 
 
 from metatv.core.channel_name_utils import (
@@ -22,7 +22,7 @@ from metatv.gui.details_version_groups import (
     group_by_region,
     summarise,
 )
-from metatv.gui.flow_layout import enable_height_for_width
+from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_text_utils import escape_mnemonic
 
 # ---------------------------------------------------------------------------
@@ -80,80 +80,8 @@ class ChannelVersion:
 
 
 # ---------------------------------------------------------------------------
-# _FlowLayout
+# FlowLayout call sites (the class itself now lives in flow_layout.py)
 # ---------------------------------------------------------------------------
-
-class _FlowLayout(QLayout):
-    """Wrapping flow layout — arranges widgets left-to-right, wrapping to new rows."""
-
-    def __init__(self, parent=None, h_spacing: int = 4, v_spacing: int = 4):
-        super().__init__(parent)
-        self._h_spacing = h_spacing
-        self._v_spacing = v_spacing
-        self._items: list[QLayoutItem] = []
-        enable_height_for_width(parent)
-
-    def addItem(self, item: QLayoutItem) -> None:
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int) -> QLayoutItem | None:
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index: int) -> QLayoutItem | None:
-        return self._items.pop(index) if 0 <= index < len(self._items) else None
-
-    def expandingDirections(self):
-        return Qt.Orientation(0)
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
-
-    def setGeometry(self, rect: QRect) -> None:
-        super().setGeometry(rect)
-        self._do_layout(rect, test_only=False)
-
-    def sizeHint(self) -> QSize:
-        return self.minimumSize()
-
-    def minimumSize(self) -> QSize:
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        m = self.contentsMargins()
-        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
-
-    def _do_layout(self, rect: QRect, test_only: bool) -> int:
-        m = self.contentsMargins()
-        eff = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
-        x, y, row_h = eff.x(), eff.y(), 0
-        for item in self._items:
-            w = item.widget()
-            # Use isHidden() (explicit hide only) rather than not isVisible()
-            # (ancestor-gated).  When the parent container is collapsed the chips
-            # are not explicitly hidden, so isVisible() wrongly returns False and
-            # _do_layout skips them — causing heightForWidth to return 0 and the
-            # row to render with zero height after expansion.
-            if w and w.isHidden():
-                continue
-            hint = item.sizeHint()
-            next_x = x + hint.width() + self._h_spacing
-            if next_x - self._h_spacing > eff.right() and row_h > 0:
-                x = eff.x()
-                y += row_h + self._v_spacing
-                next_x = x + hint.width() + self._h_spacing
-                row_h = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x = next_x
-            row_h = max(row_h, hint.height())
-        return y + row_h - rect.y() + m.bottom()
-
 
 # ---------------------------------------------------------------------------
 # _CategoryNamePopup
@@ -272,7 +200,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
         # Active chips — full width
         self._chips_row = QWidget()
         self._chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self._chips_layout = _FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
+        self._chips_layout = FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
         content_layout.addWidget(self._chips_row)
 
         # Two collapsible chip sub-sections, built by ONE factory.
@@ -612,7 +540,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
 
         chips_row = QWidget()
         chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        chips_layout = _FlowLayout(chips_row, h_spacing=4, v_spacing=4)
+        chips_layout = FlowLayout(chips_row, h_spacing=4, v_spacing=4)
         chips_row.hide()                      # collapsed by default
         section_layout.addWidget(chips_row)
 

@@ -252,6 +252,30 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 - [ ] **Watch Queue aging / organization** — the queue gets unruly: items added on different days get "lost in the middle," so users fall back on History as a loose-capture net (see History split, above). Needs recency/date-added grouping, reordering, and an age-out/archive affordance for stale entries — and consider whether a lighter "interesting, maybe later" capture is missing between the *committed* queue and the *ephemeral* History recency strip (don't add a third bucket reflexively — the Recent strip may already cover the "I saw it, let me get back to it" case). **Live ≠ VOD in the queue:** adding a live channel sends it to the *bottom* of a positional list (scroll all the way down) — wrong affordance, because live is *now/recency*-oriented, not a planned position. The queue reads as a movies/series construct; live "get back to it" belongs in the **Recent strip** and/or a dedicated **live-follow pin** ("channels I keep returning to"), not the VOD queue. (Connects to the media-type split surfacing across History/Queue/Recent — see DESIGN_RATIONALE DR-0001 Refined note.)
 ## UI / UX
 
+- [ ] **Replace the chevrons with something more elegant** — *(owner, 2026-08-31: "getting
+  rid of the tacky chevrons or replacing them with a more elegant solution")*. Deferred
+  deliberately; recorded so it is not lost.
+
+  **Where they are, so the sweep is one pass:** `icons.expand_icon`/`collapse_icon` is the one
+  source (never a literal glyph in widget code), so changing the glyph is a single edit — but the
+  *treatment* is not uniform, which is the real work. `CollapsibleHeader`
+  (`details_section_header.py`) draws it as a flat `QPushButton`; `discover_shelf`,
+  `details_versions`, `filter_group_row` and `qa_checklist_window` set it as button text; and
+  `global_filter_dialog`, `trail_map_view` and `epg_watchlist_mixin` render it as a decorative
+  `QLabel` beside a row that is itself the click target. A glyph swap alone would leave three
+  different sizes and alignments.
+
+  **Alternatives worth rendering before choosing:** rotation-animated caret (one glyph, direction
+  by transform — no second icon, and the motion carries the state change); a disclosure triangle
+  in the platform idiom; weight/opacity shift on the title with no glyph at all; or an indent-only
+  treatment where nesting is the affordance. The last two are the ones that stop looking like a
+  1990s tree control, and both need the row to keep its hover and focus states doing the work —
+  which they now do (#471).
+
+  Mockup first, per the design rule: inventory the current treatments with `file:line` anchors,
+  then propose side-by-side with each delta as a numbered question.
+
+
 - [ ] **Cross-view state sync phase 3 — the bulk grain, and the list-membership sibling seam.**
   Phases 1 (#311) and 2 (#312) are done: every **single-channel** user-state mutation now ends in
   `channel_state_bus.publish(...)` across all five axes (rating, favorite, suppressed, hidden,

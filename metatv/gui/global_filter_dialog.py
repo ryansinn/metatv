@@ -266,7 +266,7 @@ class _GroupSection(QWidget):
 
         # ── Header row (always created) ───────────────────────────────────────
         header = QWidget()
-        cursor_affordance.set_clickable(header)
+        cursor_affordance.set_clickable(header, keyboard=True)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(6)
@@ -505,7 +505,7 @@ class _ContentTypeSection(QWidget):
 
         # ── Header ────────────────────────────────────────────────────────────
         header = QWidget()
-        cursor_affordance.set_clickable(header)
+        cursor_affordance.set_clickable(header, keyboard=True)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(6)
