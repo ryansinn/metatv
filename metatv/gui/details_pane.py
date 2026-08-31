@@ -673,7 +673,12 @@ class DetailsPaneWidget(QWidget):
             return
         if not watchlist.remove(self.config, title):
             watchlist.add(self.config, title)
-        self._action_bar.update_epg_title(title, patterns)
+        # Through the one method that knows how to re-read the list. This line
+        # passed a bare ``patterns``, which is not a name in this module — so
+        # every click of the watch bell toggled the rule and then raised
+        # NameError before the button could redraw. ruff's F821 is in the
+        # project's ignore list (pyproject.toml), which is why it stood.
+        self._on_epg_title_changed(title)
 
     # ------------------------------------------------------------------ #
     # Action bar wrappers (add channel_id to signals)                      #

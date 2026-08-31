@@ -92,10 +92,14 @@ ignore = [
               #       mismatch mean truncate, or mean a bug?
   "E712",     # 23  — `== True`. NOT blanket-fixable: SQLAlchemy filters
               #       require it, `if x == True` does not.
-  "F821",     # 20  — undefined name. All that remain are quoted annotations
-              #       (latent, not live); the one LIVE case is fixed in this
-              #       commit. See metatv/gui/app_header.py.
-              #       so they are redundant rather than wrong.
+  "F821",     # 20  — undefined name. Mostly quoted annotations (latent, not
+              #       live). "The one LIVE case" was not: a SECOND one stood
+              #       here for months — details_pane._on_watchlist ended with
+              #       `update_epg_title(title, patterns)`, so every click of the
+              #       watch bell raised NameError after toggling the rule. Both
+              #       are fixed; the ignore is a real risk, not a formality, so
+              #       run `ruff check --select F821` before trusting a clean
+              #       lint on a file you have edited.
   "B008",     # 4   — function call in a default argument.
   "B017",     # 3   — `pytest.raises(Exception)`, too broad to assert anything.
   "B023",     # 1   — function in a loop closing over the loop variable.
