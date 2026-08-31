@@ -294,7 +294,87 @@ class _ChannelStatsMixin:
     LIVE_WINDOW = timedelta(hours=4)
 
     #: Lane keys, in the order the rundown presents them.
-    SPORTS_LANES = ("live", "upcoming", "channels", "finished")
+    SPORTS_LANES = ("live", "upcoming", "channels", "finished", "placeholders")
+
+    #: Provider placeholder rows: a slot that exists so the feed number stays
+    #: stable, carrying no fixture. 5,565 of 28,323 sports rows on the owner's
+    #: library are literally named "NO EVENT STREAMING NOW - | …". Not a
+    #: classification failure and not hidden content — there is nothing there.
+    PLACEHOLDER_MARKER = "NO EVENT STREAMING"
+
+    @staticmethod
+    def _apply_sports_facets(query, sport_types, league_names):
+        """Apply the sport/league facets shared by the list and the lane counts.
+
+        Shared so a lane chip's number and the list it opens answer the same
+        question — a count computed by a second, slightly different query is how
+        a chip comes to claim a number the list never shows. ``'unknown'`` also
+        matches NULL, keeping the unclassified "General" population visible.
+        """
+        if sport_types:
+            if 'unknown' in [s.lower() for s in sport_types]:
+                query = query.filter(
+                    (ChannelDB.sport_type.in_(sport_types)) |
+                    (ChannelDB.sport_type.is_(None))
+                )
+            else:
+                query = query.filter(ChannelDB.sport_type.in_(sport_types))
+        if league_names:
+            query = query.filter(ChannelDB.league_name.in_(league_names))
+        return query
+
+    def _sports_lane_rank(self, now: "datetime"):
+        """Which lane a row falls in, as a SQL CASE indexing SPORTS_LANES.
+
+        One definition, read by both the ordering and the counts. Two copies of
+        this expression would let a chip disagree with the rows beneath it.
+        """
+        started = ChannelDB.event_start_time
+        return case(
+            # First: a placeholder is never a fixture, whatever else it looks
+            # like. Its own lane rather than a filter, so "collapse, never hide"
+            # holds — the chip states the count and opens onto the rows.
+            (ChannelDB.name.contains(self.PLACEHOLDER_MARKER),
+             self.SPORTS_LANES.index("placeholders")),
+            (started.is_(None), self.SPORTS_LANES.index("channels")),
+            (started > now, self.SPORTS_LANES.index("upcoming")),
+            (started > now - self.LIVE_WINDOW, self.SPORTS_LANES.index("live")),
+            else_=self.SPORTS_LANES.index("finished"),
+        )
+
+    def get_sports_lane_counts(
+        self,
+        scope: VisibilityScope,
+        sport_types: Optional[List[str]] = None,
+        league_names: Optional[List[str]] = None,
+        *,
+        now: "Optional[datetime]" = None,
+    ) -> Dict[str, int]:
+        """Count the rows in each lane, for the lane chips to carry.
+
+        One GROUP BY rather than four COUNT queries.
+
+        Returns:
+            Every lane in :attr:`SPORTS_LANES` mapped to its count, with absent
+            lanes present as 0 rather than missing — a caller iterating the
+            result must not have to guess whether a key's absence means zero.
+            (``ToggleChip.set_count`` then renders a bare label for 0, which is
+            its own long-standing policy and not this method's to override.)
+        """
+        base = self._apply_sports_facets(
+            self._special_content_query('sports', scope), sport_types, league_names)
+        now = now or _now_utc()
+        lane_rank = self._sports_lane_rank(now)
+
+        rows = (
+            base.with_entities(lane_rank.label("lane"), func.count().label("n"))
+            .group_by(lane_rank).all()
+        )
+        counts = dict.fromkeys(self.SPORTS_LANES, 0)
+        for rank, n in rows:
+            if 0 <= rank < len(self.SPORTS_LANES):
+                counts[self.SPORTS_LANES[rank]] = n
+        return counts
 
     def get_sports_channels(
         self,
@@ -348,31 +428,13 @@ class _ChannelStatsMixin:
         """
         query = self._special_content_query('sports', scope)
 
-        if sport_types:
-            lower_types = [s.lower() for s in sport_types]
-            if 'unknown' in lower_types:
-                query = query.filter(
-                    (ChannelDB.sport_type.in_(sport_types)) |
-                    (ChannelDB.sport_type.is_(None))
-                )
-            else:
-                query = query.filter(ChannelDB.sport_type.in_(sport_types))
-
-        if league_names:
-            query = query.filter(ChannelDB.league_name.in_(league_names))
+        query = self._apply_sports_facets(query, sport_types, league_names)
 
         # epg_utils owns every clock read in this project; datetime.utcnow()
         # is also deprecated from 3.12. Both are UTC-naive, as event_start_time is.
         now = now or _now_utc()
-        cutoff = now - self.LIVE_WINDOW
+        lane_rank = self._sports_lane_rank(now)
         started = ChannelDB.event_start_time
-
-        lane_rank = case(
-            (started.is_(None), 2),                              # channels
-            (started > now, 1),                                  # upcoming
-            (started > cutoff, 0),                               # live
-            else_=3,                                             # finished
-        )
         if lane is not None:
             try:
                 query = query.filter(lane_rank == self.SPORTS_LANES.index(lane))

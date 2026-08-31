@@ -14,19 +14,41 @@ it reaches History and Favorites.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Callable
 
 from loguru import logger
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QLabel, QVBoxLayout,
+    QHBoxLayout, QVBoxLayout,
 )
 
-from metatv.gui import theme as _theme
 from metatv.gui.channel_results_list import ChannelResultsList
+from metatv.gui.filter_bar import ToggleChip
 from metatv.gui.content_view import ContentView
 from metatv.gui.sports_filter_bar import SportsFilterBar
 from metatv.gui.view_scope import resolve_visibility_scope
+
+
+#: Lane chip labels, in the order the rundown presents them. The keys are
+#: ``ChannelRepository.SPORTS_LANES`` — one vocabulary, so a chip cannot name a
+#: lane the query does not have.
+LANE_LABELS = {
+    "live": "On now",
+    "upcoming": "Upcoming",
+    "channels": "Channels",
+    "finished": "Finished",
+    "placeholders": "No event",
+}
+
+#: Why each lane exists, said plainly — several are not self-evident.
+LANE_TOOLTIPS = {
+    "live": "Started recently and probably still on",
+    "upcoming": "Scheduled, soonest first",
+    "channels": "Always-on sports channels — no single fixture",
+    "finished": "Already over, most recent first",
+    "placeholders": "Feed slots the provider left empty — nothing is on them",
+}
 
 
 class SportsView(ContentView):
@@ -70,11 +92,20 @@ class SportsView(ContentView):
         #: two rapid activations would otherwise both see 'not loaded' and
         #: issue the same whole-corpus scan twice.
         self._taxonomy_requested = False
+        #: The active lane. Restored from config so the view opens where the
+        #: user left it (UI state persistence), defaulting to Upcoming.
+        self._lane: str = getattr(config, "sports_lane", None) or self.DEFAULT_LANE
+        if self._lane not in LANE_LABELS:
+            self._lane = self.DEFAULT_LANE
         self._setup_ui()
 
     # ------------------------------------------------------------------ #
     # Construction                                                        #
     # ------------------------------------------------------------------ #
+
+    #: The lane shown when the view opens. "live" would be empty most of the
+    #: day and read as a broken view; "upcoming" is what a schedule is for.
+    DEFAULT_LANE = "upcoming"
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -85,11 +116,24 @@ class SportsView(ContentView):
         self.filter_bar.filter_changed.connect(self._reload_channels)
         layout.addWidget(self.filter_bar)
 
-        self.count_label = QLabel("", self)
-        # ITEM_COUNT is the existing role for a "{n} things" label — the
-        # filter groups use it, so this reads the same as the rest.
-        _theme.style(self.count_label, "ITEM_COUNT")
-        layout.addWidget(self.count_label)
+        # Lane chips carry their own counts, so the standalone "183 channels"
+        # line goes (mockup Q7). ToggleChip already renders "Label (N)" via
+        # set_count and already supports a segmented track — nothing new was
+        # built for this.
+        lane_row = QHBoxLayout()
+        lane_row.setSpacing(0)
+        lane_row.setContentsMargins(0, 0, 0, 0)
+        self._lane_chips: "dict[str, ToggleChip]" = {}
+        last = len(LANE_LABELS) - 1
+        for i, (lane, label) in enumerate(LANE_LABELS.items()):
+            segment = "first" if i == 0 else ("last" if i == last else "middle")
+            chip = ToggleChip(label, enabled=(lane == self._lane), segment=segment)
+            chip.setToolTip(LANE_TOOLTIPS[lane])
+            chip.clicked.connect(partial(self._on_lane_clicked, lane))
+            self._lane_chips[lane] = chip
+            lane_row.addWidget(chip)
+        lane_row.addStretch()
+        layout.addLayout(lane_row)
 
         # The shared virtualized results list — NOT a QListWidget with a
         # widget per row. This view once built one live QWidget per channel and
@@ -160,14 +204,33 @@ class SportsView(ContentView):
             return
         self.filter_bar.load_taxonomy(data["taxonomy"], data["counts"])
 
-    def _reload_channels(self) -> None:
-        """Re-query for the current cascade selection."""
+    def _reload_channels(self, *, refresh_counts: bool = True) -> None:
+        """Re-query for the current cascade selection.
+
+        Args:
+            refresh_counts: Re-run the lane counts too. False when only the
+                LANE changed — the counts are computed over the whole
+                facet-filtered set and do not depend on which lane is open, so
+                a lane click would otherwise pay for a GROUP BY that cannot
+                return a different answer.
+        """
         state = self.filter_bar.get_filter_state()
         config = self.config
+
+        lane = self._lane
 
         def query(repos) -> list:
             scope = resolve_visibility_scope(repos, config)
             return repos.channels.get_sports_channels(
+                scope,
+                sport_types=state.get("sport_types") or None,
+                league_names=state.get("league_names") or None,
+                lane=lane,
+            )
+
+        def count_query(repos) -> dict:
+            scope = resolve_visibility_scope(repos, config)
+            return repos.channels.get_sports_lane_counts(
                 scope,
                 sport_types=state.get("sport_types") or None,
                 league_names=state.get("league_names") or None,
@@ -179,6 +242,16 @@ class SportsView(ContentView):
             token_ref=self._token,
             on_error=lambda exc: self._show_error("Couldn't load these channels"),
         )
+        # Counts are a second read on purpose: one GROUP BY over the whole
+        # facet-filtered set, independent of which lane is open, so switching
+        # lanes never restates the other three from stale numbers.
+        if refresh_counts:
+            self._run_query(
+                count_query,
+                self._on_lane_counts_loaded,
+                token_ref=self._token,
+                on_error=lambda exc: None,
+            )
 
     def _on_channels_loaded(self, rows: Any) -> None:
         """Render the result, or a visible error — never a silent empty list."""
@@ -186,8 +259,6 @@ class SportsView(ContentView):
             self._show_error("Couldn't load these channels")
             return
         self.channel_list.set_rows(rows)
-        self.count_label.setText(
-            f"{len(rows):,} channel{'' if len(rows) == 1 else 's'}")
 
     # ------------------------------------------------------------------ #
     # Rendering                                                           #
@@ -196,6 +267,32 @@ class SportsView(ContentView):
     # ------------------------------------------------------------------ #
     # Interaction                                                         #
     # ------------------------------------------------------------------ #
+
+    def _on_lane_clicked(self, lane: str) -> None:
+        """Switch lanes. Exactly one is active — these are a view, not filters."""
+        if lane == self._lane:
+            # Re-clicking the active lane must not turn it off: an empty
+            # rundown with no lane selected is a dead end, not a state.
+            self._lane_chips[lane].setChecked(True)
+            return
+        self._lane = lane
+        for key, chip in self._lane_chips.items():
+            chip.setChecked(key == lane)
+        # Every UI section remembers its state (DESIGN.md) — save on change.
+        self.config.sports_lane = lane
+        self.config.save()
+        self._reload_channels(refresh_counts=False)
+
+    def _on_lane_counts_loaded(self, counts: Any) -> None:
+        """Paint each chip's count, or leave the labels bare if the query failed.
+
+        A wrong number is worse than none: the chip is a promise about what the
+        list holds, so on failure the chips say nothing rather than lying.
+        """
+        if not isinstance(counts, dict):
+            return
+        for lane, chip in self._lane_chips.items():
+            chip.set_count(int(counts.get(lane, 0)))
 
     def _on_context_menu(self, channel_id: str, global_pos) -> None:
         """Re-emit as (id, x, y) — the shape ``_on_rec_channel_context_menu``
@@ -217,4 +314,3 @@ class SportsView(ContentView):
         """
         logger.warning("SportsView: {}", message)
         self.channel_list.show_error(message)
-        self.count_label.setText("")
