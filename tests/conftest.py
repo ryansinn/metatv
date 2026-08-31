@@ -10,6 +10,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 import threading
+import weakref
 import uuid
 import warnings
 from dataclasses import dataclass, field
@@ -156,12 +157,13 @@ def _widget_addr(widget) -> int | None:
         return None  # already-deleted wrapper
 
 
-def _qt_snapshot() -> tuple[frozenset[int], frozenset[int]]:
+def _qt_snapshot() -> tuple[frozenset[int], "weakref.WeakSet"]:
     """Snapshot pre-existing top-level widgets + live threads before a test.
 
-    Keys widgets by stable C++ address and threads by ident (never a strong
-    reference), so it can never keep a would-be-garbage object alive and mask a
-    leak.  Cheap and safe to call when Qt has never been imported (empty set).
+    Keys widgets by stable C++ address and threads by object identity held
+    WEAKLY (never a strong reference), so it can never keep a would-be-garbage
+    object alive and mask a leak.  Cheap and safe to call when Qt has never
+    been imported (empty set).
     """
     qtwidgets = sys.modules.get("PyQt6.QtWidgets")
     widget_ids: frozenset[int] = frozenset()
@@ -173,8 +175,17 @@ def _qt_snapshot() -> tuple[frozenset[int], frozenset[int]]:
                 for a in (_widget_addr(w) for w in qtwidgets.QApplication.topLevelWidgets())
                 if a is not None
             )
-    thread_idents = frozenset(t.ident for t in threading.enumerate())
-    return widget_ids, thread_idents
+    # Threads are keyed by OBJECT IDENTITY in a WeakSet, never by ``ident``.
+    # CPython hands a dead thread's ident straight to the next one — measured at
+    # 200/200 in a tight loop — so ``t.ident in pre_idents`` calls a brand-new
+    # thread pre-existing and skips it. That is a FALSE NEGATIVE in the guard
+    # whose entire job is catching leaked threads, and it is why the sweep
+    # reported an empty thread list on a CI shard where a pool happened to shut
+    # down mid-test. A WeakSet keeps the no-strong-reference property the widget
+    # half relies on: ``threading`` already holds every live thread, so an entry
+    # survives exactly as long as its thread does.
+    thread_objs: weakref.WeakSet = weakref.WeakSet(threading.enumerate())
+    return widget_ids, thread_objs
 
 
 def _owned_qthreads(widget: object) -> list:
@@ -246,7 +257,7 @@ def _wait_out_qthread(qthread, report: _QtSweepReport, seen_ids: set[int]) -> No
 
 def _qt_teardown_sweep(
     pre_widget_ids: frozenset[int],
-    pre_thread_idents: frozenset[int],
+    pre_threads: "weakref.WeakSet",
 ) -> _QtSweepReport:
     """Wait out owned QThreads, drain deferred deletes, report stray Qt resources.
 
@@ -313,7 +324,7 @@ def _qt_teardown_sweep(
     # 4) Report stray Python threads still alive (executor workers that outlived
     #    the test).  Owned QThreads waited out in step 1 have already ended here.
     for t in threading.enumerate():
-        if t is main or not t.is_alive() or t.ident in pre_thread_idents:
+        if t is main or not t.is_alive() or t in pre_threads:
             continue
         report.threads.append(t.name)
         if not t.daemon:
@@ -328,9 +339,9 @@ def _qt_teardown_sweep(
 def _qt_teardown_guard(request):
     """Deterministically quiesce Qt state after every test (see module note)."""
     global _QT_WIDGETS_ALIVE, _QT_WIDGET_TESTS
-    pre_widget_ids, pre_thread_idents = _qt_snapshot()
+    pre_widget_ids, pre_threads = _qt_snapshot()
     yield
-    report = _qt_teardown_sweep(pre_widget_ids, pre_thread_idents)
+    report = _qt_teardown_sweep(pre_widget_ids, pre_threads)
     if report.widgets:
         _QT_WIDGETS_ALIVE += len(report.widgets)
         _QT_WIDGET_TESTS += 1
