@@ -171,7 +171,16 @@ jobs:
         run: |
           python scripts/ci_shard.py --shard ${{ matrix.shard }} --of 4 > shard.txt
           echo "$(wc -l < shard.txt) test files in this shard"
-          # xargs, not a shell variable: 130-odd paths, and the exit code has
-          # to be pytest's. A pipe here would eat it — that is the shell-
-          # discipline rule in CLAUDE.md, and it has shipped a red PR before.
-          xargs -a shard.txt python -m pytest -q
+          # Command substitution, deliberately, on two counts.
+          #
+          # NOT `xargs -a`: -a is a GNU extension and BSD xargs on macos-14 has
+          # no such flag, so all four macOS shards died in 17 seconds with a
+          # usage message. (The matrix exists for exactly this — a Linux-only
+          # gate would have called this green.)
+          #
+          # NOT `xargs < shard.txt` either: xargs reports 123 for "some
+          # invocation failed" rather than passing pytest's own status through,
+          # and this command's exit code IS the gate. Test paths never contain
+          # spaces and 131 of them is ~5 KB, far under ARG_MAX, so plain word
+          # splitting is safe here and keeps the status exact.
+          python -m pytest -q $(cat shard.txt)
