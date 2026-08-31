@@ -580,6 +580,9 @@ VECTOR_KEYS: dict[str, str] = {
     "recommended": "mdi6.star-check-outline",
     "discover": "mdi6.shimmer",
     "recipe": "mdi6.tune-variant",
+    # A whistle, not a ball: the view holds hockey, F1, UFC and tennis, and
+    # any one sport's ball would say the other three are somewhere else.
+    "sports": "mdi6.whistle",
     # "Manage these alerts" — the three-slider glyph. Its own role rather than
     # reusing "recipe" (also sliders): two different meanings sharing one glyph
     # is how an icon stops meaning anything.
