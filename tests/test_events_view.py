@@ -218,7 +218,10 @@ def test_the_countdown_reads_from_the_frame_not_the_clock(view):
     card.refresh_countdown(_NOW)
     assert card.countdown_label.text() == "in 3d 4h"
     card.refresh_countdown(_NOW + timedelta(days=3, hours=3, minutes=50))
-    assert card.countdown_label.text() == "in 10m 0s"
+    # Minute granularity — no seconds rung. The owner rejected ticking by the
+    # second as "busy and obnoxious", and it forced a 1 Hz repaint of the whole
+    # grid to move one digit.
+    assert card.countdown_label.text() == "in 10m"
     card.refresh_countdown(_NOW + timedelta(days=4))
     assert card.countdown_label.text() == "ended"
 
@@ -456,3 +459,93 @@ def test_the_card_title_is_not_a_dialog_heading(qapp):
 
     assert _t.EVENT_CARD_TITLE != _t.DIALOG_TITLE, (
         "the event card title is aliased to the dialog heading role again")
+
+
+# ── Q24: how the view renders time against the clock ────────────────────────
+
+def test_the_countdown_never_shows_seconds(qapp):
+    """The owner's call: "ticking down by seconds seems busy and obnoxious".
+
+    A seconds rung is not merely noisy — it forces the grid to repaint every
+    second to move one digit, which is why the tick was 1 Hz.
+    """
+    from metatv.gui.relative_time import humanize_countdown
+    now = datetime(2026, 8, 31, 12, 0)
+    for delta in (timedelta(seconds=5), timedelta(seconds=47),
+                  timedelta(minutes=10, seconds=30), timedelta(hours=4, minutes=12)):
+        text = humanize_countdown(now + delta, now)
+        assert "s" not in text.replace("starts", ""), f"seconds leaked into {text!r}"
+
+
+def test_the_tick_is_a_minute_not_a_second():
+    """Pinned so the interval cannot drift back without the docstring changing."""
+    from metatv.gui.events_view import _TICK_MS
+    assert _TICK_MS == 60_000
+
+
+def test_an_event_under_way_shows_elapsed_not_a_countdown(qapp):
+    """Under way, "in -5m" is meaningless; how long it has been on is the fact."""
+    from metatv.gui.relative_time import humanize_elapsed
+    now = datetime(2026, 8, 31, 12, 0)
+    assert humanize_elapsed(now - timedelta(minutes=58), now) == "58m in"
+    assert humanize_elapsed(now - timedelta(hours=2, minutes=5), now) == "2h 5m in"
+    assert humanize_elapsed(now - timedelta(seconds=20), now) == "just started"
+    # Not yet started, and no start at all, both render as nothing.
+    assert humanize_elapsed(now + timedelta(hours=1), now) == ""
+    assert humanize_elapsed(None, now) == ""
+
+
+def test_elapsed_is_deliberately_not_a_progress_fraction():
+    """A bar needs an end and no row has one.
+
+    Of 31,296 sports rows, 377 have EPG at all and ZERO have both a parsed
+    start and an EPG stop_time. Any bar would invent its denominator. This
+    pins that we return a duration, never a percentage.
+    """
+    from metatv.gui.relative_time import humanize_elapsed
+    now = datetime(2026, 8, 31, 12, 0)
+    text = humanize_elapsed(now - timedelta(minutes=58), now)
+    assert "%" not in text
+    assert text == "58m in"
+
+
+def test_the_live_timing_setting_switches_all_three_modes(qapp):
+    """off renders nothing; countdowns drops the elapsed half; elapsed is default."""
+    from metatv.gui.events_view import _EventCard
+    now = datetime(2026, 8, 31, 12, 0)
+    started = _dto(event_start_time=now - timedelta(minutes=58))
+
+    card = _EventCard(started)
+    card.refresh_countdown(now, "elapsed")
+    assert card.countdown_label.text() == "58m in"
+
+    card.refresh_countdown(now, "countdowns")
+    assert card.countdown_label.text() == "", "countdowns-only must not show elapsed"
+
+    card.refresh_countdown(now, "off")
+    assert card.countdown_label.text() == ""
+    # The absolute clock time is NOT a countdown and must survive every mode —
+    # "off" means stop re-rendering, not stop saying when the thing is on.
+    assert card.when_label.text() != ""
+
+
+def test_elapsed_expires_so_a_finished_event_says_ended(qapp):
+    """Without a provider end time, "under way" has to time out.
+
+    Caught by the existing suite: an unbounded elapsed rendered a fixture that
+    started 20 hours ago as "20h 0m in" — asserting with confidence that a
+    finished game is still on, which is the same failure as trusting the
+    provider's LIVE token.
+    """
+    from metatv.gui.events_view import _EventCard
+    from metatv.gui.relative_time import ELAPSED_WINDOW_S
+    now = datetime(2026, 8, 31, 12, 0)
+    window = timedelta(seconds=ELAPSED_WINDOW_S)
+
+    inside = _EventCard(_dto(event_start_time=now - window + timedelta(minutes=1)))
+    inside.refresh_countdown(now, "elapsed")
+    assert inside.countdown_label.text().endswith("in")
+
+    outside = _EventCard(_dto(event_start_time=now - window - timedelta(minutes=1)))
+    outside.refresh_countdown(now, "elapsed")
+    assert outside.countdown_label.text().startswith("ended")

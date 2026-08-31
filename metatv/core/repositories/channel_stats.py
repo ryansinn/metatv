@@ -6,13 +6,15 @@ changed — ChannelRepository composes _ChannelStatsMixin.
 """
 import re
 from dataclasses import replace
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 
 from metatv.core import channel_visibility
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB
+from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.core.repositories.dtos import ChannelListDTO, SpecialContentDTO
 from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
@@ -286,11 +288,22 @@ class _ChannelStatsMixin:
             channel_cls=ChannelDB,
         )
 
+    #: How long after its start a fixture is still treated as under way. No
+    #: provider sends an end time, so "on now" is a window rather than a fact —
+    #: see relative_time.ELAPSED_WINDOW_S, which this mirrors.
+    LIVE_WINDOW = timedelta(hours=4)
+
+    #: Lane keys, in the order the rundown presents them.
+    SPORTS_LANES = ("live", "upcoming", "channels", "finished")
+
     def get_sports_channels(
         self,
         scope: VisibilityScope,
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
+        *,
+        now: "Optional[datetime]" = None,
+        lane: Optional[str] = None,
     ) -> List["ChannelListDTO"]:
         """Get sports channels with optional cascade filters.
 
@@ -306,9 +319,27 @@ class _ChannelStatsMixin:
             scope: Resolved visibility exclusions. REQUIRED — see
                 :meth:`_special_content_query` for why it is not optional.
 
+        Ordering is by TIME, not by name. It used to be
+        ``(sport_type, league_name, name)``, which is why filtering to Tennis
+        showed a four-day-old qualifying round at the top and nothing from
+        today: "US Open: Court 5 …" simply sorts early. Time is the primary
+        axis of a schedule.
+
+        Rows fall into four lanes — ``live`` (started within
+        :attr:`LIVE_WINDOW`), ``upcoming`` (future, soonest first), ``channels``
+        (no start time at all: the 24/7 racks, which correctly have no
+        schedule), and ``finished``. Finished sorts LAST rather than
+        interleaving, so a past fixture can never outrank one that has not
+        happened yet.
+
+        Args (continued):
+            now: The instant to rank against. Passed in and never re-read from
+                the clock here, so a caller's frame and this ranking agree.
+            lane: Return only one lane, or None for all four in lane order.
+
         Returns:
-            ``ChannelListDTO`` rows ordered by sport_type, league_name, name —
-            the SAME DTO the main channel list uses, so the Sports view renders
+            ``ChannelListDTO`` rows in lane order — the SAME DTO the main
+            channel list uses, so the Sports view renders
             through the same virtualized model + delegate instead of a parallel
             path. The narrow SpecialContentDTO this used to return could not
             carry a poster, a rating, or watch progress, so the view silently
@@ -330,8 +361,33 @@ class _ChannelStatsMixin:
         if league_names:
             query = query.filter(ChannelDB.league_name.in_(league_names))
 
+        # epg_utils owns every clock read in this project; datetime.utcnow()
+        # is also deprecated from 3.12. Both are UTC-naive, as event_start_time is.
+        now = now or _now_utc()
+        cutoff = now - self.LIVE_WINDOW
+        started = ChannelDB.event_start_time
+
+        lane_rank = case(
+            (started.is_(None), 2),                              # channels
+            (started > now, 1),                                  # upcoming
+            (started > cutoff, 0),                               # live
+            else_=3,                                             # finished
+        )
+        if lane is not None:
+            try:
+                query = query.filter(lane_rank == self.SPORTS_LANES.index(lane))
+            except ValueError:
+                raise ValueError(
+                    f"unknown lane {lane!r}; expected one of {self.SPORTS_LANES}"
+                ) from None
+
         rows = query.order_by(
-            ChannelDB.sport_type, ChannelDB.league_name, ChannelDB.name
+            lane_rank,
+            # Within a lane: soonest first for what has not happened, most
+            # recent first for what has. A finished list is read newest-down.
+            case((started > now, started), else_=None).asc().nulls_last(),
+            case((started <= now, started), else_=None).desc().nulls_last(),
+            ChannelDB.name,
         ).all()
         return [ChannelListDTO.from_orm(c) for c in rows]
 

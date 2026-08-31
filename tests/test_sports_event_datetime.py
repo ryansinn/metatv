@@ -58,6 +58,46 @@ def test_every_provider_date_form_parses(name, expected):
     assert parse_event_datetime(name, reference=REF) == expected
 
 
+@pytest.mark.parametrize("name,expected", [
+    # Form 4 — trailing parenthesised timestamp. 2,843 rows carry it and 842
+    # stored NOTHING, because parse_platform_event only runs on the
+    # 'live_event' branch while 603 of these classify as 'sports'.
+    ("(FLSP 697) | flohockey: 2026 Brockville Braves vs Cornwall Colts (Home) (2026-09-03 19:00:25)",
+     datetime.datetime(2026, 9, 3, 19, 0)),
+    ("US (Paramount 001) | Chelsea vs. Luton Town (2026-08-27 14:20:00)",
+     datetime.datetime(2026, 8, 27, 14, 20)),
+    # Form 5 — "@ Mon DD H:MM AM/PM". 205 rows, and the exact shape the owner
+    # screenshotted: Tennis showing four-day-old qualifiers with no time.
+    ("US Open: Court 5 - Qualifying Third Round @ Aug 27 11:00 AM :Tennis  03",
+     datetime.datetime(2026, 8, 27, 11, 0)),
+    ("US Open: Stars of the Open presented by Chase @ Aug 27 6:00 PM :Tennis  14",
+     datetime.datetime(2026, 8, 27, 18, 0)),
+])
+def test_the_two_later_date_forms_parse(name, expected):
+    assert parse_event_datetime(name, reference=REF) == expected
+
+
+@pytest.mark.parametrize("clock,hour24", [
+    ("12:00 AM", 0),    # midnight is 00, not 12 — the classic off-by-twelve
+    ("12:30 PM", 12),   # noon stays 12
+    ("1:00 AM", 1),
+    ("11:45 PM", 23),
+])
+def test_the_twelve_hour_clock_converts_at_both_ends(clock, hour24):
+    name = f"MLB 13 | Baltimore vs Tampa Bay @ Aug 14 {clock}"
+    got = parse_event_datetime(name, reference=REF)
+    assert got is not None and got.hour == hour24
+
+
+def test_the_always_available_sentinel_is_not_a_schedule():
+    """Providers use a far-future date to mean "always on", not "starts then".
+
+    Rendered as a start it would put every always-on feed at the bottom of
+    Upcoming, seventy years out.
+    """
+    assert parse_event_datetime("Some 24/7 feed (2098-12-31 00:00:00)", reference=REF) is None
+
+
 def test_a_name_with_no_date_yields_none_rather_than_a_guess():
     """29,493 of 30,851 rows are 24/7 channels. None is the correct answer."""
     for name in ("4K| SKY SPORTS MAIN EVENTS UHD", "US| FOX SPORTS 1 HD", "", "   "):

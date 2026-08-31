@@ -63,6 +63,19 @@ _EVENT_ISO_RE = re.compile(
 _EVENT_DAYNAME_RE = re.compile(
     r"\|\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+"
     r"(\d{1,2}):(\d{2})\s+([A-Za-z]{2,4})")
+#: "… (2026-09-03 19:00:25)" — a trailing parenthesised timestamp. 2,843 rows
+#: carry it and 842 stored NOTHING, because ``parse_platform_event`` only runs
+#: on the 'live_event' branch while 603 of these classify as 'sports'.
+_EVENT_PAREN_TS_RE = re.compile(
+    r"\(\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*\)")
+#: "… @ Aug 27 11:00 AM :Tennis 03" — month-name, 12-hour, NO YEAR and NO
+#: weekday to check one against, so the year is the calendar-nearest.
+_EVENT_AT_RE = re.compile(
+    r"@\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])")
+
+#: A provider far-future sentinel meaning "always available", not a schedule.
+#: Mirrors channel_name_utils._EVENT_SENTINEL_YEAR.
+_SENTINEL_YEAR = 2090
 
 
 def _resolve_year_by_weekday(month: int, day: int, weekday: str,
@@ -94,6 +107,25 @@ def _resolve_year_by_weekday(month: int, day: int, weekday: str,
         return matching[0].year
     pool = matching or candidates
     return min(pool, key=lambda c: abs((c - reference).days)).year
+
+
+def _nearest_year(month: int, day: int, reference: "date") -> Optional[int]:
+    """Pick the calendar-nearest year for a date carrying no year and no weekday.
+
+    Weaker than :func:`_resolve_year_by_weekday`, and used only for the ``@``
+    form, which supplies no weekday to check a candidate against. Nearest-to-
+    reference is the honest choice: a schedule string is about the near future
+    or recent past, so the wrong year would have to be six months out to win.
+    """
+    candidates = []
+    for year in (reference.year - 1, reference.year, reference.year + 1):
+        try:
+            candidates.append(date(year, month, day))
+        except ValueError:
+            continue
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: abs((c - reference).days)).year
 
 
 def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
@@ -149,6 +181,24 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
             return None
         day = int(day)
         year = _resolve_year_by_weekday(month, day, weekday, reference)
+        if year is None:
+            return None
+    elif (m := _EVENT_PAREN_TS_RE.search(name)) is not None:
+        year, month, day, hour, minute = m.groups()
+        year, month, day = int(year), int(month), int(day)
+        if year >= _SENTINEL_YEAR:
+            return None          # "always available", not a scheduled start
+    elif (m := _EVENT_AT_RE.search(name)) is not None:
+        month_name, day, hour, minute, meridiem = m.groups()
+        month = _EVENT_MONTHS.get(month_name[:3].lower())
+        if month is None:
+            return None
+        day, hour = int(day), int(hour)
+        if hour == 12:
+            hour = 0
+        if meridiem.lower() == "pm":
+            hour += 12
+        year = _nearest_year(month, day, reference)
         if year is None:
             return None
     else:
