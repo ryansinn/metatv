@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional, Sequence
 
 from loguru import logger
 
@@ -51,6 +51,11 @@ class AcquireResult:
     provider_id: str
     capacity: int              # 0 = unlimited (never exceeded)
     holders: tuple[str, ...]   # holder_ids occupying a slot at decision time
+    #: Holders evicted to make room, when the caller passed ``preempt_kinds``.
+    #: Empty on every grant that needed no eviction, so a caller can tell
+    #: "there was room" from "I took someone's room" — which is the difference
+    #: between saying nothing and telling the user their download paused.
+    preempted: tuple[str, ...] = ()
 
 
 class ConnectionAccountant:
@@ -63,7 +68,8 @@ class ConnectionAccountant:
     not touch while holding the lock).
     """
 
-    def __init__(self, capacity_resolver: Callable[[str], int]) -> None:
+    def __init__(self, capacity_resolver: Callable[[str], int],
+                 on_preempt: "Optional[Callable[[str, str, str], None]]" = None) -> None:
         """Initialize the accountant.
 
         Args:
@@ -72,8 +78,18 @@ class ConnectionAccountant:
                 ``0`` means unlimited (never exceeded). Any exception raised
                 by the resolver is treated as capacity ``1`` — fail safe,
                 never fail open to unlimited on a resolver error.
+            on_preempt: Called with ``(provider_id, holder_id, kind)`` for each
+                holder evicted by a preempting acquire. Injected the same way
+                the resolver is, so this module stays free of Qt and of any
+                knowledge of what a download or a recording actually IS —
+                arbitration lives here, consequences live with the consumer.
+
+                Called OUTSIDE the lock, after the registry is updated, so a
+                consumer may call straight back in (to release a sibling, say)
+                without deadlocking on a non-reentrant lock.
         """
         self._capacity_resolver = capacity_resolver
+        self._on_preempt = on_preempt
         self._holders: dict[str, dict[str, str]] = {}  # provider_id -> {holder_id: kind}
         self._lock = threading.Lock()
 
@@ -122,7 +138,8 @@ class ConnectionAccountant:
 
     # ── Mutating operations ─────────────────────────────────────────────────
 
-    def acquire(self, provider_id: str, kind: str, holder_id: str) -> AcquireResult:
+    def acquire(self, provider_id: str, kind: str, holder_id: str,
+                *, preempt_kinds: "Sequence[str]" = ()) -> AcquireResult:
         """Register *holder_id* as holding a connection slot for *provider_id*.
 
         Idempotent: re-acquiring an already-registered holder_id for the same
@@ -131,26 +148,69 @@ class ConnectionAccountant:
 
         Args:
             provider_id: The provider whose capacity is being consumed.
-            kind: Consumer kind — ``"playback"`` this slice; future consumers
-                (downloads, recordings) register their own kind through this
-                same method.
+            kind: Consumer kind — ``"playback"``, ``"download"``,
+                ``"recording"``. Registered through this one method whatever
+                the consumer is.
             holder_id: Caller-defined identity for the connection (for
                 playback, the mpv instance key).
+            preempt_kinds: Kinds this caller may evict when capacity is full,
+                in priority order of what it is willing to displace. Empty (the
+                default) never evicts anything, so an existing caller is
+                unchanged.
+
+                **The priority axis is recoverability, not foreground.** A
+                download yields because the VOD is still there in an hour; a
+                scheduled recording does not, because the moment is gone. So
+                playback passes ``("download",)`` and never ``("recording",)``
+                — a recording makes the user choose with their eyes open
+                instead of dying silently.
 
         Returns:
-            ``AcquireResult(granted=True, ...)`` with the slot applied, or
-            ``AcquireResult(granted=False, ...)`` (capacity already full —
-            state unchanged) listing the current holders.
+            ``AcquireResult(granted=True, ...)`` with the slot applied — with
+            ``preempted`` naming anyone evicted — or
+            ``AcquireResult(granted=False, ...)`` (capacity full of holders
+            this caller may not evict, state unchanged).
         """
+        evicted: list[tuple[str, str]] = []
         with self._lock:
             current = self._holders.setdefault(provider_id, {})
-            if holder_id in current:
-                return AcquireResult(True, provider_id, self.capacity(provider_id), tuple(current.keys()))
             cap = self.capacity(provider_id)
+            if holder_id in current:
+                return AcquireResult(True, provider_id, cap, tuple(current.keys()))
             if cap > 0 and len(current) >= cap:
-                return AcquireResult(False, provider_id, cap, tuple(current.keys()))
+                # Evict the LEAST recently registered preemptible holder first,
+                # and only as many as are needed — a second download on the same
+                # provider should not be cancelled to admit one playback.
+                needed = len(current) - cap + 1
+                for hid, held_kind in list(current.items()):
+                    if needed <= 0:
+                        break
+                    if held_kind in preempt_kinds:
+                        del current[hid]
+                        evicted.append((hid, held_kind))
+                        needed -= 1
+                if needed > 0:
+                    # Put back anything already taken: a partial eviction that
+                    # still cannot grant would kill a download for nothing.
+                    for hid, held_kind in evicted:
+                        current[hid] = held_kind
+                    return AcquireResult(False, provider_id, cap, tuple(current.keys()))
             current[holder_id] = kind
-            return AcquireResult(True, provider_id, cap, tuple(current.keys()))
+            result = AcquireResult(
+                True, provider_id, cap, tuple(current.keys()),
+                preempted=tuple(hid for hid, _ in evicted),
+            )
+
+        # Outside the lock, deliberately — see __init__.
+        for hid, held_kind in evicted:
+            logger.info("Connection preempted on {}: {} ({}) yielded to {} ({})",
+                        provider_id, hid, held_kind, holder_id, kind)
+            if self._on_preempt is not None:
+                try:
+                    self._on_preempt(provider_id, hid, held_kind)
+                except Exception:
+                    logger.exception("on_preempt callback failed for {}", hid)
+        return result
 
     def release(self, provider_id: str, holder_id: str) -> None:
         """Release *holder_id*'s slot for *provider_id*, if held. No-op otherwise."""
