@@ -23,6 +23,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Set
 
 from loguru import logger
+
+from metatv.core import channel_visibility
+from metatv.core.visibility_resolver import resolve_scope
 from sqlalchemy import or_
 
 from metatv.core.filter_utils import normalize_genre
@@ -138,35 +141,6 @@ def genre_predicate(genre: str):
     )
 
 
-def apply_global_exclusions(query, config):
-    """AND the user's Global Exclusions onto a channel query.
-
-    The SOFT (user-curated) axis — the category blacklist plus the explicit
-    "Block [PREFIX]" codes — and the sibling of the absolute
-    ``excluded_provider_ids`` gate. Shared by every in-overlay adjacency surface
-    so a globally excluded language cannot leak into one of them while the
-    others honour it; that drift is what made Recommendations show excluded
-    content.
-
-    The excluded SET comes from the shared ``filter_utils`` resolvers (single
-    source of truth for the data); the SQL comes from the canonical
-    ``discovery_engine._apply_prefix_filter``. ``config=None`` or a paused
-    Global Filter applies nothing.
-    """
-    if config is None or getattr(config, "global_filter_paused", False):
-        return query
-    from metatv.core.discovery_engine import _apply_prefix_filter
-    from metatv.core.filter_utils import (
-        get_active_category_filter, get_excluded_prefixes,
-    )
-
-    cat_excluded, include_uncategorized = get_active_category_filter(config)
-    excluded_prefixes = set(cat_excluded or []) | get_excluded_prefixes(config)
-    return _apply_prefix_filter(
-        query, list(excluded_prefixes) or None, include_uncategorized
-    )
-
-
 def collapse_best_variant(rows, config=None, limit=None) -> "List[ChannelDB]":
     """Collapse same-production variants, keeping the best copy of each.
 
@@ -238,9 +212,7 @@ def lens_channels(
     if not value:
         return []
 
-    query = session.query(ChannelDB).filter(
-        ChannelDB.is_hidden == False,  # noqa: E712 — per-channel hide gate
-    )
+    query = session.query(ChannelDB)
     if lens == "person":
         query = query.filter(person_predicate(value))
     elif lens == "genre":
@@ -252,10 +224,11 @@ def lens_channels(
         logger.warning("lens_channels: unknown lens '{}'", lens)
         return []
 
-    excluded = list(excluded_provider_ids or [])
-    if excluded:
-        query = query.filter(~ChannelDB.provider_id.in_(excluded))
-    query = apply_global_exclusions(query, config)
+    # Every exclusion axis, through the one predicate — is_hidden and the
+    # provider gate included, which used to be hand-rolled here.
+    query = channel_visibility.apply(
+        query, resolve_scope(session, config,
+                             excluded_provider_ids=excluded_provider_ids or ()))
 
     # Ordering by name keeps the bounded scan window deterministic rather than
     # whatever order the planner happens to return.

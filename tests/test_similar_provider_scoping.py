@@ -249,12 +249,51 @@ class TestConsolidatedChokepoint:
                 f"{label} surface still hand-rolls a candidate query (found ilike)"
             )
 
-    def test_chokepoint_owns_both_visibility_halves(self):
+    def test_chokepoint_owns_visibility_via_the_one_predicate(self):
+        """It must not hand-roll the gates — it must route through them.
+
+        This used to assert the source contained ``is_hidden`` and
+        ``provider_id.in_``, which is how it stayed green while FOUR other axes
+        leaked: hand-rolling two gates correctly says nothing about the four you
+        did not write. The predicate in ``channel_visibility`` owns all six, so
+        the assertion is now that this function delegates to it and hand-rolls
+        nothing — which means a seventh axis added to the scope reaches Similar
+        Titles without anyone editing this function or remembering it exists.
+        """
+        import ast
+        import textwrap
+
         from metatv.core.repositories.channel import ChannelRepository
 
         src = inspect.getsource(ChannelRepository.get_similar_channels)
-        assert "is_hidden" in src, "chokepoint must gate per-channel is_hidden"
-        assert "provider_id.in_" in src, "chokepoint must gate excluded providers"
+        assert "channel_visibility.apply" in src, (
+            "must route through the one visibility predicate")
+        assert "resolve_scope" in src, (
+            "must resolve EVERY axis from config, not a hand-picked subset")
+
+        # AST, not a string search: the docstring and the comments explaining
+        # this rule both legitimately contain the words, and a line-level match
+        # cannot tell prose from code. Look for the ATTRIBUTE being touched.
+        tree = ast.parse(textwrap.dedent(src))
+        touched = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        assert "is_hidden" not in touched, (
+            "hand-rolling is_hidden here is what let the other four axes drift")
+        assert not {"in_", "notin_"} & touched, (
+            "hand-rolling the provider gate here is the same mistake")
+
+    def test_the_per_channel_hide_gate_still_bites(self, tmp_path):
+        """The behaviour behind the assertion above — proven, not inferred."""
+        from metatv.core.database import ChannelDB
+
+        db = _make_db(tmp_path / "hidden.db")
+        with db.session_scope() as session:
+            _seed_axes(session)
+            session.query(ChannelDB).filter(
+                ChannelDB.id == "plain-sim").update({"is_hidden": True})
+        ids = _similar_ids(db, _filter_config())
+        assert "plain-sim" not in ids, "a per-channel hidden row must not surface"
+        assert "kw-sim" in ids, "an unhidden sibling is unaffected"
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +305,14 @@ class TestConsolidatedChokepoint:
 # Global Filter prefix blacklist when a (non-paused) config is supplied.
 
 def _filter_config(*, excluded_categories=None, excluded_prefixes=None,
-                   include_uncategorized=True, paused=False):
-    """A duck-typed Config carrying BOTH the version-score and Global-Filter fields."""
+                   include_uncategorized=True, paused=False,
+                   excluded_content_types=None, excluded_keywords=None,
+                   adult_mode="all"):
+    """A duck-typed Config carrying BOTH the version-score and Global-Filter fields.
+
+    The last three arguments are the axes Similar Titles did not apply. They
+    default to the no-op value so every existing test keeps its meaning.
+    """
     return SimpleNamespace(
         preferred_version_prefixes=[],
         preferred_version_provider_ids=[],
@@ -276,6 +321,9 @@ def _filter_config(*, excluded_categories=None, excluded_prefixes=None,
         global_filter_excluded_categories=list(excluded_categories or []),
         global_filter_excluded_prefixes=list(excluded_prefixes or []),
         global_filter_include_uncategorized=include_uncategorized,
+        global_filter_excluded_tag_content_types=list(excluded_content_types or []),
+        global_excluded_keywords=list(excluded_keywords or []),
+        filter_adult_mode=adult_mode,
     )
 
 
@@ -312,6 +360,100 @@ def _similar_ids(db, config):
             "o", excluded_provider_ids=None, limit=20, config=config,
         )
         return {r.id for r in rows}
+
+
+def _seed_axes(session):
+    """Origin + one plain similar + one adult + one AI-tagged + one keyword match.
+
+    Every row is on an ACTIVE provider and is_hidden=0, so nothing here is
+    caught by the two gates Similar Titles already had — each extra row can only
+    be removed by the axis it is named for.
+    """
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+
+    now = datetime.now()
+    _make_provider(session, "prov-active", is_active=True, exp=now + timedelta(days=30))
+
+    def _ch(cid, name, ck, **kw):
+        session.add(ChannelDB(
+            id=cid, source_id=str(uuid.uuid4()), provider_id="prov-active",
+            name=name, media_type="movie", content_key=ck, is_hidden=False, **kw))
+        session.flush()
+
+    _ch("o", "Twelve Monkeys Origin", "origin|movie")
+    _ch("plain-sim", "Twelve Monkeys Plain", "plain|movie")
+    _ch("adult-sim", "Twelve Monkeys Adult", "adult|movie", is_adult=True)
+    _ch("ai-sim", "Twelve Monkeys Remastered", "ai|movie")
+    _ch("kw-sim", "Twelve Monkeys Trailer", "kw|movie")
+
+    tag = TagDB(type="content_type", value="ai_generated")
+    session.add(tag)
+    session.flush()
+    session.add(ContentTagDB(channel_id="ai-sim", tag_id=tag.id))
+    session.flush()
+
+
+class TestTheAxesSimilarTitlesUsedToSkip:
+    """The four axes that never reached Similar Titles.
+
+    ``apply_global_exclusions`` was written to apply "the exact same blacklist
+    Discover applies" (#180) and applied two of six: it resolved categories and
+    prefixes and silently defaulted content types and keywords to None, and
+    never mentioned the adult gate at all. So 215 adult/restricted rows and 114
+    content-type-tagged rows in the owner's library could surface in Similar
+    Titles, the lightbox lens and "See all in Search" while every other surface
+    hid them.
+
+    Each test below removes exactly one row via exactly one axis, and each was
+    confirmed to FAIL before the fix — which is the point: there was no test for
+    any of them, because there was nothing to test.
+    """
+
+    def test_the_adult_gate_reaches_similar_titles(self, tmp_path):
+        db = _make_db(tmp_path / "ax_adult.db")
+        with db.session_scope() as session:
+            _seed_axes(session)
+        hidden = _similar_ids(db, _filter_config(adult_mode="hide"))
+        assert "plain-sim" in hidden, "an ordinary similar is unaffected"
+        assert "adult-sim" not in hidden, (
+            "an adult title reached Similar Titles while the channel list hid it")
+        shown = _similar_ids(db, _filter_config(adult_mode="all"))
+        assert "adult-sim" in shown, (
+            "adult_mode='all' must still show it — the gate is the setting, "
+            "not an unconditional filter")
+        db.close()
+
+    def test_an_excluded_content_type_reaches_similar_titles(self, tmp_path):
+        db = _make_db(tmp_path / "ax_ct.db")
+        with db.session_scope() as session:
+            _seed_axes(session)
+        ids = _similar_ids(
+            db, _filter_config(excluded_content_types=["ai_generated"]))
+        assert "plain-sim" in ids
+        assert "ai-sim" not in ids, (
+            "a content-type the user excluded must not surface here either")
+        db.close()
+
+    def test_an_excluded_keyword_reaches_similar_titles(self, tmp_path):
+        db = _make_db(tmp_path / "ax_kw.db")
+        with db.session_scope() as session:
+            _seed_axes(session)
+        ids = _similar_ids(db, _filter_config(excluded_keywords=["trailer"]))
+        assert "plain-sim" in ids
+        assert "kw-sim" not in ids, "a Global Exclusions keyword must apply here"
+        db.close()
+
+    def test_the_adult_gate_is_not_paused_by_global_exclusions(self, tmp_path):
+        """Pausing Global Exclusions is "show me my own curation"; it is not a
+        request to unhide adult content, so the two are resolved separately."""
+        db = _make_db(tmp_path / "ax_pause.db")
+        with db.session_scope() as session:
+            _seed_axes(session)
+        ids = _similar_ids(db, _filter_config(adult_mode="hide", paused=True))
+        assert "kw-sim" in ids, "the pause does release the user's own exclusions"
+        assert "adult-sim" not in ids, (
+            "pausing Global Exclusions must not unhide adult content")
+        db.close()
 
 
 class TestGlobalFilterExclusions:

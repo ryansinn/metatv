@@ -25,14 +25,14 @@ def resolve_visibility_scope(repos, config):
     Returns:
         A fully-resolved ``VisibilityScope``.
     """
-    from metatv.core.channel_visibility import VisibilityScope
-    from metatv.core.filter_utils import global_exclusion_sets
+    from metatv.core.visibility_resolver import resolve_scope
 
-    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
-    return VisibilityScope(
+    # Delegates rather than composing the axes itself. It used to build the
+    # scope here from four sets, and quietly omitted the adult gate and the
+    # "Uncategorized" toggle — the same two-of-six shape that let adult content
+    # into Similar Titles. One resolver means an axis added later reaches Sports
+    # and Events without anyone editing this file.
+    return resolve_scope(
+        repos.session, config,
         excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-        excluded_prefixes=set(prefixes or []),
-        excluded_categories=set(categories or []),
-        excluded_content_types=set(content_types or []),
-        excluded_keywords=set(keywords or []),
     )

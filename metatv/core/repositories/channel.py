@@ -16,7 +16,7 @@ from metatv.core.database import (
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
     ContentTagDB, StreamRetryDB,
 )
-from metatv.core import channel_visibility
+from metatv.core import channel_visibility, visibility_resolver
 from metatv.core.channel_name_utils import (
     QUALITY_TIER_RANK,
     quality_tier_rank,
@@ -36,7 +36,7 @@ from metatv.core.repositories.channel_ingestion import (
     _TmdbKeyProxy,
 )
 from metatv.core.repositories.channel_lens import (
-    GENRE_MEDIA_TYPES, apply_global_exclusions, collapse_best_variant,
+    GENRE_MEDIA_TYPES, collapse_best_variant,
     genre_predicate, lens_channels, metadata_person_exists, person_predicate,
 )
 from metatv.core.content_identity import content_key_for
@@ -2270,7 +2270,9 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
           key (its own other-source variants belong in "Other Versions", not here).
 
         Visibility — the absolute gate (DR-0007 active-source scoping):
-        - ``is_hidden == False`` (per-channel hide), **and**
+        - every axis in ``VisibilityScope`` — per-channel hide, hidden
+          providers, prefixes, categories, content-type tags, keywords and the
+          adult gate — applied by the one predicate, **and**
         - ``provider_id NOT IN excluded_provider_ids`` — the inactive ∪ expired ∪
           orphaned providers the caller supplies via
           ``ProviderRepository.get_hidden_provider_ids()``. Content from a
@@ -2313,25 +2315,23 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         if not words:
             return []
 
-        excluded = list(excluded_provider_ids or [])
         q = (
             self.session.query(ChannelDB)
             .filter(
                 ChannelDB.media_type == channel.media_type,
                 ChannelDB.id != channel_id,
-                ChannelDB.is_hidden == False,  # noqa: E712 — per-channel hide gate
                 _channel_text_search_predicate(words[0]),
             )
         )
-        if excluded:
-            # Absolute gate: inactive/expired/orphaned sources never surface here.
-            q = q.filter(~ChannelDB.provider_id.in_(excluded))
-        # Global Filter (Exclusions): the same language/category blacklist Discover
-        # applies, so a globally-excluded language never leaks into any of the three
-        # Similar surfaces.  The excluded set comes from the shared filter_utils
-        # resolvers (single source of truth for the DATA); the SQL is applied with the
-        # canonical _apply_prefix_filter predicate.  config=None or paused → no-op.
-        q = apply_global_exclusions(q, config)
+        # EVERY exclusion axis, through the one predicate. This used to hand-roll
+        # is_hidden and the provider gate and then call a helper that applied two
+        # of the six axes — so 215 adult/restricted rows and 114 content-type
+        # tagged rows could surface in all three Similar surfaces while every
+        # other view hid them. Adding an axis to VisibilityScope now reaches this
+        # query without anyone remembering it exists.
+        q = channel_visibility.apply(q, visibility_resolver.resolve_scope(
+            self.session, config,
+            excluded_provider_ids=excluded_provider_ids or ()))
         candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
 
         threshold = max(1, len(words) // 2)
