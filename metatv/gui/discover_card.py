@@ -90,6 +90,136 @@ class _FlowLayout:
         self._items.clear()
 
 
+class UniformCardGrid:
+    """A virtualized grid for uniformly-sized cards.
+
+    ``_FlowLayout`` above measures each widget to place it, so every card has to
+    EXIST before the layout knows where anything goes — which is why the browse
+    grid built a widget per result and kept it forever. At 84 KB and 0.26 ms per
+    card (measured) a 20,000-result recipe "Show all" is 1.6 GB and 5.2 s, and
+    the O(N) scroll sweep over every card ever created grows with it.
+
+    Every card is ``setFixedSize(card_metrics(zoom))`` — they are all the SAME
+    size. So the position of card *i* is arithmetic, not measurement:
+
+        cols = (width + spacing) // (card_w + spacing)
+        row, col = divmod(i, cols)
+
+    which means the grid can size itself for N cards while materializing only
+    the ones on screen. Memory and per-scroll cost become a function of the
+    VIEWPORT, not the result count — so no cap is needed and none is imposed.
+
+    Widgets outside the window are destroyed and rebuilt on the way back. That
+    is safe because a card holds no state a user can edit; everything it shows
+    comes from its ``ContentCard`` and the shared image cache, and the cache is
+    what makes a rebuild cheap.
+    """
+
+    #: Rows of cards kept alive above and below the viewport. Two screens of
+    #: overscan makes normal scrolling never see a gap, and bounds the live set
+    #: at roughly three viewports' worth regardless of how many results exist.
+    OVERSCAN_ROWS = 2
+
+    def __init__(self, container: "QWidget", *, item_w: int, item_h: int,
+                 spacing: int, factory) -> None:
+        """
+        Args:
+            container: The widget cards are parented to.
+            item_w: Fixed card width in px.
+            item_h: Fixed card height in px.
+            spacing: Gap between cards in px.
+            factory: ``factory(card) -> QWidget``, called when a card scrolls
+                into the window. Called again if it scrolls back.
+        """
+        self._container = container
+        self._item_w = max(1, int(item_w))
+        self._item_h = max(1, int(item_h))
+        self._spacing = int(spacing)
+        self._factory = factory
+        self._cards: list = []
+        self._live: dict[int, "QWidget"] = {}
+        self._width: int = 0
+
+    # -- geometry, from the index alone ---------------------------------- #
+
+    def columns(self, available_width: int) -> int:
+        step = self._item_w + self._spacing
+        return max(1, (int(available_width) + self._spacing) // step)
+
+    def rect_for(self, index: int, available_width: int) -> QRect:
+        cols = self.columns(available_width)
+        row, col = divmod(index, cols)
+        return QRect(col * (self._item_w + self._spacing),
+                     row * (self._item_h + self._spacing),
+                     self._item_w, self._item_h)
+
+    def total_height(self, available_width: int) -> int:
+        if not self._cards:
+            return 0
+        cols = self.columns(available_width)
+        rows = (len(self._cards) + cols - 1) // cols
+        return rows * (self._item_h + self._spacing) - self._spacing
+
+    def visible_range(self, scroll_y: int, viewport_h: int,
+                      available_width: int) -> tuple[int, int]:
+        """The half-open index range to keep alive, overscan included."""
+        if not self._cards:
+            return (0, 0)
+        cols = self.columns(available_width)
+        step = self._item_h + self._spacing
+        first_row = max(0, int(scroll_y) // step - self.OVERSCAN_ROWS)
+        last_row = (int(scroll_y) + max(0, int(viewport_h))) // step + self.OVERSCAN_ROWS
+        return (first_row * cols,
+                min(len(self._cards), (last_row + 1) * cols))
+
+    # -- contents --------------------------------------------------------- #
+
+    def set_cards(self, cards: list) -> None:
+        """Replace every card. Live widgets are destroyed."""
+        self.clear()
+        self._cards = list(cards)
+
+    def append_cards(self, cards: list) -> None:
+        """Add a page without disturbing what is already on screen."""
+        self._cards.extend(cards)
+
+    def count(self) -> int:
+        return len(self._cards)
+
+    def live_widgets(self) -> list:
+        """The materialized widgets, in index order."""
+        return [self._live[i] for i in sorted(self._live)]
+
+    def clear(self) -> None:
+        for w in self._live.values():
+            w.setParent(None)
+            w.deleteLater()
+        self._live.clear()
+        self._cards = []
+
+    # -- the window ------------------------------------------------------- #
+
+    def sync(self, scroll_y: int, viewport_h: int, available_width: int) -> None:
+        """Materialize the window, destroy what left it, position what stays."""
+        self._width = int(available_width)
+        first, last = self.visible_range(scroll_y, viewport_h, available_width)
+        wanted = range(first, last)
+
+        for i in [i for i in self._live if i < first or i >= last]:
+            w = self._live.pop(i)
+            w.setParent(None)
+            w.deleteLater()
+
+        for i in wanted:
+            w = self._live.get(i)
+            if w is None:
+                w = self._factory(self._cards[i])
+                w.setParent(self._container)
+                w.show()
+                self._live[i] = w
+            w.setGeometry(self.rect_for(i, available_width))
+
+
 class _ContentCard(QWidget):
     """Poster card with shimmer, status overlay, and title.
 
