@@ -37,7 +37,8 @@ route them through :func:`set_clickable`.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QEvent, QObject, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QAbstractButton,
     QApplication,
@@ -53,6 +54,18 @@ _EXCLUDED_BUTTON_TYPES: tuple[type, ...] = (QCheckBox, QRadioButton)
 
 #: Dynamic property a custom (non-button) widget can set to opt into the hand.
 CLICKABLE_PROPERTY = "clickable"
+
+#: Dynamic property marking a clickable widget as ALSO keyboard-operable.
+#: Separate from :data:`CLICKABLE_PROPERTY`, and opt-in rather than automatic,
+#: because focusability is not free: every clickable poster, chip and row
+#: becoming a tab stop makes the tab chain unusable. A widget that is the only
+#: way to perform an action — a collapsible section header, a row that toggles —
+#: opts in; a chip that duplicates a menu item does not need to.
+KEYBOARD_PROPERTY = "keyboard_activatable"
+
+#: Keys that activate a keyboard-operable clickable, matching what a QPushButton
+#: answers to, so a hand-rolled row behaves like the button it is standing in for.
+_ACTIVATION_KEYS = (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter)
 
 
 def _is_clickable(widget: QWidget) -> bool:
@@ -86,10 +99,37 @@ class PointingHandFilter(QObject):
                     # A control that was enabled when first hovered (cursor set)
                     # may later be disabled; clear so it doesn't keep the hand.
                     obj.unsetCursor()
-        return False  # never swallow the event
+            return False  # never swallow the event
+
+        # Space/Enter on a focused keyboard-operable clickable acts as a click.
+        # Synthesised as a real press+release rather than calling a handler, so
+        # whatever the widget already implements — mousePressEvent,
+        # mouseReleaseEvent, a signal emitted from either — runs unchanged. A
+        # host opts in once with set_clickable(w, keyboard=True) and needs no
+        # key handling of its own.
+        if (event.type() == QEvent.Type.KeyPress
+                and isinstance(obj, QWidget)
+                and obj.isEnabled()
+                and bool(obj.property(KEYBOARD_PROPERTY))
+                and event.key() in _ACTIVATION_KEYS):
+            _synthesise_click(obj)
+            return True  # consumed: Space must not also scroll the container
+        return False  # never swallow anything else
 
 
-def set_clickable(widget: QWidget, clickable: bool = True) -> None:
+def _synthesise_click(widget: QWidget) -> None:
+    """Deliver a left press+release at the centre of *widget*."""
+    centre = QPointF(widget.rect().center())
+    for kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        QApplication.sendEvent(widget, QMouseEvent(
+            kind, centre, widget.mapToGlobal(centre),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        ))
+
+
+def set_clickable(widget: QWidget, clickable: bool = True, *,
+                  keyboard: bool = False) -> None:
     """Opt a non-button widget into (or out of) the pointing-hand affordance.
 
     Sets the ``clickable`` dynamic property the installed filter checks on
@@ -110,8 +150,16 @@ def set_clickable(widget: QWidget, clickable: bool = True) -> None:
         clickable: Whether *widget* is currently clickable. Defaults to
             ``True`` for the common "always clickable" case; pass a live
             boolean for widgets whose clickability toggles at runtime.
+        keyboard: Also make *widget* focusable and operable with Space/Enter.
+            Pass this when the widget is the ONLY way to perform its action —
+            a section header that collapses, a row that toggles. Off by
+            default because focusability is not free: every clickable chip and
+            poster becoming a tab stop makes the tab chain unusable.
     """
     widget.setProperty(CLICKABLE_PROPERTY, clickable)
+    widget.setProperty(KEYBOARD_PROPERTY, bool(clickable and keyboard))
+    if clickable and keyboard:
+        widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     if clickable and widget.isEnabled():
         widget.setCursor(Qt.CursorShape.PointingHandCursor)
     else:

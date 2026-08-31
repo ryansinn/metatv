@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from metatv.gui.details_versions import _FlowLayout
+from metatv.gui.flow_layout import FlowLayout as _FlowLayout
 from metatv.gui.flow_layout import FlowLayout
 
 

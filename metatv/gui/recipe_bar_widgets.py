@@ -35,7 +35,7 @@ from metatv.gui.recipe_widgets import (
     _facet_color,
     _facet_role,
 )
-from metatv.gui.weighted_tag_cloud import _FlowLayout
+from metatv.gui.flow_layout import FlowContainer
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -122,7 +122,7 @@ class _RecipeTabBar(QWidget):
 class _IngredientFlow(QWidget):
     """Wrapping row of ingredient pills for the recipe bar.
 
-    Reuses the shared ``_FlowLayout`` primitive so chips wrap to a second line
+    Reuses the shared ``FlowContainer`` primitive so chips wrap to a second line
     only when the bar overflows.  Each pill is facet-colored (composed from theme
     tokens via :func:`_facet_chip_style`); clicking a pill removes that
     ingredient (``remove_clicked(facet_type, value)``).
@@ -132,7 +132,7 @@ class _IngredientFlow(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._flow = _FlowLayout(self, h_spacing=7, v_spacing=6)
+        self._flow = FlowContainer(self, spacing=7, v_spacing=6)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
     def set_ingredients(self, ingredients: list[tuple[str, str, bool]]) -> None:

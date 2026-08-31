@@ -19,7 +19,8 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
-from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
+from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
+from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.metadata_providers.base import MetadataResult
@@ -904,7 +905,7 @@ class _MetadataSection(QWidget):
         self._badge_row_w.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
-        badge_row = _FlowLayout(self._badge_row_w, h_spacing=6, v_spacing=4)
+        badge_row = FlowLayout(self._badge_row_w, h_spacing=6, v_spacing=4)
 
         self._prefix_chip = QPushButton()
         self._prefix_chip.setFlat(True)
@@ -946,14 +947,14 @@ class _MetadataSection(QWidget):
         # its children's widths into a wide minimumSizeHint that pushes the whole
         # _MetadataSection past the ~500px details viewport (which has the horizontal
         # scrollbar off), so the genre flow below was handed a too-wide rectangle and
-        # the genres ran off the edge instead of wrapping.  A _FlowLayout's minimum
+        # the genres ran off the edge instead of wrapping.  A FlowLayout's minimum
         # width is its widest single chip, so the section stays within the viewport and
         # the badges + genres wrap on their own.
         self._media_row = QWidget()
         self._media_row.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
-        media_row_layout = _FlowLayout(self._media_row, h_spacing=8, v_spacing=4)
+        media_row_layout = FlowLayout(self._media_row, h_spacing=8, v_spacing=4)
 
         self.runtime_label = QLabel()
         _theme.style(self.runtime_label, "META_DIM")
@@ -1001,7 +1002,7 @@ class _MetadataSection(QWidget):
         self._genres_container.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
-        self._genres_layout = _FlowLayout(self._genres_container, h_spacing=4, v_spacing=4)
+        self._genres_layout = FlowLayout(self._genres_container, h_spacing=4, v_spacing=4)
         self._genres_container.hide()
         layout.addWidget(self._genres_container)
 
@@ -1725,14 +1726,14 @@ class _TagsSection(CollapsibleMixin, QWidget):
         _theme.style(lbl, "TAG_FACET_LABEL")
         self._content_layout.addWidget(lbl)
 
-        # Chip row — a wrapping _FlowLayout, NEVER a QHBoxLayout.  A facet with many
+        # Chip row — a wrapping FlowLayout, NEVER a QHBoxLayout.  A facet with many
         # chips (a long GENRE or LANGUAGE list) must wrap onto additional rows at the
         # panel width; a non-wrapping QHBoxLayout instead crushes every chip below its
         # text width (center-elided "tion & Adver", "Animatio") to fit one row.  A flow
         # packs left-to-right and left-aligns on its own, so no trailing stretch.
         row = QWidget()
         row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        row_layout = _FlowLayout(row, h_spacing=4, v_spacing=4)
+        row_layout = FlowLayout(row, h_spacing=4, v_spacing=4)
 
         for tag in tags:
             chip = self._make_chip(tag)

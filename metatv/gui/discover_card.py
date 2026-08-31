@@ -56,44 +56,10 @@ def card_metrics(zoom: float) -> CardMetrics:
     )
 
 
-class _FlowLayout:
-    """Simple flow-layout helper — arranges widgets left-to-right, wrapping."""
-
-    def __init__(self, container: QWidget, spacing: int = 8) -> None:
-        self._container = container
-        self._items: list[QWidget] = []
-        self._spacing = spacing
-
-    def add(self, widget: QWidget) -> None:
-        widget.setParent(self._container)
-        self._items.append(widget)
-
-    def relayout(self, available_width: int) -> int:
-        """Position all items within available_width. Returns total height."""
-        x, y, row_h = 0, 0, 0
-        sp = self._spacing
-        for w in self._items:
-            ww = w.sizeHint().width()
-            wh = w.sizeHint().height()
-            if x + ww > available_width and x > 0:
-                x = 0
-                y += row_h + sp
-                row_h = 0
-            w.setGeometry(QRect(x, y, ww, wh))
-            x += ww + sp
-            row_h = max(row_h, wh)
-        return y + row_h if self._items else 0
-
-    def clear(self) -> None:
-        for w in self._items:
-            w.deleteLater()
-        self._items.clear()
-
-
 class UniformCardGrid:
     """A virtualized grid for uniformly-sized cards.
 
-    ``_FlowLayout`` above measures each widget to place it, so every card has to
+    A measuring flow layout sizes each widget to place it, so every card has to
     EXIST before the layout knows where anything goes — which is why the browse
     grid built a widget per result and kept it forever. At 84 KB and 0.26 ms per
     card (measured) a 20,000-result recipe "Show all" is 1.6 GB and 5.2 s, and
