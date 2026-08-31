@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
 from PyQt6.QtCore import Qt, QSize, QTimer
+from metatv.core import watchlist
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
 from metatv.gui.relative_time import humanize_remaining, humanize_until
@@ -75,7 +76,7 @@ class EpgGroupMixin:
                 "alert can match until it is refreshed. It refreshes on its "
                 "own schedule; Settings → EPG can force it sooner.",
             )
-        count = len(self.config.epg_watchlist_patterns or ())
+        count = watchlist.count(self.config)
         return (
             _icons.info_icon,
             f"Nothing airing from {count} alerts",
@@ -239,7 +240,7 @@ class EpgGroupMixin:
         def _empty(reason: str) -> dict:
             return {"live_groups": {}, "upcoming_only": {}, "empty_reason": reason}
 
-        patterns = self.config.epg_watchlist_patterns
+        patterns = watchlist.patterns(self.config)
         if not patterns:
             return _empty(self.EPG_EMPTY_NO_PATTERNS)
 
@@ -429,7 +430,7 @@ class EpgGroupMixin:
             # through to the notice — but never one that reads "Nothing airing
             # from 0 alerts", so an unconfigured watchlist stays silent whatever
             # the payload says.
-            if not self.config.epg_watchlist_patterns:
+            if not watchlist.count(self.config):
                 reason = self.EPG_EMPTY_NO_PATTERNS
             if reason in self.EPG_EMPTY_SILENT:
                 self._hide_epg_subsection()

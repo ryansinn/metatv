@@ -14,6 +14,7 @@ from PyQt6.QtGui import QAction, QKeySequence
 from loguru import logger
 from concurrent.futures import ThreadPoolExecutor
 
+from metatv.core import watchlist
 from metatv.core.build_info import window_title
 from metatv.core.config import Config
 from metatv.core.update_checker import UpdateChecker
@@ -306,6 +307,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Initialize database
         self.db = Database(config.database_url)
         self.db.create_tables()
+        # Watch list -> database. Bound once here; see core/watchlist.py.
+        watchlist.bind(self.db)
+        watchlist.migrate_from_config(config)
         
         # Initialize metadata system
         self.image_cache = ImageCache(
@@ -1735,11 +1739,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             text=channel_name,
         )
         if ok and text.strip():
-            patterns = list(self.config.epg_watchlist_patterns)
-            if text.strip() not in patterns:
-                patterns.append(text.strip())
-                self.config.epg_watchlist_patterns = patterns
-                self.config.save()
+            watchlist.add(self.config, text)
             self._refresh_watch_alerts()
 
     def on_diagnose_clicked(self) -> None:

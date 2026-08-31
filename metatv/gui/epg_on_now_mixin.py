@@ -54,6 +54,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core import watchlist
 from metatv.core.channel_name_utils import (
     REGION_FULL_NAMES, classify_channel_content_type, quality_display, quality_tooltip,
 )
@@ -388,7 +389,7 @@ class _EpgOnNowMixin:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.blockSignals(True)
         self.on_now_list.clear()
-        patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
+        patterns = watchlist.lowered(self.config)
         epg_hidden, global_excluded = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}

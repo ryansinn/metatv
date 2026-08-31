@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from metatv.core import watchlist
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.gui.content_view import ContentView
 from metatv.gui.details_versions import resolve_category_name
@@ -491,7 +492,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._scrubber_reset_to_now = True
 
         # Default to On Now (tab 3); stay on a watchlist tab only if patterns already exist
-        if self.tab_bar.currentIndex() in (0, 1, 2) and not self.config.epg_watchlist_patterns:
+        if self.tab_bar.currentIndex() in (0, 1, 2) and not watchlist.count(self.config):
             self.tab_bar.blockSignals(True)
             self.tab_bar.setCurrentIndex(3)
             self.tab_bar.blockSignals(False)

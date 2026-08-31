@@ -63,6 +63,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core import watchlist
 from metatv.core.channel_name_utils import quality_tier_rank
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.epg_utils import (
@@ -202,7 +203,7 @@ class _EpgWatchlistMixin:
     # ── Reload + background fetch ──────────────────────────────────────
 
     def _reload_watchlist(self) -> None:
-        patterns = self.config.epg_watchlist_patterns
+        patterns = list(watchlist.patterns(self.config))
         provider_ids = self._filtered_provider_ids()
         self._show_watchlist_loading()
         self._executor.submit(self._fetch_watchlist, patterns, provider_ids)
@@ -386,7 +387,7 @@ class _EpgWatchlistMixin:
         wl_outer.setContentsMargins(0, 4, 0, 8)
         wl_outer.setSpacing(0)
 
-        patterns = self.config.epg_watchlist_patterns
+        patterns = watchlist.patterns(self.config)
 
         if not patterns:
             empty = QLabel("No watchlist items yet.\nAdd a show or keyword above to get started.")
@@ -987,7 +988,7 @@ class _EpgWatchlistMixin:
         """
         from metatv.core.repositories import RepositoryFactory
 
-        patterns = self.config.epg_watchlist_patterns
+        patterns = list(watchlist.patterns(self.config))
         provider_ids = self._filtered_provider_ids()
 
         try:
@@ -1021,24 +1022,18 @@ class _EpgWatchlistMixin:
 
     def _on_add_pattern(self) -> None:
         pattern = self.add_pattern_input.text().strip()
-        if pattern and pattern not in self.config.epg_watchlist_patterns:
-            self.config.epg_watchlist_patterns.append(pattern)
-            self.config.save()
+        if watchlist.add(self.config, pattern):
             self.watchlist_changed.emit()
         self.add_pattern_input.clear()
         self._reload_watchlist()
 
     def _add_pattern(self, pattern: str) -> None:
-        if pattern and pattern not in self.config.epg_watchlist_patterns:
-            self.config.epg_watchlist_patterns.append(pattern)
-            self.config.save()
+        if watchlist.add(self.config, pattern):
             self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _remove_pattern(self, pattern: str) -> None:
-        if pattern in self.config.epg_watchlist_patterns:
-            self.config.epg_watchlist_patterns.remove(pattern)
-            self.config.save()
+        if watchlist.remove(self.config, pattern):
             self.watchlist_changed.emit()
             self._reload_watchlist()
 

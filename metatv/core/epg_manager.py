@@ -10,6 +10,7 @@ from typing import Callable
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
 
+from metatv.core import watchlist
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_matching import build_match_map
@@ -1180,7 +1181,7 @@ class EpgManager(QObject):
 
     def _check_watchlist_notifications(self) -> None:
         """Called every 60s. Toast for any watchlist show starting soon."""
-        patterns = self.config.epg_watchlist_patterns
+        patterns = watchlist.patterns(self.config)
         if not patterns or not self.notifications:
             return
 

@@ -55,6 +55,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core import watchlist
 from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.gui import icons as _icons
@@ -774,7 +775,7 @@ class _EpgBrowseMixin:
             self._browse_programs = list(programs)
         else:
             self._browse_programs = list(getattr(self, "_browse_programs", None) or []) + list(programs)
-        patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
+        patterns = watchlist.lowered(self.config)
 
         # Q3: day separators show ONLY in the default Time-ascending sort — every
         # other column/order stays flat (see _on_browse_sort_changed / _browse_time_ascending).
