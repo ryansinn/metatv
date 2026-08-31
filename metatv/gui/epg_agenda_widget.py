@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 from loguru import logger
 
+from metatv.core import watchlist
 from metatv.core.database import Database
 from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
 from metatv.core.repositories.epg import EpgRepository
@@ -182,8 +183,7 @@ class EpgAgendaWidget(QWidget):
         h.addWidget(dur_lbl)
 
         if self._config is not None:
-            patterns = self._config.epg_watchlist_patterns or []
-            in_wl = prog.title in patterns
+            in_wl = watchlist.contains(self._config, prog.title)
             bell_btn = QPushButton(_icons.watchlist_on_icon if in_wl else _icons.watchlist_off_icon)
             bell_btn.setFixedWidth(26)
             bell_btn.setCheckable(True)
@@ -200,13 +200,10 @@ class EpgAgendaWidget(QWidget):
     def _toggle_watchlist(self, title: str, add: bool, btn: QPushButton) -> None:
         if self._config is None:
             return
-        patterns = list(self._config.epg_watchlist_patterns or [])
-        if add and title not in patterns:
-            patterns.append(title)
-        elif not add and title in patterns:
-            patterns.remove(title)
-        self._config.epg_watchlist_patterns = patterns
-        self._config.save()
+        if add:
+            watchlist.add(self._config, title)
+        else:
+            watchlist.remove(self._config, title)
         btn.setText(_icons.watchlist_on_icon if add else _icons.watchlist_off_icon)
         btn.setToolTip("Remove from watchlist" if add else "Add to watchlist")
 

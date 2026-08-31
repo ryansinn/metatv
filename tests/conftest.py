@@ -1789,3 +1789,24 @@ def wire_details_action_buttons(poster, action_bar) -> None:
         clear_epg_link=action_bar.clear_epg_link_button,
         hide=action_bar.hide_button,
     )
+
+
+@pytest.fixture(autouse=True)
+def _unbind_watchlist_store():
+    """Detach the watch list from any database between tests.
+
+    ``metatv.core.watchlist`` holds its ``Database`` in a MODULE-level binding,
+    set once by ``MainWindow.__init__``. That is deliberate — the twenty-four
+    call sites hold a ``Config`` and not all can reach a ``Database`` — but it
+    means one test constructing a MainWindow leaves every LATER test reading
+    that (empty) database instead of the config list it just populated.
+
+    Found exactly that way: eight tests across two files passed alone and failed
+    in a batch. Unbinding per test is the price of the binding, and it belongs
+    here rather than repeated in every file that builds a window.
+    """
+    from metatv.core import watchlist
+
+    watchlist.unbind()
+    yield
+    watchlist.unbind()

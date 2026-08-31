@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
+from metatv.core import watchlist
 from metatv.core.database import Database
 from metatv.core.models import MediaType
 from metatv.gui.epg_agenda_widget import EpgAgendaWidget
@@ -664,19 +665,14 @@ class DetailsPaneWidget(QWidget):
     # ------------------------------------------------------------------ #
 
     def _on_epg_title_changed(self, title: str) -> None:
-        self._action_bar.update_epg_title(title, self.config.epg_watchlist_patterns or [])
+        self._action_bar.update_epg_title(title, list(watchlist.patterns(self.config)))
 
     def _on_watchlist(self) -> None:
         title = self._action_bar._current_epg_title
         if not title:
             return
-        patterns = list(self.config.epg_watchlist_patterns or [])
-        if title in patterns:
-            patterns.remove(title)
-        else:
-            patterns.append(title)
-        self.config.epg_watchlist_patterns = patterns
-        self.config.save()
+        if not watchlist.remove(self.config, title):
+            watchlist.add(self.config, title)
         self._action_bar.update_epg_title(title, patterns)
 
     # ------------------------------------------------------------------ #

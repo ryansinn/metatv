@@ -21,6 +21,20 @@ What's left to build. Completed features live in git history.
 - [~] **EPG settings UI** — per-provider EPG enable/disable, XMLTV URL override, refresh-interval throttle dropdown, and guide-freshness display are now in the source editor (#14). Global default refresh interval dropdown added to Settings dialog. **Notification minutes-before and the global auto-refresh toggle SHIPPED v0.18.0 (#207).** Remaining config-file-only: filler-match patterns.
 - [~] **Watchlist persistence** — watchlist entries are **config-persisted** and already survive restarts (this line's "memory-only" premise was stale). Remaining: move them to the database proper, which is what multi-device sync (future) would need.
 
+  **DONE 2026-08-31.** The list lives in `alert_patterns` behind one seam,
+  `metatv/core/watchlist.py`. The config key is left in place as a plain-text
+  backup and nothing reads it.
+
+  **What the move did NOT settle: the rule SCHEMA.** `AlertPatternDB` holds a
+  term (`pattern_value`), a scope (`applies_to`) and an on/off — it has no
+  columns for **whole-word**, an **exclude list**, or **search-description**,
+  which the settled Catch/Keep/Record rule needs. That gap is additive, so
+  adopting the table was still right, but the rule slice owes a column
+  migration; it is not free.
+
+  Also still owed: `epg_watchlist_channels` (2 pinned channel ids) is a
+  separate list and was deliberately not moved with the patterns.
+
   **APPROVED 2026-08-31 (owner): do the move.** Filter presets follow the same track, and a
   plain-text export comes with it (both below). Owner's reasoning: *"much better to keep it
   in the db than lose it in the text config."*
