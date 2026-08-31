@@ -622,6 +622,12 @@ class ChannelIngestionMixin:
                 _meta[1] if _meta and _meta[0] == "collection" and _meta[1] else None
             )
 
+            # Episode identity out of the name. Stored so a render never
+            # re-parses (compute-once), and so the marker leaves detected_title
+            # — which is what lets content_key collapse 414 Konusanlar rows.
+            new_season = parsed.season or None
+            new_episode = parsed.episode or None
+
             changed = (
                 prefix != channel.detected_prefix
                 or quality != channel.detected_quality
@@ -638,6 +644,8 @@ class ChannelIngestionMixin:
                 or new_collection_language != channel.detected_collection_language
                 or new_collection_subdub != channel.detected_collection_subdub
                 or new_name_cast != channel.detected_name_cast
+                or new_season != channel.detected_season
+                or new_episode != channel.detected_episode
             )
             if changed:
                 channel.detected_prefix = prefix
@@ -655,6 +663,8 @@ class ChannelIngestionMixin:
                 channel.detected_collection_subdub = new_collection_subdub
                 channel.detected_name_cast = new_name_cast
                 channel.detected_name_collection = new_name_collection
+                channel.detected_season = new_season
+                channel.detected_episode = new_episode
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 

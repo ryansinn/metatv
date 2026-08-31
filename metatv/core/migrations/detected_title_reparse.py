@@ -125,7 +125,18 @@ if TYPE_CHECKING:
 #       Verified against all 467,373 distinct names: 484 parse differently, 481
 #       of those a title change, and the 1,138 assertions in the 48 existing
 #       test files that touch the parser all held.
-CURRENT_VERSION: int = 11
+#
+# v12 — Episode markers. 960 rows are 48 series whose provider filed every
+#       episode as a separate movie, and the "S01E57" in the name is what made
+#       them look distinct: 414 Konusanlar rows, 62 Sihirli Annem, 56 Leyla ile
+#       Mecnun. The marker now lifts out into stored detected_season /
+#       detected_episode, so detected_title is the SHOW and content_key — which
+#       is derived from it — collapses 960 rows into 48 cards.
+#       Only the SxxExx form. "1x05" was measured across the library and matched
+#       14 rows, ALL real film titles ("10x10 (2018)", "8x10 Tasveer", "12x12");
+#       "Season N Episode N" matched nothing. Verified: 0 of the other 784,203
+#       names gain a season or episode.
+CURRENT_VERSION: int = 12
 
 
 class DetectedTitleReparseTask:
