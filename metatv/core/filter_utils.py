@@ -527,6 +527,67 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
 # the keyword list every one of those callers reads from ``Config``.
 
 
+def resolve_scope(session, config, *, excluded_provider_ids=(),
+                  include_hidden: bool = False):
+    """EVERY exclusion axis, resolved from Config in ONE place.
+
+    ``global_exclusion_sets`` above resolves four of them and was already the
+    single source of truth for those. This resolves all six, because four was
+    the number that kept leaking: a surface would compose the axes it happened
+    to know about, and the ones added later never reached it.
+
+    That is not hypothetical. ``channel_lens.apply_global_exclusions`` was
+    written for Similar Titles to apply "the exact same blacklist Discover
+    applies" (#180) — true for the two axes Discover's helper had *on the day it
+    was copied*. ``excluded_content_types`` already existed and was not wired
+    in; ``excluded_keywords`` arrived later and was never back-filled; and the
+    adult gate was never there at all, so 215 adult/restricted rows and 114
+    content-type-tagged rows could surface in Similar Titles, the lightbox lens
+    and "See all in Search" while every other surface hid them. Recommendations
+    had the identical hole and was fixed separately (#387). Two independent
+    rediscoveries of one missing chokepoint is the argument for this function.
+
+    **The adult gate is not paused-aware, and the Global Exclusions are.**
+    Pausing Global Exclusions is a "show me what I'm filtering out" gesture
+    aimed at the user's own curation; it is not a request to unhide adult
+    content, which is why ``global_exclusion_sets`` is consulted through the
+    pause and ``filter_adult_mode`` is read straight from Config.
+
+    Args:
+        session: A live session — needed only for the ``force_adult``
+            provider lookup (``build_adult_filter``).
+        config: Live ``Config``.
+        excluded_provider_ids: The hidden-provider gate, already resolved by
+            the caller (``ProviderRepository.get_hidden_provider_ids()``), since
+            not every caller has a repository factory to hand.
+        include_hidden: Pass True for a surface that deliberately shows
+            per-channel-hidden rows (the hidden-content recovery view).
+
+    Returns:
+        A fully-resolved ``VisibilityScope``.
+    """
+    from metatv.core.channel_visibility import VisibilityScope
+    from metatv.core.discovery_engine import build_adult_filter
+
+    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
+    adult_mode, force_adult_ids = build_adult_filter(session, config)
+    # The "Uncategorized" footer toggle rides WITH the prefix axis — it decides
+    # whether an untagged channel passes the prefix exclusion, so resolving one
+    # without the other silently changes what the exclusion means.
+    _, include_uncategorized = get_active_category_filter(config)
+    return VisibilityScope(
+        excluded_provider_ids=list(excluded_provider_ids or []),
+        include_hidden=include_hidden,
+        include_uncategorized=include_uncategorized,
+        excluded_prefixes=set(prefixes or []),
+        excluded_categories=set(categories or []),
+        excluded_content_types=set(content_types or []),
+        excluded_keywords=set(keywords or []),
+        adult_mode=adult_mode,
+        force_adult_provider_ids=force_adult_ids or [],
+    )
+
+
 def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[str]]":
     """Resolve the user's Global Exclusions as four plain sets.
 
