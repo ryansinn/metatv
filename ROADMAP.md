@@ -21,6 +21,10 @@ What's left to build. Completed features live in git history.
 - [~] **EPG settings UI** — per-provider EPG enable/disable, XMLTV URL override, refresh-interval throttle dropdown, and guide-freshness display are now in the source editor (#14). Global default refresh interval dropdown added to Settings dialog. **Notification minutes-before and the global auto-refresh toggle SHIPPED v0.18.0 (#207).** Remaining config-file-only: filler-match patterns.
 - [~] **Watchlist persistence** — watchlist entries are **config-persisted** and already survive restarts (this line's "memory-only" premise was stale). Remaining: move them to the database proper, which is what multi-device sync (future) would need.
 
+  **APPROVED 2026-08-31 (owner): do the move.** Filter presets follow the same track, and a
+  plain-text export comes with it (both below). Owner's reasoning: *"much better to keep it
+  in the db than lose it in the text config."*
+
   **Scoped 2026-08-31 — the destination table already exists and has never been used.** `AlertPatternDB` (`alert_patterns`) and `AlertMatchDB` (`alert_matches`) are built, indexed, and carry a RICHER schema than the config list (`pattern_type`, `applies_to`, `is_enabled`, `last_checked`). Measured on the owner's database: **0 rows in each**, while the real watchlist is **6 plain strings** in `config.epg_watchlist_patterns` plus 2 pinned ids in `epg_watchlist_channels`.
 
   `core/alerts.py` (`AlertPattern`, `AlertScanner`) has **zero importers**, and `RepositoryFactory.alerts` is registered but **never called** — the whole DB alert stack is orphaned scaffolding. The live Watch Alerts UI is `gui/sidebar/alerts*.py`, which reads config. So this is not "converge two stores": it is *populate the store nobody ever wired*.
@@ -28,6 +32,49 @@ What's left to build. Completed features live in git history.
   **The same shape as the Sports-view freeze** — a working capability that was never packaged, sitting beside the one actually in use. Check whether the orphaned stack is the right destination before adopting it; a schema with no users has never been pressure-tested.
 
   Work: a migration defaulting the 6 strings to `pattern_type="keyword"`, `applies_to="all"`, `is_enabled=True` (**user data is sacrosanct** — these are the owner's real alerts), then repoint the **10 GUI modules** that read `epg_watchlist_patterns` at a repository. The read fan-out, not the migration, is the size of this slice.
+
+- [ ] **Filter presets — saved, named filter sets, stored in the database** — *(owner, 2026-08-31)*.
+  Save the current lane + every active facet chip + sort under a name; copy-then-rename is the
+  primary authoring path, not "New". Presets sit as a chip row above the facet strip; selecting one
+  updates the strip below so a preset is never a black box. Q8's "restore filter state" becomes
+  "restore the active preset, else the unsaved working set".
+
+  **The table already exists and has never been used.** `FilterDB` (`filters`) carries `name`,
+  `rules` (JSON), `order`, `is_enabled`, `provider_id`, `description` — exactly a preset — and
+  `FilterRepository` is complete CRUD (`get_all(provider_id, enabled_only)`, `create`, `update`,
+  `delete`). Measured: **0 rows, 0 callers**; `RepositoryFactory.filters` is registered and nothing
+  reaches for it, while live filter state sits in ~15 scattered `config.yaml` fields.
+
+  **Caveat:** a schema with no users has never been pressure-tested. Adopt it deliberately — check
+  `rules` JSON can express the whole resolved query before committing to it — don't inherit it.
+
+  **Known limit:** a preset that pins a *team* cannot work until team names parse. Until then a
+  preset holds sport, league, country, platform, quality and time. Ship anyway; it gets better free.
+
+- [ ] **Export user state and config to plain text, for diagnostics and analysis** —
+  *(owner, 2026-08-31)*. Moving the watchlist and presets into the database costs the one thing the
+  YAML file was genuinely good at: you could open it, read it, and diff it. This buys that back
+  deliberately instead of losing it silently.
+
+  Scope: a single command/menu action writing every user-owned row — watchlist patterns, presets,
+  favourites, ratings, queue, hidden, provider list minus credentials — to readable text. It is
+  also the honest answer to *"what if the database is the thing that breaks"*: the export is the
+  backup that a YAML file was serving as by accident. **Never include credentials** (the log
+  scrubber already exists for that reason — #496).
+
+- [ ] **Live event status and scores from a sports data API** — *(owner, 2026-08-31)*. Replace the
+  estimated progress bar with real state — "3rd Quarter · 4:12" — and expose scores on demand.
+
+  **It buys three things at once:** real status; a trustworthy replacement for the provider's
+  `LIVE |` token (wrong on 99% of rows — see below); and **team badges**, the only route to the
+  logos the IPTV feed does not carry (all 510 PPV rows share one image; the 22 live-event logos are
+  broadcasters, not teams).
+
+  **Scores are spoilers — hidden by default**, revealed per row on demand, never in a notification.
+  Someone recording tonight's game must not learn the result from their own guide.
+
+  **Blocked on the parser** (nothing to look up until titles resolve to an event) and it must stay
+  *enrichment, never a dependency* — the app's thesis is that it is good on raw data.
 - [x] **Watchlist match prioritization** — **SHIPPED, and this line claimed otherwise for weeks.** `_watchlist_rank_key` (`gui/epg_watchlist_mixin.py:507`) sorts by quality → previously-watched → name at both call sites; "Show all in Search" is built (`epg_watchlist_mixin.py:567`, wired through `main_window.py:2093`); hide/demote is built. Covered by `tests/test_epg_watchlist_ranking.py`. Verified 2026-08-31 — the inverse of the usual roadmap drift, and just as misleading: it sends the next session to rebuild something that exists.
 - [ ] **EPG → Watchlist tab needs a pass — play buttons first** — *(owner, 2026-08-26; deferred, "maybe later")*. The Watchlist tab predates the V3 row grammar and still uses the old static play affordance, but it turns out to be doing real work by accident and **that behaviour must survive whatever replaces it**.
 
@@ -243,6 +290,23 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 ## Code Health / Refactor
 
 ### Sports/PPV event titles are not parsed at all (owner report, 2026-08-31)
+
+**APPROVED 2026-08-31 — build it.** Deferred once ("don't get distracted by it now"), then
+un-deferred by the owner the same day once the cost became visible: *"sports titles should be
+parsed if you aren't already doing that."*
+
+**It is the sole blocker on FOUR separate features**, which is the argument for doing it ahead of
+its apparent size:
+
+| blocked feature | why it needs the parser |
+|---|---|
+| Team/league logos | a badge needs a team NAME; only 12.8% of sports rows have one today |
+| The Team facet (Q9) | the cascade's third level has nothing to populate it |
+| Trustworthy LIVE state (Q19) | the provider's token is wrong on 99% of rows; the only cross-check is the start time inside the title |
+| Live status + scores (Q24) | nothing to look up against an API without an event identity |
+
+Do the **date/time and region** fields first even if team extraction lags — `event_start_time`
+alone fixes the Events countdown and Q19, and it is the least ambiguous part of the string.
 
 **NOT a rendering bug — an ingestion gap.** The Sports view shows raw provider
 strings because `detected_title` *is* the raw string for this whole family:
