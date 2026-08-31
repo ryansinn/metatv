@@ -104,6 +104,11 @@ GENRE_ROLE = Qt.ItemDataRole.UserRole + 26                # detected_genre or ""
 # before the column existed and not yet re-swept.
 GENRES_ROLE = Qt.ItemDataRole.UserRole + 27               # tuple[str, ...] (possibly empty)
 
+#: Sport and league — same model, same delegate as every other row, because the
+#: Sports view IS the channel list with a filter on it. Empty on non-sports rows.
+SPORT_ROLE = Qt.ItemDataRole.UserRole + 29
+LEAGUE_ROLE = Qt.ItemDataRole.UserRole + 30
+
 #: Normalised media kind — "live" / "movie" / "series" / "" — read straight off
 #: the stored ``media_type``. The V3 row treats kind as STRUCTURAL (it picks the
 #: kind mark, the artwork aspect, and the first word of the meta line), and a
@@ -185,6 +190,8 @@ class ChannelListModel(QAbstractListModel):
         # set_channels (read of config.get_unviewed_vod_match_ids); updated in place by
         # update_new_match_ids() when a match is cleared/found so the green flips live.
         self._new_match_ids: set[str] = set()
+        # Unrated row's tooltip falls back to the raw name? See ToolTipRole.
+        self._raw_name_tooltip: bool = False
 
         # Generation guard: incremented on every set_channels(); page results
         # that were requested before the last reset carry an old generation and
@@ -262,6 +269,16 @@ class ChannelListModel(QAbstractListModel):
                 return f"You rated this {_icons.like_icon}"
             if channel.user_rating == -1:
                 return f"You rated this {_icons.dislike_icon}"
+            # Opt-in: the PROVIDER'S RAW NAME when the row shows a cleaned
+            # title. OFF by default — the main list deliberately shows no
+            # tooltip on an unrated row (test_tooltip_role_unrated_channel_
+            # returns_none says so), so this is a parameter, not a behaviour
+            # change. Sports turns it on: its titles drop the league and
+            # quality the raw name carries ("NHL-TEAM| CALGARY FLAMES HD").
+            # A rating tooltip outranks it — that states the user's OWN action.
+            if (self._raw_name_tooltip and channel.detected_title
+                    and channel.detected_title != channel.name):
+                return channel.name
         if role == TITLE_ROLE:
             return channel.detected_title or channel.name
         if role == YEAR_ROLE:
@@ -309,6 +326,10 @@ class ChannelListModel(QAbstractListModel):
             return tuple(channel.detected_genres or ())
         if role == MEDIA_KIND_ROLE:
             return _media_kind(channel.media_type)
+        if role == SPORT_ROLE:
+            return getattr(channel, "sport_type", None) or ""
+        if role == LEAGUE_ROLE:
+            return getattr(channel, "league_name", None) or ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]
@@ -529,6 +550,7 @@ class ChannelListModel(QAbstractListModel):
         get_media_type_icon: Optional[Callable[[str | None], str]] = None,
         partial_threshold_pct: int = 10,
         new_match_ids: Optional[set[str]] = None,
+        raw_name_tooltip: bool = False,
     ) -> None:
         """Reset the model with a fresh first page of results.
 
@@ -571,6 +593,7 @@ class ChannelListModel(QAbstractListModel):
         self._unfavorite_icon = unfavorite_icon
         self._get_media_type_icon = get_media_type_icon
         self._partial_threshold_pct = partial_threshold_pct
+        self._raw_name_tooltip = bool(raw_name_tooltip)
         self._new_match_ids = set(new_match_ids or ())
         self._rebuild_index()
         if self._grouped:

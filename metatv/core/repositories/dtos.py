@@ -149,6 +149,14 @@ class ChannelListDTO:
     # Drama). A TUPLE, not the stored list: this DTO is frozen and crosses a
     # thread boundary, so it must not hand out a mutable alias of ORM state.
     detected_genres: tuple[str, ...] = ()
+    # Sport/league, for the Sports view. They live HERE rather than on a
+    # parallel DTO because the Sports view is the main channel list with one
+    # filter on it — the same rows, the same delegate, the same model. The
+    # narrow SpecialContentDTO that used to feed it could not carry a poster,
+    # a rating, or watch progress, so the view silently lost all three.
+    # Empty on every non-sports row, which costs one None check at paint.
+    sport_type: str | None = None
+    league_name: str | None = None
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -192,6 +200,8 @@ class ChannelListDTO:
             detected_genres=tuple(
                 g for g in (getattr(ch, "detected_genres", None) or ()) if g
             ),
+            sport_type=getattr(ch, "sport_type", None),
+            league_name=getattr(ch, "league_name", None),
         )
 
 
