@@ -89,6 +89,8 @@ NAV_CHIP_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
      "on_recipe_view_toggle"),
     ("sports_chip", "Sports", "sports",
      "Sports channels by sport, league and team", "on_sports_view_toggle"),
+    ("events_chip", "Events", "events",
+     "Pay-per-view and live events, by start time", "on_events_view_toggle"),
 )
 
 

@@ -18,7 +18,7 @@ to forget cost nothing — and forgetting is precisely how the gap existed.
 
 The queries also returned raw ``ChannelDB`` rows, which would raise
 ``DetachedInstanceError`` on the main thread the moment the session closed.
-They return ``SportsChannelDTO`` now.
+They return ``SpecialContentDTO`` now.
 """
 
 import pytest
@@ -26,7 +26,7 @@ import pytest
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB, Database
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.dtos import SportsChannelDTO
+from metatv.core.repositories.dtos import SpecialContentDTO
 
 
 @pytest.fixture
@@ -159,7 +159,7 @@ def test_rows_survive_their_session(db):
         rows = _repo(session).get_sports_channels(_ALL)
         events = _repo(session).get_events_channels(_ALL)
     # Session closed. Every attribute must still be readable.
-    assert all(isinstance(r, SportsChannelDTO) for r in rows)
+    assert all(isinstance(r, SpecialContentDTO) for r in rows)
     for row in rows + events:
         assert row.id and row.name
         _ = (row.sport_type, row.league_name, row.team_name,

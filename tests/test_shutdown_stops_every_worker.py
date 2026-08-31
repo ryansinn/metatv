@@ -121,7 +121,7 @@ def test_all_views_are_deactivated_not_a_chosen_few():
         "discover_view": _View(visible=True),
         "epg_view": _View(visible=False),
         "explore_view": _View(visible=False),
-        "ppv_view": _View(visible=False),
+        "events_view": _View(visible=False),
         "source_analytics_view": _View(visible=False),
     }
     host = _Host(**views)

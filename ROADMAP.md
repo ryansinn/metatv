@@ -256,6 +256,33 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
   as a settings UI control, and prune cached images whose URL-derived key belongs to a provider that
   has since been deleted (today they age out only via LRU).
 
+- [ ] **Tier / package detection reads the wrong field, and half its vocabulary is not tier
+  words** *(measured 2026-08-30, artifact: "Where Tier Lives")* — `parse_channel_name().tier`
+  looks for `VIP` / `PPV` / `GOLD` / `PLUS` / `PREMIUM` / `ULTRA` in the channel **name**.
+  Measured across 785,163 channels, the signal is in the **category**, by 20×:
+
+  | token | in NAME | in CATEGORY | tagged today | distinct categories |
+  |---|---|---|---|---|
+  | PPV | 17,873 | **27,149** | 168 | 208 |
+  | VIP | 424 | **17,528** | 21 | 76 |
+  | PLUS | 1,196 | 1,650 | **0** | 5 |
+  | PREMIUM | 469 | 1,491 | 169 | 13 |
+  | ULTRA | 164 | 214 | 83 | 1 |
+  | GOLD | 1,308 | **90** | **484** | 1 |
+
+  Two separate problems. **The field:** a package tier is a property of the subscription
+  bundle and providers express it in the category (`US| ESPN+ PPV VIP`, `LAT| MEXICO VIP`);
+  reading names finds show titles instead — *Big Brother VIP*, *Gold Rush*, *Gold Cup*. The
+  rule works hardest on `GOLD`, the token with the least signal. **The vocabulary:** moving
+  fields will not fix `ULTRA` in `NEDERLAND ULTRA 4K` (that is Ultra HD, a quality — there is
+  already a ladder for it), or `PREMIUM` in *Rai Premium* and *Fox Sports Premium* (broadcaster
+  brands). Three of the six are not tier words in this library.
+
+  Owner's call 2026-08-30: **leave tier untouched for now** — nothing reads the field, so
+  there is no user-visible harm and no migration cost to any option. `PPV` + `VIP` read off
+  the category is the clean win (44,677 channels, both defensible); the other four want a
+  separate look. Options and evidence: the artifact.
+
 ## Sharing & Social
 
 - [ ] **Share watch activity, recipes, and queues — send recommendations between people** *(user idea 2026-06-23)* — let a user **share what they've watched, share a recipe, share their watch-queue contents, and broadcast "what I'm watching now"** so people can pass recommendations around. The shareable artifacts: a **recipe** (a saved tag-facet category — the most naturally portable, since it's just an `includes/excludes` facet query + pinned/excluded title ids, see [Tag-cloud recipe builder] / `project_tag_cloud_recipe`), a **watch-queue** snapshot, a **history** slice (curated or "recently watched"), and a **now-watching** ping. **Keystone design constraint:** share **content identity, NOT stream URLs.** Two people rarely share the same provider, and stream URLs carry credentials — so a share must be a list of **canonical title identities** (`tmdb_id`/`imdb_id` once wired; normalized `title + year + media_type` as the stopgap) that the **recipient resolves against their OWN sources** (reuse the existing cross-source title-resolution / `content_dedup` path). A recipe shares even more cleanly — the facet query travels, and the recipient's library fills it from their own catalog live. **Transport, local-first:** start with a copyable **export blob / `.metatv-share` file / share-link** (no server required); a lightweight share service is a later stretch. **Privacy/guardrails:** opt-in, user picks exactly what's included, and the exporter **must strip all provider creds, stream URLs, and host info** — only canonical identity + user-authored metadata (recipe name, ratings, note) leaves the app. Ties to **Canonical content IDs (TMDb/IMDb)** (Discovery section — the share-identity backbone), the recipe/custom-category model, and PRODUCT_VISION's subordinate "headless backend + clients" direction (a share service would live there).
