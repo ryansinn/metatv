@@ -40,6 +40,7 @@ from metatv.core.repositories.channel_lens import (
     genre_predicate, lens_channels, metadata_person_exists, person_predicate,
 )
 from metatv.core.content_identity import content_key_for
+from metatv.core.repositories.epg import delete_programmes_chunked
 
 
 # _GENRE_NORM and normalize_genre now live in metatv.core.filter_utils (a dependency-free
@@ -2781,6 +2782,8 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
             .filter(ContentTagDB.channel_id.in_(doomed_channel_ids))
             .delete(synchronize_session=False)
         )
+        # chunked-delete-exempt: one step of an ATOMIC cascade; per-chunk commits
+        # would publish a half-pruned tree (why: docs/REFACTOR_PLAN.md D16).
         counts["epg_by_channel"] += (
             self.session.query(EpgProgramDB)
             .filter(EpgProgramDB.channel_db_id.in_(doomed_channel_ids))
@@ -2825,12 +2828,9 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
 
         # Step 3 — feed-side EPG: programmes whose provider_id is one of the removed
         # providers (these are EPG feed entries, not channel matches).
-        counts["epg_by_provider"] += (
-            self.session.query(EpgProgramDB)
-            .filter(EpgProgramDB.provider_id.in_(provider_ids))
-            .delete(synchronize_session=False)
+        counts["epg_by_provider"] += delete_programmes_chunked(
+            self.session, EpgProgramDB.provider_id.in_(provider_ids)
         )
-        self.session.commit()
 
         # Step 4 — orphaned SeasonDB / EpisodeDB whose provider_id is in the removed
         # set but whose series channel is NOT one of the KEPT (engaged) channels.

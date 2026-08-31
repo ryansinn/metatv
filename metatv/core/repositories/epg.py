@@ -37,6 +37,58 @@ SCHEDULE_SLOT_RANGES: dict[str, tuple[int, int]] = {
 }
 
 
+#: Rows deleted per transaction by :func:`delete_programmes_chunked`.
+#: 5,000 measured a worst-case 0.90s lock hold on a 3 GB database.
+DELETE_CHUNK = 5000
+
+
+def delete_programmes_chunked(
+    session: Session, *criteria, chunk: int = DELETE_CHUNK
+) -> int:
+    """Delete matching EPG programmes a bounded chunk at a time, committing each.
+
+    **Every delete on this table routes through here.** One unbounded ``DELETE``
+    is the longest write lock this application takes, and SQLite has exactly one
+    writer: clearing 260,275 programmes off a 3 GB database measured **69.3s**
+    holding the write lock, against a 30s ``busy_timeout``. Everything else that
+    wanted to write during that window failed outright — a provider refresh lost
+    2.5 minutes of work mid-upsert, and ``persist_url_stats`` dropped its stats.
+
+    Chunking wins on *both* axes, so there is no tradeoff to weigh: worst single
+    lock hold 69.3s -> **0.90s**, and total 69.3s -> **43.4s**, because
+    ``auto_vacuum=FULL`` repacks far fewer pages per commit.
+
+    The trap this closes: :class:`EpgManager` runs one worker so no other *EPG*
+    write races a delete (CLAUDE.md#epg-manager-internals), and that invariant is
+    real — but it says nothing about ``ProviderLoadThread`` or ``SeriesMonitor``,
+    which are separate single-writer pools with no serialization *between* them.
+    Each subsystem was serialized against itself and none against the others.
+
+    Args:
+        session: Session to delete on. Committed once per chunk — that commit is
+            the point, since it is what releases the write lock.
+        *criteria: SQLAlchemy filter criteria selecting the rows to delete.
+            Passing none deletes every programme.
+        chunk: Maximum rows deleted per transaction.
+
+    Returns:
+        Total number of rows deleted.
+    """
+    total = 0
+    while True:
+        ids = [
+            row[0]
+            for row in session.query(EpgProgramDB.id).filter(*criteria).limit(chunk)
+        ]
+        if not ids:
+            return total
+        session.query(EpgProgramDB).filter(EpgProgramDB.id.in_(ids)).delete(
+            synchronize_session=False
+        )
+        session.commit()
+        total += len(ids)
+
+
 class EpgRepository:
     """Repository for EPG programme data access."""
 
@@ -773,12 +825,9 @@ class EpgRepository:
 
     def clear_provider_data(self, provider_id: str) -> int:
         """Delete all EPG rows for a provider. Returns deleted count."""
-        count = (
-            self.session.query(EpgProgramDB)
-            .filter_by(provider_id=provider_id)
-            .delete()
+        count = delete_programmes_chunked(
+            self.session, EpgProgramDB.provider_id == provider_id
         )
-        self.session.commit()
         logger.info(f"EPG: cleared {count} rows for provider {provider_id}")
         return count
 

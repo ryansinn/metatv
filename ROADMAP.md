@@ -47,6 +47,13 @@ What's left to build. Completed features live in git history.
 
 ## Playback & Queue
 
+- [ ] **When a stream will not play, offer to refresh a stale source** — *(owner, 2026-08-31, from live UX testing)*. The owner hit "nothing plays", refreshed the sources, and everything played again: *"content I just played yesterday no longer plays… they sometimes go stale in a day or two."* Stream URLs carry provider-side tokens that expire; the app has the fix already and never suggests it.
+  - **The signal is already recorded.** `providers.updated_at` (and the account-info poll) says when each source was last refreshed. A playback failure plus a source last refreshed >24-48h ago is a strong, cheap heuristic — no new data needed.
+  - **The surface exists too.** #600 gave error toasts a condensed cause and a FlowLayout action row. This is one more action button on the existing playback-failure toast — "Refresh <source>" — not a new dialog.
+  - **Scope it to the failing channel's provider**, not all sources: `channel.provider_id` is already threaded to every play path for the Split Streams instance key, so the toast knows exactly which source to name.
+  - **Do not auto-refresh.** A refresh is minutes of work and a connection; it is the user's call. Offer, do not act. And consult the connection accountant — a refresh during playback competes with the stream it is trying to fix.
+  - **Open question for the owner:** should a source that has failed playback N times in a row surface a persistent "may be stale" mark in the Sources sidebar, or is the toast action enough? The mark is more discoverable; it is also another always-on thing to be wrong about.
+
 - [ ] **A queue that actually plays through it** — *(owner, 2026-08-26; scope-crept out of the Watch Alerts rework and parked here deliberately)*. Today the Watch Queue is a **list you pick from**; the ask is a queue that **plays each item in turn, unattended** — finish one, start the next. Three requests converge on it:
   - **Sequential airings.** When a live programme ends, mpv exits and nothing advances. The owner hit this on consecutive ORF 2 airings and had to start the next by hand.
   - **Play-when-it-airs.** An upcoming Watch Alerts row cannot offer ▶ (no time machine — the play affordance is now correctly absent there), but it *could* offer "start this when it airs", which turns Upcoming into a **queued-to-play** list.
@@ -252,6 +259,26 @@ fields are pipe-delimited and positional:
 | region | `(SE)`, `(DK)`, `(NO)`, `(FI)` | `detected_region` |
 | quality | `8K EXCLUSIVE` | `detected_quality` |
 | source | `SE: VIAPLAY PPV 9` | provider channel, not part of the title |
+
+**Three traps for whoever writes the parser** — measured 2026-08-31, before the
+naive version gets written:
+
+1. **There are THREE date formats, not one.** `| 27-08-2026 | 14:00 (GMT) |`
+   (numeric), `| Sat 29 Aug 14:00 CEST (DK) |` (day-name, **no year**), and
+   `| 2026-07-04 | 09:00 (GMT) |` (ISO). The day-name form is the one the `LIVE |`
+   rows use, and it carries no year — so it needs a nearest-plausible-year rule,
+   not `int(...)`.
+2. **The day-name form names a LOCAL timezone, and nothing reads it.** 307 rows
+   say `CEST`, 45 `EDT`, 27 `EEST`, 16 `UTC`, 2 `GMT`, 1 `NDT`. A parser that
+   assumes GMT puts 307 European fixtures one to two hours wrong — and they will
+   look *almost* right, which is the worst kind of wrong. `start_time`/`stop_time`
+   are UTC-naive by rule (`epg_utils.py`), so the zone must be resolved at
+   ingestion, not carried.
+3. **The provider's own `LIVE |` token is not evidence.** Of 640 rows currently
+   labelled live, 398 carry a parseable start time and **396 of those (99%)
+   started more than 24 hours ago**; the oldest genuine fixture has flown a LIVE
+   badge for 15.4 days. Treat the token as a hint and corroborate it against the
+   parsed time — never render a Live state the clock does not support.
 
 **Two things fall out of parsing it that are worth more than the tidier title:**
 

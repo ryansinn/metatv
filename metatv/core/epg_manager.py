@@ -24,6 +24,7 @@ from metatv.core.epg_utils import (
 )
 from metatv.core.models import Provider
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.epg import delete_programmes_chunked
 from metatv.core.repositories.provider import parse_provider_urls, persist_url_stats
 from metatv.core.url_cycle import UrlCycler
 from metatv.core.xmltv_parser import (
@@ -453,10 +454,8 @@ class EpgManager(QObject):
         if own_session:
             session = self.db.get_session()
         try:
-            deleted = (
-                session.query(EpgProgramDB)
-                .filter_by(provider_id=provider_id)
-                .delete()
+            deleted = delete_programmes_chunked(
+                session, EpgProgramDB.provider_id == provider_id
             )
             provider = session.query(ProviderDB).filter_by(id=provider_id).first()
             if provider:
@@ -510,10 +509,8 @@ class EpgManager(QObject):
             configured = getattr(self.config, "epg_retention_hours", _DEFAULT_EPG_RETENTION_HOURS)
             hours = max(_MIN_EPG_RETENTION_HOURS, configured or _DEFAULT_EPG_RETENTION_HOURS)
             cutoff = now_utc() - timedelta(hours=hours)
-            deleted = (
-                session.query(EpgProgramDB)
-                .filter(EpgProgramDB.stop_time < cutoff)
-                .delete()
+            deleted = delete_programmes_chunked(
+                session, EpgProgramDB.stop_time < cutoff
             )
             if own_session:
                 session.commit()
@@ -775,8 +772,11 @@ class EpgManager(QObject):
             self._emit_or_abort(self._progress_update, 
                 notif_id or "", 0, -1, "Clearing old guide…"
             )
-            session.query(EpgProgramDB).filter_by(provider_id=provider_id).delete()
-            session.commit()  # release write lock before inserts start
+            # Chunked: this delete held the write lock 69.3s on a 3 GB database
+            # and failed every concurrent writer. Commits per chunk.
+            delete_programmes_chunked(
+                session, EpgProgramDB.provider_id == provider_id
+            )
 
             # Phase 4: bulk insert — now we know total, switch to determinate
             self._emit_or_abort(self._progress_update, 
@@ -852,11 +852,9 @@ class EpgManager(QObject):
             # session — safe under the single-worker executor invariant (no other
             # EPG write can be in flight). Catches providers that stopped refreshing
             # too, since this runs on every SUCCESSFUL fetch, not just this provider's.
-            # prune_expired(session) reuses the passed-in session and does NOT commit
-            # for us (own_session=False) — commit explicitly or the delete rolls back
-            # on session.close() below.
+            # prune_expired(session) reuses the passed-in session; the chunked
+            # delete commits each chunk itself, so nothing is left uncommitted.
             self.prune_expired(session)
-            session.commit()
 
             count = session.query(EpgProgramDB).filter_by(provider_id=provider_id).count()
             logger.info(f"EPG: stored {count:,} programmes for {provider_name}")
