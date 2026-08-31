@@ -350,6 +350,36 @@ Recorded here only so the roadmap watermark can move honestly — these fixed ex
 
 ## Code Health / Refactor
 
+### The Sports row grammar — time column and adaptive slot (mockup Q12/Q16)
+
+The facet strip and search shipped; the ROW is what is left of the Sport Rundown
+design. Two pieces, both needing the shared delegate rather than the view:
+
+**A fixed, right-aligned time column (Q12).** `event_start_time` now exists on
+4,205 rows, so there is something to draw. `ChannelRowDelegate` has no leading
+column and `sizeHint`/`paint` assume the gutter-then-title layout.
+
+**The adaptive leading slot (Q16, refined by the owner).** One rule — *show
+whatever still discriminates*:
+
+| state | slot shows | why |
+|---|---|---|
+| no sport filter | the sport glyph | 16 values, high discrimination |
+| one sport selected | the **region code** | 76-90% populated within every sport, 15-37 distinct values |
+| sport + region | collapsed | nothing varies; the ~28px goes to the title, which currently clips |
+
+**The blocker is a signature, not a design.** `ChannelListModel` calls
+`get_media_type_icon(channel.media_type)` — it passes the media type, not the
+row, so the callable cannot see `sport_type` or `detected_region`. Widening it
+to take the DTO touches every caller of the shared model, which is why this is
+its own slice and not a rider on the filter work.
+
+Rejected on evidence, so nobody re-proposes them: **team badges** (only 12.8% of
+sports rows carry a `team_name`, and the feed ships no crests — a column filled
+one row in eight reads as broken) and **league** (within one sport it is either a
+single value — American football 100% but ONE league — or nearly absent: tennis
+1%, soccer 19%).
+
 ### Collapsing regional feed duplicates is BLOCKED on the parser (measured 2026-08-31)
 
 Mockup Q18 — "collapse regional feed duplicates into one fixture row with a feed

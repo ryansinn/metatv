@@ -303,7 +303,7 @@ class _ChannelStatsMixin:
     PLACEHOLDER_MARKER = "NO EVENT STREAMING"
 
     @staticmethod
-    def _apply_sports_facets(query, sport_types, league_names):
+    def _apply_sports_facets(query, sport_types, league_names, search=None):
         """Apply the sport/league facets shared by the list and the lane counts.
 
         Shared so a lane chip's number and the list it opens answer the same
@@ -321,6 +321,14 @@ class _ChannelStatsMixin:
                 query = query.filter(ChannelDB.sport_type.in_(sport_types))
         if league_names:
             query = query.filter(ChannelDB.league_name.in_(league_names))
+        if search:
+            # Narrows WITHIN the lane and chips rather than replacing them
+            # (mockup Q6). Matched against the RAW name, not detected_title,
+            # because a fixture's opponents live in the raw string until the
+            # title parser lands — searching the cleaned title would miss
+            # exactly the words people type.
+            like = f"%{search.strip()}%"
+            query = query.filter(ChannelDB.name.ilike(like))
         return query
 
     def _sports_lane_rank(self, now: "datetime"):
@@ -347,6 +355,7 @@ class _ChannelStatsMixin:
         scope: VisibilityScope,
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
+        search: Optional[str] = None,
         *,
         now: "Optional[datetime]" = None,
     ) -> Dict[str, int]:
@@ -362,7 +371,8 @@ class _ChannelStatsMixin:
             its own long-standing policy and not this method's to override.)
         """
         base = self._apply_sports_facets(
-            self._special_content_query('sports', scope), sport_types, league_names)
+            self._special_content_query('sports', scope),
+            sport_types, league_names, search)
         now = now or _now_utc()
         lane_rank = self._sports_lane_rank(now)
 
@@ -382,6 +392,7 @@ class _ChannelStatsMixin:
         sport_types: Optional[List[str]] = None,
         league_names: Optional[List[str]] = None,
         *,
+        search: Optional[str] = None,
         now: "Optional[datetime]" = None,
         lane: Optional[str] = None,
     ) -> List["ChannelListDTO"]:
@@ -428,7 +439,7 @@ class _ChannelStatsMixin:
         """
         query = self._special_content_query('sports', scope)
 
-        query = self._apply_sports_facets(query, sport_types, league_names)
+        query = self._apply_sports_facets(query, sport_types, league_names, search)
 
         # epg_utils owns every clock read in this project; datetime.utcnow()
         # is also deprecated from 3.12. Both are UTC-naive, as event_start_time is.
