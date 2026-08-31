@@ -9,7 +9,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QFont
 
-from metatv.gui.filter_bar import FilterDropdown
+from metatv.gui.filter_bar import (
+    DROPDOWN_CLEAR_LABEL, DROPDOWN_SELECT_ALL_LABEL, FilterDropdown,
+)
 from metatv.gui import theme as _theme
 
 
@@ -153,9 +155,9 @@ class HierarchicalFilterDropdown(QPushButton):
         layout.addWidget(sep)
 
         btn_row = QHBoxLayout()
-        select_all = QPushButton("Select All")
+        select_all = QPushButton(DROPDOWN_SELECT_ALL_LABEL)
         select_all.clicked.connect(self.select_all)
-        clear_btn = QPushButton("Clear All")
+        clear_btn = QPushButton(DROPDOWN_CLEAR_LABEL)
         clear_btn.clicked.connect(self.clear_all)
         btn_row.addWidget(select_all)
         btn_row.addWidget(clear_btn)

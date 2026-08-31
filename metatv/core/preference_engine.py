@@ -225,6 +225,25 @@ class ScoredChannel:
     # within-generation people-diversity re-rank so the same face doesn't fill the list.
     score_people:      tuple[str, ...] = ()
 
+    @property
+    def display_title(self) -> str:
+        """What a person should SEE for this recommendation.
+
+        ``channel_name`` is the provider's raw string — "EN| MOVIES: The Matrix
+        (1999) FHD" — and 745,097 of the owner's 785,163 rows (94.9%) differ
+        from their cleaned title. It is the obvious attribute name, which is
+        exactly why the Preferences dashboard reached for it and rendered raw
+        strings while the sidebar, scoring the very same objects from the very
+        same call, rendered "The Matrix".
+
+        So the correct form lives ON the object rather than in a convention
+        each caller has to know: there is now one definition, and it is the
+        shorter thing to type. The render-parse guard could never have caught
+        the old code — it looks for ``parse_channel_name()`` calls, and reading
+        the wrong stored field is not a parse.
+        """
+        return self.detected_title or self.channel_name
+
 
 def version_score(channel, config) -> int:
     """Score a channel against the user's version preferences (prefix/provider/quality).

@@ -306,7 +306,8 @@ class PreferencesView(QWidget):
         self._excl_layout = QVBoxLayout(self._excl_container)
         self._excl_layout.setContentsMargins(4, 0, 4, 4)
         self._excl_layout.setSpacing(2)
-        self._excl_container.setVisible(False)
+        self._excl_container.setVisible(
+            bool(getattr(self.config, "preferences_exclusions_expanded", False)))
         vl.addWidget(self._excl_container)
 
         # Version Preferences section
@@ -416,8 +417,13 @@ class PreferencesView(QWidget):
     def _setup_version_prefs_section(self, vl: QVBoxLayout) -> None:
         """Build the collapsible Version Preferences section."""
         ver_hdr = QHBoxLayout()
+        # The chevron is derived from the RESTORED state, not hardcoded to
+        # "expand": now that the section remembers being open, a fixed glyph
+        # would contradict the section it labels on the next launch.
+        _ver_open = bool(getattr(self.config, "preferences_version_prefs_expanded", False))
         self._ver_prefs_toggle_btn = QPushButton(
-            f"{self.config.expand_icon} Version Preferences"
+            f"{self.config.collapse_icon if _ver_open else self.config.expand_icon}"
+            f" Version Preferences"
         )
         self._ver_prefs_toggle_btn.setFlat(True)
         _theme.style_fn(self._ver_prefs_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
@@ -497,7 +503,8 @@ class PreferencesView(QWidget):
         qual_note.setWordWrap(True)
         ver_vl.addWidget(qual_note)
 
-        self._ver_prefs_container.setVisible(False)
+        self._ver_prefs_container.setVisible(
+            bool(getattr(self.config, "preferences_version_prefs_expanded", False)))
         vl.addWidget(self._ver_prefs_container)
 
         # Populate from config
@@ -508,6 +515,8 @@ class PreferencesView(QWidget):
         self._ver_prefs_container.setVisible(visible)
         icon = self.config.collapse_icon if visible else self.config.expand_icon
         self._ver_prefs_toggle_btn.setText(f"{icon} Version Preferences")
+        self.config.preferences_version_prefs_expanded = visible
+        self.config.save()
 
     def _refresh_version_prefs_ui(self) -> None:
         self._ver_prefix_list.clear()
@@ -581,6 +590,8 @@ class PreferencesView(QWidget):
         visible = not self._excl_container.isVisible()
         self._excl_container.setVisible(visible)
         self._update_excl_toggle_label()
+        self.config.preferences_exclusions_expanded = visible
+        self.config.save()
 
     def _update_excl_toggle_label(self) -> None:
         muted = getattr(self.config, 'muted_attributes', {})
@@ -754,7 +765,7 @@ class PreferencesView(QWidget):
             return
 
         for sc in recs:
-            text = f"{sc.channel_name}  ·  {sc.reason}"
+            text = f"{sc.display_title}  ·  {sc.reason}"
             rating_tip = f"\n★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             item = QListWidgetItem()

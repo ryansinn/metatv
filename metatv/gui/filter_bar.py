@@ -248,6 +248,19 @@ class FilterChip(ToggleChip):
             self.open_dialog_requested.emit()
 
 
+#: The two footer buttons every multi-select dropdown menu carries.
+#:
+#: Shared constants because there are TWO dropdown classes — ``FilterDropdown``
+#: here and ``sports_filter_bar.HierarchicalFilterDropdown``, which is a
+#: copy-and-extend of it — and they sit SIDE BY SIDE on the sports filter bar:
+#: "Sport:" is one, "League:" is the other. Their footers had drifted to
+#: "Clear" and "Clear All", so one bar offered two different words for the
+#: same button. Merging the classes is the real fix and is a larger change;
+#: this makes the label impossible to diverge again in the meantime.
+DROPDOWN_SELECT_ALL_LABEL = "Select All"
+DROPDOWN_CLEAR_LABEL = "Clear"
+
+
 class FilterDropdown(QPushButton):
     """Dropdown button with multi-select checkboxes"""
 
@@ -294,10 +307,10 @@ class FilterDropdown(QPushButton):
         layout.addWidget(separator)
 
         button_layout = QHBoxLayout()
-        select_all_btn = QPushButton("Select All")
+        select_all_btn = QPushButton(DROPDOWN_SELECT_ALL_LABEL)
         select_all_btn.clicked.connect(self.select_all)
         button_layout.addWidget(select_all_btn)
-        clear_btn = QPushButton("Clear")
+        clear_btn = QPushButton(DROPDOWN_CLEAR_LABEL)
         clear_btn.clicked.connect(self.clear_all)
         button_layout.addWidget(clear_btn)
         layout.addLayout(button_layout)

@@ -786,20 +786,55 @@ class EpgRepository:
         self,
         within_minutes: int,
         provider_ids: list[str],
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> list[EpgProgramDB]:
-        """Programmes starting within the next N minutes (for notifications)."""
+        """Programmes starting within the next N minutes (for notifications).
+
+        TWO independent scoping axes, and this is the function that only had
+        one. ``provider_ids`` scopes the FEED — whose XMLTV supplied the
+        programme. ``excluded_channel_provider_ids`` scopes the CHANNEL the
+        programme was matched to, which can belong to a different provider
+        entirely: ``epg_matching.build_match_map`` keeps a separate
+        ``cross_provider`` candidate dict on purpose, so cross-provider matching
+        is a working feature rather than an edge case.
+
+        Without the second axis a programme from an ACTIVE feed, matched to a
+        channel on a DISABLED source, passes the filter and fires a desktop
+        toast for something the user cannot watch. On the owner's library that
+        was 418 rows across 6 channels, 18 of them still in the future.
+
+        ``has_future_programmes`` below already had this parameter and its
+        docstring already called itself this function's sibling "with the same
+        matched-channel and scoping rules" — a symmetry that did not exist until
+        now. #536 fixed the feed axis at three call sites and left the channel
+        axis to whoever rediscovered it; the sidebar did, the notification path
+        did not.
+
+        Args:
+            within_minutes: How far ahead to look.
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: Channel-side scoping — drop
+                programmes whose matched ChannelDB row belongs to a hidden
+                provider.
+
+        Returns:
+            The in-scope programmes starting inside the window.
+        """
         now = _now_utc()
         cutoff = now + timedelta(minutes=within_minutes)
-        return (
-            self.session.query(EpgProgramDB)
-            .filter(
-                EpgProgramDB.provider_id.in_(provider_ids),
-                EpgProgramDB.start_time > now,
-                EpgProgramDB.start_time <= cutoff,
-                EpgProgramDB.channel_db_id.isnot(None),
-            )
-            .all()
+        query = self.session.query(EpgProgramDB).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.start_time > now,
+            EpgProgramDB.start_time <= cutoff,
+            EpgProgramDB.channel_db_id.isnot(None),
         )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        return query.all()
 
     def has_future_programmes(
         self,

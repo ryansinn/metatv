@@ -631,6 +631,13 @@ class Config(BaseModel):
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
+    # Its two siblings. They flipped visibility and the chevron and saved
+    # NOTHING, so both forgot on restart — against "every UI section saves its
+    # collapse state". _toggle_attributes above always did, so this was an
+    # omission rather than a policy, which is the argument for all three
+    # sitting together where the next disclosure will copy them.
+    preferences_exclusions_expanded: bool = False
+    preferences_version_prefs_expanded: bool = False
     muted_attributes: dict = Field(default_factory=lambda: {
         "genres": [], "directors": [], "actors": [], "keywords": []
     })

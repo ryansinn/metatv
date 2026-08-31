@@ -279,7 +279,7 @@ class RecommendedSection(CollapsibleSection):
         quality = quality_word(sc.detected_quality)
         release = sc.detected_year or year
         return build_chip_row(
-            title=sc.detected_title or sc.channel_name,
+            title=sc.display_title,
             icon_role=media_icon_role(sc.media_type),
             liked=bool(sc.already_liked),
             chips=(

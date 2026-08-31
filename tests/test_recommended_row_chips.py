@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from metatv.core.preference_engine import ScoredChannel
+
 from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy
 
 from metatv.gui.chip_row import (
@@ -47,14 +49,25 @@ def _stub_self():
 
 
 def _sc(**over):
+    """A REAL ScoredChannel, not a SimpleNamespace.
+
+    The stub version broke the moment ``display_title`` was added as a property
+    on the dataclass: a namespace carries the attributes someone remembered to
+    list, and a property is not one of them. That is the documented trap — a
+    hand-rolled double misses whatever a cross-cutting method touches — and the
+    fix is the real object, which cannot drift from itself.
+    """
     base = {
+        "channel_id": "c1", "score": 1.0, "matching_genres": [],
+        "matching_keywords": [], "director": None, "poster_url": None,
+        "reason": "Action",
         "media_type": "series", "already_liked": False,
         "detected_title": "Cowboy Bebop", "detected_year": "1998",
         "detected_prefix": "EN", "detected_region": "DE", "detected_quality": "4K",
         "channel_name": "EN - Cowboy Bebop (1998)",
     }
     base.update(over)
-    return SimpleNamespace(**base)
+    return ScoredChannel(**base)
 
 
 def _row(**over):
