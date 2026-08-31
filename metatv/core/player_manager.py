@@ -5,6 +5,10 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.connection_accountant import AcquireResult, ConnectionAccountant
+
+#: Kinds playback may evict when a provider's slots are full. Downloads only —
+#: see the note at the acquire() call for why a recording is not on this list.
+PLAYBACK_PREEMPTS: tuple[str, ...] = ("download",)
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv import MPVPlayer
 
@@ -230,7 +234,13 @@ class PlayerManager:
                 # reused window switching sources) — release its old slot
                 # before acquiring the new one.
                 self.connection_accountant.release(old_provider, key)
-            acquired = self.connection_accountant.acquire(provider_id, "playback", key)
+            # Playback may displace a download but never a recording. The axis
+            # is RECOVERABILITY, not foreground: the VOD is still there in an
+            # hour, the live moment is not — so a recording makes the user
+            # choose with their eyes open rather than dying silently while
+            # they start something else.
+            acquired = self.connection_accountant.acquire(
+                provider_id, "playback", key, preempt_kinds=PLAYBACK_PREEMPTS)
             if not acquired.granted:
                 logger.warning(
                     f"Connection limit reached for provider {provider_id}: "
