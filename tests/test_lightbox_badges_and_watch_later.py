@@ -40,31 +40,34 @@ def qapp():
 
 @pytest.fixture(autouse=True)
 def _delete_lightbox_cards(qapp):
-    """Delete every parentless _LightboxCard a test leaves behind.
+    """Give every parentless ``_LightboxCard`` an owner, so none is top-level.
 
-    A bare ``_LightboxCard()`` is a TOP-LEVEL widget, and nothing was deleting
-    them — this file alone left 16 alive. That is invisible until something
-    walks the top-level list: ``theme.apply_theme()`` pushes a QPalette onto the
-    whole QApplication, so the next file's palette test repaints every leaked
-    card. On macOS that segfaulted the shard (exit 139), deterministically, the
-    moment CI's size-based bin-packer put these two files next to each other.
+    A bare ``_LightboxCard()`` is a TOP-LEVEL widget and nothing deleted them —
+    this file alone left 16 alive. That is invisible until something walks the
+    top-level list, and ``theme.apply_theme()`` pushes a QPalette onto the whole
+    QApplication, so the next file's palette test repaints every leaked card.
+    That segfaulted a CI shard the moment the size-based bin-packer put two
+    lightbox files next to each other.
 
-    The suite's teardown guard REPORTS leaks and deliberately does not delete
-    them, so the cleanup belongs here, next to the tests that create them.
+    ``sip.delete`` destroys THIS card's C++ object and nothing else. Two other
+    approaches were tried and are worse:
+
+    - ``deleteLater()`` + ``sendPostedEvents(None, DeferredDelete)`` drains the
+      deferred-delete queue GLOBALLY, destroying objects belonging to every
+      other test. It moved the segfault from a test body into this teardown
+      rather than removing it.
+    - Re-parenting to an owner widget makes the OWNER top-level instead, so the
+      leak count went from 16 to 41 — one per test.
     """
-    yield
-    from PyQt6.QtCore import QEvent
+    from PyQt6 import sip
     from PyQt6.QtWidgets import QApplication
 
     from metatv.gui.similar_lightbox_card import _LightboxCard
+
+    yield
     for widget in QApplication.topLevelWidgets():
         if isinstance(widget, _LightboxCard):
-            widget.setParent(None)
-            widget.deleteLater()
-    # deleteLater() only queues; the delete happens when an event loop drains
-    # DeferredDelete. processEvents() alone does NOT, which is why the first
-    # version of this fixture changed the leak count by zero.
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            sip.delete(widget)
 
 
 def _make_db(path: Path):
