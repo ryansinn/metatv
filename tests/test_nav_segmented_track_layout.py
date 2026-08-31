@@ -61,8 +61,12 @@ app.processEvents()
 win.layout().activate()
 app.processEvents()
 
-chips = [win.search_chip, win.epg_chip, win.prefs_chip,
-         win.discover_chip, win.recipe_chip]
+# Derived, not hand-listed. This was the THIRD copy of the switcher's chip
+# list (the builder and _deactivate_view_chips had the other two), and a stale
+# copy here measures five cells against a six-cell track — which reads as a
+# layout regression rather than as the list being out of date.
+from metatv.gui.app_header import NAV_CHIP_SPECS
+chips = [getattr(win, attr) for attr, *_ in NAV_CHIP_SPECS]
 track = win._nav_track
 
 def rect(w):
