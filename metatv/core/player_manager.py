@@ -110,6 +110,26 @@ class PlayerManager:
             return self._provider_caps.get(provider_id, 1)
         return config_max
 
+    def claim_for_playback(self, provider_id: str | None) -> None:
+        """Tell the accountant a play on *provider_id* has STARTED.
+
+        Called at the top of the play path, before the preflight probe — which
+        is itself a connection to the provider that the accountant cannot see.
+        Without this the pollers read the source as idle for the ~1.5s the
+        probe runs and take its one slot, and on a one-connection account the
+        provider then refuses both the probe and mpv.
+
+        Not an acquire: there is nothing to hold yet and the play may still be
+        abandoned. It only starts the background cooldown, which a failed play
+        needs just as much as a successful one — the user retries into it.
+        """
+        if not provider_id:
+            return
+        try:
+            self.connection_accountant.note_foreground_use(provider_id)
+        except Exception:  # accounting must never break a play
+            logger.exception("could not claim {} for playback", provider_id)
+
     def _reconcile_connections(self) -> None:
         """Sweep holders whose mpv process has died since the last decision.
 
