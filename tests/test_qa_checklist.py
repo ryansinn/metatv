@@ -284,6 +284,16 @@ def test_migration_list_shape_becomes_pass_records(tmp_path):
     """A legacy {eid:[idx,...]} qa_checked_steps migrates to pass records."""
     from metatv.core.config import Config
 
+# These round-trips read config.yaml and rebuild a Config by hand rather than
+# calling Config.load() — load() reads from Path.home(), so a test wanting an
+# explicit directory cannot use it. That hand-rolled path now has to do what
+# load() does and overlay the QA sidecar: qa_* fields live in qa_state.yaml,
+# not config.yaml, because they were 38% of the user's file and every one of
+# the 130 config.save() call sites rewrote all of them.
+#
+# No production code constructs a Config this way — everything goes through
+# Config.load(), which merges the sidecar itself.
+
     config = Config(
         config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path,
         qa_checked_steps={"10": [0, 2], "11": [1]},
@@ -297,7 +307,7 @@ def test_migration_list_shape_becomes_pass_records(tmp_path):
     import yaml
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
     assert loaded.qa_step_results["10"]["0"]["state"] == "pass"
 
 
@@ -580,7 +590,7 @@ def test_config_qa_step_results_round_trip(tmp_path):
 
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
 
     assert loaded.qa_verified_id == 10
     assert loaded.qa_step_results["10"]["0"]["state"] == "fail"
@@ -766,7 +776,7 @@ def test_config_qa_archived_ids_round_trip(tmp_path):
 
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
 
     assert loaded.qa_archived_ids == [10, 23, 47]
 
@@ -1042,7 +1052,7 @@ def test_config_qa_flagged_items_round_trip(tmp_path):
 
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
 
     assert len(loaded.qa_flagged_items) == 1
     item = loaded.qa_flagged_items[0]
@@ -1173,7 +1183,7 @@ def test_flagged_item_type_round_trips_through_config(tmp_path):
 
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
 
     assert loaded.qa_flagged_items[0]["type"] == "feature"
 
@@ -1728,7 +1738,7 @@ def test_config_qa_addressed_round_trips(tmp_path):
 
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
-    loaded = Config(**data)
+    loaded = Config(**Config._merge_qa_sidecar(tmp_path, data))
 
     assert loaded.qa_addressed["e82_s4"]["pr"] == 109
     assert loaded.qa_addressed["e82_s4"]["manual"] is True
