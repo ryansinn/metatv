@@ -17,10 +17,20 @@ from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
-# Always-on reconnect for transient live-stream drops. These three options have
-# been stable across ffmpeg/libavformat for many years and are intentionally
+# Always-on reconnect for transient live-stream drops. These options have been
+# stable across ffmpeg/libavformat for many years and are intentionally
 # conservative (no --hls-use-mpegts or newer opts that vary by build).
-RECONNECT_FLAG = "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30"
+#
+# reconnect_on_http_error=5xx covers what the other three do not: they retry a
+# stream that DROPS, not one that never opened. On a one-connection account a
+# 5xx on the initial GET is the common failure — the provider refuses while it
+# still counts a background call it has not reaped — and mpv exited instantly.
+# 4xx is excluded on purpose: being told no must still fail fast. Rationale and
+# measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
+RECONNECT_FLAG = (
+    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
+    "reconnect_delay_max=30,reconnect_on_http_error=5xx"
+)
 
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"

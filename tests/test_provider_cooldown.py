@@ -235,3 +235,23 @@ def test_an_unlimited_provider_is_not_cooled():
     acct.note_foreground_use("p1")
     assert acct.acquire("p1", MONITOR_KIND, "sm-1",
                         preempt_kinds=MONITOR_PREEMPTS).granted
+
+
+def test_mpv_retries_a_5xx_on_the_initial_open():
+    """The three original reconnect options retry a DROP, not a failed open.
+
+    On a one-connection account the common failure is a 5xx on the very first
+    GET, while the provider still counts a background call it has not reaped.
+    Without this mpv exits at once — the window opening and closing a few
+    seconds later, which is exactly what the owner saw four times in a row.
+
+    4xx is excluded on purpose: being told no must still fail fast.
+    """
+    from metatv.core.players.mpv import RECONNECT_FLAG
+
+    assert "reconnect_on_http_error=5xx" in RECONNECT_FLAG
+    assert "4xx" not in RECONNECT_FLAG, (
+        "retrying a 401/403/404 for half a minute hides a real answer")
+    # The originals must survive — they cover mid-stream drops, a different case.
+    for opt in ("reconnect=1", "reconnect_streamed=1", "reconnect_delay_max=30"):
+        assert opt in RECONNECT_FLAG, f"dropped {opt}"

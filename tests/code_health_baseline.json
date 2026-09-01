@@ -7,7 +7,7 @@
     "metatv/core/discovery_engine.py": 1015,
     "metatv/core/epg_manager.py": 1313,
     "metatv/core/filter_utils.py": 1371,
-    "metatv/core/players/mpv.py": 1350,
+    "metatv/core/players/mpv.py": 1360,
     "metatv/core/preference_engine.py": 1163,
     "metatv/core/provider_loader.py": 1307,
     "metatv/core/repositories/channel.py": 3213,
