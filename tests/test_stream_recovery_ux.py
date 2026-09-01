@@ -103,11 +103,15 @@ def test_manager_get_all_display_returns_online_entries(qapp, tmp_path):
 
     db = _make_db(tmp_path)
     mgr = StreamRetryManager(db, validate_fn=lambda url: (True, None))
-    mgr.add_failure("ch1", "Channel One", "http://x/1.ts", "timeout")
-
+    # Seeded through the repository, NOT mgr.add_failure(): that write is
+    # deliberately off-thread (see StreamRetryManager._write — a main-thread
+    # commit against a held SQLite lock killed the app with SIGABRT), so
+    # reading straight back raced the worker. It won on a quiet laptop and
+    # lost on a loaded macOS runner, which is why this file failed CI while
+    # passing locally 8/8. The subject here is the display read, not the write.
     with db.session_scope() as session:
         repo = StreamRetryRepository(session)
-        entry = repo.get_all_pending()[0]
+        entry = repo.add("ch1", "Channel One", "http://x/1.ts", "timeout")
         repo.mark_checked(entry, ok=True, error=None)
 
     display = mgr.get_all_display()
@@ -198,11 +202,21 @@ def test_widget_refresh_retry_renders_pending_icon_for_pending_entry(qapp, tmp_p
 
 def test_manager_emits_stream_online_with_stream_url(qapp, tmp_path):
     """The widened stream_online signal emits (channel_id, channel_name, stream_url)."""
+    from metatv.core.repositories.stream_retry import StreamRetryRepository
     from metatv.core.stream_retry_manager import StreamRetryManager
 
     db = _make_db(tmp_path)
     mgr = StreamRetryManager(db, validate_fn=lambda url: (True, None))
-    mgr.add_failure("ch1", "Channel One", "http://x/1.ts", "timeout")
+    # Same reason as above: add_failure returns before the row exists, and
+    # _run_checks below reads it synchronously on THIS thread. CI caught the
+    # loss exactly as you would expect —
+    #   assert [] == [('ch1', 'Channel One', 'http://x/1.ts')]
+    # with the worker still alive at teardown ("left Python thread(s)
+    # running: ['stream_retry_0']"). Seeding directly also means no worker
+    # thread is started at all, so the QtResourceLeakWarning goes with it.
+    with db.session_scope() as session:
+        StreamRetryRepository(session).add(
+            "ch1", "Channel One", "http://x/1.ts", "timeout")
 
     received = []
     mgr.stream_online.connect(lambda cid, name, url: received.append((cid, name, url)))
