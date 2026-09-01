@@ -678,8 +678,8 @@ class Config(BaseModel):
     # the sidebar section stack into the always-visible status strip + Sources
     # manager view (see gui/sidebar/sources_strip.py, gui/sources_manager_view.py).
     # Existing configs are migrated by _inject_new_sections().
-    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
-    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
+    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "downloads", "recordings", "recommended", "queue", "favorites", "history"])
+    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "downloads", "recordings", "recommended", "queue", "favorites", "history"])
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
@@ -1819,7 +1819,10 @@ class Config(BaseModel):
     def _inject_new_sections(self) -> None:
         """Insert newly added sidebar sections into existing configs that predate them."""
         changed = False
-        new_sections = ["queue", "recommended"]
+        # "downloads"/"recordings" (Catch, Keep, Record slice 4): the engines
+        # shipped in #612 with no surface at all, so an existing config has no
+        # entry for either and would never show them.
+        new_sections = ["queue", "recommended", "downloads", "recordings"]
         for sid in new_sections:
             if sid not in self.sidebar_sections:
                 idx = self.sidebar_sections.index("alerts") + 1 if "alerts" in self.sidebar_sections else 0

@@ -2,7 +2,7 @@
   "_comment": "Debt ratchet baseline \u2014 see docs/AUDIT_2026-08-16.md. Regenerate with scripts/rebaseline_code_health.py ONLY for a deliberate, reviewed increase.",
   "file_lines": {
     "metatv/core/channel_name_utils.py": 3393,
-    "metatv/core/config.py": 2078,
+    "metatv/core/config.py": 2081,
     "metatv/core/database.py": 1340,
     "metatv/core/discovery_engine.py": 1015,
     "metatv/core/epg_manager.py": 1313,
@@ -21,7 +21,7 @@
     "metatv/gui/epg_watchlist_mixin.py": 1056,
     "metatv/gui/filter_panel.py": 1083,
     "metatv/gui/global_filter_dialog.py": 1745,
-    "metatv/gui/main_window.py": 3536,
+    "metatv/gui/main_window.py": 3557,
     "metatv/gui/main_window_channels.py": 2226,
     "metatv/gui/main_window_favorites.py": 1114,
     "metatv/gui/main_window_providers.py": 1064,

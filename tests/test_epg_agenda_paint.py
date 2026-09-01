@@ -11,13 +11,13 @@ the module, or constructing the widget, proves nothing.
 
 import pytest
 
-from metatv.gui.epg_agenda_widget import _ProgressBar
+from metatv.gui.progress_paint import ProgressBar
 
 
 @pytest.mark.parametrize("pct", [0, 1, 42, 99, 100])
 def test_the_bar_paints_at_every_fill(qapp, pct):
     """grab() forces a real paintEvent — construction alone would not."""
-    bar = _ProgressBar(pct)
+    bar = ProgressBar(pct, height=4)
     bar.resize(80, 4)
     pixmap = bar.grab()
     assert not pixmap.isNull()
@@ -26,15 +26,15 @@ def test_the_bar_paints_at_every_fill(qapp, pct):
 
 def test_the_bar_paints_at_a_degenerate_size(qapp):
     """A zero-width bar must not raise; layouts do produce these mid-resize."""
-    bar = _ProgressBar(50)
+    bar = ProgressBar(50, height=4)
     bar.resize(0, 4)
     bar.grab()
 
 
 def test_out_of_range_fills_are_clamped_not_crashed(qapp):
-    bar = _ProgressBar(500)
+    bar = ProgressBar(500, height=4)
     assert bar._pct == 100
-    bar = _ProgressBar(-20)
+    bar = ProgressBar(-20, height=4)
     assert bar._pct == 0
     bar.resize(80, 4)
     bar.grab()
