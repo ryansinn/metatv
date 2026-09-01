@@ -201,7 +201,7 @@ def test_harvest_for_channels_takes_the_ids_it_is_given(db, monkeypatch):
     async def _fake_fetch(provider, rows, concurrency, throttle):
         seen.append([r["id"] for r in rows])
         return ({}, [], {r["id"]: harvest_detail_metadata(
-            {"info": {"movie_image": "http://img/repaired.jpg"}}) for r in rows}, 0)
+            {"info": {"movie_image": "http://img/repaired.jpg"}}) for r in rows}, 0, False)
 
     from types import SimpleNamespace
     manager = TmdbEnrichmentManager(db, SimpleNamespace())

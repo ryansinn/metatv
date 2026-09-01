@@ -89,9 +89,36 @@ class ConnectionAccountant:
                 without deadlocking on a non-reentrant lock.
         """
         self._capacity_resolver = capacity_resolver
-        self._on_preempt = on_preempt
+        #: EVERY consumer that can be preempted, not one.
+        #:
+        #: This was a single ``_on_preempt`` slot, assigned directly by
+        #: ``main_window_downloads`` — so ``DownloadManager`` owned the hook
+        #: outright and the two OTHER preemptible consumers (the TMDb
+        #: enrichment backfill and the series-monitor poll, both registered as
+        #: ``kind="monitor"``) were evicted from the registry and never told.
+        #: Eviction was bookkeeping only: their in-flight HTTP calls kept the
+        #: provider's connection, so mpv was refused and quit a few seconds
+        #: after opening. A hand-assigned hook is an enumeration of size one.
+        self._preempt_listeners: list[Callable[[str, str, str], None]] = []
+        if on_preempt is not None:
+            self._preempt_listeners.append(on_preempt)
         self._holders: dict[str, dict[str, str]] = {}  # provider_id -> {holder_id: kind}
         self._lock = threading.Lock()
+
+    def add_preempt_listener(self, callback: "Callable[[str, str, str], None]") -> None:
+        """Register *callback* to be told when any holder is evicted.
+
+        The one seam for learning you lost a slot. Every preemptible consumer
+        registers here; each is called with ``(provider_id, holder_id, kind)``
+        for EVERY eviction, so a listener must check the ids are its own
+        (``DownloadManager.on_preempted`` returns early on a foreign ``kind``).
+
+        Idempotent — registering the same bound method twice is a no-op, so a
+        re-wire during a reload cannot double-notify.
+        """
+        with self._lock:
+            if callback not in self._preempt_listeners:
+                self._preempt_listeners.append(callback)
 
     # ── Read-only queries ───────────────────────────────────────────────────
 
@@ -205,11 +232,16 @@ class ConnectionAccountant:
         for hid, held_kind in evicted:
             logger.info("Connection preempted on {}: {} ({}) yielded to {} ({})",
                         provider_id, hid, held_kind, holder_id, kind)
-            if self._on_preempt is not None:
+            with self._lock:
+                listeners = list(self._preempt_listeners)
+            for listener in listeners:
                 try:
-                    self._on_preempt(provider_id, hid, held_kind)
+                    listener(provider_id, hid, held_kind)
                 except Exception:
-                    logger.exception("on_preempt callback failed for {}", hid)
+                    # One bad listener must not stop the others being told —
+                    # a consumer left believing it still holds the slot is
+                    # exactly the bug this fan-out exists to prevent.
+                    logger.exception("on_preempt listener failed for {}", hid)
         return result
 
     def release(self, provider_id: str, holder_id: str) -> None:

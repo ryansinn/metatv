@@ -33,10 +33,19 @@ class _DownloadsMixin:
         both believe they hold that provider's single connection. The preempt
         callback is what makes a click on Play win: the manager parks its
         transfer at the byte it reached and resumes when the slot comes back.
+
+        Registered through ``add_preempt_listener``, never by assigning
+        ``accountant._on_preempt``. That assignment gave THIS manager the hook
+        outright, and the accountant had only the one — so the enrichment
+        backfill and the series-monitor poll, which are evicted by the very
+        same rule, were never told and kept their HTTP calls running on the
+        provider's one connection. mpv was refused and quit seconds after
+        opening. ``tests/test_preempt_listener_fanout.py`` fails the suite on
+        any re-assignment.
         """
         accountant = self.player_manager.connection_accountant
         self.download_manager = DownloadManager(self.db, self.config, accountant)
-        accountant._on_preempt = self.download_manager.on_preempted
+        accountant.add_preempt_listener(self.download_manager.on_preempted)
         self.download_manager.start()
         self._register_cleanable("downloads", self.download_manager.shutdown)
 
