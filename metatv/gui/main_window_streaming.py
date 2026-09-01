@@ -132,14 +132,18 @@ class _StreamingMixin:
             ) as response:
                 if response.status_code >= 400:
                     logger.warning(f"Stream URL returned HTTP {response.status_code}")
-                    # Auth/gating codes (401 Unauthorized, 403 Forbidden, 511 Network
-                    # Authentication Required) are treated as *uncertain* — the stream
-                    # may still play in mpv (e.g. a shared-account cap the server reports
-                    # as HTTP 511, but mpv negotiates differently).  Return a sentinel
-                    # error string that the failure path can distinguish from a hard text
-                    # error, so "Play Anyway" is always offered.
-                    if response.status_code in (401, 403, 511):
-                        return False, f"HTTP {response.status_code}"
+                    # A 5xx/429 is the SERVER having a moment, not proof the
+                    # stream is bad (see this method's own docstring). On a
+                    # one-connection account THIS PROBE IS a second connection,
+                    # so the provider 500s it precisely because it is serving —
+                    # owner hit that and "Play Anyway" played fine. mpv is the
+                    # better authority: it reconnects, and a real failure still
+                    # surfaces. 511 is auth despite its number, so it is 4xx here.
+                    if (response.status_code >= 500 and response.status_code != 511
+                            ) or response.status_code == 429:
+                        return True, None
+                    # Being told no — bad credentials, gone, gated. Reported, with
+                    # "Play Anyway" still offered by the caller.
                     return False, f"HTTP {response.status_code}"
                 chunk = next(response.iter_content(chunk_size=256), None)
                 if chunk is None:
