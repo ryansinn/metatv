@@ -3,6 +3,7 @@
 import asyncio
 import re
 import time
+from datetime import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
 from sqlalchemy import or_
@@ -198,6 +199,27 @@ class ProviderLoadThread(QThread):
             self._reset_epg_unnamed_refetch_marker(session)
             self.progress.emit(_BAND_STORE[1], 100, f"Stored {total:,} channels")
 
+            # Only now that the whole catalog stored cleanly: drop the rows this
+            # source has stopped listing. Inside the try and AFTER the store, so a
+            # fetch that raised takes the rollback path and deletes nothing —
+            # a partial list must never be read as "everything else is gone".
+            #
+            # `total` is the belt to that braces: a source answering with an empty
+            # list is a failure wearing a success's clothes, and pruning on it
+            # would erase the catalog. prune_vanished_channels applies a further
+            # ceiling for the truncated-but-non-empty case.
+            if total:
+                from metatv.core.repositories.channel import ChannelRepository
+                pruned = ChannelRepository(session).prune_vanished_channels(
+                    self.provider.id, self._seen_at)
+                if pruned["channels"]:
+                    logger.info(
+                        "{}: pruned {:,} channel(s) the source no longer lists "
+                        "(+{:,} metadata, {:,} tags, {:,} EPG rows)",
+                        self.provider.name, pruned["channels"],
+                        pruned["metadata"], pruned["content_tags"],
+                        pruned["epg_by_channel"])
+
         except Exception as e:
             session.rollback()
             logger.error(f"Database error during provider load: {e}")
@@ -282,6 +304,13 @@ class ProviderLoadThread(QThread):
         # reuse comparison would always see "unchanged".
         engaged_before = self._snapshot_engaged_names(session)
 
+        # ONE instant for the whole refresh, taken before the first write. Every
+        # row this pass touches gets exactly this value, so "older than this" is
+        # an unambiguous test for "the source stopped listing it" — a per-batch
+        # now() would make the boundary drift across the run and leave the last
+        # batch looking newer than the first.
+        self._seen_at = datetime.utcnow()
+
         # Disable autoflush so writes only happen at each explicit commit().
         # Without this, ORM operations would trigger an autoflush before internal
         # SELECTs, holding the SQLite write lock across up to 100 items.  With
@@ -340,7 +369,7 @@ class ProviderLoadThread(QThread):
 
                 processed += 1
                 if len(batch) >= _STORE_BATCH:
-                    self._flush_batch(session, batch)
+                    self._flush_batch(session, batch, seen_at=self._seen_at)
                     batch.clear()
                     _ss, _se = _BAND_STORE
                     percent = int(_ss + (processed / total) * (_se - _ss)) if total else _se
@@ -348,7 +377,7 @@ class ProviderLoadThread(QThread):
 
             # Flush the final partial batch
             if batch:
-                self._flush_batch(session, batch)
+                self._flush_batch(session, batch, seen_at=self._seen_at)
                 batch.clear()
 
         # Report after the last flush so the comparison sees committed
@@ -455,7 +484,7 @@ class ProviderLoadThread(QThread):
         session.commit()
 
     @staticmethod
-    def _flush_batch(session, batch: list[dict]) -> None:
+    def _flush_batch(session, batch: list[dict], *, seen_at=None) -> None:
         """Execute one bulk upsert for *batch* and commit the transaction.
 
         Uses SQLite's ``INSERT INTO ... ON CONFLICT(id) DO UPDATE SET ...``
@@ -472,8 +501,23 @@ class ProviderLoadThread(QThread):
         """
         from sqlalchemy import case, func, literal
 
+        # Stamp presence on every row in this batch, inserted or updated.
+        #
+        # Deliberately NOT part of _CATALOG_COLS: that tuple is checked against
+        # the Channel model by test_catalog_columns_cover_the_channel, and this
+        # is loader bookkeeping rather than anything the source sends.
+        #
+        # It has to be set on the DO UPDATE branch too, which is the whole point
+        # — a channel the source still lists but has not edited takes that branch
+        # and changes nothing else. Stamping only on insert would mark every
+        # unchanged channel as vanished on the very next refresh.
+        if seen_at is not None:
+            batch = [dict(row, last_seen_at=seen_at) for row in batch]
+
         stmt = _sqlite_insert(ChannelDB).values(batch)
         update_set = {col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS}
+        if seen_at is not None:
+            update_set["last_seen_at"] = stmt.excluded.last_seen_at
         # Preserve provider-native / propagated tmdb enrichment across refreshes.
         # detected_tmdb_id is a catalog column, but the enrichment layer writes ids the
         # provider LIST row still omits (from the detail endpoint or a title sibling).
