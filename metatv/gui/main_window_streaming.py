@@ -813,7 +813,7 @@ class _StreamingMixin:
         if not channel_id:
             return
         try:
-            if not hasattr(self, "_watch_tracking"):
+            if "_watch_tracking" not in self.__dict__:
                 self._watch_tracking = {}
             key = self.player_manager.resolve_key(provider_id, force_new_window)
             self.executor.submit(self._bg_mark_played, channel_id, key)
@@ -1414,7 +1414,7 @@ class _StreamingMixin:
         Lazily creates the QTimer on first use and registers its stop() with the
         cleanup registry exactly once. Safe to call on every play.
         """
-        if not hasattr(self, "_playback_health_timer") or self._playback_health_timer is None:
+        if self.__dict__.get("_playback_health_timer") is None:
             self._playback_health_timer = QTimer(self)
             self._playback_health_timer.setInterval(2000)
             self._playback_health_timer.timeout.connect(self._playback_health_tick)
@@ -1517,14 +1517,14 @@ class _StreamingMixin:
             key: Player-instance key that went idle, or None for the shared one.
         """
         try:
-            playing = getattr(self, "_playing_channels", None) or {}
+            playing = self.__dict__.get("_playing_channels") or {}
             channel_id = playing.get(key)
             if channel_id is None and len(playing) == 1:
                 # Shared window: the poll can report a null key.
                 channel_id = next(iter(playing.values()))
             if not channel_id:
                 return
-            if channel_id != getattr(self, "_last_shown_channel_id", None):
+            if channel_id != self.__dict__.get("_last_shown_channel_id"):
                 return                      # the user moved on; leave them alone
             playing.pop(key, None)          # once per stop, not every idle tick
             self.show_channel_details_by_id(channel_id)
@@ -1561,7 +1561,7 @@ class _StreamingMixin:
             # panel should show resume if the content I just closed was the
             # content mpv was just playing."
             self._refresh_details_after_playback_stopped(key)
-            self._health_idle_ticks = getattr(self, "_health_idle_ticks", 0) + 1
+            self._health_idle_ticks = self.__dict__.get("_health_idle_ticks", 0) + 1
             if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
                 self._playback_health_timer.stop()
             return
