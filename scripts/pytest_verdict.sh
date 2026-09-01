@@ -80,6 +80,10 @@ fi
 # than racing, so a background loop and a foreground check can both be started
 # without thinking about it. Set METATV_PYTEST_NOWAIT=1 to fail fast instead of
 # queueing, which is what a script wants when it would rather skip than block.
+# scripts/running.sh answers "is a test run already going?" without the
+# self-matching that made `pgrep -f pytest` lie five times in one session.
+# The lock below is what actually enforces serialization; running.sh is for
+# a human (or an agent) asking before they start.
 LOCK="${TMPDIR:-/tmp}/metatv-pytest.lock"
 if [ -n "${METATV_PYTEST_NOWAIT:-}" ]; then
     _FLOCK_ARGS="-n"
