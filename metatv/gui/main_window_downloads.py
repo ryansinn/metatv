@@ -53,27 +53,15 @@ class _DownloadsMixin:
         """
         accountant = self.player_manager.connection_accountant
 
-        # ONE callback slot, THREE consumers — so it fans out.
-        #
-        # `accountant._on_preempt` is a single attribute. Assigning it a second
-        # time silently replaces the first, and the manager that lost it simply
-        # stops being told its slot was taken: a download would never resume, a
-        # probe would keep ffmpeg running against a stream the user is now
-        # trying to watch. Nothing raises; it just quietly stops working.
-        #
-        # Each listener already ignores holders that are not its own, so a plain
-        # fan-out is safe and order does not matter.
-        self._preempt_listeners: "list" = []
-
-        def _dispatch_preempt(provider_id: str, holder_id: str, kind: str) -> None:
-            for listener in self._preempt_listeners:
-                try:
-                    listener(provider_id, holder_id, kind)
-                except Exception:              # pragma: no cover - guard
-                    logger.exception("preempt listener failed")
-
-        accountant._on_preempt = _dispatch_preempt
-
+        # The fan-out lives in the ACCOUNTANT, not here. This branch grew its
+        # own `_preempt_listeners` list plus a `_dispatch_preempt` closure
+        # assigned onto `accountant._on_preempt`, because at the time the
+        # accountant had a single callback slot and a second assignment silently
+        # replaced the first. Main has since put `add_preempt_listener` on the
+        # accountant, which solves the same hazard one layer down and for every
+        # caller — so keeping both would be two mechanisms doing one job, with
+        # the local one re-introducing the very single-slot assignment the
+        # docstring above forbids.
         self.download_manager = DownloadManager(self.db, self.config, accountant)
         accountant.add_preempt_listener(self.download_manager.on_preempted)
         self.download_manager.start()

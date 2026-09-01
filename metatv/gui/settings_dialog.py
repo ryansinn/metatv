@@ -214,10 +214,15 @@ SECTIONS: tuple[tuple[str, str, str, str], ...] = (
      "connection, so it never runs while you are watching something."),
 )
 
-#: Kept as the (id, label) pairs and the help mapping the rest of the file
-#: already reads. Derived, so they cannot drift from the list above.
-_SECTIONS: tuple[tuple[str, str], ...] = tuple(
-    (sid, label) for sid, label, _builder, _help in SECTIONS)
+#: Kept as the ``(id, label, builder)`` triples and the help mapping the rest of
+#: the file — and the tests — already read. Derived, so they cannot drift from
+#: the list above.
+#:
+#: Three elements, not two: this branch predates the Interface/Sidebar/Alerts
+#: split, which added tests that unpack the builder name from here. Deriving a
+#: pair silently changed a published shape and broke three of them.
+_SECTIONS: tuple[tuple[str, str, str], ...] = tuple(
+    (sid, label, builder) for sid, label, builder, _help in SECTIONS)
 _SECTION_HELP: dict[str, str] = {
     sid: help_text for sid, _label, _builder, help_text in SECTIONS}
 

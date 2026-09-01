@@ -230,11 +230,15 @@ def test_the_preempt_callback_fans_out_to_every_manager():
 
     src = inspect.getsource(main_window_downloads._DownloadsMixin._setup_downloads)
 
-    assert src.count("_on_preempt =") == 1, (
-        "the accountant's single callback slot is assigned more than once — "
-        "the earlier listener is silently discarded")
-    assert "_preempt_listeners.append" in src
-    assert src.count("_preempt_listeners.append") >= 2, (
+    # Registration goes through accountant.add_preempt_listener. This branch was
+    # written against a local _preempt_listeners list on the mixin; main replaced
+    # it with a method on the accountant, which is the same fix for the same
+    # hazard — a single assignable callback slot silently drops whoever
+    # registered first. The assertion follows the API, the intent is unchanged.
+    assert "_on_preempt =" not in src, (
+        "back to a single assignable callback slot — the second manager to "
+        "register silently discards the first")
+    assert src.count("add_preempt_listener") >= 2, (
         "fewer listeners registered than managers that need preempt notice")
 
 
