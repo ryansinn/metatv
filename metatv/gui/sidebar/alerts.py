@@ -250,6 +250,11 @@ class WatchAlertsSection(
         # (it previously floated label-less at the top — the inconsistency the
         # consolidation fixes).  Hidden entirely when nothing is airing now/soon.
         self._epg_collapsed = False
+        #: EPG group title -> the expand/collapse the USER chose for it.
+        #: Only ever written by a click. _apply_expansion's automatic budget
+        #: decision may not overrule an entry here — same rule as the sidebar's
+        #: _auto_folded: auto may only undo what auto did.
+        self._user_expansion: dict[str, bool] = {}
         self._epg_has_rows = False
 
         epg_hdr_row = QHBoxLayout()

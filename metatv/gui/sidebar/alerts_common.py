@@ -29,6 +29,10 @@ _ROW_FALLBACK_H = 22
 
 
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
+# Stable key for a collapsible EPG group, so the user's expand/collapse choice
+# survives the tree being rebuilt on every refresh. The QTreeWidgetItem does not:
+# it is destroyed and recreated, taking its expanded state with it.
+_ROLE_GROUP_KEY = Qt.ItemDataRole.UserRole + 7   # programme title (EPG group rows)
 
 
 def _quality(airing) -> str:

@@ -79,6 +79,13 @@ from metatv.gui.refresh_queue_manager import RefreshQueueManager
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
 
+#: Delay before the first watchlist pass, so it does not land on the play the
+#: user opened the app to make. A pass is one get_series_info per monitored
+#: series per mirror; on a one-connection account that IS the playback slot.
+#: Three minutes clears the launch burst (sources tested, filters restored,
+#: migrations queued) and still runs long before anyone notices it did not.
+_WATCHLIST_STARTUP_DELAY_MS = 3 * 60 * 1000
+
 # Auto-dialog backlog cap — above this many unseen entries, show only the
 # newest release's entries (see maybe_show_whats_new).
 #: Padding above every view in the content column (px). Structural spacing, so
@@ -706,7 +713,14 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Series monitor startup check — runs after channels are loaded
         # (deferred 0ms yields to the event loop so channel load and UI paint
         # happen first).
-        QTimer.singleShot(0, self.series_monitor.check_all)
+        # NOT at 0ms. This is a full watchlist pass and firing it at launch put
+        # it exactly where the user's first play lands — the owner's logs show
+        # the pass at 03:14:31 with play pressed at 03:15:09, and the pass at
+        # 03:58:06-09 with play at 03:58:12. Same slot, one connection.
+        #
+        # The interval setting could not help: it governs only the RECURRING
+        # timer, so this ran even at interval 0.
+        QTimer.singleShot(_WATCHLIST_STARTUP_DELAY_MS, self.series_monitor.check_all)
 
         # VOD watch-alert startup check — same deferred strategy as series_monitor.
         QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
