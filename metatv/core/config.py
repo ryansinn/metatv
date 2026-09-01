@@ -1350,6 +1350,33 @@ class Config(BaseModel):
     #: Seconds of stream sampled per check. The wall-clock cost is dominated by
     #: connect + buffer, so a longer sample is cheaper than it looks — but every
     #: second is a second holding the provider's only connection.
+    #: Master switch for signal checking. OFF — the feature is parked.
+    #:
+    #: Two independent problems, both measured on the owner's account within
+    #: minutes of #617 shipping:
+    #:
+    #: 1. **It jams the only connection.** A probe holds the source's connection
+    #:    for the length of its sample, and both of their sources report
+    #:    ``max_connections=1``. The worker started unconditionally and probed
+    #:    every few seconds — their log shows :04, :11, :18, :25, :35, :44, :54 —
+    #:    so playback competed with it, and probes competed with each other.
+    #:    Owner: *"it's just going to jam up the only available connection."*
+    #:
+    #: 2. **The verdicts are wrong in the common case.** Channels they were
+    #:    actively watching came back ``dead (no video — ffmpeg exited 146)``.
+    #:    ffmpeg exits 145/146 when it cannot OPEN the input — measured here:
+    #:    "Connection refused" gives 145 — which on a one-connection account
+    #:    usually means the slot was busy, not that the stream is empty. The
+    #:    stderr wording missed every recognized pattern and fell through to
+    #:    "no video", so a busy connection was recorded as dead. ``interpret()``
+    #:    already treats REFUSED as inconclusive for exactly this reason; it
+    #:    just never sees it.
+    #:
+    #: Parked rather than deleted: the underlying question is real and the owner
+    #: raised it themselves ("hardly anything ever actually on those channels,
+    #: just dead air"). Revisiting it needs the exit-code family classified
+    #: before anything is recorded. See ROADMAP.md.
+    signal_check_enabled: bool = False
     signal_sample_seconds: int = 4
     #: Fraction of the sample that must be black before the verdict is "black".
     #: 0.5 means "more than half". A bumper or a fade is black for a moment;

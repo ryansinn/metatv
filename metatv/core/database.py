@@ -882,6 +882,7 @@ class Database:
         self._prune_orphaned_content_tags()
         self._clean_polluted_metadata_titles()
         self._seed_last_seen_at()
+        self._clear_unreliable_signal_verdicts()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -1367,6 +1368,48 @@ class Database:
                 conn.commit()
         except Exception as exc:
             logger.error(f"last_seen_at seed failed (startup unblocked): {exc}")
+
+    def _clear_unreliable_signal_verdicts(self) -> None:
+        """One-time: discard the verdicts recorded before the feature was parked.
+
+        Every verdict written by the first shipped version of the signal check is
+        suspect. Channels the owner was actively watching came back ``dead``,
+        because ffmpeg exits 145/146 when it cannot OPEN the input — which on a
+        one-connection account usually means the slot was busy — and that stderr
+        matched no recognized pattern, so it fell through to "no video".
+
+        Left in place, these feed ``signal_dead_streak`` and would hide real
+        events the moment anyone turned ``hide_dead_events`` on. Nothing reads
+        them today (the feature is off), which makes this the cheap moment to
+        drop them rather than carry known-wrong data forward.
+
+        Only the three derived signal_* columns are touched — no user state.
+        """
+        try:
+            with self.engine.connect() as conn:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version >= 6:
+                return
+            with self.engine.connect() as conn:
+                cleared = conn.execute(text(
+                    "UPDATE channels SET signal_verdict = NULL, "
+                    "signal_dead_streak = 0, signal_checked_at = NULL "
+                    "WHERE signal_verdict IS NOT NULL "
+                    "   OR signal_dead_streak != 0 "
+                    "   OR signal_checked_at IS NOT NULL"
+                )).rowcount
+                conn.commit()
+            if cleared:
+                logger.info(
+                    f"One-time: cleared {cleared:,} signal-check verdict(s) "
+                    f"recorded before the feature was parked — they could not "
+                    f"tell a busy connection from a dead stream."
+                )
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA user_version = 6"))
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"Signal-verdict cleanup failed (startup unblocked): {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""
