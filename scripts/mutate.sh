@@ -1,109 +1,73 @@
 #!/usr/bin/env bash
-# mutate.sh — prove a test can actually detect the defect it is named for.
+# mutate.sh — break the code on purpose, prove the test notices, put it back.
 #
-# A green test run says the test agrees with the current code. It says nothing
-# about whether the test could ever catch the bug. The only way to know is to
-# put the bug back and watch the test go red.
+# WHY THIS EXISTS
+# ---------------
+# The hand-rolled version of this is three steps, and step three is a trap:
 #
-# WHY THIS IS A SCRIPT AND NOT A HABIT
-# ------------------------------------
-# Hand-rolled mutation loops have produced BOTH failure directions here:
+#     python3 -c '...break something...'
+#     scripts/pytest_verdict.sh tests/the_test.py
+#     git checkout HEAD -- metatv/          # <-- discards UNCOMMITTED work
 #
-#   false GREEN — the assertion was vacuously true (a bound checked over a
-#                 collection that is always empty), so the mutation changed
-#                 nothing observable.
-#   false RED   — 2026-08-31: the loop began `cd <worktree>` to a worktree that
-#                 had been removed. cd failed, cp failed, sed failed, pytest
-#                 never ran, and the script reported "RED ✓" off the *cd's*
-#                 exit code. A mutation that never happened was recorded as
-#                 proof.
+# `git checkout HEAD --` restores from the last COMMIT, so any fix written and
+# not yet committed is destroyed. On 2026-09-01 that happened THREE times in one
+# session — twice silently, surfacing later as a false RED on an unrelated
+# mutation, and once caught only because a grep for a comment came back empty.
+# It is written down in CLAUDE.md as "commit before mutation-testing"; writing it
+# down did not stop it.
 #
-# So this script refuses to report anything until it has PROVEN it mutated the
-# file: it diffs before and after, aborts if they match, and prints the changed
-# line so the mutation is visible rather than assumed. It also verifies the
-# restore, because a mutation left behind is worse than one never applied.
+# So this refuses to run on a dirty tree. There is nothing to discard if there is
+# nothing uncommitted, and the check is one line rather than one more rule.
 #
-# USAGE
-#   scripts/mutate.sh <file> <sed-expr> <pytest -k filter> <description>
+#   scripts/mutate.sh <patch.py> <test path> [test path...]
 #
-#   scripts/mutate.sh metatv/core/recording_manager.py \
-#       's/if row.recorded_bytes > 0:/if False:/' \
-#       bytes_is_completed "a partial recording is called a failure"
+# <patch.py> is a Python script that edits the tree. It should assert its own
+# anchor — a mutation that silently fails to apply produces a GREEN run and
+# reads as "the test does not catch this", which is the exact wrong conclusion.
 #
-# EXIT: 0 when the mutation was applied AND the test went red (the good case).
-#       1 when the test stayed green — the test cannot see the defect.
-#       2 when the mutation could not be applied — nothing was proven.
+# Exit 0 when the mutation was CAUGHT (tests went red — what you want).
+# Exit 1 when it was MISSED (tests stayed green — the test proves nothing).
 set -u
 
-FILE="${1:?usage: mutate.sh <file> <sed-expr> <-k filter> <description>}"
-EXPR="${2:?missing sed expression}"
-KFILTER="${3:?missing pytest -k filter}"
-DESC="${4:?missing description}"
-PY="${PYTHON:-venv/bin/python}"
-BAK="$(mktemp)"
-
-cleanup() { [ -f "$BAK" ] && rm -f "$BAK"; }
-trap cleanup EXIT
-
-if [ ! -f "$FILE" ]; then
-    echo "ABORT ?  $DESC"
-    echo "         $FILE does not exist — nothing was mutated, nothing proven."
-    exit 2
+if [ "$#" -lt 2 ]; then
+    sed -n '2,30p' "$0" >&2
+    exit 64
 fi
 
-cp "$FILE" "$BAK"
-sed -i "$EXPR" "$FILE"
+PATCH="$1"; shift
 
-# THE CHECK THAT MAKES THIS TRUSTWORTHY: did the file actually change?
-if diff -q "$BAK" "$FILE" >/dev/null 2>&1; then
-    cp "$BAK" "$FILE"
-    echo "ABORT ?  $DESC"
-    echo "         sed matched nothing — the code was never mutated, so a red or"
-    echo "         green result here would mean nothing. Fix the expression."
-    exit 2
+if [ -n "$(git status --porcelain)" ]; then
+    cat >&2 <<'MSG'
+REFUSING to mutate a dirty tree.
+
+This restores with `git checkout HEAD --`, which reverts to the last COMMIT and
+would destroy anything uncommitted. That has already cost three fixes in one
+session, twice without noticing until a later mutation returned a false RED.
+
+Commit first — then a mutation cannot lose anything:
+
+    git add -A && git commit -m "..."
+MSG
+    exit 64
 fi
 
-echo "         mutation applied:"
-diff "$BAK" "$FILE" | grep -E '^[<>]' | head -4 | sed 's/^/         /'
+BEFORE="$(git rev-parse HEAD)"
+python3 "$PATCH" || { echo "mutation script failed to apply — nothing was tested" >&2; exit 64; }
 
-# Same lock as pytest_verdict.sh, and for the same reason: two pytest-qt suites
-# at once segfault, and a segfault here would be read as "RED — the test caught
-# it" when it caught nothing. A mutation harness that can be contaminated by a
-# background run is worse than none, because its output looks like proof.
-exec 9>"${TMPDIR:-/tmp}/metatv-pytest.lock"
-flock 9
-
-"$PY" -m pytest -q -p no:randomly -k "$KFILTER" >/dev/null 2>&1
-code=$?
-flock -u 9 2>/dev/null || true
-
-# 139 is SIGSEGV. It is never evidence about the mutation — on this machine it
-# means a Qt teardown crash, which would otherwise be counted as a pass for the
-# test's ability to detect the defect.
-if [ "$code" -eq 139 ]; then
-    cp "$BAK" "$FILE"
-    echo "ABORT !  $DESC"
-    echo "         pytest segfaulted (139). That says nothing about the mutation."
-    exit 2
+if [ -z "$(git status --porcelain)" ]; then
+    echo "REFUSING: the mutation changed nothing. A no-op mutation always looks 'caught'." >&2
+    exit 64
 fi
 
-cp "$BAK" "$FILE"
-if ! diff -q "$BAK" "$FILE" >/dev/null 2>&1; then
-    echo "ABORT !  $DESC"
-    echo "         RESTORE FAILED — $FILE is still mutated. Fix it before continuing."
-    exit 2
-fi
+scripts/pytest_verdict.sh "$@"
+rc=$?
 
-if [ "$code" -eq 5 ]; then
-    echo "ABORT ?  $DESC"
-    echo "         pytest collected no tests for -k '$KFILTER' — nothing ran."
-    exit 2
-fi
+git checkout "$BEFORE" -- .
+git status --porcelain | grep -q . && echo "WARNING: tree still dirty after restore" >&2
 
-if [ "$code" -ne 0 ]; then
-    echo "RED   ✓  $DESC"
-    exit 0
+if [ "$rc" -eq 0 ]; then
+    echo "MUTATION MISSED — the tests stayed green. They do not detect this change."
+    exit 1
 fi
-echo "GREEN ✗  $DESC"
-echo "         The test passed with the defect reintroduced. It cannot detect it."
-exit 1
+echo "MUTATION CAUGHT — the tests went red, as they should."
+exit 0

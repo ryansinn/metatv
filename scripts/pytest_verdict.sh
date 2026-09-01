@@ -63,6 +63,104 @@ MSG
     exit 64
 fi
 
+# ...and a REASON IS NOT ENOUGH, because a prompt that accepts any string is a
+# speed bump, not a gate. On 2026-09-01 the full local suite ran four times in
+# one session, ~35 minutes each — over two hours — and three of those four were
+# on trees CI had ALREADY reported green on both platforms. The prompt above was
+# answered every time; it asks "why" and believes the answer.
+#
+# So this asks the fact instead: has CI already run the whole suite on exactly
+# this tree? If yes, there is nothing a local rerun can discover.
+#
+# The three conditions that let it through are the three where CI genuinely
+# cannot have an answer — and they are exactly the runs that have paid off. The
+# CFG-5 gate that caught two cross-file failures was a pre-push run on a dirty
+# tree; it would still be allowed today.
+if [ "$#" -eq 0 ] && [ -z "${METATV_FULL_SUITE_ANYWAY:-}" ]; then
+    _sha="$(git rev-parse HEAD 2>/dev/null || echo "")"
+    _dirty="$(git status --porcelain 2>/dev/null | head -1)"
+    if [ -n "$_sha" ] && [ -z "$_dirty" ] && command -v gh >/dev/null 2>&1; then
+        # Total checks, and how many are not SUCCESS. An EMPTY rollup must not
+        # read as "nothing failed" — that false green has shipped here twice —
+        # so a total of 0 falls through to running the suite.
+        _ci="$(gh api "repos/{owner}/{repo}/commits/${_sha}/check-runs" \
+                 --jq '[.check_runs[] | .conclusion // "PENDING"]
+                       | "\(length) \([.[] | select(. != "success" and . != "SUCCESS")] | length)"' \
+               2>/dev/null || echo "")"
+        _total="${_ci%% *}"; _bad="${_ci##* }"
+        if [ -n "$_total" ] && [ "$_total" -gt 0 ] 2>/dev/null && [ "$_bad" = "0" ]; then
+            cat >&2 <<MSG
+REFUSING the full local suite: CI already ran it on this exact tree.
+
+  commit ${_sha}
+  ${_total} checks, all green — both platforms, sharded, already reported.
+
+A local rerun of the same commit cannot discover anything CI did not. It costs
+~35 minutes; CI costs ~8 and has already spent them.
+
+Run the files you changed instead:
+
+    scripts/pytest_verdict.sh tests/test_the_thing_you_changed.py
+
+This gate does NOT fire when CI cannot have an answer — a dirty working tree,
+an unpushed commit, or checks still pending — which is every case where a local
+full run is the useful one.
+
+If you are certain you need it anyway:
+
+    METATV_FULL_SUITE_ANYWAY=1 METATV_FULL_SUITE_REASON="..." scripts/pytest_verdict.sh
+MSG
+            exit 64
+        fi
+    fi
+fi
+
+# SECOND LAYER: how many times already, recently.
+#
+# The CI check above is principled but narrow — it only fires on a clean, pushed,
+# already-green tree. Replaying 2026-09-01 against it: of four full runs, three
+# were on unpushed or dirty trees and only one would have been refused. The
+# pattern the owner actually objected to was REPETITION ("this has been going on
+# for days"), and repetition is what this counts.
+#
+# Two inside six hours is the budget. The one gate per merge batch plus one
+# genuine pre-push run on a broad change fits; a third means something is being
+# re-asked rather than asked.
+_FS_LOG="${TMPDIR:-/tmp}/.metatv_full_suite_runs"
+if [ "$#" -eq 0 ] && [ -z "${METATV_FULL_SUITE_ANYWAY:-}" ]; then
+    _now=$(date +%s)
+    _cut=$((_now - 21600))
+    _recent=0
+    if [ -f "$_FS_LOG" ]; then
+        # Keep only entries inside the window, then count them.
+        awk -v c="$_cut" '$1 > c' "$_FS_LOG" > "${_FS_LOG}.tmp" 2>/dev/null || : 
+        mv -f "${_FS_LOG}.tmp" "$_FS_LOG" 2>/dev/null || :
+        _recent=$(wc -l < "$_FS_LOG" 2>/dev/null || echo 0)
+    fi
+    if [ "$_recent" -ge 2 ] 2>/dev/null; then
+        cat >&2 <<MSG
+REFUSING: ${_recent} full local suites already in the last 6 hours.
+
+Each costs ~35 minutes. CI runs the same suite on BOTH platforms, sharded, in
+about 8 — for every PR, automatically. A third local run in one session is
+almost always the same question asked again.
+
+  Previous runs (reason given):
+$(sed 's/^[0-9]* /    /' "$_FS_LOG" 2>/dev/null | tail -5)
+
+Run the files you changed:
+
+    scripts/pytest_verdict.sh tests/test_the_thing_you_changed.py
+
+Or push and read CI. If this really is the exception:
+
+    METATV_FULL_SUITE_ANYWAY=1 METATV_FULL_SUITE_REASON="..." scripts/pytest_verdict.sh
+MSG
+        exit 64
+    fi
+    printf '%s %s\n' "$_now" "${METATV_FULL_SUITE_REASON}" >> "$_FS_LOG"
+fi
+
 if [ "$#" -eq 0 ]; then
     echo "FULL SUITE — reason: ${METATV_FULL_SUITE_REASON}"
 fi
