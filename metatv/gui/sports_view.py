@@ -247,10 +247,38 @@ class SportsView(ContentView):
         # (owner, 2026-09-01: "Sports filters are not remembered on app
         # restart"). The lane survived because it saves separately.
         if not self._filters_restored:
-            self._filters_restored = True
             saved = getattr(self.config, "sports_filter_state", None) or {}
             if saved:
                 self.filter_bar.restore_filter_state(saved)
+                # ...and then actually APPLY it. restore_filter_state sets the
+                # chips under blockSignals — correctly, or sixteen chips would
+                # fire sixteen reloads — so nothing downstream ever hears about
+                # it. Without this the chips render the saved sport while the
+                # rows and lane counts are still the unfiltered first load: the
+                # owner saw Baseball selected above a list of hockey fixtures
+                # and "Channels (6524)" where the real filtered count is 142.
+                #
+                # Unselecting and reselecting the chip "fixed" it, which is the
+                # tell — the toggle emits the signal the restore suppressed.
+                #
+                # Guarded on the state actually narrowing something, the same
+                # call #626 made for the channel list: an empty saved state
+                # matches what the first load already did, and re-querying 6,500
+                # rows to reach the identical answer is pure cost.
+                if any(saved.get(k) for k in ("sport_types", "league_names",
+                                              "search")):
+                    self._reload_channels()
+            # LAST, and that ordering is the fix's second half. _reload_channels
+            # saves the live filter state back to config, but ONLY once this flag
+            # is set — which is exactly why the reload above runs while it is
+            # still False. Setting it first (my first draft did) made the startup
+            # reload write the CHIPS' state over the saved one, so a sport the
+            # taxonomy no longer carries — which restore_filter_state drops
+            # silently, by design — would be erased from config the first time a
+            # source hiccuped. test_nothing_is_saved_before_the_restore_has_run
+            # already documents this flag as the guard against precisely that,
+            # and it is what caught the draft.
+            self._filters_restored = True
 
     def _reload_channels(self, *, refresh_counts: bool = True) -> None:
         """Re-query for the current cascade selection.

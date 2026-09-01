@@ -136,7 +136,25 @@ if TYPE_CHECKING:
 #       14 rows, ALL real film titles ("10x10 (2018)", "8x10 Tasveer", "12x12");
 #       "Season N Episode N" matched nothing. Verified: 0 of the other 784,203
 #       names gain a season or episode.
-CURRENT_VERSION: int = 12
+# Version 13 — repair rows whose detected_title names a DIFFERENT event than
+#       the one the slot now carries. #629 nulls the derived fields when a row is
+#       renamed and lets ingestion refill them, which fixes every rename FROM
+#       THEN ON — but it has no backfill, and a row that went stale before it
+#       shipped never changes name again, so nothing ever nulls it. It stays
+#       wrong permanently.
+#
+#       Measured on the owner's library: 1,077 of 2,940 dated event rows (36.6%)
+#       carry a title whose embedded date differs from the name's. The provider
+#       rotates event slots daily, so the list showed last week's fixture on a
+#       channel carrying tonight's — "(FLSP 154) flovolleyball … (2026-08-28)"
+#       on a row whose name, sport_type and event_start_time all said hockey
+#       tonight. Render reads detected_title, so the app and mpv disagreed about
+#       what was playing, which is how the owner found it.
+#
+#       A bump is the whole fix: update_detected_prefixes recomputes
+#       detected_title from the current name and writes it when it differs — it
+#       is fill-empty-only for detected_REGION precedence, not for the title.
+CURRENT_VERSION: int = 13
 
 
 class DetectedTitleReparseTask:
