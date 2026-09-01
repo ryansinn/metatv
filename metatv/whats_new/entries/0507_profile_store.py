@@ -22,11 +22,11 @@ ENTRY = WhatsNewEntry(
     test_steps=(
         ("Launch MetaTV, then open the filter panel and confirm your included "
          "genres, regions and languages are exactly as you left them.",
-         "view:filters"),
+         "view:browse"),
         ("Open Global Exclusions and confirm your excluded categories are "
          "unchanged."),
-        ("Open Watch Alerts and confirm your monitored series and VOD alert "
-         "rules are all still listed.", "view:watch_alerts"),
+        ("Open Watch Alerts from the sidebar and confirm your monitored "
+         "series and VOD alert rules are all still listed."),
         ("Toggle a genre off, restart MetaTV, and confirm it is still off."),
         ("Un-tick a genre so that NONE are selected, restart, and confirm the "
          "selection is still empty rather than reset to all-selected."),
