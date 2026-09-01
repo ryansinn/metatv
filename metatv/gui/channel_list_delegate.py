@@ -108,6 +108,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.channel_name_utils import PLATFORM_CODES
 from metatv.gui import channel_row_layout as _layout
+from metatv.gui import channel_row_lead as _lead
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -153,6 +154,7 @@ PLATFORM_STYLE_AUTO = "auto"
 PLATFORM_STYLE_FULL = "full"
 PLATFORM_STYLE_SHORT = "short"
 _VALID_PLATFORM_STYLES = (PLATFORM_STYLE_AUTO, PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT)
+
 
 # Structural spacing. The ROW's geometry now lives in ``channel_row_layout``
 # (one module, no painter, no row state — see its docstring for why); the names
@@ -276,6 +278,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         # not otherwise know which row it belongs to.
         self._hit_regions: dict[int, list[tuple[QRect, _Cell]]] = {}
         self._painting_row: Optional[int] = None
+        self._row_discriminator: str = ""   # see set_row_discriminator
 
     def set_density(self, density: str) -> None:
         """Set the row density ("compact"/"comfy"/"comfy_plus"); unknown values
@@ -294,6 +297,17 @@ class ChannelRowDelegate(QStyledItemDelegate):
     @property
     def thumbnails_enabled(self) -> bool:
         return self._thumbnails_enabled
+
+    def set_row_discriminator(self, mode: str) -> None:
+        """What the leading slot shows: "sport", "region", or "" (collapsed).
+
+        Told, not worked out — "what still varies" is a fact about the QUERY and
+        a delegate sees one row. Rule: ``channel_row_lead``. Unknown → ``""``."""
+        self._row_discriminator = mode if mode in _lead.VALID_DISCRIMINATORS else ""
+
+    @property
+    def row_discriminator(self) -> str:
+        return self._row_discriminator
 
     def set_platform_name_style(self, style: str) -> None:
         """Set the platform chip's name style ("auto"/"full"/"short",
@@ -428,8 +442,12 @@ class ChannelRowDelegate(QStyledItemDelegate):
         # selection/hover flag — see channel_row_layout's docstring: row
         # geometry taking no state argument is what makes "nothing moves when a
         # row is selected" unrepresentable rather than merely remembered.
+        lead_text, lead_role = _lead.lead_slot(
+            self._row_discriminator, index.data(SPORT_ROLE) or "",
+            index.data(LANGUAGE_ROLE) or "")
         box = _layout.row_layout(
-            option.rect, has_art=has_art, art_square=(kind == "live"), rail_w=rail_w
+            option.rect, has_art=has_art, art_square=(kind == "live"),
+            rail_w=rail_w, lead_w=_lead.slot_width(lead_text, lead_role),
         )
 
         # Scope hit-region recording to this row, and clear any previous pass so
@@ -443,6 +461,9 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
         self._paint_chrome(painter, box, opt)
         self._paint_kind_mark(painter, box.kind, kind, default_color)
+        _lead.paint_lead_slot(painter, box.lead, lead_text, lead_role,
+                              _to_qcolor(default_color).name(), meta_font,
+                              self._draw_text)
         if has_art:
             self._paint_thumbnail(painter, box.art, index, kind)
 
@@ -550,13 +571,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
         )
         if not pixmap.isNull():
             painter.drawPixmap(rect, pixmap)
-
-    def _thumbnail_rect(self, row_rect: QRect) -> QRect:
-        """The artwork well for *row_rect* — the poster shape, which is what the
-        thumbnail hydrator sizes its requests against."""
-        return _layout.row_layout(
-            row_rect, has_art=True, art_square=False, rail_w=0
-        ).art
 
     def _paint_thumbnail(self, painter, rect: QRect, index, kind: str = "") -> None:
         """Paint the real poster (cache-hit only — never downloads from
