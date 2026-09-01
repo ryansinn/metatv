@@ -389,6 +389,11 @@ class _StreamingMixin:
         else:
             start_seconds = 0
 
+        # Claim the source BEFORE the probe below — validate_stream_url opens a
+        # provider connection the accountant cannot see. Why that matters, with
+        # the measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
+        self.player_manager.claim_for_playback(channel.provider_id)
+
         # Off-load network validation + failover to the shared executor.
         # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.
         self.executor.submit(

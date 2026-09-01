@@ -29,6 +29,7 @@ today.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional, Sequence
 
@@ -68,8 +69,40 @@ class ConnectionAccountant:
     not touch while holding the lock).
     """
 
+    #: Seconds a provider stays off-limits to BACKGROUND work after playback
+    #: touches it.
+    #:
+    #: The accountant frees a slot the instant our HTTP call returns. The
+    #: PROVIDER does not: an Xtream panel keeps counting a closed connection
+    #: against ``active_cons`` until its own reaper expires the record, which
+    #: is tens of seconds. So "we released it" and "you may open one" are not
+    #: the same statement, and treating them as one is why playback still
+    #: failed after #634.
+    #:
+    #: Measured on the owner's account (max_connections=1), 2026-09-01:
+    #: series_monitor made six back-to-back calls to operator1.barfik.org at
+    #: 03:58:06-09; plays at 03:58:12, :20 and :26 all got
+    #: HTTP 500 "failed to redirect to stream origin", and the identical URL
+    #: returned 206 with real Matroska bytes once the app had been shut for a
+    #: few minutes. Sixty seconds covers the panels seen so far.
+    PROVIDER_COOLDOWN_S: float = 60.0
+
+    #: Kinds that are the user waiting. Never subject to the cooldown, and the
+    #: only kinds that arm it.
+    FOREGROUND_KINDS: frozenset[str] = frozenset({"playback", "recording"})
+
+    #: The cooldown applies ONLY where capacity is exactly 1.
+    #:
+    #: That is where the provider's lag actually bites: there is no headroom,
+    #: so a slot the panel has not yet reaped is a slot the user cannot have.
+    #: With two or more, ordinary capacity arbitration plus the eviction
+    #: listeners (#634) already cover it — and holding background work off a
+    #: five-connection account for a minute after every play would starve
+    #: enrichment for nothing. Unlimited (0) never cools.
+
     def __init__(self, capacity_resolver: Callable[[str], int],
-                 on_preempt: "Optional[Callable[[str, str, str], None]]" = None) -> None:
+                 on_preempt: "Optional[Callable[[str, str, str], None]]" = None,
+                 clock: "Optional[Callable[[], float]]" = None) -> None:
         """Initialize the accountant.
 
         Args:
@@ -89,6 +122,12 @@ class ConnectionAccountant:
                 without deadlocking on a non-reentrant lock.
         """
         self._capacity_resolver = capacity_resolver
+        #: Injected so a test can drive the cooldown without sleeping. Never
+        #: read the real clock underneath a caller-supplied one — that bug has
+        #: been found three times in this codebase in a single day.
+        self._clock = clock or time.monotonic
+        #: provider_id -> monotonic time until which background work must stay off.
+        self._cooldown_until: dict[str, float] = {}
         #: EVERY consumer that can be preempted, not one.
         #:
         #: This was a single ``_on_preempt`` slot, assigned directly by
@@ -204,6 +243,21 @@ class ConnectionAccountant:
             cap = self.capacity(provider_id)
             if holder_id in current:
                 return AcquireResult(True, provider_id, cap, tuple(current.keys()))
+            if kind in self.FOREGROUND_KINDS:
+                # The user is waiting. Arm the cooldown now, not on release, so
+                # a play that FAILS still keeps background work off the source
+                # while the user retries — which is the loop they actually hit.
+                self._cooldown_until[provider_id] = (
+                    self._clock() + self.PROVIDER_COOLDOWN_S)
+            elif cap == 1 and self._clock() < self._cooldown_until.get(provider_id, 0.0):
+                # Free by our books, still counted by theirs. Backing off here
+                # is the whole point: catch-up work has no deadline, and the
+                # person staring at a black window does.
+                logger.debug(
+                    "Connection cooldown on {}: {} ({}) held back for {:.0f}s more",
+                    provider_id, holder_id, kind,
+                    self._cooldown_until[provider_id] - self._clock())
+                return AcquireResult(False, provider_id, cap, tuple(current.keys()))
             if cap > 0 and len(current) >= cap:
                 # Evict the LEAST recently registered preemptible holder first,
                 # and only as many as are needed — a second download on the same
@@ -243,6 +297,23 @@ class ConnectionAccountant:
                     # exactly the bug this fan-out exists to prevent.
                     logger.exception("on_preempt listener failed for {}", hid)
         return result
+
+    def note_foreground_use(self, provider_id: str) -> None:
+        """Arm *provider_id*'s background cooldown without taking a slot.
+
+        For the window BEFORE playback owns anything — the preflight probe is
+        a real connection to the provider and the accountant cannot see it, so
+        without this the pollers treat the source as idle for the ~1.5s the
+        probe runs and take the one slot out from under it.
+        """
+        with self._lock:
+            self._cooldown_until[provider_id] = (
+                self._clock() + self.PROVIDER_COOLDOWN_S)
+
+    def cooldown_remaining(self, provider_id: str) -> float:
+        """Seconds background work must still stay off *provider_id* (0 if free)."""
+        with self._lock:
+            return max(0.0, self._cooldown_until.get(provider_id, 0.0) - self._clock())
 
     def release(self, provider_id: str, holder_id: str) -> None:
         """Release *holder_id*'s slot for *provider_id*, if held. No-op otherwise."""
