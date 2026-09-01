@@ -30,7 +30,7 @@ from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_NEWS, CHIP_QUALITY, CHIP_YEAR, ROW_SPACING, build_chip_row,
     chip_widget, row_min_height,
 )
-from metatv.gui.progress_paint import elapsed_pct, paint_progress
+from metatv.gui.progress_paint import ProgressBar, elapsed_pct
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 
 
@@ -178,45 +178,6 @@ class _VodAlertRow(_RowShell):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
 
-class _ProgressBar(QWidget):
-    """How far through a live programme is, as a bar rather than as words.
-
-    Owner's reasoning, and it is the whole point: "30 minutes left on a 30
-    minute show is different than 30 minutes left on a 3 hour show." The words
-    cannot say that; a proportion can. The remaining time moves to the tooltip,
-    where it is available on demand without spending a row's width on it.
-
-    Painting is :func:`metatv.gui.progress_paint.paint_progress` — the same
-    function the EPG tree's Remaining column and the agenda strip use, so all
-    three bars are one bar.
-    """
-
-    _W, _H = 44, 8
-
-    def __init__(self, pct: float = 0.0, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(self._W, self._H)
-        self._pct = pct
-
-    def set_pct(self, pct: float, tooltip: str = "") -> None:
-        """Update the fill, repainting only when it actually moved."""
-        pct = max(0.0, min(100.0, float(pct)))
-        if tooltip:
-            self.setToolTip(tooltip)
-        if abs(pct - self._pct) < 0.5:
-            return
-        self._pct = pct
-        self.update()
-
-    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
-        return QSize(self._W, self._H)
-
-    def paintEvent(self, event):  # noqa: N802 (Qt override)
-        from PyQt6.QtGui import QPainter
-        paint_progress(QPainter(self), QRect(0, 0, self.width(), self.height()),
-                       self._pct)
-
-
 class _AlertRow(_RowShell):
     """An EPG programme or one of its airings.
 
@@ -351,7 +312,8 @@ class _AlertRow(_RowShell):
         # wrong rather than as the programme progressing.
         self.progress = None
         if self._show_bar:
-            self.progress = _ProgressBar(elapsed_pct(started_at, when, now_utc()))
+            self.progress = ProgressBar(
+                elapsed_pct(started_at, when, now_utc()), width=44, height=8)
             self.progress.setToolTip(self._bar_tip(time_str))
 
         # A row shows EITHER a bar or its time, never both: the bar already

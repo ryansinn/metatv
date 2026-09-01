@@ -15,7 +15,8 @@ import pytest
 
 from metatv.core.config import Config
 from metatv.gui.progress_paint import NEARLY_OVER_PCT, elapsed_pct
-from metatv.gui.sidebar.alerts_rows import _AlertRow, _ProgressBar
+from metatv.gui.progress_paint import ProgressBar
+from metatv.gui.sidebar.alerts_rows import _AlertRow
 
 NOW = datetime(2026, 8, 26, 12, 0, 0)
 
@@ -71,9 +72,26 @@ def test_both_epg_surfaces_use_the_shared_painter(qapp):
 
     from metatv.gui import epg_agenda_widget, epg_widgets
 
-    for mod in (epg_widgets, epg_agenda_widget):
+    from metatv.gui.sidebar import alerts_rows
+
+    for mod in (epg_widgets, epg_agenda_widget, alerts_rows):
         src = inspect.getsource(mod)
-        assert "paint_progress" in src, f"{mod.__name__} paints its own bar"
+        # progress_paint rather than paint_progress specifically: a widget
+        # caller now reaches for the shared ProgressBar and a delegate for the
+        # shared function, and both are the same chokepoint.
+        assert "progress_paint" in src, (
+            f"{mod.__name__} does not use the shared bar")
+        # Stronger than the original check, and the reason this test exists:
+        # there were TWO private _ProgressBar widgets wrapping one painter,
+        # with different geometry, and a third was about to be written for the
+        # Downloads section. Both geometries now live in ProgressBar.
+        # "(" so this does not catch _ProgressBarDelegate, which is a real and
+        # different thing: a delegate paints into a painter it is HANDED, a
+        # widget into its own. One function serves both; only the widget was
+        # duplicated.
+        assert "class _ProgressBar(" not in src, (
+            f"{mod.__name__} grew its own bar widget again — pass width/height "
+            "to metatv.gui.progress_paint.ProgressBar instead")
         for literal in ("QColor(55, 55, 55)", "QColor(60, 60, 60)",
                         "QColor(255, 200, 0"):
             assert literal not in src, f"{mod.__name__} still has {literal}"
@@ -135,7 +153,7 @@ def test_the_tick_advances_the_bar_and_its_tooltip_together(qapp, tmp_path):
 def test_the_bar_ignores_a_move_too_small_to_see(qapp, tmp_path):
     """A 30s tick over a three-hour show moves the fill by a fraction of a
     pixel; repainting every row for that is work nobody can see."""
-    bar = _ProgressBar(50.0)
+    bar = ProgressBar(50.0, width=44, height=8)
     bar.set_pct(50.2)
     assert bar._pct == 50.0
     bar.set_pct(56.0)

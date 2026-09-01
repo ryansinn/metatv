@@ -13,6 +13,7 @@ from metatv.core.database import Database
 from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui import icons as _icons
+from metatv.gui.progress_paint import ProgressBar
 from metatv.gui import theme as _theme
 
 
@@ -152,7 +153,7 @@ class EpgAgendaWidget(QWidget):
         layout.addWidget(time_lbl)
 
         pct = _progress_pct(prog.start_time, prog.stop_time, now)
-        bar = _ProgressBar(pct)
+        bar = ProgressBar(pct, height=4)
         layout.addWidget(bar)
 
         remaining_lbl = QLabel(f"{pct}%  ·  {_remaining_str(prog.stop_time, now)}")
@@ -211,33 +212,6 @@ class EpgAgendaWidget(QWidget):
 # ------------------------------------------------------------------
 # Helper widgets
 # ------------------------------------------------------------------
-
-class _ProgressBar(QWidget):
-    """Simple horizontal progress bar using paint."""
-
-    def __init__(self, pct: int, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._pct = max(0, min(100, pct))
-        self.setFixedHeight(4)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        from PyQt6.QtCore import QRect
-        from PyQt6.QtGui import QPainter
-        from metatv.gui.progress_paint import paint_progress
-
-        # Was its own track/fill literals, a different grey and a different
-        # amber from the EPG delegate's — two bars for one idea.
-        #
-        # The painter is BOUND and explicitly ended rather than passed as a
-        # temporary: a QPainter that outlives its paintEvent warns, and one
-        # whose lifetime depends on when a temporary is collected is a bug
-        # waiting for a different interpreter.
-        painter = QPainter(self)
-        paint_progress(painter, QRect(0, 0, self.width(), self.height()),
-                       self._pct)
-        painter.end()
-
 
 def _divider() -> QFrame:
     line = QFrame()
