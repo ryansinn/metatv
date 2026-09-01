@@ -27,8 +27,6 @@ ever nulls it.
 
 from __future__ import annotations
 
-import pytest
-
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.migrations import detected_title_reparse as reparse
 
