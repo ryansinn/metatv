@@ -86,6 +86,33 @@ class ToggleChip(QPushButton):
         self.update_appearance()
         self.toggled_changed.emit(self._enabled)
 
+    def setChecked(self, checked: bool) -> None:  # noqa: N802 - Qt override
+        """Keep the painted state in step with the checked state.
+
+        This chip carries TWO notions of "on": Qt's ``isChecked()`` and its own
+        ``_enabled``, which is the one :meth:`update_appearance` paints from.
+        ``on_clicked`` synced them, so a chip the user clicked looked right —
+        but a chip set programmatically did not, because plain ``setChecked``
+        touched neither ``_enabled`` nor the paint.
+
+        That is a real defect wherever one chip in a group deselects another.
+        In the Sports lane tabs the handler sets the new lane and clears the
+        rest with ``setChecked(False)``; the cleared chip never repainted, so
+        two lanes looked selected at once and the highlight no longer told you
+        which lane you were in (owner, 2026-09-01: *"you can see the state of
+        the button didn't change, it looks selected either way"*).
+
+        Overriding here rather than fixing the one caller: any future group of
+        these hits the same trap otherwise.
+
+        Args:
+            checked: The new checked state.
+        """
+        super().setChecked(checked)
+        if self._enabled != checked:
+            self._enabled = checked
+            self.update_appearance()
+
     def set_count(self, count: int):
         self._count = count if count > 0 else None
         self.update_appearance()

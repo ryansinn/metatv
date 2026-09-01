@@ -617,14 +617,17 @@ class _StreamingMixin:
             # general escape hatch so the user can override the pre-flight check.
             _pid = data.get("provider_id")
             _fnw = data.get("force_new_window", False)
+            _cid = channel_id
             actions.append((
                 "Play Anyway",
-                lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw:
+                lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw,
+                       _c=_cid:
                     self._play_checked(
                         _url, _name,
                         provider_id=_p,
                         force_new_window=_fnw,
-                    )
+                        channel_id=_c,
+                    ) and self._record_play(_c, _p, _fnw)
             ))
 
             # Active sibling sources — each gets an "Also on X" action (up to 3)
@@ -636,14 +639,17 @@ class _StreamingMixin:
                 sib_label = f"Try {sib.get('detected_prefix') or sib.get('detected_region') or sib_name}"
                 if not sib_url:
                     continue
+                _sib_cid = sib.get("id") or ""
                 actions.append((
                     sib_label,
-                    lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw:
+                    lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw,
+                           _c=_sib_cid:
                         self._play_checked(
                             _u, _n,
                             provider_id=_p,
                             force_new_window=_fnw,
-                        )
+                            channel_id=_c,
+                        ) and self._record_play(_c, _p, _fnw)
                 ))
 
             # Inactive sibling sources (offer reactivate + play)
@@ -720,25 +726,14 @@ class _StreamingMixin:
             deep_buffer=deep_buffer,
             channel_id=channel_id,
         ):
-            # Record playback — mark_played is a DB write; run off-thread. The same
-            # worker registers this instance for watch-progress capture (it already
-            # loads the channel, so it knows the media_type).
-            if not hasattr(self, "_watch_tracking"):
-                self._watch_tracking = {}
+            # Record playback through the one helper, so this path and the
+            # escape hatches (Play Anyway, "Try <source>") cannot drift on what
+            # a play is worth recording.
+            self._record_play(channel_id, data.get("provider_id"),
+                              force_new_window)
             _watch_key = self.player_manager.resolve_key(
                 data.get("provider_id"), force_new_window
             )
-            self.executor.submit(self._bg_mark_played, channel_id, _watch_key)
-            self._start_watch_capture()
-
-            # Remember which channel each player window is showing so the live
-            # position poll (below) can light the details "currently playing"
-            # indicator when that title is the one open in the details pane.
-            # (``__dict__`` membership — not hasattr — so the slot stays callable on
-            # the bare-__new__ MainWindow the streaming tests construct.)
-            if "_playing_channels" not in self.__dict__:
-                self._playing_channels: dict[str, str] = {}
-            self._playing_channels[_watch_key] = channel_id
 
             # Update UI lists in real-time (main thread).
             #
@@ -753,7 +748,6 @@ class _StreamingMixin:
             # Same grain as _remove_sidebar_row, which exists for the same
             # complaint about deletions ("the entire watch queue still refreshes
             # when a single line is removed") — this is the playback half of it.
-            self.load_history()
             if self._sidebar_shows_channel("favorites", channel_id):
                 self.load_favorites()
             if self._sidebar_shows_channel("queue", channel_id):
@@ -786,6 +780,51 @@ class _StreamingMixin:
                     )
 
         QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
+
+    def _record_play(self, channel_id: str,
+                                  provider_id: str | None,
+                                  force_new_window: bool = False) -> None:
+        """Record a play: the DB write, watch capture, and History.
+
+        ONE copy of this sequence. It lived inline in ``_on_stream_ready``,
+        which is the validated path — and four other call sites launch mpv
+        without going through it:
+        "Play Anyway", the "Try <source>" siblings, reactivate-and-play, and
+        episode playback. All are plays the user asked for, and none of them
+        recorded anything — so a channel watched via any of them never reached
+        History, never bumped its play count, and never registered for
+        watch-progress capture.
+
+        Owner hit it on a stream whose pre-flight timed out, 2026-09-01: the
+        game played after "Play Anyway" and did not appear in History; a third
+        attempt validated cleanly, took the normal path, and only then showed
+        up. Their log shows ``mark_played`` firing on the attempts that
+        validated and absent from the one that did not.
+
+        This records the same two things ``_on_stream_ready`` does — the DB
+        write, off-thread, and the History refresh — and deliberately not the
+        health/status chrome, which belongs to the validated path.
+
+        Args:
+            channel_id: Channel actually launched. No-op when empty.
+            provider_id: Its provider, for resolving the player-instance key.
+            force_new_window: Whether a second window was opened.
+        """
+        if not channel_id:
+            return
+        try:
+            if not hasattr(self, "_watch_tracking"):
+                self._watch_tracking = {}
+            key = self.player_manager.resolve_key(provider_id, force_new_window)
+            self.executor.submit(self._bg_mark_played, channel_id, key)
+            self._start_watch_capture()
+            if "_playing_channels" not in self.__dict__:
+                self._playing_channels: dict[str, str] = {}
+            self._playing_channels[key] = channel_id
+            self.load_history()
+        except Exception:
+            # Never let bookkeeping cost the user the stream they just started.
+            logger.exception("could not record play for {}", channel_id)
 
     def _reactivate_and_play_sibling(
         self,

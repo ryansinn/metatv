@@ -155,13 +155,19 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v4 (2026-09-01): the provider's event-slot form, "start:2026-08-31 23:45:00
+#: stop:…", which no pattern matched because both ISO and DMY require the date
+#: to sit between pipes. 56 rows carried it and ALL stored nothing, which is
+#: why "On now" and "Upcoming" were permanently empty and every dated game fell
+#: through to the "Channels" lane — with no start time a row cannot be sorted
+#: live, upcoming or finished. Owner: "Nothing is ever On Now".
 #: v3 (2026-08-31): two more date forms — a trailing parenthesised timestamp
 #: (842 rows stored nothing, 603 of them on the 'sports' branch) and the
 #: '@ Aug 27 11:00 AM' form (205 rows). Corpus coverage 1,527 -> 4,205.
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
