@@ -91,6 +91,14 @@ _MIN_EPG_RETENTION_HOURS = 6
 _DEFAULT_EPG_RETENTION_HOURS = 24
 
 
+#: Consumer kind a guide fetch registers with :class:`ConnectionAccountant`.
+#: Background catch-up work: it must never outrank something the user asked for.
+EPG_KIND = "monitor"
+
+#: A guide fetch displaces nothing.
+EPG_PREEMPTS: tuple[str, ...] = ()
+
+
 class EpgManager(QObject):
     """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
 
@@ -112,11 +120,22 @@ class EpgManager(QObject):
     # throttle inside needs_refresh does the real gating; this is just the clock tick.
     _SCHEDULER_INTERVAL_MS = 60 * 60 * 1_000  # 1 hour
 
-    def __init__(self, db: Database, config: Config, notifications=None, parent=None) -> None:
+    def __init__(self, db: Database, config: Config, notifications=None, parent=None,
+                 connection_accountant=None) -> None:
         super().__init__(parent)
         self.db = db
         self.config = config
         self.notifications = notifications  # NotificationManager or None
+        #: ``player_manager``'s ConnectionAccountant, or None (tests/headless).
+        #:
+        #: A guide fetch is a full XMLTV download from the SAME host the user
+        #: plays from, and most accounts allow ONE connection — so an
+        #: unenrolled fetch silently takes the connection playback needs. This
+        #: is the third consumer in that state: #622 enrolled series_monitor,
+        #: #632 the tmdb backfill, each after it had already cost the owner a
+        #: stream. metadata_manager is deliberately NOT enrolled — it only
+        #: reaches api.themoviedb.org and www.omdbapi.com, never the provider.
+        self._accountant = connection_accountant
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
         self._notification_timer: QTimer | None = None
@@ -209,6 +228,30 @@ class EpgManager(QObject):
         if username and password:
             return f"{base}/xmltv.php?username={username}&password={password}"
         return f"{base}/xmltv.php"
+
+    def _acquire_slot(self, provider_id: str, holder_id: str) -> bool:
+        """Take a connection slot for a guide fetch; False if none is free.
+
+        No accountant (tests/headless) means nothing to arbitrate.
+        """
+        if self._accountant is None:
+            return True
+        try:
+            return self._accountant.acquire(
+                provider_id, EPG_KIND, holder_id,
+                preempt_kinds=EPG_PREEMPTS).granted
+        except Exception:
+            logger.exception("epg: connection acquire failed")
+            return True
+
+    def _release_slot(self, provider_id: str, holder_id: str) -> None:
+        """Release the slot :meth:`_acquire_slot` took."""
+        if self._accountant is None:
+            return
+        try:
+            self._accountant.release(provider_id, holder_id)
+        except Exception:
+            logger.exception("epg: connection release failed")
 
     @staticmethod
     def effective_epg_url(provider: ProviderDB) -> str:
@@ -603,56 +646,68 @@ class EpgManager(QObject):
         if not candidates:
             raise RuntimeError(f"No configured hosts for provider {provider_name!r}")
 
-        last_error: Exception | None = None
-        for base_url in candidates:
-            url = self.build_epg_url(provider_model, base_url=base_url)
-            if not url:
-                continue
-            try:
-                channels, programmes = parse_xmltv_url(
-                    url, timeout=180, on_progress=on_parse_progress,
-                )
-            except XmltvAborted:
-                # Says nothing about base_url. Recording it would penalise a
-                # blameless host — and the loop would then abort identically
-                # on every remaining one, so one app close would mark them all
-                # unreliable.
-                raise
-            except Exception as e:
-                logger.warning(
-                    f"EPG fetch failed for {provider_name} @ {base_url}: {e}"
-                )
-                cycler.record_failure(base_url, str(e))
+        # Hold a real slot for the download so playback/downloads/recordings can
+        # SEE this fetch and evict it. A guide is large and slow; losing a
+        # stream to it is the worst possible trade.
+        _holder = f"epg_fetch:{getattr(provider_model, 'id', provider_name)}"
+        if not self._acquire_slot(getattr(provider_model, "id", ""), _holder):
+            raise RuntimeError(
+                f"Provider {provider_name!r} is busy with playback — "
+                f"deferring the guide fetch")
+
+        try:
+            last_error: Exception | None = None
+            for base_url in candidates:
+                url = self.build_epg_url(provider_model, base_url=base_url)
+                if not url:
+                    continue
+                try:
+                    channels, programmes = parse_xmltv_url(
+                        url, timeout=180, on_progress=on_parse_progress,
+                    )
+                except XmltvAborted:
+                    # Says nothing about base_url. Recording it would penalise a
+                    # blameless host — and the loop would then abort identically
+                    # on every remaining one, so one app close would mark them all
+                    # unreliable.
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        f"EPG fetch failed for {provider_name} @ {base_url}: {e}"
+                    )
+                    cycler.record_failure(base_url, str(e))
+                    if cycler.dirty:
+                        persist_url_stats(self.db, provider_model)
+                    last_error = e
+                    continue
+
+                if not programmes:
+                    logger.warning(
+                        f"EPG fetch from {base_url} returned an empty guide (0 "
+                        f"programmes) for {provider_name} — trying next host"
+                    )
+                    cycler.record_failure(base_url, "empty guide (0 programmes)")
+                    if cycler.dirty:
+                        persist_url_stats(self.db, provider_model)
+                    last_error = RuntimeError(f"{base_url}: empty guide (0 programmes)")
+                    continue
+
+                # A non-empty, parseable guide — even one whose date range is
+                # already in the past — is a SUCCESS for cycling purposes. See
+                # docstring: re-fetching an identical stale guide from every
+                # other host is a harm, not a fix.
+                cycler.record_success(base_url)
                 if cycler.dirty:
                     persist_url_stats(self.db, provider_model)
-                last_error = e
-                continue
+                self._remember_good_epg_host(provider_id, base_url)
+                return channels, programmes
 
-            if not programmes:
-                logger.warning(
-                    f"EPG fetch from {base_url} returned an empty guide (0 "
-                    f"programmes) for {provider_name} — trying next host"
-                )
-                cycler.record_failure(base_url, "empty guide (0 programmes)")
-                if cycler.dirty:
-                    persist_url_stats(self.db, provider_model)
-                last_error = RuntimeError(f"{base_url}: empty guide (0 programmes)")
-                continue
+            raise last_error or RuntimeError(
+                f"All EPG hosts failed for provider {provider_name!r}"
+            )
 
-            # A non-empty, parseable guide — even one whose date range is
-            # already in the past — is a SUCCESS for cycling purposes. See
-            # docstring: re-fetching an identical stale guide from every
-            # other host is a harm, not a fix.
-            cycler.record_success(base_url)
-            if cycler.dirty:
-                persist_url_stats(self.db, provider_model)
-            self._remember_good_epg_host(provider_id, base_url)
-            return channels, programmes
-
-        raise last_error or RuntimeError(
-            f"All EPG hosts failed for provider {provider_name!r}"
-        )
-
+        finally:
+            self._release_slot(getattr(provider_model, "id", ""), _holder)
     def _remember_good_epg_host(self, provider_id: str, base_url: str) -> None:
         """Record the host that just served a guide, for the next fetch and the UI.
 

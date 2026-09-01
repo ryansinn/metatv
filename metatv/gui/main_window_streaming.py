@@ -813,7 +813,7 @@ class _StreamingMixin:
         if not channel_id:
             return
         try:
-            if not hasattr(self, "_watch_tracking"):
+            if "_watch_tracking" not in self.__dict__:
                 self._watch_tracking = {}
             key = self.player_manager.resolve_key(provider_id, force_new_window)
             self.executor.submit(self._bg_mark_played, channel_id, key)
@@ -1414,7 +1414,7 @@ class _StreamingMixin:
         Lazily creates the QTimer on first use and registers its stop() with the
         cleanup registry exactly once. Safe to call on every play.
         """
-        if not hasattr(self, "_playback_health_timer") or self._playback_health_timer is None:
+        if self.__dict__.get("_playback_health_timer") is None:
             self._playback_health_timer = QTimer(self)
             self._playback_health_timer.setInterval(2000)
             self._playback_health_timer.timeout.connect(self._playback_health_tick)
@@ -1507,6 +1507,30 @@ class _StreamingMixin:
             props = None
         self._playback_health_ready.emit((key, props))
 
+    def _refresh_details_after_playback_stopped(self, key) -> None:
+        """Re-render the details pane if it shows the title that just stopped.
+
+        Only when the two match: re-rendering whatever the user has since
+        clicked would fight them for the pane.
+
+        Args:
+            key: Player-instance key that went idle, or None for the shared one.
+        """
+        try:
+            playing = self.__dict__.get("_playing_channels") or {}
+            channel_id = playing.get(key)
+            if channel_id is None and len(playing) == 1:
+                # Shared window: the poll can report a null key.
+                channel_id = next(iter(playing.values()))
+            if not channel_id:
+                return
+            if channel_id != self.__dict__.get("_last_shown_channel_id"):
+                return                      # the user moved on; leave them alone
+            playing.pop(key, None)          # once per stop, not every idle tick
+            self.show_channel_details_by_id(channel_id)
+        except Exception:
+            logger.exception("could not refresh details after playback stopped")
+
     def _on_playback_health_ready(self, payload) -> None:
         """Main-thread slot: update the nav-bar label from a probe result.
 
@@ -1526,7 +1550,18 @@ class _StreamingMixin:
         if not props or not props.get("path"):
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
-            self._health_idle_ticks = getattr(self, "_health_idle_ticks", 0) + 1
+            # The player just went idle — the user closed it. If the details
+            # pane is still showing what was playing, re-read it so a part-
+            # watched title offers Resume straight away.
+            #
+            # The position is already stored by then (_bg_capture_watch writes
+            # it during playback), but the pane was rendered BEFORE the watch
+            # existed, so it still shows a bare Play. Owner, 2026-09-01: "I was
+            # half way through watching the movie, closed the movie, the details
+            # panel should show resume if the content I just closed was the
+            # content mpv was just playing."
+            self._refresh_details_after_playback_stopped(key)
+            self._health_idle_ticks = self.__dict__.get("_health_idle_ticks", 0) + 1
             if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
                 self._playback_health_timer.stop()
             return

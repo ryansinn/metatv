@@ -54,6 +54,8 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui.row_activation import connect_row_activation
+
 from metatv.core import watchlist
 from metatv.core.channel_name_utils import (
     REGION_FULL_NAMES, classify_channel_content_type, quality_display, quality_tooltip,
@@ -239,7 +241,7 @@ class _EpgOnNowMixin:
         self.on_now_list.customContextMenuRequested.connect(self._on_now_context_menu)
         self.on_now_list.itemDoubleClicked.connect(self._on_now_double_click)
         self.on_now_list.itemClicked.connect(self._on_now_item_clicked)
-        self.on_now_list.currentItemChanged.connect(self._on_now_selection_changed)
+        connect_row_activation(self.on_now_list, self._on_now_selection_changed)
         # Slice 3C: persist each prefix-group's expand/collapse state. Both signals fire
         # on any expand/collapse — programmatic (during _render_on_now's rebuild) or user
         # click; _render_on_now blocks the tree's signals while it rebuilds, so only real

@@ -1918,9 +1918,28 @@ class _ChannelListMixin:
         )
 
     def _on_channel_list_clicked(self, index) -> None:
-        """Toggle a grouped section's collapse state when its header is clicked."""
+        """Header click toggles collapse; a channel click always shows details.
+
+        The details pane is driven by currentChanged, which does NOT fire
+        when the clicked row is already current — and on_channel_selection_
+        changed additionally returns early on _last_shown_channel_id. So a
+        row that was already selected could not be re-opened at all.
+
+        That is worst with a SINGLE result, which the list auto-selects: the one
+        row on screen is already current, so clicking it does nothing, and there
+        is no other row to click away to. Owner, 2026-09-01: *"I can't single
+        click Ghostbusters in the search results to get it to populate the
+        details panel"* — the pane kept showing a different title until they
+        went and found the item on another surface.
+
+        clicked fires on every click regardless of selection state, so an
+        explicit click is treated as an explicit request and bypasses the
+        de-dupe guard (which exists to skip redundant re-renders, not to ignore
+        the user).
+        """
         from metatv.gui.channel_list_model import ROW_KIND_ROLE, SECTION_TYPE_ROLE
         if index.data(ROW_KIND_ROLE) != "header":
+            self._show_details_for_clicked_row(index)
             return
         section = index.data(SECTION_TYPE_ROLE)
         if not section:
@@ -1934,6 +1953,24 @@ class _ChannelListMixin:
         self.config.group_collapsed_types = sorted(collapsed)
         self.config.save()
         self.channel_model.set_section_collapsed(section, now_collapsed)
+
+    def _show_details_for_clicked_row(self, index) -> None:
+        """Populate the details pane for an explicitly clicked channel row.
+
+        Args:
+            index: The clicked model index. Non-channel rows are ignored.
+        """
+        from PyQt6.QtCore import Qt
+
+        channel_id = index.data(Qt.ItemDataRole.UserRole)
+        if not channel_id:
+            return
+        # Deliberately NOT gated on _last_shown_channel_id: the user clicked.
+        self._last_shown_channel_id = channel_id
+        try:
+            self.show_channel_details_by_id(channel_id)
+        except Exception:
+            logger.exception("could not show details for {}", channel_id)
 
     def _on_channel_middle_clicked(self, index) -> None:
         """Middle-click on a channel-list row → the user-configured play action.

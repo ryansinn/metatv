@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from loguru import logger
 
+from metatv.gui.row_activation import connect_row_activation
+
 from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, MiddleElideLabel as _MiddleElideLabel,
     build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
@@ -107,7 +109,7 @@ class RecommendedSection(CollapsibleSection):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.itemDoubleClicked.connect(self._on_double_click)
-        self._list.currentItemChanged.connect(self._on_selection_changed)
+        connect_row_activation(self._list, self._on_selection_changed)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         # Middle-click plays the user-configured action (same seam as the channel
         # list) via the shared QListWidget helper — no per-section handler copy.
