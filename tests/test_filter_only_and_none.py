@@ -104,6 +104,31 @@ def _build_panel(qapp, config):
     return FilterPanel(config)
 
 
+@pytest.fixture(autouse=True)
+def _delete_panels_this_module_creates(qapp):
+    """Delete the parentless panels these tests build.
+
+    ``_build_panel`` returns a ``FilterPanel`` with no parent — a TOP-LEVEL
+    widget — and nothing deleted them, so every test here leaked one.
+    ``apply_theme()`` repaints every top-level widget, and a shard carrying
+    enough leaked ones segfaults (see the teardown-guard notes in
+    ``tests/conftest.py``; it has cost this project a CI shard before).
+
+    ``deleteLater()`` alone is not enough: it only QUEUES the delete, and
+    ``processEvents()`` does not drain ``DeferredDelete``.
+    """
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication
+
+    before = {id(w) for w in QApplication.topLevelWidgets()}
+    yield
+    for w in QApplication.topLevelWidgets():
+        if id(w) not in before:
+            w.close()
+            w.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 # ---------------------------------------------------------------------------
 # Part 1 — "Only" action
 # ---------------------------------------------------------------------------
