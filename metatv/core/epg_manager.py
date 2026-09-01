@@ -138,6 +138,10 @@ class EpgManager(QObject):
         self._accountant = connection_accountant
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
+        #: True while a watchlist check is queued or running on the executor.
+        #: Without it a slow guide fetch (20-30s routinely, 69.3s in #601)
+        #: would let the 60s timer stack one check behind another.
+        self._notif_check_pending = False
         self._notification_timer: QTimer | None = None
         self._scheduler_timer: QTimer | None = None
         self._notify.connect(self._do_notify)
@@ -1235,72 +1239,109 @@ class EpgManager(QObject):
             self._notification_timer = None
 
     def _check_watchlist_notifications(self) -> None:
-        """Called every 60s. Toast for any watchlist show starting soon."""
-        patterns = watchlist.patterns(self.config)
-        if not patterns or not self.notifications:
+        """Timer tick. Does no database work here — see the worker below.
+
+        This ran the whole check ON THE UI THREAD every 60 seconds: a hidden-
+        provider query, a provider query, a scan of the programmes table
+        (344,468 rows) and then an N+1 channel lookup per match against 785k
+        channels. The owner's log shows exactly what that costs — a stall on
+        the minute, every minute, for as long as the app is open::
+
+            04:38:37  UI thread unresponsive for  925ms
+            04:39:37  UI thread unresponsive for  831ms
+            04:40:37  UI thread unresponsive for  984ms
+
+        CLAUDE.md is explicit that an EPG-sized query never runs on the UI
+        thread. This one predates the rule; it does not get an exception.
+        """
+        if self._shutting_down or self._notif_check_pending:
             return
-
-        minutes = self.config.epg_notification_minutes_before
-        session = self.db.get_session()
+        # Cheap, main-thread-safe reads: config only, no database.
+        if not watchlist.patterns(self.config) or not self.notifications:
+            return
+        self._notif_check_pending = True
         try:
-            from metatv.core.repositories.epg import EpgRepository
-            repo = EpgRepository(session)
-            # Hidden sources must not raise watch alerts. This is the one of
-            # the three that a user would actually SEE: a notification for a
-            # programme on an expired source is an alert about something they
-            # cannot watch, which is the "disabled/expired is an absolute gate"
-            # rule failing in the most visible way available to it.
-            hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
-            providers = [
-                p for p in session.query(ProviderDB).filter_by(is_active=True).all()
-                if p.id not in hidden
-            ]
-            provider_ids = [p.id for p in providers if self.effective_epg_url(p)]
+            self._executor.submit(self._watchlist_notification_worker)
+        except RuntimeError:
+            # Executor gone (teardown). Not an error, and it must not leave the
+            # flag set — a shutdown that jammed the gate would silence alerts
+            # for the rest of the session if the manager outlived it.
+            self._notif_check_pending = False
 
-            if not provider_ids:
-                return
+    def _watchlist_notification_worker(self) -> None:
+        """Off-thread half of the 60s watchlist check.
 
-            # `hidden` on BOTH axes: the feed list above, and the matched
-            # CHANNEL here. Different sets — cross-provider matching is
-            # deliberate — and only doing the first let 18 future programmes
-            # on 6 channels stay eligible to raise a toast.
-            upcoming = repo.get_programs_starting_soon(
-                minutes, provider_ids, excluded_channel_provider_ids=hidden)
-            for prog in upcoming:
-                if prog.id in self._notified_this_session:
-                    continue
-                # Check if title matches any watchlist pattern
-                title_lower = prog.title.lower()
-                matched = any(pat.lower() in title_lower for pat in patterns)
-                if not matched:
-                    continue
+        On the manager's single-worker executor, which is also what serialises
+        fetch/relink writes — so this can never race an EPG write, and a long
+        guide fetch simply delays it. That delay is acceptable and the queueing
+        guard above is what makes it safe: without it an 11-minute fetch would
+        stack eleven checks behind itself.
 
-                self._notified_this_session.add(prog.id)
+        Notifications are raised through the private ``_notify`` signal, never
+        ``self.notifications`` directly: ``NotificationManager.show`` builds a
+        QTimer, which must happen on the main thread.
+        """
+        try:
+            minutes = self.config.epg_notification_minutes_before
+            patterns = watchlist.patterns(self.config)
+            with self.db.session_scope(commit=False) as session:
+                from metatv.core.repositories.epg import EpgRepository
+                repo = EpgRepository(session)
+                # Hidden sources must not raise watch alerts. This is the one
+                # of the three that a user would actually SEE: a notification
+                # for a programme on an expired source is an alert about
+                # something they cannot watch, which is the "disabled/expired
+                # is an absolute gate" rule failing in the most visible way
+                # available to it.
+                hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
+                providers = [
+                    p for p in session.query(ProviderDB).filter_by(is_active=True).all()
+                    if p.id not in hidden
+                ]
+                provider_ids = [p.id for p in providers if self.effective_epg_url(p)]
+                if not provider_ids:
+                    return
 
-                # Resolve channel name
-                channel = None
-                if prog.channel_db_id:
-                    channel = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                channel_name = channel.name if channel else prog.channel_epg_id
+                # `hidden` on BOTH axes: the feed list above, and the matched
+                # CHANNEL here. Different sets — cross-provider matching is
+                # deliberate — and only doing the first let 18 future
+                # programmes on 6 channels stay eligible to raise a toast.
+                upcoming = repo.get_programs_starting_soon(
+                    minutes, provider_ids, excluded_channel_provider_ids=hidden)
 
-                # Minutes until start
-                now = now_utc()
-                mins_away = max(0, int((prog.start_time - now).total_seconds() / 60))
-                time_str = f"in {mins_away} min" if mins_away > 0 else "now"
+                pending = []
+                for prog in upcoming:
+                    if prog.id in self._notified_this_session:
+                        continue
+                    title_lower = prog.title.lower()
+                    if not any(pat.lower() in title_lower for pat in patterns):
+                        continue
+                    self._notified_this_session.add(prog.id)
 
-                if self.notifications:
-                    self.notifications.show(
-                        title=f"Starting {time_str}: {prog.title}",
-                        message=f"On {channel_name}",
-                        type="info",
-                        auto_dismiss_ms=10_000,
-                    )
-                self.watchlist_notification.emit(prog.title, channel_name, time_str)
+                    channel = None
+                    if prog.channel_db_id:
+                        channel = session.query(ChannelDB).filter_by(
+                            id=prog.channel_db_id).first()
+                    channel_name = channel.name if channel else prog.channel_epg_id
 
+                    mins_away = max(
+                        0, int((prog.start_time - now_utc()).total_seconds() / 60))
+                    time_str = f"in {mins_away} min" if mins_away > 0 else "now"
+                    # Collected inside the session and emitted outside it: the
+                    # values are plain strings by this point, so nothing
+                    # detached crosses the boundary.
+                    pending.append((prog.title, channel_name, time_str))
+
+            for title, channel_name, time_str in pending:
+                if self._shutting_down:
+                    return
+                self._notify.emit(f"Starting {time_str}: {title}",
+                                  f"On {channel_name}", "info", 10_000)
+                self.watchlist_notification.emit(title, channel_name, time_str)
         except Exception as e:
             logger.error(f"EPG notification check error: {e}")
         finally:
-            session.close()
+            self._notif_check_pending = False
 
     def shutdown(self) -> None:
         """Clean up resources on app exit."""
