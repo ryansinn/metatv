@@ -262,6 +262,24 @@ def attach(config, field_names) -> frozenset[str]:
         return frozenset()
 
     stored = read_all()
+
+    # The one real cost of pruning config.yaml: the database becomes the only
+    # copy of these 34 keys, so losing it now loses the user's selections too,
+    # where before the YAML still had them. This does not prevent that — nothing
+    # here can — but it refuses to let it happen SILENTLY. `was_populated` is a
+    # setting, so it stays in config.yaml; seeing it True beside an empty
+    # profile table is proof the store was working and its rows are gone, which
+    # is a very different diagnosis from "this user has never migrated".
+    #
+    # The roadmap's plain-text export of user state is the actual answer, and
+    # `Sport Rundown` already asks for it on exactly this ground.
+    if getattr(config, "profile_store_populated", False) and not stored:
+        logger.error(
+            "profile: config.yaml says this profile was migrated, but the "
+            "database holds no profile rows — the stored selections are gone "
+            "and defaults are being used. If metatv.db was replaced or reset, "
+            "restore it to recover them.")
+
     loaded, migrated, refused = [], [], []
 
     for key in sorted(field_names):
@@ -304,6 +322,8 @@ def attach(config, field_names) -> frozenset[str]:
     if refused:
         logger.warning("profile: {} key(s) stayed in config.yaml: {}",
                        len(refused), ", ".join(refused))
+    if _owned:
+        config.profile_store_populated = True
     return frozenset(_owned)
 
 

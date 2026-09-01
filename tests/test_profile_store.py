@@ -350,3 +350,44 @@ def test_unbinding_returns_every_key_to_the_yaml(config, db):
 
     assert "filter_known_genres" in _yaml_keys(config)
     assert profile_store.owned_keys() == frozenset()
+
+
+# ── a lost database must be loud, not silent ────────────────────────────────
+
+def test_a_lost_profile_table_is_reported_rather_than_silently_defaulted(
+        config, db, caplog):
+    """Pruning makes the database the only copy. Losing it must be diagnosable.
+
+    Nothing here can prevent the loss — the point is that ``profile_store_populated``
+    stays in config.yaml, so True beside an empty table proves the rows are gone
+    rather than never written. Those are different problems with different fixes,
+    and without the marker they look identical.
+    """
+    config.filter_known_genres = ["Action"]
+    config.save()
+    config.attach_profile_store(db)
+    assert config.profile_store_populated is True
+
+    # The database is replaced with an empty one — a reset, a restore from a
+    # backup that predates the migration, a fresh machine.
+    profile_store.unbind()
+    with db.session_scope() as session:
+        session.query(ProfileDB).delete()
+
+    with caplog.at_level("ERROR"):
+        config.attach_profile_store(db)
+
+    assert any("the stored selections are gone" in r.message for r in caplog.records), \
+        "a lost profile must be reported, not quietly replaced by defaults"
+
+
+def test_a_first_migration_is_not_reported_as_a_loss(config, db, caplog):
+    """Non-degeneracy: the marker must not fire for everyone's first launch."""
+    config.filter_known_genres = ["Action"]
+    config.save()
+    assert config.profile_store_populated is False
+
+    with caplog.at_level("ERROR"):
+        config.attach_profile_store(db)
+
+    assert not any("selections are gone" in r.message for r in caplog.records)

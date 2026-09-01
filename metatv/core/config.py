@@ -985,6 +985,11 @@ class Config(BaseModel):
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
     # ONCE in model_post_init.  >=1 = written by the sentinel-aware save, where []
     # means an explicit none-selection and must be preserved across reloads.
+    #: True once ``profile_store.attach`` has verifiably taken keys over. A
+    #: SETTING, so it stays in config.yaml on purpose — seeing it True beside an
+    #: empty profile table is how a lost database is told apart from a user who
+    #: has simply never migrated. See ``core/profile_store.py``.
+    profile_store_populated: bool = False
     filter_config_version: int = 0
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
