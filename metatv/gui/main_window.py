@@ -2656,6 +2656,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # alerts_show_idle_items changes WHICH rows the section lists, so it has
         # to re-render; the existing alert-visibility chokepoint already does it.
         dialog.settings_applied.connect(self._refresh_vod_alerts_section)
+        # series_monitor_interval_minutes only takes effect when the timer is
+        # re-armed; start_scheduler() re-reads config and is safe to re-call.
+        dialog.settings_applied.connect(self._restart_series_monitor_scheduler)
         # Applies the menu-bar setting AND re-ticks the Tools entry, so the two
         # surfaces cannot disagree after an OK.
         dialog.settings_applied.connect(self._apply_menu_bar_setting)
@@ -2670,6 +2673,15 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # dropped row density, thumbnails, platform-name style and
         # collapse-variants. OK emits now, so the connections ARE the list;
         # re-running them here would only let the two drift apart again.
+
+    def _restart_series_monitor_scheduler(self) -> None:
+        """Re-arm the watchlist recheck timer after a settings change.
+
+        ``start_scheduler`` stops any existing timer and re-reads
+        ``series_monitor_interval_minutes``, so this both applies a new interval
+        and honours 0 (switch the recurring check off).
+        """
+        self.series_monitor.start_scheduler()
 
     def _apply_menu_bar_setting(self) -> None:
         """Settings changed the menu-bar option — apply it and re-tick Tools."""

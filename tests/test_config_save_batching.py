@@ -169,3 +169,58 @@ class TestSeriesMonitorBuffersUntilThePassEnds:
             lambda self, u: (_ for _ in ()).throw(OSError("disk full")))
         m.flush_pending_series_updates()      # must not raise
         assert m._pending_series_updates == {}, "buffer retained after a failure"
+
+
+class TestSeriesIntervalSetting:
+    """The interval is reachable from Settings, and OK actually applies it.
+
+    Before this there was no UI for ``series_monitor_interval_minutes`` at all —
+    switching the watchlist poll off meant hand-editing config.yaml with the app
+    closed, because the app rewrites that file on exit.
+
+    "Saved without applying" is a failure this dialog has had before, so the
+    host hook is asserted too: the value only takes effect when the timer is
+    re-armed, and ``_restart_series_monitor_scheduler`` is what does it.
+    """
+
+    def _dialog(self, tmp_path, minutes: int):
+        from metatv.core.config import Config
+        from metatv.gui.settings_dialog import SettingsDialog
+        cfg = Config(config_dir=tmp_path)
+        cfg.series_monitor_interval_minutes = minutes
+        return cfg, SettingsDialog(cfg, None)
+
+    def test_the_dialog_shows_the_stored_interval(self, tmp_path, qapp):
+        cfg, dlg = self._dialog(tmp_path, 60)
+        assert dlg._series_interval_spin.value() == 60
+
+    def test_ok_writes_the_new_interval(self, tmp_path, qapp):
+        cfg, dlg = self._dialog(tmp_path, 60)
+        dlg._series_interval_spin.setValue(180)
+        dlg._save_values()
+        assert cfg.series_monitor_interval_minutes == 180
+
+    def test_zero_is_offered_as_never_and_persists(self, tmp_path, qapp):
+        """0 disables the recurring poll — the whole point of exposing this."""
+        cfg, dlg = self._dialog(tmp_path, 60)
+        assert dlg._series_interval_spin.specialValueText() == "Never", (
+            "0 must read as a choice, not as a bare zero")
+        assert dlg._series_interval_spin.minimum() == 0
+        dlg._series_interval_spin.setValue(0)
+        dlg._save_values()
+        assert cfg.series_monitor_interval_minutes == 0
+
+    def test_the_host_re_arms_the_timer_on_apply(self, tmp_path, qapp):
+        """A setting saved but never applied is a known failure mode here."""
+        from unittest.mock import MagicMock
+        from metatv.gui.main_window import MainWindow
+
+        host = MainWindow.__new__(MainWindow)
+        host.series_monitor = MagicMock()
+        MainWindow._restart_series_monitor_scheduler(host)
+        host.series_monitor.start_scheduler.assert_called_once()
+
+    def test_the_hook_is_registered_so_it_cannot_be_forgotten(self):
+        """The registry is what makes the wiring discoverable, not a grep."""
+        from tests.conftest import _SETTINGS_APPLIED_HOOKS
+        assert "_restart_series_monitor_scheduler" in _SETTINGS_APPLIED_HOOKS
