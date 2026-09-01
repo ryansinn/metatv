@@ -490,6 +490,31 @@ class ProviderLoadThread(QThread):
             (stmt.excluded.name != ChannelDB.name, literal(None)),
             else_=ChannelDB.metadata_id,
         )
+        # ...and the NAME-DERIVED fields, for exactly the same reason.
+        #
+        # This guard only ever covered metadata_id, so a renamed row kept the
+        # previous occupant's detected_* values forever: they are computed at
+        # ingestion and the pass that fills them is fill-empty-only, so a row
+        # that already has a detected_title is never revisited.
+        #
+        # Render reads detected_title, NOT name. The owner therefore saw a row
+        # titled "MLB 04 | Royals x Blue Jays" whose name column said
+        # "MLB 04 | Mariners x Red Sox" — the list, the details pane and the
+        # content_key all showed a game that had not been on that slot for days,
+        # and restarting could not help because the stale value was persisted.
+        # The provider rotates these event slots daily, so it renames in place
+        # constantly.
+        #
+        # Nulling them hands the row back to update_detected_prefixes, whose
+        # fill-empty-only contract then recomputes it from the new name.
+        # detected_tmdb_id is deliberately NOT cleared: the enrichment layer owns
+        # it and COALESCEs it above, so clearing here would undo that.
+        for _derived in ("detected_title", "detected_prefix", "detected_quality",
+                         "detected_region", "detected_year", "content_key"):
+            update_set[_derived] = case(
+                (stmt.excluded.name != ChannelDB.name, literal(None)),
+                else_=getattr(ChannelDB, _derived),
+            )
         stmt = stmt.on_conflict_do_update(
             index_elements=["id"],
             set_=update_set,

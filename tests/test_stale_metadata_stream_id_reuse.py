@@ -502,3 +502,82 @@ class TestStalenessDetection:
         assert "bloodlands" in result
         assert "hd" not in result, "short token 'hd' must be excluded"
         assert "nl" not in result, "short token 'nl' must be excluded"
+
+
+class TestRenameAlsoClearsTheNameDerivedFields:
+    """A recycled stream id must not keep the previous occupant's title.
+
+    Owner, 2026-09-01: a Sports row read "MLB 04 | Royals x Blue Jays" while its
+    ``name`` column said "MLB 04 | Mariners x Red Sox" — the game that had been
+    on that slot for days. Restarting did not help, because the wrong value was
+    PERSISTED: render reads ``detected_title``, not ``name``.
+
+    The stream-ID reuse guard above cleared ``metadata_id`` on rename and
+    nothing else. ``detected_*`` and ``content_key`` are computed at ingestion
+    by a pass that is fill-empty-only, so a row that already had a
+    ``detected_title`` was never revisited. The provider rotates these event
+    slots daily, renaming in place every time.
+
+    ``detected_tmdb_id`` is deliberately NOT cleared — the enrichment layer owns
+    it and the upsert COALESCEs it, so clearing would undo provider-native
+    enrichment on every rename.
+    """
+
+    def test_a_renamed_row_loses_its_stale_derived_title(self, tmp_path):
+        from metatv.core.database import ChannelDB, Database
+        from metatv.core.provider_loader import ProviderLoadThread
+
+        db = Database(f"sqlite:///{tmp_path / 'reuse.db'}")
+        db.create_tables()
+        with db.session_scope() as s:
+            s.add(ChannelDB(
+                id="p_1", provider_id="p", source_id="1", name="OLD GAME",
+                media_type="live", detected_title="OLD GAME",
+                detected_region="US", detected_quality="HD",
+                content_key="old game|live", detected_tmdb_id="4242",
+            ))
+
+        batch = [{
+            "id": "p_1", "provider_id": "p", "source_id": "1",
+            "name": "NEW GAME", "media_type": "live",
+        }]
+        with db.session_scope() as s:
+            ProviderLoadThread._flush_batch(s, batch)
+
+        with db.session_scope() as s:
+            row = s.get(ChannelDB, "p_1")
+            assert row.name == "NEW GAME"
+            assert row.detected_title is None, (
+                "kept the previous occupant's title — this is the row that read "
+                "'Royals x Blue Jays' while playing Mariners x Red Sox")
+            assert row.content_key is None, "stale content_key survived the rename"
+            assert row.detected_quality is None
+            assert row.detected_tmdb_id == "4242", (
+                "tmdb enrichment must survive — the upsert COALESCEs it")
+
+    def test_an_unchanged_name_keeps_its_derived_fields(self, tmp_path):
+        """Non-degeneracy: this must not wipe every row on every refresh.
+
+        Clearing unconditionally would hand all 785k rows back to the
+        fill-empty pass on each refresh — the opposite of "compute once at
+        ingestion".
+        """
+        from metatv.core.database import ChannelDB, Database
+        from metatv.core.provider_loader import ProviderLoadThread
+
+        db = Database(f"sqlite:///{tmp_path / 'same.db'}")
+        db.create_tables()
+        with db.session_scope() as s:
+            s.add(ChannelDB(
+                id="p_1", provider_id="p", source_id="1", name="SAME",
+                media_type="live", detected_title="SAME", detected_region="US",
+                content_key="same|live",
+            ))
+        with db.session_scope() as s:
+            ProviderLoadThread._flush_batch(
+                s, [{"id": "p_1", "provider_id": "p", "source_id": "1",
+                     "name": "SAME", "media_type": "live"}])
+        with db.session_scope() as s:
+            row = s.get(ChannelDB, "p_1")
+            assert row.detected_title == "SAME", "wiped a row whose name never changed"
+            assert row.content_key == "same|live"
