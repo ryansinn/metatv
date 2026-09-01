@@ -70,6 +70,19 @@ def _has_usable_episodes(episodes_data) -> bool:
     return False
 
 
+#: Consumer kind this poll registers with :class:`ConnectionAccountant`.
+#: An account is typically capped at ONE connection; when the host slows these
+#: fetches own it continuously (owner log 2026-08-31: 11s each, back-to-back,
+#: while mpv streamed from the same host — the provider dropped the STREAM and
+#: mpv, run ``--keep-open=no --idle=once``, exited silently with nothing
+#: surfaced). The poll was invisible to the accountant, so nothing arbitrated.
+MONITOR_KIND = "monitor"
+
+#: A catch-up poll displaces NOTHING; every real consumer lists ``"monitor"``
+#: in its own ``preempt_kinds``. Skipping is the correct loss — the next pass
+#: catches up, and a dropped stream cannot be un-dropped.
+MONITOR_PREEMPTS: tuple[str, ...] = ()
+
 #: Separator joining a mirror's provider id and source id into one baseline key.
 #: Provider ids are UUIDs and source ids are numeric, so a pipe can never occur
 #: inside either half — which is what makes :func:`is_mirror_key` reliable.
@@ -336,12 +349,17 @@ class SeriesMonitorManager(QObject):
         db: "Database",
         config: "Config",
         notifications: "NotificationManager | None" = None,
+        connection_accountant=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.db = db
         self.config = config
         self.notifications = notifications
+        #: ``player_manager``'s accountant — never a second one, which could
+        #: disagree about who holds a provider's only connection. ``None`` in
+        #: headless/unit contexts; the helpers then no-op.
+        self._accountant = connection_accountant
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="series_monitor"
         )
@@ -587,6 +605,38 @@ class SeriesMonitorManager(QObject):
         )
         return chosen
 
+    def _acquire_slot(self, provider_id: str, holder_id: str) -> bool:
+        """Take a connection slot for one mirror fetch; False if none is free.
+
+        No accountant means nothing to arbitrate, so the fetch proceeds —
+        enrolment must not turn an un-wired monitor into a dead one.
+
+        Args:
+            provider_id: Provider whose connection capacity is consumed.
+            holder_id: Unique id, released in the caller's ``finally``.
+
+        Returns:
+            True if the fetch may proceed.
+        """
+        if self._accountant is None:
+            return True
+        try:
+            return self._accountant.acquire(
+                provider_id, MONITOR_KIND, holder_id,
+                preempt_kinds=MONITOR_PREEMPTS).granted
+        except Exception:  # bookkeeping must never break the poll outright
+            logger.exception("series_monitor: connection acquire failed")
+            return True
+
+    def _release_slot(self, provider_id: str, holder_id: str) -> None:
+        """Release the slot :meth:`_acquire_slot` took for *holder_id*."""
+        if self._accountant is None:
+            return
+        try:
+            self._accountant.release(provider_id, holder_id)
+        except Exception:
+            logger.exception("series_monitor: connection release failed")
+
     def _worker_check_entries(self, entries: list[dict]) -> None:
         """Check each monitored entry across every provider that carries it.
 
@@ -673,7 +723,21 @@ class SeriesMonitorManager(QObject):
                         )
                         continue
 
-                    data = asyncio.run(plugin.fetch_series_info(provider, source_id))
+                    # Hold a real slot so playback/downloads/recordings can SEE
+                    # this poll and evict it, rather than silently losing the
+                    # provider's only connection to it.
+                    holder_id = f"series_monitor:{provider_id}:{source_id}"
+                    if not self._acquire_slot(provider_id, holder_id):
+                        logger.debug(
+                            "series_monitor: {} — provider {} busy with real "
+                            "work; skipping this mirror", title, provider_id)
+                        continue
+                    try:
+                        data = asyncio.run(
+                            plugin.fetch_series_info(provider, source_id)
+                        )
+                    finally:
+                        self._release_slot(provider_id, holder_id)
                     # Make the URL success/failure stats UrlCycler recorded on
                     # `provider.urls` during the cycling above durable — this
                     # is the only place that sees this in-memory Provider.

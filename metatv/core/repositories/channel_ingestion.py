@@ -55,6 +55,7 @@ from metatv.core.channel_name_utils import (
     strip_collection_noise_tokens,
 )
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
+from metatv.core.repositories.sweep_guard import single_flight
 from metatv.core.database import ChannelDB, MetadataDB
 from metatv.core.filter_utils import extract_prefix, genres_from_raw
 from metatv.core.tag_decomposer import region_code_from_category
@@ -802,6 +803,11 @@ class ChannelIngestionMixin:
     ) -> int:
         """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
 
+        Whole-library passes are single-flight (see
+        :mod:`metatv.core.repositories.sweep_guard` for why, and what it cost).
+        A ``provider_id``-scoped call is NOT gated: narrow, cheap, and may not
+        overlap the running pass at all.
+
         Retries the whole pass on a transient lock via the shared
         :meth:`_retry_on_lock` helper — this is the site that crashed
         uncovered on 2026-08-01 (owner log: ``database is locked`` inside this
@@ -809,11 +815,21 @@ class ChannelIngestionMixin:
         See :meth:`_propagate_tmdb_from_title_siblings_impl` for the actual
         logic and full docstring.
         """
-        return self._retry_on_lock(
-            "propagate_tmdb_from_title_siblings",
-            self._propagate_tmdb_from_title_siblings_impl,
-            provider_id,
-        )
+        if provider_id is not None:
+            return self._retry_on_lock(
+                "propagate_tmdb_from_title_siblings",
+                self._propagate_tmdb_from_title_siblings_impl,
+                provider_id,
+            )
+
+        with single_flight("propagate_tmdb_from_title_siblings") as mine:
+            if not mine:
+                return 0
+            return self._retry_on_lock(
+                "propagate_tmdb_from_title_siblings",
+                self._propagate_tmdb_from_title_siblings_impl,
+                provider_id,
+            )
 
     def _propagate_tmdb_from_title_siblings_impl(
         self, provider_id: Optional[str] = None

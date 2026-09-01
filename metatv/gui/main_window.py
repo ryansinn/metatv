@@ -346,8 +346,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Series monitor — checks monitored series for new episodes after each provider refresh
         # and on startup.  Constructed before setup_ui() so the sidebar section can connect.
         self.series_monitor = SeriesMonitorManager(
-            self.db, self.config,
-            notifications=None,  # injected after NotificationManager is set up
+            self.db, self.config, notifications=None,  # injected below
+            connection_accountant=self.player_manager.connection_accountant,
             parent=self,
         )
         self._register_cleanable("series_monitor", self.series_monitor.shutdown)
