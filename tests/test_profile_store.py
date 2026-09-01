@@ -23,6 +23,8 @@ store directly, because the seam under test is the one the app uses.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import yaml
 import pytest
 
@@ -38,18 +40,6 @@ def db(tmp_path):
     return database
 
 
-@pytest.fixture(autouse=True)
-def _unbound():
-    """Every test starts and ends with no database bound.
-
-    Without the teardown a bound store leaks into the next test through the
-    module-level binding, and the failure surfaces somewhere unrelated.
-    """
-    profile_store.unbind()
-    yield
-    profile_store.unbind()
-
-
 @pytest.fixture
 def config(tmp_path):
     cfg = Config(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data",
@@ -60,6 +50,25 @@ def config(tmp_path):
 
 def _yaml_keys(cfg) -> set:
     return set(yaml.safe_load((cfg.config_dir / "config.yaml").read_text()) or {})
+
+
+@contextmanager
+def _captured_logs(level: str = "ERROR"):
+    """Collect loguru messages emitted inside the block.
+
+    pytest's ``caplog`` cannot see these: loguru does not route through stdlib
+    ``logging``, so a caplog assertion here is vacuously true and passes against
+    a version that logs nothing at all. A temporary sink is what the rest of
+    this suite uses (see ``test_series_monitor``).
+    """
+    from loguru import logger
+
+    records: list[str] = []
+    sink = logger.add(lambda m: records.append(str(m)), level=level)
+    try:
+        yield records
+    finally:
+        logger.remove(sink)
 
 
 def _rows(db) -> dict:
@@ -355,7 +364,7 @@ def test_unbinding_returns_every_key_to_the_yaml(config, db):
 # ── a lost database must be loud, not silent ────────────────────────────────
 
 def test_a_lost_profile_table_is_reported_rather_than_silently_defaulted(
-        config, db, caplog):
+        config, db):
     """Pruning makes the database the only copy. Losing it must be diagnosable.
 
     Nothing here can prevent the loss — the point is that ``profile_store_populated``
@@ -374,20 +383,20 @@ def test_a_lost_profile_table_is_reported_rather_than_silently_defaulted(
     with db.session_scope() as session:
         session.query(ProfileDB).delete()
 
-    with caplog.at_level("ERROR"):
+    with _captured_logs() as records:
         config.attach_profile_store(db)
 
-    assert any("the stored selections are gone" in r.message for r in caplog.records), \
+    assert any("the stored selections are gone" in m for m in records), \
         "a lost profile must be reported, not quietly replaced by defaults"
 
 
-def test_a_first_migration_is_not_reported_as_a_loss(config, db, caplog):
+def test_a_first_migration_is_not_reported_as_a_loss(config, db):
     """Non-degeneracy: the marker must not fire for everyone's first launch."""
     config.filter_known_genres = ["Action"]
     config.save()
     assert config.profile_store_populated is False
 
-    with caplog.at_level("ERROR"):
+    with _captured_logs() as records:
         config.attach_profile_store(db)
 
-    assert not any("selections are gone" in r.message for r in caplog.records)
+    assert not any("selections are gone" in m for m in records)

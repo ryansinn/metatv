@@ -1882,6 +1882,35 @@ def _unbind_watchlist_store():
     watchlist.set_write_error_handler(None)
 
 
+@pytest.fixture(autouse=True)
+def _unbind_profile_store():
+    """Detach the profile store from any database between tests.
+
+    The same shape as ``_unbind_watchlist_store`` above, and it failed the same
+    way before this existed: ``test_filter_opt_out`` and ``test_config_save_cost``
+    passed alone and failed in the full suite, because ``test_app_header``
+    constructs a real MainWindow, which calls ``attach_profile_store`` and leaves
+    the store bound.
+
+    The consequence is sharper here than for the watch list, which is why this
+    is not optional. Once the store owns a key, ``Config.save`` deliberately
+    keeps that key OUT of ``config.yaml`` — so a leaked binding does not merely
+    make later tests read an empty database, it makes their ``save()`` silently
+    drop 34 fields from the file they then read back. The failure surfaces as a
+    round-trip assertion in a file that has nothing to do with any of this.
+
+    ``unbind`` and not ``shutdown``: shutdown drains the writer but deliberately
+    keeps ``_db`` and the owned set, because a late save in a closing app must
+    still persist correctly. Only ``unbind`` clears the ownership, which is
+    exactly what a test boundary needs and what a running app must never do.
+    """
+    from metatv.core import profile_store
+
+    profile_store.unbind()
+    yield
+    profile_store.unbind()
+
+
 def wire_epg_manager_skeleton(mgr, db, *, accountant=None) -> None:
     """Give an ``EpgManager.__new__`` double the fields its fetch path reads.
 
