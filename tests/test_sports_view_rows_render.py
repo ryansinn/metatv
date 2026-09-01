@@ -166,3 +166,104 @@ def test_a_lane_switch_still_renders(view, monkeypatch):
     host.deliver_all(lambda fn: [_Row("only-rows")])
 
     assert rendered == [[_Row("only-rows")]]
+
+
+# ── the restored filter must reach the QUERY, not just the chips ────────────
+
+def test_a_restored_sport_filter_actually_reloads(view, monkeypatch):
+    """The chips remembered the sport; the query did not.
+
+    ``restore_filter_state`` sets the chips under ``blockSignals(True)`` — right,
+    or sixteen chips would fire sixteen reloads — so nothing downstream hears
+    about it, and nothing reloaded afterwards. The result the owner saw: Baseball
+    rendered as the selected chip above a list of hockey fixtures, with
+    "Channels (6524)" where the real filtered count is 142. Unselecting and
+    reselecting the chip fixed it, which is the tell — the toggle emits the
+    signal the restore suppressed.
+
+    Asserts the RELOAD, not the chip state: a test that checked
+    ``chip.isChecked()`` passes against the broken code, because the chips were
+    never the part that was wrong.
+    """
+    v, _host = view
+    v.config.sports_filter_state = {"sport_types": ["baseball"],
+                                    "league_names": [], "search": ""}
+    reloads = []
+    monkeypatch.setattr(v, "_reload_channels",
+                        lambda **kw: reloads.append(kw))
+    monkeypatch.setattr(v.filter_bar, "load_taxonomy", lambda *a, **k: None)
+
+    v._on_taxonomy_loaded({"taxonomy": {"baseball": {}}, "counts": {"baseball": 174}})
+
+    assert reloads, (
+        "the saved sport was restored onto the chips but never re-queried — "
+        "the rows and lane counts stay unfiltered")
+
+
+def test_an_empty_saved_filter_does_not_re_query(view, monkeypatch):
+    """Non-degeneracy, and #626's rule: only reload when it narrows something.
+
+    A saved state with nothing in it describes exactly what the first load
+    already did. Re-running it over 6,500 rows to reach an identical answer is
+    pure cost — and a version of the fix that reloads unconditionally would pass
+    the test above while doing that on every single launch.
+    """
+    v, _host = view
+    v.config.sports_filter_state = {"sport_types": [], "league_names": [],
+                                    "search": ""}
+    reloads = []
+    monkeypatch.setattr(v, "_reload_channels", lambda **kw: reloads.append(kw))
+    monkeypatch.setattr(v.filter_bar, "load_taxonomy", lambda *a, **k: None)
+
+    v._on_taxonomy_loaded({"taxonomy": {"baseball": {}}, "counts": {}})
+
+    assert reloads == [], "an empty saved filter re-queried for the same answer"
+
+
+def test_the_restore_happens_once(view, monkeypatch):
+    """A second taxonomy load must not stamp the saved filter back over the
+    user's current selection — they may have changed it since."""
+    v, _host = view
+    v.config.sports_filter_state = {"sport_types": ["baseball"],
+                                    "league_names": [], "search": ""}
+    restores = []
+    monkeypatch.setattr(v.filter_bar, "restore_filter_state",
+                        lambda s: restores.append(s))
+    monkeypatch.setattr(v, "_reload_channels", lambda **kw: None)
+    monkeypatch.setattr(v.filter_bar, "load_taxonomy", lambda *a, **k: None)
+
+    payload = {"taxonomy": {"baseball": {}}, "counts": {}}
+    v._on_taxonomy_loaded(payload)
+    v._on_taxonomy_loaded(payload)
+
+    assert len(restores) == 1, "the saved filter was re-applied on a later load"
+
+
+def test_the_startup_reload_does_not_overwrite_the_saved_filter(view, monkeypatch):
+    """The bug my first draft of the reload actually had.
+
+    ``_reload_channels`` writes the live filter state back to config, gated on
+    ``_filters_restored``. Setting that flag BEFORE the restore-triggered reload
+    makes the startup pass save the CHIPS' state over the saved one — and
+    ``restore_filter_state`` silently drops a saved sport the taxonomy no longer
+    carries, so one source hiccup would erase the user's selection permanently.
+
+    Caught by ``test_nothing_is_saved_before_the_restore_has_run``, which
+    documents the flag as the guard for exactly this. Asserted here too, from
+    the restore direction, because that test approaches it from the other side
+    and neither covers this ordering on its own.
+    """
+    v, _host = view
+    saved = {"sport_types": ["baseball"], "league_names": [], "search": ""}
+    v.config.sports_filter_state = dict(saved)
+    # The taxonomy no longer carries baseball, so the chips come back empty —
+    # the realistic shape of the hazard, not a contrived one.
+    monkeypatch.setattr(v.filter_bar, "load_taxonomy", lambda *a, **k: None)
+    monkeypatch.setattr(v.filter_bar, "restore_filter_state", lambda s: None)
+    monkeypatch.setattr(v.filter_bar, "get_filter_state",
+                        lambda: {"sport_types": [], "league_names": [], "search": ""})
+
+    v._on_taxonomy_loaded({"taxonomy": {"hockey": {}}, "counts": {}})
+
+    assert v.config.sports_filter_state == saved, (
+        "the startup reload wrote the empty chip state over the saved filter")
