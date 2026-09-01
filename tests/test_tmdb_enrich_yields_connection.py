@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
 
 def _manager(accountant=None):
