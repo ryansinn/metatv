@@ -8,7 +8,14 @@ from metatv.core.connection_accountant import AcquireResult, ConnectionAccountan
 
 #: Kinds playback may evict when a provider's slots are full. Downloads only —
 #: see the note at the acquire() call for why a recording is not on this list.
-PLAYBACK_PREEMPTS: tuple[str, ...] = ("download", "monitor")
+# A signal probe joins downloads and the watch-list monitor here, and is the
+# lowest-priority holder in the app: it is speculative work on a connection the
+# user may want at any moment, so playback takes it without ceremony. The probe
+# polls a cancel event every 50 ms and kills ffmpeg, so a Play press waits
+# milliseconds rather than the ~18 s a full sample plus timeout would cost.
+#
+# All three are here for one reason and a recording is not: RECOVERABILITY.
+PLAYBACK_PREEMPTS: tuple[str, ...] = ("download", "monitor", "probe")
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv import MPVPlayer
 

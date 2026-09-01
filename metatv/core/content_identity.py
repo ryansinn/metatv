@@ -95,7 +95,6 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 
-from loguru import logger
 
 from metatv.core.channel_name_utils import (
     AUDIO_KEY_NOISE_TOKENS as _AUDIO_KEY_NOISE_TOKENS,
@@ -322,13 +321,21 @@ class _XtreamContentKeyStrategy(_ContentKeyStrategy):
             norm = ""
 
         if not norm:
-            # Fallback: unique per channel so it never merges with anything
+            # Fallback: unique per channel so it never merges with anything.
+            #
+            # NOT logged. This function runs once per catalogue row — 785,163 on
+            # the owner's library, and every one of them again on a reparse
+            # migration — so a line here is a line per row. It is the same
+            # mistake provider_metadata.metadata_from_raw carries a warning
+            # about: three DEBUG lines in that function produced 1.30M of 1.44M
+            # total log lines and 330 MB, leaving 8 days of history where seven
+            # days' retention should have kept 76.
+            #
+            # It cost nothing to lose. The fallback is documented above, it is
+            # deterministic, and the count is one SQL query when anybody wants
+            # it (57 rows here — Flo Sports listings that are entirely bracket
+            # metadata with no title outside it).
             norm = str(getattr(channel, "id", ""))
-            logger.debug(
-                "content_identity: empty detected_title for channel {!r} — "
-                "using id as fallback key component",
-                norm,
-            )
 
         # Series and live: omit year — cross-provider year labels are noisy.
         # Movies: include start year — it discriminates remakes.

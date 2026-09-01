@@ -125,14 +125,21 @@ def test_the_query_carries_a_resolved_visibility_scope(view):
     captured = {}
     repos = MagicMock()
     repos.providers.get_hidden_provider_ids.return_value = ["off"]
-    def _capture(scope, bucket):
+    def _capture(scope, bucket, *, hide_dead_streak=None):
         captured["scope"] = scope
+        captured["hide_dead_streak"] = hide_dead_streak
         return []          # NOT `... or []` — setdefault returns the scope,
                            # and the caller would then try to iterate it.
 
     repos.channels.get_events_channels.side_effect = _capture
     view._runner.calls[-1]["fn"](repos)
     assert "off" in captured["scope"].excluded_provider_ids
+    # hide_dead_events is off by default, so nothing is filtered out yet. This
+    # captures the value rather than merely tolerating the argument: a stub that
+    # only accepted **kwargs would keep passing if the view stopped resolving
+    # the setting at all.
+    assert captured["hide_dead_streak"] is None, (
+        "events were filtered by signal streak with the setting off")
 
 
 # --------------------------------------------------------------------------

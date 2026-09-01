@@ -400,3 +400,61 @@ def test_a_first_migration_is_not_reported_as_a_loss(config, db):
         config.attach_profile_store(db)
 
     assert not any("selections are gone" in m for m in records)
+
+
+# ── the self-healing config must not un-prune what moved ────────────────────
+
+def test_rewrite_if_stale_does_not_write_the_profile_back(config, db):
+    """"Absent" stopped meaning "stale" the moment settings moved elsewhere.
+
+    ``_rewrite_if_stale`` rewrites config.yaml when a declared field is missing
+    from it — sound when the file was the only home. CFG-5 then made 34 fields
+    absent ON PURPOSE, and #643 did the same for the nine ``qa_`` fields, so
+    without this the very next launch writes all 43 straight back and undoes
+    both moves. Every launch, silently, for ever.
+
+    Found by running it against a real migrated config rather than reasoning
+    about it: the profile half was predicted, the qa_ half was not.
+    """
+    config.save()
+    owned = config.attach_profile_store(db)
+    config.theme_name = "daylight"
+    config.save()                                   # prunes the profile
+    profile_store.flush()
+
+    data = yaml.safe_load((config.config_dir / "config.yaml").read_text())
+    assert not [k for k in owned if k in data], "the prune did not happen"
+
+    # THE STORE IS UNBOUND, because that is the real order: _rewrite_if_stale
+    # runs inside Config.load(), and nothing binds the store until MainWindow
+    # has a database. So save() here does not know the profile lives elsewhere
+    # and writes every field — which is why the exclusion has to stop the
+    # rewrite from happening at all, rather than relying on save() to filter.
+    #
+    # An earlier version of this test attached the store first. It passed
+    # against the un-excluded code, because a BOUND store filters the write —
+    # it was reproducing a sequence that never happens at startup. The mutation
+    # is what exposed it.
+    profile_store.unbind()
+
+    config._rewrite_if_stale(data, config.config_dir / "config.yaml")
+
+    after = yaml.safe_load((config.config_dir / "config.yaml").read_text())
+    assert not [k for k in owned if k in after], (
+        "the self-healing rewrite put the profile back into config.yaml")
+    assert not [k for k in after if k.startswith("qa_")], (
+        "the self-healing rewrite put the QA sidecar's fields back too")
+
+
+def test_rewrite_if_stale_still_heals_a_genuinely_old_file(config, db):
+    """Non-degeneracy: excluding two families must not disable the feature.
+
+    A version that simply returned False would pass the test above perfectly
+    while removing the thing #617 added.
+    """
+    config.save()
+    data = yaml.safe_load((config.config_dir / "config.yaml").read_text())
+    data.pop("theme_name", None)                    # a real setting, really absent
+
+    assert config._rewrite_if_stale(data, config.config_dir / "config.yaml"), (
+        "a file genuinely missing a setting was not healed")

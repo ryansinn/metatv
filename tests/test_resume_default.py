@@ -128,6 +128,12 @@ class _FakeSettingsConfig:
         self.mpv_extra_args: list = []
         self.prebuffer_before_play = False
         self.prebuffer_wait_secs = 10
+        self.signal_sample_seconds = 4
+        self.signal_black_fraction = 0.5
+        self.signal_black_pixel_threshold = 0.1
+        self.signal_freeze_seconds = 2
+        self.hide_dead_events = False
+        self.signal_dead_streak_to_hide = 2
         self.mpv_args_override_all = False
         self.split_streams_by_source = False
         self.epg_default_refresh_interval = "3d"
@@ -162,8 +168,9 @@ def _bare_dialog(qapp):
     )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets
+    from tests.conftest import wire_settings_content_widgets, wire_settings_signal_widgets
     wire_settings_content_widgets(dlg)
+    wire_settings_signal_widgets(dlg)
 
     dlg._player_combo = QComboBox()
     dlg._player_combo.addItems(["mpv", "vlc", "custom"])
@@ -224,6 +231,7 @@ def _bare_dialog(qapp):
 
     # Interface density widget
     wire_settings_density_widget(dlg)
+    wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
 
     return dlg

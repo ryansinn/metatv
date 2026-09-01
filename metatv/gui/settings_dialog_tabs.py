@@ -311,6 +311,104 @@ class SettingsTabsMixin:
         layout.addStretch()
         return tab
 
+    def _build_signal_tab(self) -> QWidget:
+        """Build the Signal checking tab — what counts as dead air.
+
+        Exposed because the right answer is provider-dependent. A channel that
+        runs a four-second bumper between segments needs a different black
+        threshold than one that cuts straight to programme, and the owner is
+        the only person who can see which is which.
+        """
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        detect_group = QGroupBox("What counts as dead air")
+        detect_form = QFormLayout(detect_group)
+        detect_form.setSpacing(8)
+
+        self._signal_sample_spin = QSpinBox()
+        self._signal_sample_spin.setRange(1, 30)
+        self._signal_sample_spin.setSuffix(" s")
+        self._signal_sample_spin.setToolTip(
+            "How much of the stream to watch before judging it.\n"
+            "\n"
+            "Most of a check's cost is connecting, not watching, so a longer\n"
+            "sample is cheaper than it looks — but every second holds the\n"
+            "source's connection, and on this account there is only one."
+        )
+        detect_form.addRow("Sample length:", self._signal_sample_spin)
+
+        self._signal_black_spin = QSpinBox()
+        self._signal_black_spin.setRange(10, 100)
+        self._signal_black_spin.setSuffix(" % of the sample")
+        self._signal_black_spin.setToolTip(
+            "How much of the sample must be black before the stream is called\n"
+            "a black screen.\n"
+            "\n"
+            "Measured as a share of the sample rather than a fixed number of\n"
+            "seconds: a bumper or a fade between segments is black for a\n"
+            "moment, and a fixed one-second rule called a working 1080p\n"
+            "channel dead."
+        )
+        detect_form.addRow("Black screen at:", self._signal_black_spin)
+
+        self._signal_pixel_spin = QSpinBox()
+        self._signal_pixel_spin.setRange(1, 50)
+        self._signal_pixel_spin.setSuffix(" %")
+        self._signal_pixel_spin.setToolTip(
+            "How dark a picture has to be to count as black at all.\n"
+            "\n"
+            "Raise it if very dark programme material is being reported as\n"
+            "dead air; lower it if a washed-out slate is slipping through."
+        )
+        detect_form.addRow("Darkness threshold:", self._signal_pixel_spin)
+
+        self._signal_freeze_spin = QSpinBox()
+        self._signal_freeze_spin.setRange(1, 30)
+        self._signal_freeze_spin.setSuffix(" s")
+        self._signal_freeze_spin.setToolTip(
+            "How long the picture must sit motionless before it is called a\n"
+            "frozen slate rather than a live picture.\n"
+            "\n"
+            "Must be shorter than the sample length, or nothing can ever be\n"
+            "long enough to qualify."
+        )
+        detect_form.addRow("Frozen picture after:", self._signal_freeze_spin)
+        layout.addWidget(detect_group)
+
+        result_group = QGroupBox("What to do with dead events")
+        result_form = QFormLayout(result_group)
+        result_form.setSpacing(8)
+
+        self._hide_dead_check = QCheckBox("Hide events with no signal")
+        self._hide_dead_check.setToolTip(
+            "Drop checked-and-dead events out of the Events view.\n"
+            "\n"
+            "Off by default: seeing how many there are is the point until the\n"
+            "check has earned your trust. A refused connection never counts —\n"
+            "that says the source declined to answer, not that the stream is\n"
+            "empty."
+        )
+        result_form.addRow("", self._hide_dead_check)
+
+        self._signal_streak_spin = QSpinBox()
+        self._signal_streak_spin.setRange(1, 10)
+        self._signal_streak_spin.setToolTip(
+            "How many checks in a row must find nothing before an event is\n"
+            "hidden.\n"
+            "\n"
+            "One bad check is a bad moment — a stream between events, a blip.\n"
+            "Several across different sittings is a fact. Any live result at\n"
+            "any point resets the count."
+        )
+        result_form.addRow("Hide after:", self._signal_streak_spin)
+        layout.addWidget(result_group)
+
+        layout.addStretch()
+        return tab
+
     def _build_recommendations_tab(self) -> QWidget:
         """Build the Recommendations tab — steering dials for the preference engine.
 

@@ -89,6 +89,23 @@ class ChannelDB(Base):
     special_view = Column(String, index=True)  # 'ppv', 'live_event', 'sports', or NULL
     event_start_time = Column(DateTime, index=True)  # Parsed event date/time for PPV/events
     sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
+
+    # ── Signal check (core/stream_probe.py) ──────────────────────────────────
+    # What a probe last saw on this stream. The owner abandoned the events work
+    # once because "there was hardly anything ever actually on those channels,
+    # just dead air/black screens even when it said there was an event" — these
+    # three columns are what let the app know that without the user finding out
+    # by clicking.
+    #: live | dead | black | frozen, or a connection verdict (refused/gone/
+    #: unknown/cancelled) which says nothing about the picture.
+    signal_verdict    = Column(String, index=True)
+    #: Consecutive checks that found no picture. Only a verdict ABOUT the
+    #: picture moves it: a refused connection or a probe cancelled to give the
+    #: stream back to a Play press is not evidence, and counting it would let
+    #: ordinary viewing mark a working channel dead.
+    signal_dead_streak = Column(Integer, nullable=False, default=0)
+    #: When the last probe ran. UTC-naive, like every other stored time.
+    signal_checked_at = Column(DateTime, index=True)
     league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
     team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
     event_metadata = Column(JSONEncoded)  # Additional parsed data (event name, quality, etc.)

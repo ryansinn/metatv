@@ -1342,6 +1342,30 @@ class Config(BaseModel):
     epg_channel_id_backfill_version: int = 0
     #: Version of the metadata.year derivation that has been applied.
     metadata_year_backfill_version: int = 0
+    # ── Signal checking ─────────────────────────────────────────────────
+    # How a stream is judged dead air rather than a picture. Exposed because
+    # the right answer is provider-dependent: a channel that runs a 4-second
+    # bumper between segments needs a different black threshold than one that
+    # cuts straight to programme.
+    #: Seconds of stream sampled per check. The wall-clock cost is dominated by
+    #: connect + buffer, so a longer sample is cheaper than it looks — but every
+    #: second is a second holding the provider's only connection.
+    signal_sample_seconds: int = 4
+    #: Fraction of the sample that must be black before the verdict is "black".
+    #: 0.5 means "more than half". A bumper or a fade is black for a moment;
+    #: half the sample is not a bumper.
+    signal_black_fraction: float = 0.5
+    #: How dark counts as black, as a fraction of full scale.
+    signal_black_pixel_threshold: float = 0.10
+    #: Seconds of motionless picture before it is called a frozen slate.
+    signal_freeze_seconds: int = 2
+    #: Hide events whose last check found no picture. Off by default: seeing
+    #: the scale of the problem is the point until the check has earned trust.
+    hide_dead_events: bool = False
+    #: Consecutive dead checks before an event is treated as dead for hiding.
+    #: One bad check is a bad moment; three across different sittings is a fact.
+    signal_dead_streak_to_hide: int = 2
+
     #: Version of the raw_data -> MetadataDB field backfill that has been
     #: applied (see migrations/raw_field_backfill.FIELDS). Supersedes the
     #: runtime-only version this generalised.
@@ -2207,6 +2231,7 @@ class Config(BaseModel):
                     config = cls(**data)
                     config._inject_new_sections()
                     config._retire_collapsed_shelves()
+                    config._rewrite_if_stale(data, config_file)
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
                 # Try backup on parse error
@@ -2239,6 +2264,70 @@ class Config(BaseModel):
 
         return config, recovered_from_backup
     
+    def _rewrite_if_stale(self, data: dict, config_file: "Path") -> bool:
+        """Rewrite the file when it predates the current schema.
+
+        pydantic already fills a missing key with its declared default, so an
+        older file LOADS correctly — but it stays old on disk, and every launch
+        re-derives the same defaults from a file that never learns them. Worse,
+        the gap is invisible: nothing reading ``config.yaml`` can tell which
+        settings are chosen and which are simply absent.
+
+        So the file is read, normalised by the model, and written back in the
+        current format the first time a key is missing. After that it is a full,
+        honest record of every setting the app has — which is what makes plain
+        ``config.field`` access correct everywhere else, instead of a
+        ``getattr(config, field, default)`` at each call site defending against
+        a file that could have healed itself once.
+
+        Only when something is actually missing: rewriting on every launch would
+        churn the file and rotate the backup for nothing.
+
+        Args:
+            data: The raw mapping read from disk, before model validation.
+            config_file: Where it came from, for the log line.
+
+        Returns:
+            True when the file was rewritten.
+        """
+        # PROFILE fields are absent on purpose — CFG-5 moved 34 of them to the
+        # `profile` table and prunes them from the YAML once a verified read-back
+        # says the database holds them. Counting those as "missing" would make
+        # this rewrite them back into config.yaml on every single launch, quietly
+        # undoing the prune. Absence stopped meaning staleness the moment some
+        # settings legitimately live somewhere else.
+        #
+        # The DECLARED set, not `profile_store.owned_keys()`: this runs inside
+        # load(), and the store is not bound until MainWindow has a database, so
+        # owned_keys() is empty here and would exclude nothing.
+        #
+        # The qa_ fields are the same story and were found the same way — by
+        # running this against a real migrated config rather than reasoning
+        # about it. #643 moved them to qa_state.yaml, so all nine are absent
+        # from config.yaml by design and this rewrote the file on EVERY launch
+        # to put them back. Two subtractions, one rule: a field that lives
+        # somewhere else is not a field that is missing.
+        missing = sorted(set(type(self).model_fields)
+                         - set(data)
+                         - _profile_field_names(type(self))
+                         - _qa_field_names(type(self)))
+        if not missing:
+            return False
+        logger.info(
+            "Config at {} predates this version — {} setting(s) were absent "
+            "and have been written with their defaults: {}",
+            config_file, len(missing),
+            ", ".join(missing[:8]) + ("…" if len(missing) > 8 else ""),
+        )
+        try:
+            self.save()
+        except Exception as exc:      # noqa: BLE001 - never block startup on this
+            # A config that loaded fine must still start the app. The rewrite is
+            # housekeeping, not a precondition.
+            logger.warning("Could not rewrite the config file: {}", exc)
+            return False
+        return True
+
     def save(self, *, force: bool = False):
         """Save configuration to file using atomic writes (temp file → replace).
 

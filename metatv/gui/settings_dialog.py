@@ -159,57 +159,72 @@ def _save_theme_combo(combo: QComboBox, config) -> None:
 # Left-nav sections, in display order — id + label, unchanged from the old
 # QTabWidget's five tab names/order so the ``settings:<tab>`` deep link and
 # shipped What's New entries keep matching. id is also the _SECTION_HELP key.
-#: ``(section_id, label, builder_method_name)``, in display order.
+#: The dialog's sections, in order: (id, label, builder method name, help).
 #:
-#: One list, not two zipped by position. It WAS two — ``_SECTIONS`` beside a
-#: parallel ``builders`` tuple in ``_setup_ui`` — which pairs correctly only
-#: while both stay the same length and the same order. Adding a page to one
-#: and not the other does not fail; it silently renders every later page under
-#: the wrong label and the wrong help text.
-_SECTIONS: tuple[tuple[str, str, str], ...] = (
-    ("playback", "Playback", "_build_playback_tab"),
-    ("interaction", "Interaction", "_build_interaction_tab"),
-    ("content", "Content", "_build_content_tab"),
-    ("recommendations", "Recommendations", "_build_recommendations_tab"),
-    ("metadata", "Metadata & API Keys", "_build_metadata_tab"),
-    ("interface", "Interface", "_build_interface_tab"),
-    ("sidebar", "Sidebar", "_build_sidebar_tab"),
-    ("alerts", "Watch Alerts", "_build_alerts_tab"),
+#: ONE tuple, because this used to be three parallel structures — a
+#: ``_SECTIONS`` list of (id, label), a ``_SECTION_HELP`` dict keyed by id, and
+#: a ``builders`` tuple matched to _SECTIONS by POSITION via ``zip``. A section
+#: added to one and forgotten in another does not raise: ``zip`` stops at the
+#: shorter sequence, so the extra section simply never appears, and a help entry
+#: for a section that no longer exists sits there unnoticed. The builder is
+#: named rather than bound so this can be read without an instance.
+#:
+#: Help text: one short, plainly-written paragraph — what the section controls,
+#: plus the one thing worth knowing. Trivially editable.
+SECTIONS: tuple[tuple[str, str, str, str], ...] = (
+    ("playback", "Playback", "_build_playback_tab",
+     "Which player MetaTV uses, how aggressively it buffers, and when a movie "
+     "or episode counts as \"watched\". If streams stutter or drop, the "
+     "Buffering profile here is the first thing to try."),
+    ("interaction", "Interaction", "_build_interaction_tab",
+     "What a double-click and a middle-click do on a channel row. These are "
+     "shortcuts, not required setup — right-click any movie for a one-time "
+     "override without changing either default."),
+    ("content", "Content", "_build_content_tab",
+     "What the library is allowed to show you. Adult content is hidden by "
+     "default; this is where that is changed. While it is hidden, a category "
+     "made up entirely of flagged channels will look empty — the channel list "
+     "says when that is why."),
+    ("recommendations", "Recommendations", "_build_recommendations_tab",
+     "Steering dials for the Recommendations engine: the movie/series mix and "
+     "how much weight genre, director, cast, and keywords carry. Every dial "
+     "ships at a sane default, so an untouched tab is fine."),
+    ("metadata", "Metadata & API Keys", "_build_metadata_tab",
+     "TMDb/OMDb API keys, how long fetched metadata is cached, and EPG guide "
+     "refresh/notification timing. A TMDb key unlocks posters, cast, and plot "
+     "details across your whole library."),
+    ("interface", "Interface", "_build_interface_tab",
+     "Search memory, how the channel list looks, source-refresh behavior "
+     "and update checks. Which sidebar sections show, and Watch Alerts, "
+     "now have pages of their own below."),
+    ("sidebar", "Sidebar", "_build_sidebar_tab",
+     "Which sections appear down the left, and in what order. Changes take "
+     "effect as soon as you click OK or Apply. Hiding a section does not "
+     "lose anything — it stops being built, and comes back exactly as it "
+     "was when you show it again."),
+    ("alerts", "Watch Alerts", "_build_alerts_tab",
+     "What the Watch Alerts section shows, and how often MetaTV re-checks "
+     "your watch list for new episodes. That check costs one connection to "
+     "the source while it runs, so on an account limited to a single "
+     "connection it competes with playback — which is why it defaults to "
+     "once a day rather than hourly."),
+    ("signal", "Signal checking", "_build_signal_tab",
+     "How MetaTV decides an event stream is dead air rather than a picture, "
+     "and what it does with the ones that are. A check spends a provider "
+     "connection, so it never runs while you are watching something."),
 )
 
-# One short, plainly-written paragraph per section for the right-hand help
-# panel: what it controls + the one thing worth knowing. Trivially editable.
+#: Kept as the ``(id, label, builder)`` triples and the help mapping the rest of
+#: the file — and the tests — already read. Derived, so they cannot drift from
+#: the list above.
+#:
+#: Three elements, not two: this branch predates the Interface/Sidebar/Alerts
+#: split, which added tests that unpack the builder name from here. Deriving a
+#: pair silently changed a published shape and broke three of them.
+_SECTIONS: tuple[tuple[str, str, str], ...] = tuple(
+    (sid, label, builder) for sid, label, builder, _help in SECTIONS)
 _SECTION_HELP: dict[str, str] = {
-    "playback": "Which player MetaTV uses, how aggressively it buffers, and when a movie "
-                "or episode counts as \"watched\". If streams stutter or drop, the "
-                "Buffering profile here is the first thing to try.",
-    "interaction": "What a double-click and a middle-click do on a channel row. These are "
-                   "shortcuts, not required setup — right-click any movie for a one-time "
-                   "override without changing either default.",
-    "content": "What the library is allowed to show you. Adult content is hidden by "
-               "default; this is where that is changed. While it is hidden, a category "
-               "made up entirely of flagged channels will look empty — the channel list "
-               "says when that is why.",
-    "recommendations": "Steering dials for the Recommendations engine: the movie/series "
-                        "mix and how much weight genre, director, cast, and keywords "
-                        "carry. Every dial ships at a sane default, so an untouched tab "
-                        "is fine.",
-    "metadata": "TMDb/OMDb API keys, how long fetched metadata is cached, and EPG guide "
-                "refresh/notification timing. A TMDb key unlocks posters, cast, and plot "
-                "details across your whole library.",
-    "interface": "Search memory, how the channel list looks, source-refresh behavior "
-                 "and update checks. Which sidebar sections show, and Watch Alerts, "
-                 "now have pages of their own below.",
-    "sidebar": "Which sections appear down the left, and in what order. Changes take "
-               "effect as soon as you click OK or Apply. Hiding a section does not "
-               "lose anything — it stops being built, and comes back exactly as it "
-               "was when you show it again.",
-    "alerts": "What the Watch Alerts section shows, and how often MetaTV re-checks "
-              "your watch list for new episodes. That check costs one connection to "
-              "the source while it runs, so on an account limited to a single "
-              "connection it competes with playback — which is why it defaults to "
-              "once a day rather than hourly.",
-}
+    sid: help_text for sid, _label, _builder, help_text in SECTIONS}
 
 
 def _dial_or_none(value: float, default: float):
@@ -275,7 +290,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         layout.setSpacing(12)
 
         self._nav = ThreePanelSectionNav(_SECTION_HELP)
-        for section_id, label, builder_name in _SECTIONS:
+        for section_id, label, builder_name, _help in SECTIONS:
             page = getattr(self, builder_name)()
             _align_label_columns(page)
             self._nav.add_section(section_id, label, page)
@@ -376,6 +391,23 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._adult_mode_combo.setCurrentIndex(
             adult_idx if adult_idx >= 0 else self._adult_mode_combo.findData("hide")
         )
+
+        # Signal checking. Percentages are stored as fractions and shown as
+        # whole numbers — nobody thinks in 0.5 of a sample.
+        #
+        # Plain attribute access, not getattr-with-a-default. pydantic fills
+        # every declared default when the file is read, and Config._rewrite_if_
+        # stale writes the completed file back the first time a key is absent,
+        # so an older config has healed before this runs. A default repeated at
+        # the call site would be a second, silently-diverging copy of the one
+        # in the model.
+        self._signal_sample_spin.setValue(int(c.signal_sample_seconds))
+        self._signal_black_spin.setValue(int(round(c.signal_black_fraction * 100)))
+        self._signal_pixel_spin.setValue(
+            int(round(c.signal_black_pixel_threshold * 100)))
+        self._signal_freeze_spin.setValue(int(c.signal_freeze_seconds))
+        self._hide_dead_check.setChecked(bool(c.hide_dead_events))
+        self._signal_streak_spin.setValue(int(c.signal_dead_streak_to_hide))
 
         resume_idx = self._resume_mode_combo.findData(resume_mode)
         self._resume_mode_combo.setCurrentIndex(
@@ -581,6 +613,16 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # Interaction
         c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
         c.filter_adult_mode = self._adult_mode_combo.currentData() or "hide"
+
+        c.signal_sample_seconds = self._signal_sample_spin.value()
+        c.signal_black_fraction = self._signal_black_spin.value() / 100.0
+        c.signal_black_pixel_threshold = self._signal_pixel_spin.value() / 100.0
+        # A freeze longer than the sample can never be observed, so it is
+        # clamped rather than saved as a setting that silently does nothing.
+        c.signal_freeze_seconds = min(self._signal_freeze_spin.value(),
+                                      c.signal_sample_seconds)
+        c.hide_dead_events = self._hide_dead_check.isChecked()
+        c.signal_dead_streak_to_hide = self._signal_streak_spin.value()
         c.middle_click_action = (
             self._middle_click_combo.currentData() or DEFAULT_MIDDLE_CLICK_ACTION
         )
