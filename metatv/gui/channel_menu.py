@@ -687,6 +687,27 @@ ACTIONS: dict[str, ChannelAction] = {
 # Each list contains action ids and the literal "sep" for separator positions.
 # The builder emits separators lazily (never leading, trailing, or doubled).
 
+# Download appears on EVERY surface that can show a VOD row, and record on every
+# surface showing a live one. The action's own ``applies`` predicate does the
+# media-type gating, so listing it costs nothing where it cannot apply — a
+# movie in Favorites offers Download, a live channel there does not.
+#
+# It shipped on "channel" alone, which is the bug this fixes: the registry was
+# found and exactly one of nine entries was filled. The owner: "unless there's
+# a good reason, all vod channel context menus should be the same and have
+# download available, not just results."
+#
+# Discover, Recipe and Recommendations all route through the "recommended"
+# layout (main_window.py:2108/2117/2133 -> _on_rec_channel_context_menu), so
+# one entry covers three surfaces.
+#
+# The two deliberate omissions, so nobody "fixes" them later:
+#   retry       - a stream that failed to open. Downloading it would fail the
+#                 same way; there is nothing to save.
+#   epg_browse  - record() records what is on NOW, and this surface browses
+#                 FUTURE programmes, so it would record the wrong thing.
+#                 Recording a browsed programme needs the scheduling entry
+#                 point (REC-3), not this list.
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
@@ -721,6 +742,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "bulk_category",
     ],
     "history": [
+        "download",
+        "sep",
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
@@ -737,6 +760,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_history", "hide",
     ],
     "favorites": [
+        "download",
+        "sep",
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
@@ -757,6 +782,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "clear_unavailable",
     ],
     "queue": [
+        "download",
+        "sep",
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
@@ -783,6 +810,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     # (e.g. mark_watched/category/monitor_series on a non-VOD, not_interested only
     # when it can be suppressed).
     "recommended": [
+        "download",
+        "sep",
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
@@ -801,6 +830,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "not_interested", "category", "hide",
     ],
     "alerts": [
+        "download",
+        "sep",
         "play", "play_new_window",
         "sep",
         "favorite", "queue",
@@ -825,6 +856,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_retry", "clear_retry",
     ],
     "epg_on_now": [
+        "record",
+        "sep",
         "play", "play_new_window",
         "sep",
         "favorite", "queue",
