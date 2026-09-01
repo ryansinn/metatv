@@ -980,6 +980,26 @@ class SettingsTabsMixin:
             "This is the same switch that appears in Manage Watch Alerts."
         )
         alerts_layout.addWidget(self._alerts_show_idle_check)
+
+        interval_row = QHBoxLayout()
+        interval_row.addWidget(QLabel("Check monitored series every"))
+        self._series_interval_spin = QSpinBox()
+        self._series_interval_spin.setRange(0, 1440)
+        self._series_interval_spin.setSingleStep(15)
+        self._series_interval_spin.setSuffix(" min")
+        self._series_interval_spin.setSpecialValueText("Never")
+        self._series_interval_spin.setToolTip(
+            "How often to re-check monitored series for new episodes.\n"
+            "Set to 0 (Never) to switch the recurring check off.\n\n"
+            "Each check asks every source that carries a monitored series\n"
+            "about it, so a large watch list against a slow source can keep the\n"
+            "connection busy for minutes at a time. On an account limited to\n"
+            "one connection that competes with playback.\n"
+            "Turning it off does not stop checks after a source refresh."
+        )
+        interval_row.addWidget(self._series_interval_spin)
+        interval_row.addStretch()
+        alerts_layout.addLayout(interval_row)
         layout.addWidget(alerts_group)
 
         layout.addStretch()

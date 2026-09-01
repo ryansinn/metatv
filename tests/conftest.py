@@ -711,6 +711,8 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._show_more_row_check.isChecked.return_value = False
     dlg._alerts_show_idle_check = MagicMock()
     dlg._alerts_show_idle_check.isChecked.return_value = False
+    dlg._series_interval_spin = MagicMock()
+    dlg._series_interval_spin.value.return_value = 60
     dlg._platform_name_style_combo = MagicMock()
     dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
@@ -783,7 +785,7 @@ def wire_settings_density_widget(dlg) -> None:
     from metatv.gui.settings_dialog_tabs import (
         _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
     )
-    from PyQt6.QtWidgets import QCheckBox, QComboBox
+    from PyQt6.QtWidgets import QCheckBox, QComboBox, QSpinBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:
@@ -799,6 +801,9 @@ def wire_settings_density_widget(dlg) -> None:
     dlg._show_more_row_check.setChecked(False)
     dlg._alerts_show_idle_check = QCheckBox()
     dlg._alerts_show_idle_check.setChecked(False)
+    dlg._series_interval_spin = QSpinBox()
+    dlg._series_interval_spin.setRange(0, 1440)
+    dlg._series_interval_spin.setValue(60)
     dlg._platform_name_style_combo = QComboBox()
     for label, value in _PLATFORM_NAME_STYLE_CHOICES:
         dlg._platform_name_style_combo.addItem(label, value)
@@ -893,6 +898,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_sync_split_toggle",
     "_apply_menu_bar_setting",
     "_refresh_vod_alerts_section",
+    "_restart_series_monitor_scheduler",
 )
 
 

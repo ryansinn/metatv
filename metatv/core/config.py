@@ -1474,8 +1474,22 @@ class Config(BaseModel):
             )
         ]
 
-    def update_monitored_series(self, series_channel_id: str, **fields) -> None:
-        """Update fields on an existing monitored series entry (in-place, then save)."""
+    def update_monitored_series(
+        self, series_channel_id: str, *, save: bool = True, **fields
+    ) -> None:
+        """Update fields on an existing monitored series entry, in place.
+
+        Args:
+            series_channel_id: Entry to update.
+            save: Write the file now. Pass ``False`` when several updates are
+                coming in a row and the caller will call :meth:`save` once
+                itself. The entry is updated IN MEMORY either way, immediately —
+                only the file write is deferred. That distinction matters: the
+                Watch Alerts badges read ``unseen_new`` straight back, so
+                deferring the in-memory update would make new-episode counts lag
+                a whole pass, while deferring the SAVE costs nothing visible.
+            **fields: Fields to merge onto the entry.
+        """
         updated = []
         for e in self.monitored_series:
             if e.get("series_channel_id") == series_channel_id:
@@ -1485,6 +1499,50 @@ class Config(BaseModel):
             else:
                 updated.append(e)
         self.monitored_series = updated
+        if save:
+            self.save()
+
+    def update_monitored_series_many(self, updates: dict) -> None:
+        """Apply field updates to many entries and save **once**.
+
+        :meth:`update_monitored_series` saves on every call, which is right for
+        a single user action and ruinous in a loop. Each save copies the config
+        to ``.bak``, runs a full Pydantic ``model_dump()`` and re-serialises the
+        whole file — and this config is not small (owner's, 2026-08-31: 4,854
+        lines / 132 KB, three quarters of it QA results, derived filter caches
+        and an ever-growing collapsed-shelf list).
+
+        Two paths were paying that per iteration, BOTH on the main thread:
+
+        * ``SeriesMonitorManager._on_new_episodes`` — a queued-signal slot fired
+          once per checked series. Not a loop, so a time-based debounce cannot
+          coalesce it: the signals arrive seconds apart across a pass. It writes
+          in memory immediately and lets the pass boundary do the one save.
+        * ``MainWindow._apply`` (the ``_run_query`` callback that backfills
+          region/language) — once per row, where the cost
+          is not merely contention but a direct freeze.
+
+        Args:
+            updates: ``{series_channel_id: {field: value, ...}}``. Ids not
+                present in ``monitored_series`` are ignored, matching
+                :meth:`update_monitored_series`'s behaviour for an unknown id.
+        """
+        if not updates:
+            return
+        changed = False
+        merged_list = []
+        for e in self.monitored_series:
+            fields = updates.get(e.get("series_channel_id"))
+            if fields:
+                merged = dict(e)
+                merged.update(fields)
+                merged_list.append(merged)
+                changed = True
+            else:
+                merged_list.append(e)
+        if not changed:
+            return
+        self.monitored_series = merged_list
         self.save()
 
     def clear_unseen(self, series_channel_id: str) -> None:

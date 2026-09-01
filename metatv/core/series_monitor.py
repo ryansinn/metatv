@@ -364,6 +364,21 @@ class SeriesMonitorManager(QObject):
             max_workers=1, thread_name_prefix="series_monitor"
         )
         self._pending_batches = 0
+        #: True when entries were updated in memory but not yet written.
+        #:
+        #: ``_on_new_episodes`` is a MAIN-THREAD slot fired once per checked
+        #: series, and it used to call ``update_monitored_series`` — which saves
+        #: on every call. Each save copies the config to ``.bak``, runs a full
+        #: Pydantic ``model_dump()`` and re-serialises the file (owner's config,
+        #: 2026-08-31: 4,854 lines / 132 KB), so a pass froze the UI once per
+        #: monitored series: 29 stalls in one session, worst 10,261 ms.
+        #:
+        #: The ENTRY is still updated immediately — only the SAVE waits for the
+        #: pass boundary (``_on_check_batch_done``). Deferring the update itself
+        #: was the first attempt and it was wrong: the Watch Alerts badges read
+        #: ``unseen_new`` straight back, so counts would lag a whole pass, and
+        #: two existing tests caught it.
+        self._config_dirty = False
         #: Advances once per pass; rotates which mirrors a bounded
         #: pass checks (see _mirrors_for_this_pass).
         self._pass_index = 0
@@ -445,6 +460,7 @@ class SeriesMonitorManager(QObject):
         outlives ``Database.close()``. The worker polls the flag between
         entries so it unwinds instead of fetching on into teardown.
         """
+        self.flush_pending_series_updates()
         self._stopping.set()
         self._timer.stop()
         self._executor.shutdown(wait=False)
@@ -488,10 +504,36 @@ class SeriesMonitorManager(QObject):
             self._pass_index += 1
             self._check_batch_done.emit()
 
+    def _update_series_deferring_save(self, series_channel_id: str, **fields) -> None:
+        """Apply an entry update now; leave the file write to the pass boundary.
+
+        Args:
+            series_channel_id: Entry to update.
+            **fields: Fields to merge onto it.
+        """
+        self.config.update_monitored_series(series_channel_id, save=False, **fields)
+        self._config_dirty = True
+
+    def flush_pending_series_updates(self) -> None:
+        """Write the config once if this pass changed anything.
+
+        Public so teardown can flush: entries updated in memory but never
+        written would be lost and re-established next launch.
+        """
+        if not self._config_dirty:
+            return
+        self._config_dirty = False
+        try:
+            self.config.save()
+        except Exception:
+            logger.exception("series_monitor: failed to persist series updates")
+
     def _on_check_batch_done(self) -> None:
         """Main-thread slot: decrement the busy counter, emit checking_finished at 0."""
         self._pending_batches = max(0, self._pending_batches - 1)
         if self._pending_batches == 0:
+            # One save for the whole pass, not one per series.
+            self.flush_pending_series_updates()
             self.checking_finished.emit()
 
     # ------------------------------------------------------------------
@@ -958,6 +1000,7 @@ class SeriesMonitorManager(QObject):
                 existing_unseen = e.get("unseen_new", 0)
                 existing_baselines = dict(e.get("baselines") or {})
                 break
+
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
@@ -974,7 +1017,7 @@ class SeriesMonitorManager(QObject):
             })
             total_unseen = clamped["unseen_new"]
 
-            self.config.update_monitored_series(
+            self._update_series_deferring_save(
                 series_channel_id,
                 baselines=merged_baselines,
                 unseen_new=total_unseen,
@@ -996,7 +1039,7 @@ class SeriesMonitorManager(QObject):
         else:
             # delta == 0: just update baselines and last_checked (baselines may
             # include a freshly-established provider whose stored value was 0).
-            self.config.update_monitored_series(
+            self._update_series_deferring_save(
                 series_channel_id,
                 baselines=merged_baselines,
                 last_checked=now_iso,

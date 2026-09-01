@@ -498,6 +498,9 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._alerts_show_idle_check.setChecked(
             getattr(c, "alerts_show_idle_items", False)
         )
+        self._series_interval_spin.setValue(
+            int(getattr(c, "series_monitor_interval_minutes", 60) or 0)
+        )
         self._platform_name_style_combo.blockSignals(True)
         _load_platform_name_style(self._platform_name_style_combo, c)
         self._platform_name_style_combo.blockSignals(False)
@@ -623,6 +626,11 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # The same key Manage Watch Alerts writes, so the two switches are one
         # setting seen from two places rather than two that can disagree.
         c.alerts_show_idle_items = self._alerts_show_idle_check.isChecked()
+        # APPLIED by the host on settings_applied: MainWindow re-arms the timer
+        # via SeriesMonitorManager.start_scheduler(), which re-reads this value.
+        # Written here only — a setting that saves without applying is the
+        # failure this codebase has already had (see the Settings OK note).
+        c.series_monitor_interval_minutes = self._series_interval_spin.value()
         _save_platform_name_style(self._platform_name_style_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
         # Written like every other setting; APPLIED by the host on
