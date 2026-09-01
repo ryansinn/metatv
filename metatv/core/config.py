@@ -1474,8 +1474,22 @@ class Config(BaseModel):
             )
         ]
 
-    def update_monitored_series(self, series_channel_id: str, **fields) -> None:
-        """Update fields on an existing monitored series entry (in-place, then save)."""
+    def update_monitored_series(
+        self, series_channel_id: str, *, save: bool = True, **fields
+    ) -> None:
+        """Update fields on an existing monitored series entry, in place.
+
+        Args:
+            series_channel_id: Entry to update.
+            save: Write the file now. Pass ``False`` when several updates are
+                coming in a row and the caller will call :meth:`save` once
+                itself. The entry is updated IN MEMORY either way, immediately —
+                only the file write is deferred. That distinction matters: the
+                Watch Alerts badges read ``unseen_new`` straight back, so
+                deferring the in-memory update would make new-episode counts lag
+                a whole pass, while deferring the SAVE costs nothing visible.
+            **fields: Fields to merge onto the entry.
+        """
         updated = []
         for e in self.monitored_series:
             if e.get("series_channel_id") == series_channel_id:
@@ -1485,7 +1499,8 @@ class Config(BaseModel):
             else:
                 updated.append(e)
         self.monitored_series = updated
-        self.save()
+        if save:
+            self.save()
 
     def update_monitored_series_many(self, updates: dict) -> None:
         """Apply field updates to many entries and save **once**.
@@ -1497,14 +1512,14 @@ class Config(BaseModel):
         lines / 132 KB, three quarters of it QA results, derived filter caches
         and an ever-growing collapsed-shelf list).
 
-        Two loops were paying that per iteration:
+        Two paths were paying that per iteration, BOTH on the main thread:
 
-        * ``SeriesMonitorManager._worker_check_entries`` — once per checked
-          series, on a worker thread. Python holds the GIL through the dump, so
-          it stalled the UI thread without any main-thread call being slow:
-          29 stalls in one session, worst 10,261 ms.
+        * ``SeriesMonitorManager._on_new_episodes`` — a queued-signal slot fired
+          once per checked series. Not a loop, so a time-based debounce cannot
+          coalesce it: the signals arrive seconds apart across a pass. It writes
+          in memory immediately and lets the pass boundary do the one save.
         * ``MainWindow._apply`` (the ``_run_query`` callback that backfills
-          region/language) — once per row, on the MAIN thread, where the cost
+          region/language) — once per row, where the cost
           is not merely contention but a direct freeze.
 
         Args:

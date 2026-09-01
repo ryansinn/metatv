@@ -785,7 +785,7 @@ def wire_settings_density_widget(dlg) -> None:
     from metatv.gui.settings_dialog_tabs import (
         _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
     )
-    from PyQt6.QtWidgets import QCheckBox, QComboBox
+    from PyQt6.QtWidgets import QCheckBox, QComboBox, QSpinBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:

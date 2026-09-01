@@ -991,10 +991,10 @@ class SettingsTabsMixin:
         self._series_interval_spin.setToolTip(
             "How often to re-check monitored series for new episodes.\n"
             "Set to 0 (Never) to switch the recurring check off.\n\n"
-            "Each check asks your provider about every monitored series on\n"
-            "every source that carries it, so a large watchlist against a slow\n"
-            "provider can keep the connection busy for minutes at a time. On an\n"
-            "account limited to one connection that competes with playback.\n"
+            "Each check asks every source that carries a monitored series\n"
+            "about it, so a large watch list against a slow source can keep the\n"
+            "connection busy for minutes at a time. On an account limited to\n"
+            "one connection that competes with playback.\n"
             "Turning it off does not stop checks after a source refresh."
         )
         interval_row.addWidget(self._series_interval_spin)

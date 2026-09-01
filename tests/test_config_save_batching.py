@@ -92,52 +92,71 @@ class TestBatchedConfigWrite:
         assert len(saves) == 0, "a no-op update still rewrote the config"
 
 
-class TestSeriesMonitorBuffersUntilThePassEnds:
+class TestSeriesMonitorDefersOnlyTheSave:
+    """The ENTRY updates immediately; only the file write waits for the pass.
+
+    Deferring the update itself was the first attempt and it was wrong — the
+    Watch Alerts badges read ``unseen_new`` straight back, so counts lagged a
+    whole pass. Two existing tests
+    (``test_on_new_episodes_accumulates_unseen`` and the ongoing-clamp guard)
+    caught it, which is why they are the contract, not an obstacle.
+    """
 
     def _manager(self, cfg):
         from metatv.core.series_monitor import SeriesMonitorManager
         m = SeriesMonitorManager.__new__(SeriesMonitorManager)
         m.config = cfg
-        m._pending_series_updates = {}
+        m._config_dirty = False
         m._pending_batches = 0
         return m
 
-    def test_buffering_writes_nothing_until_the_pass_ends(
+    def test_eleven_series_cost_one_save_not_eleven(
             self, tmp_path, monkeypatch, qapp):
         cfg = _config_with_series(tmp_path, 11)
         m = self._manager(cfg)
         saves = _count_saves(monkeypatch)
 
         for i in range(11):
-            m._buffer_series_update(f"ch{i}", baselines={"p|s": i},
-                                    last_checked="t")
+            m._update_series_deferring_save(f"ch{i}", baselines={"p|s": i},
+                                            last_checked="t")
         assert len(saves) == 0, (
-            "buffering saved eagerly — this is the per-series write that froze "
-            "the UI once per monitored series")
+            "saved eagerly — this is the per-series write that froze the UI "
+            "once per monitored series")
 
         m.flush_pending_series_updates()
         assert len(saves) == 1
         assert cfg.monitored_series[7]["baselines"] == {"p|s": 7}
 
-    def test_repeated_buffering_of_one_series_merges(self, tmp_path, qapp):
-        cfg = _config_with_series(tmp_path, 1)
-        m = self._manager(cfg)
-        m._buffer_series_update("ch0", baselines={"p|s": 1})
-        m._buffer_series_update("ch0", unseen_new=4)
-        assert m._pending_series_updates["ch0"] == {
-            "baselines": {"p|s": 1}, "unseen_new": 4}
-
-    def test_the_buffer_is_cleared_by_a_flush(self, tmp_path, monkeypatch, qapp):
-        """A buffer that never clears would re-write stale values every pass."""
+    def test_the_entry_is_readable_immediately_without_a_save(
+            self, tmp_path, monkeypatch, qapp):
+        """The regression the existing series-monitor tests caught."""
         cfg = _config_with_series(tmp_path, 2)
         m = self._manager(cfg)
-        m._buffer_series_update("ch0", unseen_new=1)
+        saves = _count_saves(monkeypatch)
+        m._update_series_deferring_save("ch0", unseen_new=5)
+        assert len(saves) == 0
+        assert cfg.monitored_series[0]["unseen_new"] == 5, (
+            "the badge count must be visible before the pass ends")
+
+    def test_repeated_updates_to_one_series_accumulate(self, tmp_path, qapp):
+        cfg = _config_with_series(tmp_path, 1)
+        m = self._manager(cfg)
+        m._update_series_deferring_save("ch0", baselines={"p|s": 1})
+        m._update_series_deferring_save("ch0", unseen_new=4)
+        entry = cfg.monitored_series[0]
+        assert entry["baselines"] == {"p|s": 1} and entry["unseen_new"] == 4
+
+    def test_a_clean_pass_does_not_save(self, tmp_path, monkeypatch, qapp):
+        """A pass that changed nothing must not pay 132 KB."""
+        cfg = _config_with_series(tmp_path, 2)
+        m = self._manager(cfg)
+        m._update_series_deferring_save("ch0", unseen_new=1)
         m.flush_pending_series_updates()
-        assert m._pending_series_updates == {}
+        assert m._config_dirty is False
 
         saves = _count_saves(monkeypatch)
         m.flush_pending_series_updates()
-        assert len(saves) == 0, "an empty flush must not save"
+        assert len(saves) == 0, "a second flush with nothing dirty still saved"
 
     def test_the_pass_boundary_flushes(self, tmp_path, monkeypatch, qapp):
         """``_on_check_batch_done`` is where the single write happens."""
@@ -145,7 +164,7 @@ class TestSeriesMonitorBuffersUntilThePassEnds:
         m = self._manager(cfg)
         m._pending_batches = 1
         for i in range(3):
-            m._buffer_series_update(f"ch{i}", unseen_new=i + 1)
+            m._update_series_deferring_save(f"ch{i}", unseen_new=i + 1)
 
         saves = _count_saves(monkeypatch)
         # Bypass the pyqtSignal emit (needs a real QObject) but run the slot body.
@@ -158,17 +177,17 @@ class TestSeriesMonitorBuffersUntilThePassEnds:
         assert len(saves) == 1, "the pass boundary did not flush the buffer"
         assert cfg.monitored_series[2]["unseen_new"] == 3
 
-    def test_a_failing_save_does_not_wedge_the_buffer(self, tmp_path, monkeypatch, qapp):
-        """A disk error must not make every later pass re-attempt stale writes."""
+    def test_a_failing_save_does_not_crash_the_pass(self, tmp_path, monkeypatch, qapp):
+        """A disk error must not take the watchlist check down with it."""
         from metatv.core.config import Config
         cfg = _config_with_series(tmp_path, 1)
         m = self._manager(cfg)
-        m._buffer_series_update("ch0", unseen_new=9)
+        m._update_series_deferring_save("ch0", unseen_new=9)
         monkeypatch.setattr(
-            Config, "update_monitored_series_many",
-            lambda self, u: (_ for _ in ()).throw(OSError("disk full")))
+            Config, "save",
+            lambda self: (_ for _ in ()).throw(OSError("disk full")))
         m.flush_pending_series_updates()      # must not raise
-        assert m._pending_series_updates == {}, "buffer retained after a failure"
+        assert m._config_dirty is False, "a failed save must not re-arm forever"
 
 
 class TestSeriesIntervalSetting:
