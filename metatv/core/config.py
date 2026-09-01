@@ -5,7 +5,7 @@ from typing import Optional
 import shutil
 import tempfile
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
 #: PyYAML's C emitter when the platform has libyaml, else the pure-Python one.
@@ -515,6 +515,28 @@ def _apply_overrides(
 
 class Config(BaseModel):
     """Application configuration"""
+
+    #: The exact payload of the last successful write, or None before one.
+    #:
+    #: ``save()`` compares against this and does nothing when they match.
+    #: The numbers are why: on the owner's 129 KB / 299-key config, one save
+    #: is ~83 ms and ``yaml.dump`` is 85-95% of it, while ``model_dump()``
+    #: costs ~1 ms. So the check is a hundredth of the thing it avoids.
+    #:
+    #: Why comparing a ``model_dump()`` is the right check, and a
+    #: ``__setattr__`` dirty flag is not: twenty-six sites mutate a config
+    #: container IN PLACE — ``config.x.append(...)``, ``config.x[k] = v`` —
+    #: rather than reassigning the field, so a flag hung off attribute
+    #: assignment would never fire for them and would silently drop the
+    #: user's edit. A dump reflects the real state whichever way it was made.
+    #:
+    #: Keeping the dump itself as the snapshot is safe because ``model_dump()``
+    #: returns FRESH containers rather than the live ones. If that stopped
+    #: being true the snapshot would alias live state, every comparison would
+    #: be a list against itself, and EVERY save would be skipped — so it is
+    #: pinned by ``test_model_dump_does_not_alias_live_containers`` rather
+    #: than assumed.
+    _last_written: "Optional[dict]" = PrivateAttr(default=None)
     
     # Paths
     config_dir: Path = Field(default_factory=lambda: Path.home() / ".config" / "metatv")
@@ -2001,11 +2023,18 @@ class Config(BaseModel):
 
         return config, recovered_from_backup
     
-    def save(self):
+    def save(self, *, force: bool = False):
         """Save configuration to file using atomic writes (temp file → replace).
+
+        Does nothing when the content is byte-identical to the last write — see
+        the comparison below for why that is worth checking.
 
         Creates config.yaml.bak backup of the current valid config before overwriting.
         Uses atomic writes to prevent truncation on crash/interrupt.
+
+        Args:
+            force: Write even when unchanged. For a caller that needs the file
+                on disk to be provably current; not an opt-out.
         """
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -2019,6 +2048,32 @@ class Config(BaseModel):
         config_file = self.config_dir / "config.yaml"
         backup_file = self.config_dir / "config.yaml.bak"
 
+        # Convert to dict, handling Path objects
+        data = self.model_dump()
+        for key, value in data.items():
+            if isinstance(value, Path):
+                data[key] = str(value)
+
+        # Nothing changed since the last write? Then do not do the expensive
+        # part. Measured on the owner's config (129 KB, 299 keys): a save is
+        # ~83 ms and yaml.dump is 85-95% of that, while the model_dump above
+        # costs ~1 ms. There are 130 call sites and none of them checks, so
+        # every "on change" handler that fires without a change — a splitter
+        # nudged back to the same size, a section toggled twice — paid the
+        # full 83 ms on the UI thread.
+        #
+        # Compared AFTER the database_url default above, so first-run does
+        # write. `force` exists for a caller that must be certain the file on
+        # disk is current (a shutdown path), not as a way to opt out.
+        # `config_file.exists()` is part of the condition, not an afterthought:
+        # if the file is deleted out from under us, the in-memory snapshot still
+        # matches and we would skip forever, leaving the user with no config on
+        # disk and no way to notice. Existence is the other half of "already
+        # written".
+        if not force and self._last_written == data and config_file.exists():
+            logger.debug("Config unchanged since last write; skipping save")
+            return
+
         # Back up current config if it exists and is valid
         if config_file.exists() and config_file.stat().st_size > 0:
             try:
@@ -2026,12 +2081,6 @@ class Config(BaseModel):
                 logger.debug(f"Backed up config to {backup_file}")
             except Exception as e:
                 logger.warning(f"Failed to create backup: {e}")
-
-        # Convert to dict, handling Path objects
-        data = self.model_dump()
-        for key, value in data.items():
-            if isinstance(value, Path):
-                data[key] = str(value)
 
         # Write to temp file first, then atomically replace
         try:
@@ -2046,6 +2095,12 @@ class Config(BaseModel):
 
             # Atomically replace original file
             tmp_path.replace(config_file)
+            # `data` is already detached from the model — model_dump() builds
+            # fresh containers rather than handing back the live lists — so no
+            # further copying is needed. That detachment is the load-bearing
+            # property, and test_model_dump_does_not_alias_live_containers
+            # pins it.
+            self._last_written = data
             logger.info(f"Saved config to {config_file}")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
