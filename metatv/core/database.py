@@ -978,6 +978,14 @@ class Database:
             # bookkeeping, see ChannelDB.metadata_enrich_state(_attempts) above.
             ("channels",     "metadata_enrich_state",         "TEXT"),
             ("channels",     "metadata_enrich_attempts",      "INTEGER DEFAULT 0"),
+            # Signal checking (#617) and vanished-row pruning (#648). BOTH
+            # shipped without their entries here, and the second was written
+            # after reviewing the first — see the guard below for why that was
+            # possible twice.
+            ("channels",     "signal_verdict",                "TEXT"),
+            ("channels",     "signal_dead_streak",            "INTEGER DEFAULT 0"),
+            ("channels",     "signal_checked_at",             "DATETIME"),
+            ("channels",     "last_seen_at",                  "DATETIME"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -998,6 +1006,9 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_signal_verdict ON channels (signal_verdict)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_signal_checked_at ON channels (signal_checked_at)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_last_seen_at ON channels (last_seen_at)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_metadata_enrich_state ON channels (metadata_enrich_state)",
                 # Redundant single-column indexes on content_tags — each a strict
