@@ -101,6 +101,8 @@ class SportsView(ContentView):
         #: two rapid activations would otherwise both see 'not loaded' and
         #: issue the same whole-corpus scan twice.
         self._taxonomy_requested = False
+        #: Restore happens once per session, after the first taxonomy load.
+        self._filters_restored = False
         #: The active lane. Restored from config so the view opens where the
         #: user left it (UI state persistence), defaulting to Upcoming.
         self._lane: str = getattr(config, "sports_lane", None) or self.DEFAULT_LANE
@@ -213,6 +215,20 @@ class SportsView(ContentView):
             self._show_error("Couldn't load the sport list")
             return
         self.filter_bar.load_taxonomy(data["taxonomy"], data["counts"])
+        # Restore the saved selection ONCE, after the chips exist — before this
+        # the sport chips have not been built, so there is nothing to check.
+        #
+        # `restore_filter_state` was fully written (sports, leagues AND search)
+        # and had ZERO callers, while `config.sports_filter_state` was declared
+        # and never written: the feature was complete at both ends and connected
+        # at neither, so every restart dropped the user's sport back to "all"
+        # (owner, 2026-09-01: "Sports filters are not remembered on app
+        # restart"). The lane survived because it saves separately.
+        if not self._filters_restored:
+            self._filters_restored = True
+            saved = getattr(self.config, "sports_filter_state", None) or {}
+            if saved:
+                self.filter_bar.restore_filter_state(saved)
 
     def _reload_channels(self, *, refresh_counts: bool = True) -> None:
         """Re-query for the current cascade selection.
@@ -226,6 +242,14 @@ class SportsView(ContentView):
         """
         state = self.filter_bar.get_filter_state()
         config = self.config
+
+        # Every UI section remembers its state (DESIGN.md). Only write when it
+        # actually changed: this runs on every keystroke in the fixture search,
+        # and a config write is a full file rewrite plus a backup copy.
+        if self._filters_restored and state != getattr(
+                config, "sports_filter_state", None):
+            config.sports_filter_state = dict(state)
+            config.save()
 
         lane = self._lane
 
