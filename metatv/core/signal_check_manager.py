@@ -88,6 +88,9 @@ class SignalCheckManager:
         """Start the worker. Idempotent, and a no-op without ffmpeg."""
         if self._thread and self._thread.is_alive():
             return
+        if not getattr(self.config, "signal_check_enabled", False):
+            logger.debug("signal check: disabled — see Config.signal_check_enabled")
+            return
         if not ffmpeg_available():
             logger.info("signal check: ffmpeg not installed — probing disabled")
             return

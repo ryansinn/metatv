@@ -141,6 +141,37 @@ What's left to build. Completed features live in git history.
 - [ ] **Live stream recording / DVR (the live sibling of download) — EPG-scheduled, connection-aware** — **NOT BUILT** (verified 2026-08-02: no recording manager / scheduled-recording code). Named in the Wave 5 plan; never written. Record a **live** channel for a time window (you'll miss the game → leave the app up, it records the chosen channel for the chosen window). **EPG-integrated:** schedule a recording straight from an EPG programme — reuse `EpgProgramDB` start/stop times + the watchlist/notification timer infra in `EpgManager` (a "Record" action alongside the watchlist "+"), with **pre/post padding** (start early / end late — live events run over). Manual time-window recording too. Mechanism: mpv `--stream-record=<file>` or a headless ffmpeg capture of the live TS for the window; same downloads/library dir + offline badge. **Connection-aware — third consumer of the one per-source arbiter:** a recording holds a source connection for its whole window, competing with playback + downloads via the **same** `provider_max_connections` accountant (don't build a third counter). **New priority insight — the axis is content *ephemerality/recoverability*, not foreground-vs-background:** a *download* yields freely (VOD is recoverable later), but a *live recording is time-critical — the moment is gone forever* — so a scheduled recording should **reserve** its slot and **warn/block** a conflicting play (*"playing source X now exceeds its connection limit and will kill the scheduled recording"*) rather than silently yielding. So: playback > download (download yields), but a scheduled live recording is **protected** even against playback (or makes the user choose with eyes open). **Limitation:** "leave the app up" needs the GUI process running — a true unattended PVR is the **headless-backend** stretch (PRODUCT_VISION), the eventual upgrade that records without the head up.
 ### Source reliability & stream diagnostics
 
+> **PARKED — NOT A TASK. Do not pick this up.**
+>
+> This is deliberately not a checklist item and is deliberately absent from the
+> worklog, because it is not ready to be worked on and a queued-looking line
+> would invite someone to try. Owner: *"it needs a lot more thought."*
+>
+> The signal check (dead-air detection, #617) is **disabled**
+> (`Config.signal_check_enabled = False`) and was switched off the same day it
+> shipped. Recorded here only so the evidence is not lost and the same design is
+> not re-attempted from scratch:
+>
+> * **It jams the only connection.** A probe holds the source's connection for
+>   the length of its sample; both of the owner's sources report
+>   `max_connections=1`. The worker started unconditionally and probed
+>   continuously — :04, :11, :18, :25, :35, :44, :54 in their log — so playback
+>   competed with it and probes competed with each other.
+> * **The verdicts are wrong in the common case.** Channels the owner was
+>   actively watching came back `dead (no video — ffmpeg exited 146)`. ffmpeg
+>   exits 145/146 when it cannot OPEN the input — measured: a refused connection
+>   gives 145 — which on a one-connection account usually means the slot was
+>   busy. That stderr matched no recognized pattern and fell through to "no
+>   video". `interpret()` already treats REFUSED as inconclusive; it never saw
+>   those.
+>
+> Verdicts written by the first version are cleared once at startup
+> (`PRAGMA user_version = 6`) so nothing inherits known-wrong data. The code,
+> settings tab and #617's tests all remain.
+>
+> Whenever this is revisited, it starts with a design conversation, not with
+> this text as a spec.
+
 - [ ] **EPG freshness must distinguish "our fetch failed" from "the source is out of date".** The
   source editor's freshness line reads *"⚠ Stale — guide ends 4 Aug 2026 (source out of date)"* —
   it blames the provider, and in the owner's 2026-08-16 case that was flatly wrong: the guide was
