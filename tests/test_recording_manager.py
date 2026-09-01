@@ -276,6 +276,71 @@ def test_progress_survives_a_zero_length_window():
     assert p.elapsed_fraction(now=start) == 1.0
 
 
+# ── progress() against a real database ──────────────────────────────────────
+#
+# The three tests above build a RecordingProgress by hand and never call
+# ``manager.progress()``. That gap shipped an AttributeError to the owner's
+# running app: the query ordered by ``RecordingDB.starts_at``, which is not a
+# column — the column is ``programme_start`` and ``starts_at`` is the DTO's
+# name for the padded start. It fired once a second behind a caught-and-logged
+# except in the sidebar refresh, so the Recordings section was simply always
+# empty. Nothing below constructs a DTO by hand.
+
+
+def test_progress_reads_the_database(manager):
+    """The regression guard: execute the query, do not describe it."""
+    start, end = _window()
+    rid = manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                           programme_title="The Match").recording_id
+
+    rows = manager.progress()
+
+    assert [r.recording_id for r in rows] == [rid]
+    assert rows[0].programme_title == "The Match"
+    assert rows[0].starts_at == start - timedelta(minutes=2), "the PADDED start"
+    assert rows[0].ends_at == end + timedelta(minutes=15)
+
+
+def test_progress_orders_by_the_effective_window_not_the_guides(manager):
+    """Newest window first means the EFFECTIVE window, which is what renders.
+
+    Padding is signed and per-row, so the two measures genuinely disagree: the
+    guide says ``later`` starts second, while a 30-minute early offset puts it
+    first on the clock the recorder and the sidebar both use. Ordering by the
+    raw column would sort the list differently from the times printed in it.
+    """
+    base, _ = _window()
+    manager.schedule("early", "p1", "BBC One", "http://x/1.ts",
+                     base, base + timedelta(minutes=30),
+                     programme_title="On time", pad_start_seconds=0,
+                     pad_end_seconds=0)
+    manager.schedule("late", "p2", "ITV", "http://x/2.ts",
+                     base + timedelta(minutes=10), base + timedelta(minutes=40),
+                     programme_title="Starts early", pad_start_seconds=-1800,
+                     pad_end_seconds=0)
+
+    rows = manager.progress()
+
+    assert [r.programme_title for r in rows] == ["On time", "Starts early"], \
+        "sorted on the effective start; by programme_start this is reversed"
+    assert [r.starts_at for r in rows] == sorted(
+        (r.starts_at for r in rows), reverse=True)
+    assert rows[0].starts_at > rows[1].starts_at, \
+        "non-degenerate: the two windows really do differ"
+
+
+def test_progress_omits_terminal_recordings(manager):
+    """Completed/failed/cancelled are history; the sidebar shows what is live."""
+    start, end = _window()
+    keep = manager.schedule("c1", "p1", "BBC One", "http://x/1.ts", start, end,
+                            programme_title="Live").recording_id
+    gone = manager.schedule("c2", "p2", "ITV", "http://x/2.ts", start, end,
+                            programme_title="Cancelled").recording_id
+    manager.cancel(gone)
+
+    assert [r.recording_id for r in manager.progress()] == [keep]
+
+
 # ── a real capture off an endless stream ────────────────────────────────────
 
 #: Bytes per write and the pause between them — about 1.2 MB/s.

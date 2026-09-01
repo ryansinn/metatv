@@ -334,14 +334,23 @@ class RecordingManager:
         self._wake.set()
 
     def progress(self) -> list[RecordingProgress]:
-        """Every non-terminal recording, newest window first. Safe from any thread."""
+        """Every non-terminal recording, newest window first. Safe from any thread.
+
+        Sorted in Python rather than by SQL, because the window this orders by
+        is the EFFECTIVE one — ``programme_start`` plus a signed, per-row
+        ``pad_start_seconds`` — and that is a computed property, not a column.
+        Two recordings with different padding can order differently by the two
+        measures, and the DTO's ``starts_at`` is the effective start, so
+        ordering by the raw column would disagree with what is rendered. The
+        set is bounded by what is scheduled, never by history.
+        """
         from metatv.core.database import RecordingDB
 
-        with self.db.session_scope() as session:
+        with self.db.session_scope(commit=False) as session:
             rows = session.query(RecordingDB).filter(
                 RecordingDB.state.notin_(TERMINAL_STATES)
-            ).order_by(RecordingDB.starts_at.desc()).all()
-            return [RecordingProgress(
+            ).all()
+            out = [RecordingProgress(
                 recording_id=r.id, channel_id=r.channel_id,
                 channel_name=r.channel_name, programme_title=r.programme_title or "",
                 state=r.state, starts_at=r.effective_start,
@@ -351,6 +360,8 @@ class RecordingManager:
                 waiting_for_slot=r.id in self._conflict_announced
                 and r.state == "scheduled",
             ) for r in rows]
+        out.sort(key=lambda p: p.starts_at, reverse=True)
+        return out
 
     # ── the scheduler ────────────────────────────────────────────────────────
 
