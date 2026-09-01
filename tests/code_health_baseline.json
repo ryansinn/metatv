@@ -29,7 +29,7 @@
     "metatv/gui/main_window_streaming.py": 1691,
     "metatv/gui/provider_editor.py": 1043,
     "metatv/gui/qa_checklist_window.py": 2502,
-    "metatv/gui/settings_dialog_tabs.py": 1020,
+    "metatv/gui/settings_dialog_tabs.py": 1051,
     "metatv/gui/sidebar/base.py": 1474,
     "metatv/gui/theme.py": 2404
   },

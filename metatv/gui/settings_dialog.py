@@ -159,13 +159,22 @@ def _save_theme_combo(combo: QComboBox, config) -> None:
 # Left-nav sections, in display order — id + label, unchanged from the old
 # QTabWidget's five tab names/order so the ``settings:<tab>`` deep link and
 # shipped What's New entries keep matching. id is also the _SECTION_HELP key.
-_SECTIONS: tuple[tuple[str, str], ...] = (
-    ("playback", "Playback"),
-    ("interaction", "Interaction"),
-    ("content", "Content"),
-    ("recommendations", "Recommendations"),
-    ("metadata", "Metadata & API Keys"),
-    ("interface", "Interface"),
+#: ``(section_id, label, builder_method_name)``, in display order.
+#:
+#: One list, not two zipped by position. It WAS two — ``_SECTIONS`` beside a
+#: parallel ``builders`` tuple in ``_setup_ui`` — which pairs correctly only
+#: while both stay the same length and the same order. Adding a page to one
+#: and not the other does not fail; it silently renders every later page under
+#: the wrong label and the wrong help text.
+_SECTIONS: tuple[tuple[str, str, str], ...] = (
+    ("playback", "Playback", "_build_playback_tab"),
+    ("interaction", "Interaction", "_build_interaction_tab"),
+    ("content", "Content", "_build_content_tab"),
+    ("recommendations", "Recommendations", "_build_recommendations_tab"),
+    ("metadata", "Metadata & API Keys", "_build_metadata_tab"),
+    ("interface", "Interface", "_build_interface_tab"),
+    ("sidebar", "Sidebar", "_build_sidebar_tab"),
+    ("alerts", "Watch Alerts", "_build_alerts_tab"),
 )
 
 # One short, plainly-written paragraph per section for the right-hand help
@@ -188,9 +197,18 @@ _SECTION_HELP: dict[str, str] = {
     "metadata": "TMDb/OMDb API keys, how long fetched metadata is cached, and EPG guide "
                 "refresh/notification timing. A TMDb key unlocks posters, cast, and plot "
                 "details across your whole library.",
-    "interface": "Search memory, source-refresh behavior, update checks, and which "
-                 "sidebar sections show (and in what order). Sidebar changes here take "
-                 "effect as soon as you click OK or Apply.",
+    "interface": "Search memory, how the channel list looks, source-refresh behavior "
+                 "and update checks. Which sidebar sections show, and Watch Alerts, "
+                 "now have pages of their own below.",
+    "sidebar": "Which sections appear down the left, and in what order. Changes take "
+               "effect as soon as you click OK or Apply. Hiding a section does not "
+               "lose anything — it stops being built, and comes back exactly as it "
+               "was when you show it again.",
+    "alerts": "What the Watch Alerts section shows, and how often MetaTV re-checks "
+              "your watch list for new episodes. That check costs one connection to "
+              "the source while it runs, so on an account limited to a single "
+              "connection it competes with playback — which is why it defaults to "
+              "once a day rather than hourly.",
 }
 
 
@@ -257,16 +275,8 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         layout.setSpacing(12)
 
         self._nav = ThreePanelSectionNav(_SECTION_HELP)
-        builders = (
-            self._build_playback_tab,
-            self._build_interaction_tab,
-            self._build_content_tab,
-            self._build_recommendations_tab,
-            self._build_metadata_tab,
-            self._build_interface_tab,
-        )
-        for (section_id, label), builder in zip(_SECTIONS, builders):
-            page = builder()
+        for section_id, label, builder_name in _SECTIONS:
+            page = getattr(self, builder_name)()
             _align_label_columns(page)
             self._nav.add_section(section_id, label, page)
         layout.addWidget(self._nav, 1)

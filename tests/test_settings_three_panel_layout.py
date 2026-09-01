@@ -58,7 +58,7 @@ def _make_config(tmp_path) -> Config:
     return config
 
 
-_LABELS = [label for _section_id, label in _SECTIONS]
+_LABELS = [label for _section_id, label, _builder in _SECTIONS]
 _INTERFACE_ROW = _LABELS.index("Interface")
 
 
@@ -69,20 +69,23 @@ _INTERFACE_ROW = _LABELS.index("Interface")
 def test_every_declared_section_renders_in_order(qapp, tmp_path):
     """Counted against ``_SECTIONS``, not a copy of its labels.
 
-    ``_setup_ui`` pairs sections with builders via ``zip``, which truncates
-    SILENTLY — a section declared without a builder never appears and nothing
-    raises. A literal list cannot tell that apart from someone adding a section,
-    so it just goes red and gets bumped, which is how the check stops meaning
-    anything.
+    ``_SECTIONS`` now carries its own builder name, so the old hazard this
+    guarded — a section zipped against a shorter ``builders`` tuple, truncating
+    SILENTLY — cannot happen any more. The check is still worth keeping: it is
+    what proves a declared section actually renders, and that the nav and the
+    stack agree on how many there are.
+
+    A literal list of labels is deliberately NOT used: it cannot tell a missing
+    page from someone legitimately adding one, so it goes red and gets bumped,
+    which is how a check stops meaning anything.
     """
     dlg = SettingsDialog(_make_config(tmp_path), parent=None)
 
     labels = [dlg._nav.section_list.item(i).text()
               for i in range(dlg._nav.section_list.count())]
-    assert labels == [label for _, label in _SECTIONS]
+    assert labels == [label for _sid, label, _builder in _SECTIONS]
     assert len(labels) >= 6
     assert dlg._nav.stack.count() == len(_SECTIONS)
-    assert "Sidebar" not in labels
 
     dlg.reject()
 
