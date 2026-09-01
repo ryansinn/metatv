@@ -73,6 +73,21 @@ class ChannelDB(Base):
     
     is_favorite = Column(Boolean, default=False, index=True)
     is_hidden = Column(Boolean, default=False, index=True)  # hidden from all views
+
+    #: When this row was last present in the source's own channel list.
+    #:
+    #: Stamped on EVERY upsert, including rows whose content did not change —
+    #: which is why it is not ``updated_at``. That column moves only when a
+    #: field actually differs, so a channel the source still lists but has not
+    #: edited keeps an ancient timestamp and is indistinguishable from one that
+    #: has vanished.
+    #:
+    #: NULL means "never observed under this scheme" and is NEVER pruned. The
+    #: backfill stamps every existing row once, so a NULL afterwards can only be
+    #: a row inserted by something that bypassed the catalog upsert — deleting
+    #: on an absence of evidence is exactly the mistake #642 recorded about
+    #: inferring a first launch from empty lists.
+    last_seen_at = Column(DateTime, index=True)
     is_adult = Column(Boolean, default=False, index=True)
     is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
     last_played = Column(DateTime, index=True)
@@ -866,6 +881,7 @@ class Database:
         self._prune_orphaned_channels()
         self._prune_orphaned_content_tags()
         self._clean_polluted_metadata_titles()
+        self._seed_last_seen_at()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -1298,6 +1314,48 @@ class Database:
 
         except Exception as exc:
             logger.error(f"Metadata-title cleanup migration failed (startup unblocked): {exc}")
+
+    def _seed_last_seen_at(self) -> None:
+        """One-time: give every existing channel a ``last_seen_at``.
+
+        Without this the column is NULL on all 785k pre-existing rows, and
+        ``prune_vanished_channels`` never prunes a NULL — deliberately, because
+        deleting on an absence of evidence is how you lose a catalog. So the rows
+        that have ALREADY vanished (980 superseded event slots on the owner's
+        library) would sit there for ever, which is the bug this whole change
+        exists to fix.
+
+        Seeding them all to one instant BEFORE any refresh is what makes them
+        prunable: the next refresh stamps a strictly later value on everything the
+        source still lists, so what keeps the seed timestamp is exactly what the
+        source dropped. It cannot mis-fire in the other direction — a row the
+        source still carries gets re-stamped seconds later.
+
+        Runs once, gated on ``PRAGMA user_version``, and never blocks startup.
+        """
+        try:
+            with self.engine.connect() as conn:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version >= 5:
+                return
+
+            with self.engine.connect() as conn:
+                seeded = conn.execute(
+                    text("UPDATE channels SET last_seen_at = :t "
+                         "WHERE last_seen_at IS NULL"),
+                    {"t": datetime.utcnow()},
+                ).rowcount
+                conn.commit()
+            if seeded:
+                logger.info(
+                    f"One-time: stamped last_seen_at on {seeded:,} existing "
+                    f"channel(s) so rows the source has dropped become prunable."
+                )
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA user_version = 5"))
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"last_seen_at seed failed (startup unblocked): {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""
