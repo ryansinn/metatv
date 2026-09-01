@@ -384,13 +384,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             migration_manager=self.migration_manager,
             connection_accountant=self.player_manager.connection_accountant,
         )
-        # Asking for a slot (#632) was half the fix; being TOLD when it is taken
-        # is the other half. Without this the backfill kept its forty in-flight
-        # detail calls running after playback evicted it, and mpv — refused the
-        # provider's one connection — quit a few seconds after opening.
-        self.player_manager.connection_accountant.add_preempt_listener(
-            self.tmdb_enrichment_manager.on_preempted
-        )
         # Connect to MainWindow bound methods (QObject receivers on the main thread)
         # — NOT bare lambdas — so worker-thread emits are delivered via a queued
         # connection on the main thread. collapses_found's int arg is dropped.

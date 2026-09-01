@@ -209,6 +209,20 @@ class TmdbEnrichmentManager(QObject):
         # running; reset as it is consumed (#284).
         self._ids_written_this_drain = 0
 
+        # Registered LAST, and by this manager rather than by its caller.
+        #
+        # Last, because on_preempted touches _lock and _preempted_providers:
+        # registering beside the _accountant assignment above would publish a
+        # callback that can fire before the fields it reads exist. That is the
+        # v0.14.1 init-order class — a signal wired to something not yet built.
+        #
+        # By itself, because a wiring line in main_window is the enumeration
+        # nobody remembers to add, which is precisely how this manager came to
+        # be evicted with no way of hearing it: the accountant had ONE hook and
+        # DownloadManager had already taken it.
+        if self._accountant is not None:
+            self._accountant.add_preempt_listener(self.on_preempted)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

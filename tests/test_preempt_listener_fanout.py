@@ -193,6 +193,60 @@ def test_a_new_batch_is_not_poisoned_by_the_previous_eviction():
         mgr.shutdown()
 
 
+def test_enrichment_registers_itself_when_given_an_accountant():
+    """No caller has to remember to wire it — handing over the accountant IS the wiring.
+
+    The original defect was a wiring line that only one consumer had. A
+    manager that registers itself cannot be forgotten by a new call site.
+    """
+    acct = ConnectionAccountant(capacity_resolver=lambda _p: 1)
+    mgr = TmdbEnrichmentManager(SimpleNamespace(), SimpleNamespace(),
+                                connection_accountant=acct)
+    try:
+        acct.acquire("p1", "monitor", mgr._holder_id("p1"))
+        acct.acquire("p1", "playback", "__shared__", preempt_kinds=PLAYBACK_PREEMPTS)
+        assert mgr._was_preempted("p1"), (
+            "the manager did not hear its own eviction — it was never registered")
+    finally:
+        mgr.shutdown()
+
+
+def test_registration_happens_after_the_fields_it_reads_exist():
+    """Init-order guard: an eviction arriving during construction must not explode.
+
+    ``on_preempted`` reads ``_lock`` and ``_preempted_providers``. Registering
+    beside the ``_accountant`` assignment would publish the callback before
+    either exists — the v0.14.1 class, where a signal was wired to something
+    not yet built and the whole unit suite stayed green.
+    """
+    fired: list[str] = []
+
+    class _EagerAccountant(ConnectionAccountant):
+        """Calls the listener the instant it is registered."""
+
+        def add_preempt_listener(self, callback):
+            super().add_preempt_listener(callback)
+            callback("p1", "tmdb_enrich:p1", "playback")
+            fired.append("during __init__")
+
+    mgr = TmdbEnrichmentManager(SimpleNamespace(), SimpleNamespace(),
+                                connection_accountant=_EagerAccountant(lambda _p: 1))
+    try:
+        assert fired == ["during __init__"]
+        assert mgr._was_preempted("p1"), "the callback ran but its state was lost"
+    finally:
+        mgr.shutdown()
+
+
+def test_a_headless_manager_needs_no_accountant():
+    """``connection_accountant=None`` stays a working manager, not a dead one."""
+    mgr = TmdbEnrichmentManager(SimpleNamespace(), SimpleNamespace())
+    try:
+        assert not mgr._was_preempted("p1")
+    finally:
+        mgr.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # 3. Drift guard — nobody may take the hook back
 # ---------------------------------------------------------------------------
