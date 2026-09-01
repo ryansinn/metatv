@@ -16,6 +16,8 @@ from metatv.gui.three_panel_section_nav import ThreePanelSectionNav
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "alerts":      "Watch Alerts",
+    "downloads":   "Downloads",
+    "recordings":  "Recordings",
     "recommended": "Recommended",
     "queue":       "Watch Queue",
     "favorites":   "Favorites",

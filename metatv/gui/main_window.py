@@ -50,6 +50,8 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
+from metatv.gui.sidebar.downloads import DownloadsSection
+from metatv.gui.sidebar.recordings import RecordingsSection
 from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
 from metatv.gui.sources_manager_view import SourcesManagerView
 from metatv.gui import icons as _icons
@@ -1241,6 +1243,25 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             section.itemDoubleClicked.connect(self.play_channel_by_id)
             section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
+            return section
+
+        elif section_id == "downloads":
+            section = DownloadsSection(self.config, self.db, self)
+            section.itemSelected.connect(self.show_channel_details_by_id)
+            section.openLibraryFolderClicked.connect(self._open_downloads_folder)
+            section.revealItemRequested.connect(self._reveal_in_file_manager)
+            section.pauseRequested.connect(self._pause_download)
+            section.resumeRequested.connect(self._resume_download)
+            section.cancelRequested.connect(self._cancel_download)
+            return section
+
+        elif section_id == "recordings":
+            section = RecordingsSection(self.config, self.db, self)
+            section.itemSelected.connect(self.show_channel_details_by_id)
+            section.openLibraryFolderClicked.connect(self._open_recordings_folder)
+            section.watchRequested.connect(self._watch_recording)
+            section.cancelRequested.connect(self._cancel_recording)
+            section.extendRequested.connect(self._extend_recording)
             return section
 
         elif section_id == "queue":

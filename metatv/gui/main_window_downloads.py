@@ -12,12 +12,19 @@ no Qt at all — this module is the wiring and the two sentences the user reads.
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
 
-from metatv.core.download_manager import DownloadManager
-from metatv.core.recording_manager import RecordingManager
+from metatv.core.download_manager import DownloadManager, library_dir
+from metatv.core.recording_manager import RecordingManager, recordings_dir
+from metatv.gui.file_reveal import open_folder, reveal_file
+
+#: How often the two transfer sections re-read their manager. Two seconds
+#: matches the download scheduler's own POLL_SECONDS, so a row never lags the
+#: thing it describes by more than one of its ticks.
+_TRANSFER_TICK_MS = 2000
 from metatv.core.epg_utils import to_local
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
@@ -57,7 +64,119 @@ class _DownloadsMixin:
             on_countdown=self._on_recording_countdown)
         self.recording_manager.start()
         self._register_cleanable("recordings", self.recording_manager.shutdown)
+
+        # Both sections are PUSHED their rows on a tick — the managers are
+        # plain classes with no Qt signals, and giving a widget a manager
+        # reference would make the widget's lifetime the manager's problem.
+        # Same shape as refresh_retry: the host owns the manager, the section
+        # renders what it is handed.
+        #
+        # The tick is cheap by construction: progress() is an in-memory read,
+        # and ProgressBar.set_pct repaints only past a 0.5% move — so an idle
+        # app with nothing transferring does no work beyond two empty lists.
+        self._transfer_tick = QTimer(self)
+        self._transfer_tick.setInterval(_TRANSFER_TICK_MS)
+        self._transfer_tick.timeout.connect(self._refresh_transfer_sections)
+        self._transfer_tick.start()
+        self._register_cleanable("transfer_tick", self._transfer_tick.stop)
         logger.debug("Download and recording managers ready")
+
+    # ── the transfer sections ──────────────────────────────────────────────
+
+    def _refresh_transfer_sections(self) -> None:
+        """Push each manager's progress into its sidebar section, if shown.
+
+        Guarded on the section being present rather than on hasattr: a section
+        the user hid is simply not built, and this runs on a timer that starts
+        before the sidebar finishes assembling.
+        """
+        sections = self.__dict__.get("sidebar_sections") or {}
+        downloads = sections.get("downloads")
+        if downloads is not None:
+            try:
+                downloads.refresh_progress(self.download_manager.progress())
+            except Exception:
+                logger.exception("could not refresh the Downloads section")
+        recordings = sections.get("recordings")
+        if recordings is not None:
+            try:
+                recordings.refresh_progress(self.recording_manager.progress())
+            except Exception:
+                logger.exception("could not refresh the Recordings section")
+
+    # ── folder actions ─────────────────────────────────────────────────────
+
+    def _open_downloads_folder(self) -> None:
+        if not open_folder(library_dir(self.config)):
+            self.status_bar.showMessage("No downloads folder yet.", 4000)
+
+    def _open_recordings_folder(self) -> None:
+        if not open_folder(recordings_dir(self.config)):
+            self.status_bar.showMessage("No recordings folder yet.", 4000)
+
+    def _reveal_in_file_manager(self, dest_path: str) -> None:
+        """Reveal one transfer's file. Says so when the file is gone.
+
+        Files are deleted outside the app, so "it is downloaded" is only ever
+        true of the filesystem — silently opening an empty folder would make a
+        claim this cannot check any other way.
+        """
+        if not reveal_file(dest_path):
+            self.status_bar.showMessage(
+                "That file is no longer on disk.", 4000)
+
+    # ── row actions ────────────────────────────────────────────────────────
+
+    def _pause_download(self, download_id: str) -> None:
+        self.download_manager.pause(download_id)
+        self._refresh_transfer_sections()
+
+    def _resume_download(self, download_id: str) -> None:
+        self.download_manager.resume(download_id)
+        self._refresh_transfer_sections()
+
+    def _cancel_download(self, download_id: str) -> None:
+        self.download_manager.cancel(download_id)
+        self._refresh_transfer_sections()
+
+    def _cancel_recording(self, recording_id: str) -> None:
+        self.recording_manager.cancel(recording_id)
+        self._refresh_transfer_sections()
+
+    def _extend_recording(self, recording_id: str) -> None:
+        """Push a running recording's stop time out by the configured step.
+
+        The stop time is read at each tick rather than computed once at the
+        start, which is what makes extending a RUNNING recording possible —
+        the spec's reason for that shape: "the live extend is the one that
+        saves an event".
+        """
+        minutes = int(getattr(self.config, "recording_extend_minutes", 15) or 15)
+        new_end = self.recording_manager.extend(recording_id, minutes * 60)
+        if new_end is not None:
+            self.status_bar.showMessage(
+                f"Recording extended to {to_local(new_end):%H:%M}.", 4000)
+        self._refresh_transfer_sections()
+
+    def _watch_recording(self, recording_id: str) -> None:
+        """Play the file a recording is still writing.
+
+        Costs no second connection, which is the whole point on a
+        one-connection account: the recorder already has the stream open and
+        is appending to disk, so the player opens THAT file. A few seconds
+        behind live is the correct trade.
+        """
+        rows = [r for r in self.recording_manager.progress()
+                if r.recording_id == recording_id]
+        if not rows or not rows[0].dest_path:
+            self.status_bar.showMessage("That recording has no file yet.", 4000)
+            return
+        path = Path(rows[0].dest_path)
+        if not path.exists():
+            self.status_bar.showMessage("That recording has no file yet.", 4000)
+            return
+        self.player_manager.play(str(path), rows[0].programme_title
+                                 or rows[0].channel_name)
 
     def download_channel_by_id(self, channel_id: str) -> None:
         """Queue a VOD for download to the local library.
