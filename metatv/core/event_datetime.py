@@ -59,6 +59,21 @@ _EVENT_DMY_RE = re.compile(
 #: "| 2026-07-04 | 09:00 (GMT) |" — ISO.
 _EVENT_ISO_RE = re.compile(
     r"\|\s*(\d{4})-(\d{2})-(\d{2})\s*\|\s*(\d{1,2}):(\d{2})" + _TZ_SUFFIX)
+#: "MLB 04 | Mariners x Red Sox start:2026-08-31 23:45:00 stop:2026-09-01 …"
+#: — the provider's event-slot form. NO pipe around the date and NO zone, so
+#: neither ISO nor DMY above can see it: both require "| date | time".
+#:
+#: Measured on the owner's corpus 2026-09-01: 56 rows carry this shape and
+#: **not one of them had event_start_time set**, while 4,205 rows in other
+#: forms did. That is why the Sports view's "On now" and "Upcoming" lanes were
+#: permanently empty and every dated game fell through to "Channels" — with no
+#: start time a row cannot be classified live, upcoming OR finished.
+#:
+#: Read as UTC, per this module's stated default for an absent zone. The times
+#: say so: 23:45, 23:05 and 00:40 are 19:45, 19:05 and 19:40 Eastern, textbook
+#: MLB starts, and are nonsense read as the viewer's local clock.
+_EVENT_STARTSTOP_RE = re.compile(
+    r"\bstart:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
 #: "| Sat 29 Aug 14:00 CEST (DK) |" — day-name, carries a zone and NO YEAR.
 _EVENT_DAYNAME_RE = re.compile(
     r"\|\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+"
@@ -168,7 +183,13 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
         reference = now_utc().date()
 
     tz_name = None
-    if (m := _EVENT_DMY_RE.search(name)) is not None:
+    if (m := _EVENT_STARTSTOP_RE.search(name)) is not None:
+        # First: the shape is unambiguous ("start:" + ISO date), and checking it
+        # before the pipe forms means a name carrying both cannot be read as the
+        # wrong one.
+        year, month, day, hour, minute = m.groups()
+        year, month, day = int(year), int(month), int(day)
+    elif (m := _EVENT_DMY_RE.search(name)) is not None:
         day, month, year, hour, minute, tz_name = m.groups()
         year, month, day = int(year), int(month), int(day)
     elif (m := _EVENT_ISO_RE.search(name)) is not None:
