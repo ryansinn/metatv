@@ -87,7 +87,16 @@ class SportsView(ContentView):
         self._image_cache = image_cache
         #: Stale-result token. A fast sport→league→sport click sequence issues
         #: three queries; only the newest may render.
-        self._token: list[int] = [0]
+        # ONE TOKEN PER QUERY. _run_query increments the counter before every
+        # submit and drops any result whose tag no longer matches, so two
+        # concurrent reads sharing a counter means the SECOND one silently
+        # cancels the FIRST. Rows and lane counts are fired together from
+        # _reload_channels, so a shared token discarded the rows every time and
+        # the view opened permanently empty while the chips filled in.
+        # Every other view here already does it this way (_providers_token,
+        # _results_token, _load_channels_token, …); this was the outlier.
+        self._rows_token: list[int] = [0]
+        self._counts_token: list[int] = [0]
         #: Set when the taxonomy query is SUBMITTED, not when it returns —
         #: two rapid activations would otherwise both see 'not loaded' and
         #: issue the same whole-corpus scan twice.
@@ -165,11 +174,12 @@ class SportsView(ContentView):
         """Drop any in-flight result.
 
         Symmetric with ``on_activate`` (CLAUDE.md: a view with one must have the
-        other). Bumping the token is the cancel: the worker still finishes, but
-        its result is discarded instead of painting over whatever view the user
-        switched to.
+        other). Bumping the tokens is the cancel: the workers still finish, but
+        their results are discarded instead of painting over whatever view the
+        user switched to. BOTH counters, or the un-bumped read still lands.
         """
-        self._token[0] += 1
+        self._rows_token[0] += 1
+        self._counts_token[0] += 1
 
     def get_view_name(self) -> str:
         return "sports"
@@ -241,7 +251,7 @@ class SportsView(ContentView):
         self._run_query(
             query,
             self._on_channels_loaded,
-            token_ref=self._token,
+            token_ref=self._rows_token,
             on_error=lambda exc: self._show_error("Couldn't load these channels"),
         )
         # Counts are a second read on purpose: one GROUP BY over the whole
@@ -251,7 +261,7 @@ class SportsView(ContentView):
             self._run_query(
                 count_query,
                 self._on_lane_counts_loaded,
-                token_ref=self._token,
+                token_ref=self._counts_token,
                 on_error=lambda exc: None,
             )
 

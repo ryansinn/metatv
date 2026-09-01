@@ -67,9 +67,35 @@ if [ "$#" -eq 0 ]; then
     echo "FULL SUITE — reason: ${METATV_FULL_SUITE_REASON}"
 fi
 
+# SERIALIZED BY A LOCK, not by remembering.
+#
+# Two pytest-qt suites in one process tree segfault on this machine — SIGSEGV,
+# exit 139, no summary line. That has been known and written down since
+# 2026-07-30, and the note twenty lines above this one says they "cannot even
+# run at once". Prose did not stop it: on 2026-08-31 an overlap contaminated a
+# segfault investigation, and the crash it produced was read as evidence about
+# the code under test rather than about the overlap.
+#
+# flock makes it impossible instead of inadvisable. A second run WAITS rather
+# than racing, so a background loop and a foreground check can both be started
+# without thinking about it. Set METATV_PYTEST_NOWAIT=1 to fail fast instead of
+# queueing, which is what a script wants when it would rather skip than block.
+LOCK="${TMPDIR:-/tmp}/metatv-pytest.lock"
+if [ -n "${METATV_PYTEST_NOWAIT:-}" ]; then
+    _FLOCK_ARGS="-n"
+else
+    _FLOCK_ARGS=""
+fi
+exec 9>"$LOCK"
+if ! flock $_FLOCK_ARGS 9; then
+    echo "VERDICT: RED (another pytest run holds $LOCK — concurrent pytest-qt segfaults)"
+    exit 75          # EX_TEMPFAIL: not a test failure, a scheduling refusal
+fi
+
 TZ=UTC QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
     "$PY" -m pytest "$@" > "$LOG" 2>&1
 code=$?
+flock -u 9 2>/dev/null || true
 
 # Strip ANSI so the human-readable lines below are actually readable.
 sed -i 's/\x1b\[[0-9;]*m//g' "$LOG" 2>/dev/null || true

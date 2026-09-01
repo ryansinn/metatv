@@ -170,9 +170,13 @@ def _qt_snapshot() -> tuple[frozenset[int], "weakref.WeakSet"]:
     if qtwidgets is not None:
         app = qtwidgets.QApplication.instance()
         if app is not None:
+            from PyQt6 import sip
+
             widget_ids = frozenset(
                 a
-                for a in (_widget_addr(w) for w in qtwidgets.QApplication.topLevelWidgets())
+                for a in (_widget_addr(w)
+                          for w in qtwidgets.QApplication.topLevelWidgets()
+                          if not sip.isdeleted(w))   # same hazard as the sweep
                 if a is not None
             )
     # Threads are keyed by OBJECT IDENTITY in a WeakSet, never by ``ident``.
@@ -269,6 +273,8 @@ def _qt_teardown_sweep(
     report = _QtSweepReport()
     main = threading.main_thread()
 
+    from PyQt6 import sip
+
     qtwidgets = sys.modules.get("PyQt6.QtWidgets")
     app = qtwidgets.QApplication.instance() if qtwidgets is not None else None
 
@@ -286,6 +292,21 @@ def _qt_teardown_sweep(
         # 2026-08-01 and again on 2026-08-15.  Read before the drain, report after.
         pre_drain: list[tuple[object, str, bool]] = []
         for w in qtwidgets.QApplication.topLevelWidgets():
+            # sip.isdeleted() FIRST, and it is the only safe question to ask.
+            # topLevelWidgets() can hand back a wrapper whose C++ object an
+            # EARLIER test already destroyed; touching it — isVisible(), or even
+            # unwrapinstance() — reads freed memory and the process dies inside
+            # sip_api_get_address, which no `except` can catch. isdeleted()
+            # answers from the wrapper alone and never dereferences.
+            #
+            # The comment above records moving isVisible() before the drain to
+            # dodge this. That fixed the post-drain case only: a widget can
+            # already be dead on arrival, which is why the crash kept happening
+            # intermittently — roughly one run in three — always at teardown,
+            # always AFTER every test had passed, so the run printed "N passed"
+            # and then exited 139.
+            if sip.isdeleted(w):
+                continue
             addr = _widget_addr(w)
             if addr is not None and addr not in pre_widget_ids:
                 leaked.append(w)
@@ -1601,6 +1622,10 @@ def wire_nav_host(host) -> None:
     if "series_icon" not in host.__dict__:
         host.series_icon = "S"
 
+#: Holds the QApplication for the whole process. See _bundled_ui_font.
+_SESSION_QAPP = None
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _bundled_ui_font():
     """Measure the font the APP renders, not the platform's default.
@@ -1630,9 +1655,40 @@ def _bundled_ui_font():
 
     from metatv.gui import fonts as _fonts
 
-    app = QApplication.instance() or QApplication([])
-    _fonts.apply_ui_font(app)
+    global _SESSION_QAPP
+    # PINNED to a module global, and that is not decoration. A local here is the
+    # last strong Python reference to the QApplication, so finalising this
+    # generator at session end destroys the C++ QApplication while other Qt
+    # wrappers are still alive. The next wrapper touched calls
+    # sip_api_get_address on freed memory and the process dies with SIGSEGV —
+    # AFTER every test has passed, so the run reports "N passed" and then exits
+    # 139. It is intermittent because it depends on garbage-collection order.
+    #
+    # Cost three CI shards and two PRs before the C stack named it.
+    _SESSION_QAPP = QApplication.instance() or QApplication([])
+    _fonts.apply_ui_font(_SESSION_QAPP)
     yield
+
+    # ORDERED SHUTDOWN, because interpreter finalization is not ordered.
+    #
+    # The suite crashed with SIGSEGV *after every test passed* — the run printed
+    # "N passed" and then exited 139. The C stack had NO Python frame and sat
+    # under Py_RunMain, i.e. inside interpreter finalization, in Qt destructor
+    # territory: module globals are cleared in arbitrary order, so the
+    # QApplication can be destroyed while other Qt objects still exist, and the
+    # first one destroyed afterwards dereferences a dead application.
+    #
+    # Three earlier fixes all targeted fixture teardown and all failed, because
+    # this crash is not in a fixture. Doing the teardown HERE — in a session
+    # fixture, which runs before finalization — makes the order explicit
+    # instead of leaving it to whatever order the interpreter picks.
+    from PyQt6 import sip
+
+    for widget in QApplication.topLevelWidgets():
+        if not sip.isdeleted(widget):
+            sip.delete(widget)          # per-object; never a global event flush
+    _SESSION_QAPP.processEvents()
+    _SESSION_QAPP = None                # release ours before finalization runs
 
 
 def make_provider_load_thread(db, provider_id: str, provider_name: str = "Test Source"):
