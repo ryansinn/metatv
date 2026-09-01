@@ -69,7 +69,8 @@ class TestWholeLibrarySweepIsSingleFlight:
 
             t1 = threading.Thread(target=_first)
             t2 = threading.Thread(target=_second)
-            t1.start(); t2.start()
+            t1.start()
+            t2.start()
             t2.join(timeout=10)
             may_finish.set()
             t1.join(timeout=10)
@@ -96,8 +97,8 @@ class TestWholeLibrarySweepIsSingleFlight:
     def test_the_guard_releases_even_when_the_pass_raises(self, tmp_path):
         """Released in a ``finally``; a crashed sweep must not wedge the guard."""
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories.channel_ingestion import (
-            _WHOLE_LIBRARY_SWEEP, ChannelIngestionMixin)
+        from metatv.core.repositories.channel_ingestion import ChannelIngestionMixin
+        from metatv.core.repositories.sweep_guard import is_running
 
         db = _make_file_backed_db(tmp_path)
         real = ChannelIngestionMixin._propagate_tmdb_from_title_siblings_impl
@@ -113,21 +114,22 @@ class TestWholeLibrarySweepIsSingleFlight:
         finally:
             ChannelIngestionMixin._propagate_tmdb_from_title_siblings_impl = real
 
-        assert not _WHOLE_LIBRARY_SWEEP.locked(), \
+        assert not is_running("propagate_tmdb_from_title_siblings"), \
             "a raising sweep wedged the guard -- propagation would never run again"
 
     def test_a_provider_scoped_pass_is_not_gated(self, tmp_path):
         """Narrow, cheap, and may not overlap the running pass at all."""
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories.channel_ingestion import _WHOLE_LIBRARY_SWEEP
+        from metatv.core.repositories.sweep_guard import _lock_for
 
         db = _make_file_backed_db(tmp_path)
         # Simulate a whole-library pass in flight.
-        assert _WHOLE_LIBRARY_SWEEP.acquire(blocking=False)
+        lock = _lock_for("propagate_tmdb_from_title_siblings")
+        assert lock.acquire(blocking=False)
         try:
             with db.session_scope() as s:
                 # Must not stand down: it is scoped, so it is allowed through.
                 RepositoryFactory(s).channels.propagate_tmdb_from_title_siblings(
                     provider_id="p1")
         finally:
-            _WHOLE_LIBRARY_SWEEP.release()
+            lock.release()

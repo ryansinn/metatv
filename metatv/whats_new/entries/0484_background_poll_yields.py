@@ -26,9 +26,9 @@ ENTRY = WhatsNewEntry(
     ),
     test_steps=(
         ("Play a channel and leave it running for a minute or two. It should "
-         "keep playing rather than closing on its own.", "view:channels"),
-        ("With something playing, confirm the Watch Alerts series check does "
-         "not interrupt it.", "view:alerts"),
+         "keep playing rather than closing on its own.", "view:list"),
+        "With something playing, confirm the Watch Alerts series check "
+        "does not interrupt it.",
         "Start a download while a channel is playing — both should continue.",
         "Refresh a source and confirm it completes rather than reporting a "
         "failure, and that the app closes promptly afterwards.",
