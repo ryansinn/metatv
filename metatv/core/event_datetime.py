@@ -15,7 +15,7 @@ provider conventions, not two copies of one.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 #: UTC offsets, in MINUTES, for the timezone abbreviations providers actually
@@ -69,9 +69,19 @@ _EVENT_ISO_RE = re.compile(
 #: permanently empty and every dated game fell through to "Channels" — with no
 #: start time a row cannot be classified live, upcoming OR finished.
 #:
-#: Read as UTC, per this module's stated default for an absent zone. The times
-#: say so: 23:45, 23:05 and 00:40 are 19:45, 19:05 and 19:40 Eastern, textbook
-#: MLB starts, and are nonsense read as the viewer's local clock.
+#: Read as LOCAL wall-clock, then converted to UTC like every other form here.
+#:
+#: I first read these as UTC because 23:45/23:05/00:40 are 19:45/19:05/19:40
+#: Eastern — textbook MLB starts. That reasoning was clever and WRONG, and it
+#: made the feature worse than broken: the owner was watching MLB 04 live while
+#: the app filed it under "Finished", because 06:58 UTC had passed even though
+#: 06:58 local had not.
+#:
+#: The only test that decides this is empirical — the game the user is watching
+#: RIGHT NOW must classify as on-now — and it says local. A padded slot window
+#: (start + ~7h) makes the real-world start time a poor proxy, so do not
+#: re-derive the zone from what looks plausible for the sport.
+_EVENT_STARTSTOP_IS_LOCAL = True
 _EVENT_STARTSTOP_RE = re.compile(
     r"\bstart:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
 #: "| Sat 29 Aug 14:00 CEST (DK) |" — day-name, carries a zone and NO YEAR.
@@ -187,8 +197,17 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
         # First: the shape is unambiguous ("start:" + ISO date), and checking it
         # before the pipe forms means a name carrying both cannot be read as the
         # wrong one.
+        #
+        # These carry NO zone and are local wall-clock (see the pattern's note),
+        # so convert to the UTC-naive value the rest of the system stores. The
+        # other forms name their zone and are handled by the shared offset below.
         year, month, day, hour, minute = m.groups()
         year, month, day = int(year), int(month), int(day)
+        try:
+            _local = datetime(year, month, day, int(hour), int(minute))
+        except ValueError:
+            return None
+        return _local.astimezone().astimezone(timezone.utc).replace(tzinfo=None)
     elif (m := _EVENT_DMY_RE.search(name)) is not None:
         day, month, year, hour, minute, tz_name = m.groups()
         year, month, day = int(year), int(month), int(day)
