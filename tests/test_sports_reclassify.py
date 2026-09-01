@@ -656,6 +656,7 @@ def test_a_concurrent_writer_gets_through_while_the_pass_runs(db, tmp_path):
     finish — that is the shape that broke, so it is the shape that is pinned.
     """
     import threading
+    import time
 
     _seed(db, _stale_sports_rows(600) +
           [("EN | Marker", "Docs", None, None, None, None)])
@@ -677,6 +678,23 @@ def test_a_concurrent_writer_gets_through_while_the_pass_runs(db, tmp_path):
     hammer = threading.Thread(target=_hammer, daemon=True)
     hammer.start()
     try:
+        # Wait for the probe to be demonstrably alive and committing BEFORE
+        # the pass starts, instead of hoping it gets scheduled twice inside
+        # it. The pass takes ~0.2s on a 16-core laptop and the probe is a
+        # Python thread contending for the GIL, so on a 2-core CI runner it
+        # could land once and no more — which failed the suite as
+        # "the probe never ran; this proves nothing" (assert 1 > 1) while
+        # passing 11/11 locally, clean AND under 16-way load.
+        #
+        # That guard was right to fire: the run HAD proved nothing. The bug
+        # was pinning a concurrency claim to thread scheduling. Waiting makes
+        # the "> 1" below true by construction, and the probe keeps hammering
+        # across _run either way — so what this test actually pins, that a
+        # small concurrent writer is never locked out, is unchanged.
+        deadline = time.monotonic() + 30
+        while len(landed) < 2 and not failures and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert landed, "the probe thread never committed once; it is broken"
         _run(db)
     finally:
         stop.set()

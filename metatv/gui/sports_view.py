@@ -172,6 +172,27 @@ class SportsView(ContentView):
             self._load_taxonomy()
         self._reload_channels()
 
+    def reload(self) -> None:
+        """Re-read everything after a provider/source mutation.
+
+        The centre views each expose this so ``_refresh_provider_dependent_views``
+        has one thing to call. Sports was the ONLY one missing from that
+        function — discover, preferences, recipe, missing_tmdb,
+        reconnect_engaged and epg were all listed — so a source refresh that
+        renamed rows left this view painting names that no longer existed.
+
+        That is how the owner came to click "MLB 04 | Royals x Blue Jays" and
+        watch Mariners x Red Sox: the refresh had renamed that row in place
+        (same provider, same stream id), the database was correct, and only the
+        view was stale. Nothing was playing the wrong stream — the title next
+        to it was simply out of date.
+
+        The taxonomy is re-read too: a refresh can add or remove a whole sport.
+        """
+        self._taxonomy_requested = False
+        if self.isVisible():
+            self.on_activate()
+
     def on_deactivate(self) -> None:
         """Drop any in-flight result.
 
