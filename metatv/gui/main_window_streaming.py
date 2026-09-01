@@ -132,14 +132,29 @@ class _StreamingMixin:
             ) as response:
                 if response.status_code >= 400:
                     logger.warning(f"Stream URL returned HTTP {response.status_code}")
-                    # Auth/gating codes (401 Unauthorized, 403 Forbidden, 511 Network
-                    # Authentication Required) are treated as *uncertain* — the stream
-                    # may still play in mpv (e.g. a shared-account cap the server reports
-                    # as HTTP 511, but mpv negotiates differently).  Return a sentinel
-                    # error string that the failure path can distinguish from a hard text
-                    # error, so "Play Anyway" is always offered.
-                    if response.status_code in (401, 403, 511):
-                        return False, f"HTTP {response.status_code}"
+                    # A 5xx (or 429) is the SERVER having a moment, not proof the
+                    # stream is bad — this method's own docstring says IPTV servers
+                    # return spurious 5xx. It matters most on an account capped at
+                    # one connection, where THIS PROBE IS ITSELF a second connection:
+                    # the provider answers it 500 precisely because it is already
+                    # serving something. Owner confirmed 2026-09-01 by choosing
+                    # "Play Anyway" on a flagged 500 and watching it play.
+                    #
+                    # mpv is the better authority. It reconnects
+                    # (--stream-lavf-o=reconnect=1), and when a stream really is
+                    # dead the failure path surfaces the real error. A prompt that
+                    # cries wolf on a working stream is worse than no prompt: it
+                    # trains the user to click through the one that matters.
+                    #
+                    # 511 is numerically 5xx but semantically auth ("Network
+                    # Authentication Required"), so it belongs with the 4xx below.
+                    if (response.status_code >= 500 and response.status_code != 511
+                            ) or response.status_code == 429:
+                        return True, None
+                    # 4xx is the client being told no — wrong credentials, gone,
+                    # gated. Still uncertain enough that the caller offers "Play
+                    # Anyway" (a shared-account cap reported as 511 often plays),
+                    # so report it rather than deciding for the user.
                     return False, f"HTTP {response.status_code}"
                 chunk = next(response.iter_content(chunk_size=256), None)
                 if chunk is None:
