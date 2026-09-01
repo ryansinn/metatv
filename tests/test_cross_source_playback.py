@@ -223,7 +223,12 @@ def test_on_stream_ready_play_anyway_calls_player_manager():
 
     assert play_anyway_label is not None, "Expected a 'Play Anyway' action in failure toast"
 
-    # Invoke the callback — should call player_manager.play with original URL + provider_id
+    # Invoke the callback — plays the original URL, and carries the CHANNEL ID.
+    #
+    # This assertion used to expect channel_id="" while the data dict above
+    # carried "ch-1", which is precisely the defect: Play Anyway dropped the
+    # channel's identity, so the play could not be recorded and the stream the
+    # user chose never reached History (owner, 2026-09-01).
     play_anyway_cb()
     obj.player_manager.play.assert_called_once_with(
         "http://trex.example.com/live/user/pass/1234.ts",
@@ -234,7 +239,7 @@ def test_on_stream_ready_play_anyway_calls_player_manager():
         start_seconds=0,
         open_ended_buffer=False,
         deep_buffer=False,
-        channel_id="",
+        channel_id="ch-1",
     )
 
 
