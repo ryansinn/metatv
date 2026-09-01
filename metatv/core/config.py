@@ -1364,7 +1364,13 @@ class Config(BaseModel):
     # SeriesMonitorManager.start_scheduler() reads this to arm a QTimer that
     # re-runs check_all() while the app stays open (in addition to the startup
     # check and the post-provider-refresh check_provider() call).  0 = off.
-    series_monitor_interval_minutes: int = 60
+    #
+    # A day, not an hour. A pass is one get_series_info per monitored series per
+    # mirror, and on a one-connection account every one of those calls is the slot
+    # the user plays through — 11 series x 3 mirrors at ~1-11s a call is a ~3
+    # minute pass. New episodes appear at most daily, so hourly bought nothing and
+    # spent the connection twelve times more often than it needed to.
+    series_monitor_interval_minutes: int = 1440
 
     # Search state persistence — "Remember last search" feature.
     # When remember_search is True, last_search_state is written on every search

@@ -31,6 +31,7 @@ from metatv.gui.sidebar.alerts_common import (
     _started_at,
     _when,
     _ALERTS_TREE_AUTOEXPAND_BUDGET,
+    _ROLE_GROUP_KEY,
 )
 
 
@@ -474,9 +475,16 @@ class EpgGroupMixin:
                             region=region,
                             expandable=True, expanded=hdr.isExpanded())
 
-            def _toggle(_=False, i=hdr, r=row):
+            hdr.setData(0, _ROLE_GROUP_KEY, title)
+
+            def _toggle(_=False, i=hdr, r=row, k=title):
                 i.setExpanded(not i.isExpanded())
                 r.set_expanded(i.isExpanded())
+                # Remember it. The tree is rebuilt on every refresh and the
+                # item's expanded state dies with it, so without this the
+                # automatic budget pass re-opens what the user just shut —
+                # owner: "they don't stay collapsed."
+                self._user_expansion[k] = i.isExpanded()
                 self.fit_to_rows(self.alerts_tree)
 
             # The ROW opens the row — the title, the time, the marker, the empty
@@ -841,7 +849,6 @@ class EpgGroupMixin:
         keeps the "auto-expand only a short watchlist; leave a long one collapsed so it
         scrolls compactly" behaviour stable regardless of how tall the section is dragged.
         """
-        self._sync_carets()
         tree = self.alerts_tree
         n = tree.topLevelItemCount()
         if n == 0:
@@ -855,8 +862,17 @@ class EpgGroupMixin:
             for i in range(n)
         )
         expand_all = total_if_expanded <= max_rows
+        chosen = self.__dict__.get("_user_expansion") or {}
         for i in range(n):
             item = tree.topLevelItem(i)
             if item.childCount() == 0:
                 continue  # section header — not expandable
-            item.setExpanded(expand_all)
+            # A choice the user made outranks the budget. Same rule as the
+            # sidebar's _auto_folded: automatic behaviour may only undo what
+            # automatic behaviour did.
+            key = item.data(0, _ROLE_GROUP_KEY)
+            item.setExpanded(chosen.get(key, expand_all) if key else expand_all)
+        # AFTER the loop, not before. Syncing first read the state this loop was
+        # about to change, so every caret drawn was one refresh stale — the
+        # owner's Stargate SG-1 row showed three airings under a closed caret.
+        self._sync_carets()
