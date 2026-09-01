@@ -21,6 +21,7 @@ from metatv.core.build_info import window_title
 from metatv.core.config import Config
 from metatv.core.update_checker import UpdateChecker
 from metatv.core.runtime_env import is_frozen
+from metatv.core import profile_store
 from metatv.gui.watchlist_write_notifier import install_watchlist_writes
 from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.main_window_nav import _NavMixin
@@ -319,6 +320,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         
         self.db = Database(config.database_url)
         self.db.create_tables()
+        config.attach_profile_store(self.db)
+        self._register_cleanable("profile_store", profile_store.shutdown)
         # Watch list -> database, written off-thread; see core/watchlist.py.
         self._watchlist_notifier = install_watchlist_writes(self)
         watchlist.migrate_from_config(config)

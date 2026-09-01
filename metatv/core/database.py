@@ -777,6 +777,23 @@ class ContentTagDB(Base):
     )
 
 
+class ProfileDB(Base):
+    """One row per ``Config`` field that is the user's state, not the machine's.
+
+    Key/value so the ~46 sites reading ``config.<field>`` do not move; only the
+    persister changes. ``value`` is nullable because ``None`` is a REAL value —
+    the filter sentinels use it for "never configured", distinct from ``[]`` —
+    so a key is owned when its ROW EXISTS, not when its value is truthy.
+    Contract and migration: ``core/profile_store.py``.
+    """
+
+    __tablename__ = "profile"
+
+    key        = Column(String, primary_key=True)
+    value      = Column(JSONEncoded, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Database:
     """Database connection manager"""
 

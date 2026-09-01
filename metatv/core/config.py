@@ -8,6 +8,8 @@ import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
+from metatv.core import profile_store
+
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
 #: someone maintains, so a tenth qa_ field lands here without anyone
@@ -34,6 +36,39 @@ def _qa_defaults(model_cls) -> dict:
         field = model_cls.model_fields[name]
         out[name] = (field.default_factory() if field.default_factory is not None
                      else field.default)
+    return out
+
+
+#: Marks a field as PROFILE state — the user's own selections and watermarks,
+#: persisted by ``core/profile_store.py`` into the database rather than into
+#: ``config.yaml``.
+#:
+#: Declared ON THE FIELD, not in a list at the bottom of this module, and that
+#: is the whole reason it is a marker rather than a tuple of names. This
+#: codebase's recurring failure is the enumeration nobody remembers to update —
+#: the ``refresh_theme()`` sweep, the hand-listed test config stubs,
+#: ``_SETTINGS_APPLIED_HOOKS``. A field that is added without a decision about
+#: where it persists gets the default (``config.yaml``), which is the safe
+#: answer; a field that IS user state says so where it is declared, next to its
+#: docstring, where the person adding it is already looking.
+#:
+#: Greppable both ways: ``grep json_schema_extra=PROFILE`` lists the profile,
+#: and a field's own line tells you where it goes.
+PROFILE = {"store": "profile"}
+
+
+def _profile_field_names(model_cls) -> "set[str]":
+    """Every field marked :data:`PROFILE` on *model_cls*.
+
+    Derived from the model, exactly as ``_qa_field_names`` is derived from the
+    ``qa_`` prefix. ``profile_store.attach`` takes this rather than owning a
+    list, so the store cannot disagree with the declarations.
+    """
+    out = set()
+    for name, field in model_cls.model_fields.items():
+        extra = field.json_schema_extra
+        if isinstance(extra, dict) and extra.get("store") == "profile":
+            out.add(name)
     return out
 
 
@@ -651,14 +686,14 @@ class Config(BaseModel):
     # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
     # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes
     # are always visible until the user explicitly excludes them.
-    global_filter_excluded_categories: list = Field(default_factory=list)
-    global_filter_include_uncategorized: bool = True  # True = show content with no detected_prefix
-    global_filter_icon: str = "fa5s.filter"  # qtawesome key — resolved via icon_utils.resolve_icon()
+    global_filter_excluded_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    global_filter_include_uncategorized: bool = Field(default=True, json_schema_extra=PROFILE)  # True = show content with no detected_prefix
+    global_filter_icon: str = Field(default="fa5s.filter", json_schema_extra=PROFILE)  # qtawesome key — resolved via icon_utils.resolve_icon()
     # Per-prefix blocklist — individual prefixes always hidden everywhere.
     # Written by the "Block [PREFIX]" quick action in the Other Versions panel.
-    global_filter_excluded_prefixes: list = Field(default_factory=list)
+    global_filter_excluded_prefixes: list = Field(default_factory=list, json_schema_extra=PROFILE)
     # Legacy field — was a whitelist; migrated to excluded_categories on first save.
-    global_filter_included_categories: list = Field(default_factory=list)
+    global_filter_included_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # Prefix detection settings
     prefix_bracket_enabled: bool = True  # extract [XX] bracket format
@@ -667,10 +702,10 @@ class Config(BaseModel):
     prefix_detector_version: int = 0
     # Whether to show content whose prefix code didn't match any named language group.
     # True = include "Other" content; False = hide it. Controlled by the filter dialog.
-    global_filter_include_other_prefixes: bool = True
+    global_filter_include_other_prefixes: bool = Field(default=True, json_schema_extra=PROFILE)
     # When True, all global filter settings are preserved but not applied anywhere.
     # Lets the user temporarily see unfiltered content without losing their configuration.
-    global_filter_paused: bool = False
+    global_filter_paused: bool = Field(default=False, json_schema_extra=PROFILE)
 
     # Discover view zone persistence
     # shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.
@@ -710,7 +745,7 @@ class Config(BaseModel):
     preferences_version_prefs_expanded: bool = False
     muted_attributes: dict = Field(default_factory=lambda: {
         "genres": [], "directors": [], "actors": [], "keywords": []
-    })
+    }, json_schema_extra=PROFILE)
     rec_dedupe_overrides: list = Field(default_factory=list)
     # channel_ids that bypass title-based dedup ("not the same show" user override)
 
@@ -784,7 +819,7 @@ class Config(BaseModel):
     # Saved recipes — the user's personal facet "recipes" (Saved tab).  Each entry
     # is ``{"name": str, "includes": {facet: [values]}, "excludes": {facet: [values]}}``.
     # Persisted so a saved recipe survives restarts and reloads back into the builder.
-    saved_recipes: list = Field(default_factory=list)
+    saved_recipes: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # Performance
     chunk_size: int = 1000  # Channels to process at once
@@ -918,15 +953,15 @@ class Config(BaseModel):
     # []   = explicitly none (restore → uncheck all — "Only" action can produce this).
     # [items] = restore exactly those items.
     # Legacy [] loaded from pre-sentinel configs is migrated to None in model_post_init.
-    filter_included_languages: Optional[list] = None
-    filter_included_regions: Optional[list] = None
-    filter_included_qualities: Optional[list] = None
-    filter_included_platforms: Optional[list] = None
-    filter_included_categories: Optional[list] = None
-    filter_included_genres: Optional[list] = None
-    filter_included_subtitles: Optional[list] = None
-    filter_included_dubs: Optional[list] = None
-    filter_included_formats: Optional[list] = None
+    filter_included_languages: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_regions: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_qualities: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_platforms: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_categories: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_genres: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_subtitles: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_dubs: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_included_formats: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
     # Opt-out "known values" tracking — one per dynamic facet, mirroring the
     # filter_included_* fields above.  This is what lets the app distinguish a
     # NEW/unseen facet value from one the user deliberately deselected (see
@@ -937,19 +972,24 @@ class Config(BaseModel):
     #   [items] = the accumulated set of facet values already surfaced to the user.
     #             A value present in the data but NOT in this set is NEW → included
     #             by default and offered for opt-out via the new-values popup.
-    filter_known_languages: Optional[list] = None
-    filter_known_regions: Optional[list] = None
-    filter_known_qualities: Optional[list] = None
-    filter_known_platforms: Optional[list] = None
-    filter_known_categories: Optional[list] = None
-    filter_known_genres: Optional[list] = None
-    filter_known_subtitles: Optional[list] = None
-    filter_known_dubs: Optional[list] = None
-    filter_known_formats: Optional[list] = None
+    filter_known_languages: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_regions: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_qualities: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_platforms: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_categories: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_genres: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_subtitles: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_dubs: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
+    filter_known_formats: Optional[list] = Field(default=None, json_schema_extra=PROFILE)
     # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
     # ONCE in model_post_init.  >=1 = written by the sentinel-aware save, where []
     # means an explicit none-selection and must be preserved across reloads.
+    #: True once ``profile_store.attach`` has verifiably taken keys over. A
+    #: SETTING, so it stays in config.yaml on purpose — seeing it True beside an
+    #: empty profile table is how a lost database is told apart from a user who
+    #: has simply never migrated. See ``core/profile_store.py``.
+    profile_store_populated: bool = False
     filter_config_version: int = 0
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
@@ -1100,12 +1140,12 @@ class Config(BaseModel):
         "Relaxation":    ["RELAX", "RELAX 4K", "RELAX UHD"],
     })
     # Content type exclusions — empty = hide nothing. Legacy included list kept for migration.
-    global_filter_excluded_content_types: list = Field(default_factory=list)
-    global_filter_included_content_types: list = Field(default_factory=list)  # legacy
+    global_filter_excluded_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)
+    global_filter_included_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)  # legacy
     # Individually excluded source_category labels from the "Other" section of the
     # Content Types expander — raw labels (e.g. "QURAN CHANNEL - NOREEN SADIQ") rather
     # than named groups. Applied in addition to global_filter_excluded_content_types.
-    global_filter_excluded_source_categories: list = Field(default_factory=list)
+    global_filter_excluded_source_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # Content-provenance exclusions — ``content_type`` TAG values to hide (slugs,
     # e.g. ["ai_generated", "ai_voiceover"]). Empty = hide nothing. Distinct from the
@@ -1114,12 +1154,12 @@ class Config(BaseModel):
     # (a NOT-EXISTS over content_tags). Driven by the "Content Provenance" section of
     # the Exclusions dialog. Opt-out: a new content_type value is visible until
     # explicitly excluded.
-    global_filter_excluded_tag_content_types: list = Field(default_factory=list)
+    global_filter_excluded_tag_content_types: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).
     # Channels with user_category matching any of these names are hidden everywhere.
-    global_filter_excluded_user_categories: list = Field(default_factory=list)
+    global_filter_excluded_user_categories: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # User-defined keyword exclusions — free-text words/phrases (e.g. "wrestling",
     # "telenovela") matched case-insensitively as a SUBSTRING against a channel's
@@ -1432,7 +1472,7 @@ class Config(BaseModel):
     # "baseline_episode_count" instead of "baselines" — tolerated on read,
     # migrated to the per-provider shape (and the migrated list written back)
     # by get_monitored_series().  See series_monitor.normalize_monitored_entry().
-    monitored_series: list = Field(default_factory=list)
+    monitored_series: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     # Series monitor — recurring background recheck interval, in minutes.
     # SeriesMonitorManager.start_scheduler() reads this to arm a QTimer that
@@ -1466,7 +1506,7 @@ class Config(BaseModel):
     # in some rule's alerted_ids and NOT in that rule's viewed_ids.  Clearing it
     # (per-item or bulk) turns the green off everywhere.  See
     # ``_migrate_vod_alert_viewed`` for the one-time pre-feature seed.
-    vod_watch_alerts: list = Field(default_factory=list)
+    vod_watch_alerts: list = Field(default_factory=list, json_schema_extra=PROFILE)
 
     def add_monitored_series(self, entry: dict) -> None:
         """Add a series to the monitor list (no-op if already present)."""
@@ -2028,12 +2068,65 @@ class Config(BaseModel):
         # so a real config is never clobbered; the old field is left intact for
         # back-compat but never written again.
         self._migrate_qa_step_results()
+        self._apply_value_migrations()
+
+    def _apply_value_migrations(self) -> None:
+        """Field migrations that must run over the values, wherever they came from.
+
+        Separated from ``model_post_init`` because these two touch PROFILE
+        fields, which no longer arrive only from YAML: once
+        ``profile_store.attach`` loads a stored value over the top, a migration
+        that ran only at construction would never see it. So attach calls this
+        again.
+
+        Both are gated on emptiness and are idempotent — that is the property
+        that lets them run twice, and it is what this split relies on.
+
+        Not moved here: the ``filter_config_version < 1`` migration in
+        ``model_post_init``, which also touches profile fields. It is gated on a
+        version marker that is set to 1 by the first save any config has ever
+        done, so it is already a no-op for everyone whose data can reach the
+        store — a pre-sentinel ``[]`` is migrated to ``None`` before it is ever
+        written there. Its marker stays in ``config.yaml`` on purpose: a
+        migration's own bookkeeping belongs with the code that decides whether
+        to run it, not inside the data it rewrites.
+        """
         # Seed per-match "viewed" state on pre-feature VOD watch-alert rules so the
         # alert-visibility green only lights up for matches found AFTER the upgrade.
         self._migrate_vod_alert_viewed()
         # Merge newly-shipped provider names (tmdb/omdb) into a persisted
         # metadata_enabled_providers that predates them — see the field's docstring.
         self._migrate_metadata_enabled_providers()
+
+    def attach_profile_store(self, db) -> frozenset[str]:
+        """Bind the profile store to *db* and migrate this config into it.
+
+        The one call that moves the user's selections and watermarks out of
+        ``config.yaml``. Runs at startup, right after the database is created and
+        before any view reads a filter — synchronously, because everything after
+        it depends on knowing which keys the store owns.
+
+        Args:
+            db: The open :class:`~metatv.core.database.Database`.
+
+        Returns:
+            The keys now persisted in the database rather than in the YAML.
+        """
+        profile_store.bind(db)
+        owned = profile_store.attach(self, _profile_field_names(type(self)))
+        # A stored value has just landed on top of what YAML supplied, so the
+        # value migrations have to see it. Idempotent by construction.
+        self._apply_value_migrations()
+        # Prime the write-comparison with what the STORE holds, so the first save
+        # after startup does not re-write 34 rows that are already correct.
+        #
+        # Deliberately the store's contents and not the model's: if a migration
+        # above just changed a value, the model and the database now disagree,
+        # and that disagreement is precisely what has to be written. Priming
+        # from the model would record the change as already saved and lose it.
+        stored = profile_store.read_all()
+        self._last_written["_profile"] = {k: stored[k] for k in owned if k in stored}
+        return owned
 
     def _migrate_qa_step_results(self) -> None:
         """Backfill ``qa_step_results`` from the legacy ``qa_checked_steps`` list shape.
@@ -2199,8 +2292,31 @@ class Config(BaseModel):
         # rewrites config.yaml at all.
         qa_names = _qa_field_names(type(self))
         qa_data = {k: v for k, v in data.items() if k in qa_names}
-        main_data = {k: v for k, v in data.items() if k not in qa_names}
         qa_file = self.config_dir / QA_STATE_FILENAME
+
+        # The profile slice — the user's own selections and watermarks — goes to
+        # the database, one row per key, and leaves config.yaml entirely. On the
+        # owner's file that is 1,849 of 2,252 lines: 82% of what a checkbox was
+        # rewriting.
+        #
+        # `owned_keys()` is empty until `profile_store.attach()` has written each
+        # key, read it back and compared it, so this is not a promise that the
+        # data moved — it is the store reporting what it has verified it holds.
+        # Before attach (including `__main__`'s save immediately after load, and
+        # every test that never binds a database) the set is empty and every key
+        # goes to YAML exactly as before. There is no window in which a field is
+        # missing from both.
+        owned = profile_store.owned_keys()
+        profile_data = {k: v for k, v in data.items() if k in owned}
+        main_data = {k: v for k, v in data.items()
+                     if k not in qa_names and k not in owned}
+
+        # Only the keys that CHANGED. Sending the whole slice would make every
+        # save a 34-row write and reinstate, in the database, exactly the
+        # rewrite-everything cost this replaces.
+        last_profile = self._last_written.get("_profile", {})
+        changed_profile = {k: v for k, v in profile_data.items()
+                           if k not in last_profile or last_profile[k] != v}
 
         # Each file is compared and written INDEPENDENTLY. That is the whole
         # point: ticking a QA step must not touch config.yaml, and changing a
@@ -2227,6 +2343,15 @@ class Config(BaseModel):
                 logger.debug(f"Saved QA state to {qa_file}")
                 wrote = True
 
+        # Queued, never written on this thread. `save()` is called from 130
+        # sites and most are click handlers; SQLite has one writer and a 30 s
+        # busy_timeout, and this project has already watched a UI-thread write
+        # block for 29.8 s behind a migration and freeze the app (core/watchlist.py
+        # carries the scar). `record` returns at once.
+        if changed_profile:
+            profile_store.record(changed_profile)
+            wrote = True
+
         if not wrote:
             logger.debug("Config unchanged since last write; skipping save")
             return
@@ -2235,7 +2360,12 @@ class Config(BaseModel):
         # containers rather than handing back the live lists — so no further
         # copying is needed. That detachment is the load-bearing property, and
         # test_model_dump_does_not_alias_live_containers pins it.
-        self._last_written = {"_main": main_data, "_qa": qa_data}
+        # `profile_data`, not `changed_profile`: this records the state now on
+        # disk, so the next save can tell what moved. Storing only the delta
+        # would make every key look changed on the save after the one that
+        # wrote it.
+        self._last_written = {"_main": main_data, "_qa": qa_data,
+                              "_profile": profile_data}
 
     def _atomic_write(self, target: Path, payload: dict) -> None:
         """Write *payload* to *target* via a temp file and an atomic replace.
