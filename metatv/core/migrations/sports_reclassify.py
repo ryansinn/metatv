@@ -155,6 +155,9 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v5 (2026-09-01): the event-slot form is LOCAL wall-clock, not UTC. v4 stored
+#: it as UTC and put a game the owner was actively watching into "Finished" —
+#: worse than the empty lane it replaced. Every v4 row must be recomputed.
 #: v4 (2026-09-01): the provider's event-slot form, "start:2026-08-31 23:45:00
 #: stop:…", which no pattern matched because both ISO and DMY require the date
 #: to sit between pipes. 56 rows carried it and ALL stored nothing, which is
@@ -167,7 +170,7 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.

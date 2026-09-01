@@ -21,16 +21,37 @@ With no start time a row cannot be classified live, upcoming OR finished, so
 every dated game fell through to the catch-all "Channels" lane and both time
 lanes were permanently empty.
 
-**Read as UTC**, per this module's documented default for an absent zone. The
-values say the same: 23:45, 23:05 and 00:40 are 19:45, 19:05 and 19:40 Eastern
-— textbook MLB starts — and are nonsense read as the viewer's local clock.
+**Read as LOCAL wall-clock**, converted to UTC-naive for storage.
+
+The first version read them as UTC, reasoning that 23:45/23:05/00:40 are
+19:45/19:05/19:40 Eastern — textbook MLB starts. That was clever and WRONG, and
+it made the feature worse than broken: the owner was watching MLB 04 live while
+the app filed it under "Finished", because 06:58 UTC had passed while 06:58
+local had not. Verified on the exact channel they were watching
+(``..._1037143``): read as UTC it lands in ``finished``; read as local it lands
+in ``LIVE``.
+
+The only test that settles this is empirical — the game being watched RIGHT NOW
+must classify as on-now. The slot windows are padded (start + ~7h), so a
+plausible real-world start time is not evidence of the zone.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
+
+
+def _as_utc(y, mo, d, h, mi):
+    """The local wall-clock the provider wrote, as the UTC-naive value stored.
+
+    Computed rather than hardcoded so this passes in any CI timezone — and so
+    it states the CONTRACT (local in, UTC-naive out) instead of one machine's
+    answer.
+    """
+    return (datetime(y, mo, d, h, mi).astimezone()
+            .astimezone(timezone.utc).replace(tzinfo=None))
 
 from metatv.core.event_datetime import parse_event_datetime
 
@@ -39,11 +60,11 @@ class TestEventSlotForm:
 
     @pytest.mark.parametrize("name,expected", [
         ("MLB 04 | Mariners x Red Sox start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20",
-         datetime(2026, 8, 31, 23, 45)),
+         _as_utc(2026, 8, 31, 23, 45)),
         ("MLB 06 | Tigers x Twins start:2026-09-01 00:40:00 stop:2026-09-01 07:53:20",
-         datetime(2026, 9, 1, 0, 40)),
+         _as_utc(2026, 9, 1, 0, 40)),
         ("MLB 01 | Giants x Braves start:2026-08-31 23:05:00 stop:2026-09-01 06:18:20",
-         datetime(2026, 8, 31, 23, 5)),
+         _as_utc(2026, 8, 31, 23, 5)),
     ])
     def test_the_start_field_is_read(self, name, expected):
         assert parse_event_datetime(name) == expected, (
@@ -53,12 +74,12 @@ class TestEventSlotForm:
         """Both are ISO datetimes; taking the wrong one shifts a game by hours."""
         got = parse_event_datetime(
             "MLB 04 | X x Y start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20")
-        assert got == datetime(2026, 8, 31, 23, 45)
-        assert got != datetime(2026, 9, 1, 6, 58)
+        assert got == _as_utc(2026, 8, 31, 23, 45)
+        assert got != _as_utc(2026, 9, 1, 6, 58)
 
     def test_a_T_separator_is_accepted(self):
         assert parse_event_datetime("A | B start:2026-08-31T23:45:00") == \
-            datetime(2026, 8, 31, 23, 45)
+            _as_utc(2026, 8, 31, 23, 45)
 
     def test_a_name_with_no_schedule_still_returns_none(self):
         """29k+ rows are 24/7 channels; None is correct for them, not a failure."""
@@ -90,7 +111,7 @@ class TestTheWholeClassifierChain:
             media_type="live", category="US| MLB PACKAGE")
         update_channel_special_content(ch)
 
-        assert ch.event_start_time == datetime(2026, 8, 31, 23, 45), (
+        assert ch.event_start_time == _as_utc(2026, 8, 31, 23, 45), (
             "the classifier still stores nothing — the Sports lanes stay empty")
         assert ch.special_view == "sports"
         assert ch.sport_type == "baseball"
@@ -108,6 +129,6 @@ class TestExistingRowsAreBackfilled:
         fix invisible on every existing library.
         """
         from metatv.core.migrations.sports_reclassify import CURRENT_VERSION
-        assert CURRENT_VERSION >= 4, (
+        assert CURRENT_VERSION >= 5, (
             "parse_event_datetime gained a form but the reclassify version did "
             "not move — existing rows keep their NULL event_start_time")
