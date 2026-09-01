@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
@@ -75,7 +76,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         self.favorites_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.favorites_list.itemDoubleClicked.connect(self.on_favorite_clicked)
-        self.favorites_list.currentItemChanged.connect(self.on_favorite_selected)
+        connect_row_activation(self.favorites_list, self.on_favorite_selected)
         # Middle-click plays the user-configured action (same seam as the channel
         # list) via the shared QListWidget helper — no per-section handler copy.
         from metatv.gui.list_middle_click import install_list_middle_click

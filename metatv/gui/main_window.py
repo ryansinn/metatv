@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from loguru import logger
+
+from metatv.gui.row_activation import connect_row_activation
 from concurrent.futures import ThreadPoolExecutor
 
 from metatv.core import watchlist
@@ -2063,7 +2065,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Single-click / keyboard selection fills the details pane (episode → episode
         # details; season/root → series details).  Connected ONCE here at creation, not
         # per switch_to_series_view, so it never double-fires.  Double-click still plays.
-        self.series_tree.currentItemChanged.connect(self._on_series_tree_selection)
+        connect_row_activation(self.series_tree, self._on_series_tree_selection)
         self.series_tree.setVisible(False)
         _theme.apply_list_selection(self.series_tree)
         self._list_layout.addWidget(self.series_tree)

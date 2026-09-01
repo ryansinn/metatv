@@ -55,6 +55,8 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui.row_activation import connect_row_activation
+
 from metatv.core import watchlist
 from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
@@ -245,7 +247,7 @@ class _EpgBrowseMixin:
         self.browse_list.headerItem().setToolTip(3, "Stream quality (4K / FHD / HD / etc.)")
         hdr.setSectionsMovable(True)
         self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
-        self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
+        connect_row_activation(self.browse_list, self._browse_selection_changed)
         self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
         # Lazy-load the next chronological page when scrolled near the bottom.

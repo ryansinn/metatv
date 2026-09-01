@@ -2,6 +2,7 @@
 
 from PyQt6.QtWidgets import QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.history_buckets import BUCKETS, bucket_for
@@ -121,7 +122,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         self.history_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
-        self.history_list.currentItemChanged.connect(self.on_history_item_selected)
+        connect_row_activation(self.history_list, self.on_history_item_selected)
         make_seamless(self.history_list)
         self.content_layout.addWidget(self.history_list)
 

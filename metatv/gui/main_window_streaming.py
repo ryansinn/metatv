@@ -1507,6 +1507,30 @@ class _StreamingMixin:
             props = None
         self._playback_health_ready.emit((key, props))
 
+    def _refresh_details_after_playback_stopped(self, key) -> None:
+        """Re-render the details pane if it shows the title that just stopped.
+
+        Only when the two match: re-rendering whatever the user has since
+        clicked would fight them for the pane.
+
+        Args:
+            key: Player-instance key that went idle, or None for the shared one.
+        """
+        try:
+            playing = getattr(self, "_playing_channels", None) or {}
+            channel_id = playing.get(key)
+            if channel_id is None and len(playing) == 1:
+                # Shared window: the poll can report a null key.
+                channel_id = next(iter(playing.values()))
+            if not channel_id:
+                return
+            if channel_id != getattr(self, "_last_shown_channel_id", None):
+                return                      # the user moved on; leave them alone
+            playing.pop(key, None)          # once per stop, not every idle tick
+            self.show_channel_details_by_id(channel_id)
+        except Exception:
+            logger.exception("could not refresh details after playback stopped")
+
     def _on_playback_health_ready(self, payload) -> None:
         """Main-thread slot: update the nav-bar label from a probe result.
 
@@ -1526,6 +1550,17 @@ class _StreamingMixin:
         if not props or not props.get("path"):
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
+            # The player just went idle — the user closed it. If the details
+            # pane is still showing what was playing, re-read it so a part-
+            # watched title offers Resume straight away.
+            #
+            # The position is already stored by then (_bg_capture_watch writes
+            # it during playback), but the pane was rendered BEFORE the watch
+            # existed, so it still shows a bare Play. Owner, 2026-09-01: "I was
+            # half way through watching the movie, closed the movie, the details
+            # panel should show resume if the content I just closed was the
+            # content mpv was just playing."
+            self._refresh_details_after_playback_stopped(key)
             self._health_idle_ticks = getattr(self, "_health_idle_ticks", 0) + 1
             if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
                 self._playback_health_timer.stop()

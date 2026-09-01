@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui.row_activation import connect_row_activation
+
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.media_mix import format_media_share
@@ -286,7 +288,7 @@ class PreferencesView(QWidget):
 
         self._rec_list = QListWidget()
         self._rec_list.itemDoubleClicked.connect(self._on_rec_double_click)
-        self._rec_list.currentItemChanged.connect(self._on_rec_selection_changed)
+        connect_row_activation(self._rec_list, self._on_rec_selection_changed)
         self._rec_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._rec_list.customContextMenuRequested.connect(self._on_rec_context_menu)
         vl.addWidget(self._rec_list, stretch=3)

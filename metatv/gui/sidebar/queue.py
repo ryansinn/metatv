@@ -8,6 +8,8 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from loguru import logger
 
+from metatv.gui.row_activation import connect_row_activation
+
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
@@ -197,7 +199,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.itemDoubleClicked.connect(self._on_double_click)
-        self._list.currentItemChanged.connect(self._on_selection_changed)
+        connect_row_activation(self._list, self._on_selection_changed)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         # Middle-click plays the user-configured action (same seam as the channel
         # list) via the shared QListWidget helper — no per-section handler copy.

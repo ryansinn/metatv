@@ -1,6 +1,7 @@
 """Discover view — "See All" browse drill-down (grid + list view)."""
 
 from __future__ import annotations
+from metatv.gui.row_activation import connect_row_activation
 
 from typing import TYPE_CHECKING
 
@@ -132,7 +133,7 @@ class _BrowseView(QWidget):
         self._list_widget.itemDoubleClicked.connect(
             lambda item: self.cardDoubleClicked.emit(item.data(Qt.ItemDataRole.UserRole))
         )
-        self._list_widget.currentItemChanged.connect(self._on_list_select)
+        connect_row_activation(self._list_widget, self._on_list_select)
         self._list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list_widget.customContextMenuRequested.connect(self._on_list_context_menu)
         # Middle-click on a list row plays the configured action — same reusable
