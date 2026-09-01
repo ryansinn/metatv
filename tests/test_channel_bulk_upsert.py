@@ -164,7 +164,11 @@ def test_insert_new_channels(store_thread, tmp_db):
 # ---------------------------------------------------------------------------
 
 def test_upsert_preserves_user_and_derived_columns(store_thread, tmp_db):
-    """ON CONFLICT must NOT overwrite is_favorite, play_count, detected_prefix, user_category.
+    """ON CONFLICT must NOT overwrite USER columns, and MUST invalidate derived ones.
+
+    is_favorite / play_count / user_category are the user's and survive.
+    detected_prefix is derived from the name; when the name changes it is stale
+    by definition and is cleared for re-derivation.
 
     Sequence:
       1. Insert channel ch1 via _store_channels.
@@ -199,7 +203,18 @@ def test_upsert_preserves_user_and_derived_columns(store_thread, tmp_db):
     # User/derived fields must be preserved
     assert row["is_favorite"] is True, "is_favorite must survive a provider refresh"
     assert row["play_count"] == 7, "play_count must survive a provider refresh"
-    assert row["detected_prefix"] == "EN", "detected_prefix must survive a provider refresh"
+    # detected_prefix is DERIVED FROM THE NAME, not user data — and this step
+    # renamed the row. Keeping it was the defect the owner hit on 2026-09-01: a
+    # sports slot renamed by the provider kept the previous game's derived
+    # title, so the list showed "Royals x Blue Jays" for a row whose name said
+    # "Mariners x Red Sox", and a restart could not help because the stale value
+    # was persisted. Grouping a derived column with is_favorite/play_count is
+    # what made that look correct.
+    #
+    # It is cleared so update_detected_prefixes recomputes it from the new name.
+    # The user columns above are the ones that must survive, and still do.
+    assert row["detected_prefix"] is None, (
+        "a renamed row must drop its name-derived fields so they re-derive")
     assert row["user_category"] == "Faves", "user_category must survive a provider refresh"
 
 
