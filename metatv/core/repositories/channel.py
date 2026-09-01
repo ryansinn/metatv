@@ -6,7 +6,7 @@ import time
 from functools import lru_cache
 from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import and_, func, or_, update
 from sqlalchemy.exc import OperationalError
 from loguru import logger
@@ -508,7 +508,24 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
             result set. Quality is the only restrictive axis (AND).
             Tag facets are AND across facets, OR within each facet.
         """
-        query = self.session.query(ChannelDB)
+        # raw_data is DEFERRED, not selected. It is ~369 MB across 785,489 rows —
+        # roughly a third of the channels table — and nothing on this path reads
+        # it: ChannelListDTO does not carry the field, and no caller of get_all()
+        # touches it (checked across every file that calls this method).
+        #
+        # This is the busiest query in the app: every list render, every search,
+        # every filter change. The identical change on preference_engine's
+        # candidate query measured -29% wall clock and -25% peak memory on
+        # 106,918 rows; this one runs on far more, far more often.
+        #
+        # defer() is transparent — a caller that did read .raw_data would still
+        # get it via a lazy load rather than an error — so the failure mode of
+        # being wrong here is a slow N+1, not a break. That is why the check
+        # above was for readers, not for crashes.
+        #
+        # The collapsed path (_get_all_collapsed) builds its subquery from THIS
+        # query, so deferring here covers both shapes.
+        query = self.session.query(ChannelDB).options(defer(ChannelDB.raw_data))
         query = self._apply_channel_filters(
             query,
             provider_id=provider_id,
