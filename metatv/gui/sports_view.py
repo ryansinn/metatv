@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout,
 )
 
+from metatv.gui.channel_row_lead import discriminator_for
 from metatv.gui.channel_results_list import ChannelResultsList
 from metatv.gui.filter_bar import ToggleChip
 from metatv.gui.content_view import ContentView
@@ -315,6 +316,15 @@ class SportsView(ContentView):
         if rows is None:
             self._show_error("Couldn't load these channels")
             return
+        # Decide the leading slot BEFORE handing the rows over, so the first
+        # paint is already correct rather than corrected. "What still
+        # discriminates" is a fact about this result set, not about any row,
+        # which is why the delegate is told rather than left to work it out —
+        # a delegate paints one row and cannot see the other 9,768.
+        self.channel_list.delegate.set_row_discriminator(
+            discriminator_for((r.sport_type or "", r.detected_region or "")
+                              for r in rows)
+        )
         self.channel_list.set_rows(rows)
 
     # ------------------------------------------------------------------ #

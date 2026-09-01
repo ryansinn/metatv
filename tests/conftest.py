@@ -1451,6 +1451,12 @@ ROW_ROLE_DEFAULTS: dict[str, object] = {
     "PLAYBACK_GLYPH_ROLE": "",
     "PLAYBACK_GLYPH_COLOR_ROLE": None,
     "MATCH_MARKER_ROLE": "",
+    # Sports facets. EMPTY by default on purpose: every existing row here is a
+    # movie, and a non-empty sport would add a cell to its meta line and move
+    # the geometry every other test in this file measures. Empty means "no
+    # cell", so the default row is byte-identical and a sports test overrides.
+    "SPORT_ROLE": "",
+    "LEAGUE_ROLE": "",
 }
 
 

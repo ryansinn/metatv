@@ -16,7 +16,29 @@ a bug.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
+
+
+@dataclass(frozen=True)
+class _Row:
+    """A row-shaped sentinel.
+
+    These were plain strings until ``_on_channels_loaded`` began reading the
+    result set to decide the leading discriminator slot (SPORT-3). The strings
+    then stopped modelling a row at all and the view raised ``AttributeError``
+    — repaired HERE, at the double, rather than with a ``getattr`` in the view,
+    which would have masked a real shape mismatch in production.
+
+    Deliberately still opaque: this file's subject is the TOKEN ARITHMETIC —
+    that a rows read survives the counts read — so the fields carry no meaning
+    and identity is what every assertion below compares.
+    """
+
+    name: str
+    sport_type: str = ""
+    detected_region: str = ""
 
 
 class _FakeAsyncHost:
@@ -96,9 +118,9 @@ def test_opening_the_view_renders_rows_not_just_the_counts(view, monkeypatch):
     v._reload_channels(refresh_counts=True)
     assert len(host.pending) == 2, "expected a rows read and a counts read"
 
-    host.deliver_all(lambda fn: ["row-a", "row-b"])
+    host.deliver_all(lambda fn: [_Row("row-a"), _Row("row-b")])
 
-    assert rendered == [["row-a", "row-b"]], (
+    assert rendered == [[_Row("row-a"), _Row("row-b")]], (
         "the rows never reached the list — the counts query cancelled them")
 
 
@@ -122,7 +144,7 @@ def test_deactivate_cancels_both_reads(view, monkeypatch):
 
     v._reload_channels(refresh_counts=True)
     v.on_deactivate()
-    host.deliver_all(lambda fn: ["late"])
+    host.deliver_all(lambda fn: [_Row("late")])
 
     assert rendered == [], "a stale rows read painted after the view was left"
     assert counts == [], "a stale counts read landed after the view was left"
@@ -141,6 +163,6 @@ def test_a_lane_switch_still_renders(view, monkeypatch):
     monkeypatch.setattr(v.channel_list, "set_rows", lambda rows, **k: rendered.append(rows))
 
     v._reload_channels(refresh_counts=False)
-    host.deliver_all(lambda fn: ["only-rows"])
+    host.deliver_all(lambda fn: [_Row("only-rows")])
 
-    assert rendered == [["only-rows"]]
+    assert rendered == [[_Row("only-rows")]]

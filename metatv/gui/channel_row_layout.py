@@ -52,6 +52,20 @@ ROW_PAD_V = 2
 KIND_GUTTER_W = 36
 KIND_ICON = 16
 
+#: The discriminator slot: the leading cell that shows whatever still tells
+#: these rows apart (SPORT-3). Unfiltered that is the sport glyph; with one
+#: sport selected the glyph has gone constant and it becomes the region CODE;
+#: with both fixed nothing varies and the slot COLLAPSES to zero width.
+#:
+#: Collapsing rather than blanking is the point. The audit found these rows
+#: clip long fixture names, so ~28px returned to the title is strictly better
+#: than a reserved empty column — and unlike the kind mark, which is structural
+#: and reserved on every row, this cell exists only while it is saying
+#: something.
+LEAD_W = 28
+LEAD_ICON = 18
+LEAD_GAP = 6
+
 #: Poster well (movie/series) and the square tile a live channel gets instead.
 ART_W = 40
 ART_H = 58
@@ -90,11 +104,17 @@ class RowLayout(NamedTuple):
     ``art`` is an empty ``QRect`` when the row shows no artwork (compact
     density, or thumbnails switched off) — the kind mark still gets its gutter,
     and the text stack simply starts earlier.
+
+    ``lead`` is an empty ``QRect`` on every row that has no discriminator to
+    show, which is every row outside Sports and a Sports row whose sport AND
+    region are both already fixed by the filter. An empty rect means the width
+    goes back to the title, not that a blank column is painted.
     """
 
     fill: QRect
     marker: QRect
     kind: QRect
+    lead: QRect
     art: QRect
     text: QRect
     rail: QRect
@@ -165,7 +185,8 @@ def right_aligned_rects(container: QRect, widths: list[int], spacing: int) -> li
     return rects
 
 
-def row_layout(rect: QRect, *, has_art: bool, art_square: bool, rail_w: int) -> RowLayout:
+def row_layout(rect: QRect, *, has_art: bool, art_square: bool, rail_w: int,
+               lead_w: int = 0) -> RowLayout:
     """Every rect for one row.
 
     Deliberately takes **no** selection/hover/current argument: the action
@@ -179,6 +200,11 @@ def row_layout(rect: QRect, *, has_art: bool, art_square: bool, rail_w: int) -> 
         rail_w: Measured width of the right-hand chip rail (0 when it is empty).
             Supplied by the caller because measuring it needs font metrics,
             which would drag a paint device into this module.
+        lead_w: Width of the leading discriminator cell, or 0 to collapse it.
+            A WIDTH and not a mode flag, deliberately — the caller has already
+            decided what still discriminates, which is a fact about the QUERY
+            and not about this row. Passing the decision as data keeps this
+            function's contract intact: geometry from geometry alone.
     """
     fill = QRect(
         rect.left() + ROW_PAD_H,
@@ -198,6 +224,15 @@ def row_layout(rect: QRect, *, has_art: bool, art_square: bool, rail_w: int) -> 
     )
 
     x = fill.left() + KIND_GUTTER_W
+
+    if lead_w > 0:
+        lead_h = min(LEAD_ICON, inner.height())
+        lead = QRect(x, inner.top() + max(0, (inner.height() - lead_h) // 2),
+                     lead_w, lead_h)
+        x += lead_w + LEAD_GAP
+    else:
+        lead = QRect()
+
     if has_art:
         aw, ah = art_size(art_square)
         art = QRect(x, inner.top() + max(0, (inner.height() - ah) // 2), aw, ah)
@@ -228,5 +263,5 @@ def row_layout(rect: QRect, *, has_art: bool, art_square: bool, rail_w: int) -> 
     text_right = (rail.left() - RAIL_GAP) if rail_w > 0 else (rail_right + 1)
     text = QRect(x, inner.top(), max(0, text_right - x), inner.height())
 
-    return RowLayout(fill=fill, marker=marker, kind=kind, art=art, text=text,
-                     rail=rail, action=action)
+    return RowLayout(fill=fill, marker=marker, kind=kind, lead=lead, art=art,
+                     text=text, rail=rail, action=action)
