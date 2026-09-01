@@ -468,6 +468,8 @@ class _ChannelStatsMixin:
         self,
         scope: VisibilityScope,
         special_view: str = 'live_event',
+        *,
+        hide_dead_streak: "int | None" = None,
     ) -> List["SpecialContentDTO"]:
         """Get one events bucket.
 
@@ -479,12 +481,30 @@ class _ChannelStatsMixin:
         Args:
             scope: Resolved visibility exclusions.
             special_view: ``'live_event'`` (default) or ``'ppv'``.
+            hide_dead_streak: Drop events whose last N consecutive signal checks
+                found no picture. ``None`` (the default) hides nothing, which is
+                deliberate: the owner's setting starts OFF so the scale of the
+                problem is visible until the check has earned trust.
+
+                Only a verdict ABOUT THE PICTURE moves that streak — a refused
+                connection, an unreachable host, or a probe cancelled to give
+                the stream back to a Play press never do (see
+                ``core/signal_check_manager.py``). Without that, ordinary
+                viewing would accumulate a streak against a working channel and
+                this filter would hide it.
 
         Returns:
             DTOs ordered by name.
         """
-        rows = self._special_content_query(special_view, scope).order_by(
-            ChannelDB.name).all()
+        query = self._special_content_query(special_view, scope)
+        if hide_dead_streak is not None and hide_dead_streak > 0:
+            # NULL is "never checked", which must stay visible — an event we
+            # have not looked at is not an event known to be dead.
+            query = query.filter(
+                (ChannelDB.signal_dead_streak.is_(None))
+                | (ChannelDB.signal_dead_streak < hide_dead_streak)
+            )
+        rows = query.order_by(ChannelDB.name).all()
         return [SpecialContentDTO.from_orm(c) for c in rows]
 
     def get_sports_taxonomy(

@@ -19,6 +19,7 @@ from PyQt6.QtCore import QTimer
 
 from metatv.core.download_manager import DownloadManager, library_dir
 from metatv.core.recording_manager import RecordingManager, recordings_dir
+from metatv.core.signal_check_manager import SignalCheckManager
 from metatv.gui.file_reveal import open_folder, reveal_file
 
 #: How often the two transfer sections re-read their manager. Two seconds
@@ -51,6 +52,28 @@ class _DownloadsMixin:
         any re-assignment.
         """
         accountant = self.player_manager.connection_accountant
+
+        # ONE callback slot, THREE consumers — so it fans out.
+        #
+        # `accountant._on_preempt` is a single attribute. Assigning it a second
+        # time silently replaces the first, and the manager that lost it simply
+        # stops being told its slot was taken: a download would never resume, a
+        # probe would keep ffmpeg running against a stream the user is now
+        # trying to watch. Nothing raises; it just quietly stops working.
+        #
+        # Each listener already ignores holders that are not its own, so a plain
+        # fan-out is safe and order does not matter.
+        self._preempt_listeners: "list" = []
+
+        def _dispatch_preempt(provider_id: str, holder_id: str, kind: str) -> None:
+            for listener in self._preempt_listeners:
+                try:
+                    listener(provider_id, holder_id, kind)
+                except Exception:              # pragma: no cover - guard
+                    logger.exception("preempt listener failed")
+
+        accountant._on_preempt = _dispatch_preempt
+
         self.download_manager = DownloadManager(self.db, self.config, accountant)
         accountant.add_preempt_listener(self.download_manager.on_preempted)
         self.download_manager.start()
@@ -79,7 +102,23 @@ class _DownloadsMixin:
         self._transfer_tick.timeout.connect(self._refresh_transfer_sections)
         self._transfer_tick.start()
         self._register_cleanable("transfer_tick", self._transfer_tick.stop)
-        logger.debug("Download and recording managers ready")
+
+        # Signal checks: the lowest-priority holder in the app. It evicts
+        # nobody and everybody evicts it, and being evicted KILLS the probe
+        # rather than letting it finish — a Play press waits milliseconds
+        # instead of the ~18 s a full sample plus timeout would cost.
+        #
+        # Registered through accountant.add_preempt_listener, not the
+        # _preempt_listeners list this branch was written against: main
+        # replaced that list with a method on the accountant while this sat
+        # open, and the list no longer exists.
+        self.signal_check_manager = SignalCheckManager(
+            self.db, self.config, accountant)
+        accountant.add_preempt_listener(self.signal_check_manager.on_preempted)
+        self.signal_check_manager.start()
+        self._register_cleanable(
+            "signal_check", self.signal_check_manager.shutdown)
+        logger.debug("Download, recording and signal-check managers ready")
 
     # ── the transfer sections ──────────────────────────────────────────────
 

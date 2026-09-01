@@ -372,15 +372,23 @@ class EventsView(ContentView):
         config = self.config
         bucket = self._bucket
 
+        # Resolved HERE, in the control layer, and passed down as a plain int —
+        # the repository holds no Config (DR-0007), and reading the setting once
+        # per load means a mid-load toggle cannot show half a filtered list.
+        streak = (int(getattr(config, "signal_dead_streak_to_hide", 2))
+                  if getattr(config, "hide_dead_events", False) else None)
+
         def query(repos) -> list:
             scope = resolve_visibility_scope(repos, config)
             if bucket:
-                return repos.channels.get_events_channels(scope, bucket)
+                return repos.channels.get_events_channels(
+                    scope, bucket, hide_dead_streak=streak)
             # "All" is both buckets, not a third query shape.
             rows = []
             for value, _label, _tip in SCOPES:
                 if value:
-                    rows.extend(repos.channels.get_events_channels(scope, value))
+                    rows.extend(repos.channels.get_events_channels(
+                        scope, value, hide_dead_streak=streak))
             return rows
 
         self._run_query(

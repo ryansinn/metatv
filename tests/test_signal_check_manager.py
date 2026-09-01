@@ -211,3 +211,86 @@ def test_start_is_a_no_op_without_ffmpeg(manager, monkeypatch):
     monkeypatch.setattr(module, "ffmpeg_available", lambda: False)
     manager.start()
     assert manager._thread is None
+
+
+# ── the wiring: one callback slot, three consumers ──────────────────────────
+
+def test_the_preempt_callback_fans_out_to_every_manager():
+    """`accountant._on_preempt` is ONE attribute and three managers want it.
+
+    Assigning it twice silently replaces the first listener, and the loser just
+    stops being told its slot was taken — a download never resumes, a probe
+    keeps ffmpeg running against a stream the user is trying to watch. Nothing
+    raises. It quietly stops working, which is why this is a test and not a
+    comment.
+    """
+    import inspect
+
+    from metatv.gui import main_window_downloads
+
+    src = inspect.getsource(main_window_downloads._DownloadsMixin._setup_downloads)
+
+    assert src.count("_on_preempt =") == 1, (
+        "the accountant's single callback slot is assigned more than once — "
+        "the earlier listener is silently discarded")
+    assert "_preempt_listeners.append" in src
+    assert src.count("_preempt_listeners.append") >= 2, (
+        "fewer listeners registered than managers that need preempt notice")
+
+
+def test_a_dispatched_preempt_reaches_each_listener_and_survives_a_raise():
+    """One bad listener must not stop the others being told."""
+    calls = []
+
+    listeners = [
+        lambda p, h, k: calls.append(("first", h)),
+        lambda p, h, k: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda p, h, k: calls.append(("third", h)),
+    ]
+
+    def dispatch(provider_id, holder_id, kind):
+        for listener in listeners:
+            try:
+                listener(provider_id, holder_id, kind)
+            except Exception:
+                pass
+
+    dispatch("p1", "download:7", "download")
+
+    assert calls == [("first", "download:7"), ("third", "download:7")], (
+        "a raising listener stopped the ones after it")
+
+
+# ── hide_dead_events reaches the query ─────────────────────────────────────
+
+def test_hiding_dead_events_never_hides_an_unchecked_one(db):
+    """NULL is "never looked at", not "known dead".
+
+    An event nobody has probed must stay visible, or turning the setting on
+    would hide most of the catalogue on day one — before a single check ran.
+    """
+    from metatv.core.channel_visibility import VisibilityScope
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        for cid, streak in (("p1_never", None), ("p1_ok", 0),
+                            ("p1_one", 1), ("p1_dead", 3)):
+            session.add(ChannelDB(
+                id=cid, source_id=cid, provider_id="p1", name=f"Event {cid}",
+                stream_url="http://x/e.ts", special_view="live_event",
+                signal_dead_streak=streak))
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        scope = VisibilityScope()
+
+        shown_off = {r.id for r in repos.channels.get_events_channels(
+            scope, "live_event")}
+        shown_on = {r.id for r in repos.channels.get_events_channels(
+            scope, "live_event", hide_dead_streak=2)}
+
+    assert shown_off == {"p1_never", "p1_ok", "p1_one", "p1_dead"}, (
+        "the default must hide nothing")
+    assert "p1_never" in shown_on, "an unchecked event was hidden"
+    assert "p1_one" in shown_on, "one bad check is a bad moment, not a fact"
+    assert "p1_dead" not in shown_on, "a 3-check dead streak was not hidden"
