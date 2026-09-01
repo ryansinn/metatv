@@ -425,6 +425,18 @@ def test_rewrite_if_stale_does_not_write_the_profile_back(config, db):
     data = yaml.safe_load((config.config_dir / "config.yaml").read_text())
     assert not [k for k in owned if k in data], "the prune did not happen"
 
+    # THE STORE IS UNBOUND, because that is the real order: _rewrite_if_stale
+    # runs inside Config.load(), and nothing binds the store until MainWindow
+    # has a database. So save() here does not know the profile lives elsewhere
+    # and writes every field — which is why the exclusion has to stop the
+    # rewrite from happening at all, rather than relying on save() to filter.
+    #
+    # An earlier version of this test attached the store first. It passed
+    # against the un-excluded code, because a BOUND store filters the write —
+    # it was reproducing a sequence that never happens at startup. The mutation
+    # is what exposed it.
+    profile_store.unbind()
+
     config._rewrite_if_stale(data, config.config_dir / "config.yaml")
 
     after = yaml.safe_load((config.config_dir / "config.yaml").read_text())
