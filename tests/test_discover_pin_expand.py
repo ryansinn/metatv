@@ -339,29 +339,41 @@ class TestMoveShelfPinImpliesExpanded:
 
 class TestSanitizeZoneConfig:
 
-    def test_key_in_pinned_and_collapsed_removed_from_collapsed(self, config):
-        """A key that is in both pinned and collapsed is removed from collapsed."""
+    def test_a_pinned_key_is_not_also_collapsed(self, config):
+        """The invariant is unchanged; what enforces it is.
+
+        This used to assert that sanitisation REMOVED a key from the stored
+        collapsed list. Collapsed is no longer stored — it is the zone every
+        unlisted key falls through to — so the exclusion is now structural
+        rather than enforced: a pinned key cannot also be collapsed because
+        there is no collapsed list for it to be in.
+
+        The assertion is therefore on the outcome (``determine_zone`` says
+        pinned) rather than on the mechanism, which is what it should have
+        been asserting all along.
+        """
         from metatv.gui.discover_view import DiscoverView
+        from metatv.gui.discover_workers import determine_zone
 
         config.discover_pinned_shelves    = ["recently_added", "top_movies"]
         config.discover_expanded_shelves  = []
-        config.discover_collapsed_shelves = ["recently_added", "genre:Action"]
         config.discover_hidden_shelves    = []
 
         view = DiscoverView.__new__(DiscoverView)
         view._config = config
         view._sanitize_zone_config()
 
-        # recently_added was in both pinned and collapsed; must be removed from collapsed.
-        assert "recently_added" not in config.discover_collapsed_shelves, (
-            "A key in pinned must be removed from collapsed after sanitisation"
-        )
-        # genre:Action was only in collapsed — must stay.
-        assert "genre:Action" in config.discover_collapsed_shelves
-        # top_movies was only in pinned — must stay.
-        assert "top_movies" in config.discover_pinned_shelves
-        # recently_added must remain in pinned.
         assert "recently_added" in config.discover_pinned_shelves
+        assert "top_movies" in config.discover_pinned_shelves
+        assert determine_zone(
+            "recently_added", pinned=frozenset(config.discover_pinned_shelves),
+            expanded=frozenset(), collapsed=frozenset(), hidden=frozenset(),
+            default_expanded=frozenset(), first_launch=False) == "pinned"
+        # And an unlisted key still lands in the default zone.
+        assert determine_zone(
+            "genre:Action", pinned=frozenset(config.discover_pinned_shelves),
+            expanded=frozenset(), collapsed=frozenset(), hidden=frozenset(),
+            default_expanded=frozenset(), first_launch=False) == "collapsed"
 
     def test_key_in_pinned_and_expanded_removed_from_expanded(self, config):
         """A key in both pinned and expanded is removed from expanded."""
@@ -381,21 +393,33 @@ class TestSanitizeZoneConfig:
         )
         assert "recently_added" in config.discover_expanded_shelves
 
-    def test_expanded_key_removed_from_collapsed(self, config):
-        """A key in both expanded and collapsed is removed from collapsed."""
+    def test_an_expanded_key_is_not_also_collapsed(self, config):
+        """Same change of mechanism as above: structural, not enforced.
+
+        An expanded key resolves to expanded, and a key nobody listed resolves
+        to collapsed — which is the whole reason collapsed no longer needs
+        storing.
+        """
         from metatv.gui.discover_view import DiscoverView
+        from metatv.gui.discover_workers import determine_zone
 
         config.discover_pinned_shelves    = []
         config.discover_expanded_shelves  = ["genre:Action"]
-        config.discover_collapsed_shelves = ["genre:Action", "genre:Drama"]
         config.discover_hidden_shelves    = []
 
         view = DiscoverView.__new__(DiscoverView)
         view._config = config
         view._sanitize_zone_config()
 
-        assert "genre:Action" not in config.discover_collapsed_shelves
-        assert "genre:Drama" in config.discover_collapsed_shelves
+        expanded = frozenset(config.discover_expanded_shelves)
+        assert determine_zone("genre:Action", pinned=frozenset(), expanded=expanded,
+                              collapsed=frozenset(), hidden=frozenset(),
+                              default_expanded=frozenset(),
+                              first_launch=False) == "expanded"
+        assert determine_zone("genre:Drama", pinned=frozenset(), expanded=expanded,
+                              collapsed=frozenset(), hidden=frozenset(),
+                              default_expanded=frozenset(),
+                              first_launch=False) == "collapsed"
 
     def test_duplicate_entries_deduped(self, config):
         """Duplicate keys within a single list are removed."""

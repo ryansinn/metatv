@@ -637,7 +637,20 @@ class Config(BaseModel):
     # shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.
     discover_pinned_shelves: list = Field(default_factory=list)
     discover_expanded_shelves: list = Field(default_factory=list)
+    #: Kept as a FIELD but no longer written to: collapsed is the default
+    #: zone, so storing it recorded the answer the code would reach anyway.
+    #: On the owner's config that was 818 entries — 17% of the whole file —
+    #: growing by one per shelf ever rendered. See _retire_collapsed_shelves.
     discover_collapsed_shelves: list = Field(default_factory=list)
+    #: True once the first-launch zone defaults have been applied.
+    #:
+    #: This exists BECAUSE collapsed stopped being stored. "First launch" used
+    #: to mean "all four zone lists are empty", and a user who had only ever
+    #: collapsed things would suddenly match that — so every start would look
+    #: like their first and re-expand the default shelves. Inferring a
+    #: first run from an absence of data breaks the moment having no data is
+    #: legitimate; an explicit marker cannot.
+    discover_zones_seeded: bool = False
     discover_hidden_shelves: list = Field(default_factory=list)
     discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
     discover_more_expanded: bool = False   # "More Categories" accordion — collapsed by default
@@ -1838,6 +1851,40 @@ class Config(BaseModel):
         extra = [s for s in self.user_extra_separators if s not in BASE_PREFIX_SEPARATORS]
         return BASE_PREFIX_SEPARATORS + extra
 
+    def _retire_collapsed_shelves(self) -> None:
+        """Drop the stored collapsed zone, once, preserving what it implied.
+
+        ``discover_collapsed_shelves`` recorded the DEFAULT zone — the value
+        ``determine_zone`` falls through to — so every entry was the answer the
+        code would give with no entry at all. On the owner's config that was
+        818 of 4,768 lines.
+
+        The one thing it did carry is that the user had been here before, which
+        ``_is_first_launch`` read as "not all four lists are empty". That
+        meaning is transferred to ``discover_zones_seeded`` first, then the list
+        is cleared. Order matters: clearing first would erase the evidence this
+        migration needs.
+        """
+        if self.discover_zones_seeded:
+            return
+        has_zone_state = any((self.discover_pinned_shelves,
+                              self.discover_expanded_shelves,
+                              self.discover_collapsed_shelves,
+                              self.discover_hidden_shelves))
+        changed = False
+        if has_zone_state:
+            self.discover_zones_seeded = True
+            changed = True
+        if self.discover_collapsed_shelves:
+            logger.info(
+                "Discover: dropping {} stored collapsed shelves — collapsed is "
+                "the default zone, so they recorded nothing",
+                len(self.discover_collapsed_shelves))
+            self.discover_collapsed_shelves = []
+            changed = True
+        if changed:
+            self.save()
+
     def _inject_new_sections(self) -> None:
         """Insert newly added sidebar sections into existing configs that predate them."""
         changed = False
@@ -1993,6 +2040,7 @@ class Config(BaseModel):
                 if data:
                     config = cls(**data)
                     config._inject_new_sections()
+                    config._retire_collapsed_shelves()
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
                 # Try backup on parse error
@@ -2004,6 +2052,7 @@ class Config(BaseModel):
                         if data:
                             config = cls(**data)
                             config._inject_new_sections()
+                            config._retire_collapsed_shelves()
                             recovered_from_backup = True
                     except Exception as e2:
                         logger.error(f"Backup restore also failed: {e2}")

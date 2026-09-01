@@ -241,11 +241,15 @@ class DiscoverView(QWidget):
     # ---- Zone helpers -------------------------------------------------------
 
     def _is_first_launch(self) -> bool:
-        cfg = self._config
-        return (not cfg.discover_pinned_shelves
-                and not cfg.discover_expanded_shelves
-                and not cfg.discover_collapsed_shelves
-                and not cfg.discover_hidden_shelves)
+        """True until the first-launch zone defaults have been applied.
+
+        An explicit marker, not "are the zone lists empty". Emptiness stopped
+        meaning first-launch the moment the collapsed zone stopped being
+        stored — collapsed is the DEFAULT, so a user who had only ever
+        collapsed shelves would have four empty lists and every start would
+        look like their first, re-expanding the defaults they had put away.
+        """
+        return not getattr(self._config, "discover_zones_seeded", False)
 
     def _sanitize_zone_config(self) -> None:
         """Ensure the four zone lists are mutually exclusive and de-duplicated.
@@ -272,7 +276,6 @@ class DiscoverView(QWidget):
 
         cfg.discover_pinned_shelves    = _dedup(cfg.discover_pinned_shelves)
         cfg.discover_expanded_shelves  = _dedup(cfg.discover_expanded_shelves)
-        cfg.discover_collapsed_shelves = _dedup(cfg.discover_collapsed_shelves)
         cfg.discover_hidden_shelves    = _dedup(cfg.discover_hidden_shelves)
 
         # Higher-priority zone wins; remove from lower-priority zones.
@@ -283,17 +286,12 @@ class DiscoverView(QWidget):
         # Pinned wins over all others.
         cfg.discover_expanded_shelves  = [k for k in cfg.discover_expanded_shelves
                                           if k not in pinned_set]
-        cfg.discover_collapsed_shelves = [k for k in cfg.discover_collapsed_shelves
-                                          if k not in pinned_set]
         cfg.discover_hidden_shelves    = [k for k in cfg.discover_hidden_shelves
                                           if k not in pinned_set]
 
-        # Rebuild expanded_set after removing pinned duplicates.
-        expanded_set = set(cfg.discover_expanded_shelves)
-
-        # Expanded wins over collapsed; hidden wins over collapsed.
-        cfg.discover_collapsed_shelves = [k for k in cfg.discover_collapsed_shelves
-                                          if k not in expanded_set and k not in hidden_set]
+        # Collapsed is not sanitised because it is not stored: it is the zone
+        # every unlisted key falls through to, so there is nothing to
+        # de-duplicate it against.
 
     def _build_zone_snapshot(self) -> _ZoneSnapshot:
         """Build a thread-safe zone snapshot from the current config.
@@ -468,7 +466,12 @@ class DiscoverView(QWidget):
         cfg = self._config
         cfg.discover_pinned_shelves    = [k for k, z in self._shelf_zones.items() if z == _ZONE_PINNED]
         cfg.discover_expanded_shelves  = [k for k, z in self._shelf_zones.items() if z == _ZONE_EXPANDED]
-        cfg.discover_collapsed_shelves = [k for k, z in self._shelf_zones.items() if z == _ZONE_COLLAPSED]
+        # The collapsed zone is NOT written. It is what determine_zone falls
+        # through to, so every key here would resolve to collapsed with no
+        # entry at all — and the list grew by one per shelf ever rendered
+        # (818 entries, 17% of the owner's config file). Only the three zones
+        # that deviate from the default carry information.
+        cfg.discover_zones_seeded = True
         cfg.save()
 
     # ---- Shelf signal handlers ----------------------------------------------
