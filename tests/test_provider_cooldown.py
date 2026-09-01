@@ -212,3 +212,26 @@ def test_player_manager_claim_is_a_no_op_without_a_provider():
     pm.claim_for_playback(None)
     pm.claim_for_playback("")
     assert pm.connection_accountant.cooldown_remaining("p1") == 0.0
+
+
+def test_a_multi_connection_provider_is_not_cooled():
+    """Headroom means no cooldown — otherwise every play starves enrichment.
+
+    The provider's lag only bites when there is no spare slot. With two or
+    more, ordinary capacity arbitration and the #634 eviction listeners
+    already cover it.
+    """
+    now = [1000.0]
+    acct = ConnectionAccountant(capacity_resolver=lambda _p: 5, clock=lambda: now[0])
+    acct.note_foreground_use("p1")
+    assert acct.acquire("p1", MONITOR_KIND, "sm-1",
+                        preempt_kinds=MONITOR_PREEMPTS).granted, (
+        "held background work off a five-connection account — nothing was contended")
+
+
+def test_an_unlimited_provider_is_not_cooled():
+    now = [1000.0]
+    acct = ConnectionAccountant(capacity_resolver=lambda _p: 0, clock=lambda: now[0])
+    acct.note_foreground_use("p1")
+    assert acct.acquire("p1", MONITOR_KIND, "sm-1",
+                        preempt_kinds=MONITOR_PREEMPTS).granted

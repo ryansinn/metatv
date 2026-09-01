@@ -91,6 +91,15 @@ class ConnectionAccountant:
     #: only kinds that arm it.
     FOREGROUND_KINDS: frozenset[str] = frozenset({"playback", "recording"})
 
+    #: The cooldown applies ONLY where capacity is exactly 1.
+    #:
+    #: That is where the provider's lag actually bites: there is no headroom,
+    #: so a slot the panel has not yet reaped is a slot the user cannot have.
+    #: With two or more, ordinary capacity arbitration plus the eviction
+    #: listeners (#634) already cover it — and holding background work off a
+    #: five-connection account for a minute after every play would starve
+    #: enrichment for nothing. Unlimited (0) never cools.
+
     def __init__(self, capacity_resolver: Callable[[str], int],
                  on_preempt: "Optional[Callable[[str, str, str], None]]" = None,
                  clock: "Optional[Callable[[], float]]" = None) -> None:
@@ -240,7 +249,7 @@ class ConnectionAccountant:
                 # while the user retries — which is the loop they actually hit.
                 self._cooldown_until[provider_id] = (
                     self._clock() + self.PROVIDER_COOLDOWN_S)
-            elif self._clock() < self._cooldown_until.get(provider_id, 0.0):
+            elif cap == 1 and self._clock() < self._cooldown_until.get(provider_id, 0.0):
                 # Free by our books, still counted by theirs. Backing off here
                 # is the whole point: catch-up work has no deadline, and the
                 # person staring at a black window does.
