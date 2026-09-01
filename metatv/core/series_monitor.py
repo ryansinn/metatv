@@ -70,6 +70,24 @@ def _has_usable_episodes(episodes_data) -> bool:
     return False
 
 
+#: Consumer kind this poll registers with :class:`ConnectionAccountant`.
+#: A provider account is typically capped at ONE concurrent connection, and
+#: these fetches are slow enough to own it continuously — owner log
+#: 2026-08-31 recorded 11s per ``get_series_info`` against a host whose median
+#: latency had risen to 10.7s, fired back-to-back, while mpv was streaming from
+#: that same host. The provider dropped the STREAM, and mpv (launched
+#: ``--keep-open=no --idle=once``) exited silently: the window opened and
+#: vanished with no error surfaced. The poll was invisible to the accountant
+#: that exists to prevent exactly this, so nothing could arbitrate.
+MONITOR_KIND = "monitor"
+
+#: A catch-up poll displaces NOTHING. It takes a slot only when one is free,
+#: and every real consumer lists ``"monitor"`` in its own ``preempt_kinds``
+#: (playback, download, recording), so anything the user actually asked for
+#: evicts this. Skipping is the correct loss: the next pass catches up, and a
+#: dropped stream cannot be un-dropped.
+MONITOR_PREEMPTS: tuple[str, ...] = ()
+
 #: Separator joining a mirror's provider id and source id into one baseline key.
 #: Provider ids are UUIDs and source ids are numeric, so a pipe can never occur
 #: inside either half — which is what makes :func:`is_mirror_key` reliable.
@@ -336,12 +354,19 @@ class SeriesMonitorManager(QObject):
         db: "Database",
         config: "Config",
         notifications: "NotificationManager | None" = None,
+        connection_accountant=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.db = db
         self.config = config
         self.notifications = notifications
+        #: Shared :class:`ConnectionAccountant` (``player_manager``'s — never a
+        #: second one, which could disagree with the player about who holds a
+        #: provider's only connection). ``None`` in headless/unit contexts, and
+        #: the acquire helpers then no-op so the poll behaves as it did before
+        #: enrolment rather than refusing to run.
+        self._accountant = connection_accountant
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="series_monitor"
         )
@@ -587,6 +612,44 @@ class SeriesMonitorManager(QObject):
         )
         return chosen
 
+    def _acquire_slot(self, provider_id: str, holder_id: str) -> bool:
+        """Take a connection slot for one mirror fetch; False if none is free.
+
+        No accountant (headless/unit) means no arbitration to do, so the fetch
+        proceeds — enrolment must not turn an un-wired monitor into a dead one.
+
+        Args:
+            provider_id: Provider whose connection capacity is being consumed.
+            holder_id: Unique id for this fetch, released in the caller's
+                ``finally``.
+
+        Returns:
+            True if the fetch may proceed.
+        """
+        if self._accountant is None:
+            return True
+        try:
+            return self._accountant.acquire(
+                provider_id, MONITOR_KIND, holder_id,
+                preempt_kinds=MONITOR_PREEMPTS).granted
+        except Exception:
+            logger.exception("series_monitor: connection acquire failed")
+            return True
+
+    def _release_slot(self, provider_id: str, holder_id: str) -> None:
+        """Release the slot taken by :meth:`_acquire_slot`.
+
+        Args:
+            provider_id: Provider the slot belongs to.
+            holder_id: The id passed to :meth:`_acquire_slot`.
+        """
+        if self._accountant is None:
+            return
+        try:
+            self._accountant.release(provider_id, holder_id)
+        except Exception:
+            logger.exception("series_monitor: connection release failed")
+
     def _worker_check_entries(self, entries: list[dict]) -> None:
         """Check each monitored entry across every provider that carries it.
 
@@ -673,7 +736,24 @@ class SeriesMonitorManager(QObject):
                         )
                         continue
 
-                    data = asyncio.run(plugin.fetch_series_info(provider, source_id))
+                    # Hold a real slot for the fetch so playback, downloads and
+                    # recordings can SEE this poll and evict it, instead of
+                    # losing the provider's only connection to it silently.
+                    holder_id = f"series_monitor:{provider_id}:{source_id}"
+                    if not self._acquire_slot(provider_id, holder_id):
+                        logger.debug(
+                            "series_monitor: {} — provider {}'s connection is "
+                            "busy with playback/download/recording; skipping "
+                            "this mirror (a poll can wait, a stream cannot)",
+                            title, provider_id,
+                        )
+                        continue
+                    try:
+                        data = asyncio.run(
+                            plugin.fetch_series_info(provider, source_id)
+                        )
+                    finally:
+                        self._release_slot(provider_id, holder_id)
                     # Make the URL success/failure stats UrlCycler recorded on
                     # `provider.urls` during the cycling above durable — this
                     # is the only place that sees this in-memory Provider.

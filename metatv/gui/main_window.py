@@ -348,6 +348,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         self.series_monitor = SeriesMonitorManager(
             self.db, self.config,
             notifications=None,  # injected after NotificationManager is set up
+            # The player's accountant, never a second one — a poll that keeps
+            # its own tally cannot be evicted by the stream it is starving.
+            connection_accountant=self.player_manager.connection_accountant,
             parent=self,
         )
         self._register_cleanable("series_monitor", self.series_monitor.shutdown)

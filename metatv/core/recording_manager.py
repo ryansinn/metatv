@@ -80,11 +80,11 @@ RETRY_SECONDS = 5.0
 #: Kinds a recording may evict. It takes playback's slot too — that is the
 #: settled rule, softened by the countdown rather than by yielding. A recording
 #: with ``preempt_playback`` cleared falls back to ``_POLITE_PREEMPTS``.
-RECORDING_PREEMPTS: tuple[str, ...] = ("download", "playback")
+RECORDING_PREEMPTS: tuple[str, ...] = ("download", "playback", "monitor")
 
 #: What a recording may evict when the user has told THIS one not to take the
 #: stream. Downloads still yield — they lose nothing by waiting.
-_POLITE_PREEMPTS: tuple[str, ...] = ("download",)
+_POLITE_PREEMPTS: tuple[str, ...] = ("download", "monitor")
 
 #: Seconds before the start at which the user is warned, longest first. Every
 #: one of these is a chance to cancel, which is what makes taking acceptable.

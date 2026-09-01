@@ -35,6 +35,7 @@ satisfied without an ``__all__`` re-export.
 from __future__ import annotations
 
 import re
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -154,6 +155,14 @@ class _FullKeyProxy:
         self.detected_year = y
         self.detected_tmdb_id = tmdb
         self.id = i
+
+
+#: Serialises WHOLE-LIBRARY tmdb sibling-propagation passes across every pool.
+#: Module scope, not instance: the two racing callers build their own
+#: ``RepositoryFactory`` on their own session, so an instance attribute could
+#: never see the other. Non-blocking — a second caller stands down rather than
+#: queueing, since the running pass already covers its rows.
+_WHOLE_LIBRARY_SWEEP = threading.Lock()
 
 
 class ChannelIngestionMixin:
@@ -802,6 +811,23 @@ class ChannelIngestionMixin:
     ) -> int:
         """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
 
+        **Whole-library passes are single-flight.** Two independent callers fire
+        this — ``TmdbEnrichmentManager._propagate_after_drain`` when the enrich
+        queue empties, and ``_ProviderMixin._on_all_refreshes_finished`` when a
+        refresh completes — and a refresh that fills the queue satisfies both at
+        once, so they are not independent events. Owner log 2026-08-31 caught
+        them running CONCURRENTLY on separate pools (``tmdb_enrich_0`` and
+        ``ThreadPoolExecutor-7_1``), each holding SQLite's single write lock
+        against the other: both exhausted all three :meth:`_retry_on_lock`
+        attempts and aborted, the bulk catalogue INSERT of the refresh that
+        triggered them failed the same way (the source reported
+        ``success=False``), and the survivor kept the app's close open for 40s.
+        Standing down is not a loss — the pass in flight scans the whole
+        library, so it covers the rows of the caller that yielded.
+
+        A ``provider_id``-scoped call is deliberately NOT gated: it is narrow,
+        cheap, and may not overlap the running pass at all.
+
         Retries the whole pass on a transient lock via the shared
         :meth:`_retry_on_lock` helper — this is the site that crashed
         uncovered on 2026-08-01 (owner log: ``database is locked`` inside this
@@ -809,11 +835,27 @@ class ChannelIngestionMixin:
         See :meth:`_propagate_tmdb_from_title_siblings_impl` for the actual
         logic and full docstring.
         """
-        return self._retry_on_lock(
-            "propagate_tmdb_from_title_siblings",
-            self._propagate_tmdb_from_title_siblings_impl,
-            provider_id,
-        )
+        if provider_id is not None:
+            return self._retry_on_lock(
+                "propagate_tmdb_from_title_siblings",
+                self._propagate_tmdb_from_title_siblings_impl,
+                provider_id,
+            )
+
+        if not _WHOLE_LIBRARY_SWEEP.acquire(blocking=False):
+            logger.info(
+                "propagate_tmdb_from_title_siblings: a whole-library pass is "
+                "already running; standing down (it covers these rows too)"
+            )
+            return 0
+        try:
+            return self._retry_on_lock(
+                "propagate_tmdb_from_title_siblings",
+                self._propagate_tmdb_from_title_siblings_impl,
+                provider_id,
+            )
+        finally:
+            _WHOLE_LIBRARY_SWEEP.release()
 
     def _propagate_tmdb_from_title_siblings_impl(
         self, provider_id: Optional[str] = None

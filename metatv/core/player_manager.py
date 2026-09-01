@@ -8,7 +8,7 @@ from metatv.core.connection_accountant import AcquireResult, ConnectionAccountan
 
 #: Kinds playback may evict when a provider's slots are full. Downloads only —
 #: see the note at the acquire() call for why a recording is not on this list.
-PLAYBACK_PREEMPTS: tuple[str, ...] = ("download",)
+PLAYBACK_PREEMPTS: tuple[str, ...] = ("download", "monitor")
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv import MPVPlayer
 

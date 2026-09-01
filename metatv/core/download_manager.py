@@ -37,11 +37,17 @@ from typing import TYPE_CHECKING, Callable, Optional
 import requests
 from loguru import logger
 
+
 from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.connection_accountant import ConnectionAccountant
     from metatv.core.database import Database
+
+#: A background poll (``kind="monitor"``) is the one holder a download may
+#: evict: it is a catch-up check that can wait, while a download the user
+#: asked for cannot. Downloads never evict playback or a recording.
+DOWNLOAD_PREEMPTS: tuple[str, ...] = ("monitor",)
 
 #: Bytes per read. Large enough that the loop is not syscall-bound, small enough
 #: that a pause is felt immediately rather than one chunk later.
@@ -298,7 +304,8 @@ class DownloadManager:
 
         for row in candidates:
             granted = self._accountant.acquire(
-                row["provider_id"], "download", row["id"])
+                row["provider_id"], "download", row["id"],
+                preempt_kinds=DOWNLOAD_PREEMPTS)
             if granted.granted:
                 return row
         return None
