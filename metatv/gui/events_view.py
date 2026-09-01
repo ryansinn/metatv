@@ -316,6 +316,17 @@ class EventsView(ContentView):
         self._reload()
         self._timer.start()
 
+    def reload(self) -> None:
+        """Re-read after a provider/source mutation.
+
+        Same gap as SportsView: neither view was in
+        ``_refresh_provider_dependent_views``, so both could keep showing rows a
+        refresh had since renamed or removed. Only re-queries when visible —
+        a hidden view re-reads on its next ``on_activate``.
+        """
+        if self.isVisible():
+            self._reload()
+
     def on_deactivate(self) -> None:
         """Stop ticking and drop any in-flight result.
 
