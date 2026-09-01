@@ -300,10 +300,26 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         layout.addWidget(buttons)
 
     def _on_section_changed(self, row: int) -> None:
-        """Section choice is UI state (like a splitter position), not a Settings
-        value, so it's persisted immediately rather than gated behind Apply/OK."""
+        """Remember the section. Does NOT write config — ``done()`` does that.
+
+        It used to ``save()`` on every click, and a full ``Config.save()`` is
+        not cheap: it serialises 299 keys to YAML and copies the whole file to
+        ``.bak`` first. On the owner's config that is 129 KB written twice, per
+        click, on the main thread — measured at 14 ms on an idle machine and
+        **55-93 ms** in their running app, where it competes with everything
+        else. Their log shows six of them inside sixteen seconds simply from
+        walking down the section list, and then a seventh for the OK.
+
+        Splitting Interface into three pages (#638) made that worse rather than
+        better: more sections, more clicks, more whole-file rewrites.
+
+        Nothing is lost by waiting. ``done()`` runs ``_persist_dialog_state``
+        on EVERY close path — OK, Cancel and the window button alike — so the
+        selection is still remembered; it is written once instead of once per
+        click. The only case that changes is a crash with the dialog open,
+        which forgets which row was selected.
+        """
         self.config.settings_dialog_section = row
-        self.config.save()
 
     def select_section_by_label(self, label_substring: str) -> bool:
         """Select the section whose label contains *label_substring* (case-insensitive).
