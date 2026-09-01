@@ -192,10 +192,36 @@ class TmdbEnrichmentManager(QObject):
         self._provider_names: dict[str, str] = {}
         self._busy = False
         self._shutdown = False
+        #: Providers whose slot was taken from us while a batch was in flight.
+        #:
+        #: #632 made this backfill ASK for a slot, which was only half the fix.
+        #: The accountant evicts us the moment the user presses play, but that
+        #: eviction was pure bookkeeping — the forty detail calls already in
+        #: flight kept hitting the provider, so mpv was refused and quit a few
+        #: seconds after opening (owner, 2026-09-01: "mpv opens, then after a
+        #: few seconds, closes"). Their log shows this batch running
+        #: 03:15:09.9 → 03:15:17.9 straight through a play at 03:15:11.8.
+        #: Set by :meth:`on_preempted` from the playback thread; read by the
+        #: worker's per-row gate, which is why it is guarded by ``_lock``.
+        self._preempted_providers: set[str] = set()
         # Ids written by the drain currently in flight. Non-zero means the drain
         # learned something new, so its end-of-drain sibling propagation is worth
         # running; reset as it is consumed (#284).
         self._ids_written_this_drain = 0
+
+        # Registered LAST, and by this manager rather than by its caller.
+        #
+        # Last, because on_preempted touches _lock and _preempted_providers:
+        # registering beside the _accountant assignment above would publish a
+        # callback that can fire before the fields it reads exist. That is the
+        # v0.14.1 init-order class — a signal wired to something not yet built.
+        #
+        # By itself, because a wiring line in main_window is the enumeration
+        # nobody remembers to add, which is precisely how this manager came to
+        # be evicted with no way of hearing it: the accountant had ONE hook and
+        # DownloadManager had already taken it.
+        if self._accountant is not None:
+            self._accountant.add_preempt_listener(self.on_preempted)
 
     # ------------------------------------------------------------------
     # Public API
@@ -261,7 +287,7 @@ class TmdbEnrichmentManager(QObject):
                 providers[pid] = repos.providers.to_model(pdb)
 
         for pid, prows in by_provider.items():
-            _hits, _misses, meta_by_id, errors = asyncio.run(
+            _hits, _misses, meta_by_id, errors, _deferred = asyncio.run(
                 self._fetch_provider(providers[pid], prows, concurrency, throttle)
             )
             totals["fetched"] += len(meta_by_id)
@@ -494,7 +520,7 @@ class TmdbEnrichmentManager(QObject):
         # 3. (network + write) one provider at a time.
         total_collapses = 0
         for pid, prows in by_provider.items():
-            hits, misses, meta_by_id, errors = asyncio.run(
+            hits, misses, meta_by_id, errors, _deferred = asyncio.run(
                 self._fetch_provider(providers[pid], prows, concurrency, throttle)
             )
             with self.db.session_scope() as session:
@@ -585,14 +611,28 @@ class TmdbEnrichmentManager(QObject):
                 providers[pid] = repos.providers.to_model(pdb)
                 names[pid] = pdb.name
 
-        attempted = sum(len(prows) for prows in by_provider.values())
         if not by_provider:
-            return attempted  # 0 → stop; candidates (if any) were on gone providers
+            # 0 → stop; candidates (if any) were on gone providers.
+            return 0
 
+        attempted = 0
         for pid, prows in by_provider.items():
-            _hits, _misses, meta_by_id, errors = asyncio.run(
+            _hits, _misses, meta_by_id, errors, deferred = asyncio.run(
                 self._fetch_provider(providers[pid], prows, concurrency, throttle)
             )
+            if deferred:
+                # We never made a call. Counting these rows as attempted told
+                # _backfill_step it had made progress, so it re-submitted at
+                # once — ~7 batches a second, each one deferring all forty
+                # rows and reporting "filled 0 of 40, 40 error(s)", until the
+                # per-launch cap was gone. Charging nothing parks the drain
+                # instead: the source is busy with what the user asked for.
+                logger.info(
+                    "tmdb_enrich: genre backfill parked — {} is busy with "
+                    "playback; {} row(s) left for a later launch",
+                    names.get(pid, pid), len(prows))
+                continue
+            attempted += len(prows)
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
                 filled = repos.channels.apply_metadata_harvest(meta_by_id)
@@ -631,6 +671,41 @@ class TmdbEnrichmentManager(QObject):
             logger.exception("tmdb_enrich: connection acquire failed")
             return True
 
+    def on_preempted(self, provider_id: str, holder_id: str, kind: str) -> None:
+        """Called BY the accountant when playback (or a download/recording) takes our slot.
+
+        Registered through ``add_preempt_listener``. Every listener hears EVERY
+        eviction, so this checks the holder is one of ours before acting —
+        the sibling of ``DownloadManager.on_preempted``, which screens on kind.
+
+        Abandoning the batch is the correct loss: enrichment is catch-up work,
+        and the rows it did not reach stay unmarked and are retried on a later
+        launch. What must not happen is the forty calls continuing against the
+        one connection the user is trying to watch through.
+        """
+        if holder_id != self._holder_id(provider_id):
+            return
+        logger.info(
+            "tmdb_enrich: yielded {} mid-batch to {} — abandoning the rest",
+            provider_id, kind)
+        with self._lock:
+            self._preempted_providers.add(provider_id)
+
+    @staticmethod
+    def _holder_id(provider_id: str) -> str:
+        """This manager's accountant holder id for *provider_id* — defined once.
+
+        Both the acquire site and :meth:`on_preempted` must agree on this
+        string; a second hand-built copy is how a listener silently stops
+        recognising its own eviction.
+        """
+        return f"tmdb_enrich:{provider_id}"
+
+    def _was_preempted(self, provider_id: str) -> bool:
+        """True once playback took this provider's slot during the live batch."""
+        with self._lock:
+            return provider_id in self._preempted_providers
+
     def _release_slot(self, provider_id: str, holder_id: str) -> None:
         """Release the slot :meth:`_acquire_slot` took."""
         if self._accountant is None:
@@ -663,8 +738,18 @@ class TmdbEnrichmentManager(QObject):
         rows: list[dict],
         concurrency: int,
         throttle: float,
-    ) -> tuple[dict[str, str], list[str], dict[str, dict], int]:
-        """Fetch one provider's candidate rows through a single reused session."""
+    ) -> tuple[dict[str, str], list[str], dict[str, dict], int, bool]:
+        """Fetch one provider's candidate rows through a single reused session.
+
+        Returns ``(hits, misses, meta_by_id, errors, deferred)``. ``deferred``
+        is True when the batch never ran at all — no usable URL, or the
+        provider is busy with work the user asked for. That is NOT an error,
+        and telling them apart is load-bearing: the caller counts an attempted
+        row against the per-launch cap, so folding "we did not try" into
+        "we tried and failed" burned the whole 500-row cap in seconds and
+        re-submitted itself ~7×/second against a provider it was deliberately
+        staying off (owner's log, 2026-09-01 03:15:18).
+        """
         from metatv.core.url_cycle import UrlCycler
         from metatv.providers.xtream import XtreamAPI
 
@@ -679,26 +764,32 @@ class TmdbEnrichmentManager(QObject):
                 "tmdb_enrich: provider {} has no usable URL (type={}), deferring",
                 provider.name, provider.type,
             )
-            return ({}, [], {}, len(rows))
+            return ({}, [], {}, 0, True)
 
         base_url = base_urls[0]
         # Take a real slot for the whole batch so playback, downloads and
         # recordings can SEE this backfill and evict it, instead of losing the
         # provider's only connection to it. Denied means "skip this batch" —
         # enrichment is catch-up work; the next pass picks it up.
-        holder_id = f"tmdb_enrich:{provider.id}"
+        holder_id = self._holder_id(provider.id)
         if not self._acquire_slot(provider.id, holder_id):
             logger.debug(
                 "tmdb_enrich: provider {} busy with real work; deferring "
                 "{} row(s)", provider.name, len(rows))
-            return ({}, [], {}, len(rows))
+            return ({}, [], {}, 0, True)
+        # Arm the mid-batch gate: any eviction from HERE on is ours to obey.
+        # Cleared on acquire rather than on release so a preemption that lands
+        # in the window between the two cannot leak into the next batch.
+        with self._lock:
+            self._preempted_providers.discard(provider.id)
         try:
             async with XtreamAPI(base_url, provider.username, provider.password) as api:
-                return await self._run_calls(api, rows, concurrency, throttle)
+                return await self._run_calls(
+                    api, rows, concurrency, throttle, provider.id)
         except Exception:
             # Session-level failure (rare — connect happens per request): defer all.
             logger.exception("tmdb_enrich: session error for provider {}", provider.name)
-            return ({}, [], {}, len(rows))
+            return ({}, [], {}, len(rows), False)
         finally:
             self._release_slot(provider.id, holder_id)
 
@@ -708,7 +799,8 @@ class TmdbEnrichmentManager(QObject):
         rows: list[dict],
         concurrency: int,
         throttle: float,
-    ) -> tuple[dict[str, str], list[str], dict[str, dict], int]:
+        provider_id: str = "",
+    ) -> tuple[dict[str, str], list[str], dict[str, dict], int, bool]:
         """Issue the detail calls with a semaphore + throttle; classify each row.
 
         A per-row exception is counted (not fatal); after
@@ -721,11 +813,18 @@ class TmdbEnrichmentManager(QObject):
         ``meta_by_id`` — the caller persists it (fill-only-empty) so a genre-less
         movie finally becomes visible to the recommendation scorer.
 
+        Every row is also gated on ``_was_preempted``: when playback takes this
+        provider's slot mid-batch the remaining rows are dropped immediately
+        rather than run to completion against the connection the user is
+        waiting on. Checked per row (not once up front) because the eviction
+        arrives on the playback thread at an arbitrary point in the batch.
+
         Returns:
-            ``(hits, misses, meta_by_id, errors)`` where ``hits`` maps
+            ``(hits, misses, meta_by_id, errors, deferred)`` where ``hits`` maps
             ``channel_id → tmdb_id``, ``misses`` are attempted-but-idless ids,
             ``meta_by_id`` maps ``channel_id → harvested-metadata dict`` for every
-            successfully fetched row, and ``errors`` is the failed-call count.
+            successfully fetched row, ``errors`` is the failed-call count, and
+            ``deferred`` is False — reaching here means the batch did run.
         """
         from metatv.metadata_providers.raw_parse import harvest_detail_metadata
 
@@ -737,12 +836,17 @@ class TmdbEnrichmentManager(QObject):
         consecutive = 0
         aborted = asyncio.Event()
 
+        def _stop() -> bool:
+            """Give up this batch — too many errors, or we lost the slot."""
+            return aborted.is_set() or (
+                bool(provider_id) and self._was_preempted(provider_id))
+
         async def one(row: dict) -> None:
             nonlocal errors, consecutive
-            if aborted.is_set():
+            if _stop():
                 return
             async with sem:
-                if aborted.is_set():
+                if _stop():
                     return
                 if throttle:
                     await asyncio.sleep(throttle)
@@ -774,4 +878,4 @@ class TmdbEnrichmentManager(QObject):
                     misses.append(cid)
 
         await asyncio.gather(*(one(r) for r in rows))
-        return hits, misses, meta_by_id, errors
+        return hits, misses, meta_by_id, errors, False

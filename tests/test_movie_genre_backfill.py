@@ -270,3 +270,80 @@ def test_backfill_second_pass_is_idempotent_noop(db, config_obj, monkeypatch, qa
         assert calls == []
     finally:
         mgr.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# 6. A deferred batch costs the per-launch cap nothing (the 3am spin)
+# ---------------------------------------------------------------------------
+
+
+def test_a_deferred_batch_charges_nothing_to_the_launch_cap(db, config_obj, monkeypatch, qapp):
+    """Playback owns the source → the backfill parks instead of burning the cap.
+
+    Owner's log, 2026-09-01 03:15:18: seven batches inside one second, each
+    reporting "filled 0 of 40 movie(s), 40 error(s)". ``_fetch_provider``
+    returned ``len(rows)`` as the error count when it was DENIED a connection
+    slot, and ``_process_genre_backfill_batch`` counted those never-attempted
+    rows toward the per-launch cap. ``_backfill_step`` therefore believed it
+    had made progress and re-submitted immediately — a hot loop that spent the
+    whole 500-row session cap on a provider it was deliberately staying off.
+
+    Returning 0 is the drain's documented stop signal, so the pass parks and a
+    later launch picks the rows up. Pre-fix this returned 1.
+    """
+    from metatv.core.connection_accountant import ConnectionAccountant
+
+    with db.session_scope() as session:
+        _provider(session)
+        _movie_with_metadata(session, source_id="555", genres=[])
+
+    calls: list = []
+    monkeypatch.setattr(
+        "metatv.providers.xtream.XtreamAPI",
+        _fake_api(vod={"555": {"info": {"genre": "Action"}}}, calls=calls),
+    )
+
+    # One slot, already taken by playback — exactly the state a click on Play
+    # leaves behind. ENRICH_PREEMPTS is empty, so enrichment cannot evict it.
+    accountant = ConnectionAccountant(capacity_resolver=lambda _p: 1)
+    accountant.acquire("p1", "playback", "__shared__")
+
+    mgr = TmdbEnrichmentManager(db, config_obj, connection_accountant=accountant)
+    try:
+        attempted = mgr._process_genre_backfill_batch(remaining=100)
+    finally:
+        mgr.shutdown()
+
+    assert attempted == 0, (
+        "a batch that never made a call must not charge the launch cap — "
+        "counting it is what produced seven deferred batches per second")
+    assert calls == [], "deferred means no provider call was made at all"
+
+
+def test_a_real_batch_still_charges_the_cap(db, config_obj, monkeypatch, qapp):
+    """Non-degeneracy: parking on deferral must not stop crediting real work.
+
+    Returning 0 unconditionally would also terminate the drain after its first
+    successful batch, which looks identical from ``_backfill_step``.
+    """
+    from metatv.core.connection_accountant import ConnectionAccountant
+
+    with db.session_scope() as session:
+        _provider(session)
+        _movie_with_metadata(session, source_id="556", genres=[])
+
+    calls: list = []
+    monkeypatch.setattr(
+        "metatv.providers.xtream.XtreamAPI",
+        _fake_api(vod={"556": {"info": {"genre": "Action"}}}, calls=calls),
+    )
+
+    accountant = ConnectionAccountant(capacity_resolver=lambda _p: 1)  # free
+    mgr = TmdbEnrichmentManager(db, config_obj, connection_accountant=accountant)
+    try:
+        attempted = mgr._process_genre_backfill_batch(remaining=100)
+    finally:
+        mgr.shutdown()
+
+    assert attempted == 1, "a batch that DID run must still count toward the cap"
+    assert calls == [("vod", "556")]

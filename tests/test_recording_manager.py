@@ -414,7 +414,7 @@ def test_a_recording_actually_pauses_a_running_download(db, config, accountant,
 
     downloads = DownloadManager(db, config, accountant)
     recordings = RecordingManager(db, config, accountant)
-    accountant._on_preempt = downloads.on_preempted
+    accountant.add_preempt_listener(downloads.on_preempted)
 
     # A download holding p1's only slot, exactly as the scheduler leaves it.
     download_id = "dl-under-way"

@@ -89,7 +89,7 @@ def env(tmp_path):
     db.create_tables()
     accountant = ConnectionAccountant(lambda _p: 1)
     manager = DownloadManager(db, config, accountant)
-    accountant._on_preempt = manager.on_preempted
+    accountant.add_preempt_listener(manager.on_preempted)
     yield manager, db, config, accountant
     manager.shutdown()
 
