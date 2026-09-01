@@ -83,52 +83,26 @@ def test_registry_unknown_key_falls_back_to_default():
 # 4–6. Settings → Interaction tab (real dialog round-trip)
 # ---------------------------------------------------------------------------
 
-class _FakeConfig:
-    """Complete config stub so the real SettingsDialog builds + loads cleanly."""
+def _FakeConfig(playback_resume_mode: str = "resume",
+                middle_click_action: str = "playback_position"):
+    """A real ``Config``, not a hand-written stub — it cannot drift from the model.
 
-    def __init__(
-        self,
-        playback_resume_mode: str = "resume",
-        middle_click_action: str = "playback_position",
-    ):
-        self.preferred_player = "mpv"
-        self.player_mode = "single-instance"
-        self.autoplay_season_episodes = False
-        self.playback_resume_mode = playback_resume_mode
-        self.middle_click_action = middle_click_action
-        self.prompt_after_autoplay = True
-        self.watch_complete_threshold = 0.9
-        self.watch_partial_threshold = 0.10
-        self.close_player_when_finished = False
-        self.network_timeout = 10
-        self.reconnect_attempts = 3
-        self.buffer_profile = "modest"
-        self.default_cache_size = "auto"
-        self.mpv_extra_args: list[str] = []
-        self.prebuffer_before_play = False
-        self.prebuffer_wait_secs = 10
-        self.mpv_args_override_all = False
-        self.split_streams_by_source = False
-        self.remember_search = True
-        self.refresh_all_includes_inactive = True
-        self.update_check_enabled = True
-        self.epg_default_refresh_interval = "3d"
-        self.epg_browse_hide_older_than_hours = 24
-        self.metadata_enabled = True
-        self.metadata_auto_fetch = False
-        self.metadata_cache_ttl_days = 30
-        self.metadata_old_content_ttl_days = 90
-        self.metadata_tmdb_api_key = ""
-        self.metadata_tmdb_language = "en-US"
-        self.metadata_omdb_api_key = ""
-        self.sidebar_sections: list[str] = []
-        self.sidebar_visible_sections: list[str] = []
-        self.save_calls = 0
+    This WAS a 40-line stub listing every field the Settings dialog reads, and
+    it broke the day the dialog learned one more: ``_load_values`` touches every
+    tab, so adding a Signal-checking tab failed a test file that has nothing to
+    do with signals. The same thing happened when the Content tab gained
+    ``_adult_mode_combo`` — 37 tests across six files.
 
-    def save(self) -> None:
-        self.save_calls += 1
+    ``settings_config_double`` returns a real ``Config``. pydantic fills every
+    declared default, so a field added tomorrow is present here the same day,
+    and the autouse ``_isolate_user_config`` fixture keeps it off real user data.
+    """
+    from tests.conftest import settings_config_double
 
-
+    return settings_config_double(
+        playback_resume_mode=playback_resume_mode,
+        middle_click_action=middle_click_action,
+    )
 def test_interaction_tab_combo_populated_from_registry(qapp):
     """The middle-click combo lists exactly the registry's actions, in order."""
     from metatv.gui.settings_dialog import SettingsDialog
@@ -155,11 +129,18 @@ def test_interaction_tab_loads_both_fields(qapp):
     dlg.close()
 
 
-def test_interaction_tab_saves_both_fields(qapp):
+def test_interaction_tab_saves_both_fields(qapp, monkeypatch):
     """Save: changing both combos writes playback_resume_mode + middle_click_action."""
     from metatv.gui.settings_dialog import SettingsDialog
 
     cfg = _FakeConfig(playback_resume_mode="resume", middle_click_action="playback_position")
+
+    # Count saves without a hand-written stub attribute. The old _FakeConfig
+    # carried its own `save_calls` counter, which is exactly the kind of thing a
+    # real Config cannot have — and the reason the stub existed at all.
+    saves = []
+    monkeypatch.setattr(type(cfg), "save", lambda self: saves.append(1), raising=False)
+
     dlg = SettingsDialog(cfg, parent=None)
 
     dlg._resume_mode_combo.setCurrentIndex(dlg._resume_mode_combo.findData("beginning"))
@@ -170,7 +151,7 @@ def test_interaction_tab_saves_both_fields(qapp):
 
     assert cfg.playback_resume_mode == "beginning"
     assert cfg.middle_click_action == "endless_buffer"
-    assert cfg.save_calls == 1
+    assert len(saves) == 1, "the dialog did not persist the change exactly once"
     dlg.close()
 
 
