@@ -104,12 +104,31 @@ def test_the_notification_path_threads_it(db):
     live EpgManager, its notification manager and a thread pool — and the thing
     that actually broke was a missing keyword argument.
     """
-    import inspect
+    import ast
+    import pathlib
 
-    from metatv.core.epg_manager import EpgManager
+    # DERIVED, not a named method. It used to inspect
+    # _check_watchlist_notifications by name — and then the body moved to
+    # _watchlist_notification_worker to get it off the UI thread, which would
+    # have left this guard passing against a method that no longer contains the
+    # query. Finding the caller by what it CALLS survives that.
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / "metatv/core/epg_manager.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
 
-    src = inspect.getsource(EpgManager._check_watchlist_notifications)
-    assert "get_programs_starting_soon(" in src
-    assert "excluded_channel_provider_ids=" in src, (
-        "_check_watchlist_notifications resolves the hidden set and must pass "
-        "it on BOTH axes, not just to the feed list")
+    callers = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get_programs_starting_soon"):
+                callers.append((fn.name, node))
+
+    assert callers, "nothing calls get_programs_starting_soon any more"
+    for fn_name, call in callers:
+        kwargs = {kw.arg for kw in call.keywords}
+        assert "excluded_channel_provider_ids" in kwargs, (
+            f"{fn_name} resolves the hidden set and must pass it on BOTH axes, "
+            "not just to the feed list")
