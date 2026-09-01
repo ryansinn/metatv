@@ -16,8 +16,8 @@ ENTRY = WhatsNewEntry(
         "than by the time printed in the guide.",
     ),
     test_steps=(
-        ("Schedule a recording, then open the sidebar and confirm it appears "
-         "in the Recordings section.", "view:sidebar"),
+        ("Schedule a recording, then confirm it appears in the sidebar's "
+         "Recordings section."),
         "Confirm the time shown beside it is the recording's own start time.",
         ("Schedule a second recording that starts later and confirm the list "
          "puts the later one first."),
