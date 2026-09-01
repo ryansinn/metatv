@@ -66,26 +66,58 @@ class StreamRetryManager(QObject):
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
+    def _write(self, label: str, apply) -> None:
+        """Run one mutation on the worker thread and never raise into the caller.
+
+        EVERY method below used to commit on the MAIN thread, and that crashed
+        the app. A play preflight failure calls add_failure() from
+        _on_stream_ready; when a background writer held SQLite's single write
+        lock, the commit raised OperationalError straight into the Qt event
+        loop, which cannot propagate a Python exception — the process died with
+        SIGABRT while the user was simply trying to watch something.
+
+        Two things were wrong and both are fixed here. The write is off the UI
+        thread, so a held lock costs nothing visible instead of blocking for the
+        full busy_timeout. And the failure is CONTAINED: recording that a stream
+        failed is bookkeeping, and losing that bookkeeping must never take the
+        application with it.
+
+        `retry_list_changed` is emitted from the worker; a Qt signal crossing
+        threads is delivered as a queued connection, so the receiving slot still
+        runs on the main thread.
+        """
+        def _run() -> None:
+            try:
+                with self._db.session_scope() as session:
+                    apply(StreamRetryRepository(session))
+            except Exception:
+                logger.exception("stream retry: {} failed", label)
+                return
+            self.retry_list_changed.emit()
+
+        try:
+            self._executor.submit(_run)
+        except RuntimeError:
+            # Executor already shut down (app is closing). Dropping a retry
+            # record during teardown is correct; raising here would turn a
+            # normal quit into a crash.
+            logger.debug("stream retry: {} skipped, shutting down", label)
+
     def add_failure(self, channel_id: str, channel_name: str, stream_url: str, error: str) -> None:
-        """Record a stream failure (called on main thread after preflight fails)."""
-        with self._db.session_scope() as session:
-            StreamRetryRepository(session).add(channel_id, channel_name, stream_url, error)
-        self.retry_list_changed.emit()
+        """Record a stream failure. Returns immediately; the write is off-thread."""
+        self._write(
+            "add_failure",
+            lambda repo: repo.add(channel_id, channel_name, stream_url, error))
 
     def remove(self, entry_id: str) -> None:
-        with self._db.session_scope() as session:
-            StreamRetryRepository(session).remove(entry_id)
-        self.retry_list_changed.emit()
+        self._write("remove", lambda repo: repo.remove(entry_id))
 
     def remove_by_channel(self, channel_id: str) -> None:
-        with self._db.session_scope() as session:
-            StreamRetryRepository(session).remove_by_channel(channel_id)
-        self.retry_list_changed.emit()
+        self._write("remove_by_channel",
+                    lambda repo: repo.remove_by_channel(channel_id))
 
     def clear_all(self) -> None:
-        with self._db.session_scope() as session:
-            StreamRetryRepository(session).clear_all()
-        self.retry_list_changed.emit()
+        self._write("clear_all", lambda repo: repo.clear_all())
 
     def get_all_pending(self) -> list[StreamRetryEntry]:
         with self._db.session_scope() as session:
