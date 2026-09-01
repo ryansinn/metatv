@@ -25,7 +25,7 @@ import pathlib
 import pytest
 import yaml
 
-from metatv.core.config import Config, _YamlDumper, _YamlLoader
+from metatv.core.config import QA_STATE_FILENAME, Config, _qa_defaults, _YamlDumper, _YamlLoader
 
 
 def test_the_c_emitter_is_used_when_the_platform_has_it() -> None:
@@ -53,8 +53,21 @@ def test_every_key_survives_a_write_and_read(tmp_path) -> None:
     expected = cfg.model_dump()
 
     cfg.save()
+    # The state is now written across TWO files: config.yaml, and qa_state.yaml
+    # for the qa_* fields (38% of a real config, and not configuration at all).
+    # The invariant is unchanged and is exactly why this test matters — no key
+    # may be silently lost — so it is checked across both, which also catches a
+    # key that fell between them.
     raw = yaml.load((tmp_path / "config.yaml").read_text(encoding="utf-8"),
                     Loader=_YamlLoader)
+    qa_file = tmp_path / QA_STATE_FILENAME
+    if qa_file.exists():
+        raw.update(yaml.load(qa_file.read_text(encoding="utf-8"),
+                             Loader=_YamlLoader) or {})
+    else:
+        # No sidecar means no QA state was set, so those fields are at their
+        # declared defaults — which is what `expected` holds for them.
+        raw.update(_qa_defaults(Config))
 
     differing = []
     for key, value in expected.items():

@@ -101,7 +101,10 @@ def test_an_in_place_dict_write_still_writes(cfg, monkeypatch):
 def test_the_snapshot_is_not_an_alias_of_the_live_state(cfg):
     """Directly: mutating the live list must not mutate the record of the write."""
     cfg.discover_hidden_shelves.append("genre:Drama")
-    assert cfg._last_written["discover_hidden_shelves"] == [], (
+    # _last_written is split into {"_main": ..., "_qa": ...} — QA state lives
+    # in its own sidecar and the two halves are compared independently. The
+    # property under test is unchanged: the snapshot must not alias live state.
+    assert cfg._last_written["_main"]["discover_hidden_shelves"] == [], (
         "the snapshot aliases the live list, so nothing will ever look changed")
 
 

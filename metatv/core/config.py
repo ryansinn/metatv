@@ -8,6 +8,45 @@ import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
+#: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
+#: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
+#: someone maintains, so a tenth qa_ field lands here without anyone
+#: remembering this exists.
+#:
+#: Why it is not in config.yaml: it is 38% of the owner's file (1,797 of 4,768
+#: lines) and it is not configuration at all. It is the QA record of how PRs
+#: and commits land — the technical companion to What's New — and it grows
+#: without bound by design. Keeping it in config.yaml meant every one of the
+#: 130 ``config.save()`` call sites rewrote all of it.
+QA_STATE_FILENAME = "qa_state.yaml"
+
+
+def _qa_defaults(model_cls) -> dict:
+    """The value each ``qa_`` field has when nobody has touched it.
+
+    Needed because "is there any QA state" is NOT ``any(values)``: two of the
+    fields are collapse flags that default to ``True``, so an untouched config
+    looks non-empty and every ordinary user would get a sidecar they will
+    never use. Comparing against the declared defaults is the precise question.
+    """
+    out = {}
+    for name in _qa_field_names(model_cls):
+        field = model_cls.model_fields[name]
+        out[name] = (field.default_factory() if field.default_factory is not None
+                     else field.default)
+    return out
+
+
+def _qa_field_names(model_cls) -> "set[str]":
+    """Every ``qa_``-prefixed field name on *model_cls*.
+
+    Derived rather than enumerated, for the reason this codebase keeps
+    relearning: a hand-kept list is only right until the next field is added
+    by someone who does not know the list exists.
+    """
+    return {name for name in model_cls.model_fields if name.startswith("qa_")}
+
+
 #: PyYAML's C emitter when the platform has libyaml, else the pure-Python one.
 #:
 #: Measured on the owner's 130 KB config: 69.5 ms pure Python, 12.2 ms with
@@ -536,7 +575,7 @@ class Config(BaseModel):
     #: be a list against itself, and EVERY save would be skipped — so it is
     #: pinned by ``test_model_dump_does_not_alias_live_containers`` rather
     #: than assumed.
-    _last_written: "Optional[dict]" = PrivateAttr(default=None)
+    _last_written: dict = PrivateAttr(default_factory=dict)
     
     # Paths
     config_dir: Path = Field(default_factory=lambda: Path.home() / ".config" / "metatv")
@@ -1885,6 +1924,39 @@ class Config(BaseModel):
         if changed:
             self.save()
 
+    @classmethod
+    def _merge_qa_sidecar(cls, config_dir: Path, data: dict) -> dict:
+        """Overlay ``qa_state.yaml`` onto freshly-loaded config data.
+
+        Reads both, so a config.yaml written before the split still works —
+        its inline ``qa_*`` keys load exactly as before, and the next save
+        moves them to the sidecar and drops them from config.yaml. Nothing has
+        to be migrated by hand and nothing is lost if the sidecar is missing.
+
+        The sidecar WINS where both have a key, because it is the file being
+        written now. The only way config.yaml still holds a qa_ key is that it
+        predates the split, which makes it the older copy by definition.
+
+        A broken sidecar is logged and ignored rather than raised: the QA
+        checklist is a dev tool, and losing a tick list must never stop the
+        app loading someone's actual settings.
+        """
+        qa_file = config_dir / QA_STATE_FILENAME
+        if not qa_file.exists():
+            return data
+        try:
+            with open(qa_file) as f:
+                qa = yaml.load(f, Loader=_YamlLoader) or {}
+        except Exception as e:
+            logger.warning(f"Could not read {qa_file}: {e}")
+            return data
+        if not isinstance(qa, dict):
+            logger.warning(f"{qa_file} is not a mapping; ignoring it")
+            return data
+        merged = dict(data)
+        merged.update({k: v for k, v in qa.items() if k.startswith("qa_")})
+        return merged
+
     def _inject_new_sections(self) -> None:
         """Insert newly added sidebar sections into existing configs that predate them."""
         changed = False
@@ -2038,6 +2110,7 @@ class Config(BaseModel):
                     logger.info(f"Loaded config from {config_file}")
 
                 if data:
+                    data = cls._merge_qa_sidecar(config_dir, data)
                     config = cls(**data)
                     config._inject_new_sections()
                     config._retire_collapsed_shelves()
@@ -2050,6 +2123,7 @@ class Config(BaseModel):
                         with open(backup_file) as f:
                             data = yaml.load(f, Loader=_YamlLoader) or {}
                         if data:
+                            data = cls._merge_qa_sidecar(config_dir, data)
                             config = cls(**data)
                             config._inject_new_sections()
                             config._retire_collapsed_shelves()
@@ -2119,47 +2193,74 @@ class Config(BaseModel):
         # matches and we would skip forever, leaving the user with no config on
         # disk and no way to notice. Existence is the other half of "already
         # written".
-        if not force and self._last_written == data and config_file.exists():
+        # Split into the two files. QA state is 38% of the owner's config and
+        # is not configuration — it is the dev record of how PRs land — so it
+        # lives in its own sidecar and, crucially, a QA write no longer
+        # rewrites config.yaml at all.
+        qa_names = _qa_field_names(type(self))
+        qa_data = {k: v for k, v in data.items() if k in qa_names}
+        main_data = {k: v for k, v in data.items() if k not in qa_names}
+        qa_file = self.config_dir / QA_STATE_FILENAME
+
+        # Each file is compared and written INDEPENDENTLY. That is the whole
+        # point: ticking a QA step must not touch config.yaml, and changing a
+        # setting must not rewrite the QA record.
+        wrote = False
+        if force or self._last_written.get("_main") != main_data or not config_file.exists():
+            if config_file.exists() and config_file.stat().st_size > 0:
+                try:
+                    shutil.copy2(config_file, backup_file)
+                    logger.debug(f"Backed up config to {backup_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to create backup: {e}")
+            self._atomic_write(config_file, main_data)
+            logger.info(f"Saved config to {config_file}")
+            wrote = True
+
+        # The sidecar is written only when there IS QA state, so a normal user
+        # who never runs METATV_DEV never grows the file at all. Compared
+        # against the declared defaults rather than truthiness — two of these
+        # fields are collapse flags that default to True.
+        if qa_data and qa_data != _qa_defaults(type(self)):
+            if force or self._last_written.get("_qa") != qa_data or not qa_file.exists():
+                self._atomic_write(qa_file, qa_data)
+                logger.debug(f"Saved QA state to {qa_file}")
+                wrote = True
+
+        if not wrote:
             logger.debug("Config unchanged since last write; skipping save")
             return
 
-        # Back up current config if it exists and is valid
-        if config_file.exists() and config_file.stat().st_size > 0:
-            try:
-                shutil.copy2(config_file, backup_file)
-                logger.debug(f"Backed up config to {backup_file}")
-            except Exception as e:
-                logger.warning(f"Failed to create backup: {e}")
+        # `data` is already detached from the model — model_dump() builds fresh
+        # containers rather than handing back the live lists — so no further
+        # copying is needed. That detachment is the load-bearing property, and
+        # test_model_dump_does_not_alias_live_containers pins it.
+        self._last_written = {"_main": main_data, "_qa": qa_data}
 
-        # Write to temp file first, then atomically replace
+    def _atomic_write(self, target: Path, payload: dict) -> None:
+        """Write *payload* to *target* via a temp file and an atomic replace.
+
+        Extracted so config.yaml and the QA sidecar cannot drift on how they
+        are written — the temp-then-replace is what stops a crash mid-write
+        leaving a truncated file, and that mattering for one of them means it
+        matters for both.
+        """
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode='w',
-                dir=self.config_dir,
-                delete=False,
-                suffix='.yaml'
+                mode="w", dir=self.config_dir, delete=False, suffix=".yaml"
             ) as tmp:
                 tmp_path = Path(tmp.name)
-                yaml.dump(data, tmp, Dumper=_YamlDumper, default_flow_style=False)
-
-            # Atomically replace original file
-            tmp_path.replace(config_file)
-            # `data` is already detached from the model — model_dump() builds
-            # fresh containers rather than handing back the live lists — so no
-            # further copying is needed. That detachment is the load-bearing
-            # property, and test_model_dump_does_not_alias_live_containers
-            # pins it.
-            self._last_written = data
-            logger.info(f"Saved config to {config_file}")
+                yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
+            tmp_path.replace(target)
         except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-            # Clean up temp file if it exists
+            logger.error(f"Failed to write {target}: {e}")
             try:
-                tmp_path.unlink(missing_ok=True)
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
             except OSError:
-                pass  # silent: best-effort cleanup of a temp file we are already abandoning
+                pass  # best-effort cleanup of a temp file we are already abandoning
             raise
-
 
 # ---------------------------------------------------------------------------
 # Dev-mode gate
