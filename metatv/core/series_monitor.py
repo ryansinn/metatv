@@ -364,6 +364,18 @@ class SeriesMonitorManager(QObject):
             max_workers=1, thread_name_prefix="series_monitor"
         )
         self._pending_batches = 0
+        #: Config updates buffered until the pass ends, keyed by series id.
+        #:
+        #: ``_on_new_episodes`` is a MAIN-THREAD slot fired once per checked
+        #: series, and it used to call ``update_monitored_series`` — which saves
+        #: on every call. Each save copies the config to ``.bak``, runs a full
+        #: Pydantic ``model_dump()`` and re-serialises the file (owner's config,
+        #: 2026-08-31: 4,854 lines / 132 KB), so a pass froze the UI once per
+        #: monitored series. The owner saw 29 stalls in one session, worst
+        #: 10,261 ms. Time-based debouncing cannot help — the signals arrive
+        #: SECONDS apart across a pass — so the buffer flushes on the pass
+        #: boundary the class already has (``_on_check_batch_done``).
+        self._pending_series_updates: dict = {}
         #: Advances once per pass; rotates which mirrors a bounded
         #: pass checks (see _mirrors_for_this_pass).
         self._pass_index = 0
@@ -445,6 +457,7 @@ class SeriesMonitorManager(QObject):
         outlives ``Database.close()``. The worker polls the flag between
         entries so it unwinds instead of fetching on into teardown.
         """
+        self.flush_pending_series_updates()
         self._stopping.set()
         self._timer.stop()
         self._executor.shutdown(wait=False)
@@ -488,10 +501,35 @@ class SeriesMonitorManager(QObject):
             self._pass_index += 1
             self._check_batch_done.emit()
 
+    def _buffer_series_update(self, series_channel_id: str, **fields) -> None:
+        """Record a config update to be written when the pass ends.
+
+        Args:
+            series_channel_id: Entry to update.
+            **fields: Fields to merge onto it.
+        """
+        self._pending_series_updates.setdefault(series_channel_id, {}).update(fields)
+
+    def flush_pending_series_updates(self) -> None:
+        """Write every buffered update in ONE config save.
+
+        Public so teardown can drain the buffer: an unflushed pass would lose
+        its baselines and re-establish them next launch.
+        """
+        if not self._pending_series_updates:
+            return
+        updates, self._pending_series_updates = self._pending_series_updates, {}
+        try:
+            self.config.update_monitored_series_many(updates)
+        except Exception:
+            logger.exception("series_monitor: failed to persist buffered updates")
+
     def _on_check_batch_done(self) -> None:
         """Main-thread slot: decrement the busy counter, emit checking_finished at 0."""
         self._pending_batches = max(0, self._pending_batches - 1)
         if self._pending_batches == 0:
+            # One save for the whole pass, not one per series.
+            self.flush_pending_series_updates()
             self.checking_finished.emit()
 
     # ------------------------------------------------------------------
@@ -951,6 +989,9 @@ class SeriesMonitorManager(QObject):
         checked_baselines = payload.get("baselines") or {}
         grown_names = payload.get("grown_provider_names") or []
 
+        # Read through the pending buffer: a deferred write is not yet in the
+        # config, and reading around it would recompute unseen_new from a stale
+        # base if the same series were reported twice in one pass.
         existing_unseen = 0
         existing_baselines: dict = {}
         for e in self.config.get_monitored_series():
@@ -958,6 +999,11 @@ class SeriesMonitorManager(QObject):
                 existing_unseen = e.get("unseen_new", 0)
                 existing_baselines = dict(e.get("baselines") or {})
                 break
+        buffered = self._pending_series_updates.get(series_channel_id)
+        if buffered:
+            existing_unseen = buffered.get("unseen_new", existing_unseen)
+            if "baselines" in buffered:
+                existing_baselines = dict(buffered["baselines"])
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
@@ -974,7 +1020,7 @@ class SeriesMonitorManager(QObject):
             })
             total_unseen = clamped["unseen_new"]
 
-            self.config.update_monitored_series(
+            self._buffer_series_update(
                 series_channel_id,
                 baselines=merged_baselines,
                 unseen_new=total_unseen,
@@ -996,7 +1042,7 @@ class SeriesMonitorManager(QObject):
         else:
             # delta == 0: just update baselines and last_checked (baselines may
             # include a freshly-established provider whose stored value was 0).
-            self.config.update_monitored_series(
+            self._buffer_series_update(
                 series_channel_id,
                 baselines=merged_baselines,
                 last_checked=now_iso,

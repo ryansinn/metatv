@@ -1358,13 +1358,19 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             return out
 
         def _apply(rows) -> None:
+            # ONE save for the whole backfill. This runs on the main thread, and
+            # update_monitored_series() saves per call — a full model_dump plus a
+            # 132 KB rewrite per row, which froze the UI in proportion to how
+            # many series the user monitors.
+            updates: dict[str, dict] = {}
             for cid, fields in (rows or {}).items():
                 update: dict[str, str] = {"region": fields["region"],
                                           "language": fields["language"],
                                           "source": fields["source"]}
                 if fields["display_title"]:
                     update["display_title"] = fields["display_title"]
-                self.config.update_monitored_series(cid, **update)
+                updates[cid] = update
+            self.config.update_monitored_series_many(updates)
             self._refresh_vod_alerts_section()
 
         self._run_query(_query, _apply, on_error=lambda _e: self._refresh_vod_alerts_section())

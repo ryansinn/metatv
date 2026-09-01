@@ -1487,6 +1487,49 @@ class Config(BaseModel):
         self.monitored_series = updated
         self.save()
 
+    def update_monitored_series_many(self, updates: dict) -> None:
+        """Apply field updates to many entries and save **once**.
+
+        :meth:`update_monitored_series` saves on every call, which is right for
+        a single user action and ruinous in a loop. Each save copies the config
+        to ``.bak``, runs a full Pydantic ``model_dump()`` and re-serialises the
+        whole file — and this config is not small (owner's, 2026-08-31: 4,854
+        lines / 132 KB, three quarters of it QA results, derived filter caches
+        and an ever-growing collapsed-shelf list).
+
+        Two loops were paying that per iteration:
+
+        * ``SeriesMonitorManager._worker_check_entries`` — once per checked
+          series, on a worker thread. Python holds the GIL through the dump, so
+          it stalled the UI thread without any main-thread call being slow:
+          29 stalls in one session, worst 10,261 ms.
+        * ``MainWindow._apply`` (the ``_run_query`` callback that backfills
+          region/language) — once per row, on the MAIN thread, where the cost
+          is not merely contention but a direct freeze.
+
+        Args:
+            updates: ``{series_channel_id: {field: value, ...}}``. Ids not
+                present in ``monitored_series`` are ignored, matching
+                :meth:`update_monitored_series`'s behaviour for an unknown id.
+        """
+        if not updates:
+            return
+        changed = False
+        merged_list = []
+        for e in self.monitored_series:
+            fields = updates.get(e.get("series_channel_id"))
+            if fields:
+                merged = dict(e)
+                merged.update(fields)
+                merged_list.append(merged)
+                changed = True
+            else:
+                merged_list.append(e)
+        if not changed:
+            return
+        self.monitored_series = merged_list
+        self.save()
+
     def clear_unseen(self, series_channel_id: str) -> None:
         """Reset unseen_new to 0 (and its provider attribution) for the given series.
 
