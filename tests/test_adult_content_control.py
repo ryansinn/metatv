@@ -23,7 +23,7 @@ from tests.test_settings_tab_layout import _FakeConfig
 
 def test_content_section_exists_and_is_documented(qapp):
     """A Content section must exist AND carry help text — id is the help key."""
-    ids = [sid for sid, _ in _SECTIONS]
+    ids = [sid for sid, _label, _builder in _SECTIONS]
     assert "content" in ids, "Settings has no Content section"
     assert "content" in _SECTION_HELP, "Content section has no help-panel text"
     assert _SECTION_HELP["content"].strip(), "Content help text is empty"
@@ -199,7 +199,7 @@ def test_adult_notice_opens_settings_rather_than_bypassing_the_gate(qapp):
     assert opened == ["Content"], (
         f"expected Settings to open on Content, got {opened!r}"
     )
-    labels = [label for _, label in _SECTIONS]
+    labels = [label for _sid, label, _builder in _SECTIONS]
     assert "Content" in labels, (
         "the label passed to open_settings does not match any real section, so "
         "select_section_by_label would silently select nothing"

@@ -892,6 +892,24 @@ class SettingsTabsMixin:
 
         layout.addWidget(updates_group)
 
+        layout.addStretch()
+        return tab
+
+    def _build_sidebar_tab(self) -> QWidget:
+        """Build the Sidebar page — which sections show, and in what order.
+
+        Split out of Interface, which measured 1138px against a ~600px norm for
+        every other page. This group alone was 418px of it (39%), and it grows a
+        row per section, so it was always going to keep winning — the Downloads
+        and Recordings sections just added two more.
+
+        It is also a different job from the rest of Interface: laying out the
+        sidebar is setup, not appearance."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
         sidebar_group = QGroupBox("Sidebar")
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
@@ -962,6 +980,20 @@ class SettingsTabsMixin:
         sidebar_layout.addLayout(arrow_row)
 
         layout.addWidget(sidebar_group)
+        layout.addStretch()
+        return tab
+
+    def _build_alerts_tab(self) -> QWidget:
+        """Build the Watch Alerts page.
+
+        Its own page at the owner's request. Only 102px today, but it is the page
+        the Watch Alerts rebuild adds to, and the watchlist-interval control on it
+        is the one that competes with playback on a one-connection account — which
+        is not a fact about the app's appearance."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
 
         alerts_group = QGroupBox("Watch Alerts")
         alerts_layout = QVBoxLayout(alerts_group)
@@ -1001,7 +1033,6 @@ class SettingsTabsMixin:
         interval_row.addStretch()
         alerts_layout.addLayout(interval_row)
         layout.addWidget(alerts_group)
-
         layout.addStretch()
         return tab
 

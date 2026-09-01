@@ -205,7 +205,7 @@ def test_settings_dialog_tab_names(qapp):
     tab_titles = [dlg._nav.section_list.item(i).text()
                   for i in range(dlg._nav.section_list.count())]
 
-    declared = [label for _, label in _SECTIONS]
+    declared = [label for _sid, label, _builder in _SECTIONS]
     assert tab_titles == declared, (
         f"nav renders {tab_titles} but _SECTIONS declares {declared} — a section "
         f"was declared without a builder (zip truncated it), or the two are out of order"
@@ -217,16 +217,68 @@ def test_settings_dialog_tab_names(qapp):
     dlg.close()
 
 
-def test_settings_dialog_no_sidebar_tab(qapp):
-    """There must be no section named 'Sidebar' — its content moved into Interface."""
-    cfg = _FakeConfig()
-    dlg = SettingsDialog(cfg, parent=None)
+#: No settings page may be taller than this. **This number may only go DOWN.**
+#:
+#: Same direction as the code-health ratchet, and for the same reason: it needs
+#: no theory of the right page height, only that pages must not keep growing.
+#:
+#: Set from measurement, 2026-09-01. Interface had reached **1138px** against a
+#: ~600px norm for every other page — owner: "the settings->Interface is really
+#: too tall/long ... it should be half that height, so break up whatever
+#: settings sections are 'too tall'". Splitting Sidebar (418px, 39% of it, and
+#: growing a row per sidebar section) and Watch Alerts onto their own pages took
+#: Interface to 622px, in line with Metadata (607) and Recommendations (583).
+#:
+#: The ceiling sits just above Playback (768px), which is NOT split: 445px of it
+#: is one cohesive "Player" group, and breaking a single idea across two pages
+#: to satisfy a number would be worse than the height.
+_MAX_PAGE_HEIGHT_PX = 800
 
-    tab_titles = [dlg._nav.section_list.item(i).text()
-                  for i in range(dlg._nav.section_list.count())]
-    assert "Sidebar" not in tab_titles
 
+def test_no_settings_page_is_too_tall(qapp):
+    """The requirement behind the split, stated so it applies to future pages too.
+
+    Replaces a test that asserted there must be no section named "Sidebar"
+    because "its content moved into Interface". That merge is precisely what
+    produced the 1138px page, and the owner has reversed it — so the rule is
+    now the one that was actually wanted, and it holds for every page rather
+    than naming one.
+    """
+    from metatv.gui.settings_dialog import _SECTIONS
+
+    dlg = SettingsDialog(_FakeConfig(), parent=None)
+    too_tall = []
+    for _sid, label, builder in _SECTIONS:
+        height = getattr(dlg, builder)().sizeHint().height()
+        if height > _MAX_PAGE_HEIGHT_PX:
+            too_tall.append(f"{label} ({height}px)")
     dlg.close()
+
+    assert not too_tall, (
+        f"settings pages over {_MAX_PAGE_HEIGHT_PX}px: {', '.join(too_tall)}. "
+        "Split the page along a group boundary, or move a group to a page of "
+        "its own — do not raise the ceiling.")
+
+
+def test_the_sidebar_and_alerts_pages_exist_and_carry_their_groups(qapp):
+    """The split actually moved the groups, rather than duplicating them."""
+    from PyQt6.QtWidgets import QGroupBox
+
+    from metatv.gui.settings_dialog import _SECTIONS
+
+    dlg = SettingsDialog(_FakeConfig(), parent=None)
+    # The pages are held in `built` while their titles are read: an unparented
+    # QWidget is collected the moment the last Python reference drops, and its
+    # QGroupBox children go with it — "wrapped C/C++ object has been deleted".
+    built = {label: getattr(dlg, builder)() for _sid, label, builder in _SECTIONS}
+    titles = {label: [g.title() for g in page.findChildren(QGroupBox)]
+              for label, page in built.items()}
+    dlg.close()
+
+    assert "Sidebar" in titles["Sidebar"]
+    assert "Watch Alerts" in titles["Watch Alerts"]
+    assert "Sidebar" not in titles["Interface"], "the Sidebar group is on two pages"
+    assert "Watch Alerts" not in titles["Interface"], "the Watch Alerts group is on two pages"
 
 
 # --------------------------------------------------------------------------- #
