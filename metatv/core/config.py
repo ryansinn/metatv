@@ -2300,9 +2300,17 @@ class Config(BaseModel):
         # The DECLARED set, not `profile_store.owned_keys()`: this runs inside
         # load(), and the store is not bound until MainWindow has a database, so
         # owned_keys() is empty here and would exclude nothing.
+        #
+        # The qa_ fields are the same story and were found the same way — by
+        # running this against a real migrated config rather than reasoning
+        # about it. #643 moved them to qa_state.yaml, so all nine are absent
+        # from config.yaml by design and this rewrote the file on EVERY launch
+        # to put them back. Two subtractions, one rule: a field that lives
+        # somewhere else is not a field that is missing.
         missing = sorted(set(type(self).model_fields)
                          - set(data)
-                         - _profile_field_names(type(self)))
+                         - _profile_field_names(type(self))
+                         - _qa_field_names(type(self)))
         if not missing:
             return False
         logger.info(

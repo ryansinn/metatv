@@ -336,7 +336,7 @@ class SettingsTabsMixin:
             "\n"
             "Most of a check's cost is connecting, not watching, so a longer\n"
             "sample is cheaper than it looks — but every second holds the\n"
-            "provider's connection, and on this account there is only one."
+            "source's connection, and on this account there is only one."
         )
         detect_form.addRow("Sample length:", self._signal_sample_spin)
 
@@ -388,7 +388,7 @@ class SettingsTabsMixin:
             "\n"
             "Off by default: seeing how many there are is the point until the\n"
             "check has earned your trust. A refused connection never counts —\n"
-            "that says the provider declined to answer, not that the stream is\n"
+            "that says the source declined to answer, not that the stream is\n"
             "empty."
         )
         result_form.addRow("", self._hide_dead_check)

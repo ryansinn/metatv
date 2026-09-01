@@ -184,18 +184,34 @@ def test_an_empty_url_is_unknown():
 
 
 def test_a_timeout_is_recorded_as_unreached(monkeypatch):
-    """It answered by hanging, and a busy provider hangs too."""
+    """It answered by hanging, and a busy provider hangs too.
+
+    Patches ``_run_ffmpeg``, which is what ``probe_stream`` actually calls.
+    It patched ``subprocess.run`` until CI failed on it: ``_run_ffmpeg`` uses
+    ``Popen`` (it has to — ``subprocess.run`` is not interruptible and the probe
+    must die on a Play press), so ``subprocess.run`` was never reached. On a
+    runner with no ffmpeg the real ``Popen`` then raised ``FileNotFoundError``,
+    the ``except OSError`` branch returned UNKNOWN, and the assertion failed
+    'unknown' == 'gone'.
+
+    Worse, it PASSED locally for an unrelated reason: real ffmpeg fails fast on
+    a bogus host and ``_GONE_RE`` matches "Name or service not known", so the
+    verdict was GONE without the timeout branch ever running. A test named for
+    the timeout path that never once executed it.
+    """
     import subprocess
 
     monkeypatch.setattr(sp, "ffmpeg_available", lambda: True)
 
-    def _boom(*a, **k):
+    def _timeout(*a, **k):
         raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=5)
 
-    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(sp, "_run_ffmpeg", _timeout)
     r = sp.probe_stream("http://x/1.ts")
     assert r.verdict == sp.GONE
     assert not r.is_failure
+    assert "timed out" in r.detail, (
+        "reached GONE by some other path than the timeout branch")
 
 
 def test_the_command_carries_all_three_detectors():
