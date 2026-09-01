@@ -1880,3 +1880,36 @@ def _unbind_watchlist_store():
     yield
     watchlist.unbind()
     watchlist.set_write_error_handler(None)
+
+
+def wire_epg_manager_skeleton(mgr, db, *, accountant=None) -> None:
+    """Give an ``EpgManager.__new__`` double the fields its fetch path reads.
+
+    ``EpgManager`` is a ``QObject``, so a double built with ``__new__`` never
+    ran ``super().__init__()`` — and PyQt answers attribute access on such an
+    object with ``RuntimeError: super-class __init__() ... was never called``,
+    NOT the ``AttributeError`` a ``hasattr``/``getattr`` guard would absorb.
+    The guard itself explodes, which is why the repair belongs here and never
+    in production code.
+
+    That is exactly how enrolling EPG in the connection accountant turned
+    ``test_a_403_on_the_first_host_advances_and_is_remembered`` red on both
+    platforms: ``_resolve_and_fetch_guide`` grew a ``_acquire_slot`` call,
+    ``_acquire_slot`` reads ``self._accountant``, and the double set only
+    ``db`` and ``_shutting_down``.
+
+    One factory rather than per-module wiring, for the reason the sibling
+    helpers exist: the NEXT field the fetch path acquires breaks every one of
+    these doubles at once, and this makes that a single edit.
+
+    Args:
+        mgr: An ``EpgManager.__new__(EpgManager)`` skeleton.
+        db: The ``Database`` the fetch path should read through.
+        accountant: Optional ``ConnectionAccountant``. ``None`` (the default)
+            is the documented headless case — ``_acquire_slot`` then grants
+            unconditionally, so a test that is not about arbitration does not
+            have to build one.
+    """
+    mgr.db = db
+    mgr._shutting_down = False
+    mgr._accountant = accountant

@@ -23,6 +23,7 @@ import pytest
 
 from metatv.core.database import Database, ProviderDB
 from metatv.core.epg_manager import EpgManager
+from tests.conftest import wire_epg_manager_skeleton
 
 DEAD = "http://dead.example"
 WORKS = "http://works.example"
@@ -111,8 +112,7 @@ def test_a_403_on_the_first_host_advances_and_is_remembered(db, monkeypatch):
 
     monkeypatch.setattr(mod, "parse_xmltv_url", fake_parse)
     mgr = EpgManager.__new__(EpgManager)
-    mgr.db = db
-    mgr._shutting_down = False
+    wire_epg_manager_skeleton(mgr, db)
 
     channels, programmes = mgr._resolve_and_fetch_guide(
         "p1", "T", on_parse_progress=lambda n: None)
