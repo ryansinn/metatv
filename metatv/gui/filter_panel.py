@@ -519,12 +519,12 @@ class FilterPanel(_ChipSeamMixin, QWidget):
 
         # On the very first call the channel list was loaded before dynamic
         # sections were populated (restore_search_state fires load_channels while
-        # Language/Region/etc. are still empty).  Emit filter_changed now so the
-        # main-window handler re-runs load_channels with the restored filters.
+        # Language/Region/etc. are still empty).  Re-run load_channels with the
+        # restored filters — but ONLY if they actually constrain anything.
         # A subsequent call (source refresh/import) does NOT blindly re-emit — but
         # if it surfaced NEW facet values (already included by default), offer the
         # opt-out popup and reload once the user has decided.
-        if was_first:
+        if was_first and self._restore_constrains_the_query():
             self.filter_changed.emit()
         elif new_by_facet:
             self._show_new_values_popup(new_by_facet)
@@ -564,6 +564,40 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         counts = untagged_counts or {}
         for facet, section in self._facet_sections().items():
             section.set_untagged_row(int(counts.get(facet, 0)), checked=facet not in hidden)
+
+    def _restore_constrains_the_query(self) -> bool:
+        """True when the just-restored facet selections would narrow the query.
+
+        The first ``load_channels`` runs while these sections are still empty, so
+        it applies NO facet constraint at all. If the restore leaves every facet
+        unconstrained, re-running it produces exactly the same rows — and the
+        user watches the list blank and repopulate seconds after launch for
+        nothing. Owner, 2026-09-01: *"the results load, then something else
+        happens, and the results are refreshed all within a matter of seconds
+        without any interaction with the app"*, and separately *"I can confirm
+        the reload changed nothing"*. Their log shows it plainly: 1 row at
+        gen=2, 0 rows at gen=3, 1 row again at gen=4.
+
+        "Unconstrained" is :meth:`get_filter_state`'s own definition — all
+        selected, or no items — so this cannot drift from what the query
+        actually does. The untagged footers count too: hiding one constrains the
+        query without deselecting any value.
+
+        Returns:
+            True if a reload is warranted.
+        """
+        for section in self._facet_sections().values():
+            try:
+                if not section.is_all_selected() and section.get_all_keys():
+                    return True
+                if section.has_untagged_row() and not section.untagged_included():
+                    return True
+            except Exception:
+                # Cannot tell → reload. The wasted query is cheap; showing the
+                # user a list their saved filters should have narrowed is not.
+                logger.exception("filter_panel: could not test a facet section")
+                return True
+        return False
 
     def get_filter_state(self) -> dict:
         """Return resolved filter state for main_window.load_channels().

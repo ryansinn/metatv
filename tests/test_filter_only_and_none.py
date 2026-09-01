@@ -104,6 +104,31 @@ def _build_panel(qapp, config):
     return FilterPanel(config)
 
 
+@pytest.fixture(autouse=True)
+def _delete_panels_this_module_creates(qapp):
+    """Delete the parentless panels these tests build.
+
+    ``_build_panel`` returns a ``FilterPanel`` with no parent — a TOP-LEVEL
+    widget — and nothing deleted them, so every test here leaked one.
+    ``apply_theme()`` repaints every top-level widget, and a shard carrying
+    enough leaked ones segfaults (see the teardown-guard notes in
+    ``tests/conftest.py``; it has cost this project a CI shard before).
+
+    ``deleteLater()`` alone is not enough: it only QUEUES the delete, and
+    ``processEvents()`` does not drain ``DeferredDelete``.
+    """
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication
+
+    before = {id(w) for w in QApplication.topLevelWidgets()}
+    yield
+    for w in QApplication.topLevelWidgets():
+        if id(w) not in before:
+            w.close()
+            w.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 # ---------------------------------------------------------------------------
 # Part 1 — "Only" action
 # ---------------------------------------------------------------------------
@@ -406,9 +431,14 @@ class TestNonePersistenceSentinel:
             f"(got {cfg.filter_included_languages!r})"
         )
 
-    def test_first_update_data_emits_filter_changed_once(self, qapp):
-        """First update_data still emits filter_changed (regression #141 / first-load reload)."""
-        cfg = _make_config()
+    def test_first_update_data_emits_when_a_filter_was_restored(self, qapp):
+        """A RESTORED filter must reach the query (regression #141).
+
+        The first ``load_channels`` runs while the facet sections are still
+        empty, so the restored selection can only be applied by reloading. This
+        is the case that must always emit.
+        """
+        cfg = _make_config(filter_included_languages=["EN"])   # FR/DE excluded
         panel = _build_panel(qapp, cfg)
 
         emitted: list[None] = []
@@ -416,8 +446,27 @@ class TestNonePersistenceSentinel:
         panel.update_data(_make_stats())
 
         assert len(emitted) == 1, (
-            f"first update_data must emit filter_changed once; got {len(emitted)}"
+            f"a restored filter was never applied — #141; got {len(emitted)}"
         )
+
+    def test_first_update_data_does_not_emit_when_nothing_is_constrained(self, qapp):
+        """...and must NOT reload when the restore narrows nothing.
+
+        Owner, 2026-09-01: the list blanked and repopulated seconds after
+        launch with no interaction, returning identical rows. The emit was
+        unconditional, so a user with no deselections paid a full reload — and
+        watched the list empty — for a query whose result could not differ.
+        """
+        cfg = _make_config()                                   # nothing excluded
+        panel = _build_panel(qapp, cfg)
+
+        emitted: list[None] = []
+        panel.filter_changed.connect(lambda: emitted.append(None))
+        panel.update_data(_make_stats())
+
+        assert emitted == [], (
+            "reloaded despite no facet constraining the query — the list blanks "
+            "and repopulates with identical rows")
 
     def test_live_refresh_preserves_in_memory_selection(self, qapp):
         """Second update_data (source refresh) preserves user's in-memory selection."""
