@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# pre-push — the checks that cost seconds and have twice been skipped anyway.
+#
+# On 2026-09-01 two pushes went out with a ruff error in them (an unused import,
+# then an unnecessary dict comprehension). Both were caught by CI's lint job in
+# under ten seconds, which is exactly the point: the information was available
+# locally for free and the push happened without asking for it.
+#
+# Deliberately NOT a test run. CI does that on both platforms and a pre-push
+# suite would be the very habit the full-suite gate exists to stop. This is only
+# the checks that are near-instant.
+#
+# Enable with:  git config core.hooksPath .githooks
+# Bypass with:  git push --no-verify   (and be able to say why)
+set -u
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 0
+
+PY="venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || true)"
+[ -n "$PY" ] || exit 0
+
+if "$PY" -m ruff --version >/dev/null 2>&1; then
+    if ! "$PY" -m ruff check metatv/ tests/ scripts/ 2>&1; then
+        cat >&2 <<'MSG'
+
+PUSH BLOCKED: ruff found something.
+
+CI's lint job reports this in about ten seconds, so pushing first only spends a
+round trip to learn what was already knowable here. Most are auto-fixable:
+
+    venv/bin/python -m ruff check --fix metatv/ tests/ scripts/
+
+Genuinely need to push anyway:  git push --no-verify
+MSG
+        exit 1
+    fi
+fi
+
+# Shell scripts get parsed too — a syntax error in a gate is a gate that does
+# not run, and these are the files least likely to be exercised before a push.
+for f in scripts/*.sh .githooks/*; do
+    [ -f "$f" ] || continue
+    if ! bash -n "$f" 2>/dev/null; then
+        echo "PUSH BLOCKED: $f is not valid bash." >&2
+        exit 1
+    fi
+done
+
+exit 0
