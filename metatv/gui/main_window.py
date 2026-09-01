@@ -382,6 +382,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         self.tmdb_enrichment_manager = TmdbEnrichmentManager(
             self.db, self.config, parent=self,
             migration_manager=self.migration_manager,
+            connection_accountant=self.player_manager.connection_accountant,
         )
         # Connect to MainWindow bound methods (QObject receivers on the main thread)
         # — NOT bare lambdas — so worker-thread emits are delivered via a queued

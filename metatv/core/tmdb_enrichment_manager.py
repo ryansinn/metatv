@@ -109,6 +109,16 @@ def _extract_tmdb_id(data: Any) -> str | None:
     return valid_tmdb_id(info.get("tmdb_id") if info.get("tmdb_id") is not None else info.get("tmdb"))
 
 
+#: Consumer kind this backfill registers with :class:`ConnectionAccountant`.
+#: Same standing as the watchlist poll: catch-up work that must never outrank
+#: something the user asked for.
+ENRICH_KIND = "monitor"
+
+#: It displaces nothing; every real consumer lists ``"monitor"`` in its own
+#: ``preempt_kinds``, so playback/downloads/recordings evict it.
+ENRICH_PREEMPTS: tuple[str, ...] = ()
+
+
 class TmdbEnrichmentManager(QObject):
     """Lazily backfill ``detected_tmdb_id`` for idless VOD rows the user is viewing.
 
@@ -137,6 +147,7 @@ class TmdbEnrichmentManager(QObject):
         config: "Config",
         parent=None,
         migration_manager: "MigrationManager | None" = None,
+        connection_accountant=None,
     ) -> None:
         """
         Args:
@@ -154,6 +165,18 @@ class TmdbEnrichmentManager(QObject):
         super().__init__(parent)
         self.db = db
         self.config = config
+        #: ``player_manager``'s ConnectionAccountant, or None in headless contexts.
+        #:
+        #: These detail calls hit the SAME provider the user plays from, and most
+        #: accounts allow ONE connection. Unenrolled, this backfill silently held
+        #: that connection, so the pre-flight probe got HTTP 500 and mpv failed —
+        #: the owner had to click play three or four times (2026-09-01: "this need
+        #: to play 4 times to get it to play never used to happen"). Their log
+        #: shows the same URL alternating 500/206 within seconds, which is
+        #: contention, not a broken stream.
+        #:
+        #: Identical fix to #622 for series_monitor, which left this one behind.
+        self._accountant = connection_accountant
         self._migration_manager = migration_manager
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="tmdb_enrich"
@@ -592,6 +615,31 @@ class TmdbEnrichmentManager(QObject):
         for pid, prows in by_provider.items():
             self.enrichment_progress.emit(pid, names.get(pid, pid), len(prows))
 
+    def _acquire_slot(self, provider_id: str, holder_id: str) -> bool:
+        """Take a connection slot for one enrichment batch; False if none free.
+
+        No accountant (headless/tests) means nothing to arbitrate, so the batch
+        proceeds — enrolment must not turn an un-wired manager into a dead one.
+        """
+        if self._accountant is None:
+            return True
+        try:
+            return self._accountant.acquire(
+                provider_id, ENRICH_KIND, holder_id,
+                preempt_kinds=ENRICH_PREEMPTS).granted
+        except Exception:  # bookkeeping must never break enrichment outright
+            logger.exception("tmdb_enrich: connection acquire failed")
+            return True
+
+    def _release_slot(self, provider_id: str, holder_id: str) -> None:
+        """Release the slot :meth:`_acquire_slot` took."""
+        if self._accountant is None:
+            return
+        try:
+            self._accountant.release(provider_id, holder_id)
+        except Exception:
+            logger.exception("tmdb_enrich: connection release failed")
+
     def _clear_all_inflight(self) -> None:
         """Emit a zero count for every source with an open toast (drain finished)."""
         with self._lock:
@@ -634,6 +682,16 @@ class TmdbEnrichmentManager(QObject):
             return ({}, [], {}, len(rows))
 
         base_url = base_urls[0]
+        # Take a real slot for the whole batch so playback, downloads and
+        # recordings can SEE this backfill and evict it, instead of losing the
+        # provider's only connection to it. Denied means "skip this batch" —
+        # enrichment is catch-up work; the next pass picks it up.
+        holder_id = f"tmdb_enrich:{provider.id}"
+        if not self._acquire_slot(provider.id, holder_id):
+            logger.debug(
+                "tmdb_enrich: provider {} busy with real work; deferring "
+                "{} row(s)", provider.name, len(rows))
+            return ({}, [], {}, len(rows))
         try:
             async with XtreamAPI(base_url, provider.username, provider.password) as api:
                 return await self._run_calls(api, rows, concurrency, throttle)
@@ -641,6 +699,8 @@ class TmdbEnrichmentManager(QObject):
             # Session-level failure (rare — connect happens per request): defer all.
             logger.exception("tmdb_enrich: session error for provider {}", provider.name)
             return ({}, [], {}, len(rows))
+        finally:
+            self._release_slot(provider.id, holder_id)
 
     async def _run_calls(
         self,
