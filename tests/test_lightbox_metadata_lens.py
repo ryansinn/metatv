@@ -107,6 +107,38 @@ def _make_metadata(session, *, mid, title, cast=None, director=None, genres=None
     return meta
 
 
+@pytest.fixture(autouse=True)
+def _delete_lightbox_cards(qapp):
+    """Give every parentless ``_LightboxCard`` an owner, so none is top-level.
+
+    A bare ``_LightboxCard()`` is a TOP-LEVEL widget and nothing deleted them —
+    this file alone left 16 alive. That is invisible until something walks the
+    top-level list, and ``theme.apply_theme()`` pushes a QPalette onto the whole
+    QApplication, so the next file's palette test repaints every leaked card.
+    That segfaulted a CI shard the moment the size-based bin-packer put two
+    lightbox files next to each other.
+
+    ``sip.delete`` destroys THIS card's C++ object and nothing else. Two other
+    approaches were tried and are worse:
+
+    - ``deleteLater()`` + ``sendPostedEvents(None, DeferredDelete)`` drains the
+      deferred-delete queue GLOBALLY, destroying objects belonging to every
+      other test. It moved the segfault from a test body into this teardown
+      rather than removing it.
+    - Re-parenting to an owner widget makes the OWNER top-level instead, so the
+      leak count went from 16 to 41 — one per test.
+    """
+    from PyQt6 import sip
+    from PyQt6.QtWidgets import QApplication
+
+    from metatv.gui.similar_lightbox_card import _LightboxCard
+
+    yield
+    for widget in QApplication.topLevelWidgets():
+        if isinstance(widget, _LightboxCard):
+            sip.delete(widget)
+
+
 def _card(qapp):
     from metatv.gui.similar_lightbox_card import _LightboxCard
     return _LightboxCard()

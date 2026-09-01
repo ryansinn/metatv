@@ -743,6 +743,23 @@ class Config(BaseModel):
     # _compose_deep_cache_args(). Str (not Path) + tilde literal, expanded at the
     # consumer — same pattern as image_cache_dir below.
     deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
+    #: Where saved VOD downloads land. Persistent, unlike deep_cache_dir.
+    download_dir: str = "~/Videos/MetaTV"
+    #: Global stop — no download runs at all while this is set.
+    downloads_paused: bool = False
+    #: SIGNED offsets on a recording's guide window, in seconds. Negative
+    #: starts (or ends) earlier, positive later — "record extra" is only half
+    #: of it: skipping a pregame hour is -3600 on the start, as legitimate as
+    #: +900 on the end. Defaults are 2 minutes early and 15 minutes late,
+    #: because sport overruns, always.
+    #: Stored per recording, never folded into the window: a running recording
+    #: can be extended, so the stop time has to stay computable.
+    recording_pad_start_seconds: int = -120
+    recording_pad_end_seconds: int = 900
+    #: Fallback window for "record what's on" when the channel has no EPG.
+    #: A third of this catalogue has no guide data, and a recording that
+    #: silently does not happen is worse than one the user can see and cancel.
+    recording_default_minutes: int = 120
     deep_cache_max_gb: int = 20  # soft cap; oldest files purged before it's exceeded
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3

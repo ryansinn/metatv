@@ -1,7 +1,7 @@
 """Database models and connection management"""
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 import json as _json
 import threading
 import time
@@ -541,6 +541,118 @@ class UserRatingDB(Base):
     channel_id = Column(String, primary_key=True)   # 1:1 with ChannelDB; upsert replaces
     rating     = Column(Integer, nullable=False)     # +1 or -1
     rated_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class DownloadDB(Base):
+    """One VOD saved (or being saved) to the local library.
+
+    Denormalized the same way ``WatchQueueDB`` is, and for the same reason: a
+    provider refresh can replace the channel row this came from, and a file
+    already on disk must not lose its name because its source id was recycled.
+
+    The URL is stored because it is what gets resumed against. Xtream VOD URLs
+    are static files (``/movie/<user>/<pass>/<id>.mkv``), which is what makes an
+    HTTP Range resume possible at all — and why this is a direct GET rather
+    than mpv ``--stream-record``: a preempted download has to CONTINUE, not
+    start again.
+    """
+    __tablename__ = "downloads"
+
+    id            = Column(String, primary_key=True)          # uuid4
+    channel_id    = Column(String, nullable=False, index=True)  # no FK — see above
+    provider_id   = Column(String, nullable=False, index=True)  # whose connection slot it takes
+    channel_name  = Column(String, nullable=False, default="")  # denormalized
+    source_url    = Column(String, nullable=False)
+    dest_path     = Column(String, nullable=False)
+
+    #: queued | running | paused | completed | failed
+    #: "paused" covers BOTH a user pause and a preemption by playback: the
+    #: difference is `paused_by_playback`, because only one of them should
+    #: resume by itself when the slot frees.
+    state         = Column(String, nullable=False, default="queued", index=True)
+    paused_by_playback = Column(Boolean, nullable=False, default=False)
+
+    total_bytes      = Column(Integer, nullable=True)   # None until the server says
+    downloaded_bytes = Column(Integer, nullable=False, default=0)
+    error            = Column(Text, nullable=True)
+
+    position   = Column(Integer, nullable=False, default=0)   # queue order
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RecordingDB(Base):
+    """One live programme recorded (or scheduled to be) to the local library.
+
+    Denormalized like ``DownloadDB`` and for the same reason: a provider refresh
+    can replace the channel row this came from, and a file on disk must not lose
+    its name because a stream id was recycled.
+
+    **The stop time is NOT stored.** It is computed from the guide window plus
+    the offsets on every scheduler tick, because a running recording can be
+    extended in real time and a frozen stop time makes that impossible — the
+    design note is explicit: *"the live extend is the one that saves an event,
+    and it is the reason the recorder must not compute its stop time once at the
+    start."* ``effective_start``/``effective_end`` below are the only readers.
+
+    Offsets are **signed**, not "record extra": someone skipping a pregame hour
+    wants ``-20 min`` on the start as legitimately as ``+20`` on the end. The
+    shipped defaults are 2 minutes early and 15 minutes late, because sport
+    overruns, always.
+
+    Times are **UTC-naive**, matching EPG ``start_time``/``stop_time``
+    (CLAUDE.md: convert for display via ``epg_utils.to_local``, never store a
+    local time).
+    """
+    __tablename__ = "recordings"
+
+    id            = Column(String, primary_key=True)          # uuid4
+    channel_id    = Column(String, nullable=False, index=True)  # no FK — see above
+    provider_id   = Column(String, nullable=False, index=True)  # whose slot it takes
+    channel_name  = Column(String, nullable=False, default="")  # denormalized
+    programme_title = Column(String, nullable=False, default="")
+    source_url    = Column(String, nullable=False)
+    dest_path     = Column(String, nullable=False)
+
+    #: scheduled | recording | completed | failed | cancelled
+    state         = Column(String, nullable=False, default="scheduled", index=True)
+
+    #: The guide's window, unpadded — what the programme itself claims.
+    programme_start = Column(DateTime, nullable=False, index=True)  # UTC-naive
+    programme_end   = Column(DateTime, nullable=False)              # UTC-naive
+
+    #: Signed offsets applied to the guide window. Negative starts earlier /
+    #: ends earlier; positive starts later / ends later.
+    pad_start_seconds = Column(Integer, nullable=False, default=-120)
+    pad_end_seconds   = Column(Integer, nullable=False, default=900)
+    #: Live extension, added to the end. Mutable while recording — this is the
+    #: field "extend a running recording in real time" writes to.
+    extend_seconds    = Column(Integer, nullable=False, default=0)
+
+    #: Whether this recording may take the connection off playback. Per-recording
+    #: because "warn and take" is the default but not a law.
+    preempt_playback = Column(Boolean, nullable=False, default=True)
+
+    recorded_bytes = Column(Integer, nullable=False, default=0)
+    error          = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def effective_start(self) -> datetime:
+        """When the recorder should begin: guide start plus the signed offset."""
+        return self.programme_start + timedelta(seconds=self.pad_start_seconds)
+
+    @property
+    def effective_end(self) -> datetime:
+        """When the recorder should stop, recomputed every read.
+
+        Includes ``extend_seconds``, so extending a running recording moves the
+        stop time immediately rather than at the next schedule.
+        """
+        return self.programme_end + timedelta(
+            seconds=self.pad_end_seconds + self.extend_seconds)
 
 
 class WatchQueueDB(Base):

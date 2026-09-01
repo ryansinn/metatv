@@ -1,0 +1,212 @@
+"""Downloads: the MainWindow half of saving a VOD for offline watching.
+
+Its own module rather than a few more methods on ``_FavoritesMixin`` because
+downloads are not a favourites concern — they share only the fact that both
+are reached from the channel menu. Sibling of ``main_window_updates.py`` and
+``main_window_history.py``: one mixin per concern, folded into ``MainWindow``.
+
+The transfer itself lives in :mod:`metatv.core.download_manager`, which holds
+no Qt at all — this module is the wiring and the two sentences the user reads.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+from loguru import logger
+from PyQt6.QtCore import QTimer
+
+from metatv.core.download_manager import DownloadManager
+from metatv.core.recording_manager import RecordingManager
+from metatv.core.epg_utils import to_local
+from metatv.core.models import MediaType
+from metatv.core.repositories import RepositoryFactory
+
+
+class _DownloadsMixin:
+    """Construct the download manager and start a download from the menu."""
+
+    def _setup_downloads(self) -> None:
+        """Build the manager and give it the accountant the player already uses.
+
+        One accountant, so a download and a play on the same source can never
+        both believe they hold that provider's single connection. The preempt
+        callback is what makes a click on Play win: the manager parks its
+        transfer at the byte it reached and resumes when the slot comes back.
+        """
+        accountant = self.player_manager.connection_accountant
+        self.download_manager = DownloadManager(self.db, self.config, accountant)
+        accountant._on_preempt = self.download_manager.on_preempted
+        self.download_manager.start()
+        self._register_cleanable("downloads", self.download_manager.shutdown)
+
+        # Recordings share the accountant but not the priority rule: they evict
+        # downloads and are evicted by nothing. See core/recording_manager.py.
+        self.recording_manager = RecordingManager(
+            self.db, self.config, accountant,
+            on_conflict=self._on_recording_blocked,
+            on_countdown=self._on_recording_countdown)
+        self.recording_manager.start()
+        self._register_cleanable("recordings", self.recording_manager.shutdown)
+        logger.debug("Download and recording managers ready")
+
+    def download_channel_by_id(self, channel_id: str) -> None:
+        """Queue a VOD for download to the local library.
+
+        Sibling of ``play_channel_deep_cache_by_id`` and gated the same way —
+        VOD only. The difference is persistence: the deep cache is a scratch
+        file purged when playback stops, this one stays. For a SERIES the
+        normal drill-in is used, because a series has no single stream to save.
+
+        The transfer itself is the ``DownloadManager``'s problem, including
+        waiting for a free connection slot on this source — the click only
+        enqueues, so it never blocks the UI thread on the network.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+            return
+
+        queued = self.download_manager.enqueue(
+            channel_id=channel.id,
+            provider_id=channel.provider_id,
+            channel_name=channel.name,
+            source_url=channel.stream_url,
+        )
+        if queued:
+            self.notification_manager.show(
+                title=f"Downloading {channel.name}",
+                message="It pauses by itself while you watch anything on this source.",
+                type="info",
+                dismissible=True,
+            )
+        else:
+            # Already queued or already saved. Silence would read as a click
+            # that did nothing, which is the same complaint as a dead button.
+            self.notification_manager.show(
+                title=f"{channel.name} is already in your downloads",
+                message="",
+                type="info",
+                dismissible=True,
+            )
+
+    def record_channel_by_id(self, channel_id: str) -> None:
+        """Record what is on this live channel now.
+
+        Window comes from the EPG programme currently airing when there is one —
+        that is the whole reason to prefer it over a fixed duration: "record
+        what's on" should end when the programme ends, not after an arbitrary
+        hour. With no EPG (and a third of this catalogue has none) it falls back
+        to ``config.recording_default_minutes``, which is a guess the user can
+        see and cancel rather than a silent failure.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.epg_utils import now_utc
+        from metatv.core.models import MediaType
+
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_playable_dto(channel_id)
+            # Read the programme's fields INSIDE the session. get_now_for_channel
+            # hands back an ORM row, and session_scope expires on commit, so the
+            # first attribute touched outside this block would raise
+            # DetachedInstanceError (CLAUDE.md: cross the boundary with plain data).
+            airing = None
+            if channel and channel.media_type == MediaType.LIVE:
+                row = repos.epg.get_now_for_channel(channel_id)
+                if row is not None:
+                    airing = (row.start_time, row.stop_time, row.title or "")
+        if not channel:
+            return
+
+        now = now_utc()
+        if airing is not None:
+            starts_at, ends_at, title = airing
+            pad = True
+        else:
+            minutes = int(self.config.recording_default_minutes)
+            starts_at, ends_at, title, pad = (
+                now, now + timedelta(minutes=minutes), "", False)
+
+        outcome = self.recording_manager.schedule(
+            channel_id=channel.id, provider_id=channel.provider_id,
+            channel_name=channel.name, source_url=channel.stream_url,
+            starts_at=starts_at, ends_at=ends_at, programme_title=title,
+            **({} if pad else {"pad_start_seconds": 0, "pad_end_seconds": 0}))
+
+        if not outcome.scheduled:
+            self.notification_manager.show(
+                title=f"{title or channel.name} is already being recorded",
+                message="", type="info", dismissible=True)
+            return
+
+        # The EFFECTIVE window, not the guide's — the offsets move it, and a
+        # message promising a stop fifteen minutes before the recorder actually
+        # stops is the kind of small lie that teaches people to distrust the app.
+        window = self.recording_manager.window_of(outcome.recording_id)
+        ends_local = to_local(window[1] if window else ends_at)
+
+        if outcome.conflicts:
+            # Surfaced now rather than at start time, which is the whole point
+            # of detecting it here: the user can still drop one.
+            others = ", ".join(name for _rid, name in outcome.conflicts)
+            self.notification_manager.show(
+                title=f"Recording {title or channel.name} — but it clashes",
+                message=(f"This source allows one connection and {others} "
+                         f"already wants it at the same time. One of them will "
+                         f"not record."),
+                type="warning", dismissible=True)
+            return
+
+        self.notification_manager.show(
+            title=f"Recording {title or channel.name}",
+            message=(f"Until {ends_local:%H:%M}. MetaTV has to be running, and "
+                     f"it will take this source's connection off whatever you "
+                     f"are watching — with a countdown you can cancel."),
+            type="info", dismissible=True)
+
+    def _on_recording_countdown(self, recording_id: str, title: str,
+                                seconds: int) -> None:
+        """Warn that a recording is about to take the stream you are watching.
+
+        Fires at 10 min / 5 / 1 / 30 s, once each, and only while something is
+        actually playing on that source — an idle app is never interrupted.
+        Every one of these is a chance to cancel, which is what makes taking
+        the connection acceptable rather than hostile.
+
+        Called from the worker thread, so it hops to the main thread before
+        touching the notification manager.
+        """
+        when = (f"{seconds // 60} minutes" if seconds >= 60
+                else f"{seconds} seconds")
+        QTimer.singleShot(0, lambda: self.notification_manager.show(
+            title=f"Recording {title} in {when}",
+            message=("It needs this source's only connection, so your stream "
+                     "will stop. Cancel the recording if you would rather keep "
+                     "watching."),
+            type="warning", dismissible=True))
+
+    def _on_recording_blocked(self, recording_id: str, channel_name: str) -> None:
+        """Say once that a recording is waiting on the source's only connection.
+
+        Called from the recording worker thread, so it hops to the main thread
+        before touching the notification manager — Qt widgets are main-thread
+        only (CLAUDE.md: workers emit, only the main thread touches widgets).
+
+        A warning rather than an error: the recording has not failed, it is
+        retrying for its whole window, and stopping playback rescues it.
+        """
+        QTimer.singleShot(0, lambda: self.notification_manager.show(
+            title=f"Waiting to record {channel_name}",
+            message=("This source allows one connection and it is in use. The "
+                     "recording starts by itself as soon as you stop watching "
+                     "this source — whatever is left of the programme."),
+            type="warning", dismissible=True))

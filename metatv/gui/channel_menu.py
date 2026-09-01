@@ -284,6 +284,34 @@ ACTIONS: dict[str, ChannelAction] = {
         # so this action is never shown for them (same predicate as like/dislike).
         applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
     ),
+    "download": ChannelAction(
+        id="download",
+        label=lambda c: "Download to library",
+        icon=_icons.download_icon,
+        tooltip=(
+            "Save this title to your library folder so it plays without the "
+            "source. Resumes if interrupted, and pauses by itself while you "
+            "are watching something on the same source."
+        ),
+        # VOD-only, the same predicate as the deep cache above: a live channel
+        # has no end to download TO. Recording live is a different feature with
+        # a different priority rule (ROADMAP: DVR).
+        applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
+    ),
+    "record": ChannelAction(
+        id="record",
+        label=lambda c: "Record what's on",
+        icon=_icons.record_icon,
+        tooltip=(
+            "Record this channel to your library. Keeps recording even if you "
+            "start watching something else, and waits rather than giving up if "
+            "the source is busy."
+        ),
+        # The exact inverse of "download" above, and deliberately so: a VOD has
+        # an end to download to, a live channel has a clock to record against.
+        # Neither predicate is a superset of the other.
+        applies=lambda c: c.is_single and c.channel_found and c.media_type == "live",
+    ),
     # ── Resume-position overrides ────────────────────────────────────────────
     "play_from_beginning": ChannelAction(
         id="play_from_beginning",
@@ -663,6 +691,9 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
+        "sep",
+        "download",
+        "record",
         "sep",
         "favorite", "queue",
         "sep",
