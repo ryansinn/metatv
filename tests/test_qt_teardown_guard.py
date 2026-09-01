@@ -219,10 +219,25 @@ def test_a_thread_alive_at_snapshot_is_never_reported(qapp):
 
 
 def test_sweep_joins_finishing_non_daemon_thread(qapp):
-    """A non-daemon thread that finishes quickly is reaped within the join budget."""
+    """A non-daemon thread that finishes is reaped within the join budget.
+
+    The thread is released by an Event rather than a ``time.sleep``. A sleep
+    races the scheduler against ``_THREAD_JOIN_TIMEOUT``: the thread has to be
+    scheduled, sleep out its delay, and exit, all inside the budget — and on a
+    loaded CI runner it is not, which made this the flakiest test in the suite.
+    It failed on macos-14 across `main` and two unrelated branches on
+    2026-08-31, blocking PRs that had nothing to do with teardown.
+
+    Releasing an Event the test has already set removes the sleep entirely, so
+    the budget only has to cover the thread returning and exiting. That is what
+    the test is actually about — the sweep reaps a FINISHING thread — and it no
+    longer depends on how busy the machine is.
+    """
     pre_ids, pre_threads = _qt_snapshot()
-    t = threading.Thread(target=lambda: time.sleep(0.02), name="metatv-test-finishing")
+    release = threading.Event()
+    t = threading.Thread(target=release.wait, name="metatv-test-finishing")
     t.start()
+    release.set()  # it is now returning; nothing left to compute or sleep out
 
     report = _qt_teardown_sweep(pre_ids, pre_threads)
 
