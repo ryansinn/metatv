@@ -228,10 +228,13 @@ def test_sweep_joins_finishing_non_daemon_thread(qapp):
     It failed on macos-14 across `main` and two unrelated branches on
     2026-08-31, blocking PRs that had nothing to do with teardown.
 
-    Releasing an Event the test has already set removes the sleep entirely, so
-    the budget only has to cover the thread returning and exiting. That is what
-    the test is actually about — the sweep reaps a FINISHING thread — and it no
-    longer depends on how busy the machine is.
+    Releasing an Event the test has already set removes the sleep, so the budget
+    only has to cover the thread returning. The assertions then state the
+    contract — nothing is left running — rather than which side of the race the
+    sweep happened to observe.
+
+    The join itself stays covered: removing ``t.join`` from the sweep turns
+    ``test_sweep_waits_out_worker_owned_by_leaked_widget`` red.
     """
     pre_ids, pre_threads = _qt_snapshot()
     release = threading.Event()
@@ -241,8 +244,14 @@ def test_sweep_joins_finishing_non_daemon_thread(qapp):
 
     report = _qt_teardown_sweep(pre_ids, pre_threads)
 
-    assert "metatv-test-finishing" in report.threads
-    assert "metatv-test-finishing" not in report.threads_alive  # joined successfully
+    # Whether the sweep OBSERVED it is a scheduler race in both directions and
+    # is not the contract: the thread may already have exited (then it is not
+    # in report.threads at all), or still be returning (then the join reaps it).
+    # Asserting the observation is what made this flaky — first as
+    # "not in threads_alive" failing when the sleep outran the budget, then, in
+    # the first version of this fix, as "in threads" failing when it exited too
+    # fast. What must hold either way is that nothing is left running.
+    assert "metatv-test-finishing" not in report.threads_alive
     assert not t.is_alive()
 
 
