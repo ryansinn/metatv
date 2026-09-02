@@ -99,3 +99,15 @@ MEDIA_KIND_ROLE = Qt.ItemDataRole.UserRole + 28
 #: shipped painted as CHANNELS — 46px instead of 19, with empty poster and
 #: title columns. Guard: tests/test_subheading_delegate_rendering.py.
 LABEL_ROW_KINDS = frozenset({"header", "person"})
+
+
+# ── Section-band roles ──────────────────────────────────────────────────────
+#
+# The header is PAINTED, not composed as rich text, so the delegate needs its
+# parts rather than a finished string. A `flex:1` hairline between the label and
+# the count is the specific thing that cannot be expressed in Qt rich text, and
+# its absence is what left the band looking empty across the width.
+SECTION_LABEL_ROLE = Qt.ItemDataRole.UserRole + 31        # str, already uppercased
+SECTION_COUNT_ROLE = Qt.ItemDataRole.UserRole + 32        # int, results in the section
+SECTION_WHOLE_ONLY_ROLE = Qt.ItemDataRole.UserRole + 33   # bool, or None when no search
+SECTION_COLLAPSED_ROLE = Qt.ItemDataRole.UserRole + 34    # bool

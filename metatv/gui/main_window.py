@@ -2007,6 +2007,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # Middle-click plays the OPPOSITE of the bare double-click default.
         self.channels_list.middle_clicked.connect(self._on_channel_middle_clicked)
         self.channels_list.chip_clicked.connect(self._on_row_chip_clicked)
+        self.channels_list.section_mode_toggled.connect(
+            self._on_section_mode_toggled)
         self.channels_list.selectionModel().currentChanged.connect(
             self.on_channel_selection_changed
         )

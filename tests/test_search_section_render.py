@@ -96,9 +96,10 @@ def test_a_search_groups_without_the_checkbox(qapp):
     _load(model, _mixed(), search="cage")
 
     assert model.is_grouped, "a search must group its results"
-    assert [t for t, _ in _headers(model)] == ["⌄ Titles (1)", "⌄ Cast & Crew (2)"], (
-        "the section count is CHANNELS, not display rows — a sub-heading is not "
-        "a result and must not be counted as one")
+    # No caret: the settled GroupHeading grammar has none — "the heading itself
+    # is the control ... a caret beside a clickable title is a second affordance
+    # for one action." The count is CHANNELS, not display rows.
+    assert [t for t, _ in _headers(model)] == ["Titles (1)", "Cast & Crew (2)"]
 
 
 def test_titles_render_above_cast_and_crew(qapp):
@@ -193,35 +194,42 @@ def test_the_count_a_user_sees_does_not_include_the_headers(qapp):
     assert model.rowCount() == model.loaded_count() == 3
 
 
-def test_a_section_header_renders_the_html_the_delegate_paints(qapp):
-    """The role the DELEGATE asks for, which no test was asking for.
+def test_a_section_header_is_a_band_not_a_line_of_text(qapp):
+    """The header carries its parts as DATA now, for the band painter.
 
-    ``ChannelRowDelegate`` paints rows from ``CHANNEL_HTML_ROLE``, not
-    ``DisplayRole`` — the latter stays plain text for size hints, accessibility
-    and model tests. Every section test in this file read the plain text, so
-    when grouping moved to its own module and the header composer lost its
-    ``_theme`` and ``_html`` imports, 113 tests stayed green over a header row
-    that raises ``NameError`` the moment it is painted.
-
-    The F821 ratchet caught it before the push. This makes the render itself
-    the assertion, so the next move does not depend on a lint rule noticing.
+    It used to return styled HTML. The settled design (Finding Tron, Concept E)
+    puts a flex:1 hairline between the label and the count, plus a segmented
+    control — neither of which survives Qt's rich-text subset — so the band is
+    painted and the model hands over the parts instead of a finished string.
     """
-    from metatv.gui.channel_list_roles import CHANNEL_HTML_ROLE, ROW_KIND_ROLE
-
+    from metatv.gui.channel_list_roles import (
+        ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE, SECTION_COUNT_ROLE,
+        SECTION_LABEL_ROLE, SECTION_WHOLE_ONLY_ROLE,
+    )
     model = _model(qapp)
     _load(model, _mixed(), search="cage")
+    heads = [model.index(r, 0) for r in range(model.rowCount())
+             if model.index(r, 0).data(ROW_KIND_ROLE) == "header"]
 
-    headers = [model.index(r, 0) for r in range(model.rowCount())
-               if model.index(r, 0).data(ROW_KIND_ROLE) == "header"]
-    assert len(headers) == 2
+    assert [h.data(SECTION_LABEL_ROLE) for h in heads] == ["TITLES", "CAST & CREW"]
+    assert [h.data(SECTION_COUNT_ROLE) for h in heads] == [1, 2]
+    assert [h.data(SECTION_COLLAPSED_ROLE) for h in heads] == [False, False]
+    # Both search sections offer the toggle, and default to Part (nothing
+    # hidden) — the user tightens a cluttered section, the app never decides.
+    assert [h.data(SECTION_WHOLE_ONLY_ROLE) for h in heads] == [False, False]
 
-    for idx in headers:
-        html = idx.data(CHANNEL_HTML_ROLE)
-        assert html, "a header painted nothing"
-        assert html.startswith("<span"), html[:60]
-        assert "color:#" in html or "color:rgb" in html, (
-            f"the header carries no colour from the theme tokens: {html[:80]}")
 
-    assert "Titles" in headers[0].data(CHANNEL_HTML_ROLE)
-    assert "Cast &amp; Crew" in headers[1].data(CHANNEL_HTML_ROLE), (
-        "the ampersand must be HTML-escaped — this is rendered as rich text")
+def test_a_media_type_section_offers_no_whole_part_toggle(qapp):
+    """Movies/Series/Live are not match rungs, so narrowing by one is meaningless."""
+    from metatv.gui.channel_list_roles import (
+        ROW_KIND_ROLE, SECTION_WHOLE_ONLY_ROLE,
+    )
+    model = _model(qapp)
+    model.set_grouped(True)
+    _load(model, [_dto("A Film", media_type="movie"),
+                  _dto("A Show", media_type="series")], search=None)
+
+    for r in range(model.rowCount()):
+        idx = model.index(r, 0)
+        if idx.data(ROW_KIND_ROLE) == "header":
+            assert idx.data(SECTION_WHOLE_ONLY_ROLE) is None

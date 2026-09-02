@@ -68,6 +68,8 @@ class ChannelResultsList(QWidget):
     channel_context_menu = pyqtSignal(str, object)
     #: A delegate-painted chip was clicked: (facet_type, value).
     chip_clicked = pyqtSignal(str, str)
+    #: (section key, whole_only) — forwarded from the view's header control.
+    section_mode_toggled = pyqtSignal(str, bool)
 
     def __init__(
         self,
@@ -134,6 +136,7 @@ class ChannelResultsList(QWidget):
         self.view.doubleClicked.connect(self._on_activated)
         self.view.middle_clicked.connect(self._on_middle_clicked)
         self.view.chip_clicked.connect(self.chip_clicked)
+        self.view.section_mode_toggled.connect(self.section_mode_toggled)
         self.view.customContextMenuRequested.connect(self._on_context_menu)
         if (sel := self.view.selectionModel()) is not None:
             sel.currentChanged.connect(self._on_current_changed)

@@ -168,6 +168,14 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         # its own (by match, not media type) without overwriting their choice.
         self._grouped: bool = False
         self._group_by_type: bool = False
+        # Sections the user has narrowed to whole-word matches. EMPTY by
+        # default: a section shows everything until someone says otherwise.
+        self._whole_only: set[str] = set()
+        # People whose films are folded away under their name, and how many
+        # each has — the count the sub-heading shows, which stays true while
+        # the run is collapsed because that is the only thing describing it.
+        self._collapsed_people: set[str] = set()
+        self._person_counts: dict[str, int] = {}
         # media_types whose section is currently collapsed (header only, rows hidden).
         self._collapsed_sections: set[str] = set()
         # section media_type → list of indices into ``_channels`` (in load order).

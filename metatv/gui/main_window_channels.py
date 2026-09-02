@@ -27,7 +27,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QTimer
 from loguru import logger
 
-from metatv.core.repositories import search_ranking
+from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
@@ -72,40 +72,6 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     if excluded_channel_ids:
         channels = [c for c in channels if c.id not in excluded_channel_ids]
     return channels
-
-
-def _rows_to_dtos(repos, rows: list, search_query: str | None) -> list:
-    """ORM rows → DTOs: the one place a channel crosses the worker boundary.
-
-    The first-page query and its pagination sibling each built this list, and
-    they drifted the moment search sections arrived — page 2 of a search came
-    back with no ``section_key``, so every row appended on scroll fell into a
-    MEDIA-TYPE bucket and grew a stray "Movies" heading underneath the Titles
-    and Cast & Crew it should have joined. Two copies of a mapping is how that
-    happens; one is how it stops.
-
-    ``search_query`` is None when just browsing, and the section and person
-    lookups are then skipped entirely rather than run against an empty term.
-    """
-    from metatv.core.repositories.dtos import ChannelListDTO
-
-    term = (search_query or "").strip()
-    ratings_map = repos.ratings.get_all_map()
-    reliability_map = repos.stream_retry.get_reliability_map()
-    # One batch query for the whole page, never N+1, and skipped without a term.
-    persons = search_ranking.matched_persons_map(
-        repos.session, [c.id for c in rows], term) if term else {}
-    return [
-        ChannelListDTO.from_orm(
-            c,
-            user_rating=ratings_map.get(c.id, 0),
-            reliability_state=reliability_map.get(c.id, "ok"),
-            section_key=(search_ranking.section_for_title(
-                c.detected_title or c.name, term) if term else None),
-            match_person=persons.get(c.id),
-        )
-        for c in rows
-    ]
 
 
 class _ChannelListMixin:
@@ -897,7 +863,7 @@ class _ChannelListMixin:
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
         # ORM rows → DTOs so no ChannelDB crosses the boundary.
-        return _rows_to_dtos(repos, channels, params.get('search_query')), params
+        return rows_to_dtos(repos, channels, params.get('search_query')), params
 
     def _on_channels_load_error(self, exc: Exception) -> None:
         """Main thread: clear the loading state when the channel query fails."""
@@ -1941,6 +1907,11 @@ class _ChannelListMixin:
             collapsed_sections=getattr(self.config, "group_collapsed_types", None) or [],
         )
 
+    def _on_section_mode_toggled(self, section: str, whole_only: bool) -> None:
+        """Narrow one section to whole-word matches, or open it back up."""
+        if section:
+            self.channel_model.set_section_whole_only(section, whole_only)
+
     def _on_channel_list_clicked(self, index) -> None:
         """Header click toggles collapse; a channel click always shows details.
 
@@ -1962,7 +1933,13 @@ class _ChannelListMixin:
         the user).
         """
         from metatv.gui.channel_list_model import ROW_KIND_ROLE, SECTION_TYPE_ROLE
-        if index.data(ROW_KIND_ROLE) != "header":
+        kind = index.data(ROW_KIND_ROLE)
+        if kind == "person":
+            person = index.data(SECTION_TYPE_ROLE)
+            if person:
+                self.channel_model.toggle_person_collapsed(person)
+            return
+        if kind != "header":
             self._show_details_for_clicked_row(index)
             return
         section = index.data(SECTION_TYPE_ROLE)
@@ -2159,7 +2136,7 @@ class _ChannelListMixin:
                 _excl_ct_ids,
             )
 
-        dtos = _rows_to_dtos(repos, rows, query_params.get('search_query'))
+        dtos = rows_to_dtos(repos, rows, query_params.get('search_query'))
         return dtos, has_more, raw_count
 
     def _on_channel_page_loaded(self, result, generation: int) -> None:

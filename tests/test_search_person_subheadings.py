@@ -154,10 +154,19 @@ def test_a_subheading_renders_the_html_the_delegate_paints(qapp):
                    if model.index(r, 0).data(ROW_KIND_ROLE) == "person"]
     assert person_html, "no sub-heading rendered"
     for html in person_html:
-        assert _theme.COLOR_TEXT_LOW in html, (
-            f"a sub-heading is not using the muted token: {html}")
-        assert "font-weight:bold" not in html, (
-            "a sub-heading must not compete with the section header")
+        # The NAME takes the bright ramp, and that is the same two-tone rule as
+        # the section header rather than an exception to it: the emphasis goes
+        # on the VARIABLE half, and for a person the name is what varies while
+        # the film count is incidental. COLOR_TEXT_LOW is also barred outright —
+        # measured 4.15:1, under the 4.5 text floor in four of six palettes.
+        assert _theme.COLOR_TEXT_HI in html, (
+            f"the person's name is not on the bright ramp: {html}")
+        # No assertion about COLOR_TEXT_LOW: it and COLOR_TEXT are the SAME
+        # value (#a7b2c0 in this palette), so "not the low ramp" is not a
+        # question this can ask. Logged as D30 — two names for one colour.
+        assert _theme.COLOR_TEXT in html, (
+            f"the count is not on the secondary ramp: {html}")
+        assert html.count("<span") == 2, f"a sub-heading is two tones: {html}"
 
 
 def test_the_section_count_is_results_not_display_rows(qapp):
@@ -191,3 +200,49 @@ def test_a_second_page_joins_the_run_it_belongs_to(qapp):
     titles = [label for kind, label in rows if kind == "channel"]
     assert titles == ["Con Air", "Face Off", "Raising Arizona",
                       "Alpha Film", "Beta Film"], titles
+
+
+# ── collapsing a person's run ───────────────────────────────────────────────
+#
+# Owner, watching a "nicholas" search fill the screen: "I can already see we
+# need to be able to collapse every cast and crew subheader as well."
+
+def test_a_person_folds_their_own_films_and_keeps_their_name(qapp):
+    """The name stays and keeps its count — that is what the count is FOR.
+
+    Straight from the settled GroupHeading grammar: the count is "shown even
+    when the group is collapsed — with the rows hidden it is the only thing
+    describing what is in there."
+    """
+    from PyQt6.QtCore import Qt
+    model = _model(qapp, _interleaved())
+    assert _rows(model).count(("channel", "Con Air")) == 1
+
+    model.toggle_person_collapsed("Nicolas Cage")
+    rows = _rows(model)
+
+    assert ("person", "Nicolas Cage") in rows, "the name must survive the fold"
+    assert ("channel", "Con Air") not in rows
+    assert ("channel", "Face Off") not in rows
+    assert ("channel", "Alpha Film") in rows, "it folded somebody else's films"
+
+    header = next(model.index(r, 0) for r in range(model.rowCount())
+                  if model.index(r, 0).data(ROW_KIND_ROLE) == "person"
+                  and model.index(r, 0).data(SECTION_TYPE_ROLE) == "Nicolas Cage")
+    assert "2" in header.data(Qt.ItemDataRole.DisplayRole), (
+        "a collapsed run must still say how many films are in it")
+
+
+def test_unfolding_puts_the_films_back(qapp):
+    model = _model(qapp, _interleaved())
+    before = _rows(model)
+    model.toggle_person_collapsed("Nicolas Cage")
+    model.toggle_person_collapsed("Nicolas Cage")
+    assert _rows(model) == before
+
+
+def test_the_section_count_ignores_a_folded_run(qapp):
+    """Folding is not filtering — the films are still results."""
+    model = _model(qapp, _interleaved())
+    model.toggle_person_collapsed("Nicolas Cage")
+    assert model.loaded_count() == 4

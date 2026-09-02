@@ -224,6 +224,86 @@ def section_for_title(title: str | None, search_term: str) -> str:
     return SECTION_TITLE if term in (title or "").lower() else SECTION_CAST
 
 
+#: Tiers a "Whole" section keeps: the title IS the term, starts with it, or
+#: contains it as a whole word. "Part" adds tier 3 — the term appears somewhere
+#: inside a longer word, which is where Astronaut answers a search for "tron".
+#: Tier 4 (matched on cast or an id, not the title) belongs to the Cast & Crew
+#: section and is never filtered by this control.
+WHOLE_TIERS = frozenset({0, 1, 2})
+
+
+def tier_for_title(title: str | None, search_term: str) -> int:
+    """The Python half of :func:`search_relevance_tier` — the SAME ladder.
+
+    SQL decides the ORDER, because the page is chosen in the database and a
+    Python pass can only see the rows that came back. This decides what a
+    ``Whole``/``Part`` toggle KEEPS, which is a question about rows already on
+    screen — so it has to give the same answer or a row would sort into a
+    position the filter then removes it from.
+
+    Written against the same separator data as the SQL, not a second guess at
+    it: :data:`_WORD_SEPARATORS` and the space-collapse both come from there.
+
+    Args:
+        title: ``detected_title`` or the raw name.
+        search_term: Raw user text.
+
+    Returns:
+        0 exact · 1 prefix · 2 whole word · 3 substring · 4 matched elsewhere.
+    """
+    term = (search_term or "").strip().lower()
+    if not term:
+        return 0
+    low = (title or "").lower()
+    if low == term:
+        return 0
+    if low.startswith(term):
+        return 1
+
+    flat = low
+    for ch in _WORD_SEPARATORS:
+        flat = flat.replace(ch, " ")
+    flat = " " + " ".join(flat.split()) + " "
+    if f" {term} " in flat:
+        return 2
+    return 3 if term in low else 4
+
+
+def canonical_person(search_term: str, known: dict) -> str | None:
+    """The name to show when the term matched a channel's NAME, not its metadata.
+
+    Providers put the cast in the title. Measured on the owner's library for
+    "nicolas cage": **182** channels carry it in ``ChannelDB.name`` and only
+    **8** in ``detected_title`` —
+    ``'EN - Arcadian 4K (2024) NICOLAS CAGE'`` parses to ``'Arcadian'``. Those
+    rows have no ``metadata.cast`` at all (``8MM 1`` has neither cast nor
+    director) yet the search predicate matched them on the name, so they landed
+    in Cast & Crew with nothing to head them: **65 of 68 rows unlabelled, and
+    the one real group of 3 stranded at the bottom**.
+
+    The row genuinely IS a cast match — the provider is telling us he is in it —
+    so the honest heading is the term itself. Returned in the SAME spelling any
+    metadata row on the page already uses, so the two merge into one group
+    rather than "NICOLAS CAGE" sitting beside "Nicolas Cage"; failing that,
+    title case, which is what the provider blobs and TMDb both produce.
+
+    Args:
+        search_term: Raw user text.
+        known: The metadata-derived ``{channel_id: person}`` for this page.
+
+    Returns:
+        The display name, or None when the term is empty.
+    """
+    term = (search_term or "").strip()
+    if not term:
+        return None
+    low = term.lower()
+    for person in known.values():
+        if person and person.lower() == low:
+            return person        # match the spelling already on screen
+    return term.title()
+
+
 def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     """``{channel_id: person}`` for the rows whose CAST matched — one query.
 

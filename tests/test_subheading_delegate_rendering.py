@@ -72,9 +72,12 @@ def test_a_subheading_is_one_line_tall_like_a_header(rows):
     header_h = delegate.sizeHint(opt, by_kind["header"]).height()
     channel_h = delegate.sizeHint(opt, by_kind["channel"]).height()
 
-    assert person_h == header_h, (
-        f"a sub-heading is {person_h}px, a header {header_h}px — both are one "
-        "line of text and must measure the same")
+    # The SECTION header is a band — it carries the rule, the Whole|Part control
+    # and the caret, and the design gives it 9px/8px of padding for them. A
+    # sub-heading is a bare line of type, so it is deliberately shorter.
+    assert person_h < header_h, (
+        f"a sub-heading ({person_h}px) is as tall as the section band "
+        f"({header_h}px) — the second level must read as the second level")
     assert person_h < channel_h, (
         f"a sub-heading ({person_h}px) is as tall as a result row "
         f"({channel_h}px) — it is being measured as a channel")
@@ -99,9 +102,11 @@ def test_a_subheading_is_painted_by_the_label_path(rows, monkeypatch):
     finally:
         painter.end()
 
-    assert seen == ["header", "person"], (
-        f"the label path painted {seen} — a sub-heading must go through it, "
-        "and a channel must not")
+    assert seen == ["person"], (
+        f"the label path painted {seen}. A sub-heading must go through it; a "
+        "channel must not; and the SECTION header must not either — it is "
+        "painted by channel_list_section_band, which draws a rule and a "
+        "segmented control that Qt rich text cannot express.")
 
 
 def test_a_subheading_offers_nothing_to_click(rows):

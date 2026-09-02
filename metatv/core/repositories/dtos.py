@@ -185,7 +185,8 @@ class ChannelListDTO:
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok",
                  section_key: str | None = None,
-                 match_person: str | None = None) -> "ChannelListDTO":
+                 match_person: str | None = None,
+                 match_tier: int = 0) -> "ChannelListDTO":
         """Build a ChannelListDTO from a ChannelDB row (call inside a session).
 
         Args:
@@ -217,6 +218,7 @@ class ChannelListDTO:
             reliability_state=reliability_state,
             section_key=section_key,
             match_person=match_person,
+            match_tier=match_tier,
             plot=getattr(ch, "_joined_plot", "") or "",
             poster_url=getattr(ch, "_joined_poster_url", "") or "",
             content_key=getattr(ch, "content_key", None),
