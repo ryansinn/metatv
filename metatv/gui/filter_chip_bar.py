@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QLineEdit,
     QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QWidget,
 )
 
@@ -34,6 +35,11 @@ BAR_HEIGHT = 32
 #: Chip height. Comfortably over 2 x RADIUS_SM, so Qt honours the corner radius
 #: instead of silently squaring it (see docs/V3_INTERFACE_SPEC.md, Q10).
 CHIP_HEIGHT = 22
+
+#: Sub-filter width. Discover's shelf filter is 180 and this is the same
+#: control doing the same job, so it is the same width — a second number would
+#: make two identical fields look like two different features.
+RESULTS_FILTER_W = 180
 
 
 #: A plain QWidget does not paint its stylesheet background or border — it
@@ -92,6 +98,9 @@ class FilterChipBar(QWidget):
     remove_requested = pyqtSignal(str)
     add_requested = pyqtSignal()
     clear_requested = pyqtSignal()
+    #: The sub-filter text changed. Narrows the rows already on screen; it never
+    #: re-queries, so it is a DISPLAY signal, not a filter-model one.
+    results_filter_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -144,6 +153,31 @@ class FilterChipBar(QWidget):
         self._row.addWidget(self._add)
 
         self._row.addStretch(1)
+
+        # ── sub-filter ──────────────────────────────────────────────────────
+        #
+        # Narrows what is already on screen, without asking the database again.
+        # The placeholder says "these results" rather than "channels" for a
+        # reason: it can only reach LOADED rows, which with a search active is
+        # the whole answer but while browsing is one page of many. Claiming
+        # otherwise would make it look broken the first time someone typed a
+        # title that is real but four pages down.
+        #
+        # Deliberately NOT persisted — discover_view's shelf filter states the
+        # case: "a filter restored at launch would present an almost-empty
+        # view with no obvious cause, which reads as a broken app rather than
+        # a saved preference."
+        self._results_filter = QLineEdit()
+        self._results_filter.setPlaceholderText("Filter these results…")
+        self._results_filter.setClearButtonEnabled(True)   # the standard
+        self._results_filter.setFixedWidth(RESULTS_FILTER_W)
+        self._results_filter.setFixedHeight(CHIP_HEIGHT)
+        self._results_filter.setToolTip(
+            "Narrow the results already listed — matches the title, a person, "
+            "the year, genre or category. Clear it to show them all again."
+        )
+        self._results_filter.textChanged.connect(self.results_filter_changed)
+        self._row.addWidget(self._results_filter)
 
         self._clear = QPushButton("Clear all")
         self._clear.setFixedHeight(CHIP_HEIGHT)
@@ -210,6 +244,12 @@ class FilterChipBar(QWidget):
         pad = _theme.space_px(_theme.SPACE_SM)
         gap = _theme.space_px(_theme.SPACE_XS)
         fixed = pad * 2 + self._add.sizeHint().width() + gap
+        # The sub-filter is part of the fixed furniture, so chips overflow
+        # BEFORE it squashes them. Leaving it out of this sum is what made
+        # test_a_shown_chip_is_never_squashed fail at 300px: the field took its
+        # 180 regardless and the chips divided what was left.
+        if self._results_filter.isVisibleTo(self):
+            fixed += self._results_filter.sizeHint().width() + gap
         if self._clear.isVisible():
             fixed += self._clear.sizeHint().width() + gap
         budget = available - fixed

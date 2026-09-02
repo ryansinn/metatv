@@ -32,6 +32,7 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
 from metatv.core.repositories.dtos import ChannelListDTO
+from metatv.gui import channel_list_filtering as _filtering
 from metatv.gui.channel_list_grouping import (
     SECTION_ORDER, ChannelListGroupingMixin,
 )
@@ -171,6 +172,12 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         # Sections the user has narrowed to whole-word matches. EMPTY by
         # default: a section shows everything until someone says otherwise.
         self._word_only: set[str] = set()
+        # The sub-filter over rows already loaded, and the indices surviving it.
+        # One list for BOTH display modes — flat reads it, grouped buckets from
+        # it — so a row cannot be filtered out of the list and still counted by
+        # a heading. Never persisted: see channel_list_filtering.
+        self._result_filter: str = ""
+        self._visible: list[int] = []
         # People whose films are folded away under their name, and how many
         # each has — the count the sub-heading shows, which stays true while
         # the run is collapsed because that is the only thing describing it.
@@ -190,7 +197,7 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         if parent.isValid():
             return 0
         if not self._grouped:
-            return len(self._channels)
+            return len(self._visible)
         return sum(self._section_size(sec) for sec in self._ordered_sections())
 
     def loaded_count(self) -> int:
@@ -198,8 +205,12 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
 
         ``rowCount()`` is the DISPLAY count and includes section headers, which
         every search now creates: three results reported as five.
+
+        Counts what SURVIVES the sub-filter, not what was fetched — the number
+        beside a filter that says a different thing from the list under it is
+        the reason people stop trusting counts.
         """
-        return len(self._channels)
+        return len(self._visible)
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:  # type: ignore[override]
         if not index.isValid():
@@ -207,9 +218,9 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
 
         if not self._grouped:
             row = index.row()
-            if not (0 <= row < len(self._channels)):
+            if not (0 <= row < len(self._visible)):
                 return None
-            return self._channel_data(self._channels[row], role)
+            return self._channel_data(self._channels[self._visible[row]], role)
 
         resolved = self._resolve_row(index.row())
         if resolved is None:
@@ -627,8 +638,31 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         self.dataChanged.emit(mi, mi, roles)
 
     def _rebuild_index(self) -> None:
-        """Rebuild the id→row-index lookup dict."""
+        """Rebuild the id→row-index lookup dict and the sub-filter's survivors."""
         self._id_to_index = {ch.id: i for i, ch in enumerate(self._channels)}
+        self._visible = _filtering.visible_indices(
+            self._channels, self._result_filter)
+
+    def set_result_filter(self, text: str) -> None:
+        """Narrow the rows already loaded to those carrying *text*.
+
+        A full reset: the survivors are scattered through every section and
+        every person run, so there is no contiguous block to hand Qt.
+        """
+        text = text or ""
+        if text == self._result_filter:
+            return
+        self.beginResetModel()
+        self._result_filter = text
+        self._rebuild_index()
+        if self._grouped:
+            self._rebuild_buckets()
+        self.endResetModel()
+
+    @property
+    def result_filter(self) -> str:
+        """The active sub-filter text ("" when nothing is being narrowed)."""
+        return self._result_filter
 
     def _playback_indicator(self, channel: ChannelListDTO) -> tuple[str, str | None]:
         """Return the (glyph, colour) for the row's fixed playback-state separator.

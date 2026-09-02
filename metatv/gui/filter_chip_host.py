@@ -38,8 +38,21 @@ class _FilterChipHostMixin:
         bar.remove_requested.connect(self._on_filter_chip_removed)
         bar.add_requested.connect(self._on_filter_chip_add)
         bar.clear_requested.connect(self._on_filter_chip_clear)
+        bar.results_filter_changed.connect(self._on_results_filter_changed)
         self.filter_chip_bar = bar
         return bar
+
+    def _on_results_filter_changed(self, text: str) -> None:
+        """Narrow the rows already on screen. No re-query, nothing persisted.
+
+        Straight to the model, deliberately not through the filter/query path:
+        every other chip on this bar changes WHAT IS FETCHED, and routing this
+        one the same way would re-run a 785,551-row query on every keystroke to
+        answer a question about the hundred rows already in front of the user.
+        """
+        model = self.__dict__.get("channel_model")
+        if model is not None:
+            model.set_result_filter(text)
 
     # ── The chokepoint ───────────────────────────────────────────────────────
 

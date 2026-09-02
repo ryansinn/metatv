@@ -270,8 +270,10 @@ class ChannelListGroupingMixin:
         self._buckets = {}
         self._bucket_pos = {}
         self._layouts = {}
-        for i, ch in enumerate(self._channels):
-            self._extend_bucket(ch.section, [i])
+        # From the sub-filter's survivors, not from every loaded row: one
+        # definition of "which rows exist right now", shared with flat mode.
+        for i in self._visible:
+            self._extend_bucket(self._channels[i].section, [i])
         for section in list(self._buckets):
             self._rebuild_layout(section)
 
