@@ -21,6 +21,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.stream_diagnostics import _redact
 from metatv.core.url_cycle import UrlCycler
+from metatv.gui import playback_start_watch as _startwatch
 from metatv.gui import icons as _icons
 from metatv.providers.xtream import _DEFAULT_HEADERS
 
@@ -765,9 +766,11 @@ class _StreamingMixin:
                 self._provider_icons[pid] = self._lookup_provider_icon(pid)
 
             # Begin polling mpv for the live playback-health readout (main thread).
-            self._start_playback_health()
-
-            QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {channel_name}"))
+            # "Playing:" is now announced by that probe when a file is really
+            # loaded, not by a 2s timer that fired regardless — see
+            # gui/playback_start_watch.py.
+            self._start_playback_health(
+                _startwatch.PlayAttempt(channel_id, channel_name, final_url))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")
@@ -1413,30 +1416,9 @@ class _StreamingMixin:
     # timer self-stops after a short idle grace so there's no perpetual polling
     # once you stop watching; it restarts on the next play_media.
 
-    def _start_playback_health(self) -> None:
-        """Start (or resume) polling mpv for the playback-health readout.
-
-        Lazily creates the QTimer on first use and registers its stop() with the
-        cleanup registry exactly once. Safe to call on every play.
-        """
-        if self.__dict__.get("_playback_health_timer") is None:
-            self._playback_health_timer = QTimer(self)
-            self._playback_health_timer.setInterval(2000)
-            self._playback_health_timer.timeout.connect(self._playback_health_tick)
-            self._health_query_inflight = False
-            self._register_cleanable(
-                "playback_health_timer", self._playback_health_timer.stop
-            )
-
-        self._health_idle_ticks = 0
-        # A new play always follows the most-recently-used window. Without this,
-        # a readout the user clicked to cycle (pinning _health_view_key to some
-        # window) stays pinned forever — so after that window goes idle or they
-        # play elsewhere, the readout keeps polling the stale/idle instance and
-        # shows nothing. Reset to "follow latest" on every play.
-        self._health_view_key = None
-        if not self._playback_health_timer.isActive():
-            self._playback_health_timer.start()
+    def _start_playback_health(self, attempt=None) -> None:
+        """Start (or resume) polling mpv — see playback_start_watch.start_polling."""
+        _startwatch.start_polling(self, attempt)
 
     def _playback_health_tick(self) -> None:
         """Timer tick (main thread): kick off an off-thread mpv probe.
@@ -1566,12 +1548,12 @@ class _StreamingMixin:
             # panel should show resume if the content I just closed was the
             # content mpv was just playing."
             self._refresh_details_after_playback_stopped(key)
-            self._health_idle_ticks = self.__dict__.get("_health_idle_ticks", 0) + 1
-            if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
+            if _startwatch.on_idle_tick(self):
                 self._playback_health_timer.stop()
             return
 
-        self._health_idle_ticks = 0
+        if _startwatch.on_playing(self) and (att := self.__dict__.get("_health_attempt")):
+            self.status_bar.showMessage(f"Playing: {att.channel_name}")
         text = format_playback_health(
             props.get("demuxer-cache-duration"),
             props.get("cache-speed"),
