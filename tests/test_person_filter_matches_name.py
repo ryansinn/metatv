@@ -8,7 +8,7 @@ return as a result if someone filters for that actor?" It did not.
 The asymmetry was the bug:
 
   * free-text SEARCH already matched ``ChannelDB.name`` (see
-    ``_channel_text_search_predicate``), so searching "Nicolas Cage" FOUND it;
+    ``channel_text_search_predicate``), so searching "Nicolas Cage" FOUND it;
   * the person FILTER checked only ``metadata.cast``/``director`` and
     ``raw_data.$.cast``/``$.director``, so filtering by the same name MISSED it.
 

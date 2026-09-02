@@ -17,7 +17,10 @@ from __future__ import annotations
 
 from sqlalchemy import bindparam, case, func, literal, text
 
+from sqlalchemy import or_
+
 from metatv.core.database import ChannelDB
+from metatv.core.repositories.channel_lens import metadata_person_exists
 from metatv.core.watchlist_matching import _escape_like
 
 
@@ -102,7 +105,7 @@ def search_relevance_tier(search_term: str):
     ========  ==========================================  =======
 
     Tier 4 is where the cast/director arm of
-    :func:`_channel_text_search_predicate` lands. That arm matches a substring
+    :func:`channel_text_search_predicate` lands. That arm matches a substring
     of the serialized JSON, which is why "Trond Fausa Aurvåg" answers a search
     for "tron" — demoting it does not fix that, but it stops it burying the
     film.
@@ -472,3 +475,52 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
         if part:
             best[cid] = part
     return best
+
+
+def channel_text_search_predicate(search_term: str):
+    """Shared free-text search predicate: channel name OR linked metadata director/cast.
+
+    Single chokepoint for every "search box" filter over ``ChannelDB`` — every call
+    site (``_apply_channel_filters``, ``search``, ``get_similar_channels``,
+    ``get_hidden_channels``) routes through this instead of hand-rolling
+    ``ChannelDB.name.ilike(...)`` alone, so a search for a cast member or director
+    ("Nicole Kidman") also matches even when the channel *name* doesn't contain it.
+
+    ``MetadataDB.cast`` is a ``JSONEncoded`` (``Text``-backed) column storing
+    ``[{"name": ..., "character": ..., "photo_url": ...}]`` — matched with a plain
+    substring ``ILIKE`` against the serialized JSON text, which is sufficient for a
+    name lookup without a ``json_each`` split. ``MetadataDB.director`` is matched the
+    same way. Both comparisons wrap the column in ``type_coerce(..., Text)`` first —
+    without it, SQLAlchemy runs the ``JSONEncoded`` bind-processor on the search
+    pattern too (JSON-encoding it into a quoted string literal), which silently
+    never matches. Joins to ``MetadataDB`` via a correlated ``EXISTS`` (not a real
+    JOIN) so callers can ``.filter()`` this onto any existing ``Query(ChannelDB)``
+    without altering row cardinality or interacting with joins the caller already
+    applied.
+
+    Args:
+        search_term: Raw (non-empty) user search text; wildcards are added here.
+
+    Returns:
+        A SQLAlchemy boolean clause suitable for ``query.filter(...)``.
+    """
+    pattern = f"%{search_term}%"
+    # Channel IDs are matched EXACTLY, never as a substring, so that pasting an
+    # id finds exactly that channel while an ordinary word search is unchanged.
+    #
+    # Two ids are useful to a person and both are accepted:
+    #   ChannelDB.id         the app's own "{provider_uuid}_{stream_id}"
+    #   ChannelDB.source_id  the provider's own stream id, which is what a user
+    #                        reads off a source and passes to someone else
+    #
+    # Exactness is the whole design. A substring match would make a search for
+    # "2024" also return whichever channel happens to carry stream id 2024,
+    # which is noise in the common case and impossible to predict. Equality
+    # costs nothing when it does not match and is unambiguous when it does.
+    term = search_term.strip()
+    return or_(
+        ChannelDB.name.ilike(pattern),
+        metadata_person_exists(pattern),
+        ChannelDB.id == term,
+        ChannelDB.source_id == term,
+    )
