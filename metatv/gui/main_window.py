@@ -121,8 +121,6 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
     return yr_a is None or yr_b is None or yr_a == yr_b
 
 
-
-
 #: How long ``closeEvent`` waits for in-flight background work before closing
 #: the database under it. Sized ABOVE the slowest single query a worker runs —
 #: a channel-list load with variant collapsing is ~6 s on a large library — so
@@ -1117,6 +1115,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
                     section.exploreClicked.connect(
                         lambda key=section.EXPLORE_KEY: self.switch_to_explore_view(key)
                     )
+                self._wire_sidebar_section_menu(section, section_id)
                 self.sidebar_splitter.addWidget(section)
                 section.setVisible(section_id in visible_ids)
                 section.restore_state()

@@ -232,8 +232,6 @@ from metatv.gui.sidebar.row_budget import RowBudgetMixin
 from metatv.gui.sidebar.section_cap import SectionContentCapMixin
 
 
-
-
 class SectionAction(NamedTuple):
     """One entry in a section's ⋯ menu.
 
@@ -331,7 +329,8 @@ class _ClickableHeader(QWidget):
         _theme.style(self, "SECTION_HEADER_TINT")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
-        self.clicked.emit()
+        if event.button() == Qt.MouseButton.LeftButton:  # right-click opens the menu below
+            self.clicked.emit()
         super().mousePressEvent(event)
 
 
@@ -576,6 +575,8 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
     # (cascading columns seeded with the section's contents).  Only sections that
     # set EXPLORE_KEY grow the link, so only they emit it.
     exploreClicked = pyqtSignal()
+    hideRequested = pyqtSignal()
+    sidebarSettingsRequested = pyqtSignal()
 
     # EXPLORE_SOURCES key whose Explore view this section's header link opens.
     # None (the default) → no "Explore →" link on this section.
@@ -849,11 +850,6 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         density = self.config.sidebar_row_density
         return density if density in DENSITIES else DENSITY_COMPACT
 
-
-
-
-
-
     def preferred_expanded_height(self) -> int:
         """The height this section WANTS when the sidebar has room to give.
 
@@ -943,6 +939,10 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
         # Clicking anywhere on the header (outside child buttons) also toggles.
         header.clicked.connect(self.toggle_collapse)
+
+        from metatv.gui.sidebar.header_menu import show_header_menu
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(lambda p: show_header_menu(self, header, p))
 
         return header
 
