@@ -153,22 +153,70 @@ def load_baseline(path: Path = BASELINE_PATH) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+#: Default ``_comment`` text, used only when *path* has no existing baseline
+#: to preserve one from (a brand-new baseline file).
+_DEFAULT_COMMENT = (
+    "Debt ratchet baseline — see docs/AUDIT_2026-08-16.md. Regenerate "
+    "with scripts/rebaseline_code_health.py ONLY for a deliberate, "
+    "reviewed increase."
+)
+
+#: Matches the ``"_comment": "..."`` field as raw JSON text (escape
+#: sequences intact, not decoded).
+_COMMENT_FIELD = re.compile(r'"_comment"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _existing_comment_json(path: Path) -> str | None:
+    """Return the existing baseline's ``_comment`` value's raw JSON encoding.
+
+    "Raw" means the escape sequences as they literally sit on disk — NOT the
+    decoded Python string. A literal em-dash and a ``\\u2014`` escape decode
+    to the identical string, so comparing decoded values can never notice
+    that the on-disk bytes changed; a decode-then-re-encode round trip through
+    ``json.dumps`` is exactly what flipped this line back and forth three
+    times on 2026-09-01 (the merge driver for this file writes with
+    ``ensure_ascii`` defaulted on, this script wrote with it off). Returning
+    the untouched raw text and splicing it back verbatim is what makes a
+    rebaseline byte-for-byte stable on this field regardless of who wrote it
+    last.
+
+    Returns ``None`` when *path* doesn't exist or has no ``_comment`` key —
+    the only case that falls back to :data:`_DEFAULT_COMMENT`.
+    """
+    if not path.exists():
+        return None
+    match = _COMMENT_FIELD.search(path.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
+
+
 def _write_baseline(
     file_lines: dict[str, int], get_session_calls: int, path: Path = BASELINE_PATH
 ) -> None:
-    """Serialize the recomputed baseline to ``path``."""
-    data = {
-        "_comment": (
-            "Debt ratchet baseline — see docs/AUDIT_2026-08-16.md. Regenerate "
-            "with scripts/rebaseline_code_health.py ONLY for a deliberate, "
-            "reviewed increase."
-        ),
-        "file_lines": dict(sorted(file_lines.items())),
-        "get_session_calls": get_session_calls,
-    }
-    path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    """Serialize the recomputed baseline to ``path``.
+
+    The ``_comment`` field is copied from the existing file byte-for-byte
+    (see :func:`_existing_comment_json`) rather than re-serialized, so running
+    this script never itself changes that line's encoding.
+    """
+    raw_comment = _existing_comment_json(path)
+    comment_field = (
+        f'"{raw_comment}"'
+        if raw_comment is not None
+        else json.dumps(_DEFAULT_COMMENT, ensure_ascii=False)
     )
+    body = json.dumps(
+        {
+            "file_lines": dict(sorted(file_lines.items())),
+            "get_session_calls": get_session_calls,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+    # Splice `"_comment": <field>,` in as the first key, ahead of the object
+    # `json.dumps` above produced for the rest — same key order as before,
+    # without ever decoding/re-encoding the comment itself.
+    text = '{\n  "_comment": ' + comment_field + "," + body[1:]
+    path.write_text(text + "\n", encoding="utf-8")
 
 
 def main() -> int:
