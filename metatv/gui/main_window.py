@@ -55,6 +55,7 @@ from metatv.gui.sidebar.downloads import DownloadsSection
 from metatv.gui.sidebar.recordings import RecordingsSection
 from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
 from metatv.gui.sources_manager_view import SourcesManagerView
+from metatv.gui import settings_apply as _settings_apply
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
@@ -2614,25 +2615,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         """
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self, executor=self.executor)
-        dialog.settings_applied.connect(self._apply_sidebar_visibility)
-        dialog.settings_applied.connect(self._refresh_recommendation_views)
-        dialog.settings_applied.connect(self._apply_channel_list_density)
-        dialog.settings_applied.connect(self._apply_sidebar_row_density)
-        dialog.settings_applied.connect(self.refresh_theme)
-        dialog.settings_applied.connect(self._apply_collapse_variants_setting)
-        # Settings → Content is the ONLY reachable adult-mode control, so its
-        # change has to reach both the filter bar's (hidden) combo and the list.
-        dialog.settings_applied.connect(self._apply_adult_mode_setting)
-        # alerts_show_idle_items changes WHICH rows the section lists, so it has
-        # to re-render; the existing alert-visibility chokepoint already does it.
-        dialog.settings_applied.connect(self._refresh_vod_alerts_section)
-        # series_monitor_interval_minutes only takes effect when the timer is
-        # re-armed; start_scheduler() re-reads config and is safe to re-call.
-        dialog.settings_applied.connect(self._restart_series_monitor_scheduler)
-        # Applies the menu-bar setting AND re-ticks the Tools entry, so the two
-        # surfaces cannot disagree after an OK.
-        dialog.settings_applied.connect(self._apply_menu_bar_setting)
-        dialog.settings_applied.connect(self._sync_split_toggle)
+        # ONE slot, not eleven connections. The list itself lives in
+        # gui/settings_apply.HANDLERS — same single enumeration, moved to where
+        # it can be ordered, timed and guarded. It also coalesces the list
+        # reload: two handlers called load_channels() independently, so one OK
+        # re-ran the whole 785k-row filter twice.
+        dialog.settings_applied.connect(lambda: _settings_apply.run(self))
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             dialog.select_section_by_label(tab)
@@ -3071,7 +3059,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
                 combo.setCurrentIndex(index)
             finally:
                 combo.blockSignals(previous)
-        self.load_channels()
+        _settings_apply.request_channel_reload(self)
 
     def _apply_collapse_variants_setting(self) -> None:
         """Re-query the channel list after the collapse-variants checkbox changes.
@@ -3089,7 +3077,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         matching the sibling density/thumbnails and recommendation-scoring
         hooks in this same connect block (they also re-apply unconditionally).
         """
-        self.load_channels()
+        _settings_apply.request_channel_reload(self)
 
     def _apply_sidebar_row_density(self) -> None:
         """Rebuild every sidebar section after a row-density change.
