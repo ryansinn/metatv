@@ -462,3 +462,33 @@ def test_start_playback_health_resets_view_key():
         "_start_playback_health must reset the pinned view-key so a new play "
         "follows the most-recently-used window"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wiring test: on_loaded_tick is called on every loaded probe
+# ---------------------------------------------------------------------------
+
+def test_on_playback_health_ready_calls_on_loaded_tick():
+    """A loaded probe with path and time-pos calls on_loaded_tick with the values."""
+    import unittest.mock as mock
+    from metatv.gui import playback_start_watch
+
+    # Monkeypatch on_loaded_tick in its defining module
+    with mock.patch.object(playback_start_watch, 'on_loaded_tick') as mock_tick:
+        host = _host_for_result(keys=["__shared__"])
+        props = {
+            "path": "http://stream/url",
+            "demuxer-cache-duration": 18.4,
+            "cache-speed": 775000,
+            "frame-drop-count": 0,
+            "time-pos": 42.0,
+            "pause": False,
+        }
+        MainWindow._on_playback_health_ready(host, (None, props))
+
+        # Verify on_loaded_tick was called with the host, time-pos, and pause flag
+        mock_tick.assert_called_once()
+        call_args = mock_tick.call_args
+        assert call_args[0][0] is host  # first arg is host
+        assert call_args[0][1] == 42.0  # time-pos
+        assert call_args[0][2] is False  # pause

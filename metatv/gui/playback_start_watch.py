@@ -18,6 +18,8 @@ So the rule here is one bit of memory — *has this play ever had a loaded file?
 
 * never loaded, and the probe has said so for :data:`FAILED_AFTER_TICKS` ticks
   → the play FAILED, and the user is told.
+* loaded but frozen (time-pos never advances) for :data:`STALLED_AFTER_TICKS`
+  ticks → the play FAILED; user pause holds the counter.
 * loaded once and now idle → the player was closed, which is the existing
   behaviour and stays untouched.
 
@@ -61,6 +63,19 @@ FAILED_AFTER_TICKS = 5
 #: one being a bare literal in a slot.
 STOP_POLLING_AFTER_TICKS = 8
 
+#: Consecutive loaded-but-frozen probes before a play is declared stalled.
+#:
+#: ~16s at POLL_MS. Must comfortably exceed mpv's --cache-pause-wait=10 (see
+#: the launch flags in core/players/mpv.py): a healthy slow stream sits in
+#: initial cache-pause with no position for up to ~10s and must not be called
+#: broken. A local bench (2026-09-02) showed a 20 KB/s stream starting inside
+#: three seconds under these flags, so 16s of zero progress is not "slow".
+STALLED_AFTER_TICKS = 8
+
+#: Minimum time-pos increase (seconds) that counts as real progress — guards
+#: against float jitter between two probes of a genuinely frozen position.
+_PROGRESS_EPSILON = 0.25
+
 
 class PlayAttempt(NamedTuple):
     """What a failure report needs to name the thing that did not play."""
@@ -87,6 +102,9 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     host._health_ever_played = False
     host._health_reported = False
     host._health_attempt = attempt
+    host._health_last_time_pos = None
+    host._health_stalled_ticks = 0
+    host._health_ever_progressed = False
 
 
 def on_playing(host: Any) -> bool:
@@ -100,6 +118,42 @@ def on_playing(host: Any) -> bool:
     first = not host.__dict__.get("_health_ever_played", False)
     host._health_ever_played = True
     return first
+
+
+def on_loaded_tick(host: Any, time_pos: Any, paused: bool) -> None:
+    """Judge whether a LOADED file is actually progressing.
+
+    Called on every probe tick that carries a loaded ``path`` (the same ticks
+    that feed :func:`on_playing`). The third shape of "it never played":
+    mpv accepted the file, ``path`` is set, video output may even have painted
+    a garbage frame — but ``time-pos`` never advances. ``on_playing``'s bare
+    path check reads that as success, so without this the user gets a black
+    window and silence (owner, 2026-09-02: black with a green bar, no message).
+
+    Progress means an INCREASE between two numeric readings — a single frozen
+    reading (e.g. 0.0 from one decoded garbage frame) is not progress. A
+    user-paused player holds the counter: a frozen position proves nothing
+    while they hold it. Once real progress is seen the watch disarms for the
+    rest of the play.
+
+    Deliberately NOT consulted by :func:`on_player_gone` or the idle path:
+    closing a just-loaded stream within its first seconds must stay silent —
+    the negative case the whole module is built around.
+    """
+    if host.__dict__.get("_health_ever_progressed"):
+        return
+    last = host.__dict__.get("_health_last_time_pos")
+    if isinstance(time_pos, (int, float)):
+        if last is not None and time_pos > last + _PROGRESS_EPSILON:
+            host._health_ever_progressed = True
+            return
+        host._health_last_time_pos = float(time_pos)
+    if paused:
+        return
+    ticks = host.__dict__.get("_health_stalled_ticks", 0) + 1
+    host._health_stalled_ticks = ticks
+    if ticks == STALLED_AFTER_TICKS:
+        _report_never_started(host, stalled=True)
 
 
 def on_player_gone(host: Any) -> bool:
@@ -140,7 +194,7 @@ def on_idle_tick(host: Any) -> bool:
     return ticks >= STOP_POLLING_AFTER_TICKS
 
 
-def _report_never_started(host: Any, *, exited: bool = False) -> bool:
+def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False) -> bool:
     """Tell the user, and put it in the retry ledger. Returns whether it did.
 
     Reports at most once per play: both callers can fire for the same failure,
@@ -158,6 +212,9 @@ def _report_never_started(host: Any, *, exited: bool = False) -> bool:
     if exited:
         logger.warning("playback never started for {!r} — the player exited "
                        "without playing anything (resume={}s)", name, resume)
+    elif stalled:
+        logger.warning("playback never started for {!r} — a file loaded but playback "
+                       "never advanced within {}s (resume={}s)", name, STALLED_AFTER_TICKS * 2, resume)
     else:
         logger.warning(
             "playback never started for {!r} — mpv accepted the file and loaded "
@@ -175,9 +232,12 @@ def _report_never_started(host: Any, *, exited: bool = False) -> bool:
                   f"It was resuming at {resume // 60}m{resume % 60:02d}s — if "
                   "that is past the end of this file, playing from the start "
                   "will work.")
+        message = (f"{name} loaded but never began playing. {detail}"
+                   if stalled else
+                   f"{name} was accepted by the source but no video arrived. {detail}")
         host.notification_manager.show(
             title="Stream did not start",
-            message=f"{name} was accepted by the source but no video arrived. {detail}",
+            message=message,
             type="warning",
             auto_dismiss_ms=8000,
         )

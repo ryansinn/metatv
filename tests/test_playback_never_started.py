@@ -29,6 +29,7 @@ import pytest
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,
+    STALLED_AFTER_TICKS,
     STOP_POLLING_AFTER_TICKS,
     PlayAttempt,
 )
@@ -326,3 +327,104 @@ def test_the_play_path_carries_the_resume_offset():
     assert "final_url, start_seconds)" in src, (
         "PlayAttempt no longer carries the resume offset, so the message "
         "cannot name it")
+
+
+# ── the third shape: loaded but frozen ──────────────────────────────────────
+
+def test_stalled_start_reports_once():
+    """A file that loaded but never advanced is reported once."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, 0.0, False)
+
+    host.status_bar.showMessage.assert_called_once()
+    assert "Nothing is playing" in host.status_bar.showMessage.call_args[0][0]
+    host.notification_manager.show.assert_called_once()
+    host.stream_retry_manager.add_failure.assert_called_once_with(
+        ATTEMPT.channel_id, ATTEMPT.channel_name, ATTEMPT.stream_url,
+        "playback never started")
+
+    # Further ticks do nothing.
+    for _ in range(5):
+        watch.on_loaded_tick(host, 0.0, False)
+    assert host.notification_manager.show.call_count == 1
+
+
+def test_progress_disarms_the_stall_watch():
+    """Once time-pos advances by the epsilon, no stall is reported."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_loaded_tick(host, 1.0, False)
+    watch.on_loaded_tick(host, 3.0, False)  # +2.0, well above epsilon
+    for _ in range(20):
+        watch.on_loaded_tick(host, 3.0, False)
+    host.notification_manager.show.assert_not_called()
+    host.stream_retry_manager.add_failure.assert_not_called()
+
+
+def test_none_time_pos_counts_as_stalled():
+    """A stream stuck with no position forever is a stall."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, None, False)
+    host.notification_manager.show.assert_called_once()
+
+
+def test_first_frozen_reading_is_not_progress():
+    """A single 0.0 reading (decoded garbage frame) is not progress."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, 0.0, False)
+    host.notification_manager.show.assert_called_once()
+
+
+def test_user_pause_holds_the_counter():
+    """Paused position does not count toward the stall threshold."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    # 4 unpaused frozen ticks
+    for _ in range(4):
+        watch.on_loaded_tick(host, 0.0, False)
+    # 10 paused frozen ticks (doesn't count)
+    for _ in range(10):
+        watch.on_loaded_tick(host, 0.0, True)
+    # Should still be at 4, not stalled
+    host.notification_manager.show.assert_not_called()
+    # 4 more unpaused ticks crosses the threshold
+    for _ in range(4):
+        watch.on_loaded_tick(host, 0.0, False)
+    host.notification_manager.show.assert_called_once()
+
+
+def test_progress_just_before_threshold_stays_silent():
+    """A small advance just before stalling should prevent the report."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS - 1):
+        watch.on_loaded_tick(host, 0.0, False)
+    # Progress at the last tick before threshold
+    watch.on_loaded_tick(host, 2.0, False)
+    watch.on_loaded_tick(host, 4.5, False)
+    # No stall report even after many frozen ticks
+    for _ in range(20):
+        watch.on_loaded_tick(host, 4.5, False)
+    host.notification_manager.show.assert_not_called()
+
+
+def test_stalled_then_player_gone_reports_once_total():
+    """A stall report and a gone report must total only one."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    # Drive a stalled report
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, 0.0, False)
+    # Set _health_ever_played to False to allow on_player_gone to report
+    host._health_ever_played = False
+    # Call on_player_gone
+    watch.on_player_gone(host)
+    # Total notifications should be 1
+    assert host.notification_manager.show.call_count == 1
+    assert host.stream_retry_manager.add_failure.call_count == 1
