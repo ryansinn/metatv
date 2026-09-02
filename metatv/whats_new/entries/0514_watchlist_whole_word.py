@@ -25,7 +25,7 @@ ENTRY = WhatsNewEntry(
     test_steps=(
         ("Add a watch rule for a short term that appears inside longer words "
          "(for example NFL) and confirm the Watch Alerts list no longer shows "
-         "unrelated programmes.", "view:watch_alerts"),
+         "unrelated programmes.", "view:epg"),
         ("Open EPG Browse and confirm the highlighted rows are exactly the "
          "ones the watchlist lists — no highlighted row that is not a match.",
          "view:browse"),
