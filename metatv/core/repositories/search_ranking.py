@@ -224,6 +224,51 @@ def section_for_title(title: str | None, search_term: str) -> str:
     return SECTION_TITLE if term in (title or "").lower() else SECTION_CAST
 
 
+#: Tiers a "Whole" section keeps: the title IS the term, starts with it, or
+#: contains it as a whole word. "Part" adds tier 3 — the term appears somewhere
+#: inside a longer word, which is where Astronaut answers a search for "tron".
+#: Tier 4 (matched on cast or an id, not the title) belongs to the Cast & Crew
+#: section and is never filtered by this control.
+WHOLE_TIERS = frozenset({0, 1, 2})
+
+
+def tier_for_title(title: str | None, search_term: str) -> int:
+    """The Python half of :func:`search_relevance_tier` — the SAME ladder.
+
+    SQL decides the ORDER, because the page is chosen in the database and a
+    Python pass can only see the rows that came back. This decides what a
+    ``Whole``/``Part`` toggle KEEPS, which is a question about rows already on
+    screen — so it has to give the same answer or a row would sort into a
+    position the filter then removes it from.
+
+    Written against the same separator data as the SQL, not a second guess at
+    it: :data:`_WORD_SEPARATORS` and the space-collapse both come from there.
+
+    Args:
+        title: ``detected_title`` or the raw name.
+        search_term: Raw user text.
+
+    Returns:
+        0 exact · 1 prefix · 2 whole word · 3 substring · 4 matched elsewhere.
+    """
+    term = (search_term or "").strip().lower()
+    if not term:
+        return 0
+    low = (title or "").lower()
+    if low == term:
+        return 0
+    if low.startswith(term):
+        return 1
+
+    flat = low
+    for ch in _WORD_SEPARATORS:
+        flat = flat.replace(ch, " ")
+    flat = " " + " ".join(flat.split()) + " "
+    if f" {term} " in flat:
+        return 2
+    return 3 if term in low else 4
+
+
 def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     """``{channel_id: person}`` for the rows whose CAST matched — one query.
 

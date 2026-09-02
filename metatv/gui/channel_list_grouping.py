@@ -29,11 +29,13 @@ from typing import Any, Optional
 from PyQt6.QtCore import QModelIndex, Qt
 
 from metatv.core.repositories.dtos import ChannelListDTO
-from metatv.core.repositories.search_ranking import SECTION_ORDER as _SEARCH_SECTIONS
+from metatv.core.repositories.search_ranking import (
+    WHOLE_TIERS,
+    SECTION_ORDER as _SEARCH_SECTIONS,
+)
 from metatv.gui.channel_list_roles import (
     CHANNEL_HTML_ROLE, ROW_KIND_ROLE, SECTION_TYPE_ROLE,
 )
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -46,6 +48,44 @@ _SECTION_LABELS: dict[str, str] = {
     # "Cast & Crew" covers cast and director: three headers would be near-empty.
     "title": "Titles", "cast": "Cast & Crew",
 }
+
+
+def _heading_html(label: str, count: int, *, second_level: bool = False) -> str:
+    """The settled two-tone heading, as HTML for a delegate-painted row.
+
+    Transcribed from ``GroupHeading`` / ``SIDEBAR_GROUP_HEADING`` rather than
+    invented, so the channel list and the sidebar say the same thing the same
+    way. Three parts of that grammar this list was breaking:
+
+    * **Two tones.** A label at ``COLOR_TEXT`` / ``FONT_SM`` / bold against a
+      count at ``COLOR_TEXT_HI`` / ``FONT_MD`` / bold. The count carries the
+      emphasis because it is the VARIABLE half — the label always says the
+      same word. Both were one flat bright weight here.
+    * **No caret.** *"The heading itself is the control, exactly as the section
+      headers have been since #329 — a caret beside a clickable title is a
+      second affordance for one action."* This list had one.
+    * **Small caps**, which is why the label arrives already uppercased.
+
+    ``second_level`` inverts which half is the constant, and that is the same
+    rule rather than an exception to it: a PERSON's name is the variable and
+    the film count is incidental, so the name takes the bright ramp. It is also
+    why the name may not use ``COLOR_TEXT_LOW`` — measured 4.15:1 there, under
+    the 4.5 text floor in four of six palettes, and "quiet" cannot be bought
+    with contrast a reader needs.
+    """
+    if second_level:
+        return (
+            f'<span style="color:{_theme.COLOR_TEXT_HI};font-size:'
+            f'{_theme.FONT_MD};font-weight:bold">{_html.escape(label)}</span>'
+            f'<span style="color:{_theme.COLOR_TEXT};font-size:'
+            f'{_theme.FONT_SM}">&#160;&#160;{count:,}</span>'
+        )
+    return (
+        f'<span style="color:{_theme.COLOR_TEXT};font-size:{_theme.FONT_SM};'
+        f'font-weight:bold">{_html.escape(label)}</span>'
+        f'<span style="color:{_theme.COLOR_TEXT_HI};font-size:{_theme.FONT_MD};'
+        f'font-weight:bold">&#160;&#160;{count:,}</span>'
+    )
 
 
 class ChannelListGroupingMixin:
@@ -64,21 +104,69 @@ class ChannelListGroupingMixin:
         if role == SECTION_TYPE_ROLE:
             return section
         if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
-            count = len(self._buckets.get(section, ()))
+            count = self.section_result_count(section)
             label = _SECTION_LABELS.get(section, (section or "Other").title())
-            arrow = (
-                _icons.expand_icon
-                if section in self._collapsed_sections
-                else _icons.collapse_icon
-            )
-            text = f"{arrow} {label} ({count:,})"
             if role == Qt.ItemDataRole.DisplayRole:
-                return text
-            return (
-                f'<span style="color:{_theme.COLOR_TEXT_HI};font-weight:bold">'
-                f"{_html.escape(text)}</span>"
-            )
+                return f"{label} ({count:,})"
+            return _heading_html(label.upper(), count)
         return None
+
+    def toggle_person_collapsed(self, person: str) -> None:
+        """Fold or unfold one person's films, leaving their name in place.
+
+        A full reset rather than a splice: a person's run is a contiguous block,
+        but folding one changes every display row BELOW it in every later
+        section too, and the arithmetic for that is the bug this file keeps
+        producing. The list is small by the time anyone reaches for the control.
+
+        **Not persisted**, unlike a section's collapse state. The runs are named
+        after whoever the CURRENT search matched, so remembering that "Nicolas
+        Cage" was folded would silently fold a later, unrelated search that
+        happens to surface him again — the app closing something the user never
+        closed, which is the defect ``sidebar/section_cap`` was gutted over.
+        """
+        self.beginResetModel()
+        if person in self._collapsed_people:
+            self._collapsed_people.discard(person)
+        else:
+            self._collapsed_people.add(person)
+        self._rebuild_buckets()
+        self.endResetModel()
+
+    def is_person_collapsed(self, person: str) -> bool:
+        """Whether *person*'s films are currently folded away."""
+        return person in self._collapsed_people
+
+    def section_result_count(self, section: str) -> int:
+        """Results VISIBLE in a section — what its header should say.
+
+        Not ``len(self._buckets[section])``: with "Whole" active the header
+        would name a number the user cannot find on screen, which is the
+        specific complaint that made counts worth having. Sub-headings are not
+        counted either — a person's name is not a result.
+        """
+        return sum(1 for kind, _v in self._layout(section) if kind == "channel")
+
+    def set_section_whole_only(self, section: str, whole_only: bool) -> None:
+        """Narrow a section to whole-word matches, or open it back up.
+
+        A full reset rather than fine-grained inserts: the rows this removes are
+        scattered through the section's runs, so there is no contiguous block to
+        hand Qt. The list is small by the time anyone reaches for this control.
+        """
+        if bool(whole_only) == (section in self._whole_only):
+            return
+        self.beginResetModel()
+        if whole_only:
+            self._whole_only.add(section)
+        else:
+            self._whole_only.discard(section)
+        self._rebuild_buckets()
+        self.endResetModel()
+
+    def is_section_whole_only(self, section: str) -> bool:
+        """Whether *section* is currently narrowed to whole-word matches."""
+        return section in self._whole_only
 
     def _person_data(self, person: str, role: int) -> Any:
         """Return ``data()`` for a matched-person sub-heading row.
@@ -100,10 +188,10 @@ class ChannelListGroupingMixin:
         if role == SECTION_TYPE_ROLE:
             return person
         if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
+            count = self._person_counts.get(person, 0)
             if role == Qt.ItemDataRole.DisplayRole:
-                return person
-            return (f'<span style="color:{_theme.COLOR_TEXT_LOW}">'
-                    f"{_html.escape(person)}</span>")
+                return f"{person} ({count:,})"
+            return _heading_html(person, count, second_level=True)
         return None
 
     def _ordered_sections(self) -> list[str]:
@@ -201,6 +289,20 @@ class ChannelListGroupingMixin:
         insert, which Qt treats as a corrupt model.
         """
         indices = self._buckets.get(section, ())
+        if section in self._whole_only:
+            # "Whole" keeps the rungs where the TERM IS A WORD — exact, prefix,
+            # whole word — and drops the one where it merely appears inside a
+            # longer word: Astronaut answering a search for "tron".
+            #
+            # A section defaults to showing everything and this is the user
+            # narrowing it, never the other way round. Hiding weak matches by
+            # default is silent pre-filtering, which PRODUCT_VISION principle 8
+            # ("mirror, never cage") rules out — and on a 785,000-row library
+            # the weird match is often the point. Owner: "with over 700,000
+            # rows of content, letting people find weird shit is valuable."
+            indices = [ci for ci in indices
+                       if getattr(self._channels[ci], "match_tier", 0)
+                       in WHOLE_TIERS]
         people = {}
         for pos, ci in enumerate(indices):
             person = getattr(self._channels[ci], "match_person", None) or ""
@@ -213,6 +315,12 @@ class ChannelListGroupingMixin:
                 people.items(), key=lambda kv: (kv[0] != "", kv[1][0][0])):
             if person:
                 layout.append(("person", person))
+                self._person_counts[person] = len(rows)
+                if person in self._collapsed_people:
+                    # The name stays; its films fold away under it. Same rule as
+                    # a section header — owner: "we need to be able to collapse
+                    # every cast and crew subheader as well."
+                    continue
             layout.extend(("channel", ci) for _pos, ci in rows)
 
         return layout

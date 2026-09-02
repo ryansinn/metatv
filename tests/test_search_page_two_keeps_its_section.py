@@ -9,7 +9,7 @@ back with ``section_key=None``, fell through to ``media_type``, and grew a stray
 Nothing caught it. Both CI shards and the local suite were green on the broken
 tree, because no test scrolls a search — the failure needed a second page.
 
-The fix is one builder, ``main_window_channels._rows_to_dtos``, which both
+The fix is one builder, ``channel_list_rows.rows_to_dtos``, which both
 workers call. This file tests that builder's contract and the page path's use of
 it, which together are the thing that was broken.
 """
@@ -20,7 +20,7 @@ import pytest
 
 from metatv.core.database import Database, MetadataDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui.main_window_channels import _rows_to_dtos
+from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from tests.conftest import make_channel
 
 
@@ -52,7 +52,7 @@ def repos(tmp_path):
 def test_a_paged_row_is_filed_by_its_match_not_its_media_type(repos):
     """The regression: without the term, both of these land in "Movies"."""
     factory, rows = repos
-    dtos = _rows_to_dtos(factory, rows, "cage")
+    dtos = rows_to_dtos(factory, rows, "cage")
 
     by_name = {d.name: d for d in dtos}
     assert by_name["Cage"].section == "title"
@@ -65,7 +65,7 @@ def test_a_paged_row_is_filed_by_its_match_not_its_media_type(repos):
 def test_browsing_costs_nothing_and_falls_back_to_media_type(repos):
     """No term → no section lookup at all, and the old behaviour is intact."""
     factory, rows = repos
-    dtos = _rows_to_dtos(factory, rows, None)
+    dtos = rows_to_dtos(factory, rows, None)
 
     assert all(d.section_key is None for d in dtos)
     assert all(d.match_person is None for d in dtos)
@@ -81,14 +81,14 @@ def test_both_workers_build_their_rows_the_same_way(repos):
     return a different section here.
     """
     factory, rows = repos
-    page1 = _rows_to_dtos(factory, rows[:1], "cage")
-    page2 = _rows_to_dtos(factory, rows[1:], "cage")
+    page1 = rows_to_dtos(factory, rows[:1], "cage")
+    page2 = rows_to_dtos(factory, rows[1:], "cage")
 
     assert page1[0].section == "title"
     assert page2[0].section == "cast"
     # Same channel through either call → same section, every field that a
     # heading depends on.
-    again = _rows_to_dtos(factory, rows, "cage")
+    again = rows_to_dtos(factory, rows, "cage")
     for one, both in zip(page1 + page2, again):
         assert (one.section_key, one.match_person) == (both.section_key,
                                                        both.match_person)

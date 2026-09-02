@@ -214,7 +214,6 @@ def test_update_favorite_repaints_correct_grouped_row(qapp):
 
 def test_collapse_hides_section_rows_keeps_header(qapp):
     """Collapsing a section removes only its channel rows; the header stays."""
-    from metatv.gui import icons as _icons
     dtos = [
         _make_dto(media_type="movie", detected_title="M1"),
         _make_dto(media_type="movie", detected_title="M2"),
@@ -227,9 +226,13 @@ def test_collapse_hides_section_rows_keeps_header(qapp):
     rows = _rows(model)
     # Movies header still present, its 2 channel rows gone → 5 - 2 = 3.
     assert model.rowCount() == 3
+    # The COUNT, not a caret. The settled GroupHeading grammar has no caret —
+    # "the heading itself is the control ... a caret beside a clickable title is
+    # a second affordance for one action" — and states what the count is FOR:
+    # "shown even when the group is collapsed; with the rows hidden it is the
+    # only thing describing what is in there." So that is what is asserted.
     movie_header = next(text for kind, sec, text in rows if sec == "movie")
-    assert _icons.expand_icon in movie_header   # collapsed → "expand" affordance
-    assert _icons.collapse_icon not in movie_header
+    assert "(2)" in movie_header, movie_header
     # No movie channel row remains.
     assert not any(kind == "channel" and "M" in (text or "") for kind, _, text in rows)
     # The live section is untouched.
@@ -237,8 +240,7 @@ def test_collapse_hides_section_rows_keeps_header(qapp):
 
 
 def test_expand_restores_section_rows(qapp):
-    """Expanding a collapsed section brings its rows back and flips the arrow."""
-    from metatv.gui import icons as _icons
+    """Expanding a collapsed section brings its rows back."""
     dtos = [
         _make_dto(media_type="movie", detected_title="M1"),
         _make_dto(media_type="live", detected_title="L1"),
@@ -249,7 +251,7 @@ def test_expand_restores_section_rows(qapp):
     model.set_section_collapsed("movie", False)
     assert model.rowCount() == 4  # movie channel returns
     movie_header = next(text for kind, sec, text in _rows(model) if sec == "movie")
-    assert _icons.collapse_icon in movie_header  # expanded → "collapse" affordance
+    assert "(1)" in movie_header, movie_header
 
 
 def test_section_header_is_not_selectable(qapp):

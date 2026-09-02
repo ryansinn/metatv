@@ -96,9 +96,10 @@ def test_a_search_groups_without_the_checkbox(qapp):
     _load(model, _mixed(), search="cage")
 
     assert model.is_grouped, "a search must group its results"
-    assert [t for t, _ in _headers(model)] == ["⌄ Titles (1)", "⌄ Cast & Crew (2)"], (
-        "the section count is CHANNELS, not display rows — a sub-heading is not "
-        "a result and must not be counted as one")
+    # No caret: the settled GroupHeading grammar has none — "the heading itself
+    # is the control ... a caret beside a clickable title is a second affordance
+    # for one action." The count is CHANNELS, not display rows.
+    assert [t for t, _ in _headers(model)] == ["Titles (1)", "Cast & Crew (2)"]
 
 
 def test_titles_render_above_cast_and_crew(qapp):
@@ -219,9 +220,11 @@ def test_a_section_header_renders_the_html_the_delegate_paints(qapp):
         html = idx.data(CHANNEL_HTML_ROLE)
         assert html, "a header painted nothing"
         assert html.startswith("<span"), html[:60]
-        assert "color:#" in html or "color:rgb" in html, (
-            f"the header carries no colour from the theme tokens: {html[:80]}")
+        assert html.count("<span") == 2, (
+            f"a header is TWO tones — a muted label and a bright count: {html}")
 
-    assert "Titles" in headers[0].data(CHANNEL_HTML_ROLE)
-    assert "Cast &amp; Crew" in headers[1].data(CHANNEL_HTML_ROLE), (
+    # Uppercased in the rendered HTML — small-caps is part of the grammar, and
+    # QFont capitalisation is not available to a delegate painting rich text.
+    assert "TITLES" in headers[0].data(CHANNEL_HTML_ROLE)
+    assert "CAST &amp; CREW" in headers[1].data(CHANNEL_HTML_ROLE), (
         "the ampersand must be HTML-escaped — this is rendered as rich text")
