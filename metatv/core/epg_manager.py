@@ -100,6 +100,60 @@ EPG_KIND = "monitor"
 EPG_PREEMPTS: tuple[str, ...] = ()
 
 
+#: Titles listed by name in a burst banner before it switches to a count.
+#: Three fits the banner at its normal width without wrapping to a third line;
+#: past that the names stop being scannable and the number is the useful part.
+BURST_NAMED_LIMIT = 3
+
+#: Auto-dismiss for a burst. Longer than the 10s a single alert gets, because
+#: there is more to read and missing it means missing several shows, not one.
+BURST_DISMISS_MS = 15_000
+
+SINGLE_DISMISS_MS = 10_000
+
+
+def _burst_banner(pending: list[tuple[str, str, str]]) -> tuple[str, str, int]:
+    """Compose ONE banner for everything a single 60-second tick found.
+
+    This used to emit one banner per programme, and on a real library that is a
+    toast every couple of minutes all evening — the owner's idle log showed
+    seven land in the same second at 01:15, because programmes cluster on the
+    half hour and every one of them entered the 15-minute window together.
+
+    A tick is the right unit to coalesce on, and not by approximation: after the
+    first sweep each tick only picks up programmes NEWLY inside the lead window,
+    so everything in one ``pending`` list starts within about the same minute.
+    Alerts genuinely minutes apart still arrive as separate banners, which is
+    what makes this a fix for a burst rather than a cap on the feature.
+
+    One programme keeps the banner it always had, naming the channel and the
+    time — no summary is clearer than the thing itself.
+
+    Args:
+        pending: ``(title, channel_name, time_str)`` per matching programme, in
+            the order the query returned them.
+
+    Returns:
+        ``(banner_title, banner_message, auto_dismiss_ms)``.
+    """
+    if len(pending) == 1:
+        title, channel_name, time_str = pending[0]
+        return (f"Starting {time_str}: {title}", f"On {channel_name}",
+                SINGLE_DISMISS_MS)
+
+    # The shared "in N min" reads as one clause when every programme agrees on
+    # it, which after the first sweep is the normal case. When a tick catches a
+    # spread (the first sweep, or a resume from sleep), say nothing rather than
+    # pick one time and be wrong about the rest.
+    times = {t for _title, _chan, t in pending}
+    when = f" {times.pop()}" if len(times) == 1 else ""
+
+    named = [t for t, _chan, _time in pending[:BURST_NAMED_LIMIT]]
+    rest = len(pending) - len(named)
+    listed = ", ".join(named) + (f" and {rest} more" if rest else "")
+    return (f"{len(pending)} shows starting{when}", listed, BURST_DISMISS_MS)
+
+
 class EpgManager(QObject):
     """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
 
@@ -110,7 +164,6 @@ class EpgManager(QObject):
     refresh_started  = pyqtSignal(str)        # provider_id
     refresh_finished = pyqtSignal(str, int)   # provider_id, programme_count
     refresh_error    = pyqtSignal(str, str)   # provider_id, error_message
-    watchlist_notification = pyqtSignal(str, str, str)  # title, channel_name, time_str
     # Internal signals marshal notification calls from worker threads to main thread
     _notify          = pyqtSignal(str, str, str, int)  # title, message, type, auto_dismiss_ms
     _progress_update = pyqtSignal(str, int, int, str)   # notif_id, current, total (-1=indeterminate), message
@@ -1337,12 +1390,9 @@ class EpgManager(QObject):
                     # detached crosses the boundary.
                     pending.append((prog.title, channel_name, time_str))
 
-            for title, channel_name, time_str in pending:
-                if self._shutting_down:
-                    return
-                self._notify.emit(f"Starting {time_str}: {title}",
-                                  f"On {channel_name}", "info", 10_000)
-                self.watchlist_notification.emit(title, channel_name, time_str)
+            if not self._shutting_down and pending:
+                title, message, dismiss_ms = _burst_banner(pending)
+                self._notify.emit(title, message, "info", dismiss_ms)
         except Exception as e:
             logger.error(f"EPG notification check error: {e}")
         finally:
