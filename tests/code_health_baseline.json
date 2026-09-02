@@ -32,7 +32,7 @@
     "metatv/gui/qa_checklist_window.py": 2502,
     "metatv/gui/settings_dialog_tabs.py": 1149,
     "metatv/gui/sidebar/base.py": 1474,
-    "metatv/gui/theme.py": 2404
+    "metatv/gui/theme.py": 2424
   },
   "get_session_calls": 76
 }
