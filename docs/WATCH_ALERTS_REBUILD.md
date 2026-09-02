@@ -75,10 +75,13 @@ never scroll themselves. This is not a reversal of R13's no-nested-scrollbars:
 that rule is about a ~35px band inside a subdivided panel, and there is exactly
 one scrolling surface here.
 
-**Budgeting is opt-in** (`sidebar_show_more_row`, Settings → Interface → Sidebar,
-default OFF). Hiding rows is only worth doing when something can reveal them.
-Forcing it on for Watch Alerts broke collapsing — the budget swallowed a group's
-heading and replaced it with "See all N more →", which opened the manage dialog.
+**Nothing is budgeted any more** (removed 2026-09-02). Every row is shown and
+the section scrolls. Rows were only ever hidden when something could reveal
+them, and the thing that was supposed to — *"wheeling the list reveals more
+(see eventFilter)"* — did not exist; the tail row was the only way, so the
+mode's stated audience, people who cannot use a wheel, was the one group it
+failed. Forcing it on for Watch Alerts had already broken collapsing, by
+swallowing a group's heading and replacing it with "See all N more →".
 
 ---
 

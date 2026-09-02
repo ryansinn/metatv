@@ -130,6 +130,56 @@ def test_the_local_shard_runner_exists_and_routes_through_the_verdict_script():
         "the runner must fail on a shard that lists no files")
 
 
+def test_the_shard_runner_refuses_when_ci_is_already_answering():
+    """The waste this gate exists to stop, and the two ways it leaked.
+
+    ``ci_shards_local.sh`` runs ONE platform's shards sequentially, ~10 minutes.
+    CI runs the same files on both platforms in eight parallel jobs. So a local
+    run is only worth anything when CI is not going to answer.
+
+    The script shipped without this refusal and burned ten minutes twice in an
+    hour. Two later versions of the guard ALSO let it through, both because the
+    condition keyed on "clean tree AND everything pushed" — and both times the
+    tree was dirty with an edit to the script itself. The condition is now "is
+    a PR open with nothing failing", which does not care what the tree looks
+    like, because the answer to a local change is to push it.
+    """
+    body = (_SCRIPTS / "ci_shards_local.sh").read_text(encoding="utf-8")
+    assert "should_refuse()" in body, "the refusal has been removed"
+    assert "gh pr view" in body and "gh pr checks" in body, (
+        "the refusal must key on whether CI is answering")
+    assert "METATV_SHARDS_ANYWAY" in body, "an override must exist and be named"
+    # The specific regression: the condition that leaked twice.
+    for gone in ("git status --porcelain", "@{u}..HEAD"):
+        assert gone not in body, (
+            f"the refusal is keyed on {gone!r} again — that is the condition "
+            "that let a full run through twice on 2026-09-02")
+
+
+def test_a_script_answers_which_tests_to_run():
+    """Choosing tests by feel selects the ones that NAME what you changed.
+
+    That missed eight tests in ``test_migration_center.py`` on 2026-09-02: they
+    reached ``channel_mod.time``, a name ``channel.py`` only imported, and
+    nothing in the file named the modules being changed.
+    """
+    picker = _SCRIPTS / "tests_for_change.sh"
+    assert picker.exists(), (
+        "there is no script for 'which tests should I run', so the answer gets "
+        "guessed — and the guess has a known blind spot")
+    body = picker.read_text(encoding="utf-8")
+    # Assert the MECHANISM, not the prose. The first version of this checked for
+    # the phrase "not a selection" — which also appears in the comment ABOVE the
+    # guard, so deleting the guard itself left the test green. Caught by
+    # mutation, which is the only reason it is written this way.
+    assert "total_tests / 4" in body, (
+        "no saturation threshold — the picker will emit a list that looks "
+        "considered and costs as much as running everything")
+    assert 'git diff -U0' in body and "'^-(import |from .* import" in body, (
+        "the picker no longer detects a REMOVED module-level name, which is "
+        "the case local selection cannot see")
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell hook")
 def test_the_pre_commit_hook_refuses_a_co_authored_by_trailer(tmp_path):
     """The owner's standing instruction, against a tool that adds one by default.

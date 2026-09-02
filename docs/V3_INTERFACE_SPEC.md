@@ -51,7 +51,7 @@ an unbuilt slice on a future sweep.
 | 9 | Sidebar: no nested scrollbars | `sidebar/row_budget.py` | ✅ #447 |
 | 10 | Sidebar: news boost | `sidebar/base.py` | ✅ #447 |
 | 11 | Sidebar: collapsed headers carry news | `sidebar/base.py` | ✅ #447 |
-| 12 | Sidebar: `+N more →` as an allocation consequence | `sidebar/row_budget.py` | ✅ #447 (crash fixed same PR: the marker had been stored in `UserRole`, where every section keeps its payload) |
+| 12 | ~~Sidebar: `+N more →` as an allocation consequence~~ | `sidebar/row_budget.py` | ⛔ **removed by owner 2026-09-02** — *"why not always show everything"*. Built in #447, then made opt-in and default-OFF once the section gained its own scroll area. It was kept on the argument, written twice in the code and once in the Settings tooltip, that *"wheeling the list reveals more (see `eventFilter`)"* — **there was no `eventFilter`**; budgeted rows were `setHidden(True)` and the tail was the only way to reach one, so the mode failed precisely the people it named. 998 lines deleted. `tests/test_sidebar_scrolls_by_default.py` fails if it returns. |
 | 13 | Sidebar: content-aware minimums | `sidebar/*` `MIN_ROWS` | ✅ #329 |
 | 14 | Sidebar: `→` escalation, header-click expands | `sidebar/base.py` | ✅ #329 |
 | 15 | Filter chips replacing the Includes column (Q3) | `filter_chips.py`, `filter_chip_bar.py`, `filter_chip_host.py` | ✅ #449 — `Layout ▸ Filters as chips` switches back |
@@ -232,7 +232,10 @@ Queue gets 4.4× History. Three mechanisms, no metaphor change:
 
 1. **No nested scrollbars.** A section shows the rows that fit and ends with
    `+N more →`. Alerts stops being three tiny scrolling windows. *This alone
-   recovers most of the jam.* ❌
+   recovers most of the jam.* ✅ **— the diagnosis, not the remedy.** The
+   nested scrollbar is gone (#447): the SECTION owns one scroll area and no
+   view scrolls inside it. The `+N more` half was **removed 2026-09-02** — see
+   row 12. Overflow scrolls; nothing is hidden.
 2. **Content-aware minimums.** Each section declares the row count below which
    it stops being useful. ✅ #329 (`MIN_ROWS`)
 3. **News boost.** A section holding something new gets a *bounded* extra
@@ -242,9 +245,12 @@ Queue gets 4.4× History. Three mechanisms, no metaphor change:
 allocation and the floor. Sections stay reorderable and individually hideable
 (`sidebar_sections`, `sidebar_visible_sections`); the rail still hides.
 
-`+N more` is **never a cap**: it is what appears when the allocated height runs
+~~`+N more` is **never a cap**: it is what appears when the allocated height runs
 out. Drag taller and it renders more rows. History at 120px → 3 rows, 260px → 5,
-440px → 11.
+440px → 11.~~ **Superseded 2026-09-02** (row 12): every row is present and the
+section scrolls, so there is nothing to reveal and no count to render. Dragging
+a section taller still shows more of the list — through the scroll area rather
+than through a budget.
 
 Collapsed sections carry news, not counts: `Watch Alerts — 1 new match`,
 `Sources — 2 expiring`. Sub-groups inside a section get a small-caps header with

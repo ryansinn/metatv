@@ -1,94 +1,123 @@
-"""Sidebar sections show everything and scroll, unless you ask otherwise.
+"""Sidebar sections show everything and scroll. There is no other mode.
 
-One setting switches BOTH halves. Off (default): every row present, real
-scrollbar, like any other list. On: the section shows what fits and ends with a
-"Show N more" row that makes it taller — for pointing devices that cannot
-scroll.
+There used to be a second one, behind ``sidebar_show_more_row``: hide the rows
+that did not fit and end the list with a "Show N more" row that grew the section
+by taking pixels from its neighbours. It was off by default — owner: *"should
+really load the whole list with scroll bars at the start, no? otherwise it's
+kind of misleading?"* — and it was kept on an argument written twice in
+``row_budget.py``: *"wheeling the list reveals more (see eventFilter)"*.
 
-Never a truncated list with neither, which is what the section did in between:
-hiding two hundred rows while looking exactly like one showing all three. Owner:
-"should really load the whole list with scroll bars at the start, no? otherwise
-it's kind of misleading?"
+**There was no eventFilter.** Budgeted rows were ``setHidden(True)``, so no
+amount of scrolling could reach them; the tail row was the only way. The mode's
+stated audience — people who cannot use a scroll wheel — was the one group it
+failed. Removed 2026-09-02 on the owner's call: *"why not always show
+everything"*.
+
+This file is what stops it growing back, in three ways: the behaviour is
+asserted, the setting is asserted absent, and the code is asserted free of the
+machinery. The third matters because the first two would still pass against a
+half-reverted version that hid rows with no way to reveal them.
 """
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QListWidgetItem
 
+import pytest
+
 from metatv.core.config import Config
-from metatv.gui.sidebar.base import _MORE_ROLE, _MORE_ROW
 from metatv.gui.sidebar.history import HISTORY_ROW_LIMIT, HistorySection
+from tests.conftest import destroy_widget
 
 
-def _section(tmp_path, rows=40):
-    section = HistorySection(Config(config_dir=tmp_path), db=None)
-    for i in range(rows):
-        section.history_list.addItem(QListWidgetItem(f"row {i}"))
-    section.resize(300, 120)
-    return section, section.history_list
+@pytest.fixture
+def section(qapp, tmp_path):
+    """A parentless section, freed afterwards.
+
+    ``deleteLater()`` alone is not enough — a leaked top-level is repainted by
+    every later ``apply_theme()``, and one per test is what segfaulted a CI
+    shard. The drain lives in ``tests/conftest.destroy_widget``.
+    """
+    made = []
+
+    def build(rows=40):
+        sec = HistorySection(Config(config_dir=tmp_path), db=None)
+        for i in range(rows):
+            sec.history_list.addItem(QListWidgetItem(f"row {i}"))
+        sec.resize(300, 120)
+        made.append(sec)
+        return sec, sec.history_list
+
+    yield build
+    destroy_widget(*made)
 
 
-def _tails(lst):
-    return [i for i in range(lst.count())
-            if lst.item(i).data(_MORE_ROLE) == _MORE_ROW]
+def _hidden(lst):
+    return sum(1 for i in range(lst.count()) if lst.item(i).isHidden())
 
 
-# ── the default ─────────────────────────────────────────────────────────
-def test_by_default_every_row_is_present_and_the_list_scrolls(qapp, tmp_path):
-    section, lst = _section(tmp_path)
-    assert section.config.sidebar_show_more_row is False
+def test_every_row_is_present_and_the_section_scrolls(section):
+    section, lst = section()
 
     section.apply_row_budget(lst)
 
-    assert section.rows_hidden(lst) == 0, "rows were hidden with nothing to reveal them"
+    assert _hidden(lst) == 0, "rows were hidden with nothing to reveal them"
+    assert lst.count() == 40, "a marker row was appended to the list"
     # The SECTION scrolls, not the list. A list scrolling inside the section's
     # own scroll area is the nested scrollbar R13 forbids.
     assert lst.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert section.content_scroll.verticalScrollBarPolicy() == (
         Qt.ScrollBarPolicy.ScrollBarAsNeeded
     )
-    assert not _tails(lst), "a tail row appeared without being asked for"
+    # ...and the list is tall enough to hold what it is showing, or the section
+    # would scroll past rows drawn on top of each other.
+    assert lst.height() >= 40 * 1, "the list was not sized to its rows"
 
 
-def test_budgeting_reports_nothing_hidden_by_default(qapp, tmp_path):
-    """Callers key layout off the return value; it must not claim truncation."""
-    section, lst = _section(tmp_path)
-    assert section.apply_row_budget(lst) == 0
+def test_rows_hidden_by_anything_else_are_restored(section):
+    """Sizing a view is also what un-hides it — including after an upgrade.
 
-
-def test_previously_hidden_rows_are_restored(qapp, tmp_path):
-    """Turning the setting off must un-hide what it hid, not just stop hiding."""
-    section, lst = _section(tmp_path)
+    Someone running the old build with the setting ON has 20 hidden rows in
+    their session the moment this version loads. They have to come back.
+    """
+    section, lst = section()
     for i in range(20, 40):
         lst.item(i).setHidden(True)
 
     section.apply_row_budget(lst)
-    assert section.rows_hidden(lst) == 0
+
+    assert _hidden(lst) == 0
 
 
-# ── the opt-in ──────────────────────────────────────────────────────────
-def test_turning_it_on_hides_rows_behind_a_tail(qapp, tmp_path):
-    """The two halves are one switch: rows are only hidden when the tail can
-    reveal them."""
-    section, lst = _section(tmp_path)
-    section.config.sidebar_show_more_row = True
-
-    section.apply_row_budget(lst)
-    assert lst.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+def test_the_setting_is_gone(qapp, tmp_path):
+    """No config field, so nothing can turn a second behaviour back on."""
+    config = Config(config_dir=tmp_path)
+    assert not hasattr(config, "sidebar_show_more_row")
 
 
-def test_the_tree_follows_the_same_switch(qapp, tmp_path):
-    """Watch Alerts' grouped tree is the R13 case and must not be left behind."""
+def test_the_budget_machinery_is_gone(qapp):
+    """The names, not the behaviour — a half-revert would pass the tests above.
+
+    Hiding rows again while leaving the tail out would satisfy "every row
+    present" only until a section overflowed, which is exactly the state the
+    owner called misleading.
+    """
     import inspect
 
-    from metatv.gui.sidebar import row_budget
+    from metatv.gui.sidebar import base, row_budget
 
-    src = inspect.getsource(row_budget.RowBudgetMixin.apply_tree_row_budget)
-    assert "_wants_more_row" in src, (
-        "the tree still budgets unconditionally while lists respect the setting"
-    )
+    src = inspect.getsource(row_budget)
+    for name in ("_wants_more_row", "_tail_text", "_can_grow", "_on_more_row_clicked",
+                 "rows_hidden_total", "_MORE_ROW = ", "_MORE_ROLE = "):
+        assert name not in src, f"{name} is back in row_budget.py"
+
+    assert not hasattr(row_budget.RowBudgetMixin, "_wants_more_row")
+    assert not hasattr(base.CollapsibleSection, "rows_hidden_total")
+
+    from metatv.gui import main_window
+    assert "_grow_sidebar_section" not in inspect.getsource(main_window), (
+        "the splitter arithmetic that only the tail row used is back")
 
 
-# ── the load itself ─────────────────────────────────────────────────────
 def test_history_loads_deep_enough_to_scroll_back_through(qapp):
     """30 was the ceiling a viewer hit, not a height anyone chose.
 

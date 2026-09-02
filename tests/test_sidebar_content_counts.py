@@ -94,8 +94,4 @@ def test_no_section_keeps_its_own_copy_of_the_count(module):
     src = (pathlib.Path("metatv/gui/sidebar") / module).read_text(encoding="utf-8")
     body = src[src.index("def item_count"):]
     body = body[:body.index("\n    def ", 1)] if "\n    def " in body[1:] else body
-    assert "_MORE_ROLE" not in body, (
-        f"{module} counts rows by excluding the more-row itself — call "
-        "count_content_rows so every kind of chrome is handled in one place"
-    )
     assert "count_content_rows" in body, f"{module} must use the shared counter"
