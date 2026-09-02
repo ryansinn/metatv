@@ -368,6 +368,16 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
             _PAGE_SIZE,
         )
 
+    def loaded_search_query(self) -> str:
+        """The search text the rows currently loaded were fetched for.
+
+        Empty both when nothing is loaded and when the load had no search term
+        — indistinguishable on purpose: a caller asking this wants to know
+        whether the rows on screen answer the query in the box, and "no rows"
+        and "no query" are the same answer to that.
+        """
+        return (self._query_params.get("search_query") or "").strip()
+
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_channels(
