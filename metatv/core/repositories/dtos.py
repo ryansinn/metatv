@@ -739,6 +739,10 @@ class SpecialContentDTO:
     #: Parsed event start for ppv/live_event rows; None for a plain sports
     #: channel, and for the 923 live_event rows whose availability is "always".
     event_start_time: "datetime | None" = None
+    #: The provider's OWN end time, from the "start:… stop:…" slot form. None
+    #: for every other shape, where "still on" falls back to
+    #: event_datetime.DEFAULT_EVENT_DURATION.
+    event_stop_time: "datetime | None" = None
     #: The classifier's parsed blob. The two buckets carry different keys and
     #: that is the providers' doing, not ours: ppv rows have event_name,
     #: quality, sport_type, stream_number; live_event rows have event_name,
@@ -769,6 +773,7 @@ class SpecialContentDTO:
             detected_quality=channel.detected_quality,
             is_favorite=bool(channel.is_favorite),
             event_start_time=channel.event_start_time,
+            event_stop_time=channel.event_stop_time,
             # Copied, not referenced: JSONEncoded hands back a live dict and a
             # frozen DTO promising immutability must not share it with the ORM.
             event_metadata=dict(channel.event_metadata or {}) or None,

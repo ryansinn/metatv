@@ -103,6 +103,10 @@ class ChannelDB(Base):
     # Special content categorization (PPV, Events, Sports)
     special_view = Column(String, index=True)  # 'ppv', 'live_event', 'sports', or NULL
     event_start_time = Column(DateTime, index=True)  # Parsed event date/time for PPV/events
+    #: The provider's OWN end time, from the "start:… stop:…" slot form — the
+    #: only shape that sends one; NULL elsewhere, where "still on" falls back to
+    #: event_datetime.DEFAULT_EVENT_DURATION. Read by the Sports lane CASE.
+    event_stop_time = Column(DateTime, index=True)
     sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
 
     # ── Signal check (core/stream_probe.py) ──────────────────────────────────
@@ -1012,6 +1016,8 @@ class Database:
             ("channels",     "signal_dead_streak",            "INTEGER DEFAULT 0"),
             ("channels",     "signal_checked_at",             "DATETIME"),
             ("channels",     "last_seen_at",                  "DATETIME"),
+            # The provider's own event end time (SPORT-1).
+            ("channels",     "event_stop_time",               "DATETIME"),
             # WL-1 watch-rule fields; the UPDATE below stamps NULLs.
             ("alert_patterns", "whole_word",                  "INTEGER DEFAULT 1"),
             ("alert_patterns", "exclude_terms",               "TEXT"),
@@ -1042,6 +1048,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_signal_verdict ON channels (signal_verdict)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_signal_checked_at ON channels (signal_checked_at)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_last_seen_at ON channels (last_seen_at)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_event_stop_time ON channels (event_stop_time)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_metadata_enrich_state ON channels (metadata_enrich_state)",
                 # Redundant single-column indexes on content_tags — each a strict

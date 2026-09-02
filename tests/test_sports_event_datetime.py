@@ -30,7 +30,10 @@ import datetime
 
 import pytest
 
-from metatv.core.event_datetime import parse_event_datetime
+from metatv.core.event_datetime import (DEFAULT_EVENT_DURATION,
+                                        event_is_on_now,
+                                        parse_event_datetime,
+                                        parse_event_window)
 from metatv.core.database import ChannelDB
 from metatv.core.migrations.sports_reclassify import CURRENT_VERSION, DERIVED_FIELDS
 from metatv.core.special_content import update_channel_special_content
@@ -231,3 +234,135 @@ def test_the_reclassify_task_owns_event_start_time():
     wrongly before would keep the stale value through the sweep.
     """
     assert "event_start_time" in DERIVED_FIELDS
+
+
+# ── the other end of the slot form ───────────────────────────────────────────
+#
+# The provider sends "start:… stop:…" and only the start was ever read, so
+# "still on" was a fixed 4h assumption. Measured on the owner's 56 slot rows
+# (2026-09-02): windows run 3.00h to 7.22h, median 7.22h. 32 run LONGER than
+# the assumption — a median 3.22h of every slot filed "Finished" while the game
+# was on, which is the owner's "Nothing is ever On Now" — and 24 run SHORTER,
+# listed as on-now after they ended, on a recycled stream id that then plays a
+# different game.
+
+#: The owner's own row, verbatim, and the window is 7h13m20s.
+_MLB04 = "MLB 04 | Mariners x Red Sox start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20"
+
+
+def test_the_slot_form_yields_both_ends():
+    window = parse_event_window(_MLB04, reference=REF)
+    assert window.start is not None and window.stop is not None
+    assert window.stop - window.start == datetime.timedelta(hours=7, minutes=13)
+
+
+def test_both_ends_are_converted_the_same_way():
+    """Local in, UTC-naive out — for BOTH ends or the window is hours out.
+
+    A start read as local and a stop read as UTC would leave the duration
+    intact-looking while placing the window somewhere else entirely, which is
+    the failure mode that already shipped once on the start alone.
+    """
+    window = parse_event_window(_MLB04, reference=REF)
+    naive_start = datetime.datetime(2026, 8, 31, 23, 45)
+    naive_stop = datetime.datetime(2026, 9, 1, 6, 58)
+    shift = window.start - naive_start
+    assert window.stop - naive_stop == shift
+
+
+@pytest.mark.parametrize("name", [
+    "End | Rolling Loud | all | 11-05-2026 | 09:37 (GMT) | 8K | US: SOCCER PPV 1",
+    "End | Arnold Palmer Cup | Golf Dag 2 | 2026-07-04 | 09:00 (GMT) | 8K",
+    "LIVE | 1. FC KOLN U21 VS SPORTFREUNDE LOTTE | Sat 29 Aug 14:00 CEST (DE) | 8K",
+    "US Open: Court 5 - Qualifying Third Round @ Aug 27 11:00 AM :Tennis  03",
+])
+def test_every_other_form_names_a_start_and_no_end(name):
+    """Only the slot form carries an end. Inventing one for the rest would put
+    a confident wrong duration on 31,240 rows to fix 56."""
+    window = parse_event_window(name, reference=REF)
+    assert window.start is not None
+    assert window.stop is None
+
+
+def test_a_stop_at_or_before_its_start_is_discarded():
+    """Honouring a malformed end reads as "already finished" on a fixture that
+    has not begun. The assumed duration is the recoverable answer."""
+    name = "MLB 09 | A x B start:2026-08-31 23:45:00 stop:2026-08-31 20:00:00"
+    window = parse_event_window(name, reference=REF)
+    assert window.start is not None
+    assert window.stop is None
+
+
+def test_parse_event_datetime_still_answers_the_start():
+    """The old name is the one nearly every caller uses; it must keep working
+    and must agree with the parser rather than walking the regexes again."""
+    for name in (_MLB04, "US| FOX SPORTS 1 HD", ""):
+        assert (parse_event_datetime(name, reference=REF)
+                == parse_event_window(name, reference=REF).start)
+
+
+# ── what the end time is FOR ─────────────────────────────────────────────────
+
+def test_a_long_slot_is_on_now_past_the_assumed_duration():
+    """The owner was watching MLB 04 while the app called it Finished."""
+    window = parse_event_window(_MLB04, reference=REF)
+    five_hours_in = window.start + datetime.timedelta(hours=5)
+    assert five_hours_in > window.start + DEFAULT_EVENT_DURATION, "precondition"
+    assert event_is_on_now(window.start, window.stop, five_hours_in)
+
+
+def test_an_event_is_over_at_its_own_end():
+    window = parse_event_window(_MLB04, reference=REF)
+    assert event_is_on_now(window.start, window.stop,
+                           window.stop - datetime.timedelta(minutes=1))
+    assert not event_is_on_now(window.start, window.stop, window.stop)
+
+
+def test_a_row_with_no_end_falls_back_to_the_assumed_duration():
+    start = datetime.datetime(2026, 8, 31, 12, 0)
+    assert event_is_on_now(start, None, start + DEFAULT_EVENT_DURATION
+                           - datetime.timedelta(minutes=1))
+    assert not event_is_on_now(start, None, start + DEFAULT_EVENT_DURATION)
+
+
+def test_a_row_with_no_start_is_never_on_now():
+    """923 live_event rows are "always available" — a different thing, and not
+    this predicate's to claim."""
+    assert not event_is_on_now(None, None, datetime.datetime(2026, 8, 31, 12, 0))
+
+
+def test_an_event_has_not_started_before_its_start():
+    start = datetime.datetime(2026, 8, 31, 12, 0)
+    assert not event_is_on_now(start, None, start - datetime.timedelta(seconds=1))
+    assert event_is_on_now(start, None, start)
+
+
+# ── the wiring, again: a parse that reaches nobody is #591 ───────────────────
+
+def test_a_slot_form_fixture_stores_both_ends():
+    """Without the sports-branch wiring the parse is right and the column is
+    NULL — the exact shape of #591."""
+    channel = ChannelDB(
+        id="c3", source_id="3", provider_id="p", media_type="live",
+        stream_url="u", category="SPORTS", name=_MLB04,
+    )
+    update_channel_special_content(channel)
+    assert channel.special_view == "sports", "precondition: not the ppv branch"
+    assert channel.event_start_time is not None
+    assert channel.event_stop_time is not None
+    assert (channel.event_stop_time - channel.event_start_time
+            == datetime.timedelta(hours=7, minutes=13))
+
+
+def test_a_24_7_sports_channel_keeps_a_null_end_time():
+    channel = ChannelDB(id="c4", source_id="4", provider_id="p", media_type="live",
+                        stream_url="u", category="SPORTS", name="US| FOX SPORTS 1 HD")
+    update_channel_special_content(channel)
+    assert channel.event_stop_time is None
+
+
+def test_the_reclassify_task_owns_event_stop_time():
+    """Existing rows already have a start, so nothing looks broken — only the
+    sweep gives them the end time, and only if the field is derived here."""
+    assert "event_stop_time" in DERIVED_FIELDS
+    assert CURRENT_VERSION >= 6

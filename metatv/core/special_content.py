@@ -9,7 +9,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
-from metatv.core.event_datetime import parse_event_datetime
+from metatv.core.event_datetime import parse_event_window
 
 
 # Built-in sport keyword map: canonical sport name → list of keywords to match
@@ -413,6 +413,7 @@ def parse_ppv_event(channel: ChannelDB) -> Dict[str, Any]:
         'quality': None,
         'sport_type': None,
         'stream_number': None,
+        'stop_time': None,
     }
     
     parts = channel.name.split('|')
@@ -428,7 +429,11 @@ def parse_ppv_event(channel: ChannelDB) -> Dict[str, Any]:
     # which (a) knew one of the three shapes, covering 654 of 1,358 dated rows,
     # (b) ignored the timezone named in the string, and (c) took the FIRST HH:MM
     # anywhere in the name — including one inside the event title.
-    result['start_time'] = parse_event_datetime(channel.name)
+    _window = parse_event_window(channel.name)
+    result['start_time'] = _window.start
+    # The provider's own end, present only on the slot form. Carried alongside
+    # the start so "still on" is a fact rather than an assumed duration.
+    result['stop_time'] = _window.stop
     
     # Extract quality markers
     name_upper = channel.name.upper()
@@ -521,11 +526,13 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
     if special_view == 'ppv':
         ppv_data = parse_ppv_event(channel)
         channel.event_start_time = ppv_data['start_time']
+        channel.event_stop_time = ppv_data['stop_time']
         channel.sport_type = ppv_data['sport_type']
 
         metadata = ppv_data.copy()
-        if metadata['start_time']:
-            metadata['start_time'] = metadata['start_time'].isoformat()
+        for _key in ('start_time', 'stop_time'):
+            if metadata.get(_key):
+                metadata[_key] = metadata[_key].isoformat()
         channel.event_metadata = metadata
 
     elif special_view == 'live_event':
@@ -533,6 +540,10 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         pe = parse_platform_event(channel.name or "")
         if pe is not None:
             channel.event_start_time = pe.start_time
+            # This grammar names a start and nothing else; "still on" falls back
+            # to DEFAULT_EVENT_DURATION. Assigned rather than left alone so a row
+            # that changes shape cannot keep a stop from its previous form.
+            channel.event_stop_time = None
 
             metadata: Dict[str, Any] = {
                 'event_name': pe.title or None,
@@ -560,6 +571,8 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         # do — and this branch extracted no time at all, so the schedule column and
         # the Q19 staleness cross-check had nothing to read. Same chokepoint as the
         # ppv branch; None for the 24/7 racks, which is correct rather than a miss.
-        channel.event_start_time = parse_event_datetime(channel.name or "")
+        _window = parse_event_window(channel.name or "")
+        channel.event_start_time = _window.start
+        channel.event_stop_time = _window.stop
 
     return True
