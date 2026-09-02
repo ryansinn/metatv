@@ -1579,12 +1579,17 @@ def row_model(*rows, **overrides):
     """
     from PyQt6.QtCore import QAbstractListModel, QModelIndex, Qt
 
-    import metatv.gui.channel_list_delegate as _d
+    # The roles are resolved from the module that DEFINES them (CLAUDE.md),
+    # not from the delegate that happens to import some of them. Reaching
+    # through the delegate made these 72 tests depend on which roles its own
+    # code still referenced — and they broke the moment cell building moved to
+    # channel_row_cell_paint and ruff dropped the imports that went with it.
+    import metatv.gui.channel_list_roles as _roles
 
     records = [dict(ROW_ROLE_DEFAULTS, **r) for r in rows] or [
         dict(ROW_ROLE_DEFAULTS, **overrides)
     ]
-    lookup = {getattr(_d, name): name for name in ROW_ROLE_DEFAULTS}
+    lookup = {getattr(_roles, name): name for name in ROW_ROLE_DEFAULTS}
 
     class _Model(QAbstractListModel):
         def rowCount(self, parent=QModelIndex()):  # noqa: N802

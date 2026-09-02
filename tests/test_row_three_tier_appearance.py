@@ -22,6 +22,11 @@ from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 
 import metatv.gui.channel_list_delegate as d
+# CHIP_SLOT_* are defined in channel_row_cells and the tier-3 geometry in
+# channel_row_cell_paint; naming the DEFINING module (CLAUDE.md) is what
+# keeps these from breaking when the delegate stops importing one.
+import metatv.gui.channel_row_cells as _cells
+import metatv.gui.channel_row_cell_paint as _cellpaint
 from metatv.core.channel_name_utils import collection_display
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
@@ -378,7 +383,7 @@ def test_outline_box_fits_inside_the_line_it_is_drawn_on(qapp):
     painted = _paint_row(delegate, _index())
     fill = _layout.row_layout(QRect(0, 0, ROW_W, 68), has_art=True,
                               art_square=False, rail_w=0).fill
-    box = painted.rect_of("4K").adjusted(0, d._OUTLINE_V_INSET, 0, -d._OUTLINE_V_INSET)
+    box = painted.rect_of("4K").adjusted(0, _cellpaint._OUTLINE_V_INSET, 0, -_cellpaint._OUTLINE_V_INSET)
     assert box.top() > fill.top() and box.bottom() < fill.bottom()
 
 
@@ -392,11 +397,11 @@ def test_meta_line_positions_follow_the_single_order_constant(qapp):
     constant is the only way to re-order the row."""
     painted = _paint_row(ChannelRowDelegate(), _index(VARIANT_COUNT_ROLE=3))
     slot_text = {
-        d.CHIP_SLOT_YEAR: "2024",
-        d.CHIP_SLOT_REGION: "KR",
-        d.CHIP_SLOT_GENRE: "Drama / Thriller",
-        d.CHIP_SLOT_COLLECTION: collection_display(_ROW_DATA["COLLECTION_ROLE"], None),
-        d.CHIP_SLOT_VARIANTS: "×3",
+        _cells.CHIP_SLOT_YEAR: "2024",
+        _cells.CHIP_SLOT_REGION: "KR",
+        _cells.CHIP_SLOT_GENRE: "Drama / Thriller",
+        _cells.CHIP_SLOT_COLLECTION: collection_display(_ROW_DATA["COLLECTION_ROLE"], None),
+        _cells.CHIP_SLOT_VARIANTS: "×3",
     }
     expected = [slot_text[s] for s in ROW_META_ORDER if s in slot_text]
     lefts = [painted.rect_of(text).left() for text in expected]
@@ -411,9 +416,9 @@ def test_rail_positions_follow_the_single_order_constant(qapp):
                          _index(SUBTITLE_MARKER_ROLE="KO-SUB",
                                 SECONDARY_LANGUAGE_ROLE="JA"))
     slot_text = {
-        d.CHIP_SLOT_SUBTITLE: "KO-SUB",
-        d.CHIP_SLOT_LANGUAGE_2: "JA",
-        d.CHIP_SLOT_LANGUAGE: "EN",
+        _cells.CHIP_SLOT_SUBTITLE: "KO-SUB",
+        _cells.CHIP_SLOT_LANGUAGE_2: "JA",
+        _cells.CHIP_SLOT_LANGUAGE: "EN",
     }
     expected = [slot_text[s] for s in ROW_RAIL_ORDER if s in slot_text]
     lefts = [painted.rect_of(text).left() for text in expected]
