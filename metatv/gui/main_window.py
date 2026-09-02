@@ -723,9 +723,21 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         # the pass at 03:14:31 with play pressed at 03:15:09, and the pass at
         # 03:58:06-09 with play at 03:58:12. Same slot, one connection.
         #
-        # The interval setting could not help: it governs only the RECURRING
-        # timer, so this ran even at interval 0.
-        QTimer.singleShot(_WATCHLIST_STARTUP_DELAY_MS, self.series_monitor.check_all)
+        # The interval setting NOW GOVERNS THIS TOO. It used to govern only the
+        # recurring timer, so a user who set the interval to Never still got a
+        # full pass on every launch — the comment above said so and the
+        # behaviour stayed. The owner hit exactly that: "it's also still
+        # fetching series data even though it's set NEVER (0 minutes)".
+        #
+        # One pass is 234 get_series_info calls on their library (11 watched
+        # shows, 234 mirrors) — 3.9 to 39 minutes of provider time against the
+        # ~34 seconds a whole source refresh costs. Off unless asked for.
+        if int(getattr(self.config, "series_monitor_interval_minutes", 0) or 0) > 0:
+            QTimer.singleShot(_WATCHLIST_STARTUP_DELAY_MS,
+                              self.series_monitor.check_all)
+        else:
+            logger.debug(
+                "series_monitor: startup check skipped — recurring recheck is off")
 
         # VOD watch-alert startup check — same deferred strategy as series_monitor.
         QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)

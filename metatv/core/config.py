@@ -1119,7 +1119,19 @@ class Config(BaseModel):
     # detail endpoint, so cross-language/quality variants finally collapse.  No
     # external API key.  Politeness knobs spread the ~200k backlog across launches.
     tmdb_enrichment_enabled: bool = True        # Master toggle for the background pass
-    tmdb_enrichment_session_cap: int = 500      # Max idless rows attempted per launch
+    #: Rows the eager genre backfill may attempt per launch. **0 = off, and that
+    #: is now the default.**
+    #:
+    #: It was draining 501,030 un-enriched movies at 500 a launch — about 1,002
+    #: launches, roughly a minute of back-to-back `get_vod_info` calls on the
+    #: source every single time. #348 built it for a real symptom (a movie with
+    #: no genres scores 0 and never surfaces in Recommendations), but eagerly
+    #: fetching the entire VOD catalogue was never the requirement.
+    #:
+    #: The lazy path already exists and is unaffected: metadata is fetched when
+    #: a title is actually opened. Owner: *"if the user clicks on something then
+    #: it can pull the data if it doesn't have it."*
+    tmdb_enrichment_session_cap: int = 0
     tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
     tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
 
@@ -1535,7 +1547,25 @@ class Config(BaseModel):
     # the user plays through — 11 series x 3 mirrors at ~1-11s a call is a ~3
     # minute pass. New episodes appear at most daily, so hourly bought nothing and
     # spent the connection twelve times more often than it needed to.
-    series_monitor_interval_minutes: int = 1440
+    #: How often to re-poll watched series for new episodes. **0 = Never, and
+    #: that is now the default.**
+    #:
+    #: A pass asks the source `get_series_info` once per SERIES PER MIRROR, and
+    #: the owner's sources carry the same show many times over: 11 watched shows
+    #: expand to **234 mirror entries**. Measured against their own log:
+    #:
+    #:     one full source refresh   1 request    ~34 s   → the entire catalog
+    #:     one series-monitor pass   234 requests  3.9-39 min → all "unchanged"
+    #:
+    #: So polling costs **7x to 69x** the provider connection-time of the refresh
+    #: that already answers the same question, on an account whose sources report
+    #: `max_connections=1`. Owner: *"the entire source refresh is FASTER ... and
+    #: it only hits once."*
+    #:
+    #: This value now governs the STARTUP check as well as the recurring timer.
+    #: It previously governed only the timer, so setting it to Never left a
+    #: launch-time pass running anyway — which is exactly what the owner hit.
+    series_monitor_interval_minutes: int = 0
 
     # Search state persistence — "Remember last search" feature.
     # When remember_search is True, last_search_state is written on every search
