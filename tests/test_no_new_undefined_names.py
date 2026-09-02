@@ -55,9 +55,12 @@ def _ruff(*paths: str) -> list[dict]:
     coloured. Reproducing it inside the guard written to stop guard failures is
     the argument for parsing structured output instead of scraping text.
     """
-    ruff = ROOT / "venv" / "bin" / "ruff"
+    # `python -m ruff`, not a PATH lookup: it resolves to the ruff installed in
+    # the SAME environment running the tests. A bare "ruff" can be a different
+    # copy with a different version, and this guard compares a count — CI pins
+    # only `ruff>=0.6.0`, so "whichever ruff is on PATH" is not a fixed measure.
     proc = subprocess.run(
-        [str(ruff) if ruff.exists() else "ruff",
+        [sys.executable, "-m", "ruff",
          "check", "--select", "F821", "--output-format", "json",
          "--no-cache", *paths],
         cwd=ROOT, capture_output=True, text=True,

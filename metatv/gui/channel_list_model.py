@@ -236,12 +236,10 @@ class ChannelListModel(QAbstractListModel):
         return sum(self._section_size(sec) for sec in self._ordered_sections())
 
     def loaded_count(self) -> int:
-        """Real channel rows, headers excluded — what a user-facing count means.
+        """Real channel rows — what every "Showing N channels" must read.
 
-        ``rowCount()`` is the DISPLAY row count and counts section headers too,
-        so it over-reports the moment grouping is on. That was survivable while
-        grouping was an opt-in checkbox; it is not now that every search groups.
-        Every "Showing N channels" / "N channels loaded" reads this instead.
+        ``rowCount()`` is the DISPLAY count and includes section headers, which
+        every search now creates: three results reported as five.
         """
         return len(self._channels)
 

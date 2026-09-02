@@ -84,14 +84,8 @@ def _rows_to_dtos(repos, rows: list, search_query: str | None) -> list:
     and Cast & Crew it should have joined. Two copies of a mapping is how that
     happens; one is how it stops.
 
-    Args:
-        repos: The seam's RepositoryFactory (read-only, worker thread).
-        rows: Surviving ``ChannelDB`` rows for this page.
-        search_query: The active search term, or None when just browsing —
-            the section and person lookups are skipped entirely when absent.
-
-    Returns:
-        A list of frozen ``ChannelListDTO``, safe to hand to the main thread.
+    ``search_query`` is None when just browsing, and the section and person
+    lookups are then skipped entirely rather than run against an empty term.
     """
     from metatv.core.repositories.dtos import ChannelListDTO
 
