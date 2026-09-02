@@ -80,6 +80,32 @@ class ChannelListGroupingMixin:
             )
         return None
 
+    def _person_data(self, person: str, role: int) -> Any:
+        """Return ``data()`` for a matched-person sub-heading row.
+
+        The owner's reason for it, on a page of eighty "cage" results:
+        *"that way you don't have 10 Nicolas Cage lines."* Measured on the real
+        library, those eighty resolve to 65 Nicolas Cage, 4 Weston Cage, 3 Finn
+        McCager Higgins, 2 David Beaucage — where the weak matches become
+        self-evidently weak by sitting in a small, NAMED group instead of being
+        eighty rows each needing an explanation.
+
+        Quieter than a section header on purpose: this is the second level, and
+        two competing headings read as two lists. Muted colour, no count, no
+        arrow — a person's run cannot be collapsed independently, and an arrow
+        that does nothing is worse than no arrow.
+        """
+        if role == ROW_KIND_ROLE:
+            return "person"
+        if role == SECTION_TYPE_ROLE:
+            return person
+        if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
+            if role == Qt.ItemDataRole.DisplayRole:
+                return person
+            return (f'<span style="color:{_theme.COLOR_TEXT_LOW}">'
+                    f"{_html.escape(person)}</span>")
+        return None
+
     def _ordered_sections(self) -> list[str]:
         """Sections that currently hold ≥1 loaded row, in fixed display order."""
         return [s for s in self._final_section_order() if self._buckets.get(s)]
@@ -98,10 +124,13 @@ class ChannelListGroupingMixin:
 
     def _section_size(self, section: str) -> int:
         """Number of *display rows* a section occupies (0 if empty)."""
-        n = len(self._buckets.get(section, ()))
-        if n == 0:
+        if not self._buckets.get(section):
             return 0
-        return 1 + (0 if section in self._collapsed_sections else n)
+        # Sub-headings are display rows, so the count is the LAYOUT's length,
+        # not the bucket's. Reading the bucket here put every section after
+        # Cast & Crew at the wrong offset by exactly the number of people in it.
+        return 1 + (0 if section in self._collapsed_sections
+                    else len(self._layout(section)))
 
     def _section_display_start(self, section: str, order=None) -> int:
         """Display-row index where ``section``'s header sits."""
@@ -122,7 +151,7 @@ class ChannelListGroupingMixin:
                     return ("header", section)
                 # Content rows are only reachable when the section is expanded
                 # (collapsed → size==1 so only row 0 is in range).
-                return ("channel", self._buckets[section][row - 1])
+                return self._layout(section)[row - 1]
             row -= size
         return None
 
@@ -137,8 +166,76 @@ class ChannelListGroupingMixin:
         """Rebuild the section buckets + position map from ``_channels`` order."""
         self._buckets = {}
         self._bucket_pos = {}
+        self._layouts = {}
         for i, ch in enumerate(self._channels):
             self._extend_bucket(ch.section, [i])
+        for section in list(self._buckets):
+            self._rebuild_layout(section)
+
+    def _rebuild_layout(self, section: str) -> None:
+        """Recompute one section's display entries, grouping rows by person.
+
+        A section's rows arrive in relevance order — tier, then title — which
+        scatters one actor's films across the whole section. A sub-heading over
+        scattered rows would be a lie, so the rows are REORDERED here, by the
+        person first seen and then by their original relevance position.
+
+        The result is one entry per display row under the header:
+        ``("person", name)`` or ``("channel", index)``. Rows with no matched
+        person (every Titles row, and any cast row whose name could not be
+        resolved) keep their order and get no sub-heading — mirror-not-cage: a
+        row nobody can label still gets a row.
+
+        Run order is first-appearance, which is the only honest choice: the
+        persons are not ranked against each other, and ordering them any other
+        way would move a group while the user reads it.
+        """
+        self._commit_layout(section, self._compute_layout(section))
+
+    def _compute_layout(self, section: str) -> list:
+        """The section's display entries, computed without mutating anything.
+
+        Separate from the commit because ``beginInsertRows`` has to be told how
+        many rows are coming BEFORE ``rowCount()`` reports them; a version that
+        stored as it computed made the model report the new count during its own
+        insert, which Qt treats as a corrupt model.
+        """
+        indices = self._buckets.get(section, ())
+        people = {}
+        for pos, ci in enumerate(indices):
+            person = getattr(self._channels[ci], "match_person", None) or ""
+            people.setdefault(person, []).append((pos, ci))
+
+        layout = []
+        # "" (no person) first and unlabelled, then each named run in the order
+        # its first row appeared.
+        for person, rows in sorted(
+                people.items(), key=lambda kv: (kv[0] != "", kv[1][0][0])):
+            if person:
+                layout.append(("person", person))
+            layout.extend(("channel", ci) for _pos, ci in rows)
+
+        return layout
+
+    def _commit_layout(self, section: str, layout: list) -> None:
+        """Store a computed layout and re-point the reverse lookup at it.
+
+        ``_bucket_pos`` is the row's offset in the section's DISPLAY entries,
+        not in the bucket: it is what ``_display_row_for_channel_index`` adds to
+        the header position, and a sub-heading occupies a row like anything
+        else. Reading the bucket offset here put every row after the first
+        sub-heading one place too high.
+        """
+        self._layouts[section] = layout
+        for entry_pos, (kind, value) in enumerate(layout):
+            if kind == "channel":
+                self._bucket_pos[value] = entry_pos
+
+    def _layout(self, section: str) -> list:
+        """The section's display entries, built on demand for older callers."""
+        if section not in self._layouts:
+            self._rebuild_layout(section)
+        return self._layouts[section]
 
     def _display_row_for_channel_index(self, ci: int) -> Optional[int]:
         """Grouped display row for a ``_channels`` index, or None if not visible."""
@@ -149,6 +246,7 @@ class ChannelListGroupingMixin:
         section = self._channels[ci].section
         if section in self._collapsed_sections:
             return None  # hidden under a collapsed header
+        self._layout(section)          # ensure _bucket_pos reflects the layout
         pos = self._bucket_pos.get(ci)
         if pos is None:
             return None
@@ -234,7 +332,11 @@ class ChannelListGroupingMixin:
         start_index = len(self._channels)
         new_by_section: dict[str, list[int]] = {}
         for offset, ch in enumerate(dtos):
-            new_by_section.setdefault(ch.media_type or "other", []).append(
+            # ``ch.section``, NOT ``ch.media_type``: a searching page carries a
+            # section_key, and reading media_type here filed every row appended
+            # on scroll under Movies/Series/Live — the same defect the first-page
+            # path was fixed for, still live on the second page.
+            new_by_section.setdefault(ch.section, []).append(
                 start_index + offset
             )
         # Store the DTOs first (buckets reference these indices).
@@ -251,19 +353,34 @@ class ChannelListGroupingMixin:
             if not existed:
                 # Brand-new section: header + (rows when expanded) as one block.
                 pos = self._section_display_start(section, final_order)
-                visible = 1 + (0 if collapsed else len(indices))
-                self.beginInsertRows(QModelIndex(), pos, pos + visible - 1)
                 self._extend_bucket(section, indices)
+                layout = self._compute_layout(section)
+                visible = 1 + (0 if collapsed else len(layout))
+                self.beginInsertRows(QModelIndex(), pos, pos + visible - 1)
+                self._commit_layout(section, layout)
                 self.endInsertRows()
             elif collapsed:
                 # Hidden under a collapsed header — only the count label changes.
                 self._extend_bucket(section, indices)
+                self._commit_layout(section, self._compute_layout(section))
                 self._emit_header_changed(section, final_order)
             else:
-                old_count = len(self._buckets[section])
-                pos = self._section_display_start(section, final_order) + 1 + old_count
-                self.beginInsertRows(QModelIndex(), pos, pos + len(indices) - 1)
+                # The section's content is REPLACED, not appended to. A new row
+                # for a person who already has a run belongs inside that run,
+                # which is an insert in the middle — so "append at the end" is
+                # only correct for a section with no sub-headings, and silently
+                # wrong for the one that has them.
+                start = self._section_display_start(section, final_order)
+                old_n = len(self._layout(section))
+                if old_n:
+                    self.beginRemoveRows(QModelIndex(), start + 1, start + old_n)
+                    self._layouts[section] = []
+                    self.endRemoveRows()
                 self._extend_bucket(section, indices)
+                new_layout = self._compute_layout(section)
+                self.beginInsertRows(QModelIndex(), start + 1,
+                                     start + len(new_layout))
+                self._commit_layout(section, new_layout)
                 self.endInsertRows()
                 self._emit_header_changed(section, final_order)
 

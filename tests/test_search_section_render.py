@@ -96,7 +96,9 @@ def test_a_search_groups_without_the_checkbox(qapp):
     _load(model, _mixed(), search="cage")
 
     assert model.is_grouped, "a search must group its results"
-    assert [t for t, _ in _headers(model)] == ["⌄ Titles (1)", "⌄ Cast & Crew (2)"]
+    assert [t for t, _ in _headers(model)] == ["⌄ Titles (1)", "⌄ Cast & Crew (2)"], (
+        "the section count is CHANNELS, not display rows — a sub-heading is not "
+        "a result and must not be counted as one")
 
 
 def test_titles_render_above_cast_and_crew(qapp):
@@ -118,9 +120,12 @@ def test_titles_render_above_cast_and_crew(qapp):
     heading, seen = None, []
     for r in range(model.rowCount()):
         idx = model.index(r, 0)
-        if idx.data(ROW_KIND_ROLE) == "header":
+        kind = idx.data(ROW_KIND_ROLE)
+        if kind == "header":
             heading = idx.data(SECTION_TYPE_ROLE)
             continue
+        if kind == "person":
+            continue          # a sub-heading, not a row — see the person tests
         seen.append((heading, by_id[idx.data(Qt.ItemDataRole.UserRole)]))
     assert seen == [("title", "title"), ("cast", "cast"), ("cast", "cast")], (
         f"a row is filed under the wrong heading: {seen}")
@@ -176,7 +181,9 @@ def test_the_count_a_user_sees_does_not_include_the_headers(qapp):
     model = _model(qapp)
     _load(model, _mixed(), search="cage")
 
-    assert model.rowCount() == 5, "3 channels + 2 headers is what Qt paints"
+    # 3 channels + 2 section headers + 1 "Nicolas Cage" sub-heading (both cast
+    # rows share him, so one run).
+    assert model.rowCount() == 6, "channels + section headers + sub-headings"
     assert model.loaded_count() == 3, (
         "the count shown to a user must exclude section headers")
 

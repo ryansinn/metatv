@@ -209,6 +209,8 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         kind, payload = resolved
         if kind == "header":
             return self._header_data(payload, role)
+        if kind == "person":
+            return self._person_data(payload, role)
         return self._channel_data(self._channels[payload], role)
 
     def _channel_data(self, channel: ChannelListDTO, role: int) -> Any:
@@ -311,7 +313,9 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
             return Qt.ItemFlag.NoItemFlags
         if self._grouped:
             resolved = self._resolve_row(index.row())
-            if resolved is not None and resolved[0] == "header":
+            if resolved is not None and resolved[0] in ("header", "person"):
+                # Neither is a channel, so neither is selectable — clicking a
+                # sub-heading must not move the details pane to nothing.
                 return Qt.ItemFlag.ItemIsEnabled
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
