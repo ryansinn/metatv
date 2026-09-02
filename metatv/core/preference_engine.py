@@ -7,7 +7,6 @@ Level 2: TF-IDF plot keywords extracted from MetadataDB.plot.
 from __future__ import annotations
 
 import json
-import math
 import re
 import threading
 import time
@@ -17,60 +16,11 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from metatv.core.filter_utils import normalize_genre
+from metatv.core.idf_corpus import corpus_idf, extract_keywords
 from metatv.core.media_mix import (
     MEDIA_MIX_AUTOMATIC, mix_media_types, resolve_media_share,
 )
 
-
-STOP_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
-    "been", "being", "have", "has", "had", "do", "does", "did", "will",
-    "would", "could", "should", "may", "might", "must", "can", "her",
-    "his", "its", "their", "who", "what", "when", "where", "how", "why",
-    "he", "she", "it", "they", "we", "you", "this", "that", "these",
-    "those", "which", "all", "not", "no", "also", "into", "after", "before",
-    "between", "while", "about", "out", "up", "only", "own", "over",
-    "then", "so", "than", "too", "very", "just", "there", "through",
-    "during", "each", "more", "both", "back", "other", "off", "such",
-    "new", "first", "old", "high", "even", "life", "young", "two", "one",
-    "same", "another", "most", "some", "any", "find", "make", "take",
-    "come", "get", "give", "know", "look", "see", "tell", "film", "movie",
-    "show", "series", "story", "world", "man", "woman", "men", "soon",
-    "begins", "finds", "sets", "goes", "tries", "help", "try", "upon",
-    "your", "them", "three",
-    "four", "five", "time", "good", "long", "part", "well", "away",
-    "want", "used", "once",
-    "real", "keep", "face", "left", "side", "much", "hard", "days",
-    "full", "home", "last", "next", "year", "play", "live", "turn",
-    "move", "hand", "work", "down", "again", "still",
-    "choice", "together",
-    "everything", "something", "anything", "nothing", "someone", "anyone",
-    "everyone", "nobody", "somebody", "noone", "none", "nowhere",
-    "wherever", "whenever", "whatever",
-    "however", "although", "because", "though", "since", "until", "unless",
-    "place", "people", "things", "thing", "ways", "kind", "sort", "type",
-    "every", "never", "always", "often", "later", "early", "maybe", "perhaps",
-    "around", "against", "within", "without", "across", "along", "behind",
-    "beneath", "beyond", "inside", "outside", "under", "above", "below",
-    # Plot-pacing adverbs
-    "abruptly", "suddenly", "eventually", "quickly", "slowly",
-    # Plot-arc verbs — describe story structure, not preference
-    "discover", "reveal", "escape", "return", "realize",
-    "struggle", "decide", "learn", "begin", "attempt",
-    # Generic social/group nouns
-    "population", "community", "society", "crowd",
-    "family", "party", "member", "leader", "fellow",
-    # Vague adjectives that appear across all genres
-    "wealthy", "dangerous", "mysterious", "powerful", "ancient",
-    "deadly", "unlikely", "hidden", "unknown", "legendary",
-    "famous", "local", "former",
-    # Broad nouns — too generic to carry preference signal
-    "drama", "system", "force", "power",
-    "journey", "quest", "mission", "battle",
-})
-
-MAX_CORPUS_FREQ: float = 0.35  # drop words appearing in >35% of all plots
 
 # A single performer/director appearing in one liked title is noise, not taste:
 # an actor must show up across at least this many rated/favorited items before it
@@ -263,31 +213,6 @@ def version_score(channel, config) -> int:
     return score
 
 
-def extract_keywords(plot: str) -> list[str]:
-    """Return content words from a plot string (lowercased, stop-word filtered)."""
-    words = re.findall(r"\b[a-z]{4,}\b", plot.lower())
-    return [w for w in words if w not in STOP_WORDS]
-
-
-def build_idf(all_plots: list[str]) -> dict[str, float]:
-    """Build IDF table from a corpus of plot strings.
-
-    Words appearing in more than MAX_CORPUS_FREQ of documents are excluded —
-    they carry no discriminating power.
-    """
-    n = len(all_plots)
-    if n == 0:
-        return {}
-    doc_freq: Counter = Counter()
-    for plot in all_plots:
-        doc_freq.update(set(extract_keywords(plot)))
-    return {
-        word: math.log(n / freq)
-        for word, freq in doc_freq.items()
-        if (freq / n) <= MAX_CORPUS_FREQ
-    }
-
-
 def _title_key(channel) -> str:
     """Collapse key for one channel's title identity (CLAUDE.md 'Content identity').
 
@@ -468,13 +393,7 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     # single-appearance performers below (corroboration gate).
     actor_support: Counter = Counter()
 
-    # Column-only fetch for plots — 121,667 of them, not the "~1,300" this said.
-    all_plots = [
-        row[0] for row in
-        session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
-    ]
-    idf = build_idf(all_plots)
-    logger.debug(f"Preference engine: IDF corpus = {len(all_plots)} plots, {len(idf)} unique terms")
+    idf = corpus_idf(session)
 
     # Batch-fetch all needed MetadataDB rows in one IN query instead of per-channel session.get()
     all_metadata_ids = [ch.metadata_id for ch, _ in signal_pairs if ch and ch.metadata_id]
