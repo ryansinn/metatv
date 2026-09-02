@@ -448,7 +448,13 @@ class AlertPatternDB(Base):
     pattern_value = Column(String, nullable=False)
     
     applies_to = Column(String, default="all", index=True)  # all, live, series, movies
-    
+
+    # WL-1. Whole-word is the settled default ("NFL" matched Inflammation);
+    # False is the "contains, anywhere" escape hatch. exclude_terms is a plain
+    # list. Both read ONLY through core/watchlist_matching.py.
+    whole_word = Column(Boolean, default=True)
+    exclude_terms = Column(JSONEncoded)
+
     is_enabled = Column(Boolean, default=True, index=True)
     last_checked = Column(DateTime)
     
@@ -987,6 +993,9 @@ class Database:
             ("channels",     "signal_dead_streak",            "INTEGER DEFAULT 0"),
             ("channels",     "signal_checked_at",             "DATETIME"),
             ("channels",     "last_seen_at",                  "DATETIME"),
+            # WL-1 watch-rule fields; the UPDATE below stamps NULLs.
+            ("alert_patterns", "whole_word",                  "INTEGER DEFAULT 1"),
+            ("alert_patterns", "exclude_terms",               "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -1027,6 +1036,20 @@ class Database:
                     conn.commit()
                 except Exception as exc:
                     logger.warning(f"Index migration skipped: {exc}")
+
+            # WL-1: record the settled default ON the row rather than letting
+            # a rule inherit one, so a later change to the default cannot
+            # re-read what an old rule meant. Self-healing: runs every start.
+            try:
+                res = conn.execute(text(
+                    "UPDATE alert_patterns SET whole_word = 1 "
+                    "WHERE whole_word IS NULL"))
+                conn.commit()
+                if res.rowcount:
+                    logger.info(f"Migration: stamped whole_word=1 onto "
+                                f"{res.rowcount} watch rule(s)")
+            except OperationalError:
+                pass  # table absent on a brand-new database
 
         self._normalize_double_encoded_json()
 

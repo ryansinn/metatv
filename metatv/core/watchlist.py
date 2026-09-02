@@ -62,6 +62,7 @@ from loguru import logger
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.config import Config
+    from metatv.core.watchlist_matching import WatchRule
     from metatv.core.database import Database
 
 
@@ -237,6 +238,63 @@ def patterns(config: "Config") -> tuple[str, ...]:
         seen.add(key)
         out.append(text)
     return tuple(out)
+
+
+def rules(config: "Config") -> "tuple[WatchRule, ...]":
+    """Every watch pattern as a matchable rule, in the user's own order.
+
+    The rule is what both surfaces are supposed to share (Q4: "one list, two
+    surfaces"), so this — not :func:`patterns` — is what a matching caller
+    wants. :func:`patterns` stays for display and for the write paths.
+
+    Built on top of :func:`patterns` rather than beside it, so ordering,
+    blank-stripping, casefolded de-duplication and the pending-write overlay
+    keep exactly one definition; this only attaches the stored per-rule flags.
+
+    A term with no stored row — one still queued for insert, or a config-only
+    fallback list — gets the settled default: whole-word, no excludes.
+    """
+    from metatv.core.watchlist_matching import WatchRule
+
+    flags = _db_rule_flags() if _db is not None else {}
+    out: list[WatchRule] = []
+    for term in patterns(config):
+        whole_word, exclude = flags.get(term.casefold(), (True, ()))
+        out.append(WatchRule(term=term, whole_word=whole_word, exclude=exclude))
+    return tuple(out)
+
+
+def _db_rule_flags() -> "dict[str, tuple[bool, tuple[str, ...]]]":
+    """casefolded term -> (whole_word, exclude terms), for rules stored in the DB.
+
+    ``whole_word`` reads NULL as True: a row inserted by an older build has no
+    opinion, and the settled default is the one to apply. The migration stamps
+    those rows to 1 anyway — this is the belt to its braces, and it is what
+    makes the reader safe to run against a database mid-upgrade.
+
+    Errors return an EMPTY map rather than raising, matching ``_db_patterns``:
+    a flag read that fails should fall back to the default behaviour, not take
+    down the EPG view that asked for it.
+    """
+    from metatv.core.database import AlertPatternDB
+    try:
+        with _db.session_scope(commit=False) as session:
+            rows = (session.query(AlertPatternDB.pattern_value,
+                                  AlertPatternDB.whole_word,
+                                  AlertPatternDB.exclude_terms)
+                    .filter(AlertPatternDB.pattern_type == PATTERN_TYPE)
+                    .all())
+        out: dict[str, tuple[bool, tuple[str, ...]]] = {}
+        for value, whole_word, excludes in rows:
+            if not value:
+                continue
+            terms = tuple(str(x).strip() for x in (excludes or []) if str(x).strip())
+            out[value.casefold()] = (True if whole_word is None else bool(whole_word),
+                                     terms)
+        return out
+    except Exception:
+        logger.exception("watchlist: could not read rule flags from the database")
+        return {}
 
 
 def lowered(config: "Config") -> tuple[str, ...]:

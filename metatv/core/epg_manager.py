@@ -11,6 +11,7 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
 
 from metatv.core import watchlist
+from metatv.core.watchlist_matching import matches_any
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_matching import build_match_map
@@ -1283,7 +1284,7 @@ class EpgManager(QObject):
         """
         try:
             minutes = self.config.epg_notification_minutes_before
-            patterns = watchlist.patterns(self.config)
+            rules = watchlist.rules(self.config)
             with self.db.session_scope(commit=False) as session:
                 from metatv.core.repositories.epg import EpgRepository
                 repo = EpgRepository(session)
@@ -1313,8 +1314,11 @@ class EpgManager(QObject):
                 for prog in upcoming:
                     if prog.id in self._notified_this_session:
                         continue
-                    title_lower = prog.title.lower()
-                    if not any(pat.lower() in title_lower for pat in patterns):
+                    # get_programs_starting_soon takes no patterns, so this is
+                    # the ONLY match test here — and it shares the matcher with
+                    # the watchlist queries so a toast cannot announce what the
+                    # list never shows.
+                    if not matches_any(prog.title, rules):
                         continue
                     self._notified_this_session.add(prog.id)
 
