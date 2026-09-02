@@ -60,6 +60,8 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from loguru import logger
 
+from metatv.core.db_lock import retry_on_lock
+
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.config import Config
     from metatv.core.watchlist_matching import WatchRule
@@ -74,6 +76,11 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: headless path) the functions fall back to config, so nothing here can make a
 #: caller fail for want of a database.
 _db: "Optional[Database]" = None
+
+#: Gap between retries of a locked watch-list write. Deliberately shorter than
+#: the bulk-writer default: each attempt already spends its own wait inside
+#: ``busy_timeout``, and the person who clicked Remove is watching the row.
+_LOCK_RETRY_DELAY_S = 0.5
 
 _OP_ADD = "add"
 _OP_REMOVE = "remove"
@@ -498,16 +505,45 @@ def _writer_pool() -> ThreadPoolExecutor:
     return _writer
 
 
+def _apply_write(write: _PendingWrite) -> None:
+    """The mutation itself — one ``session_scope``, safe to re-run from scratch."""
+    if write.op == _OP_ADD:
+        _db_add(write.text)
+    elif write.op == _OP_UPDATE:
+        _db_update(write.text.casefold(), write.fields)
+    else:
+        _db_remove(write.text.casefold())
+
+
 def _run_write(write: _PendingWrite) -> None:
-    """Writer thread: apply one queued mutation, then report or forget it."""
+    """Writer thread: apply one queued mutation, then report or forget it.
+
+    Retried on a transient SQLite lock through the shared
+    :func:`metatv.core.db_lock.retry_on_lock` — the same policy the bulk
+    writers use, not a second copy.
+
+    Why it needs one at all, when every connection already carries
+    ``busy_timeout=30000``: this is a READ-then-write transaction (find the
+    row, then delete or update it), and SQLite cannot upgrade a read
+    transaction once another connection has committed underneath it. It
+    returns ``SQLITE_BUSY`` immediately in that case and the busy timeout does
+    not apply. On 2026-09-01 the owner removed two rules while an EPG pass held
+    the writer; both DELETEs raised ``database is locked``, both rules stayed
+    in the list, and each produced a toast saying it could not be removed.
+
+    A shorter gap than the bulk default: the wait is already dominated by
+    whatever each attempt spends inside ``busy_timeout``, and this one has a
+    person watching for a row to disappear. Nothing was committed by a failed
+    attempt, so re-running sees exactly the state the first one saw.
+
+    This runs on the ``watchlist-write`` thread, never the UI thread, which is
+    what makes waiting affordable at all. Quitting is unaffected: :func:`flush`
+    gives up after ``_FLUSH_TIMEOUT``.
+    """
     message = ""
     try:
-        if write.op == _OP_ADD:
-            _db_add(write.text)
-        elif write.op == _OP_UPDATE:
-            _db_update(write.text.casefold(), write.fields)
-        else:
-            _db_remove(write.text.casefold())
+        retry_on_lock(f"watchlist {write.op}", lambda: _apply_write(write),
+                      delay_s=_LOCK_RETRY_DELAY_S)
     except Exception as exc:
         logger.exception("watchlist: could not {} {!r}", write.op, write.text)
         message = str(exc).split("\n", 1)[0].strip() or exc.__class__.__name__

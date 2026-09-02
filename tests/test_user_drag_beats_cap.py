@@ -108,7 +108,16 @@ def test_growing_content_still_raises_the_cap(qapp, tmp_path):
     top.note_user_height(200)
     assert top.max_useful_height() >= 200
     # A taller content measurement must still win if it exceeds the user height.
-    top._user_height = 50
-    assert top.max_useful_height() == max(
-        top.min_expanded_height(), top.HEADER_H + top._content_height()
-    ), "a stale small user height must not cap real content"
+    #
+    # DERIVED from the content, not a constant. This line read
+    # ``top._user_height = 50`` and passed only because an empty section
+    # measured 108px — ``viewportSizeHint()`` on an empty QListWidget returns a
+    # default viewport rather than 0, and that fabricated 82px of content was
+    # what kept 50 "small". Fixing the measurement (an empty section is now its
+    # header) dropped the content under 50 and the assertion started failing on
+    # a premise it never meant to state.
+    content_cap = max(top.min_expanded_height(),
+                      top.HEADER_H + top._content_height())
+    top._user_height = max(0, content_cap - 1)
+    assert top.max_useful_height() == content_cap, (
+        "a stale user height SMALLER than the content must not cap it")
