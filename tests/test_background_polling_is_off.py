@@ -82,3 +82,83 @@ def test_start_scheduler_still_honours_zero():
 
     src = inspect.getsource(SeriesMonitorManager.start_scheduler)
     assert "minutes <= 0" in src, "the recurring recheck lost its off switch"
+
+
+# ---------------------------------------------------------------------------
+# Turning a DEFAULT off does nothing to someone who already stored the old one
+# ---------------------------------------------------------------------------
+
+def _load_config_with(tmp_path, monkeypatch, stored: dict):
+    """Load a Config from a real config.yaml containing *stored*.
+
+    Goes through ``Config.load()`` and a patched HOME rather than
+    ``Config(**stored)``: the constructor skips the YAML path entirely, and the
+    whole defect here lives in what happens to a value that came OFF DISK.
+    ``database_url`` is always present because ``load()`` treats a config
+    without one as corrupt and silently builds a fresh default — which made the
+    first version of this test pass for the wrong reason, with every case
+    returning the defaults it was supposed to be overriding.
+    """
+    import pathlib
+
+    import yaml
+
+    from metatv.core.config import Config
+
+    home = tmp_path / "home"
+    (home / ".config" / "metatv").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "metatv" / "config.yaml").write_text(
+        yaml.safe_dump({"database_url": "sqlite:///x.db", **stored}))
+    monkeypatch.setattr(pathlib.Path, "home", staticmethod(lambda: home))
+    cfg, _ = Config.load()
+    return cfg
+
+
+def test_a_stored_old_default_is_turned_off_not_left_alone(tmp_path, monkeypatch):
+    """The owner's actual config, and the reason this migration exists.
+
+    Their ``config.yaml`` carries ``tmdb_enrichment_session_cap: 500``
+    explicitly, because ``save()`` writes every field. An explicit stored value
+    beats any default, so moving the default to 0 left the genre backfill
+    running — they watched it log ``filled 40 of 40 movie(s)`` every ~6 s while
+    reading a PR whose whole subject was turning it off.
+    """
+    cfg = _load_config_with(tmp_path, monkeypatch, {
+        "tmdb_enrichment_session_cap": 500,
+        "series_monitor_interval_minutes": 0,
+    })
+    assert cfg.tmdb_enrichment_session_cap == 0, (
+        "a stored 500 survived — the new default never reaches an existing "
+        "config, which is the entire defect this migration fixes")
+    assert cfg.background_polling_off_version == 1
+
+
+def test_a_deliberately_chosen_value_is_preserved(tmp_path, monkeypatch):
+    """The conservative half. Only a value EQUAL to the old default is rewritten.
+
+    500 and 1440 are provably "the old default, written down by save()".
+    Anything else is a number a person typed, and this migration must not
+    touch it — a migration that flattens real choices is worse than the bug.
+    """
+    cfg = _load_config_with(tmp_path, monkeypatch, {
+        "tmdb_enrichment_session_cap": 250,
+        "series_monitor_interval_minutes": 720,
+    })
+    assert cfg.tmdb_enrichment_session_cap == 250
+    assert cfg.series_monitor_interval_minutes == 720
+
+
+def test_turning_polling_back_on_survives_the_next_launch(tmp_path, monkeypatch):
+    """Version-gated, so re-enabling sticks.
+
+    Without the marker this would re-run every launch and silently undo the
+    user's choice — the trap the metadata-providers migration's version field
+    was added to avoid.
+    """
+    cfg = _load_config_with(tmp_path, monkeypatch, {
+        "tmdb_enrichment_session_cap": 500,
+        "series_monitor_interval_minutes": 1440,
+        "background_polling_off_version": 1,
+    })
+    assert cfg.tmdb_enrichment_session_cap == 500
+    assert cfg.series_monitor_interval_minutes == 1440

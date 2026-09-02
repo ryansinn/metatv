@@ -1132,6 +1132,9 @@ class Config(BaseModel):
     #: a title is actually opened. Owner: *"if the user clicks on something then
     #: it can pull the data if it doesn't have it."*
     tmdb_enrichment_session_cap: int = 0
+    #: Marker for the one-time rewrite of the two polling knobs above/below.
+    #: See ``_migrate_background_polling_defaults``. 0 = not yet applied.
+    background_polling_off_version: int = 0
     tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
     tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
 
@@ -2178,6 +2181,54 @@ class Config(BaseModel):
         # Merge newly-shipped provider names (tmdb/omdb) into a persisted
         # metadata_enabled_providers that predates them — see the field's docstring.
         self._migrate_metadata_enabled_providers()
+        # Turn the background pollers off in an EXISTING config, not just in the
+        # defaults — moving a default alone does nothing to anyone who already
+        # has the old one written down. See the method's docstring.
+        self._migrate_background_polling_defaults()
+
+    #: What ``tmdb_enrichment_session_cap`` and ``series_monitor_interval_minutes``
+    #: defaulted to before they were turned off. A stored value EQUAL to one of
+    #: these is the old default persisted, not a choice — see the migration.
+    _POLLING_OLD_DEFAULTS = {
+        "tmdb_enrichment_session_cap": 500,
+        "series_monitor_interval_minutes": 1440,
+    }
+
+    def _migrate_background_polling_defaults(self) -> None:
+        """Apply the new OFF defaults to a config that already stored the old ones.
+
+        The defect this exists for: changing a pydantic default fixes nothing
+        for an existing user. ``config.save()`` writes every field, so the
+        owner's ``config.yaml`` carries ``tmdb_enrichment_session_cap: 500``
+        explicitly — and an explicit stored value beats any default. They
+        watched the genre backfill keep running (``filled 40 of 40 movie(s)``
+        every ~6 s) while looking at a PR whose entire subject was turning it
+        off.
+
+        Because ``save()`` persists every field, a stored value is
+        indistinguishable from a default nobody ever chose. That is exactly the
+        argument ``_migrate_metadata_enabled_providers`` makes, and it is why
+        rewriting one is legitimate here.
+
+        **Only a value equal to the OLD DEFAULT is rewritten.** That is the
+        conservative half: 500 and 1440 are provably "the old default, written
+        down by save()", while any other number is something a person typed and
+        is left alone. A user who deliberately set 720 keeps 720.
+
+        Version-gated so it runs once. Turning polling back on later must stick,
+        and a migration that re-ran every launch would quietly undo it — the
+        same trap the version marker on the metadata-providers migration exists
+        to avoid.
+        """
+        if self.background_polling_off_version >= 1:
+            return
+        for field, old_default in self._POLLING_OLD_DEFAULTS.items():
+            if getattr(self, field, None) == old_default:
+                setattr(self, field, 0)
+                logger.info(
+                    "Config migration: {} was {} (the old default, not a choice) "
+                    "— turned off", field, old_default)
+        self.background_polling_off_version = 1
 
     def attach_profile_store(self, db) -> frozenset[str]:
         """Bind the profile store to *db* and migrate this config into it.

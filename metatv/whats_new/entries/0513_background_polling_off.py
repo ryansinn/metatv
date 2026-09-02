@@ -19,8 +19,15 @@ ENTRY = WhatsNewEntry(
         "open, which is what they were for.",
         "If you want either back on, they are in Settings. Nothing was "
         "removed.",
+        "If you had these switched on before, they are switched off for you "
+        "too — not just for a fresh install. Changing what a setting defaults "
+        "to does nothing to a config file that already has the old value "
+        "written into it, which is why the backfill kept running. Anything you "
+        "deliberately set to your own number is left exactly as you set it.",
     ),
     test_steps=(
+        ("Launch MetaTV and confirm the log has no 'tmdb_enrich: genre backfill' "
+         "lines — the stored 500 should be migrated to 0 on first launch."),
         ("Launch MetaTV and confirm the log has no 'get_series_info' calls "
          "and no 'genre backfill' lines."),
         ("Confirm playback starts promptly without competing for the source's "
