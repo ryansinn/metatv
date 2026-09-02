@@ -1119,7 +1119,22 @@ class Config(BaseModel):
     # detail endpoint, so cross-language/quality variants finally collapse.  No
     # external API key.  Politeness knobs spread the ~200k backlog across launches.
     tmdb_enrichment_enabled: bool = True        # Master toggle for the background pass
-    tmdb_enrichment_session_cap: int = 500      # Max idless rows attempted per launch
+    #: Rows the eager genre backfill may attempt per launch. **0 = off, and that
+    #: is now the default.**
+    #:
+    #: It was draining 501,030 un-enriched movies at 500 a launch — about 1,002
+    #: launches, roughly a minute of back-to-back `get_vod_info` calls on the
+    #: source every single time. #348 built it for a real symptom (a movie with
+    #: no genres scores 0 and never surfaces in Recommendations), but eagerly
+    #: fetching the entire VOD catalogue was never the requirement.
+    #:
+    #: The lazy path already exists and is unaffected: metadata is fetched when
+    #: a title is actually opened. Owner: *"if the user clicks on something then
+    #: it can pull the data if it doesn't have it."*
+    tmdb_enrichment_session_cap: int = 0
+    #: Marker for the one-time rewrite of the two polling knobs above/below.
+    #: See ``_migrate_background_polling_defaults``. 0 = not yet applied.
+    background_polling_off_version: int = 0
     tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
     tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
 
@@ -1535,7 +1550,25 @@ class Config(BaseModel):
     # the user plays through — 11 series x 3 mirrors at ~1-11s a call is a ~3
     # minute pass. New episodes appear at most daily, so hourly bought nothing and
     # spent the connection twelve times more often than it needed to.
-    series_monitor_interval_minutes: int = 1440
+    #: How often to re-poll watched series for new episodes. **0 = Never, and
+    #: that is now the default.**
+    #:
+    #: A pass asks the source `get_series_info` once per SERIES PER MIRROR, and
+    #: the owner's sources carry the same show many times over: 11 watched shows
+    #: expand to **234 mirror entries**. Measured against their own log:
+    #:
+    #:     one full source refresh   1 request    ~34 s   → the entire catalog
+    #:     one series-monitor pass   234 requests  3.9-39 min → all "unchanged"
+    #:
+    #: So polling costs **7x to 69x** the provider connection-time of the refresh
+    #: that already answers the same question, on an account whose sources report
+    #: `max_connections=1`. Owner: *"the entire source refresh is FASTER ... and
+    #: it only hits once."*
+    #:
+    #: This value now governs the STARTUP check as well as the recurring timer.
+    #: It previously governed only the timer, so setting it to Never left a
+    #: launch-time pass running anyway — which is exactly what the owner hit.
+    series_monitor_interval_minutes: int = 0
 
     # Search state persistence — "Remember last search" feature.
     # When remember_search is True, last_search_state is written on every search
@@ -2148,6 +2181,54 @@ class Config(BaseModel):
         # Merge newly-shipped provider names (tmdb/omdb) into a persisted
         # metadata_enabled_providers that predates them — see the field's docstring.
         self._migrate_metadata_enabled_providers()
+        # Turn the background pollers off in an EXISTING config, not just in the
+        # defaults — moving a default alone does nothing to anyone who already
+        # has the old one written down. See the method's docstring.
+        self._migrate_background_polling_defaults()
+
+    #: What ``tmdb_enrichment_session_cap`` and ``series_monitor_interval_minutes``
+    #: defaulted to before they were turned off. A stored value EQUAL to one of
+    #: these is the old default persisted, not a choice — see the migration.
+    _POLLING_OLD_DEFAULTS = {
+        "tmdb_enrichment_session_cap": 500,
+        "series_monitor_interval_minutes": 1440,
+    }
+
+    def _migrate_background_polling_defaults(self) -> None:
+        """Apply the new OFF defaults to a config that already stored the old ones.
+
+        The defect this exists for: changing a pydantic default fixes nothing
+        for an existing user. ``config.save()`` writes every field, so the
+        owner's ``config.yaml`` carries ``tmdb_enrichment_session_cap: 500``
+        explicitly — and an explicit stored value beats any default. They
+        watched the genre backfill keep running (``filled 40 of 40 movie(s)``
+        every ~6 s) while looking at a PR whose entire subject was turning it
+        off.
+
+        Because ``save()`` persists every field, a stored value is
+        indistinguishable from a default nobody ever chose. That is exactly the
+        argument ``_migrate_metadata_enabled_providers`` makes, and it is why
+        rewriting one is legitimate here.
+
+        **Only a value equal to the OLD DEFAULT is rewritten.** That is the
+        conservative half: 500 and 1440 are provably "the old default, written
+        down by save()", while any other number is something a person typed and
+        is left alone. A user who deliberately set 720 keeps 720.
+
+        Version-gated so it runs once. Turning polling back on later must stick,
+        and a migration that re-ran every launch would quietly undo it — the
+        same trap the version marker on the metadata-providers migration exists
+        to avoid.
+        """
+        if self.background_polling_off_version >= 1:
+            return
+        for field, old_default in self._POLLING_OLD_DEFAULTS.items():
+            if getattr(self, field, None) == old_default:
+                setattr(self, field, 0)
+                logger.info(
+                    "Config migration: {} was {} (the old default, not a choice) "
+                    "— turned off", field, old_default)
+        self.background_polling_off_version = 1
 
     def attach_profile_store(self, db) -> frozenset[str]:
         """Bind the profile store to *db* and migrate this config into it.

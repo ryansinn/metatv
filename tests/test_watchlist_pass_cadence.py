@@ -26,14 +26,27 @@ import pathlib
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def test_the_default_recheck_interval_is_a_day():
-    """1440 minutes. Hourly cost the playback slot for no detection benefit."""
+def test_polling_is_never_a_sub_daily_cadence():
+    """0 (off) or at least a day. Never hourly again.
+
+    The default itself moved to ``0`` — see
+    ``tests/test_background_polling_is_off.py``, which owns that number and the
+    measurement behind it (a pass is 234 provider requests; the full source
+    refresh that answers the same question is 1).
+
+    What survives here is the CADENCE floor, which is what the owner's original
+    complaint was about and what a future change could still get wrong: if
+    polling is switched back on by default, it may not be hourly. This used to
+    assert ``== 1440`` and so turned the deliberate move to ``0`` into a red
+    gate — exactly the pin-an-exact-value trap.
+    """
     from metatv.core.config import Config
 
-    field = Config.model_fields["series_monitor_interval_minutes"]
-    assert field.default == 1440, (
-        f"default is {field.default} minutes; a watchlist pass competes with playback "
-        "on a one-connection account and new episodes appear at most daily")
+    default = Config.model_fields["series_monitor_interval_minutes"].default
+    assert default == 0 or default >= 1440, (
+        f"default is {default} minutes — a sub-daily watchlist pass competes "
+        "with playback on a one-connection account, and new episodes appear at "
+        "most daily, so it buys no detection for the connection it spends")
 
 
 def test_the_startup_pass_is_not_fired_at_zero_milliseconds():

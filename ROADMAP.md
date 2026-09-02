@@ -141,6 +141,53 @@ What's left to build. Completed features live in git history.
 - [ ] **Live stream recording / DVR (the live sibling of download) — EPG-scheduled, connection-aware** — **NOT BUILT** (verified 2026-08-02: no recording manager / scheduled-recording code). Named in the Wave 5 plan; never written. Record a **live** channel for a time window (you'll miss the game → leave the app up, it records the chosen channel for the chosen window). **EPG-integrated:** schedule a recording straight from an EPG programme — reuse `EpgProgramDB` start/stop times + the watchlist/notification timer infra in `EpgManager` (a "Record" action alongside the watchlist "+"), with **pre/post padding** (start early / end late — live events run over). Manual time-window recording too. Mechanism: mpv `--stream-record=<file>` or a headless ffmpeg capture of the live TS for the window; same downloads/library dir + offline badge. **Connection-aware — third consumer of the one per-source arbiter:** a recording holds a source connection for its whole window, competing with playback + downloads via the **same** `provider_max_connections` accountant (don't build a third counter). **New priority insight — the axis is content *ephemerality/recoverability*, not foreground-vs-background:** a *download* yields freely (VOD is recoverable later), but a *live recording is time-critical — the moment is gone forever* — so a scheduled recording should **reserve** its slot and **warn/block** a conflicting play (*"playing source X now exceeds its connection limit and will kill the scheduled recording"*) rather than silently yielding. So: playback > download (download yields), but a scheduled live recording is **protected** even against playback (or makes the user choose with eyes open). **Limitation:** "leave the app up" needs the GUI process running — a true unattended PVR is the **headless-backend** stretch (PRODUCT_VISION), the eventual upgrade that records without the head up.
 ### Source reliability & stream diagnostics
 
+> **DECIDE: should the three background pollers exist at all?**
+>
+> All three are now **off by default**. This is the open question, recorded
+> because the owner spent more than a day diagnosing behaviour that was never
+> requested: *"I don't know why any of this was built, I didn't ask for it
+> ever ... everything they solve was already solved with a single click refresh
+> (or the automated schedule for source refresh, which arguably is WAY more
+> efficient)."*
+>
+> **The measurement that frames it.** Both hit the same source for the same data:
+>
+> | | requests | time on the source | returns |
+> |---|---|---|---|
+> | one full source refresh | **1** | **~34 s** (measured, 4 runs) | the entire catalog, 195k-294k items |
+> | one series-monitor pass | **234** | **3.9-39 min** | an episode count per mirror, all "unchanged" |
+>
+> Polling costs **7x to 69x** the provider connection-time of the refresh that
+> answers the same question — on sources reporting `max_connections=1`. The 234
+> is mirror fan-out: 11 watched shows expand to 234 mirror entries (Fallout
+> alone is 72). Owner: *"the entire source refresh is FASTER ... and it only
+> hits once."*
+>
+> **The three, and what each would actually need:**
+>
+> 1. **Series monitor** (`series_monitor_interval_minutes = 0`). The strongest
+>    case for removal: a refresh already downloads the catalog. **Unverified and
+>    the first thing to check** — whether the Xtream SERIES list endpoint carries
+>    enough to diff episode counts without `get_series_info`. If it does, the
+>    feature survives with zero extra requests and this becomes a rewrite, not a
+>    deletion.
+> 2. **Eager genre backfill** (`tmdb_enrichment_session_cap = 0`). 501,030
+>    movies at 500/launch ≈ 1,002 launches. NOT redundant with refresh — the
+>    VOD *list* payload genuinely omits genre/plot/cast (verified: 400 sampled
+>    rows, 0 mention any). But the lazy on-open path already covers everything
+>    the user actually views, which is #348's real requirement.
+> 3. **Signal check** (`signal_check_enabled = False`, #651). Separately parked;
+>    its verdicts were also wrong. See its own note.
+>
+> **A defect to fix whichever way this goes:** the Settings value did not
+> persist — `config.yaml` still read `series_monitor_interval_minutes: 1440`
+> after the owner set Never. The widget and both load/save handlers reference
+> it, so the break is between the dialog and the save (the Settings-OK
+> enumeration family). CFG-5 is ruled out; the field is not in the profile store.
+>
+> Guard: `tests/test_background_polling_is_off.py` pins all three defaults and
+> that the interval governs the STARTUP pass, not just the recurring timer.
+
 > **PARKED — NOT A TASK. Do not pick this up.**
 >
 > This is deliberately not a checklist item and is deliberately absent from the
