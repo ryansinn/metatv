@@ -269,6 +269,57 @@ def tier_for_title(title: str | None, search_term: str) -> int:
     return 3 if term in low else 4
 
 
+#: What separates two names inside ONE ``metadata.director`` value. It is plain
+#: TEXT, not JSON, and 34.3% of the 74,462 populated rows on the owner's library
+#: hold a LIST — often not even of people: "Anna Sanders Films, Burning Blue,
+#: Illuminations Films, ZDF, ARTE". Measured in that column: comma 13,909,
+#: ``&`` 36, ``/`` 27, Arabic comma 7.
+_PERSON_SEPARATORS = ",&/;\u060c"
+
+
+def best_person_part(person: str, search_term: str) -> str | None:
+    """The single name inside *person* that answers the search, or None.
+
+    ``LIKE '%strong%'`` against a whole director value matches the VALUE, not a
+    name in it — so a search for "Strong" named *"Paula Casarin, Carley
+    Armstrong, Andrea Trigo, Martina Vazzoler, J.C. Chandor"* as the reason
+    *Kraven the Hunter* was on screen. Owner: *"it's clearly matching Carley
+    Armstrong ... but listing the entire cast."*
+
+    Cast names arrive from ``json_each`` already separated and pass through
+    unchanged; this exists for the director column, which has no structure.
+
+    Ranked the way the query ranks whole values — exact, then whole word, then
+    substring, shortest first — so "Strong" prefers *Mark Strong* over
+    *Armstrong* when one value holds both.
+
+    Args:
+        person: One ``cast`` name, or a whole ``director`` value.
+        search_term: Raw user text.
+
+    Returns:
+        The best matching part, trimmed; None when no part matches.
+    """
+    term = (search_term or "").strip().lower()
+    if not term or not person:
+        return None
+
+    flat = person
+    for ch in _PERSON_SEPARATORS:
+        flat = flat.replace(ch, ",")
+
+    best, best_key = None, None
+    for part in (p.strip() for p in flat.split(",")):
+        low = part.lower()
+        if not part or term not in low:
+            continue
+        tier = 0 if low == term else (1 if f" {term} " in f" {low} " else 2)
+        key = (tier, len(part))
+        if best_key is None or key < best_key:
+            best, best_key = part, key
+    return best
+
+
 def canonical_person(search_term: str, known: dict) -> str | None:
     """The name to show when the term matched a channel's NAME, not its metadata.
 
@@ -380,8 +431,15 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
         text(sql).bindparams(bindparam("ids", expanding=True)), params
     ).fetchall()
 
+    # ORDER BY put the best VALUE first, but a director value can hold several
+    # names, so the winner still has to be reduced to the name that actually
+    # matched. A value whose match was an artefact of the whole string is
+    # skipped and the next candidate used.
     best: dict = {}
     for cid, person, _tier, _namelen in rows:
-        if cid not in best and person:      # ORDER BY put the best first
-            best[cid] = person
+        if cid in best or not person:
+            continue
+        part = best_person_part(person, search_term)
+        if part:
+            best[cid] = part
     return best
