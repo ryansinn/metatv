@@ -29,8 +29,13 @@ from PyQt6.QtWidgets import QListWidgetItem, QSplitter, QWidget
 from metatv.core.config import Config
 from tests.conftest import destroy_widget
 
-TALL = 900          # room for a section to exceed its content if uncapped
-ROW_PX = 37         # CollapsibleSection.CONTENT_ROW_H
+TALL = 900     # room for a section to exceed its content if uncapped
+
+#: Height given to each fake row. Deliberately NOT read from
+#: ``CollapsibleSection.CONTENT_ROW_H``: the point is that the fit follows the
+#: ITEMS' own size hints, so borrowing the class's number would let a section
+#: that ignores its rows entirely still satisfy the assertion.
+ROW_PX = 41
 
 
 @pytest.fixture(scope="module")
