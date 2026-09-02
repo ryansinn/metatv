@@ -165,7 +165,7 @@ class URLRowWidget(QWidget):
 
         url_label = _ClickToCopyLabel(provider_url.url)
         if pending_remove:
-            _theme.style(url_label, "URL_ROW_GHOST")
+            _theme.style(url_label, "DIALOG_PENDING_REMOVE_NAME")
         else:
             # Underline on hover: the label IS the copy control, so approach
             # must reveal the affordance — at rest it reads as plain text.
