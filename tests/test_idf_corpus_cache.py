@@ -13,6 +13,14 @@ enrichment actually changes the corpus. This is a separate, lower layer than
 the taste-keyed ``_WEIGHTS_CACHE`` in ``test_preference_weights_cache.py``:
 different scoring dials produce different taste signatures (and so different
 cache entries there), but they should all share ONE IDF build here.
+
+The cache and its build function live in ``metatv.core.idf_corpus`` — a
+standalone module, not ``preference_engine`` — because the IDF depends on
+nothing in the preference engine (only ``MetadataDB``) and that file sits at
+its code-health ratchet baseline. Tests of ``corpus_idf``/``build_idf``'s OWN
+behaviour patch and call them in their defining module; only the one test that
+proves ``compute_weights`` DELEGATES to ``corpus_idf`` patches the reference
+``preference_engine`` actually resolves (its own imported name).
 """
 
 from __future__ import annotations
@@ -22,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from metatv.core import idf_corpus
 from metatv.core import preference_engine as pe
 from metatv.core.database import ChannelDB, Database, MetadataDB, UserRatingDB
 
@@ -37,10 +46,10 @@ def db(tmp_path: Path):
 @pytest.fixture(autouse=True)
 def _reset_module_caches():
     """Module-level caches must not leak state between tests (repo rule)."""
-    pe._idf_cache = None
+    idf_corpus._idf_cache = None
     pe._WEIGHTS_CACHE.clear()
     yield
-    pe._idf_cache = None
+    idf_corpus._idf_cache = None
     pe._WEIGHTS_CACHE.clear()
 
 
@@ -64,13 +73,13 @@ def _rate(db, channel_id: str = "c1", rating: int = 1) -> None:
 
 
 def _counting_build_idf(monkeypatch, calls: list) -> None:
-    original = pe.build_idf
+    original = idf_corpus.build_idf
 
     def counting(all_plots):
         calls.append(all_plots)
         return original(all_plots)
 
-    monkeypatch.setattr(pe, "build_idf", counting)
+    monkeypatch.setattr(idf_corpus, "build_idf", counting)
 
 
 def test_second_call_hits_the_cache(db, monkeypatch):
@@ -81,8 +90,8 @@ def test_second_call_hits_the_cache(db, monkeypatch):
     _counting_build_idf(monkeypatch, calls)
 
     with db.session_scope(commit=False) as s:
-        first = pe.corpus_idf(s)
-        second = pe.corpus_idf(s)
+        first = idf_corpus.corpus_idf(s)
+        second = idf_corpus.corpus_idf(s)
 
     assert len(calls) == 1, (
         f"expected one build shared across two calls, got {len(calls)} — the "
@@ -98,14 +107,14 @@ def test_new_plot_invalidates(db, monkeypatch):
     _counting_build_idf(monkeypatch, calls)
 
     with db.session_scope(commit=False) as s:
-        pe.corpus_idf(s)
+        idf_corpus.corpus_idf(s)
     assert len(calls) == 1
 
     # Count of non-null plots moves — enrichment just widened the corpus.
     _seed_plot(db, "m2", "a loud comedy about parties and friends")
 
     with db.session_scope(commit=False) as s:
-        pe.corpus_idf(s)
+        idf_corpus.corpus_idf(s)
     assert len(calls) == 2, (
         "a new plot changed the corpus count but corpus_idf served the stale IDF"
     )
@@ -121,7 +130,7 @@ def test_refetched_plot_invalidates(db, monkeypatch):
     _counting_build_idf(monkeypatch, calls)
 
     with db.session_scope(commit=False) as s:
-        pe.corpus_idf(s)
+        idf_corpus.corpus_idf(s)
     assert len(calls) == 1
 
     # Plot count is unchanged; MAX(fetched_at) moves — enrichment re-fetched
@@ -131,7 +140,7 @@ def test_refetched_plot_invalidates(db, monkeypatch):
         row.fetched_at = datetime(2020, 1, 1) + timedelta(days=1)
 
     with db.session_scope(commit=False) as s:
-        pe.corpus_idf(s)
+        idf_corpus.corpus_idf(s)
     assert len(calls) == 2, (
         "a re-fetched plot moved MAX(fetched_at) but corpus_idf served the stale IDF"
     )
@@ -140,9 +149,11 @@ def test_refetched_plot_invalidates(db, monkeypatch):
 def test_compute_weights_uses_the_shared_corpus(db, monkeypatch):
     _rate(db)
 
-    build_calls: list = []
-    monkeypatch.setattr(
-        pe, "build_idf", lambda all_plots: (build_calls.append(all_plots), {})[1]
+    # compute_weights lives in preference_engine, which no longer imports
+    # build_idf at all — the IDF build is reachable only through corpus_idf.
+    assert not hasattr(pe, "build_idf"), (
+        "preference_engine must not import build_idf directly — the IDF "
+        "layer lives in idf_corpus and is reached only through corpus_idf"
     )
 
     corpus_calls: list = []
@@ -151,6 +162,11 @@ def test_compute_weights_uses_the_shared_corpus(db, monkeypatch):
         corpus_calls.append(session)
         return {}
 
+    # Patched on `pe`, not `idf_corpus`: compute_weights resolves the bare
+    # name `corpus_idf` through preference_engine's own module globals (its
+    # `from metatv.core.idf_corpus import corpus_idf`), so that is the
+    # reference it actually sees — patching the defining module's copy would
+    # not touch it, same trap as CLAUDE.md's epg_view.parse_channel_name case.
     monkeypatch.setattr(pe, "corpus_idf", stub_corpus_idf)
 
     with db.session_scope(commit=False) as s:
@@ -159,8 +175,4 @@ def test_compute_weights_uses_the_shared_corpus(db, monkeypatch):
     assert weights is not None
     assert len(corpus_calls) == 1, (
         "compute_weights must get the IDF table from corpus_idf exactly once"
-    )
-    assert build_calls == [], (
-        "compute_weights called build_idf directly — the old inline plot query "
-        "is still there instead of routing through corpus_idf"
     )
