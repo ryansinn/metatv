@@ -30,6 +30,10 @@
 #
 #   scripts/merge_pr.sh <PR#>                    Verify, merge (squash), prune.
 #   scripts/merge_pr.sh <PR#> --skip-verify      Merge without re-verifying.
+#   scripts/merge_pr.sh <PR#> --auto             Queue the merge with GitHub so
+#                                                it lands when checks pass. The
+#                                                local verify gate still runs;
+#                                                see the refusal below.
 #   scripts/merge_pr.sh <PR#> --keep-worktree    Merge but skip the prune step.
 #   scripts/merge_pr.sh <PR#> --no-bump          Merge without opening the next
 #                                                What's New batch label.
@@ -52,6 +56,7 @@ USAGE
   scripts/merge_pr.sh <PR#>                  Gate (verify_pr.sh, require GREEN),
                                              then merge and prune.
   scripts/merge_pr.sh <PR#> --skip-verify    Skip the verify gate (warns).
+  scripts/merge_pr.sh <PR#> --auto           Queue behind GitHub's auto-merge.
   scripts/merge_pr.sh <PR#> --keep-worktree  Skip the final prune step.
   scripts/merge_pr.sh <PR#> --quick         Gate with verify_pr.sh --quick:
                                             the launch smoke test plus only the
@@ -74,6 +79,7 @@ EOF
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 SKIP_VERIFY=0
+AUTO=0
 QUICK=0
 KEEP_WT=0
 NO_BUMP=0
@@ -82,6 +88,7 @@ for arg in "$@"; do
     case "$arg" in
         -h|--help|help) usage; exit 0 ;;
         --skip-verify) SKIP_VERIFY=1 ;;
+        --auto) AUTO=1 ;;
         --keep-worktree) KEEP_WT=1 ;;
         --no-bump) NO_BUMP=1 ;;
         --quick) QUICK=1 ;;
@@ -181,7 +188,50 @@ fi
 # in the agent's own notes, including the --auto behaviour specifically, and was
 # broken anyway within minutes of being read. Which is the whole argument for
 # putting it here instead of in a sentence.
-if [ -z "${MERGE_PR_SKIP_CHECKS:-}" ]; then
+# --auto does not wait for checks HERE — that is the point of it — so the
+# protection has to move rather than disappear. Two assertions replace the
+# "every check SUCCESS" one, and the first is the entire lesson of 2026-09-02:
+#
+#   1. allow_auto_merge must be TRUE on the repository. When it is false, `gh pr
+#      merge --auto` does not queue anything, it merges NOW. That is not a
+#      failure mode someone imagined; it is what happened, with nine of ten jobs
+#      still running. Asking the API costs one call and removes the trap.
+#   2. No check may have already CONCLUDED as a failure. An auto-merge parked
+#      behind a red check can never land, and the person who queued it walks
+#      away believing it will — which is worse than a refusal.
+if [ "$AUTO" = 1 ] && [ -z "${MERGE_PR_SKIP_CHECKS:-}" ]; then
+    echo
+    echo "── auto-merge preconditions ──"
+    allow_auto="$(gh api "repos/{owner}/{repo}" --jq '.allow_auto_merge' 2>/dev/null || echo 'unknown')"
+    printf '   allow_auto_merge: %s\n' "$allow_auto"
+    if [ "$allow_auto" != "true" ]; then
+        echo "merge_pr.sh: REFUSING --auto — allow_auto_merge is '$allow_auto' on this repo." >&2
+        echo "  With it off, 'gh pr merge --auto' MERGES IMMEDIATELY rather than queueing." >&2
+        echo "  That shipped a red main on 2026-09-02 with 9 of 10 jobs in progress." >&2
+        echo "  Enable it in repo settings, or merge without --auto once checks are green." >&2
+        exit 1
+    fi
+    bad="$(gh pr checks "$PR" --json name,state 2>/dev/null | "${PYTHON:-python3}" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = []
+dead = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+for x in d:
+    if x.get("state") in dead:
+        print(" ", x.get("state"), x.get("name"))
+')"
+    if [ -n "$bad" ]; then
+        printf '%s\n' "$bad" >&2
+        echo "merge_pr.sh: REFUSING --auto — a check has already failed." >&2
+        echo "  An auto-merge behind a red check never lands, and looks like it will." >&2
+        exit 1
+    fi
+    echo "   no check has failed — safe to queue."
+fi
+
+if [ "$AUTO" = 0 ] && [ -z "${MERGE_PR_SKIP_CHECKS:-}" ]; then
     echo
     echo "── checks: every one must be SUCCESS ──"
     checks_json="$(gh pr checks "$PR" --json name,state 2>/dev/null || echo '[]')"
@@ -217,8 +267,14 @@ for x in json.load(sys.stdin):
 fi
 
 echo
-echo "── merge: gh pr merge $PR --$MERGE_METHOD --delete-branch ──"
-merge_out="$(gh pr merge "$PR" --"$MERGE_METHOD" --delete-branch 2>&1)"
+auto_flag=""
+[ "$AUTO" = 1 ] && auto_flag=" --auto"
+echo "── merge: gh pr merge $PR --$MERGE_METHOD --delete-branch$auto_flag ──"
+if [ "$AUTO" = 1 ]; then
+    merge_out="$(gh pr merge "$PR" --"$MERGE_METHOD" --delete-branch --auto 2>&1)"
+else
+    merge_out="$(gh pr merge "$PR" --"$MERGE_METHOD" --delete-branch 2>&1)"
+fi
 merge_rc=$?
 printf '%s\n' "$merge_out"
 if [ "$merge_rc" -ne 0 ]; then
@@ -230,6 +286,28 @@ if [ "$merge_rc" -ne 0 ]; then
         echo "merge_pr.sh: merge failed (see above) — aborting." >&2
         exit 1
     fi
+fi
+
+# --auto queued it; the merge has NOT happened, so every step below would be
+# operating on a trunk that has not moved and a branch that still exists.
+# Stopping here and SAYING what is deferred beats running them against the
+# wrong state — the batch label in particular decides what the tester receives
+# together, and running it now would label a merge that has not landed.
+if [ "$AUTO" = 1 ]; then
+    echo
+    echo "── merge_pr.sh summary ──"
+    printf 'PR:              #%s (QUEUED — auto-merge, %s)\n' "$PR" "$MERGE_METHOD"
+    printf 'verify:          %s\n' "$verdict_used"
+    echo   'landed:          not yet — GitHub merges it when every check passes.'
+    echo
+    echo 'Deferred until it lands (this script cannot do them yet):'
+    printf '  git -C %s pull --ff-only origin %s\n' "$main" "$base_branch"
+    echo   '  scripts/open_batch.sh --push        # What'"'"'s New batch label'
+    echo   '  scripts/prune_merged.sh             # worktree + branch cleanup'
+    echo
+    printf 'Watch it:        gh pr checks %s --watch\n' "$PR"
+    printf 'Cancel it:       gh pr merge %s --disable-auto\n' "$PR"
+    exit 0
 fi
 
 # Confirm the merge actually landed before touching trunk.

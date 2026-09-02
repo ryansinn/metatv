@@ -24,8 +24,10 @@ and a NEW one fails immediately.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -205,3 +207,50 @@ def test_the_pre_commit_hook_refuses_a_co_authored_by_trailer(tmp_path):
     # CI's. What must be true is that a clean message is not blamed for a
     # trailer it does not have.
     assert "Co-Authored-By" not in result.stderr
+
+
+def test_auto_merge_refuses_when_the_repo_setting_would_make_it_immediate():
+    """``--auto`` is only safe while ``allow_auto_merge`` is true, so it checks.
+
+    Executed against a stubbed API, not read: on 2026-09-02 this repo had
+    ``allow_auto_merge: false``, and ``gh pr merge --auto`` therefore did not
+    queue anything — it merged on the spot with nine of ten jobs still running.
+    The rule "never merge on pending CI" was written in CLAUDE.md and in the
+    agent's own notes, naming that exact ``--auto`` behaviour, and was broken
+    anyway within minutes of being read.
+
+    So the flag may exist only alongside a refusal that fires when the setting
+    is off. This drives the script with ``gh`` shadowed by a stub reporting
+    ``false``, which is the state that caused the incident.
+    """
+    script = _ROOT / "scripts" / "merge_pr.sh"
+    assert script.exists()
+    assert "--auto" in script.read_text(encoding="utf-8")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = Path(tmp) / "gh"
+        # Answers the two calls the script makes before it would ever merge:
+        # the repo setting (false), and the PR's state (OPEN). Any `pr merge`
+        # reaching this stub is itself the failure, and says so.
+        stub.write_text(
+            '#!/usr/bin/env bash\n'
+            'case "$*" in\n'
+            '  *allow_auto_merge*) echo false ;;\n'
+            '  *"pr view"*state*)  echo OPEN ;;\n'
+            '  *"pr checks"*)      echo "[]" ;;\n'
+            '  *"pr merge"*)       echo "STUB REACHED THE MERGE" >&2; exit 99 ;;\n'
+            '  *)                  echo "{}" ;;\n'
+            'esac\n', encoding="utf-8")
+        stub.chmod(0o755)
+
+        env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}"}
+        result = subprocess.run(
+            ["bash", str(script), "999", "--auto", "--skip-verify"],
+            cwd=_ROOT, capture_output=True, text=True, env=env, timeout=120)
+
+    assert "STUB REACHED THE MERGE" not in result.stderr, (
+        "merge_pr.sh --auto called `gh pr merge` with allow_auto_merge false — "
+        "that merges IMMEDIATELY, which is the 2026-09-02 incident exactly.")
+    assert result.returncode != 0, "--auto was allowed through with the setting off"
+    assert "allow_auto_merge" in result.stderr, (
+        f"refused, but not for the auto-merge reason:\n{result.stderr[-600:]}")
