@@ -696,23 +696,24 @@ class _NavMixin:
         return current != model.loaded_search_query()
 
     def on_hidden_view_toggle(self) -> None:
-        self._set_search_tab(True)
+        self._set_list_scope("hidden")
 
-    def _set_search_tab(self, hidden: bool) -> None:
-        """Switch the channel list between All and Hidden tabs."""
-        self._tab_all_btn.setChecked(not hidden)
-        self._tab_hidden_btn.setChecked(hidden)
-        self._hidden_mode = hidden
+    def _set_list_scope(self, scope: str) -> None:
+        """Switch between All/Downloaded/Hidden (DL-5). Downloaded is a
+        record/engaged view (DR-0007): titles with >=1 completed download
+        regardless of source state or Global Exclusions (not Recordings)."""
+        self._tab_all_btn.setChecked(scope == "all")
+        self._tab_hidden_btn.setChecked(scope == "hidden")
+        if "_tab_downloaded_btn" in self.__dict__:  # hasattr raises on a bare __new__'d host
+            self._tab_downloaded_btn.setChecked(scope == "downloaded")
+        self._list_scope = scope
+        hidden = scope == "hidden"
+        self._hidden_mode = hidden  # kept in sync — many existing readers use it
         self._save_search_state()
         if hidden:
             self.view_mode = "hidden"
             self._hidden_banner.setVisible(True)
             self.stats_label.setText("Hidden channels")
-            if self.view_mode not in ("hidden", "list"):
-                self._hide_all_content_views()
-                self.channels_list.setVisible(True)
-                self.search_controls.setVisible(True)
-                self._sync_header_search_visibility(True)
         else:
             self.view_mode = "list"
             self._hidden_banner.setVisible(False)

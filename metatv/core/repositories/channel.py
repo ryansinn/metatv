@@ -16,6 +16,7 @@ from metatv.core.database import (
     ChannelDB, MetadataDB, StreamRetryDB,
 )
 from metatv.core import channel_visibility, visibility_resolver
+from metatv.core.repositories import channel_downloads
 from metatv.core.repositories.search_ranking import (
     channel_text_search_predicate, search_order_terms)
 from metatv.core.channel_name_utils import (
@@ -76,6 +77,7 @@ _COUNT_WATCHED_OMITS = frozenset({
     "exclude_watched",  # this method narrows TO watched rows
     "include_hidden",   # the count is always over the visible set
     "hidden_only",      # same
+    "downloaded_only",  # same — a record/engaged-view axis, not a SQL COUNT concern
 })
 
 # Axes a caller may splat in that this count knowingly skips: ``get_all``
@@ -312,6 +314,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 genre_filters: Optional[List[str]] = None,
                 include_hidden: bool = False,
                 hidden_only: bool = False,
+                downloaded_only: bool = False,
                 invert_prefix_filters: bool = False,
                 include_untagged: bool = True,
                 include_untagged_quality: bool = True,
@@ -349,6 +352,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             quality_prefixes: Quality axis — restrictive AND filter on detected_quality.
             include_hidden: Include hidden channels (visible + hidden).
             hidden_only: Show only hidden channels (overrides include_hidden).
+            downloaded_only: DL-5 record view — see channel_downloads.py.
             invert_prefix_filters: If True, show only items NOT matching the identity pool.
             include_untagged: When False, exclude channels with no detected_prefix.
             source_categories: Raw source_category labels to include (live channels only).
@@ -450,6 +454,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             genre_filters=genre_filters,
             include_hidden=include_hidden,
             hidden_only=hidden_only,
+            downloaded_only=downloaded_only,
             invert_prefix_filters=invert_prefix_filters,
             include_untagged=include_untagged,
             include_untagged_quality=include_untagged_quality,
@@ -706,6 +711,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         genre_filters: Optional[List[str]] = None,
         include_hidden: bool = False,
         hidden_only: bool = False,
+        downloaded_only: bool = False,
         invert_prefix_filters: bool = False,
         include_untagged: bool = True,
         include_untagged_quality: bool = True,
@@ -755,12 +761,13 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         # predicate below. When ``hidden_only`` is set the scope's own
         # ``is_hidden == False`` gate must NOT also apply (it would contradict
         # ``hidden_only``'s own ``is_hidden == True`` filter below), hence
-        # ``include_hidden=(include_hidden or hidden_only)``.
+        # ``include_hidden=(include_hidden or hidden_only)``. ``downloaded_only``
+        # forces provider/keyword exclusion empty — see channel_downloads.py.
         query = channel_visibility.apply(
             query,
             channel_visibility.VisibilityScope(
-                excluded_provider_ids=list(excluded_provider_ids or []),
-                excluded_keywords=set(excluded_keywords or []),
+                **channel_downloads.visibility_overrides(
+                    downloaded_only, excluded_provider_ids, excluded_keywords),
                 adult_mode=adult_mode,
                 force_adult_provider_ids=list(force_adult_provider_ids or []),
                 include_hidden=bool(include_hidden or hidden_only),
@@ -770,6 +777,8 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
 
         if hidden_only:
             query = query.filter(ChannelDB.is_hidden == True)  # noqa: E712
+        elif downloaded_only:
+            query = query.filter(channel_downloads.predicate())  # also skips the dead-stream gate below
         elif not include_hidden:
             # Graduated play-failure ledger (roadmap S3): a channel whose
             # reliability_state has graduated to "dead" (6+ consecutive
