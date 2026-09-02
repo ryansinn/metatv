@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=548,
-    version="0.83.0",
+    version="0.84.0",
     date="2026-09-02",
     title="A Downloaded scope on the channel list",
     items=(
