@@ -167,7 +167,12 @@ class URLRowWidget(QWidget):
         if pending_remove:
             _theme.style(url_label, "URL_ROW_GHOST")
         else:
-            _theme.style(url_label, "FIELD_LABEL")
+            # Underline on hover: the label IS the copy control, so approach
+            # must reveal the affordance — at rest it reads as plain text.
+            _theme.style_fn(url_label, lambda: (
+                "QLabel { " + _theme.FIELD_LABEL + " } "
+                "QLabel:hover { text-decoration: underline; }"
+            ))
         info_col.addWidget(url_label)
 
         stats_text = "removed — will be deleted on Save" if pending_remove else self._build_stats(provider_url)

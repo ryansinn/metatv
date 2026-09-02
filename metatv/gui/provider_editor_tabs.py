@@ -366,8 +366,8 @@ class _ProviderEditorTabsMixin:
 
     def _build_urls_group(self, layout: QVBoxLayout) -> None:
         group = QGroupBox(
-            "Most reliable first. ⤒ tries an address first on the next "
-            "connection; click an address to copy it."
+            "DNS / URLs  (most reliable first — ⤒ = try first next "
+            "connection; click a URL to copy)"
         )
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(6)
