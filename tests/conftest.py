@@ -759,6 +759,24 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
+def set_model_channels(model, dtos):
+    """Populate a ``ChannelListModel`` for a test — the ONE call site shape.
+
+    ``set_channels`` takes four keyword-only arguments that no test cares
+    about, so every file that populates a model had hand-written the same four.
+    That is ledger D9's shape exactly: a fifth argument breaks N files at once
+    and the fix is the same edit copied N times.
+    """
+    model.set_channels(
+        dtos,
+        provider_icon_map={},
+        show_provider_icon=False,
+        has_more=False,
+        query_params={},
+        next_offset=len(dtos),
+    )
+
+
 def make_bare_channel_list_model():
     """A real ``ChannelListModel`` with its Qt base stubbed — no QApplication.
 

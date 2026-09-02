@@ -79,6 +79,11 @@ GENRES_ROLE = Qt.ItemDataRole.UserRole + 27               # tuple[str, ...] (pos
 #: Sport and league — same model, same delegate as every other row, because the
 #: Sports view IS the channel list with a filter on it. Empty on non-sports rows.
 SPORT_ROLE = Qt.ItemDataRole.UserRole + 29
+#: ``(start, stop)`` for a dated fixture, or None. A PAIR rather than two roles:
+#: the two ends are only ever read together, by one predicate, and splitting
+#: them is how a caller ends up asking whether something is on now with half
+#: the window.
+EVENT_WINDOW_ROLE = Qt.ItemDataRole.UserRole + 35
 LEAGUE_ROLE = Qt.ItemDataRole.UserRole + 30
 
 #: Normalised media kind — "live" / "movie" / "series" / "" — read straight off
