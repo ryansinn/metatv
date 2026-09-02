@@ -88,3 +88,14 @@ LEAGUE_ROLE = Qt.ItemDataRole.UserRole + 30
 #: display glyph the host supplies, so reading a kind back out of it would be
 #: re-deriving a stored fact from its own rendering.
 MEDIA_KIND_ROLE = Qt.ItemDataRole.UserRole + 28
+
+
+#: Row kinds that are a LABEL rather than a result — a section header, and the
+#: matched-person sub-heading under Cast & Crew. Both want the same treatment
+#: everywhere: one line of HTML, no artwork, nothing to click.
+#:
+#: A SET here, not repeated `== "header"` tests at each site. The model grew a
+#: third row kind and the delegate's three branches did not, so sub-headings
+#: shipped painted as CHANNELS — 46px instead of 19, with empty poster and
+#: title columns. Guard: tests/test_subheading_delegate_rendering.py.
+LABEL_ROW_KINDS = frozenset({"header", "person"})
