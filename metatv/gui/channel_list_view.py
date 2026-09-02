@@ -171,7 +171,26 @@ class ChannelListView(QListView):
                 self.chip_clicked.emit(cell.facet, cell.value)
                 event.accept()
                 return
+        # Whether THIS press moves the selection — knowable only here, because
+        # super() is about to move it and ``clicked`` is emitted later, from the
+        # RELEASE event, by which time "is this row current" is true either way.
+        #
+        # Two handlers answer one click: currentChanged (on press) renders the
+        # details pane, and the clicked handler renders it again. One click cost
+        # two renders, two channel reads and two metadata threads. But the
+        # clicked handler cannot simply defer — clicking a row that is ALREADY
+        # current emits no currentChanged at all, and that is the case it was
+        # added for: with a single search result the list auto-selects it, so
+        # "I can't single click Ghostbusters to get it to populate the details
+        # panel" (owner, 2026-09-01). This flag tells the two apart.
+        index = self.indexAt(event.position().toPoint())
+        self._press_moved_current = bool(index.isValid()
+                                         and index != self.currentIndex())
         super().mousePressEvent(event)
+
+    def press_moved_current(self) -> bool:
+        """Whether the last left-press moved the current row. See mousePressEvent."""
+        return bool(getattr(self, "_press_moved_current", False))
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
