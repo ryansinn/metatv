@@ -1,6 +1,13 @@
 # Splitting `core/repositories/channel.py` — a surgical plan
 
-**Status:** planned, not started. Written 2026-08-22 for a future session.
+**Status: DONE, 2026-09-02** — all four slices executed (#681, #682, #683, plus
+slice 1 earlier). `channel.py` is **1733 lines**, from 4044 when this was
+written and 3028 at the start of that session. Kept as the record of WHY the
+file is shaped this way, and because the three lessons at the bottom apply to
+the next extraction anyone attempts.
+
+**Status when written:** planned, not started. Written 2026-08-22 for a future
+session.
 **Subject:** `metatv/core/repositories/channel.py` — 4044 lines, one class
 (`ChannelRepository`) with 72 methods and 3741 lines of body.
 
@@ -144,14 +151,49 @@ Read these before starting; each has bitten this file before.
    allows shrinking freely, so no rebaseline is needed until a NEW file lands
    over 1000 lines (none should).
 
-## How to know it worked
+## How to know it worked — and what actually happened
 
-- `channel.py` under ~1600 lines.
-- Every new module under 1000 with no baseline entry.
-- Full suite green with **no test edits** — the whole point is that behaviour
-  did not move.
-- `scripts/rebaseline_code_health.py` reports `channel.py` shrinking at each
-  step and `get_session()` unchanged at 79.
+- `channel.py` under ~1600 lines. → **1733.** Close, and the shortfall is
+  deliberate: `count_watched_matching` counts through `_apply_channel_filters`,
+  so it belongs to the core query surface despite its user-state name.
+- Every new module under 1000 with no baseline entry. → **held**
+  (628 / 380 / 366).
+- Full suite green with **no test edits**. → **held for slices 2 and 3** (991
+  and 1,333 tests). Slice 4 needed **one import line** changed, for a reason
+  worth recording rather than hiding: see below.
+- `rebaseline_code_health.py` reports `channel.py` shrinking at each step. →
+  3028 → 2443 → 2103 → 1733, and `get_session()` never moved.
+
+## What the four slices taught, for the next extraction
+
+1. **Take the whole concern, not the plan's list.** Every slice moved more
+   members than planned, and every time the reason was the same: a private
+   helper the plan left behind was shared with methods it also left behind.
+   A helper separated from its users turns a private detail into a
+   cross-module dependency. Slice 3 moved 11 where 6 were named; slice 4 moved
+   15 where 8 were named.
+2. **Sweep the new module's AST for free names before running anything.** Walk
+   it for `Name` loads that resolve against neither its imports nor a local
+   binding, discounting function-local imports. Slice 2 had seven such names,
+   slice 3 had two — and one of slice 3's (`_start_year_int`) is in a branch
+   **no test reaches**, so it would have failed at import on CI's
+   eager-annotation 3.12 rather than locally. It costs a second and saves a CI
+   cycle.
+3. **A shared helper may have to move somewhere neither module owns.** Slice 4
+   could not import `_channel_text_search_predicate` back from `channel.py` —
+   that is circular. It went to `search_ranking.py`, which imports no channel
+   module, and lost its underscore because a helper two modules use is not
+   module-private. That is the one test edit above: CLAUDE.md requires even the
+   string form to name the DEFINING module, so the test's import had to follow.
+
+## What is left in `channel.py`
+
+The core read surface, which is what should be left: `get_all`,
+`_apply_channel_filters`, `_get_all_collapsed`, `search`,
+`get_similar_channels`, `get_content_key_siblings`, the DTO mappers, the count
+helpers — and `count_watched_matching`, for the reason above. It is still over
+the 1000-line guideline and that is fine: the guideline is a place to stop and
+look, and what is there now is one concern.
 
 ## Sequencing against the theme overhaul
 
