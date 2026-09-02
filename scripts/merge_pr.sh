@@ -168,6 +168,54 @@ else
 fi
 
 # ── 3. merge ──────────────────────────────────────────────────────────────────
+#
+# EVERY check must be literally SUCCESS, and there must be at least one.
+#
+# PENDING is not GREEN, and neither is an empty rollup — a PR whose workflow has
+# not registered yet reports no checks at all, which reads as "nothing failed".
+#
+# `gh pr merge --auto` is the specific trap and it is not hypothetical: on
+# 2026-09-02 this repo had `allow_auto_merge: false`, so `--auto` did not queue
+# the merge behind the checks, it MERGED IMMEDIATELY with nine of ten jobs still
+# in progress. The rule "never merge on pending CI" was written in CLAUDE.md AND
+# in the agent's own notes, including the --auto behaviour specifically, and was
+# broken anyway within minutes of being read. Which is the whole argument for
+# putting it here instead of in a sentence.
+if [ -z "${MERGE_PR_SKIP_CHECKS:-}" ]; then
+    echo
+    echo "── checks: every one must be SUCCESS ──"
+    checks_json="$(gh pr checks "$PR" --json name,state 2>/dev/null || echo '[]')"
+    read -r n_total n_ok n_bad <<EOF
+$(printf '%s' "$checks_json" | "${PYTHON:-python3}" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = []
+ok = sum(1 for x in d if x.get("state") == "SUCCESS")
+print(len(d), ok, len(d) - ok)
+')
+EOF
+    printf '   %s check(s): %s SUCCESS, %s not\n' "$n_total" "$n_ok" "$n_bad"
+    if [ "${n_total:-0}" -eq 0 ]; then
+        echo "merge_pr.sh: REFUSING — no checks reported for PR #$PR." >&2
+        echo "  An empty rollup is not a pass; the workflow may not have registered yet." >&2
+        echo "  Watch it:  gh pr checks $PR --watch" >&2
+        exit 1
+    fi
+    if [ "${n_bad:-1}" -ne 0 ]; then
+        printf '%s' "$checks_json" | "${PYTHON:-python3}" -c '
+import json, sys
+for x in json.load(sys.stdin):
+    if x.get("state") != "SUCCESS":
+        print("   ", x.get("state"), x.get("name"))
+' >&2
+        echo "merge_pr.sh: REFUSING — $n_bad check(s) are not SUCCESS." >&2
+        echo "  Watch them:  gh pr checks $PR --watch" >&2
+        exit 1
+    fi
+fi
+
 echo
 echo "── merge: gh pr merge $PR --$MERGE_METHOD --delete-branch ──"
 merge_out="$(gh pr merge "$PR" --"$MERGE_METHOD" --delete-branch 2>&1)"
