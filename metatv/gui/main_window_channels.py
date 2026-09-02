@@ -29,6 +29,7 @@ from loguru import logger
 
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from metatv.core.channel_name_utils import quality_display
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
@@ -202,15 +203,13 @@ class _ChannelListMixin:
             "hidden_mode": bool(getattr(self, '_hidden_mode', False)),
             "genre_filter": getattr(self, '_details_genre_filter', None),
             "person_filter": getattr(self, '_details_person_filter', None),
-            # Tag chip is a (facet_type, value) tuple → store as a list for YAML.
-            "tag_filter": (
-                list(self._details_tag_filter)
-                if getattr(self, '_details_tag_filter', None) else None
-            ),
+            # Tag chip is a (facet_type, value) tuple → a list for YAML.
+            "tag_filter": (list(self._details_tag_filter)
+                           if getattr(self, '_details_tag_filter', None) else None),
             "category_filter": getattr(self, '_details_category_filter', None),
         }
         self.config.last_search_state = state
-        self.config.save()
+        _cfgsave.save_soon(self)   # per keystroke — see gui/deferred_config_save
 
     def restore_search_state(self) -> bool:
         """Restore a previously saved search state and trigger a channel load.

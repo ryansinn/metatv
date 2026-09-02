@@ -97,6 +97,9 @@ def _make_window_for_save(
         _hidden_mode=hidden_mode,
         _details_genre_filter=genre_filter,
         _details_person_filter=person_filter,
+        # The write is deferred now (gui/deferred_config_save.py), and the
+        # deferrer registers its flush for shutdown.
+        _register_cleanable=MagicMock(),
     )
     return me
 
@@ -119,6 +122,15 @@ def test_save_search_state_writes_all_keys():
     assert saved["hidden_mode"] is True
     assert saved["genre_filter"] == "Action"
     assert saved["person_filter"] is None
+
+    # The write is DEFERRED, not skipped: a full 129 KB config write ran on
+    # every keystroke before, and one of this method's seven callers is the
+    # per-keystroke search handler. The state itself is still updated
+    # immediately — asserted above — and flushing produces exactly one write.
+    from metatv.gui import deferred_config_save as defer
+
+    me.config.save.assert_not_called()
+    assert defer.flush(me) is True
     me.config.save.assert_called_once()
 
 
@@ -129,8 +141,13 @@ def test_save_search_state_noop_when_feature_off():
     me = _make_window_for_save(remember_search=False, query="thriller")
     _ChannelListMixin._save_search_state(me)
 
-    # Neither save() nor last_search_state assignment should happen
+    # Neither a write nor a last_search_state assignment should happen — and
+    # nothing may be left PENDING either, or the next flush would write a state
+    # the user asked not to remember.
+    from metatv.gui import deferred_config_save as defer
+
     me.config.save.assert_not_called()
+    assert defer.flush(me) is False
 
 
 # ---------------------------------------------------------------------------
