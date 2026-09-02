@@ -36,6 +36,11 @@ from metatv.core.watchlist_matching import _escape_like
 #: than asserting they are identical, which they are not.
 _WORD_SEPARATORS = " -':/.`\u2019&+,\u2026|()!?"
 
+#: How many times to halve runs of spaces after flattening separators.
+#: Four handles up to sixteen consecutive separators; real titles have at most
+#: two or three (``"Tron: Legacy"``, ``"MLB 08 | Athletics x ..."``).
+_SPACE_COLLAPSE_PASSES = 4
+
 
 def _search_title_expr():
     """The title search ranks against: the stored title, else the raw name.
@@ -56,6 +61,21 @@ def _word_padded(expr):
     out = func.lower(expr)
     for ch in _WORD_SEPARATORS:
         out = func.replace(out, ch, " ")
+
+    # Collapse runs of spaces, or a multi-word term never matches across a
+    # separator. "Tron: Legacy" flattens to "tron  legacy" — the colon becomes a
+    # space NEXT TO the space already there — and a search for "tron legacy"
+    # carries a single space, so it misses. Found by asking what the padding
+    # actually does rather than trusting that it worked.
+    #
+    # Each pass halves a run, so _SPACE_COLLAPSE_PASSES handles runs up to
+    # 2**passes. Four covers sixteen consecutive separators, which no real title
+    # has; the alternative is REGEXP, which this SQLite does not have.
+    #
+    # The Python reference does the same thing a different way: watchlist_matching
+    # joins a phrase's tokens with ``\s+`` so internal whitespace is elastic.
+    for _ in range(_SPACE_COLLAPSE_PASSES):
+        out = func.replace(out, "  ", " ")
     return " " + out + " "
 
 

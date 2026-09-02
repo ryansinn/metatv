@@ -149,6 +149,46 @@ def test_an_empty_term_ranks_everything_equally(repo):
         )
 
 
+def test_a_multi_word_term_matches_across_a_separator(qapp_unused=None):
+    """"Tron: Legacy" + "tron legacy" must match. It did not.
+
+    Flattening a separator that sits NEXT TO a space produces two spaces —
+    ``"tron  legacy"`` — and the needle carries one, so every multi-word search
+    crossing a colon, dash or pipe silently missed. Titles here are full of
+    them: "Tron: Legacy", "Spider-Man: No Way Home",
+    "MLB 08 | Athletics x Mariners".
+
+    Found by the owner asking what the padding actually does, rather than by
+    the tests, which only ever exercised single-word terms.
+    """
+    from metatv.core.repositories.search_ranking import (
+        _SPACE_COLLAPSE_PASSES, _WORD_SEPARATORS,
+    )
+
+    def padded(title: str) -> str:
+        flat = title.lower()
+        for ch in _WORD_SEPARATORS:
+            flat = flat.replace(ch, " ")
+        for _ in range(_SPACE_COLLAPSE_PASSES):
+            flat = flat.replace("  ", " ")
+        return f" {flat} "
+
+    cases = [
+        ("Tron: Legacy", "tron legacy", True),
+        ("Spider-Man: No Way Home", "spider man no way home", True),
+        ("MLB 08 | Athletics x Mariners", "athletics x mariners", True),
+        ("Leaving Las Vegas", "las vegas", True),
+        ("Tron: Legacy", "tron", True),
+        # ...and the whole point of the tier survives: a fragment is still not a word.
+        ("Astronaut", "tron", False),
+        ("Strongman Champions League", "tron", False),
+    ]
+    for title, term, expected in cases:
+        got = f" {term} " in padded(title)
+        assert got is expected, (
+            f"{title!r} + {term!r}: expected {'match' if expected else 'no match'}, got the other")
+
+
 def test_the_sql_word_test_agrees_with_the_python_definition(repo):
     """The approximation's ERROR, measured — not an assertion that it is exact.
 
