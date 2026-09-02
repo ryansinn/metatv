@@ -180,6 +180,12 @@ One directive per rule; violations here have burned real money and real trust. N
 authoritative gate; `--quick` is a local pre-check to catch the obvious before pushing, not a
 substitute. The rule below was written when no CI existed and the local gate was all there was.
 
+**"Every PR" only became true on 2026-09-02.** The trigger carried `branches: [main]`, which
+filters on the BASE branch — so a PR stacked on another PR got **zero checks**, silently, by
+configuration, and zero checks reads as "nothing failed" rather than "nothing ran". The filter is
+gone and `tests/test_ci_gates_every_pull_request.py` fails the suite if it comes back. Never add a
+`branches:`/`branches-ignore:` filter to the PR trigger; the cost is invisible until someone stacks.
+
 **Why it exists, so nobody removes it:** `--quick` runs only a PR's OWN changed test files, so a
 cross-cutting change breaks files the PR never touched and nothing reports it. That is not
 hypothetical — 58 failures accumulated across five merges in one week, and the macOS release build
