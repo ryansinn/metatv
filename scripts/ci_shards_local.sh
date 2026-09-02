@@ -46,6 +46,21 @@ rc=0
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 
+# One line, non-fatal, and placed HERE because this script runs at the moment
+# before a push — which is exactly when a hook that never fires costs something.
+#
+# 2026-09-02: `.githooks/pre-push` was written on 2026-09-01 to stop ruff errors
+# reaching CI, and `core.hooksPath` on the owner's machine points at the default
+# `.git/hooks`, which is empty. So it had never run, and nothing said so. A
+# guard nobody enabled is indistinguishable from a guard that passes.
+hooks_path="$(git config core.hooksPath || true)"
+case "$hooks_path" in
+    *.githooks) ;;
+    *) echo "note: git hooks are NOT enabled (core.hooksPath=${hooks_path:-<unset>})."
+       echo "      .githooks/pre-push (ruff) and .githooks/pre-commit are inert."
+       echo "      Enable with:  git config core.hooksPath .githooks" ;;
+esac
+
 for n in $(seq 1 "$OF"); do
     list="$WORK/shard$n.txt"
     if ! "$PY" scripts/ci_shard.py --shard "$n" --of "$OF" > "$list"; then
