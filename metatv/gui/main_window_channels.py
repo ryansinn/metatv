@@ -309,11 +309,7 @@ class _ChannelListMixin:
         return True
 
     def load_channels(self, provider_id: str | None = None, *, keep_rows: bool = False) -> None:
-        """Load channels from database into the list (non-blocking).
-
-        With keep_rows=True (background refresh), old rows stay visible until new
-        results land. With False (default: user search/filter), clear immediately.
-        """
+        """Load channels; with keep_rows=True, old rows stay visible during refreshes."""
         from metatv.core.filter_utils import get_active_content_type_filter
 
         # Stop any pending debounce timer so we don't queue a second load
