@@ -1090,7 +1090,7 @@ class _ChannelListMixin:
         total = getattr(self, '_stats_total_channels', shown)
         if getattr(self, '_stats_hidden_only', False):
             self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
-        elif getattr(self, '_stats_downloaded_only', False):
+        elif self.__dict__.get('_stats_downloaded_only', False):
             self.stats_label.setText(_dl_scope.count_text(shown))
         elif getattr(self, '_stats_panel_filtering', False):
             excluded = max(0, total - shown)
