@@ -344,6 +344,30 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 - [ ] **Watch Queue aging / organization** — the queue gets unruly: items added on different days get "lost in the middle," so users fall back on History as a loose-capture net (see History split, above). Needs recency/date-added grouping, reordering, and an age-out/archive affordance for stale entries — and consider whether a lighter "interesting, maybe later" capture is missing between the *committed* queue and the *ephemeral* History recency strip (don't add a third bucket reflexively — the Recent strip may already cover the "I saw it, let me get back to it" case). **Live ≠ VOD in the queue:** adding a live channel sends it to the *bottom* of a positional list (scroll all the way down) — wrong affordance, because live is *now/recency*-oriented, not a planned position. The queue reads as a movies/series construct; live "get back to it" belongs in the **Recent strip** and/or a dedicated **live-follow pin** ("channels I keep returning to"), not the VOD queue. (Connects to the media-type split surfacing across History/Queue/Recent — see DESIGN_RATIONALE DR-0001 Refined note.)
 ## UI / UX
 
+- [ ] **Search: typo tolerance ("did you mean Michelle?")** — *(owner, 2026-09-02: "put it on the
+  roadmap, we're not doing it now")*. Deferred deliberately, recorded with the measurement so it is
+  not re-derived.
+
+  **Neither search setting gives you this, and that is the point of the entry.** `LIKE '%term%'`
+  requires a CONTIGUOUS run of characters, so:
+
+  | | |
+  |---|---|
+  | `Michele` → `Michelle` | **no match** — after `michel` comes another `l`; the run breaks |
+  | `Sing` → `Sang` | **no match** — nothing consecutive |
+  | `Cage` → `Cagney` | **no match** — `cag` matches, `e` does not follow |
+  | `Cage` → `Beaucage` | match — contiguous, at the end of a real person's name |
+
+  So the `Whole | Part` toggle cannot deliver it under any label: **Part** widens the *position* of
+  a match inside a word, never its *spelling*. Real fuzziness is edit distance, and this SQLite has
+  none natively — `spellfix1` is an extension the build does not load. It needs a trigram or
+  edit-distance index, which is its own slice.
+
+  **Do not smuggle it under a toggle**: a control labelled "fuzzy" that does not do edit distance is
+  worse than no control, because the user stops suspecting their own spelling.
+
+  Design context, the measured numbers and the settled decisions: the **Finding Tron** artifact.
+
 - [ ] **Replace the chevrons with something more elegant** — *(owner, 2026-08-31: "getting
   rid of the tacky chevrons or replacing them with a more elegant solution")*. Deferred
   deliberately; recorded so it is not lost.
