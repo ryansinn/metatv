@@ -6,9 +6,8 @@ ENTRY = WhatsNewEntry(
     date="2026-09-02",
     title="Right-click a sidebar section to hide it",
     items=(
-        "Every sidebar section header (Favorites, History, Watch Queue, "
-        "Movies & Series, Recommended, Sources) now has a right-click menu "
-        "with two items: 'Hide {section}' and 'Sidebar settings…'.",
+        "Every sidebar section header now has a right-click menu with two "
+        "items: 'Hide {section}' and 'Sidebar settings…'.",
         "Hiding a section shows a toast with an Undo action, and the toast "
         "names Settings → Sidebar as the permanent home for show/hide + "
         "reorder — the menu is a shortcut over that existing mechanism, not "
