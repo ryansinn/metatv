@@ -308,28 +308,32 @@ class _ChannelListMixin:
         self.load_channels(provider_id)
         return True
 
-    def load_channels(self, provider_id=None):
-        """Load channels from database into the list (non-blocking)."""
+    def load_channels(self, provider_id: str | None = None, *, keep_rows: bool = False) -> None:
+        """Load channels from database into the list (non-blocking).
+
+        With keep_rows=True (background refresh), old rows stay visible until new
+        results land. With False (default: user search/filter), clear immediately.
+        """
         from metatv.core.filter_utils import get_active_content_type_filter
 
         # Stop any pending debounce timer so we don't queue a second load
         self._search_debounce.stop()
 
-        # Show loading state immediately so the user knows something is happening.
-        # Reset the model (clears the list) and show a banner; the result/error
-        # slots clear the banner before rendering their own state.
-        self.all_channels = []
-        self.channel_model.set_channels(
-            [],
-            provider_icon_map={},
-            show_provider_icon=False,
-            has_more=False,
-            query_params={},
-        )
-        from metatv.gui import icons as _icons
-        self._show_channel_banner(f"{_icons.loading_icon} Loading channels…")
-        self.stats_label.setText("Loading channels…")
-        self.status_bar.showMessage("Loading channels…")
+        # Show loading state (reset model + banner), unless keep_rows=True preserves
+        # old rows during background refresh.
+        if not keep_rows:
+            self.all_channels = []
+            self.channel_model.set_channels(
+                [],
+                provider_icon_map={},
+                show_provider_icon=False,
+                has_more=False,
+                query_params={},
+            )
+            from metatv.gui import icons as _icons
+            self._show_channel_banner(f"{_icons.loading_icon} Loading channels…")
+            self.stats_label.setText("Loading channels…")
+        self.status_bar.showMessage("Refreshing…" if keep_rows else "Loading channels…")
 
         # --- All UI-state reads must happen here on the main thread ---
         filter_state = self.current_filter_state or (

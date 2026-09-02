@@ -538,7 +538,7 @@ class _ProviderMixin:
         self._refresh_queue_section()
         self._refresh_recommended_section()
         # Main channel list / search results — also rebuilds provider_icon_map
-        self.load_channels()
+        self.load_channels(keep_rows=True)
         # Filter-panel facet counts: a mutation may have added/removed facet values.
         # Re-run the tag-facet stats load (off-thread) so the panel reflects the new
         # corpus; on refresh/import this is what re-invokes FilterPanel.update_data,

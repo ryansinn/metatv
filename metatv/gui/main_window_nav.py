@@ -754,7 +754,7 @@ class _NavMixin:
             self.config.global_filter_paused = False
             self.config.save()
             self._update_filter_btn_state()
-            self.load_channels()
+            self.load_channels(keep_rows=True)
             if hasattr(self, "discover_view"):
                 self.discover_view.reload()
             if hasattr(self, "preferences_view"):
