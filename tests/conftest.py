@@ -759,6 +759,44 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
+def make_bare_channel_list_model():
+    """A real ``ChannelListModel`` with its Qt base stubbed — no QApplication.
+
+    **Runs the real ``__init__``.** The version this replaces did
+    ``ChannelListModel.__new__`` and then hand-listed the sixteen attributes
+    ``__init__`` sets, under a comment promising it "mirrors
+    ChannelListModel.__init__". It stopped mirroring it twice in one session —
+    once when grouping gained ``_word_only`` and ``_person_counts``, once when
+    the sub-filter added ``_visible`` and ``_result_filter`` — and both times the
+    symptom was ``RuntimeError: super-class __init__() was never called``, which
+    is Qt's answer to touching a half-built QObject and reads like a Qt problem
+    rather than a stale list.
+
+    ``__init__`` is nothing but attribute assignment plus ``super().__init__``,
+    so patching the base out lets the real one run and the enumeration
+    disappears — CLAUDE.md's rule, applied to the thing itself rather than to a
+    copy of it: a list never sees what nobody remembered to add.
+
+    Yields:
+        A model whose data-layer methods work; anything that repaints does not.
+    """
+    from unittest.mock import patch
+
+    from metatv.gui.channel_list_model import ChannelListModel
+
+    base = "metatv.gui.channel_list_model.QAbstractListModel"
+    with patch(f"{base}.__init__", return_value=None), \
+         patch(f"{base}.beginResetModel", return_value=None), \
+         patch(f"{base}.endResetModel", return_value=None), \
+         patch(f"{base}.beginInsertRows", return_value=None), \
+         patch(f"{base}.endInsertRows", return_value=None), \
+         patch(f"{base}.beginRemoveRows", return_value=None), \
+         patch(f"{base}.endRemoveRows", return_value=None), \
+         patch(f"{base}.dataChanged"), \
+         patch(f"{base}.createIndex", return_value=None):
+        yield ChannelListModel()
+
+
 def wire_channel_model_double(host, *, loaded: int = 0) -> None:
     """Give a skeleton host a channel_model that answers BOTH count questions.
 
