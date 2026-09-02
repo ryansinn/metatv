@@ -552,9 +552,6 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._sidebar_density_combo.blockSignals(True)
         _load_sidebar_density(self._sidebar_density_combo, c)
         self._sidebar_density_combo.blockSignals(False)
-        self._show_more_row_check.setChecked(
-            getattr(c, "sidebar_show_more_row", False)
-        )
         self._alerts_show_idle_check.setChecked(
             getattr(c, "alerts_show_idle_items", False)
         )
@@ -692,7 +689,6 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
         _save_sidebar_density(self._sidebar_density_combo, c)
-        c.sidebar_show_more_row = self._show_more_row_check.isChecked()
         # The same key Manage Watch Alerts writes, so the two switches are one
         # setting seen from two places rather than two that can disagree.
         c.alerts_show_idle_items = self._alerts_show_idle_check.isChecked()

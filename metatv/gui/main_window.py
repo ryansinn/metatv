@@ -1109,7 +1109,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
                 # "Show N more" asks the host for room rather than opening the
                 # Explore view — the header's arrow already does that, and two
                 # controls doing one thing is what the owner spotted.
-                section.grow_request = self._grow_sidebar_section
                 # One wiring site for every "Explore →" header link: a section that
                 # declares an EXPLORE_KEY opens the matching Explore view (cascading
                 # columns seeded with that section's contents).
@@ -1528,90 +1527,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
             if callable(note) and widget.isVisible() and not widget.is_collapsed:
                 note(widget.height())
 
-    def _grow_sidebar_section(self, section, rows: int | None = None, *,
-                              probe: bool = False) -> bool:
-        """Give ``section`` enough height to show more of the rows it is hiding.
-
-        The rows were never capped, only unallocated: ``apply_row_budget``'s
-        contract is "show what fits, and re-render more when the section gets
-        taller". Dragging the splitter handle has always worked and has never
-        been discoverable, so the "Show N more" row performs that drag.
-
-        Space is taken from the siblings with the most to spare, and never below
-        their own ``preferred_expanded_height()`` — growing one section by starving
-        another into uselessness trades one truncated list for two.
-
-        Args:
-            section: The sidebar section asking for room.
-            rows: How many rows' worth of height to ask for. ``None`` means
-                every hidden row — what clicking "Show N more" asks for.
-                A wheel notch asks for a few, so the section grows the way a
-                list scrolls rather than jumping to full height.
-            probe: Answer whether it COULD grow, and change nothing. The tail
-                row asks this while rendering so its label can promise what
-                will actually happen — a row saying "Show N more" that opens
-                another view instead is worse than either action alone.
-
-        Returns:
-            True when the section actually grew. False when every sibling is
-            already at its floor, so the caller can fall back to opening the
-            full view rather than leaving a dead click.
-        """
-        splitter = self.__dict__.get("sidebar_splitter")
-        if splitter is None:
-            return False
-        index = splitter.indexOf(section)
-        if index < 0:
-            return False
-
-        sizes = splitter.sizes()
-        hidden = section.rows_hidden_total()
-        wanted = min(rows, hidden) if rows is not None else hidden
-        wanted *= section.CONTENT_ROW_H
-        if wanted <= 0:
-            return False
-
-        # What each sibling can give up without dropping below its own floor.
-        # A collapsed or hidden sibling contributes nothing rather than being
-        # squeezed to a negative.
-        spare = []
-        for i, widget in enumerate(
-            splitter.widget(j) for j in range(splitter.count())
-        ):
-            if i == index or widget is None or not widget.isVisible():
-                spare.append(0)
-                continue
-            floor = (
-                widget.preferred_expanded_height()
-                if hasattr(widget, "preferred_expanded_height") else 0
-            )
-            spare.append(max(0, sizes[i] - floor))
-
-        available = sum(spare)
-        if available <= 0:
-            return False
-
-        take = min(wanted, available)
-        # Proportional to what each sibling has SPARE, so the roomiest gives
-        # most and one with nothing to give is untouched. `taken` is summed from
-        # what is actually removed rather than assumed equal to `take`, so the
-        # section can only ever grow by exactly what the siblings gave up —
-        # rounding cannot invent or lose pixels.
-        if probe:
-            return True
-        taken = 0
-        for i, can_give in enumerate(spare):
-            if can_give <= 0:
-                continue
-            share = min(can_give, take - taken, round(take * can_give / available))
-            sizes[i] -= share
-            taken += share
-        if taken <= 0:
-            return False
-        sizes[index] += taken
-        splitter.setSizes(sizes)
-        self._schedule_layout_save()
-        return True
 
     def _refresh_vod_alerts_section(self) -> None:
         """Refresh the VOD watch-for sub-list in the Alerts sidebar section."""

@@ -1029,27 +1029,6 @@ class SettingsTabsMixin:
             "Applies immediately when you click OK or Apply."
         )
         density_form.addRow("Row density:", self._sidebar_density_combo)
-
-        # Sidebar-only: these lists deliberately have no scrollbar (a scroll
-        # area inside the sidebar's own was the jam the row budget exists to
-        # remove), so wheeling one grows its section instead. The main results
-        # list has a real scrollbar and is unaffected.
-        self._show_more_row_check = QCheckBox(
-            'Use "Show N more" rows instead of scrollbars'
-        )
-        self._show_more_row_check.setToolTip(
-            "Off (default): sidebar sections show every entry and scroll,\n"
-            "like any other list.\n"
-            "On: sections show only the entries that fit and end with a\n"
-            '"Show N more" row that makes the section taller — for pointing\n'
-            "devices that cannot scroll."
-        )
-        # addRow(widget), not addRow("", widget). An empty label still OCCUPIES
-        # the label column, so the checkbox sits in the FIELD column while every
-        # other unlabelled checkbox on this page spans both — 195 against 297.
-        # This is the exact trap tests/test_settings_form_alignment.py exists
-        # for (#323).
-        density_form.addRow(self._show_more_row_check)
         sidebar_layout.addLayout(density_form)
 
         hint = QLabel(

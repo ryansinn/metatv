@@ -742,8 +742,6 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._channel_density_combo.currentData.return_value = "comfy"
     dlg._sidebar_density_combo = MagicMock()
     dlg._sidebar_density_combo.currentData.return_value = "compact"
-    dlg._show_more_row_check = MagicMock()
-    dlg._show_more_row_check.isChecked.return_value = False
     dlg._alerts_show_idle_check = MagicMock()
     dlg._alerts_show_idle_check.isChecked.return_value = False
     dlg._series_interval_spin = MagicMock()
@@ -832,8 +830,6 @@ def wire_settings_density_widget(dlg) -> None:
     dlg._sidebar_density_combo = QComboBox()
     for label, value in _SIDEBAR_DENSITY_CHOICES:
         dlg._sidebar_density_combo.addItem(label, value)
-    dlg._show_more_row_check = QCheckBox()
-    dlg._show_more_row_check.setChecked(False)
     dlg._alerts_show_idle_check = QCheckBox()
     dlg._alerts_show_idle_check.setChecked(False)
     dlg._series_interval_spin = QSpinBox()

@@ -225,15 +225,11 @@ def style_group_heading(item, column: int | None = None) -> None:
 # The splitter enforces this so the user cannot drag an expanded section below it.
 _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises it
 
-# Row fitting lives in row_budget.py — see there for why "+N more" is an
-# allocation consequence and not a cap.
-from metatv.gui.sidebar.row_budget import _MORE_ROLE, _MORE_ROW, RowBudgetMixin
+# Row fitting lives in row_budget.py — a view is sized to its rows and the
+# SECTION scrolls. The "+N more" marker that used to be re-exported from here
+# is gone with the budget mode it belonged to (2026-09-02).
+from metatv.gui.sidebar.row_budget import RowBudgetMixin
 from metatv.gui.sidebar.section_cap import SectionContentCapMixin
-
-# _MORE_ROLE/_MORE_ROW are re-exported: four section modules and three tests
-# import them from here, not from row_budget. Declared in __all__ rather than
-# silenced with a noqa comment, so the names read as this module's surface.
-__all__ = ["_MORE_ROLE", "_MORE_ROW"]
 
 
 

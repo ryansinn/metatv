@@ -240,7 +240,6 @@ def test_a_section_never_shows_a_more_marker_over_an_empty_list(qapp, tmp_path):
     """
     from metatv.core.config import Config
     from metatv.gui.sidebar.base import CollapsibleSection
-    from metatv.gui.sidebar.row_budget import _MORE_ROLE, _MORE_ROW
 
     sec = CollapsibleSection("History", "H", Config(config_dir=tmp_path))
     lst = QListWidget()
@@ -255,13 +254,12 @@ def test_a_section_never_shows_a_more_marker_over_an_empty_list(qapp, tmp_path):
     lst.show()
     qapp.processEvents()
 
-    sec.apply_row_budget(lst, on_more=lambda: None)
+    sec.apply_row_budget(lst)
 
-    visible = [
-        lst.item(i) for i in range(lst.count())
-        if not lst.item(i).isHidden() and lst.item(i).data(_MORE_ROLE) != _MORE_ROW
-    ]
-    assert visible, (
-        "the section hid every content row and kept only the '+N more' marker"
+    visible = [lst.item(i) for i in range(lst.count())
+               if not lst.item(i).isHidden()]
+    assert len(visible) == 6, (
+        "a row was hidden in a viewport too small for it — the section scrolls, "
+        "so every row stays"
     )
     lst.hide()

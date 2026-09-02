@@ -211,17 +211,17 @@ class WatchAlertsSection(
         header_layout.addWidget(self._add_btn)
 
     def extra_budgeted_lists(self):
-        """Movies & Series and Stream Monitoring, budgeted from the shared seam.
+        """Movies & Series and Stream Monitoring, fitted from the shared seam.
 
-        Declared here rather than budgeted at populate time so they are re-fitted
-        on every resize like every other list in the rail. Budgeting them once,
+        Declared here rather than sized at populate time so they are re-fitted
+        on every resize like every other list in the rail. Sizing them once,
         when they were repopulated, measured a viewport that had not been laid
-        out yet — which is how Movies & Series ended up showing a divider and
-        "+ 12 more →" in a box with room for five rows.
+        out yet — which is how Movies & Series ended up drawn in a box with
+        room for five rows.
         """
         return (
-            (self.__dict__.get("_vod_list"), self.manageWatchForClicked.emit),
-            (self.__dict__.get("_retry_list"), self.manageWatchForClicked.emit),
+            self.__dict__.get("_vod_list"),
+            self.__dict__.get("_retry_list"),
         )
 
     def reapply_row_budget(self) -> None:

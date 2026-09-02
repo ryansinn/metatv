@@ -1054,7 +1054,6 @@ class Config(BaseModel):
     #: pointing devices that cannot scroll. One switch for BOTH halves, because
     #: a truncated list with neither a scrollbar nor a row is just misleading.
     #: Sidebar-only; the main results list always has its scrollbar.
-    sidebar_show_more_row: bool = False
 
     #: Show Watch Alerts entries that have nothing new. Off by default: the
     #: sidebar section is a NOTICEBOARD, so it lists what has arrived, and a

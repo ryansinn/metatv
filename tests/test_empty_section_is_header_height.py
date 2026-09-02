@@ -140,11 +140,11 @@ def test_a_populated_section_still_claims_room_for_its_rows(
 def test_fit_to_rows_gives_no_height_to_a_view_with_nothing_visible(qapp):
     """The helper's own contract, tested where the budget cannot mask it.
 
-    Driving this through a section would prove nothing: with the default
-    settings ``apply_row_budget`` takes the ``_show_all_rows`` branch, which
+    Driving this through a section would prove nothing: ``apply_row_budget``
     un-hides every row before measuring. The hidden-row case is real for the
     TREE path — ``alerts_epg`` folds a sub-group by hiding its top-level items
-    rather than removing them — so the helper is asserted directly.
+    rather than removing them, and sizing must leave them folded — so the
+    helper is asserted directly.
     """
     from PyQt6.QtWidgets import QListWidget, QTreeWidget, QTreeWidgetItem
 
