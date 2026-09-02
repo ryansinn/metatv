@@ -266,8 +266,43 @@ The owner UX-tests via `./run.sh` from this checkout — it always rests on the 
 ### Local Python 3.14 hides annotation errors that CI's 3.12 catches
 This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
 
+### `--quick` cannot see a repo-wide drift guard
+The guards that scan the WHOLE tree — `test_no_stray_color_literals`,
+`test_code_health_ratchet`, `test_no_new_undefined_names`,
+`test_local_gates_have_one_path` — live in no file a PR touches, so neither
+`--quick` nor a hand-picked list ever selects them. Both cost a CI cycle on
+2026-09-02: the literal guard scans source TEXT, so two hex values in a
+**docstring** failed it, and the ratchet fired on a file that was already at the
+1000-line floor. Run those four alongside your changed files; the pre-push hook
+now does it in 564ms if `core.hooksPath` is set.
+
 ### Shell discipline for gates
 Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it. **Redirecting is only half of it: decide on the EXIT CODE, never on a grep of the log.** Greps of a pytest summary have now produced a false GREEN twice in one session — `tail -1` of `[0-9]+ (passed|failed)` reads the passing number out of "1 failed, 8044 passed", and `^FAILED` never matches a line pytest has prefixed with ANSI colour. `scripts/pytest_verdict.sh` exists so this decision is not re-implemented by hand each time.
+
+### Reading a design — the artifact for THE SURFACE, not the nearest sibling
+`Artifact action:list` and open the one for the surface in hand BEFORE building
+it. Grepping the code finds *a* precedent and cannot tell you it is the wrong
+one: the search section header was built against `GroupHeading` — the SIDEBAR's
+settled grammar, found by a correct grep — and shipped **inverted**, because the
+two specs disagree on purpose (a sidebar label is the constant so the COUNT
+leads; a search label names the field that MATCHED so the LABEL leads). It also
+lost a `flex:1` rule, which was the answer to "why is there so much empty space
+on the right". Conforming to the wrong spec is worse than conforming to none —
+it looks considered and cites a real rule. When two settled specs disagree, the
+more specific wins and the disagreement is deliberate: find the reason before
+"fixing" it.
+
+### A test double that COPIES `__init__` will go stale — run the real one
+A double built with `Cls.__new__` plus a hand-listed set of attributes drifts
+the moment the class grows state, and Qt reports it as
+`RuntimeError: super-class __init__() was never called`, which reads like a Qt
+problem rather than a stale list. `test_watched_filter` carried sixteen such
+lines under a comment promising it "mirrors `__init__`"; it stopped mirroring it
+twice in one day. When `__init__` is only attribute assignment plus
+`super().__init__`, patch the Qt base out and let the REAL one run — then there
+is nothing to keep in sync. Factory: `tests/conftest.py`
+`make_bare_channel_list_model`. Same rule as the wiring helpers above, applied
+to the thing itself rather than to a copy of it.
 
 ### Design work
 Mockups start from a faithful inventory of the CURRENT app (code transcription with file:line anchors); proposals render side-by-side vs current with **every delta a numbered question** (Q-tags). Roadmap concepts are never pre-applied as settled layout.
