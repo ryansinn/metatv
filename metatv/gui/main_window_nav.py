@@ -605,11 +605,43 @@ class _NavMixin:
     def on_search_view_toggle(self) -> None:
         if self.search_chip.is_enabled():
             self.switch_to_list_view()
-            self.load_channels()
+            if self._returning_list_is_stale():
+                self.load_channels()
         else:
             self.search_chip.blockSignals(True)
             self.search_chip.set_enabled(True)
             self.search_chip.blockSignals(False)
+
+    def _returning_list_is_stale(self) -> bool:
+        """Whether coming back to the list needs a fresh query.
+
+        It used to always. Returning from Discover re-ran the whole
+        785,551-row filter for a search the user had not touched — owner,
+        2026-09-02: "search is reloading the search results every time the
+        search view regains focus even on the same search".
+
+        Nothing that invalidates the rows can happen unnoticed, which is what
+        makes skipping safe rather than optimistic:
+
+        * every corpus mutation goes through
+          ``_refresh_provider_dependent_views``, which reloads the list itself
+          — whether or not the list is the visible view;
+        * every path that changes the search state (the debounce, the context
+          filter chips, the hidden tab, a provider selection) already calls
+          ``load_channels`` at the time it changes it;
+        * per-channel state (favourite, rating, hidden) is pushed into the rows
+          in place by ``channel_state_bus``, never by a requery.
+
+        So the two things left to check are the two this cannot know from those
+        chokepoints: that there are rows at all, and that they answer the query
+        currently in the box.
+        """
+        model = self.__dict__.get("channel_model")
+        if model is None or model.loaded_count() <= 0:
+            return True
+        box = self.__dict__.get("search_input")
+        current = box.text().strip() if box is not None else ""
+        return current != model.loaded_search_query()
 
     def on_hidden_view_toggle(self) -> None:
         self._set_search_tab(True)
