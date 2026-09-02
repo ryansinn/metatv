@@ -28,17 +28,21 @@
 #              "cargo test"; go.mod → "go test ./..."; else error.
 #   BASE_BRANCH  Trunk to diff against. Unset → auto from origin/HEAD, else main.
 #
-# Verdict: a pytest TEST_CMD uses the strict summary parse (missing/unparseable
-# summary = RED, any failed/error = RED — never a truncated tail read as pass);
-# any other runner uses its exit code (0 = GREEN). Either way GREEN is claimed
-# only after the command has run to completion.
+# Verdict: when the auto-detected command is Python's pytest, the run is
+# delegated to scripts/pytest_verdict.sh (borrowed from the merge-result tree,
+# else the main worktree) and the verdict is ITS exit code — the one place a
+# pytest run is decided, so this script does not keep a second, parallel
+# summary parse. A custom TEST_CMD (any language) or a non-pytest runner keeps
+# deciding on its own exit code (0 = GREEN), as before. Either way GREEN is
+# claimed only after the command has run to completion.
 #
 # Guards three real past incidents: a non-OPEN PR exits 2 (merged/closed work is
 # never "verified"); a missing/unparseable summary is RED, never GREEN; and a
 # branch that no longer merges cleanly into origin/<base> is RED (needs rebase),
 # so the gate tests what will land rather than a stale tip.
 #
-# _main_repo / resolve_py mirror run.sh (generic for any linked-worktree repo).
+# _main_repo / resolve_py / resolve_verdict_script mirror run.sh (generic for
+# any linked-worktree repo).
 
 set -u
 
@@ -112,13 +116,34 @@ resolve_py() {
     return 1
 }
 
+# Echo a usable scripts/pytest_verdict.sh: the checkout's own copy (the merge
+# result being tested), else the main worktree's (mirrors resolve_py exactly —
+# a linked worktree can borrow the main tree's identical tooling). This is the
+# ONE place a pytest run's pass/fail is decided (CLAUDE.md: "never a bare
+# pytest you then grep"); verify_pr.sh must not keep a second, parallel parse
+# of its own.
+resolve_verdict_script() {
+    local base="$1" main
+    if [ -x "$base/scripts/pytest_verdict.sh" ]; then printf '%s\n' "$base/scripts/pytest_verdict.sh"; return 0; fi
+    main="$(_main_repo "$base")"
+    if [ -n "$main" ] && [ -x "$main/scripts/pytest_verdict.sh" ]; then printf '%s\n' "$main/scripts/pytest_verdict.sh"; return 0; fi
+    return 1
+}
+
 # Auto-detect a full-suite command for a checkout dir. Echoes the command on
 # success; exit 3 = Python project but no venv; exit 1 = nothing recognised.
+#
+# The Python/pytest branch never returns a literal python invocation — the
+# auto-detected pytest path always runs through scripts/pytest_verdict.sh
+# below, so the string here is a label only ("*pytest*" still classifies the
+# runner). Writing an actual "-m pytest ..." command here would be exactly
+# the second, unverdicted pytest runner tests/test_local_gates_have_one_path.py
+# hunts for.
 detect_test_cmd() {
-    local dir="$1" py
+    local dir="$1"
     if [ -d "$dir/tests" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/pytest.ini" ]; then
-        if py="$(resolve_py "$dir")"; then
-            printf '%s -m pytest tests/ -q\n' "$py"
+        if resolve_py "$dir" >/dev/null; then
+            printf 'pytest (via scripts/pytest_verdict.sh)\n'
             return 0
         fi
         return 3
@@ -263,6 +288,10 @@ else
     echo "── merge check skipped: origin/$base_branch not found (testing branch tip as-is) ──"
 fi
 
+# AUTO_DETECTED_TEST_CMD=1 iff nothing in .devscripts.conf overrode TEST_CMD —
+# that is the ONLY case routed through pytest_verdict.sh below. A custom
+# TEST_CMD is someone else's command (any language, pytest-flavored or not)
+# and keeps its own exit-code/summary handling exactly as before.
 if [ -z "${TEST_CMD:-}" ]; then
     if ! TEST_CMD="$(detect_test_cmd "$wt")"; then
         rc=$?
@@ -275,6 +304,9 @@ if [ -z "${TEST_CMD:-}" ]; then
         cleanup_worktree
         exit 1
     fi
+    AUTO_DETECTED_TEST_CMD=1
+else
+    AUTO_DETECTED_TEST_CMD=0
 fi
 
 case "$TEST_CMD" in
@@ -294,11 +326,12 @@ esac
 # breaks a caller in a file this PR did not touch. Run the full gate before a
 # release and at session wrap.
 QUICK_NOTE=""
+QUICK_TARGETS=""
 if [ "$QUICK" = 1 ]; then
     if [ "$runner" != "pytest" ]; then
         QUICK_NOTE="--quick ignored: only implemented for pytest"
         QUICK=0
-    elif [ "${TEST_CMD#* tests/ }" = "$TEST_CMD" ]; then
+    elif [ "$AUTO_DETECTED_TEST_CMD" != 1 ]; then
         # A custom TEST_CMD from .devscripts.conf — rewriting it would be
         # guessing at someone else's command, so run it whole instead.
         QUICK_NOTE="--quick ignored: TEST_CMD is custom, running it in full"
@@ -312,7 +345,7 @@ if [ "$QUICK" = 1 ]; then
             QUICK_NOTE="--quick ignored: no smoke test and no changed test files"
             QUICK=0
         else
-            TEST_CMD="${TEST_CMD/ tests\/ / $targets }"
+            QUICK_TARGETS="$targets"
             n_changed="$(printf '%s' "$CHANGED_TESTS" | wc -w | tr -d ' ')"
             QUICK_NOTE="quick gate: launch smoke + $n_changed changed test file(s)"
         fi
@@ -321,18 +354,48 @@ if [ "$QUICK" = 1 ]; then
 fi
 
 # ── run the FULL suite (no -x / no fail-fast) ─────────────────────────────────
+# The auto-detected Python/pytest case is delegated to pytest_verdict.sh — the
+# one sanctioned way to run pytest and decide whether it passed (CLAUDE.md).
+# Everything else (a custom TEST_CMD, or a non-pytest auto-detected runner)
+# keeps deciding on its own exit code, exactly as before. There is no raw-
+# pytest fallback if pytest_verdict.sh can't be found: that fallback would be
+# the very second, unverdicted pytest runner this whole change removes.
+VERDICT_SH=""
+if [ "$runner" = "pytest" ] && [ "$AUTO_DETECTED_TEST_CMD" = 1 ]; then
+    if ! VERDICT_SH="$(resolve_verdict_script "$wt")"; then
+        echo >&2
+        echo "verify_pr.sh: auto-detected a Python/pytest project but found no scripts/pytest_verdict.sh (looked in $wt/scripts and the main worktree)." >&2
+        cleanup_worktree
+        exit 1
+    fi
+fi
+
 log=""
 trap 'rm -f "${log:-}"' EXIT
 log="$(mktemp "${TMPDIR:-/tmp}/verify_pr.${PR}.XXXXXX.log")"
 
 echo
-if [ "$QUICK" = 1 ]; then
-    echo "── running QUICK gate ($runner): $TEST_CMD ──"
+if [ -n "$VERDICT_SH" ]; then
+    py_bin="$(resolve_py "$wt" 2>/dev/null || true)"
+    if [ "$QUICK" = 1 ]; then
+        echo "── running QUICK gate via pytest_verdict.sh: $QUICK_TARGETS ──"
+        ( cd "$wt" && PYTHON="$py_bin" bash "$VERDICT_SH" $QUICK_TARGETS ) >"$log" 2>&1
+    else
+        echo "── running full suite via pytest_verdict.sh ──"
+        ( cd "$wt" && PYTHON="$py_bin" \
+            METATV_FULL_SUITE_REASON="verify_pr merge-result gate for PR #$PR" \
+            bash "$VERDICT_SH" ) >"$log" 2>&1
+    fi
+    status=$?
 else
-    echo "── running full suite ($runner): $TEST_CMD ──"
+    if [ "$QUICK" = 1 ]; then
+        echo "── running QUICK gate ($runner): $TEST_CMD ──"
+    else
+        echo "── running full suite ($runner): $TEST_CMD ──"
+    fi
+    ( cd "$wt" && bash -c "$TEST_CMD" ) >"$log" 2>&1
+    status=$?
 fi
-( cd "$wt" && bash -c "$TEST_CMD" ) >"$log" 2>&1
-status=$?
 
 echo "── test output (last 15 lines) ──"
 tail -n 15 "$log"
@@ -340,7 +403,16 @@ tail -n 15 "$log"
 # ── verdict ───────────────────────────────────────────────────────────────────
 verdict="RED"
 reason=""
-if [ "$runner" = "pytest" ]; then
+if [ -n "$VERDICT_SH" ]; then
+    # The verdict IS pytest_verdict.sh's exit code — no second parse of its
+    # output. Its own last "VERDICT: ..." line (if present) rides along as a
+    # human-readable reason.
+    inner_verdict="$(grep -E '^VERDICT:' "$log" | tail -n1)"
+    if [ "$status" -eq 0 ]; then
+        verdict="GREEN"
+    fi
+    reason="pytest_verdict.sh exit $status${inner_verdict:+ — $inner_verdict}"
+elif [ "$runner" = "pytest" ]; then
     # Find pytest's final results line by its shape — "<counts> ... in <time>s"
     # — NOT by the `===` banner, which is absent when output is captured to a
     # non-TTY (the line prints bare). First filter to lines carrying a duration,

@@ -51,14 +51,17 @@ _KNOWN_PRIVATE_TEARDOWNS = {
 }
 
 #: Scripts that invoke pytest without going through ``pytest_verdict.sh``.
-#: Shrink-only, and both are on the way out:
+#: Shrink-only, and it is on the way out:
 #:
 #: ``ship_batch.sh``  — the pre-rolling-release chore; retired by
 #:                      ``.github/workflows/release.yml`` but still on disk.
-#: ``verify_pr.sh``   — predates the verdict script and carries its own strict
-#:                      summary parse, which is the very thing the verdict
-#:                      script exists to replace.
-_KNOWN_BARE_PYTEST_SCRIPTS = {"ship_batch.sh", "verify_pr.sh"}
+#:
+#: ``verify_pr.sh`` used to be here too: it predated the verdict script and
+#: carried its own strict summary parse. The auto-detected Python/pytest path
+#: now delegates to ``scripts/pytest_verdict.sh`` and decides on ITS exit
+#: code; only a custom, non-auto-detected ``TEST_CMD`` (any language) keeps a
+#: parse of its own, which is not a pytest invocation this scanner can see.
+_KNOWN_BARE_PYTEST_SCRIPTS = {"ship_batch.sh"}
 
 _DRAIN = re.compile(r"sendPostedEvents\(\s*None\s*,\s*(?:QEvent\.Type\.)?DeferredDelete\s*\)")
 _BARE_PYTEST = re.compile(r"(?<!scripts/)\bpytest\b[^\n]*", re.M)
