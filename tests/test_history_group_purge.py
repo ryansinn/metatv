@@ -93,7 +93,7 @@ def test_purging_one_group_clears_only_that_group(db, bucket):
 
     not_before, not_after = bucket_range(bucket.key, now=now)
     with db.session_scope() as s:
-        cleared = ChannelRepository(s).clear_history_in_range(not_before, not_after)
+        cleared, _snapshot = ChannelRepository(s).clear_history_in_range(not_before, not_after)
 
     assert cleared == 1, (
         f"purging {bucket.key!r} cleared {cleared} rows; exactly one was seeded there"

@@ -13,6 +13,8 @@ cohesion rather than arithmetic.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from loguru import logger
 
 from metatv.core.database import ChannelDB
@@ -71,7 +73,9 @@ class _ChannelHistoryMixin:
         logger.info(f"Cleared history older than {days}d for {count} channels")
         return count
 
-    def clear_history_in_range(self, not_before, not_after) -> int:
+    def clear_history_in_range(
+        self, not_before: datetime | None, not_after: datetime | None
+    ) -> tuple[int, list[tuple[str, datetime | None, int]]]:
         """Forget playback inside a half-open window — one History group's purge.
 
         The per-group counterpart to :meth:`clear_history_older_than`. The
@@ -80,12 +84,20 @@ class _ChannelHistoryMixin:
         delete rows it never listed. Local time, matching how ``last_played``
         is written.
 
+        Before clearing, every affected row is snapshotted — plain data, not
+        ORM objects, so it survives past this session — so the caller can
+        offer an Undo that restores exactly what this call removed. See
+        :meth:`restore_history_snapshot`.
+
         Args:
             not_before: Inclusive lower bound, or ``None`` for unbounded.
             not_after: Exclusive upper bound, or ``None`` for unbounded.
 
         Returns:
-            How many channels were cleared.
+            A ``(count, snapshot)`` pair: how many channels were cleared, and
+            a list of ``(channel_id, last_played, play_count)`` tuples — one
+            per cleared row, captured as it stood immediately before the
+            clear.
         """
         query = self.session.query(ChannelDB).filter(
             ChannelDB.last_played.isnot(None)
@@ -94,6 +106,11 @@ class _ChannelHistoryMixin:
             query = query.filter(ChannelDB.last_played >= not_before)
         if not_after is not None:
             query = query.filter(ChannelDB.last_played < not_after)
+
+        snapshot = [
+            (row.id, row.last_played, row.play_count) for row in query.all()
+        ]
+
         count = query.update({
             ChannelDB.last_played: None,
             ChannelDB.play_count: 0,
@@ -102,7 +119,41 @@ class _ChannelHistoryMixin:
         logger.info(
             f"Cleared history in [{not_before}, {not_after}) for {count} channels"
         )
-        return count
+        return count, snapshot
+
+    def restore_history_snapshot(
+        self, snapshot: list[tuple[str, datetime | None, int]]
+    ) -> int:
+        """Undo a group purge — restore rows nobody has touched since.
+
+        For each ``(channel_id, last_played, play_count)`` in *snapshot*,
+        restores those two fields ONLY where the row's ``last_played`` is
+        currently ``NULL``. A channel the user re-played during the toast's
+        lifetime already carries a newer ``last_played`` than the snapshot
+        remembers; overwriting it with the snapshot would move that
+        channel's history backwards, silently erasing the re-play. Such rows
+        are simply skipped — Undo restores everything else.
+
+        Args:
+            snapshot: ``(channel_id, last_played, play_count)`` tuples, as
+                returned by :meth:`clear_history_in_range`.
+
+        Returns:
+            How many rows were actually restored (excludes any skipped
+            because they were re-played since the purge).
+        """
+        restored = 0
+        for channel_id, last_played, play_count in snapshot:
+            restored += self.session.query(ChannelDB).filter(
+                ChannelDB.id == channel_id,
+                ChannelDB.last_played.is_(None),
+            ).update({
+                ChannelDB.last_played: last_played,
+                ChannelDB.play_count: play_count,
+            }, synchronize_session=False)
+        self.session.commit()
+        logger.info(f"Restored history for {restored} channel(s) from snapshot")
+        return restored
 
     def remove_from_history(self, channel_id: str) -> bool:
         """Remove single channel from history"""

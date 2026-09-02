@@ -91,12 +91,14 @@ class _HistoryMixin:
         )
 
     def clear_history_group(self, bucket_key: str) -> None:
-        """Forget one History time group — the heading's own "forget these".
+        """Forget one History time group at once, offering Undo instead of asking first.
 
-        The window comes from ``bucket_range``, the SAME function that decided
-        which heading each row was shown under, so this cannot delete a row the
-        group never listed. Scoped to its own group and no further; the ⋯ menu
-        keeps "Clear all history".
+        A per-group misclick is cheap to undo, so unlike the two big clears
+        (``clear_history_older_than``, ``clear_history``) this never shows a
+        confirmation dialog — it purges immediately and hands the user an
+        Undo toast instead. The window comes from ``bucket_range``, the SAME
+        function that decided which heading each row was shown under, so
+        this cannot delete a row the group never listed.
 
         Args:
             bucket_key: A key from ``history_buckets.BUCKETS``.
@@ -108,20 +110,55 @@ class _HistoryMixin:
             logger.warning(f"Unknown history bucket: {bucket_key!r}")
             return
         not_before, not_after = bucket_range(bucket_key)
-        self._confirm_and_clear_history(
-            title=f"Clear History — {bucket.label}",
-            question=(
-                f"{bucket.purge_prompt}\n\n"
-                "Everything in the other groups is kept, as are favorites."
-            ),
-            purge=lambda channels: channels.clear_history_in_range(
-                not_before, not_after
-            ),
-            describe=lambda count: (
-                f"Cleared {count} item(s) from {bucket.label}"
-                if count else f"Nothing left under {bucket.label}"
-            ),
+        try:
+            with self.db.session_scope() as session:
+                count, snapshot = RepositoryFactory(session).channels.clear_history_in_range(
+                    not_before, not_after
+                )
+            self.load_history()
+            self.load_favorites()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to clear history group {bucket.label!r}: {e}")
+            self.status_bar.showMessage(f"Error clearing history: {e}")
+            return
+
+        if not count:
+            self.status_bar.showMessage(f"Nothing to forget under {bucket.label}")
+            return
+
+        self.status_bar.showMessage(f"Cleared {count} item(s) from {bucket.label}")
+        self.notification_manager.show(
+            title="History cleared",
+            message=f"Forgot {count} item(s) under {bucket.label}.",
+            type="info",
+            auto_dismiss_ms=8000,
+            actions=[("Undo", lambda: self._undo_history_group_clear(snapshot))],
         )
+
+    def _undo_history_group_clear(self, snapshot) -> None:
+        """Restore a per-group clear's snapshot — the Undo toast's callback.
+
+        A title re-played during the toast's lifetime keeps its newer state:
+        :meth:`~metatv.core.repositories.channel_history._ChannelHistoryMixin.restore_history_snapshot`
+        only restores rows still ``NULL``, so this can never move history
+        backwards. Wrapped in try/except so a failed undo cannot crash the
+        toast click.
+
+        Args:
+            snapshot: The ``(channel_id, last_played, play_count)`` tuples
+                returned by the ``clear_history_in_range`` call being undone.
+        """
+        try:
+            with self.db.session_scope() as session:
+                restored = RepositoryFactory(session).channels.restore_history_snapshot(
+                    snapshot
+                )
+            self.load_history()
+            self.load_favorites()
+            self.status_bar.showMessage(f"Restored {restored} item(s)")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to undo history clear: {e}")
+            self.status_bar.showMessage(f"Error restoring history: {e}")
 
     def clear_history(self):
         """Clear all history — the ⋯ menu's all-or-nothing option."""
