@@ -16,6 +16,7 @@ constructing the widget via __new__, avoiding the heavy full _setup_ui path.
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 import uuid
 from types import SimpleNamespace
@@ -258,6 +259,7 @@ def _now() -> datetime:
     return datetime(2026, 6, 19, 20, 0, 0)
 
 
+@with_programme_render_fields
 class _FakeWatchlistProg:
     """Minimal program stub for _ch_row / _up_row tests."""
     def __init__(
@@ -278,7 +280,9 @@ class _FakeWatchlistProg:
 
 def _make_watchlist_host() -> SimpleNamespace:
     """Minimal namespace with the maps _ch_row / _up_row read from."""
+    from tests.conftest import wire_watchlist_card_host
     host = SimpleNamespace()
+    wire_watchlist_card_host(host)
     host._channel_name_map = {}
     host._channel_quality_map = {}
     host._channel_prefix_map = {}

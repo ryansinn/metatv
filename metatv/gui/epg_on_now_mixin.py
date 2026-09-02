@@ -57,6 +57,7 @@ from loguru import logger
 from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core import watchlist
+from metatv.core.watchlist_matching import matches_any
 from metatv.core.channel_name_utils import (
     REGION_FULL_NAMES, classify_channel_content_type, quality_display, quality_tooltip,
 )
@@ -391,7 +392,7 @@ class _EpgOnNowMixin:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.blockSignals(True)
         self.on_now_list.clear()
-        patterns = watchlist.lowered(self.config)
+        rules = watchlist.rules(self.config)
         epg_hidden, global_excluded = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
@@ -462,7 +463,9 @@ class _EpgOnNowMixin:
             if category:
                 item.setToolTip(0, resolve_category_name(category, self.config) or category)
 
-            if any(pat in prog.title.lower() for pat in patterns):
+            # Same matcher the query used, so the highlight cannot disagree
+            # with what the watchlist decided was a match.
+            if matches_any(prog.title, rules, prog.description, prog.is_live):
                 _apply_watchlist_highlight(item, range(5), 3)
 
             # Slice 3C: classify once at render, store on the item — filtering reads

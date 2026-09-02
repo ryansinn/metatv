@@ -15,6 +15,7 @@ if someone "fixed" this by rewriting the token at ingestion.
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -301,6 +302,7 @@ def _on_now_host():
     return host
 
 
+@with_programme_render_fields
 class _FakeProgram:
     def __init__(self, channel_db_id="ch1", title="Test Show"):
         from datetime import datetime, timedelta

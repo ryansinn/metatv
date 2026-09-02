@@ -448,7 +448,26 @@ class AlertPatternDB(Base):
     pattern_value = Column(String, nullable=False)
     
     applies_to = Column(String, default="all", index=True)  # all, live, series, movies
-    
+
+    # WL-1. Whole-word is the settled default ("NFL" matched Inflammation);
+    # False is the "contains, anywhere" escape hatch. exclude_terms is a plain
+    # list. All of these read ONLY through core/watchlist_matching.py.
+    whole_word = Column(Boolean, default=True)
+    exclude_terms = Column(JSONEncoded)
+    # phrase | all | any — how the comma-separated include terms combine.
+    match_mode = Column(String, default="phrase")
+    # Off for old and new rules alike (Q2): two defaults for one setting means
+    # the checkbox can never be predicted from the setting.
+    search_description = Column(Boolean, default=False)
+    # Stored but NOT surfaced: is_live is 0 for all 264,047 programmes on the
+    # owner's library (only ever set from a superscript badge the feeds do not
+    # use), so a checkbox would silently match nothing. See watchlist_matching.
+    live_only = Column(Boolean, default=False)
+    # notify | download | record. Only notify is reachable today; Download and
+    # Record become VALUES here rather than migrations once the transfer engine
+    # lands — that is only free if the column exists from the start.
+    action = Column(String, default="notify")
+
     is_enabled = Column(Boolean, default=True, index=True)
     last_checked = Column(DateTime)
     
@@ -987,6 +1006,13 @@ class Database:
             ("channels",     "signal_dead_streak",            "INTEGER DEFAULT 0"),
             ("channels",     "signal_checked_at",             "DATETIME"),
             ("channels",     "last_seen_at",                  "DATETIME"),
+            # WL-1 watch-rule fields; the UPDATE below stamps NULLs.
+            ("alert_patterns", "whole_word",                  "INTEGER DEFAULT 1"),
+            ("alert_patterns", "exclude_terms",               "TEXT"),
+            ("alert_patterns", "match_mode",                  "TEXT DEFAULT 'phrase'"),
+            ("alert_patterns", "search_description",           "INTEGER DEFAULT 0"),
+            ("alert_patterns", "live_only",                    "INTEGER DEFAULT 0"),
+            ("alert_patterns", "action",                       "TEXT DEFAULT 'notify'"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -1027,6 +1053,23 @@ class Database:
                     conn.commit()
                 except Exception as exc:
                     logger.warning(f"Index migration skipped: {exc}")
+
+            # WL-1: record the settled default ON the row rather than letting
+            # a rule inherit one, so a later change to the default cannot
+            # re-read what an old rule meant. Self-healing: runs every start.
+            for col, value in (("whole_word", "1"), ("match_mode", "'phrase'"),
+                               ("search_description", "0"), ("live_only", "0"),
+                               ("action", "'notify'")):
+                try:
+                    res = conn.execute(text(
+                        f"UPDATE alert_patterns SET {col} = {value} "
+                        f"WHERE {col} IS NULL"))
+                    conn.commit()
+                    if res.rowcount:
+                        logger.info(f"Migration: stamped {col}={value} onto "
+                                    f"{res.rowcount} watch rule(s)")
+                except OperationalError:
+                    pass  # table absent on a brand-new database
 
         self._normalize_double_encoded_json()
 

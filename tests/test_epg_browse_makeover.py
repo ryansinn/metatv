@@ -18,6 +18,7 @@ Q8    — The shared ``apply_watchlist_highlight`` helper bolds the right column
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 import base64
 from datetime import datetime, timedelta, timezone
@@ -53,6 +54,7 @@ def qapp():
 _FROZEN_TZ_PATCH = "metatv.core.epg_utils._local_tz"
 
 
+@with_programme_render_fields
 class _FakeProg:
     """Minimal EpgProgramDB stand-in with explicit start/stop for day-boundary tests."""
 
@@ -755,6 +757,7 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
     host._apply_on_now_filters = lambda: None
     host._update_filler_btn_label = lambda: None
 
+    @with_programme_render_fields
     class _P:
         channel_db_id = "ch4"
         channel_epg_id = "epg4"

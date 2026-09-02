@@ -62,6 +62,7 @@ from loguru import logger
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.config import Config
+    from metatv.core.watchlist_matching import WatchRule
     from metatv.core.database import Database
 
 
@@ -76,6 +77,7 @@ _db: "Optional[Database]" = None
 
 _OP_ADD = "add"
 _OP_REMOVE = "remove"
+_OP_UPDATE = "update"
 
 #: How long :func:`flush` waits for queued writes. Generous against the 30 s
 #: ``busy_timeout`` would mean a 30 s app close, and a watch rule is not worth
@@ -91,6 +93,8 @@ class _PendingWrite:
     op: str
     text: str
     future: "Optional[Future]" = field(default=None)
+    #: For ``_OP_UPDATE`` only: the rule columns to set. Empty for add/remove.
+    fields: dict = field(default_factory=dict)
 
 
 _writer: "Optional[ThreadPoolExecutor]" = None
@@ -239,6 +243,76 @@ def patterns(config: "Config") -> tuple[str, ...]:
     return tuple(out)
 
 
+def rules(config: "Config") -> "tuple[WatchRule, ...]":
+    """Every watch pattern as a matchable rule, in the user's own order.
+
+    The rule is what both surfaces are supposed to share (Q4: "one list, two
+    surfaces"), so this — not :func:`patterns` — is what a matching caller
+    wants. :func:`patterns` stays for display and for the write paths.
+
+    Built on top of :func:`patterns` rather than beside it, so ordering,
+    blank-stripping, casefolded de-duplication and the pending-write overlay
+    keep exactly one definition; this only attaches the stored per-rule flags.
+
+    A term with no stored row — one still queued for insert, or a config-only
+    fallback list — gets the settled default: whole-word, no excludes.
+    """
+    from metatv.core.watchlist_matching import WatchRule
+
+    flags = _db_rule_flags() if _db is not None else {}
+    for key, queued in _pending_rule_fields().items():
+        flags.setdefault(key, {}).update(queued)
+    return tuple(WatchRule(term=term, **flags.get(term.casefold(), {}))
+                 for term in patterns(config))
+
+
+def _db_rule_flags() -> "dict[str, dict]":
+    """casefolded term -> the stored rule fields, as WatchRule kwargs.
+
+    Every field reads NULL as the settled default: a row written by an older
+    build has no opinion, and the default is the one to apply. The migration
+    stamps those rows anyway — this is the belt to its braces, and it is what
+    makes the reader safe against a database read mid-upgrade.
+
+    Errors return an EMPTY map rather than raising, matching ``_db_patterns``:
+    a flag read that fails should fall back to default behaviour, not take down
+    the EPG view that asked for it.
+    """
+    from metatv.core.database import AlertPatternDB
+    from metatv.core.watchlist_matching import ACTIONS, MATCH_MODES, NOTIFY, PHRASE
+    try:
+        with _db.session_scope(commit=False) as session:
+            rows = (session.query(AlertPatternDB.pattern_value,
+                                  AlertPatternDB.whole_word,
+                                  AlertPatternDB.exclude_terms,
+                                  AlertPatternDB.match_mode,
+                                  AlertPatternDB.search_description,
+                                  AlertPatternDB.live_only,
+                                  AlertPatternDB.action)
+                    .filter(AlertPatternDB.pattern_type == PATTERN_TYPE)
+                    .all())
+        out: dict[str, dict] = {}
+        for value, whole_word, excludes, mode, desc, live, action in rows:
+            if not value:
+                continue
+            out[value.casefold()] = {
+                "whole_word": True if whole_word is None else bool(whole_word),
+                "exclude": tuple(str(x).strip() for x in (excludes or [])
+                                 if str(x).strip()),
+                # An unrecognised stored value falls back to the default rather
+                # than reaching the matcher: a typo in the column should not be
+                # able to change what a rule matches.
+                "match_mode": mode if mode in MATCH_MODES else PHRASE,
+                "search_description": bool(desc),
+                "live_only": bool(live),
+                "action": action if action in ACTIONS else NOTIFY,
+            }
+        return out
+    except Exception:
+        logger.exception("watchlist: could not read rule flags from the database")
+        return {}
+
+
 def lowered(config: "Config") -> tuple[str, ...]:
     """The patterns, casefolded, for matching.
 
@@ -281,6 +355,68 @@ def add(config: "Config", pattern: str) -> bool:
     config.epg_watchlist_patterns = list(patterns(config)) + [text]
     config.save()
     return True
+
+
+#: Rule kwarg -> ``AlertPatternDB`` column. The public API speaks WatchRule's
+#: vocabulary so a caller never has to know the column names; ``exclude`` is
+#: the one that differs, and this table is the only place that knows it.
+_RULE_COLUMNS = {
+    "whole_word": "whole_word",
+    "exclude": "exclude_terms",
+    "match_mode": "match_mode",
+    "search_description": "search_description",
+    "live_only": "live_only",
+    "action": "action",
+}
+
+
+def update(config: "Config", pattern: str, **fields) -> bool:
+    """Change one rule's matching fields. Returns True when it was accepted.
+
+    Queued like :func:`add` and :func:`remove`, and for the same reason — this
+    is called straight from a widget signal. :func:`rules` replays the queue,
+    so a re-read right after this returns already shows the new values.
+
+    Only the DATABASE store carries rule fields. On the config fallback there
+    is nowhere to put them, so this reports False rather than pretending: a
+    caller that silently dropped the edit would be worse than one that can see
+    it did not take.
+    """
+    text = (pattern or "").strip()
+    if not text or not fields:
+        return False
+    unknown = set(fields) - set(_RULE_COLUMNS)
+    if unknown:
+        raise ValueError(f"not watch-rule fields: {sorted(unknown)}")
+    if _db is None:
+        logger.warning(
+            "watchlist: rule fields need the database store; {!r} not updated", text)
+        return False
+    return _queue(_OP_UPDATE, text, fields)
+
+
+def _pending_rule_fields() -> "dict[str, dict]":
+    """casefolded term -> queued field changes, newest last."""
+    with _lock:
+        queued = [w for w in _pending if w.op == _OP_UPDATE]
+    out: dict[str, dict] = {}
+    for write in queued:
+        out.setdefault((write.text or "").casefold(), {}).update(write.fields)
+    return out
+
+
+def _db_update(target_casefold: str, fields: dict) -> None:
+    """Apply field changes to every row matching *target_casefold*. RAISES."""
+    from metatv.core.database import AlertPatternDB
+    with _db.session_scope() as session:
+        rows = (session.query(AlertPatternDB)
+                .filter(AlertPatternDB.pattern_type == PATTERN_TYPE).all())
+        for row in rows:
+            if (row.pattern_value or "").casefold() != target_casefold:
+                continue
+            for key, value in fields.items():
+                setattr(row, _RULE_COLUMNS[key],
+                        list(value) if key == "exclude" else value)
 
 
 def remove(config: "Config", pattern: str) -> bool:
@@ -328,6 +464,8 @@ def _apply_pending(stored: list) -> list:
         return stored
     out = list(stored)
     for write in queued:
+        if write.op == _OP_UPDATE:
+            continue  # changes a rule's fields, never its membership
         key = (write.text or "").casefold()
         matches = [s for s in out if isinstance(s, str) and s.casefold() == key]
         if write.op == _OP_REMOVE:
@@ -337,9 +475,9 @@ def _apply_pending(stored: list) -> list:
     return out
 
 
-def _queue(op: str, text: str) -> bool:
+def _queue(op: str, text: str, fields: "Optional[dict]" = None) -> bool:
     """Hand one mutation to the writer thread. Returns True when it was queued."""
-    write = _PendingWrite(op=op, text=text)
+    write = _PendingWrite(op=op, text=text, fields=dict(fields or {}))
     with _lock:
         _pending.append(write)
         try:
@@ -366,6 +504,8 @@ def _run_write(write: _PendingWrite) -> None:
     try:
         if write.op == _OP_ADD:
             _db_add(write.text)
+        elif write.op == _OP_UPDATE:
+            _db_update(write.text.casefold(), write.fields)
         else:
             _db_remove(write.text.casefold())
     except Exception as exc:

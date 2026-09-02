@@ -19,6 +19,7 @@ path and asserts the outcome that would regress:
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ def qapp():
 # Fake EPG programme for the render path
 # ---------------------------------------------------------------------------
 
+@with_programme_render_fields
 class _FakeProg:
     def __init__(self, channel_db_id="c1", channel_epg_id="epg1", title="Some Show"):
         _now = datetime(2026, 6, 28, 20, 0, 0)
