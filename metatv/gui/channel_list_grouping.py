@@ -30,13 +30,13 @@ from PyQt6.QtCore import QModelIndex, Qt
 
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.core.repositories.search_ranking import (
-    WHOLE_TIERS,
+    WORD_TIERS,
     SECTION_ORDER as _SEARCH_SECTIONS,
 )
 from metatv.gui.channel_list_roles import (
     CHANNEL_HTML_ROLE, ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE,
     SECTION_COUNT_ROLE, SECTION_LABEL_ROLE, SECTION_TYPE_ROLE,
-    SECTION_WHOLE_ONLY_ROLE,
+    SECTION_WORD_ONLY_ROLE,
 )
 from metatv.gui import theme as _theme
 
@@ -112,13 +112,13 @@ class ChannelListGroupingMixin:
             return self.section_result_count(section)
         if role == SECTION_COLLAPSED_ROLE:
             return section in self._collapsed_sections
-        if role == SECTION_WHOLE_ONLY_ROLE:
+        if role == SECTION_WORD_ONLY_ROLE:
             # None means "draw no slider": narrowing by HOW the term matched is
             # meaningless when there is no term, and Movies/Series/Live are not
             # match rungs. Only the two SEARCH sections offer it.
             if section not in _SEARCH_SECTIONS:
                 return None
-            return section in self._whole_only
+            return section in self._word_only
         if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
             # Plain text only. The band is painted (see the delegate) because a
             # flex:1 hairline and a segmented control are not expressible in
@@ -162,26 +162,26 @@ class ChannelListGroupingMixin:
         """
         return sum(1 for kind, _v in self._layout(section) if kind == "channel")
 
-    def set_section_whole_only(self, section: str, whole_only: bool) -> None:
+    def set_section_word_only(self, section: str, word_only: bool) -> None:
         """Narrow a section to whole-word matches, or open it back up.
 
         A full reset rather than fine-grained inserts: the rows this removes are
         scattered through the section's runs, so there is no contiguous block to
         hand Qt. The list is small by the time anyone reaches for this control.
         """
-        if bool(whole_only) == (section in self._whole_only):
+        if bool(word_only) == (section in self._word_only):
             return
         self.beginResetModel()
-        if whole_only:
-            self._whole_only.add(section)
+        if word_only:
+            self._word_only.add(section)
         else:
-            self._whole_only.discard(section)
+            self._word_only.discard(section)
         self._rebuild_buckets()
         self.endResetModel()
 
-    def is_section_whole_only(self, section: str) -> bool:
+    def is_section_word_only(self, section: str) -> bool:
         """Whether *section* is currently narrowed to whole-word matches."""
-        return section in self._whole_only
+        return section in self._word_only
 
     def _person_data(self, person: str, role: int) -> Any:
         """Return ``data()`` for a matched-person sub-heading row.
@@ -304,7 +304,7 @@ class ChannelListGroupingMixin:
         insert, which Qt treats as a corrupt model.
         """
         indices = self._buckets.get(section, ())
-        if section in self._whole_only:
+        if section in self._word_only:
             # "Whole" keeps the rungs where the TERM IS A WORD — exact, prefix,
             # whole word — and drops the one where it merely appears inside a
             # longer word: Astronaut answering a search for "tron".
@@ -317,7 +317,7 @@ class ChannelListGroupingMixin:
             # rows of content, letting people find weird shit is valuable."
             indices = [ci for ci in indices
                        if getattr(self._channels[ci], "match_tier", 0)
-                       in WHOLE_TIERS]
+                       in WORD_TIERS]
         people = {}
         for pos, ci in enumerate(indices):
             person = getattr(self._channels[ci], "match_person", None) or ""

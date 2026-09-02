@@ -170,7 +170,7 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
         self._group_by_type: bool = False
         # Sections the user has narrowed to whole-word matches. EMPTY by
         # default: a section shows everything until someone says otherwise.
-        self._whole_only: set[str] = set()
+        self._word_only: set[str] = set()
         # People whose films are folded away under their name, and how many
         # each has — the count the sub-heading shows, which stays true while
         # the run is collapsed because that is the only thing describing it.

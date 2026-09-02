@@ -109,5 +109,5 @@ LABEL_ROW_KINDS = frozenset({"header", "person"})
 # its absence is what left the band looking empty across the width.
 SECTION_LABEL_ROLE = Qt.ItemDataRole.UserRole + 31        # str, already uppercased
 SECTION_COUNT_ROLE = Qt.ItemDataRole.UserRole + 32        # int, results in the section
-SECTION_WHOLE_ONLY_ROLE = Qt.ItemDataRole.UserRole + 33   # bool, or None when no search
+SECTION_WORD_ONLY_ROLE = Qt.ItemDataRole.UserRole + 33   # bool, or None when no search
 SECTION_COLLAPSED_ROLE = Qt.ItemDataRole.UserRole + 34    # bool

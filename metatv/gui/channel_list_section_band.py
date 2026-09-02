@@ -41,7 +41,7 @@ from PyQt6.QtGui import QFont, QFontMetrics, QPainter, QPainterPath
 from metatv.gui import theme as _theme
 from metatv.gui.channel_list_roles import (
     ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE, SECTION_COUNT_ROLE,
-    SECTION_LABEL_ROLE, SECTION_WHOLE_ONLY_ROLE,
+    SECTION_LABEL_ROLE, SECTION_WORD_ONLY_ROLE,
 )
 from metatv.gui.filter_bar import ToggleChip
 from metatv.gui.token_color import to_qcolor
@@ -64,8 +64,18 @@ SEG_PAD_V = 2
 #: Tracking on the label, as a percentage — the mockup's ``.14em``.
 LABEL_TRACKING = 114.0
 
-WHOLE = "Whole"
-PART = "Part"
+#: The two halves, broadest first so the track reads loose → tight.
+#:
+#: ``All`` and ``Word``, not the ``Whole | Part`` first built. ``Part`` is a
+#: SUPERSET of ``Whole`` — tiers 0-3 against 0-2 — so calling it "Part" said the
+#: opposite of what it does, reading as "only partial matches" when it means
+#: whole AND partial. Owner: *"Part basically includes Whole, and Whole is more
+#: restrictive, right? … so Part should be All and Whole should be Word."*
+#:
+#: It also settles why there is no third state: ``All`` IS the everything, so an
+#: ``All | Whole | Part`` would carry a synonym.
+ALL = "All"
+WORD = "Word"
 CARET_OPEN = "▾"      # ▾
 CARET_SHUT = "▸"      # ▸
 
@@ -76,8 +86,8 @@ class BandLayout(NamedTuple):
     label: QRect
     rule: QRect
     count: QRect
-    whole: QRect      # null when the section offers no Whole|Part
-    part: QRect       # null when the section offers no Whole|Part
+    all_seg: QRect    # "All" — null when the section offers no toggle
+    word_seg: QRect   # "Word" — null when the section offers no toggle
     caret: QRect
 
 
@@ -122,15 +132,17 @@ def layout(rect: QRect, *, label: str, count: int, has_toggle: bool,
     caret = _centred(x_right, caret_w, sm.height())
     x_right = caret.left() - GAP
 
-    whole = part = QRect()
+    all_seg = word_seg = QRect()
     if has_toggle:
         seg_h = sm.height() + 2 * SEG_PAD_V
-        part_w = sm.horizontalAdvance(PART) + 2 * SEG_PAD_H
-        whole_w = sm.horizontalAdvance(WHOLE) + 2 * SEG_PAD_H
-        part = _centred(x_right, part_w, seg_h)
+        word_w = sm.horizontalAdvance(WORD) + 2 * SEG_PAD_H
+        all_w = sm.horizontalAdvance(ALL) + 2 * SEG_PAD_H
+        # Word is the tighter half and sits on the right, so the track reads
+        # broad → narrow in the direction the eye travels.
+        word_seg = _centred(x_right, word_w, seg_h)
         # Adjacent, sharing an edge: one track with a divide, not two pills.
-        whole = _centred(part.left() + 1, whole_w, seg_h)
-        x_right = whole.left() - GAP
+        all_seg = _centred(word_seg.left() + 1, all_w, seg_h)
+        x_right = all_seg.left() - GAP
 
     count_w = sm.horizontalAdvance(f"{count:,}")
     count_rect = _centred(x_right, count_w, sm.height())
@@ -143,7 +155,7 @@ def layout(rect: QRect, *, label: str, count: int, has_toggle: bool,
     rule_right = count_rect.left() - GAP
     rule = (QRect(rule_left, mid, max(0, rule_right - rule_left), 1)
             if rule_right > rule_left else QRect())
-    return BandLayout(label_rect, rule, count_rect, whole, part, caret)
+    return BandLayout(label_rect, rule, count_rect, all_seg, word_seg, caret)
 
 
 def paint_row(painter: QPainter, rect: QRect, index, base_font: QFont) -> bool:
@@ -157,17 +169,17 @@ def paint_row(painter: QPainter, rect: QRect, index, base_font: QFont) -> bool:
     paint(painter, rect,
           label=index.data(SECTION_LABEL_ROLE) or "",
           count=int(index.data(SECTION_COUNT_ROLE) or 0),
-          whole_only=index.data(SECTION_WHOLE_ONLY_ROLE),
+          word_only=index.data(SECTION_WORD_ONLY_ROLE),
           collapsed=bool(index.data(SECTION_COLLAPSED_ROLE)),
           base_font=base_font)
     return True
 
 
 def toggle_rects_for(rect: QRect, index, base_font: QFont):
-    """``(whole, part)`` for *index*, or two nulls when it offers no toggle."""
+    """``(all, word)`` for *index*, or two nulls when it offers no toggle."""
     if index.data(ROW_KIND_ROLE) != "header":
         return QRect(), QRect()
-    if index.data(SECTION_WHOLE_ONLY_ROLE) is None:
+    if index.data(SECTION_WORD_ONLY_ROLE) is None:
         return QRect(), QRect()
     return toggle_rects(rect, label=index.data(SECTION_LABEL_ROLE) or "",
                         count=int(index.data(SECTION_COUNT_ROLE) or 0),
@@ -175,7 +187,7 @@ def toggle_rects_for(rect: QRect, index, base_font: QFont):
 
 
 def toggle_rects(rect: QRect, *, label: str, count: int, base_font: QFont):
-    """``(whole, part)`` hit rectangles for the segmented control.
+    """``(all, word)`` hit rectangles for the segmented control.
 
     Recomputed from the SAME layout the paint uses rather than stashed during
     it — the reason is the one ``ChannelRowDelegate.action_rect`` gives: a
@@ -184,13 +196,13 @@ def toggle_rects(rect: QRect, *, label: str, count: int, base_font: QFont):
     """
     box = layout(rect, label=label, count=count, has_toggle=True,
                  base_font=base_font)
-    return box.whole, box.part
+    return box.all_seg, box.word_seg
 
 
 def paint(painter: QPainter, rect: QRect, *, label: str, count: int,
-          whole_only: bool | None, collapsed: bool, base_font: QFont) -> None:
-    """Draw the band. ``whole_only`` of None means the section offers no toggle."""
-    has_toggle = whole_only is not None
+          word_only: bool | None, collapsed: bool, base_font: QFont) -> None:
+    """Draw the band. ``word_only`` of None means the section offers no toggle."""
+    has_toggle = word_only is not None
     box = layout(rect, label=label, count=count, has_toggle=has_toggle,
                  base_font=base_font)
 
@@ -216,7 +228,7 @@ def paint(painter: QPainter, rect: QRect, *, label: str, count: int,
     painter.drawText(box.count, int(Qt.AlignmentFlag.AlignVCenter), f"{count:,}")
 
     if has_toggle:
-        _paint_segment(painter, box, whole_only=bool(whole_only))
+        _paint_segment(painter, box, word_only=bool(word_only))
 
     painter.setFont(small)
     painter.setPen(to_qcolor(_theme.COLOR_FAINT))
@@ -225,7 +237,7 @@ def paint(painter: QPainter, rect: QRect, *, label: str, count: int,
     painter.restore()
 
 
-def _paint_segment(painter: QPainter, box: BandLayout, *, whole_only: bool) -> None:
+def _paint_segment(painter: QPainter, box: BandLayout, *, word_only: bool) -> None:
     """One track, one divide, and the active half FILLS its cell.
 
     Not a rounded pill floating inside a rounded box — ``ToggleChip`` states
@@ -237,8 +249,8 @@ def _paint_segment(painter: QPainter, box: BandLayout, *, whole_only: bool) -> N
     So the fill is clipped to the track: rounded on the track's outer end, square
     against the divide.
     """
-    outer = box.whole.united(box.part)
-    on_rect = box.whole if whole_only else box.part
+    outer = box.all_seg.united(box.word_seg)
+    on_rect = box.word_seg if word_only else box.all_seg
 
     path = QPainterPath()
     path.addRoundedRect(QRectF(outer), SEG_RADIUS, SEG_RADIUS)
@@ -252,10 +264,10 @@ def _paint_segment(painter: QPainter, box: BandLayout, *, whole_only: bool) -> N
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawRoundedRect(outer, SEG_RADIUS, SEG_RADIUS)
     # Exactly one rule per boundary, the same as the widget track.
-    painter.drawLine(box.part.left(), outer.top() + 1,
-                     box.part.left(), outer.bottom() - 1)
+    painter.drawLine(box.word_seg.left(), outer.top() + 1,
+                     box.word_seg.left(), outer.bottom() - 1)
 
-    for rect_, text in ((box.whole, WHOLE), (box.part, PART)):
+    for rect_, text in ((box.all_seg, ALL), (box.word_seg, WORD)):
         active = rect_ is on_rect
         font = QFont(painter.font())
         font.setWeight(QFont.Weight.DemiBold if active else QFont.Weight.Normal)

@@ -59,15 +59,20 @@ def rows_to_dtos(repos, rows: list, search_query: str | None) -> list:
     def _dto(c):
         section = (search_ranking.section_for_title(
             c.detected_title or c.name, term) if term else None)
+        person = _person(c, section)
         return ChannelListDTO.from_orm(
             c,
             user_rating=ratings_map.get(c.id, 0),
             reliability_state=reliability_map.get(c.id, "ok"),
             section_key=section,
-            match_person=_person(c, section),
-            # The rung this row sits on — what a Whole/Part control filters.
-            match_tier=(search_ranking.tier_for_title(
-                c.detected_title or c.name, term) if term else 0),
+            match_person=person,
+            # The rung this row sits on IN ITS OWN SECTION — the title in
+            # Titles, the matched person in Cast & Crew. Scoring both on the
+            # title made every cast row tier 4 and emptied that section the
+            # moment anyone pressed Whole.
+            match_tier=(search_ranking.tier_for_row(
+                c.detected_title or c.name, person, section, term)
+                if term else 0),
         )
 
     return [_dto(c) for c in rows]

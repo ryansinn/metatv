@@ -204,7 +204,7 @@ def test_a_section_header_is_a_band_not_a_line_of_text(qapp):
     """
     from metatv.gui.channel_list_roles import (
         ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE, SECTION_COUNT_ROLE,
-        SECTION_LABEL_ROLE, SECTION_WHOLE_ONLY_ROLE,
+        SECTION_LABEL_ROLE, SECTION_WORD_ONLY_ROLE,
     )
     model = _model(qapp)
     _load(model, _mixed(), search="cage")
@@ -216,13 +216,13 @@ def test_a_section_header_is_a_band_not_a_line_of_text(qapp):
     assert [h.data(SECTION_COLLAPSED_ROLE) for h in heads] == [False, False]
     # Both search sections offer the toggle, and default to Part (nothing
     # hidden) — the user tightens a cluttered section, the app never decides.
-    assert [h.data(SECTION_WHOLE_ONLY_ROLE) for h in heads] == [False, False]
+    assert [h.data(SECTION_WORD_ONLY_ROLE) for h in heads] == [False, False]
 
 
 def test_a_media_type_section_offers_no_whole_part_toggle(qapp):
     """Movies/Series/Live are not match rungs, so narrowing by one is meaningless."""
     from metatv.gui.channel_list_roles import (
-        ROW_KIND_ROLE, SECTION_WHOLE_ONLY_ROLE,
+        ROW_KIND_ROLE, SECTION_WORD_ONLY_ROLE,
     )
     model = _model(qapp)
     model.set_grouped(True)
@@ -232,4 +232,4 @@ def test_a_media_type_section_offers_no_whole_part_toggle(qapp):
     for r in range(model.rowCount()):
         idx = model.index(r, 0)
         if idx.data(ROW_KIND_ROLE) == "header":
-            assert idx.data(SECTION_WHOLE_ONLY_ROLE) is None
+            assert idx.data(SECTION_WORD_ONLY_ROLE) is None

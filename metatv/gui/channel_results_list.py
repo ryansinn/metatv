@@ -68,7 +68,7 @@ class ChannelResultsList(QWidget):
     channel_context_menu = pyqtSignal(str, object)
     #: A delegate-painted chip was clicked: (facet_type, value).
     chip_clicked = pyqtSignal(str, str)
-    #: (section key, whole_only) — forwarded from the view's header control.
+    #: (section key, word_only) — forwarded from the view's header control.
     section_mode_toggled = pyqtSignal(str, bool)
 
     def __init__(

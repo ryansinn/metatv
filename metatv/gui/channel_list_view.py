@@ -29,7 +29,7 @@ class ChannelListView(QListView):
     """``QListView`` that emits ``middle_clicked(index)`` on a middle-button press."""
 
     middle_clicked = pyqtSignal(QModelIndex)
-    #: (section key, whole_only) — a click on one half of a header's Whole|Part
+    #: (section key, word_only) — a click on one half of a header's Whole|Part
     #: control. Narrowing is a DISPLAY choice over rows already fetched, so the
     #: host answers it on the model rather than re-running the query.
     section_mode_toggled = pyqtSignal(str, bool)
@@ -98,7 +98,7 @@ class ChannelListView(QListView):
         return super().viewportEvent(event)
 
     def _mode_toggle_hit(self, pos: QPoint):
-        """``(section, whole_only)`` when *pos* lands on a Whole|Part half.
+        """``(section, word_only)`` when *pos* lands on an All|Word half.
 
         Asked of the delegate for the same reason ``_action_hit`` does it:
         the rect is recomputed, never stashed during paint, so the first click
@@ -111,11 +111,11 @@ class ChannelListView(QListView):
         if rects is None:
             return None
         from metatv.gui.channel_list_roles import SECTION_TYPE_ROLE
-        whole, part = rects(self.visualRect(index), index, self.font())
-        if whole.contains(pos):
-            return index.data(SECTION_TYPE_ROLE), True
-        if part.contains(pos):
-            return index.data(SECTION_TYPE_ROLE), False
+        all_seg, word_seg = rects(self.visualRect(index), index, self.font())
+        if word_seg.contains(pos):
+            return index.data(SECTION_TYPE_ROLE), True    # Word — narrow it
+        if all_seg.contains(pos):
+            return index.data(SECTION_TYPE_ROLE), False   # All — open it up
         return None
 
     def _action_hit(self, pos: QPoint) -> bool:
