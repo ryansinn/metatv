@@ -29,6 +29,10 @@ class ChannelListView(QListView):
     """``QListView`` that emits ``middle_clicked(index)`` on a middle-button press."""
 
     middle_clicked = pyqtSignal(QModelIndex)
+    #: (section key, whole_only) — a click on one half of a header's Whole|Part
+    #: control. Narrowing is a DISPLAY choice over rows already fetched, so the
+    #: host answers it on the model rather than re-running the query.
+    section_mode_toggled = pyqtSignal(str, bool)
     #: A row chip was clicked: ``(facet, value)`` — e.g. ``("quality", "4K")``.
     #: MainWindow turns this into the same strict context filter a details-pane
     #: metadata click produces (docs/CONTEXT_FILTER_CHIPS.md).
@@ -93,6 +97,27 @@ class ChannelListView(QListView):
             return True
         return super().viewportEvent(event)
 
+    def _mode_toggle_hit(self, pos: QPoint):
+        """``(section, whole_only)`` when *pos* lands on a Whole|Part half.
+
+        Asked of the delegate for the same reason ``_action_hit`` does it:
+        the rect is recomputed, never stashed during paint, so the first click
+        on a freshly scrolled header works.
+        """
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return None
+        rects = getattr(self.itemDelegate(), "mode_toggle_rects", None)
+        if rects is None:
+            return None
+        from metatv.gui.channel_list_roles import SECTION_TYPE_ROLE
+        whole, part = rects(self.visualRect(index), index, self.font())
+        if whole.contains(pos):
+            return index.data(SECTION_TYPE_ROLE), True
+        if part.contains(pos):
+            return index.data(SECTION_TYPE_ROLE), False
+        return None
+
     def _action_hit(self, pos: QPoint) -> bool:
         """Whether *pos* lands on a row's reserved action affordance (``⋯``).
 
@@ -112,6 +137,15 @@ class ChannelListView(QListView):
         return action_rect(self.visualRect(index), index).contains(pos)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Checked BEFORE the header's own click-to-collapse: the control
+            # lives inside the header row, so without this every press on it
+            # would fold the section it is trying to narrow.
+            hit = self._mode_toggle_hit(event.position().toPoint())
+            if hit is not None:
+                self.section_mode_toggled.emit(hit[0] or "", hit[1])
+                event.accept()
+                return
         if event.button() == Qt.MouseButton.LeftButton and self._action_hit(
             event.position().toPoint()
         ):

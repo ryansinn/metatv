@@ -34,7 +34,9 @@ from metatv.core.repositories.search_ranking import (
     SECTION_ORDER as _SEARCH_SECTIONS,
 )
 from metatv.gui.channel_list_roles import (
-    CHANNEL_HTML_ROLE, ROW_KIND_ROLE, SECTION_TYPE_ROLE,
+    CHANNEL_HTML_ROLE, ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE,
+    SECTION_COUNT_ROLE, SECTION_LABEL_ROLE, SECTION_TYPE_ROLE,
+    SECTION_WHOLE_ONLY_ROLE,
 )
 from metatv.gui import theme as _theme
 
@@ -103,12 +105,25 @@ class ChannelListGroupingMixin:
             return "header"
         if role == SECTION_TYPE_ROLE:
             return section
+        label = _SECTION_LABELS.get(section, (section or "Other").title())
+        if role == SECTION_LABEL_ROLE:
+            return label.upper()
+        if role == SECTION_COUNT_ROLE:
+            return self.section_result_count(section)
+        if role == SECTION_COLLAPSED_ROLE:
+            return section in self._collapsed_sections
+        if role == SECTION_WHOLE_ONLY_ROLE:
+            # None means "draw no slider": narrowing by HOW the term matched is
+            # meaningless when there is no term, and Movies/Series/Live are not
+            # match rungs. Only the two SEARCH sections offer it.
+            if section not in _SEARCH_SECTIONS:
+                return None
+            return section in self._whole_only
         if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
-            count = self.section_result_count(section)
-            label = _SECTION_LABELS.get(section, (section or "Other").title())
-            if role == Qt.ItemDataRole.DisplayRole:
-                return f"{label} ({count:,})"
-            return _heading_html(label.upper(), count)
+            # Plain text only. The band is painted (see the delegate) because a
+            # flex:1 hairline and a segmented control are not expressible in
+            # Qt rich text; this stays for size hints, accessibility and tests.
+            return f"{label} ({self.section_result_count(section):,})"
         return None
 
     def toggle_person_collapsed(self, person: str) -> None:

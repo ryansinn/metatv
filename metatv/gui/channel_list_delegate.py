@@ -112,6 +112,7 @@ from metatv.gui import channel_row_lead as _lead
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui import channel_list_section_band as _band
 from metatv.gui.channel_list_roles import LABEL_ROW_KINDS
 from metatv.gui.channel_list_model import (
     CATEGORY_ROLE,
@@ -405,6 +406,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         row_kind = index.data(ROW_KIND_ROLE)
+        if row_kind == "header":
+            return QSize(option.rect.width(), _band.band_height(opt.font))
         if row_kind in LABEL_ROW_KINDS:
             return QSize(option.rect.width(), QFontMetrics(opt.font).height() + 2 * _ROW_V_PAD)
 
@@ -423,7 +426,13 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
         if index.data(ROW_KIND_ROLE) in LABEL_ROW_KINDS:
-            self._paint_html_row(painter, option, index)
+            opt = QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            # The section band is PAINTED — a flex:1 rule and a segmented
+            # control have no rich-text equivalent. A person sub-heading is one
+            # line of type and takes the shared HTML path.
+            if not _band.paint_row(painter, option.rect, index, opt.font):
+                self._paint_html_row(painter, option, index)
             return
 
         opt = QStyleOptionViewItem(option)
@@ -534,6 +543,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
                       _layout.KIND_ICON, _layout.KIND_ICON),
                 pixmap,
             )
+
+    def mode_toggle_rects(self, option_rect: QRect, index, base_font):
+        """``(whole, part)`` hit rects for a header's Whole|Part, else two nulls."""
+        return _band.toggle_rects_for(option_rect, index, base_font)
 
     def action_rect(self, option_rect: QRect, index) -> QRect:
         """The action affordance's rect for a row — what the VIEW hit-tests.
