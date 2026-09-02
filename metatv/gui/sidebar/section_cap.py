@@ -84,6 +84,27 @@ class SectionContentCapMixin:
         the tests, not proof it was inert; ``tests/test_user_drag_beats_cap.py``
         is the reproduction it lacked.
         """
+        # COLLAPSED short-circuits everything below, and must return BEFORE the
+        # max(): a remembered user height is a height for the section OPEN, and
+        # letting it win here is one of the two ways this grew.
+        #
+        # Measured 2026-09-02: a collapsed Favorites reported max_useful_height
+        # 1072 — `content_widget.sizeHint()` was 1046 even though
+        # `content_scroll` was hidden, because HIDING A WIDGET DOES NOT CHANGE
+        # ITS SIZE HINT. So the cap, the only thing that stops the splitter
+        # handing a section more room, sat at the section's EXPANDED height for
+        # as long as it was collapsed. Shrink a neighbour and the freed pixels
+        # went into the collapsed one: 396px of empty panel under a header.
+        # Owner: "minimize a section and then reduce the size of a section
+        # around them and the header of the collapsed section grows to consume
+        # the space that should have been reclaimed by other sections."
+        #
+        # `minimumSizeHint()` rather than a literal, because that is exactly
+        # what `set_collapsed` already uses as the collapsed maximum — one
+        # definition of how tall a collapsed section is, not two that can drift.
+        if self.is_collapsed:
+            return self.minimumSizeHint().height()
+
         return max(self.min_expanded_height(),
                    self.HEADER_H + self._content_height(),
                    self.__dict__.get("_user_height") or 0)
