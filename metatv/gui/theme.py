@@ -790,6 +790,16 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; }"
         "QPushButton:hover { background: " + OVERLAY_ERR + "; }"
     )
+    # One-shot try-first boost (replaces the old, ineffective up/down arrows).
+    # Checked mirrors DETAIL_RAIL_BTN: accent WASH + the surface's text ramp,
+    # going SOLID accent + on-accent only on hover — COLOR_ON_ACCENT is legible
+    # only on COLOR_ACCENT itself (under 4.5:1 on the hover fill in Daylight).
+    URL_TRY_FIRST_BTN = (
+        "QPushButton { color: " + COLOR_TEXT + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; }"
+        "QPushButton:hover { background: " + OVERLAY_10 + "; }"
+        "QPushButton:checked { background: " + OVERLAY_ACCENT_35 + "; color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT + "; }"
+        "QPushButton:checked:hover { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + "; border-color: " + COLOR_ACCENT_HOVER + "; }"
+    )
 
     # Provider editor — icon picker
     ICON_PICK_BTN = (

@@ -146,6 +146,9 @@ class UrlCycler:
         pu.last_success = datetime.now()
         pu.last_error = None
         pu.add_attempt(ConnectionAttempt(success=True, response_time_ms=response_time_ms))
+        # The one-shot boost has done its job the moment this attempt is
+        # recorded — evidence resumes control from here.
+        pu.try_first = False
         self._dirty = True
         logger.info(f"{self.operation}: recorded success for {base_url}")
 
@@ -194,6 +197,9 @@ class UrlCycler:
             success=False, error_message=error, response_time_ms=response_time_ms,
             host_at_fault=host_at_fault,
         ))
+        # The one-shot boost has done its job the moment this attempt is
+        # recorded — evidence resumes control from here, win or lose.
+        pu.try_first = False
         self._dirty = True
         if host_at_fault:
             logger.warning(f"{self.operation}: recorded failure for {base_url}: {error}")

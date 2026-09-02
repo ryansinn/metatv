@@ -27,11 +27,11 @@
     "metatv/gui/main_window_providers.py": 1064,
     "metatv/gui/main_window_series.py": 1281,
     "metatv/gui/main_window_streaming.py": 1674,
-    "metatv/gui/provider_editor.py": 1043,
+    "metatv/gui/provider_editor.py": 1039,
     "metatv/gui/qa_checklist_window.py": 2502,
     "metatv/gui/settings_dialog_tabs.py": 1128,
     "metatv/gui/sidebar/base.py": 1470,
-    "metatv/gui/theme.py": 2424
+    "metatv/gui/theme.py": 2434
   },
   "get_session_calls": 76
 }
