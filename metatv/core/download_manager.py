@@ -27,6 +27,7 @@ has already cost this project once.
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -55,6 +56,12 @@ CHUNK_BYTES = 256 * 1024
 
 #: How often the scheduler looks for work when idle.
 POLL_SECONDS = 2.0
+
+#: Bytes between free-space checks inside the transfer loop. A statvfs per
+#: 256 KB chunk would be thousands of syscalls a second for a number that moves
+#: slowly; per 64 MB it is a few a minute and still catches the floor well
+#: before the disk is actually full.
+_SPACE_CHECK_BYTES = 64 * 1024 * 1024
 
 #: Terminal states — a row in one of these is never picked up again.
 TERMINAL_STATES = ("completed", "failed")
@@ -111,6 +118,31 @@ def safe_filename(name: str, url: str, *, default_suffix: str = ".mp4") -> str:
     cleaned = "".join(c if (c.isalnum() or c in " ._-") else "_" for c in name).strip()
     cleaned = " ".join(cleaned.split()) or "download"
     return f"{cleaned[:120]}{suffix}"
+
+
+def destination_for(session, config, channel_id: str, channel_name: str,
+                    source_url: str) -> Path:
+    """The absolute path this download should be written to.
+
+    Reads the channel's stored ``detected_*`` fields through
+    ``download_naming.facts_from_channel``. A channel row that cannot be found
+    — a queue entry outliving its channel — falls back to the flat name built
+    from what the caller already handed us, rather than failing the enqueue.
+
+    Takes the caller's session rather than opening one: ``enqueue`` is already
+    inside a write transaction, and a second connection here would be a second
+    writer against a single-writer database for no reason.
+    """
+    from metatv.core.database import ChannelDB
+    from metatv.core.download_naming import (
+        LAYOUT_TREE, MediaFacts, facts_from_channel, relative_path)
+
+    suffix = Path(source_url.split("?")[0]).suffix or ".mp4"
+    channel = session.query(ChannelDB).filter(ChannelDB.id == channel_id).first()
+    facts = (facts_from_channel(channel) if channel is not None
+             else MediaFacts(name=channel_name))
+    layout = getattr(config, "download_layout", LAYOUT_TREE) or LAYOUT_TREE
+    return library_dir(config) / relative_path(facts, suffix, layout)
 
 
 class DownloadManager:
@@ -195,8 +227,9 @@ class DownloadManager:
                 provider_id=provider_id,
                 channel_name=channel_name or channel_id,
                 source_url=source_url,
-                dest_path=str(library_dir(self._config)
-                              / safe_filename(channel_name or channel_id, source_url)),
+                dest_path=str(destination_for(
+                    session, self._config, channel_id,
+                    channel_name or channel_id, source_url)),
                 state="queued",
                 position=position,
             ))
@@ -285,6 +318,51 @@ class DownloadManager:
             return False
         return self._transfer(row)
 
+    def _space_shortfall(self, need_bytes: Optional[int] = None) -> Optional[str]:
+        """Why the disk cannot take (more of) this download, or None if it can.
+
+        Settled: a free-space FLOOR with a policy for what happens when it is
+        hit — stop immediately, or finish the current download and then stop.
+        The second is only honoured when the remaining bytes actually fit
+        inside the floor, *"so it is a real check, not a preference — if it
+        does not fit, it stops immediately whatever the setting says, and the
+        row says so."* Returning the reason rather than a bool is what lets the
+        row say it.
+
+        Args:
+            need_bytes: Bytes still to write for the download in flight, or
+                None when asking whether a NEW one may start.
+        """
+        floor_gb = float(getattr(self._config, "download_free_space_floor_gb", 0) or 0)
+        if floor_gb <= 0:
+            return None
+        floor = int(floor_gb * 1024 ** 3)
+
+        try:
+            free = shutil.disk_usage(library_dir(self._config)).free
+        except OSError:
+            # An unreadable destination is the storage layer's problem to
+            # report, not a reason to refuse every download.
+            logger.exception("download: could not read free space")
+            return None
+
+        headroom = free - floor
+        if headroom >= 0 and need_bytes is None:
+            return None
+
+        human_floor = f"{floor_gb:g} GB"
+        if need_bytes is None:
+            return (f"Not enough disk space — free space is already below your "
+                    f"{human_floor} floor.")
+
+        policy = getattr(self._config, "download_space_policy", "finish_current")
+        if policy == "finish_current" and need_bytes <= headroom:
+            return None
+        if policy == "finish_current":
+            return (f"Stopped — finishing this download would take free space "
+                    f"below your {human_floor} floor.")
+        return f"Stopped — free space reached your {human_floor} floor."
+
     def _next_runnable(self) -> Optional[dict]:
         """The first queued row whose provider has a slot we can take.
 
@@ -301,6 +379,14 @@ class DownloadManager:
                 "id": r.id, "provider_id": r.provider_id, "url": r.source_url,
                 "dest": r.dest_path, "downloaded": r.downloaded_bytes or 0,
             } for r in rows]
+
+        shortfall = self._space_shortfall()
+        if shortfall is not None and candidates:
+            # Report it on the row that WOULD have started, so the queue
+            # explains itself instead of looking stalled.
+            self._set_state(candidates[0]["id"], "failed", error=shortfall)
+            logger.warning("download: {}", shortfall)
+            return None
 
         for row in candidates:
             granted = self._accountant.acquire(
@@ -357,6 +443,11 @@ class DownloadManager:
 
                 mode = "ab" if have else "wb"
                 written = have
+                last_space_check = have
+                # The tree layout puts the file inside Movies/ or
+                # Series/Show/Season NN/, none of which exist until something
+                # is filed there. library_dir() only makes the root.
+                partial.parent.mkdir(parents=True, exist_ok=True)
                 with open(partial, mode) as handle:
                     for chunk in response.iter_content(CHUNK_BYTES):
                         if self._stop.is_set() or self._preempted.is_set():
@@ -370,6 +461,24 @@ class DownloadManager:
                         handle.write(chunk)
                         written += len(chunk)
                         self._flush_progress(download_id, written)
+
+                        # Free space is checked against the DISK, not against
+                        # what we have written, because anything else on the
+                        # machine is consuming it too. Once per ~64 MB: often
+                        # enough that the floor means something, rare enough
+                        # that a statvfs is not in the byte loop.
+                        if written - last_space_check >= _SPACE_CHECK_BYTES:
+                            last_space_check = written
+                            remaining = (total - written) if total else None
+                            shortfall = self._space_shortfall(remaining or 0)
+                            if shortfall is not None:
+                                self._flush_progress(
+                                    download_id, written, force=True)
+                                self._set_state(download_id, "failed",
+                                                error=shortfall)
+                                logger.warning("download {}: {}",
+                                               download_id, shortfall)
+                                return False
 
             self._flush_progress(download_id, written, force=True)
             partial.replace(dest)

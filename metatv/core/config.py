@@ -854,6 +854,23 @@ class Config(BaseModel):
     deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
     #: Where saved VOD downloads land. Persistent, unlike deep_cache_dir.
     download_dir: str = "~/Videos/MetaTV"
+    #: "tree" (Movies/, Series/Show/Season NN/) or "flat" (one folder).
+    #: Tree is the settled default because Plex/Jellyfin/Kodi read it without
+    #: configuration; an item whose metadata cannot fill the tree falls back to
+    #: flat FOR THAT ITEM — see core/download_naming.py. A tree built from
+    #: guesses is worse than a flat folder.
+    download_layout: str = "tree"
+    #: Stop downloading when free space would fall below this many GB. 0 = off.
+    #: A floor rather than a quota: the number protects the DISK, not the
+    #: library, which is why it is checked against actual free space every
+    #: batch rather than against bytes downloaded.
+    download_free_space_floor_gb: float = 10.0
+    #: What to do when the floor is reached: "finish_current" or "stop_now".
+    #: "finish_current" is honoured only when the remaining bytes actually fit
+    #: inside the floor — a real check, per the settled note, not a preference.
+    #: If they do not fit it stops immediately whatever this says, and the row
+    #: carries the reason.
+    download_space_policy: str = "finish_current"
     #: Global stop — no download runs at all while this is set.
     downloads_paused: bool = False
     #: SIGNED offsets on a recording's guide window, in seconds. Negative
