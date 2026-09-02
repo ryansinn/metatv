@@ -112,9 +112,9 @@ class _EpgWatchlistMixin:
         from metatv.gui.watch_rule_editor import WatchRuleEditor
 
         self._new_item_btn = QPushButton(
-            f"{_icons.expand_icon}  Track something new")
-        self._new_item_btn.setFlat(True)
-        _theme.style(self._new_item_btn, "LINK_BTN_SM")
+            f"{_icons.add_icon}  Track Something New")
+        _theme.style(self._new_item_btn, "WATCHLIST_TRACK_CTA")
+        cursor_affordance.set_clickable(self._new_item_btn)
         self._new_item_btn.setToolTip(
             "Watch for a show or keyword across all of your sources")
         self._new_item_btn.clicked.connect(self._toggle_compose)
@@ -1070,8 +1070,8 @@ class _EpgWatchlistMixin:
         """Show or hide the new-entry form."""
         showing = not self._compose_editor.isVisible()
         self._compose_editor.setVisible(showing)
-        caret = _icons.collapse_icon if showing else _icons.expand_icon
-        self._new_item_btn.setText(f"{caret}  Track something new")
+        glyph = _icons.collapse_icon if showing else _icons.add_icon
+        self._new_item_btn.setText(f"{glyph}  Track Something New")
         if showing:
             self._compose_editor.include_input.setFocus()
 
@@ -1082,7 +1082,7 @@ class _EpgWatchlistMixin:
         self._compose_editor.set_rule(WatchRule(term=""))
         self._compose_editor.setVisible(False)
         self._new_item_btn.setText(
-            f"{_icons.expand_icon}  Track something new")
+            f"{_icons.add_icon}  Track Something New")
 
     def _on_compose_committed(self, rule) -> None:
         """Store a newly composed entry with every field it was given.
