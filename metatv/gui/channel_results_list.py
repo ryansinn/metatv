@@ -39,7 +39,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from loguru import logger
-from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
+from PyQt6.QtCore import QModelIndex, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QLabel, QVBoxLayout, QWidget
 
 from metatv.gui import icons as _icons
@@ -70,6 +70,20 @@ class ChannelResultsList(QWidget):
     chip_clicked = pyqtSignal(str, str)
     #: (section key, word_only) — forwarded from the view's header control.
     section_mode_toggled = pyqtSignal(str, bool)
+
+    #: How often the list re-paints so a fixture's state mark stays true.
+    #:
+    #: A MINUTE, and one shared timer for the whole list rather than one per
+    #: row — the settled design's words. A row that says "On now" is a claim
+    #: about the clock, and a list that never repaints keeps making it after the
+    #: game has ended; that is the staleness the Watch Alerts list already had.
+    #: Seconds were rejected as "busy and obnoxious", and a 1 Hz repaint of a
+    #: virtualized list is real battery for no information — the mark changes at
+    #: a window boundary, not continuously.
+    #:
+    #: Only the VIEWPORT repaints, so the cost is the rows on screen (tens), not
+    #: the model (up to 785k).
+    _STATE_TICK_MS = 60_000
 
     def __init__(
         self,
@@ -140,6 +154,22 @@ class ChannelResultsList(QWidget):
         self.view.customContextMenuRequested.connect(self._on_context_menu)
         if (sel := self.view.selectionModel()) is not None:
             sel.currentChanged.connect(self._on_current_changed)
+
+        # Parented to self, so it dies with the widget and needs no entry in a
+        # cleanup registry — the registry is for background managers that own
+        # threads or pools, and a QTimer owns neither.
+        self._state_tick = QTimer(self)
+        self._state_tick.setInterval(self._STATE_TICK_MS)
+        self._state_tick.timeout.connect(self._repaint_state_marks)
+        self._state_tick.start()
+
+    def _repaint_state_marks(self) -> None:
+        """Re-paint the visible rows so "On now" cannot outlive the fixture.
+
+        ``viewport().update()`` and nothing else: the model has not changed, so
+        a reset would scroll the list out from under the reader to fix a word.
+        """
+        self.view.viewport().update()
 
     # ------------------------------------------------------------------ #
     # Content                                                             #

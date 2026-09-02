@@ -26,6 +26,7 @@ from metatv.core.channel_name_utils import (
     platform_display,
     quality_display,
 )
+from metatv.core.event_datetime import event_is_on_now
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_outline_colors
 
@@ -89,6 +90,7 @@ def _edged_on_selection(cell: _Cell) -> _Cell:
 # Chip order — ONE definition, deliberately not emergent from the paint code.
 # ---------------------------------------------------------------------------
 
+CHIP_SLOT_STATE = "state"            # on now / ended — a fixture's own clock
 CHIP_SLOT_QUALITY = "quality"
 CHIP_SLOT_VARIANTS = "variants"
 CHIP_SLOT_GENRE = "genre"
@@ -116,6 +118,10 @@ CHIP_SLOT_LANGUAGE = "language"
 #: right-hand rail. Inside a ``·``-separated line the separator does that job,
 #: and a box around one segment of a sentence is louder than the sentence.
 ROW_META_ORDER: tuple[str, ...] = (
+    # State leads: for a fixture it is the single most decision-relevant fact on
+    # the row, and it is the one the row used to get WRONG silently — a game
+    # that had ended looked identical to one that was on.
+    CHIP_SLOT_STATE,
     CHIP_SLOT_YEAR,
     CHIP_SLOT_REGION,
     CHIP_SLOT_GENRE,
@@ -266,6 +272,51 @@ def _year_cell(year) -> Optional[_Cell]:
     # collection / genre / language / quality / region), so there is nothing
     # to filter on. Tooltip only.
     return _Cell(str(year), False, _theme.COLOR_ROW_META, tip=f"Released {year}")
+
+
+def _state_cell(window, now) -> Optional[_Cell]:
+    """A dated fixture's own clock — TIER 1 when on now, TIER 2 once it is over.
+
+    Q13, and the qualifier is the whole design: the mark appears **only when a
+    parsed time corroborates it**. The provider's own ``LIVE |`` token is wrong
+    99% of the time (Q19), so nothing here reads it — the window comes from
+    ``event_start_time``/``event_stop_time``, computed at ingestion.
+
+    Absent on the ~96% of rows that are not a dated event, and on an upcoming
+    one: "starts later" is what a schedule already says by listing it, and a
+    third state would put a word on every row in Upcoming to no purpose.
+
+    Two tiers on purpose. On now is genuine row STATE, which ``_Cell``'s
+    docstring names as the one non-language member of tier 1, so it gets a solid
+    fill — a game you can watch right now should be the loudest thing on the
+    row. Over is tier 2 neutral text: it must be legible, not shouted, and a
+    second fill would make the Finished lane a wall of colour.
+
+    Args:
+        window: ``(start, stop)``, either end possibly None, or None.
+        now: The instant to judge against — passed in so a whole repaint frame
+            agrees with itself, and never read from the clock in here.
+
+    Returns:
+        The cell, or None when this row has no fixture window.
+    """
+    if not window:
+        return None
+    start, stop = window
+    if start is None:
+        return None
+    if event_is_on_now(start, stop, now):
+        # on_fill picks the legible foreground FOR THE FILL: COLOR_OK is mint in
+        # the dark palettes and forest in Daylight, so a hardcoded white or a
+        # fixed on-background token fails one of them.
+        return _Cell("On now", True, _theme.on_fill(_theme.COLOR_OK),
+                     bg=_theme.COLOR_OK,
+                     tip="This fixture's scheduled window is running now")
+    if now < start:
+        return None
+    return _Cell("Ended", False, _theme.COLOR_ROW_META,
+                 tip="This fixture's scheduled window has passed — the slot may "
+                     "now be showing something else")
 
 
 def _sport_cell(sport: str) -> Optional[_Cell]:

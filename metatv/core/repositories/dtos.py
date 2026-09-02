@@ -170,6 +170,11 @@ class ChannelListDTO:
     # Empty on every non-sports row, which costs one None check at paint.
     sport_type: str | None = None
     league_name: str | None = None
+    #: The fixture's window, for the row's state mark. Both None on the ~96% of
+    #: rows that are not a dated event, which is what makes the mark absent
+    #: rather than wrong — Q13: show it only when a parsed time corroborates it.
+    event_start_time: "datetime | None" = None
+    event_stop_time: "datetime | None" = None
 
     @property
     def section(self) -> str:
@@ -232,6 +237,8 @@ class ChannelListDTO:
             ),
             sport_type=getattr(ch, "sport_type", None),
             league_name=getattr(ch, "league_name", None),
+            event_start_time=getattr(ch, "event_start_time", None),
+            event_stop_time=getattr(ch, "event_stop_time", None),
         )
 
 

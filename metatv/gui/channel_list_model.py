@@ -38,6 +38,7 @@ from metatv.gui.channel_list_grouping import (
 )
 from metatv.gui.channel_list_roles import (
     CATEGORY_ROLE, CHANNEL_HTML_ROLE, COLLECTION_ROLE, FAV_GLYPH_ROLE,
+    EVENT_WINDOW_ROLE,
     GENRE_ROLE, GENRES_ROLE, LANGUAGE_ROLE, LEAGUE_ROLE, MATCH_MARKER_ROLE,
     MEDIA_ICON_ROLE, MEDIA_KIND_ROLE, PLAYBACK_GLYPH_COLOR_ROLE,
     PLAYBACK_GLYPH_ROLE, PLOT_ROLE, POSTER_URL_ROLE, PRIMARY_LANGUAGE_ROLE,
@@ -54,6 +55,7 @@ from metatv.gui.channel_list_roles import (
 __all__ = [
     "ChannelListModel", "SECTION_ORDER",
     "CATEGORY_ROLE", "CHANNEL_HTML_ROLE", "COLLECTION_ROLE", "FAV_GLYPH_ROLE",
+    "EVENT_WINDOW_ROLE",
     "GENRE_ROLE", "GENRES_ROLE", "LANGUAGE_ROLE", "LEAGUE_ROLE",
     "MATCH_MARKER_ROLE", "MEDIA_ICON_ROLE", "MEDIA_KIND_ROLE",
     "PLAYBACK_GLYPH_COLOR_ROLE", "PLAYBACK_GLYPH_ROLE", "PLOT_ROLE",
@@ -319,6 +321,14 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
             return getattr(channel, "sport_type", None) or ""
         if role == LEAGUE_ROLE:
             return getattr(channel, "league_name", None) or ""
+        if role == EVENT_WINDOW_ROLE:
+            # A pair, or None when this row is not a dated fixture — which is
+            # ~96% of them. Returning None rather than (None, None) means the
+            # cell builder's first check is the common case.
+            start = getattr(channel, "event_start_time", None)
+            if start is None:
+                return None
+            return (start, getattr(channel, "event_stop_time", None))
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

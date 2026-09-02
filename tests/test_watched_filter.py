@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 import pytest
 
-from tests.conftest import make_channel
+from tests.conftest import make_channel, set_model_channels
 from metatv.core.repositories.dtos import ChannelListDTO
 
 
@@ -43,15 +43,12 @@ def _dto(channel_id: str, **kwargs) -> ChannelListDTO:
 
 
 def _set_channels(model, dtos):
-    """Populate the model with dtos in test mode (no real app state)."""
-    model.set_channels(
-        dtos,
-        provider_icon_map={},
-        show_provider_icon=False,
-        has_more=False,
-        query_params={},
-        next_offset=len(dtos),
-    )
+    """Populate the model with dtos in test mode (no real app state).
+
+    A shell over the shared conftest helper — the four keyword arguments lived
+    here AND in every other file that populates a model (ledger D9).
+    """
+    set_model_channels(model, dtos)
 
 
 # ── Part 1 — SQL filter axis ─────────────────────────────────────────────────

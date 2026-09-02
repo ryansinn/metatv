@@ -107,6 +107,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.channel_name_utils import PLATFORM_CODES
+from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.gui import channel_row_layout as _layout
 from metatv.gui import channel_row_lead as _lead
 from metatv.gui import icon_utils as _icon_utils
@@ -131,6 +132,7 @@ from metatv.gui.channel_list_model import (
     POSTER_URL_ROLE,
     PRIMARY_LANGUAGE_ROLE,
     QUALITY_TOKEN_ROLE,
+    EVENT_WINDOW_ROLE,
     SPORT_ROLE,
     ROW_KIND_ROLE,
     SECONDARY_LANGUAGE_ROLE,
@@ -242,6 +244,7 @@ from metatv.gui.channel_row_cells import (  # noqa: E402
     CHIP_SLOT_QUALITY,
     CHIP_SLOT_REGION,
     CHIP_SLOT_SPORT,
+    CHIP_SLOT_STATE,
     CHIP_SLOT_SUBTITLE,
     CHIP_SLOT_VARIANTS,
     CHIP_SLOT_YEAR,
@@ -254,6 +257,7 @@ from metatv.gui.channel_row_cells import (  # noqa: E402
     _genre_cells,
     _league_cell,
     _sport_cell,
+    _state_cell,
     _language_cell,
     _ordered,
     _quality_cell,
@@ -819,6 +823,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
             CHIP_SLOT_GENRE: _genre_cells(
                 index.data(GENRES_ROLE), index.data(GENRE_ROLE) or ""
             ),
+            CHIP_SLOT_STATE: one(_state_cell(index.data(EVENT_WINDOW_ROLE), _now_utc())),
             CHIP_SLOT_SPORT: one(_sport_cell(index.data(SPORT_ROLE) or "")),
             CHIP_SLOT_LEAGUE: one(_league_cell(index.data(LEAGUE_ROLE) or "")),
             CHIP_SLOT_COLLECTION: one(_category_cell(
