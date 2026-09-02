@@ -243,14 +243,18 @@ class TestUpdateDetectedPrefixesLockRetry:
         is NOT aborted and the channel IS updated (not lost to the retry)."""
         from metatv.core.database import ChannelDB
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
             cid = _make_channel(session, "EN - Test Channel")
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -289,13 +293,18 @@ class TestUpdateDetectedPrefixesLockRetry:
         """A lock error on every attempt re-raises after the retry budget —
         it does not retry forever."""
         from metatv.core.repositories import RepositoryFactory
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from metatv.core.repositories import channel as channel_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
             _make_channel(session, "EN - Test Channel")
 
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: None)
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: None)
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -329,14 +338,18 @@ class TestUpdateDetectedPrefixesLockRetry:
         failure still aborts the run so the caller (MigrationManager) leaves
         the version unbumped."""
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
             _make_channel(session, "EN - Test Channel")
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -413,7 +426,11 @@ class TestPropagationLockRetry:
         and the fill still lands (not lost to the retry)."""
         from metatv.core.database import ChannelDB
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
@@ -428,7 +445,7 @@ class TestPropagationLockRetry:
             )
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -461,7 +478,11 @@ class TestPropagationLockRetry:
 
     def test_region_propagation_non_lock_error_aborts_without_retry(self, db, monkeypatch):
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
@@ -469,7 +490,7 @@ class TestPropagationLockRetry:
             _make_vod_channel(session, detected_title="Foo2", content_key="k1", detected_region=None)
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -496,7 +517,11 @@ class TestPropagationLockRetry:
         log (channel.py propagate_tmdb_from_title_siblings, ~line 1750)."""
         from metatv.core.database import ChannelDB
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
@@ -509,7 +534,7 @@ class TestPropagationLockRetry:
             )
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -543,7 +568,11 @@ class TestPropagationLockRetry:
 
     def test_tmdb_propagation_non_lock_error_aborts_without_retry(self, db, monkeypatch):
         from metatv.core.repositories import RepositoryFactory
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         with db.session_scope() as session:
@@ -554,7 +583,7 @@ class TestPropagationLockRetry:
             _make_vod_channel(session, detected_title="the  matrix", detected_year="1999")
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
@@ -589,7 +618,11 @@ class TestBackfillTaskSurvivesPropagationLock:
 
     def test_genre_backfill_task_survives_lock_in_propagation_phase(self, db, monkeypatch):
         from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
-        from metatv.core.repositories import channel as channel_mod
+        # The retry loop lives in core/db_lock.py, so `time` is imported THERE.
+        # CLAUDE.md: patch the module that DEFINES a name, never one that merely
+        # imported it. This read `channel_mod.time` for months; the day the loop
+        # was shared, that attribute stopped existing and eight tests went red.
+        from metatv.core import db_lock as lock_mod
         from sqlalchemy.exc import OperationalError
 
         # A single VOD row that, after the batch phase parses it, has BOTH a
@@ -611,7 +644,7 @@ class TestBackfillTaskSurvivesPropagationLock:
             ))
 
         sleeps: list[float] = []
-        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(lock_mod.time, "sleep", lambda s: sleeps.append(s))
 
         task = DetectedGenreBackfillTask(db)
 

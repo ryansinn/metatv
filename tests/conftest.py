@@ -385,6 +385,41 @@ def _qt_teardown_guard(request):
 
 
 
+def destroy_widget(*widgets) -> None:
+    """Actually free a parentless top-level. ``deleteLater()`` alone is NOT enough.
+
+    A leaked top-level is repainted by every later ``apply_theme()``, and one
+    per test is what segfaulted a CI shard (CLAUDE.md, "Delete parentless
+    top-level widgets the test creates"). The posted ``DeferredDelete`` has to
+    be pumped for the C++ object to go, and ``processEvents()`` does not pump
+    it.
+
+    Shared here because five test files had each written their own private
+    ``_destroy``/drain — the shape CLAUDE.md names as the recurring failure
+    ("an enumeration never sees what nobody remembered to add"). New tests
+    import this one; the existing copies are a logged migration, not a
+    rewrite-everything-now.
+
+    Args:
+        *widgets: Top-level widgets to hide, delete and drain. ``None`` and
+            already-deleted wrappers are skipped, so a caller can pass whatever
+            its rig built without guarding each one.
+    """
+    from PyQt6 import sip
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    from PyQt6.QtWidgets import QApplication
+
+    for widget in widgets:
+        if widget is None or sip.isdeleted(widget):
+            continue
+        widget.hide()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+
+
 def sidebar_config(**over):
     """A fake ``Config`` carrying every field a sidebar SECTION reads.
 

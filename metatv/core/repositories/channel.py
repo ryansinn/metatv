@@ -2,15 +2,16 @@
 
 import inspect
 import re
-import time
 from functools import lru_cache
 from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import and_, func, or_, update
-from sqlalchemy.exc import OperationalError
 from loguru import logger
 
+from metatv.core.db_lock import (
+    LOCK_RETRY_ATTEMPTS, LOCK_RETRY_DELAY_S, retry_on_lock,
+)
 from metatv.core.database import (
     ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB, ProviderDB,
     StreamRetryDB,
@@ -59,8 +60,11 @@ _SIMILAR_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]+")  # blanked before candidate
 # a real, if rare, collision under the startup write storm. Retry a few times with
 # a short sleep rather than aborting the whole multi-batch run (see
 # _commit_prefix_batch_with_retry).
-_LOCK_RETRY_ATTEMPTS = 3
-_LOCK_RETRY_DELAY_S = 2.0
+#
+# The loop itself now lives in metatv.core.db_lock, because the watch-list
+# writer needs the same policy and has no repository to hang it on.
+_LOCK_RETRY_ATTEMPTS = LOCK_RETRY_ATTEMPTS
+_LOCK_RETRY_DELAY_S = LOCK_RETRY_DELAY_S
 
 
 
@@ -1617,16 +1621,18 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         phase crashed on ``database is locked`` because only the batch commit
         had retry coverage before this).
 
-        On ``OperationalError`` whose message contains "locked", rolls back the
-        session and retries up to ``_LOCK_RETRY_ATTEMPTS`` times with a
-        ``_LOCK_RETRY_DELAY_S`` sleep between attempts. A failed commit's
-        rollback discards any pending in-memory changes, so ``fn`` must be safe
-        to re-run from scratch — every current caller is a fill-empty-only bulk
-        pass that re-queries on each call, so a retry simply re-scans and only
-        re-applies whatever didn't make it into the last successful commit.
-        Any other exception, or a lock error on the final attempt, re-raises
-        immediately so the caller's crash-without-version-bump contract (#364)
-        is unchanged — only lock contention retries.
+        The loop is :func:`metatv.core.db_lock.retry_on_lock`; what stays here
+        is the one thing that is genuinely this class's — rolling back the
+        long-lived ``self.session`` between attempts, which a caller opening a
+        fresh ``session_scope()`` per attempt does not need.
+
+        A failed commit's rollback discards any pending in-memory changes, so
+        ``fn`` must be safe to re-run from scratch — every current caller is a
+        fill-empty-only bulk pass that re-queries on each call, so a retry
+        simply re-scans and only re-applies whatever didn't make it into the
+        last successful commit. Any other exception, or a lock error on the
+        final attempt, re-raises immediately so the caller's
+        crash-without-version-bump contract (#364) is unchanged.
 
         Args:
             label: Short phase name used in log messages only.
@@ -1637,30 +1643,13 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         Returns:
             ``fn``'s return value from the successful attempt.
         """
-        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
-            try:
-                return fn(*args, **kwargs)
-            except OperationalError as exc:
-                if "locked" not in str(exc).lower():
-                    raise
-                self.session.rollback()
-                if attempt == _LOCK_RETRY_ATTEMPTS:
-                    logger.error(
-                        "{}: still locked after {} attempt(s), aborting run "
-                        "(will retry next launch)",
-                        label,
-                        _LOCK_RETRY_ATTEMPTS,
-                    )
-                    raise
-                logger.warning(
-                    "{}: locked (attempt {}/{}); retrying in {}s",
-                    label,
-                    attempt,
-                    _LOCK_RETRY_ATTEMPTS,
-                    _LOCK_RETRY_DELAY_S,
-                )
-                time.sleep(_LOCK_RETRY_DELAY_S)
-        raise AssertionError("unreachable")  # pragma: no cover
+        return retry_on_lock(
+            label,
+            lambda: fn(*args, **kwargs),
+            before_retry=self.session.rollback,
+            attempts=_LOCK_RETRY_ATTEMPTS,
+            delay_s=_LOCK_RETRY_DELAY_S,
+        )
 
 
 

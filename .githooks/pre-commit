@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# pre-commit — the two things that are cheap here and expensive to undo.
+#
+# Sibling of pre-push, same reasoning: a rule that costs nothing to check and
+# has been broken anyway belongs in a hook, not in another sentence of prose.
+#
+# Enable with:  git config core.hooksPath .githooks
+# Bypass with:  git commit --no-verify   (and be able to say why)
+set -u
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 0
+
+msg_file="${1:-}"
+
+# 1. No Co-Authored-By trailer.
+#
+# The owner's standing instruction, and the harness default is to add one — so
+# this is a rule that has to survive a tool actively pushing the other way.
+# Existing history containing them is not consent.
+if [ -n "$msg_file" ] && [ -f "$msg_file" ]; then
+    if grep -qiE '^[[:space:]]*Co-Authored-By:' "$msg_file"; then
+        cat >&2 <<'MSG'
+
+COMMIT BLOCKED: the message carries a Co-Authored-By trailer.
+
+This project does not use them. Remove the line and commit again.
+MSG
+        exit 1
+    fi
+fi
+
+# 2. Not on a branch in the owner's own checkout.
+#
+# ./run.sh builds from ~/Projects/metatv and the owner UX-tests from it, so it
+# always rests on the release tree. Branch work belongs in a temp worktree
+# (git worktree add .claude/worktrees/<name> -b <branch> origin/main).
+#
+# Scoped to the PRIMARY worktree only: a commit inside .claude/worktrees/ is
+# exactly what this is asking for, and `git rev-parse --git-dir` says which is
+# which (a linked worktree's git dir lives under .git/worktrees/).
+git_dir="$(git rev-parse --git-dir)"
+case "$git_dir" in
+    *".git/worktrees/"*) ;;                      # a linked worktree — fine
+    *)
+        branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+        if [ -n "$branch" ] && [ "$branch" != "main" ] && [ "$branch" != "HEAD" ]; then
+            cat >&2 <<MSG
+
+COMMIT BLOCKED: committing to '$branch' in the owner's own checkout.
+
+This checkout is what ./run.sh builds and what the owner UX-tests from, so it
+stays on the release tree. Do branch work in a worktree:
+
+    git worktree add .claude/worktrees/<name> -b <branch> origin/main
+
+Genuinely meant to commit here:  git commit --no-verify
+MSG
+            exit 1
+        fi
+        ;;
+esac

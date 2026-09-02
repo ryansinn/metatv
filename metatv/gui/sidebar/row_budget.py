@@ -47,6 +47,36 @@ _MORE_ROLE = Qt.ItemDataRole.UserRole + 1
 _MORE_ROW = "__more_row__"
 
 
+def _has_visible_rows(view) -> bool:
+    """Whether *view* is currently showing the user anything at all.
+
+    Visibility, not ``rowCount()``: :mod:`alerts_epg` folds a sub-group by
+    HIDING its rows rather than removing them, so a tree can hold rows and
+    still show none. Top-level items only, matching
+    :meth:`RowBudgetMixin.apply_tree_row_budget`, which already skips hidden
+    groups for the same reason.
+
+    An empty-state placeholder ("No favorites yet") counts as a visible row —
+    it is a line the user reads, so the view keeps the height to draw it. What
+    this excludes is a view with literally nothing in it.
+
+    Args:
+        view: A ``QListWidget`` or ``QTreeWidget``.
+
+    Returns:
+        True when at least one row is present and not hidden.
+    """
+    top_level_count = getattr(view, "topLevelItemCount", None)
+    if callable(top_level_count):
+        return any(not view.topLevelItem(i).isHidden()
+                   for i in range(top_level_count()))
+    count = getattr(view, "count", None)
+    if callable(count):
+        return any(not view.item(i).isHidden() for i in range(count()))
+    model = view.model()
+    return model is not None and model.rowCount() > 0
+
+
 class RowBudgetMixin:
     """Fits a section's rows to its current height.
 
@@ -103,6 +133,23 @@ class RowBudgetMixin:
 
         total = list_widget.count()
         if total == 0:
+            # KNOWN GAP, measured 2026-09-02: this returns without sizing, so an
+            # empty list in budget mode keeps whatever the splitter allocated —
+            # 190px on the rig in tests/test_empty_section_is_header_height.py.
+            # The default path fits it to zero (`_show_all_rows` → fit_to_rows);
+            # this one does not.
+            #
+            # NOT fixed here, deliberately. Fitting an empty list to 0 makes its
+            # viewport 0, which is the `viewport <= 0` branch below, which
+            # returns without sizing either — so the first rows to arrive land
+            # in a 0px list. Fitting on BOTH branches then removes the tail
+            # entirely (measured: 5 rows, 205px, nothing hidden), because a list
+            # pinned to its full content can never overflow. The tail is the
+            # whole point of this mode for people without a scroll wheel.
+            #
+            # So it needs the budget to size against the SECTION's height rather
+            # than the list's own, which is a different change from this one.
+            # Ledger D21.
             return 0
 
         viewport = list_widget.viewport().height()
@@ -385,8 +432,25 @@ class RowBudgetMixin:
         ``visualItemRect`` is (0,0,0,0) before layout, and
         ``sizeHint().height()`` returns **-1** when unset, which poisons a sum.
         Qt already knows the number.
+
+        **Except when there is nothing to show.** ``viewportSizeHint()`` on an
+        empty view does not return 0 — it falls back to a default viewport
+        (72px measured on an empty ``QListWidget`` here), which is a guess at
+        how big a list WOULD be, not a measurement of this one. The section cap
+        then honours that guess faithfully: an empty Recordings section
+        measured 108px against a 28px header, ~80px of blank panel, and the
+        same for Downloads. Owner: *"headers are oversized by default, they
+        shouldn't grow beyond the standard size"*. Zero rows is a real
+        measurement, so it is taken rather than asked for.
+
+        A view whose rows are all HIDDEN is the same case — ``alerts_epg``
+        hides rows rather than removing them — so visibility is what is
+        counted, not ``rowCount()``.
         """
         view.updateGeometries()
+        if not _has_visible_rows(view):
+            view.setFixedHeight(0)
+            return
         hint = view.viewportSizeHint().height()
         view.setFixedHeight(max(0, hint) + 2 * view.frameWidth())
 
