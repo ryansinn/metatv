@@ -15,7 +15,7 @@ ton of stuff but not Tron ... exact matches should be shown first, no?"*
 
 from __future__ import annotations
 
-from sqlalchemy import case, func, literal
+from sqlalchemy import bindparam, case, func, literal, text
 
 from metatv.core.database import ChannelDB
 from metatv.core.watchlist_matching import _escape_like
@@ -136,3 +136,122 @@ def search_relevance_tier(search_term: str):
         (title.like(f"%{safe}%", escape="\\"), 3),
         else_=4,
     )
+
+
+#: The two search sections, in the order they render. FIXED, not sorted by best
+#: match: ordering them dynamically reshuffles the list mid-keystroke and
+#: presumes what an ambiguous term meant ("Cage" — the film or the actor?).
+#: Fixed is learnable; you always know where to look.
+SECTION_TITLE = "title"
+SECTION_CAST = "cast"
+SECTION_ORDER = (SECTION_TITLE, SECTION_CAST)
+
+
+def search_section_expr(search_term: str):
+    """Which section a row belongs to — ``title`` when the TITLE matched at all.
+
+    A row can match both (a Nicolas Cage film called *Cage*), so it is assigned
+    its BEST section rather than appearing twice. Titles wins because it renders
+    first and because a title match is the stronger claim.
+
+    Deliberately cheap — a plain ``LIKE`` on the title, no JSON. The person's
+    name, needed only for the sub-heading, is fetched for one PAGE of rows by
+    :func:`matched_persons_map`: the batch-enrich shape
+    ``RatingRepository.get_all_map`` already uses to keep the list off N+1.
+
+    Args:
+        search_term: Raw user text.
+
+    Returns:
+        A SQLAlchemy ``CASE`` yielding ``"title"`` or ``"cast"``.
+    """
+    term = (search_term or "").strip()
+    if not term:
+        return literal(SECTION_TITLE)
+    safe = _escape_like(term).lower()
+    title = func.lower(_search_title_expr())
+    return case((title.like(f"%{safe}%", escape="\\"), literal(SECTION_TITLE)),
+                else_=literal(SECTION_CAST))
+
+
+def matched_persons_map(session, channel_ids, search_term: str) -> dict:
+    """``{channel_id: person}`` for the rows whose CAST matched — one query.
+
+    The sub-heading prints a person once for the whole group instead of on every
+    row (85 Nicolas Cage films should say his name once), so this returns the
+    single best-matching name per channel:
+
+    * exact name beats whole-word beats partial, and
+    * within a tier the shortest name wins, which prefers "Nicolas Cage" over
+      "Nicolas Cage Jr." without needing a second rule.
+
+    Reads the real ``"name"`` values through ``json_each`` rather than a
+    substring of the serialized blob — which is why "Trond Fausa Aurvåg" can be
+    NAMED as the reason a search for "tron" returned a row, instead of the row
+    looking like a bug. Checked: this SQLite has JSON1 (3.53.4).
+
+    Args:
+        session: An open session — the caller's, inside its own scope.
+        channel_ids: The page of ids to enrich. Empty is a no-op with no query.
+        search_term: Raw user text.
+
+    Returns:
+        ``{channel_id: name}``; ids with no cast match are simply absent.
+    """
+    ids = [i for i in (channel_ids or []) if i]
+    term = (search_term or "").strip().lower()
+    if not ids or not term:
+        return {}
+
+    safe = _escape_like(term)
+    params = {"ids": ids, "exact": term,
+              "padded": f"% {safe} %", "like": f"%{safe}%"}
+
+    # metadata is reached through ChannelDB.metadata_id — an FK on the CHANNEL,
+    # not metadata pointing back. (I had it the other way and the query returned
+    # nothing; channel_lens.metadata_person_exists is where the join is defined.)
+    #
+    # Cast is JSON and read through json_each; director is a plain TEXT column
+    # and has no names to split, so it is a second arm rather than a special
+    # case inside one. Both are what the details pane displays, which is the
+    # rule metadata_person_exists states: a filter over "who is in this" must
+    # match what is shown, not the raw provider blob.
+    sql = """
+        SELECT cid, person, tier, namelen FROM (
+            SELECT ch.id AS cid,
+                   json_extract(j.value, '$.name') AS person,
+                   CASE WHEN lower(json_extract(j.value, '$.name')) = :exact THEN 0
+                        WHEN ' ' || lower(json_extract(j.value, '$.name')) || ' '
+                             LIKE :padded ESCAPE '\\' THEN 1
+                        ELSE 2 END AS tier,
+                   length(json_extract(j.value, '$.name')) AS namelen
+            FROM channels ch
+            JOIN metadata m ON m.id = ch.metadata_id
+            JOIN json_each(m."cast") j
+            WHERE ch.id IN :ids
+              AND lower(json_extract(j.value, '$.name')) LIKE :like ESCAPE '\\'
+            UNION ALL
+            SELECT ch.id AS cid,
+                   m.director AS person,
+                   CASE WHEN lower(m.director) = :exact THEN 0
+                        WHEN ' ' || lower(m.director) || ' '
+                             LIKE :padded ESCAPE '\\' THEN 1
+                        ELSE 2 END AS tier,
+                   length(m.director) AS namelen
+            FROM channels ch
+            JOIN metadata m ON m.id = ch.metadata_id
+            WHERE ch.id IN :ids
+              AND m.director IS NOT NULL
+              AND lower(m.director) LIKE :like ESCAPE '\\'
+        )
+        ORDER BY cid, tier, namelen
+    """
+    rows = session.execute(
+        text(sql).bindparams(bindparam("ids", expanding=True)), params
+    ).fetchall()
+
+    best: dict = {}
+    for cid, person, _tier, _namelen in rows:
+        if cid not in best and person:      # ORDER BY put the best first
+            best[cid] = person
+    return best
