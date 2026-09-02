@@ -206,6 +206,30 @@ grep. The script refuses a full local suite with no reason given, because the
 rule below was already written, was clear, and was ignored anyway — the fix for
 that is a mechanical step, not another sentence.
 
+**A REASON IS NO LONGER ENOUGH (#650), so expect to be refused.** A prompt that
+accepts any string is a speed bump: it was answered four times on 2026-09-01,
+~35 minutes each, three of them on trees CI had already reported green. The
+script now asks the FACT — if HEAD is clean, pushed and every check is SUCCESS,
+a full local run is refused, because it cannot discover anything CI has not.
+A second gate refuses a third run inside six hours and prints the previous
+reasons. Both stand down when CI cannot have an answer (dirty tree, unpushed
+commit, checks pending), which is exactly when a local full run is the useful
+one. `METATV_FULL_SUITE_ANYWAY=1` overrides; needing it twice means the habit is
+back. Two siblings ship with it: `scripts/mutate.sh` (mutation testing that
+refuses a dirty tree, because `git checkout HEAD --` destroyed uncommitted fixes
+three times in one session) and `.githooks/pre-push` (ruff + `bash -n`; enable
+with `git config core.hooksPath .githooks`).
+
+### A new DB column needs an ALTER TABLE entry — `create_all` will not add it
+`Base.metadata.create_all()` creates missing TABLES and never adds a column to
+one that exists, so a new column needs a line in `Database._migrate()`'s
+migrations list (and an index entry if it is indexed). This shipped **twice in
+one day** — #617's `signal_*` columns and #648's `last_seen_at` — and killed
+every ORM query on the owner's real library while 1,699 tests stayed green,
+because every test builds its database from scratch where the column exists by
+construction. The upgrade path is the only path users take and the one path no
+such test runs. Guard: `tests/test_schema_upgrade_adds_every_column.py`.
+
 Since 2026-08-27 **CI runs the full suite on both platforms for every pull request** (`.github/workflows/ci.yml`), plus a `lint` job that reports in seconds. That is the real gate: never merge on a red or pending CI, and never re-run locally what CI has already reported. Local **`--quick`** (launch smoke + the PR's own changed test files, seconds) stays the fast in-loop check while building; run the FULL suite locally only when a change touches files broadly enough that `--quick`'s blind spot matters — it runs only a PR's OWN changed test files, so a moved contract breaks tests in files the PR never touched (233 files, 4 such breaks, found by CI after four green local gates). The **full** suite also runs before a release and at session wrap. Owner's call, and the reason is rhythm: a 10-minute gate per PR turns an hour of building into an afternoon of waiting. `--quick` keeps the one failure that is expensive to miss mid-session — the app not launching — because `main` ships to `rolling` on every push and that is the owner's own build.
 Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
 
