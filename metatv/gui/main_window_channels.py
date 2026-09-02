@@ -74,6 +74,46 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     return channels
 
 
+def _rows_to_dtos(repos, rows: list, search_query: str | None) -> list:
+    """ORM rows → DTOs: the one place a channel crosses the worker boundary.
+
+    The first-page query and its pagination sibling each built this list, and
+    they drifted the moment search sections arrived — page 2 of a search came
+    back with no ``section_key``, so every row appended on scroll fell into a
+    MEDIA-TYPE bucket and grew a stray "Movies" heading underneath the Titles
+    and Cast & Crew it should have joined. Two copies of a mapping is how that
+    happens; one is how it stops.
+
+    Args:
+        repos: The seam's RepositoryFactory (read-only, worker thread).
+        rows: Surviving ``ChannelDB`` rows for this page.
+        search_query: The active search term, or None when just browsing —
+            the section and person lookups are skipped entirely when absent.
+
+    Returns:
+        A list of frozen ``ChannelListDTO``, safe to hand to the main thread.
+    """
+    from metatv.core.repositories.dtos import ChannelListDTO
+
+    term = (search_query or "").strip()
+    ratings_map = repos.ratings.get_all_map()
+    reliability_map = repos.stream_retry.get_reliability_map()
+    # One batch query for the whole page, never N+1, and skipped without a term.
+    persons = search_ranking.matched_persons_map(
+        repos.session, [c.id for c in rows], term) if term else {}
+    return [
+        ChannelListDTO.from_orm(
+            c,
+            user_rating=ratings_map.get(c.id, 0),
+            reliability_state=reliability_map.get(c.id, "ok"),
+            section_key=(search_ranking.section_for_title(
+                c.detected_title or c.name, term) if term else None),
+            match_person=persons.get(c.id),
+        )
+        for c in rows
+    ]
+
+
 class _ChannelListMixin:
     """Channel-list load, filter pipeline, and context-menu glue methods mixed into :class:`MainWindow`."""
 
@@ -550,7 +590,6 @@ class _ChannelListMixin:
         ChannelDB rows to ChannelListDTOs so no ORM object crosses the boundary.
         """
         from metatv.core.database import ChannelDB
-        from metatv.core.repositories.dtos import ChannelListDTO
 
         force_adult_ids = params['force_adult_ids']
         hidden_only = params.get('hidden_only', False)
@@ -864,27 +903,7 @@ class _ChannelListMixin:
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
         # ORM rows → DTOs so no ChannelDB crosses the boundary.
-        ratings_map = repos.ratings.get_all_map()
-        reliability_map = repos.stream_retry.get_reliability_map()
-
-        # Search sections: which field matched, and for a cast match WHO. One
-        # batch query for the page, same shape as the two above (never N+1),
-        # and free when there is no term.
-        term = (search_query or "").strip()
-        persons_map = search_ranking.matched_persons_map(
-            session, [c.id for c in channels], term) if term else {}
-        dtos = [
-            ChannelListDTO.from_orm(
-                c,
-                user_rating=ratings_map.get(c.id, 0),
-                reliability_state=reliability_map.get(c.id, "ok"),
-                section_key=(search_ranking.section_for_title(
-                    c.detected_title or c.name, term) if term else None),
-                match_person=persons_map.get(c.id),
-            )
-            for c in channels
-        ]
-        return dtos, params
+        return _rows_to_dtos(repos, channels, params.get('search_query')), params
 
     def _on_channels_load_error(self, exc: Exception) -> None:
         """Main thread: clear the loading state when the channel query fails."""
@@ -1099,7 +1118,7 @@ class _ChannelListMixin:
         """
         if not hasattr(self, 'channel_model'):
             return
-        shown = self.channel_model.rowCount()
+        shown = self.channel_model.loaded_count()
         total = getattr(self, '_stats_total_channels', shown)
         if getattr(self, '_stats_hidden_only', False):
             self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
@@ -1163,7 +1182,7 @@ class _ChannelListMixin:
         else:
             self._hide_channel_banners()
 
-        total = self.channel_model.rowCount()
+        total = self.channel_model.loaded_count()
         logger.debug(f"filter_channels: model has {total} rows")
         if total == 0:
             self.status_bar.showMessage("No channels match — try a different search or filter")
@@ -2054,7 +2073,6 @@ class _ChannelListMixin:
         Mirrors ``_query_channels`` but is simpler — no count / adult / filtered-out
         logic needed for subsequent pages (that info was already shown for page 1).
         """
-        from metatv.core.repositories.dtos import ChannelListDTO
 
         hidden_only = query_params.get('hidden_only', False)
         force_adult_ids = query_params.get('force_adult_ids', [])
@@ -2147,16 +2165,7 @@ class _ChannelListMixin:
                 _excl_ct_ids,
             )
 
-        ratings_map = repos.ratings.get_all_map()
-        reliability_map = repos.stream_retry.get_reliability_map()
-        dtos = [
-            ChannelListDTO.from_orm(
-                c,
-                user_rating=ratings_map.get(c.id, 0),
-                reliability_state=reliability_map.get(c.id, "ok"),
-            )
-            for c in rows
-        ]
+        dtos = _rows_to_dtos(repos, rows, query_params.get('search_query'))
         return dtos, has_more, raw_count
 
     def _on_channel_page_loaded(self, result, generation: int) -> None:

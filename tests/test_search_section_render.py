@@ -160,3 +160,27 @@ def test_searching_does_not_tick_the_users_checkbox(qapp):
     _load(model, _mixed(), search="cage")
 
     assert model._group_by_type is False
+
+
+def test_the_count_a_user_sees_does_not_include_the_headers(qapp):
+    """The bug the sections created, and the reason for ``loaded_count()``.
+
+    ``rowCount()`` is Qt's DISPLAY count — it has to include the header rows,
+    because Qt paints them. Every "Showing N channels" in the app read it, on a
+    comment that said in so many words *"rowCount() equals the number of real
+    channel rows"*. That was true while grouping was an opt-in checkbox almost
+    nobody ticked. The moment a search groups, three results start reporting as
+    five, and it is the search box — the most-used control in the app — that
+    does it.
+    """
+    model = _model(qapp)
+    _load(model, _mixed(), search="cage")
+
+    assert model.rowCount() == 5, "3 channels + 2 headers is what Qt paints"
+    assert model.loaded_count() == 3, (
+        "the count shown to a user must exclude section headers")
+
+    # And it stays honest ungrouped, so the two are interchangeable there —
+    # which is exactly why the wrong one went unnoticed for so long.
+    _load(model, _mixed(), search=None)
+    assert model.rowCount() == model.loaded_count() == 3

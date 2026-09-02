@@ -759,6 +759,30 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._menu_auto_hide_check.isChecked.return_value = False
 
 
+def wire_channel_model_double(host, *, loaded: int = 0) -> None:
+    """Give a skeleton host a channel_model that answers BOTH count questions.
+
+    The model has two, and they are not interchangeable: ``rowCount()`` is Qt's
+    display count and includes section headers, while ``loaded_count()`` is the
+    real channel rows and is what every user-facing "Showing N channels" reads.
+    A ``MagicMock`` answers an unstubbed call with another MagicMock, so a host
+    that stubs only one gets ``MagicMock() > 0`` and a ``TypeError`` — which is
+    how three test files went red the day ``loaded_count()`` was added.
+
+    Wired here rather than in each file for the reason CLAUDE.md gives: the next
+    double to want a channel_model should get a correct one by asking, not by
+    remembering.
+
+    Args:
+        host: Any object being stood up as a MainWindow stand-in.
+        loaded: What both counts should report.
+    """
+    from unittest.mock import MagicMock
+    host.channel_model = MagicMock()
+    host.channel_model.rowCount.return_value = loaded
+    host.channel_model.loaded_count.return_value = loaded
+
+
 def wire_watch_alerts_headings(section) -> None:
     """Give a ``__new__``'d WatchAlertsSection its three group headings.
 

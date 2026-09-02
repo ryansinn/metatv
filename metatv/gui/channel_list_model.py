@@ -235,6 +235,16 @@ class ChannelListModel(QAbstractListModel):
             return len(self._channels)
         return sum(self._section_size(sec) for sec in self._ordered_sections())
 
+    def loaded_count(self) -> int:
+        """Real channel rows, headers excluded — what a user-facing count means.
+
+        ``rowCount()`` is the DISPLAY row count and counts section headers too,
+        so it over-reports the moment grouping is on. That was survivable while
+        grouping was an opt-in checkbox; it is not now that every search groups.
+        Every "Showing N channels" / "N channels loaded" reads this instead.
+        """
+        return len(self._channels)
+
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:  # type: ignore[override]
         if not index.isValid():
             return None

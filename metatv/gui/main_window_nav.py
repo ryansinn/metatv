@@ -233,13 +233,13 @@ class _NavMixin:
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
 
-        if hasattr(self, 'channel_model') and self.channel_model.rowCount() > 0:
-            # Banners are now in the banner strip, not in the model, so rowCount()
-            # equals the number of real channel rows. It reflects what's loaded so
-            # far (paging loads more on scroll), so report the loaded count plainly
-            # — the legacy `all_channels` cache only holds page 1 and would make
-            # "of Y / filtered out" go negative once more pages stream in.
-            shown = self.channel_model.rowCount()
+        if hasattr(self, 'channel_model') and self.channel_model.loaded_count() > 0:
+            # loaded_count(), NOT rowCount(): the latter is the DISPLAY count and
+            # includes section headers, which every search now creates. It reflects
+            # what's loaded so far (paging loads more on scroll), so report it
+            # plainly — the legacy `all_channels` cache only holds page 1 and would
+            # make "of Y / filtered out" go negative once more pages stream in.
+            shown = self.channel_model.loaded_count()
             self.stats_label.setText(f"Showing {shown:,} channels")
 
         self.current_series = None
