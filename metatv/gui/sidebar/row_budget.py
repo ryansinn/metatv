@@ -133,6 +133,23 @@ class RowBudgetMixin:
 
         total = list_widget.count()
         if total == 0:
+            # KNOWN GAP, measured 2026-09-02: this returns without sizing, so an
+            # empty list in budget mode keeps whatever the splitter allocated —
+            # 190px on the rig in tests/test_empty_section_is_header_height.py.
+            # The default path fits it to zero (`_show_all_rows` → fit_to_rows);
+            # this one does not.
+            #
+            # NOT fixed here, deliberately. Fitting an empty list to 0 makes its
+            # viewport 0, which is the `viewport <= 0` branch below, which
+            # returns without sizing either — so the first rows to arrive land
+            # in a 0px list. Fitting on BOTH branches then removes the tail
+            # entirely (measured: 5 rows, 205px, nothing hidden), because a list
+            # pinned to its full content can never overflow. The tail is the
+            # whole point of this mode for people without a scroll wheel.
+            #
+            # So it needs the budget to size against the SECTION's height rather
+            # than the list's own, which is a different change from this one.
+            # Ledger D21.
             return 0
 
         viewport = list_widget.viewport().height()
