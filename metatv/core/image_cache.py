@@ -1,14 +1,25 @@
 """Image caching system - Phase 1: URL-based caching (MVP)"""
 import hashlib
+import threading
+import time
 from pathlib import Path
 from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 import requests
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from loguru import logger
+
+
+# Negative-cache windows (in-memory only; reset every launch). Keyed at two
+# grains because the two failure modes mean different things: a host that
+# won't connect won't connect for ANY url on it, but an HTTP error status is
+# about that one file, not the host.
+_HOST_COOLDOWN_S = 600   # connect-timeout / connection error: skip the host
+_URL_COOLDOWN_S = 3600   # HTTP error status (e.g. 404): skip just that url
 
 
 class ImageCache(QObject):
@@ -38,6 +49,17 @@ class ImageCache(QObject):
         
         # Thread pool for async downloads
         self.executor = ThreadPoolExecutor(max_workers=4)
+
+        # In-flight dedup: a url already being downloaded is never
+        # resubmitted. The requester's own image_loaded/image_failed
+        # connection still fires when the one in-flight download completes —
+        # both signals are broadcast per-url.
+        self._inflight: set[str] = set()
+        self._inflight_lock = threading.Lock()
+
+        # Negative cache: host or full url -> cooldown deadline
+        # (time.monotonic()). Guarded by the same lock as _inflight.
+        self._download_cooldowns: Dict[str, float] = {}
 
         # Marshal pixmap creation to the main thread
         self._image_ready.connect(self._on_image_ready)
@@ -162,82 +184,148 @@ class ImageCache(QObject):
         if pixmap:
             self.image_loaded.emit(url, pixmap)
             return
-        
+
+        # In-flight dedup: two callers racing for the same url (measured 7ms
+        # apart) both miss the sync check above; only the first submits a
+        # download. The second's own image_loaded/image_failed connection
+        # still fires — both signals are broadcasts keyed by url — when the
+        # one in-flight download completes.
+        with self._inflight_lock:
+            if url in self._inflight:
+                logger.debug(f"Already downloading, skipping duplicate: {url}")
+                return
+            self._inflight.add(url)
+
         # Download in thread pool with failover support
         self.executor.submit(self._download_and_cache, url, provider_urls)
-    
+
     def _download_and_cache(self, url: str, provider_urls: Optional[list] = None):
         """Download image and cache it (runs in thread pool)
-        
+
         Tries multiple provider URLs if provided, similar to stream validation.
         """
-        urls_to_try = [url]
-        
-        # Add reconstructed URLs from provider domains
-        if provider_urls:
-            from urllib.parse import urlparse
-            original_parsed = urlparse(url)
-            
-            for provider_url in provider_urls:
-                provider_parsed = urlparse(provider_url)
-                # Reconstruct with provider domain but keep original path
-                reconstructed = f"{provider_parsed.scheme}://{provider_parsed.netloc}{original_parsed.path}"
-                if reconstructed != url and reconstructed not in urls_to_try:
-                    urls_to_try.append(reconstructed)
-        
-        last_error = None
-        
-        # Try each URL in order
-        for attempt_url in urls_to_try:
-            try:
-                logger.debug(f"Trying to download image from: {attempt_url}")
-                response = requests.get(attempt_url, timeout=5, stream=True)
-                response.raise_for_status()
-                
-                # Generate cache key from original URL (for consistency)
-                cache_key = self._url_to_cache_key(url)
-                cache_path = self._get_cache_path(url, cache_key)
-                
-                # Write to disk
-                cache_path.write_bytes(response.content)
-                
-                # Verify it's a valid image
-                if not self._verify_image(cache_path):
-                    cache_path.unlink()
-                    error_msg = "Invalid image format"
-                    logger.warning(f"Downloaded invalid image from {attempt_url}")
-                    last_error = error_msg
-                    continue  # Try next URL
-                
-                # Update in-memory index
-                self.cache_index[url] = cache_path
+        try:
+            # Generate cache key from original URL (for consistency)
+            cache_key = self._url_to_cache_key(url)
+            cache_path = self._get_cache_path(url, cache_key)
 
-                # Marshal pixmap creation to the main thread via _image_ready signal
-                logger.info(f"Cached image from {attempt_url} (key: {cache_key})")
+            # Worker-start re-check: this job may have sat queued behind a
+            # busy pool long enough for another in-flight download of the
+            # same url to have already landed the file on disk.
+            if cache_path.exists() and self._verify_image(cache_path):
+                self.cache_index[url] = cache_path
                 self._image_ready.emit(url, str(cache_path))
-                
-                # Check cache size and cleanup if needed
-                self._cleanup_if_needed()
-                
-                return  # Success!
-                
-            except requests.RequestException as e:
-                logger.debug(f"Failed to download from {attempt_url}: {e}")
-                last_error = str(e)
-                continue  # Try next URL
-            except Exception as e:
-                logger.error(f"Unexpected error downloading from {attempt_url}: {e}")
-                last_error = str(e)
-                continue  # Try next URL
-        
-        # All URLs failed
-        logger.warning(f"Failed to download image from all {len(urls_to_try)} URLs")
-        # Emit only. The subscriber dispatch happens in _on_failed_main, a
-        # slot on this object — which lives on the main thread, so Qt queues
-        # the emission and the callbacks run there. Calling _dispatch here
-        # would run widget code on this worker thread.
-        self.image_failed.emit(url, last_error or "All download attempts failed")
-    
+                return
+
+            urls_to_try = [url]
+
+            # Add reconstructed URLs from provider domains
+            if provider_urls:
+                original_parsed = urlparse(url)
+
+                for provider_url in provider_urls:
+                    provider_parsed = urlparse(provider_url)
+                    # Reconstruct with provider domain but keep original path
+                    reconstructed = f"{provider_parsed.scheme}://{provider_parsed.netloc}{original_parsed.path}"
+                    if reconstructed != url and reconstructed not in urls_to_try:
+                        urls_to_try.append(reconstructed)
+
+            last_error = None
+
+            # Try each URL in order
+            for attempt_url in urls_to_try:
+                host = urlparse(attempt_url).netloc
+                if self._cooldown_active(host) or self._cooldown_active(attempt_url):
+                    logger.debug(f"cooldown: skipping {attempt_url}")
+                    last_error = "cooldown: recently failed"
+                    continue  # Try next URL
+
+                try:
+                    logger.debug(f"Trying to download image from: {attempt_url}")
+                    response = requests.get(attempt_url, timeout=5, stream=True)
+                    response.raise_for_status()
+
+                    # Write to disk
+                    cache_path.write_bytes(response.content)
+
+                    # Verify it's a valid image
+                    if not self._verify_image(cache_path):
+                        cache_path.unlink()
+                        error_msg = "Invalid image format"
+                        logger.warning(f"Downloaded invalid image from {attempt_url}")
+                        last_error = error_msg
+                        continue  # Try next URL
+
+                    # Update in-memory index
+                    self.cache_index[url] = cache_path
+
+                    # Marshal pixmap creation to the main thread via _image_ready signal
+                    logger.info(f"Cached image from {attempt_url} (key: {cache_key})")
+                    self._image_ready.emit(url, str(cache_path))
+
+                    # Check cache size and cleanup if needed
+                    self._cleanup_if_needed()
+
+                    return  # Success!
+
+                except requests.exceptions.HTTPError as e:
+                    # The connection is fine; this file is the problem. Cool
+                    # down just this url, not the whole host.
+                    logger.debug(f"HTTP error downloading from {attempt_url}: {e}")
+                    last_error = str(e)
+                    self._set_cooldown(attempt_url, _URL_COOLDOWN_S)
+                    continue  # Try next URL
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    # A host that won't connect won't connect for any url on
+                    # it — cool down the host.
+                    logger.debug(f"Failed to connect to {host or attempt_url}: {e}")
+                    last_error = str(e)
+                    self._set_cooldown(host, _HOST_COOLDOWN_S)
+                    continue  # Try next URL
+                except requests.RequestException as e:
+                    logger.debug(f"Failed to download from {attempt_url}: {e}")
+                    last_error = str(e)
+                    continue  # Try next URL
+                except Exception as e:
+                    logger.error(f"Unexpected error downloading from {attempt_url}: {e}")
+                    last_error = str(e)
+                    continue  # Try next URL
+
+            # All URLs failed
+            logger.warning(f"Failed to download image from all {len(urls_to_try)} URLs")
+            # Emit only. The subscriber dispatch happens in _on_failed_main, a
+            # slot on this object — which lives on the main thread, so Qt queues
+            # the emission and the callbacks run there. Calling _dispatch here
+            # would run widget code on this worker thread.
+            self.image_failed.emit(url, last_error or "All download attempts failed")
+        finally:
+            with self._inflight_lock:
+                self._inflight.discard(url)
+
+    def _cooldown_active(self, key: str) -> bool:
+        """True if *key* (a host or a full url) is still within its cooldown.
+
+        An expired entry is dropped here, on the next lookup that consults
+        it — nothing else prunes ``_download_cooldowns``.
+        """
+        if not key:
+            return False
+        with self._inflight_lock:
+            deadline = self._download_cooldowns.get(key)
+            if deadline is None:
+                return False
+            if time.monotonic() >= deadline:
+                del self._download_cooldowns[key]
+                return False
+            return True
+
+    def _set_cooldown(self, key: str, seconds: float) -> None:
+        """Put *key* (a host or a full url) on the negative cache for *seconds*."""
+        if not key:
+            return
+        with self._inflight_lock:
+            self._download_cooldowns[key] = time.monotonic() + seconds
+
     def _on_failed_main(self, url: str, error: str) -> None:
         """Main-thread slot: hand a failure to this url's subscribers."""
         self._dispatch(url, 1, url, error)
