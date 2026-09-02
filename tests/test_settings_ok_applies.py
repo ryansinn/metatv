@@ -250,22 +250,31 @@ def test_every_settings_applied_handler_exists_on_main_window():
     )
 
 
-def test_open_settings_connects_every_hook_it_needs(qapp):
-    """``open_settings`` must connect each hook the factory stubs.
+def test_the_hooks_the_doubles_stub_are_exactly_the_hooks_that_run(qapp):
+    """The set every test double prepares for must not diverge from the set
+    production actually applies.
 
-    Reads the source rather than running the dialog: the point is that the set
-    of connections has not quietly diverged from the set every test double
-    prepares for.
+    This used to scan ``open_settings`` for eleven ``settings_applied.connect``
+    lines. Those became one connection to ``settings_apply.HANDLERS``, which
+    makes the check DIRECT rather than textual: compare the two lists. A
+    source scan could only ever prove a string appeared somewhere; this proves
+    the two enumerations are the same one.
     """
-    import inspect
-
+    from metatv.gui.settings_apply import HANDLERS
     from tests.conftest import _SETTINGS_APPLIED_HOOKS
 
-    src = inspect.getsource(MainWindow.open_settings)
-    unconnected = [
-        h for h in _SETTINGS_APPLIED_HOOKS
-        if f"settings_applied.connect(self.{h})" not in src
-    ]
-    assert not unconnected, (
-        f"connected nowhere in open_settings: {unconnected}"
+    assert set(_SETTINGS_APPLIED_HOOKS) == set(HANDLERS), (
+        "the doubles and production disagree about which hooks run — "
+        f"only in conftest: {sorted(set(_SETTINGS_APPLIED_HOOKS) - set(HANDLERS))}; "
+        f"only in production: {sorted(set(HANDLERS) - set(_SETTINGS_APPLIED_HOOKS))}"
     )
+
+
+def test_open_settings_still_wires_the_dialog_to_them(qapp):
+    """The list is worthless if nothing connects it to the dialog."""
+    import inspect
+
+    src = inspect.getsource(MainWindow.open_settings)
+    assert "settings_applied.connect" in src
+    assert "_settings_apply.run(self)" in src, (
+        "open_settings no longer runs the handler list")
