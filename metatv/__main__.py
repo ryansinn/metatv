@@ -12,6 +12,7 @@ from metatv.core.stream_diagnostics import _redact
 
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui import ui_phase as _phase
 from metatv.gui.main_window import MainWindow
 from metatv.core.config import Config
 from metatv.core.url_policy import UrlRankingPolicy, set_url_ranking_policy
@@ -132,9 +133,13 @@ def main():
     # Settings round-trip via MainWindow.refresh_theme().
     _theme.apply_theme(config.theme_name)
 
-    # Create and show main window
-    window = MainWindow(config, config_recovered=recovered_from_backup)
-    window.show()
+    # Create and show main window. Both are phases: the gap between "Main
+    # window initialized" and the first channel query is where a ~3s stall has
+    # been read off log gaps for three sessions, and a gap is not evidence.
+    with _phase.phase("startup.MainWindow"):
+        window = MainWindow(config, config_recovered=recovered_from_backup)
+    with _phase.phase("startup.show"):
+        window.show()
 
     # Run application
     sys.exit(app.exec())
