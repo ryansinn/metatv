@@ -12,6 +12,12 @@ from metatv.core.database import EpgProgramDB, ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc, local_day_window as _local_day_window
 from metatv.core.epg_utils import contiguous_guide_end as _contiguous_guide_end
 from metatv.core.epg_utils import _local_tz  # re-exported so test patches still work
+from metatv.core.watchlist_matching import as_rules, refine, sql_prefilter
+
+#: Prefilter candidates pulled before whole-word refinement. The prefilter is
+#: a superset, so the real 20-row limit is applied after matching; this bounds
+#: the work between. The call site logs when it is hit — never a silent cut.
+_WATCHLIST_PREFETCH = 400
 
 
 # Browse time-slot windows — SINGLE SOURCE OF TRUTH shared by ``get_schedule`` (the
@@ -159,6 +165,32 @@ class EpgRepository:
 
         return query.order_by(EpgProgramDB.start_time).all()
 
+    def _scope_watchlist_query(
+        self,
+        query,
+        provider_ids: list[str] | None,
+        lang_code: str,
+        excluded_channel_provider_ids: set[str] | list[str] | None,
+    ):
+        """Apply the feed / hidden-source / language filters to a programme query.
+
+        The exclusion join is pasted TWELVE times in this file. Only the two
+        watchlist queries are migrated here (WL-1's scope); the other ten are
+        in docs/REFACTOR_PLAN.md and must be checked for policy differences
+        before adoption. New query methods call this instead of pasting.
+        """
+        if provider_ids:
+            query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        if lang_code:
+            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
+        return query
+
     def get_upcoming_for_watchlist(
         self,
         patterns: list[str],
@@ -184,24 +216,24 @@ class EpgRepository:
         cutoff = now + timedelta(hours=hours_ahead)
         result: dict[str, list[EpgProgramDB]] = {}
 
-        for pattern in patterns:
+        for rule in as_rules(patterns):
             query = self.session.query(EpgProgramDB).filter(
-                EpgProgramDB.title.ilike(f"%{pattern}%"),
+                sql_prefilter(EpgProgramDB.title, rule),
                 EpgProgramDB.start_time >= now,
                 EpgProgramDB.start_time <= cutoff,
                 EpgProgramDB.channel_db_id.isnot(None),
             )
-            if provider_ids:
-                query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
-            if excluded_channel_provider_ids:
-                query = (
-                    query
-                    .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                    .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-                )
-            if lang_code:
-                query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
-            result[pattern] = query.order_by(EpgProgramDB.start_time).limit(20).all()
+            query = self._scope_watchlist_query(
+                query, provider_ids, lang_code, excluded_channel_provider_ids)
+            # The 20 is applied AFTER refinement, never in SQL: the prefilter
+            # is a superset, so a LIMIT here can spend the whole allowance on
+            # rows the rule rejects and drop a real match off a full-looking list.
+            rows = (query.order_by(EpgProgramDB.start_time)
+                    .limit(_WATCHLIST_PREFETCH).all())
+            if len(rows) == _WATCHLIST_PREFETCH:
+                logger.debug("watchlist upcoming: prefetch cap hit for {!r}",
+                             rule.key)
+            result[rule.key] = refine(rows, rule, lambda r: r.title, limit=20)
 
         return result
 
@@ -216,24 +248,17 @@ class EpgRepository:
         now = _now_utc()
         result: dict[str, list[EpgProgramDB]] = {}
 
-        for pattern in patterns:
+        for rule in as_rules(patterns):
             query = self.session.query(EpgProgramDB).filter(
-                EpgProgramDB.title.ilike(f"%{pattern}%"),
+                sql_prefilter(EpgProgramDB.title, rule),
                 EpgProgramDB.start_time <= now,
                 EpgProgramDB.stop_time  >  now,
                 EpgProgramDB.channel_db_id.isnot(None),
             )
-            if provider_ids:
-                query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
-            if excluded_channel_provider_ids:
-                query = (
-                    query
-                    .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                    .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-                )
-            if lang_code:
-                query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
-            result[pattern] = query.all()
+            query = self._scope_watchlist_query(
+                query, provider_ids, lang_code, excluded_channel_provider_ids)
+            # No LIMIT by design (tests/test_epg_watchlist_ranking.py).
+            result[rule.key] = refine(query.all(), rule, lambda r: r.title)
 
         return result
 

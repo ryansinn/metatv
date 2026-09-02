@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from metatv.core.database import ChannelDB, AlertPatternDB, AlertMatchDB
+from metatv.core.watchlist_matching import WatchRule, matches
 
 
 class AlertPattern:
@@ -21,7 +22,9 @@ class AlertPattern:
         applies_to: str = "all",
         description: str = "",
         is_enabled: bool = True,
-        last_checked: Optional[datetime] = None
+        last_checked: Optional[datetime] = None,
+        whole_word: bool = True,
+        exclude_terms: Optional[List[str]] = None,
     ):
         self.id = id
         self.name = name
@@ -31,6 +34,21 @@ class AlertPattern:
         self.description = description
         self.is_enabled = is_enabled
         self.last_checked = last_checked
+        # WL-1 slice 1. Defaults match the settled rule, so an AlertPattern
+        # built without them behaves like a migrated stored row rather than
+        # like the old contains-anywhere matcher.
+        self.whole_word = whole_word
+        self.exclude_terms = tuple(exclude_terms or ())
+
+    def as_rule(self) -> WatchRule:
+        """This pattern's keyword fields as the shared matching rule.
+
+        Only meaningful for ``pattern_type == "keyword"``; the other types
+        compare a stored field rather than search text.
+        """
+        return WatchRule(term=self.pattern_value,
+                         whole_word=self.whole_word,
+                         exclude=self.exclude_terms)
 
 
 class AlertScanner:
@@ -76,8 +94,10 @@ class AlertScanner:
         """Check if a channel matches the alert pattern"""
         
         if pattern.pattern_type == "keyword":
-            # Case-insensitive keyword search in channel name
-            return pattern.pattern_value.lower() in channel.name.lower()
+            # One matcher for every surface — see core/watchlist_matching.py.
+            # Whole-word by default: "NFL" must not match Inflammation, and a
+            # channel list is where that misfires most (785k names).
+            return matches(channel.name or "", pattern.as_rule())
         
         elif pattern.pattern_type == "regex":
             # Regex pattern matching

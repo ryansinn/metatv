@@ -58,6 +58,7 @@ from loguru import logger
 from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core import watchlist
+from metatv.core.watchlist_matching import matches_any
 from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.gui import icons as _icons
@@ -777,7 +778,7 @@ class _EpgBrowseMixin:
             self._browse_programs = list(programs)
         else:
             self._browse_programs = list(getattr(self, "_browse_programs", None) or []) + list(programs)
-        patterns = watchlist.lowered(self.config)
+        rules = watchlist.rules(self.config)
 
         # Q3: day separators show ONLY in the default Time-ascending sort — every
         # other column/order stays flat (see _on_browse_sort_changed / _browse_time_ascending).
@@ -836,7 +837,8 @@ class _EpgBrowseMixin:
             if quality:
                 item.setToolTip(3, quality_tooltip(quality))
 
-            if any(pat in prog.title.lower() for pat in patterns):
+            # Same matcher the query used — see epg_on_now_mixin.
+            if matches_any(prog.title, rules):
                 _apply_watchlist_highlight(item, range(6), 4)
 
             self.browse_list.addTopLevelItem(item)
