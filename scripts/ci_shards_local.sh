@@ -39,6 +39,72 @@ PY="${PYTHON:-venv/bin/python}"
 KEEP_GOING=0
 [ "${1:-}" = "--keep-going" ] && KEEP_GOING=1
 
+# ── THE REFUSAL ────────────────────────────────────────────────────────────
+#
+# This runs ONE platform's shards SEQUENTIALLY, ~10 minutes. CI runs the same
+# files on Linux AND macOS in eight PARALLEL jobs and reports in about five. So
+# the only time running it here is worth anything is when CI is not going to
+# answer: no pull request yet, or a check that came back RED.
+#
+# Written 2026-09-02, the night this script was created, because it was created
+# WITHOUT a refusal and burned ten minutes twice in an hour. Owner: "seriously
+# what the fuck do you have to do to stop repeating this shit so the 15-30
+# minute waits for every commit?"
+#
+# **The first two versions of this guard also let it through, and how is the
+# useful part.** v1 keyed on "clean tree AND everything pushed" — reasoning that
+# CI can only have seen a pushed commit. Both times the tree was dirty with an
+# edit to THIS FILE, so the guard concluded CI could not answer, and ran the
+# whole suite. v2 added a state for a PR whose checks had not registered yet and
+# kept the same condition, so it fell through identically.
+#
+# The condition was WRONG, not incomplete. "Is my tree pushed" is not the
+# question. The question is "will anything tell me this except me waiting ten
+# minutes" — and an open PR with nothing failing is a yes whatever the tree
+# looks like, because the right response to a local change is to PUSH it, not
+# to spend ten minutes locally first.
+#
+# Override:  METATV_SHARDS_ANYWAY=1   (needing it twice means the habit is back)
+should_refuse() {
+    [ -n "${METATV_SHARDS_ANYWAY:-}" ] && return 1
+    local branch has_pr checks failing
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+    [ -n "$branch" ] || return 1
+    has_pr="$(gh pr view "$branch" --json number -q .number 2>/dev/null || true)"
+    [ -n "$has_pr" ] || return 1                 # no PR: nothing else will run this
+    checks="$(gh pr checks "$branch" 2>/dev/null || true)"
+    failing="$(printf '%s\n' "$checks" | grep -cE '\bfail\b' || true)"
+    [ "${failing:-0}" -eq 0 ] || return 1        # something is RED: run it here
+    REFUSE_PR="$has_pr"
+    REFUSE_N="$(printf '%s' "$checks" | grep -c . || echo 0)"
+    REFUSE_BRANCH="$branch"
+    return 0
+}
+
+if should_refuse; then
+    cat >&2 <<MSG
+REFUSING: PR #$REFUSE_PR is open on '$REFUSE_BRANCH' and nothing has failed.
+
+  checks reported   $REFUSE_N
+  checks failing    0
+
+CI runs these same files on both platforms in parallel. This script runs one
+platform, sequentially, for about ten minutes — to learn what CI reports in
+five while you do something else. If you have local changes, PUSH them; that is
+faster than running them here first.
+
+    gh pr checks $REFUSE_BRANCH --watch
+
+Local shards earn their keep in exactly two cases:
+  * no PR yet — nothing else is going to run this. On 2026-09-02 that case
+    caught eight failures in a file no targeted test list would have selected.
+  * a check came back RED and you want the failure in front of you.
+
+Really need it anyway:  METATV_SHARDS_ANYWAY=1 scripts/ci_shards_local.sh
+MSG
+    exit 75      # EX_TEMPFAIL — a scheduling refusal, not a test failure
+fi
+
 OF=4
 WORK="$(mktemp -d -t metatv-shards.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
