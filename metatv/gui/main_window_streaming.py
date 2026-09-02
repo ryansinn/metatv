@@ -766,11 +766,10 @@ class _StreamingMixin:
                 self._provider_icons[pid] = self._lookup_provider_icon(pid)
 
             # Begin polling mpv for the live playback-health readout (main thread).
-            # "Playing:" is now announced by that probe when a file is really
-            # loaded, not by a 2s timer that fired regardless — see
-            # gui/playback_start_watch.py.
-            self._start_playback_health(
-                _startwatch.PlayAttempt(channel_id, channel_name, final_url))
+            # "Playing:" comes from that probe seeing a loaded file, not from
+            # a 2s timer — see gui/playback_start_watch.py.
+            self._start_playback_health(_startwatch.PlayAttempt(
+                channel_id, channel_name, final_url, start_seconds))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")
@@ -1438,7 +1437,8 @@ class _StreamingMixin:
                 k: v for k, v in self._playing_channels.items() if k in keys
             }
         if not keys:
-            # No live instance at all — hide and stop polling (restarts on play).
+            # Nothing left to probe; if nothing played, it EXITED unplayed.
+            _startwatch.on_player_gone(self)
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
             self._playback_health_timer.stop()

@@ -68,6 +68,10 @@ class PlayAttempt(NamedTuple):
     channel_id: str
     channel_name: str
     stream_url: str
+    #: The resume offset this play was launched with, or 0. Carried because it
+    #: is the most likely cause of the second failure shape below, and because
+    #: "it may be resuming past the end" is something the user can act on.
+    resume_seconds: int = 0
 
 
 def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
@@ -81,6 +85,7 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     """
     host._health_idle_ticks = 0
     host._health_ever_played = False
+    host._health_reported = False
     host._health_attempt = attempt
 
 
@@ -95,6 +100,29 @@ def on_playing(host: Any) -> bool:
     first = not host.__dict__.get("_health_ever_played", False)
     host._health_ever_played = True
     return first
+
+
+def on_player_gone(host: Any) -> bool:
+    """The last player window disappeared. Returns True if that was a failure.
+
+    The OTHER shape of "it never played", and the one the idle counter above
+    cannot see: mpv runs with ``--idle=once`` when the user has asked it to
+    close when finished, so a file that ends immediately makes the whole
+    process EXIT. There is then no instance to probe, the health poll stops,
+    and nothing was ever reported.
+
+    Reproduced locally 2026-09-02 against a range-capable server with the app's
+    exact flags: ``loadfile … start=90`` on a 60-second file ends the file at
+    once and mpv is gone within a second. A resume position past the real end
+    does that — and playback carries one on every part-watched title.
+
+    (The slow-server theory was tested at the same time and is NOT this: with
+    ``--cache-pause-initial=yes --cache-pause-wait=10`` a 20 KB/s stream starts
+    inside three seconds.)
+    """
+    if host.__dict__.get("_health_ever_played"):
+        return False               # it played, then the user closed it
+    return _report_never_started(host, exited=True)
 
 
 def on_idle_tick(host: Any) -> bool:
@@ -112,39 +140,58 @@ def on_idle_tick(host: Any) -> bool:
     return ticks >= STOP_POLLING_AFTER_TICKS
 
 
-def _report_never_started(host: Any) -> None:
-    """Tell the user, and put it in the retry ledger.
+def _report_never_started(host: Any, *, exited: bool = False) -> bool:
+    """Tell the user, and put it in the retry ledger. Returns whether it did.
+
+    Reports at most once per play: both callers can fire for the same failure,
+    and two toasts for one click is its own bug.
 
     Wrapped in its own try: a stream that failed to play must not also take out
     the polling loop that noticed.
     """
+    if host.__dict__.get("_health_reported"):
+        return False
+    host.__dict__["_health_reported"] = True
     attempt = host.__dict__.get("_health_attempt")
     name = attempt.channel_name if attempt else "that channel"
-    logger.warning(
-        "playback never started for {!r} — mpv accepted the file and loaded "
-        "nothing within {}s", name, FAILED_AFTER_TICKS * 2)
+    resume = getattr(attempt, "resume_seconds", 0) or 0
+    if exited:
+        logger.warning("playback never started for {!r} — the player exited "
+                       "without playing anything (resume={}s)", name, resume)
+    else:
+        logger.warning(
+            "playback never started for {!r} — mpv accepted the file and loaded "
+            "nothing within {}s", name, FAILED_AFTER_TICKS * 2)
     try:
         host.status_bar.showMessage(f"Nothing is playing: {name}")
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
     try:
+        # A resume is named explicitly when there was one: a saved position
+        # past the real end of the file ends it instantly, which is the one
+        # cause of this the USER can do something about (play from the start).
+        detail = ("The source may be busy or the stream dead."
+                  if not resume else
+                  f"It was resuming at {resume // 60}m{resume % 60:02d}s — if "
+                  "that is past the end of this file, playing from the start "
+                  "will work.")
         host.notification_manager.show(
             title="Stream did not start",
-            message=(f"{name} was accepted by the source but no video arrived. "
-                     "The source may be busy or the stream dead."),
+            message=f"{name} was accepted by the source but no video arrived. {detail}",
             type="warning",
             auto_dismiss_ms=8000,
         )
     except Exception:                                    # pragma: no cover
         logger.exception("could not show the failure notification")
     if attempt is None:
-        return
+        return True
     try:
         host.stream_retry_manager.add_failure(
             attempt.channel_id, attempt.channel_name, attempt.stream_url,
             "playback never started")
     except Exception:                                    # pragma: no cover
         logger.exception("could not record the failed play")
+    return True
 
 
 def start_polling(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
