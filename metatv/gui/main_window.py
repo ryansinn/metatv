@@ -31,6 +31,7 @@ from metatv.gui.main_window_favorites import _FavoritesMixin
 from metatv.gui.main_window_history import _HistoryMixin
 from metatv.gui.main_window_async import _AsyncMixin
 from metatv.gui.main_window_providers import _ProviderMixin
+from metatv.gui.main_window_provider_connectivity import _ProviderConnectivityMixin
 from metatv.gui.main_window_series import _SeriesMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
@@ -143,7 +144,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -705,21 +706,21 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         (e.g. ``detected_title_reparse``'s 2000-row batches) — the cause of
         the 2026-07-31 / 2026-08-01 "database is locked" crash-loops.
 
-        When ``MigrationManager.has_pending_tasks()`` is True at startup,
-        defer the three kickoffs until its ``all_finished`` signal; otherwise
-        fire them immediately on the same schedule as before. One gate,
-        connected at most once per launch — the handler disconnects itself
-        the moment it runs, so this stays a plain conditional, not a new
-        state machine.
+        Probes off the main thread via ``evaluate_pending_async()`` (was a
+        blocking ``has_pending_tasks()`` call — a sampled 2.0s stall, watchdog
+        2026-09-02): ``pending_evaluated`` gates the wait for ``all_finished``.
         """
-        if self.migration_manager.has_pending_tasks():
-            def _on_migrations_done() -> None:
-                self.migration_manager.all_finished.disconnect(_on_migrations_done)
+        def _on_pending_evaluated(pending: bool) -> None:
+            self.migration_manager.pending_evaluated.disconnect(_on_pending_evaluated)
+            if pending:
+                def _on_migrations_done() -> None:
+                    self.migration_manager.all_finished.disconnect(_on_migrations_done)
+                    self._start_deferred_fetches()
+                self.migration_manager.all_finished.connect(_on_migrations_done)
+            else:
                 self._start_deferred_fetches()
-
-            self.migration_manager.all_finished.connect(_on_migrations_done)
-        else:
-            self._start_deferred_fetches()
+        self.migration_manager.pending_evaluated.connect(_on_pending_evaluated)
+        self.migration_manager.evaluate_pending_async()
 
     def _start_deferred_fetches(self) -> None:
         """Fire the series-monitor / VOD-alert / EPG-refresh startup checks.

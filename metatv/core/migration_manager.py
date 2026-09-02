@@ -19,6 +19,15 @@ Signal flow (mirrors ``EpgManager``)::
     _task_progress.emit(id, d, t)   →  task_progress(id, done, total)
     _task_finished.emit(id)         →  task_finished(id)
     _all_finished.emit()            →  all_finished()
+    _pending_evaluated.emit(bool)   →  pending_evaluated(bool)
+
+``needs_run(config)`` is a real table scan for several tasks (785k+ rows);
+evaluating every registered task's ``needs_run`` was itself a synchronous
+main-thread call inside ``run_pending`` — a sampled 2.0s startup stall
+(watchdog, 2026-09-02). Both ``run_pending`` and ``evaluate_pending_async``
+now submit that probe pass to the same single-worker executor that runs the
+tasks themselves, and report the answer back via ``pending_evaluated``
+instead of a blocking ``has_pending_tasks()`` call.
 """
 
 from __future__ import annotations
@@ -50,6 +59,12 @@ class MigrationManager(QObject):
         manager moves on — but in practice cancellation stops the loop).
     all_finished()
         Emitted after all pending tasks complete (or the run is cancelled).
+    pending_evaluated(bool)
+        Emitted once the ``needs_run`` probe pass completes (off the main
+        thread) with whether ANY registered task is pending. Emitted by both
+        ``evaluate_pending_async`` and ``run_pending`` — a startup gate
+        should connect, act, and disconnect after its first delivery (see
+        ``MainWindow._gate_startup_fetches``).
     """
 
     # ── Public signals ──────────────────────────────────────────────────────
@@ -57,12 +72,14 @@ class MigrationManager(QObject):
     task_progress = pyqtSignal(str, int, int)  # task_id, done, total
     task_finished = pyqtSignal(str)        # task_id
     all_finished  = pyqtSignal()
+    pending_evaluated = pyqtSignal(bool)
 
     # ── Private signals (worker → main thread marshal) ──────────────────────
     _task_started  = pyqtSignal(str, str)
     _task_progress = pyqtSignal(str, int, int)
     _task_finished = pyqtSignal(str)
     _all_finished  = pyqtSignal()
+    _pending_evaluated = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -79,12 +96,18 @@ class MigrationManager(QObject):
         )
         self._cancel_event = threading.Event()
         self._running = False
+        # Guards run_pending's OWN evaluate-then-run submission only — a
+        # separate, unguarded evaluate_pending_async() may also be in flight
+        # on the same executor (see its docstring); both are read-only probes
+        # so they never race each other, only queue.
+        self._evaluating = False
 
         # Wire private → public (always executes on Qt main thread)
         self._task_started.connect(self.task_started)
         self._task_progress.connect(self.task_progress)
         self._task_finished.connect(self.task_finished)
         self._all_finished.connect(self.all_finished)
+        self._pending_evaluated.connect(self.pending_evaluated)
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -114,10 +137,13 @@ class MigrationManager(QObject):
     def has_pending_tasks(self) -> bool:
         """Return True if any registered task's ``needs_run(config)`` is True.
 
-        Read-only — does not submit anything. Lets a caller (main_window
-        startup sequencing) decide *before* ``run_pending()`` actually runs
-        whether a migration is about to do heavy writes, without duplicating
-        the ``needs_run`` filter here and in ``run_pending``.
+        BLOCKING — scans every registered task's ``needs_run`` synchronously
+        on the calling thread. Several tasks' probes are real table scans
+        (785k+ rows), so calling this from the Qt main thread reproduces the
+        exact stall ``run_pending``/``evaluate_pending_async`` exist to avoid.
+        Kept for non-UI callers that genuinely need a synchronous answer;
+        startup gating uses ``evaluate_pending_async`` + ``pending_evaluated``
+        instead (see ``MainWindow._gate_startup_fetches``).
         """
         return bool(self._pending_tasks())
 
@@ -125,19 +151,52 @@ class MigrationManager(QObject):
         """Registered tasks whose ``needs_run(config)`` currently returns True."""
         return [t for t in self._tasks if t.needs_run(self.config)]
 
-    def run_pending(self) -> None:
-        """Submit all pending tasks to the background worker.
+    def evaluate_pending_async(self) -> None:
+        """Probe ``needs_run`` off the main thread; report via ``pending_evaluated``.
 
-        A task is *pending* when its ``needs_run(config)`` returns True.
-        If no tasks need running this is a no-op.  If a run is already in
-        progress this call is ignored (the caller should not call again while
-        running; the timer fires once at startup).
+        Read-only — submits the probe pass to the same single-worker executor
+        ``run_pending`` uses (a read never races the writer since both run on
+        that one worker, sequentially). Unguarded: safe to call once per
+        startup even if ``run_pending``'s own evaluate-then-run pass is
+        independently in flight — both are read-only until a run actually
+        starts, so they only ever queue, never race.
+        """
+        self._executor.submit(self._evaluate_only)
+
+    def _evaluate_only(self) -> None:
+        """Worker: compute the pending list and report it, without running anything."""
+        pending = self._pending_tasks()
+        self._pending_evaluated.emit(bool(pending))
+
+    def run_pending(self) -> None:
+        """Submit the pending-task probe, then whatever is pending, to the background worker.
+
+        A task is *pending* when its ``needs_run(config)`` returns True. The
+        probe itself now runs off the main thread (see module docstring) —
+        this call only submits work and returns; ``pending_evaluated`` and
+        ``all_finished``/``task_*`` report the outcome asynchronously. If no
+        tasks need running, ``all_finished`` is NOT emitted (matches the old
+        synchronous no-op path). If a run is already in progress, or an
+        evaluate-then-run pass from an earlier call is still in flight, this
+        call is ignored (the caller should not call again while running; the
+        timer fires once at startup).
         """
         if self._running:
             logger.debug("MigrationManager.run_pending: already running, skipping")
             return
+        if self._evaluating:
+            logger.debug("MigrationManager.run_pending: evaluation already in flight, skipping")
+            return
 
+        self._evaluating = True
+        self._executor.submit(self._evaluate_and_run)
+
+    def _evaluate_and_run(self) -> None:
+        """Worker: compute the pending list, report it, then run it if non-empty."""
         pending = self._pending_tasks()
+        self._pending_evaluated.emit(bool(pending))
+        self._evaluating = False
+
         if not pending:
             logger.debug("MigrationManager.run_pending: no pending tasks")
             return
@@ -149,7 +208,9 @@ class MigrationManager(QObject):
             len(pending),
             [t.id for t in pending],
         )
-        self._executor.submit(self._run_all, pending)
+        # Already running on the worker thread — call directly rather than
+        # re-submitting, so this evaluate-then-run pass is one executor job.
+        self._run_all(pending)
 
     def request_cancel(self) -> None:
         """Request cancellation of the running task(s).

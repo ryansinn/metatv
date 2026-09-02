@@ -161,3 +161,77 @@ def test_provider_dependent_refresh_passes_keep_rows(monkeypatch):
 
     # load_channels was called exactly once with keep_rows=True.
     host.load_channels.assert_called_once_with(keep_rows=True)
+
+
+# ---------------------------------------------------------------------------
+# _reload_after_filter_change / on_filter_changed — a third clear-then-reload
+# trigger (bug 3, 2026-09-02 watchdog): the filter panel's own async startup
+# restore settling must NOT blank an already-visible restored search, but a
+# genuine user filter click must still clear (existing behavior).
+# ---------------------------------------------------------------------------
+
+import metatv.gui.main_window_channels as mw_channels_module
+
+
+def test_reload_after_filter_change_keeps_rows_when_flagged():
+    """_pending_reload_keep_rows=True (set by the restore-settling burst) ->
+    load_channels(None, keep_rows=True) — the already-visible rows stay."""
+    host = MagicMock()
+    host._shutting_down = False
+    host._pending_reload_keep_rows = True
+    host.load_channels = MagicMock()
+
+    mw_channels_module._ChannelListMixin._reload_after_filter_change(host)
+
+    host.load_channels.assert_called_once_with(None, keep_rows=True)
+
+
+def test_reload_after_filter_change_clears_by_default():
+    """A user filter click never sets _pending_reload_keep_rows -> the reload
+    still clears first (default keep_rows=False), unchanged behavior."""
+    host = MagicMock()
+    host._shutting_down = False
+    host._pending_reload_keep_rows = False
+    host.load_channels = MagicMock()
+
+    mw_channels_module._ChannelListMixin._reload_after_filter_change(host)
+
+    host.load_channels.assert_called_once_with(None, keep_rows=False)
+
+
+def test_reload_after_filter_change_defaults_to_clear_when_flag_absent():
+    """If _pending_reload_keep_rows was never set (e.g. reload fires before any
+    on_filter_changed call), the reload must still clear -- fail safe to the
+    existing behavior, never silently preserve stale rows."""
+    host = MagicMock(spec=["load_channels", "_shutting_down"])
+    host._shutting_down = False
+    host.load_channels = MagicMock()
+
+    mw_channels_module._ChannelListMixin._reload_after_filter_change(host)
+
+    host.load_channels.assert_called_once_with(None, keep_rows=False)
+
+
+def test_on_filter_changed_captures_restore_flag_and_clears_it_on_panel():
+    """on_filter_changed() must read FilterPanel._pending_restore_reload into
+    _pending_reload_keep_rows AND clear it back to False on the panel — so a
+    later, genuine user click (which never re-sets the panel's flag) is not
+    mistaken for another restore-settling burst."""
+    host = MagicMock()
+    host.filter_panel._pending_restore_reload = True
+
+    mw_channels_module._ChannelListMixin.on_filter_changed(host)
+
+    assert host._pending_reload_keep_rows is True
+    assert host.filter_panel._pending_restore_reload is False
+
+
+def test_on_filter_changed_user_click_does_not_set_keep_rows():
+    """A genuine user click never sets FilterPanel._pending_restore_reload ->
+    on_filter_changed() must leave _pending_reload_keep_rows False."""
+    host = MagicMock()
+    host.filter_panel._pending_restore_reload = False
+
+    mw_channels_module._ChannelListMixin.on_filter_changed(host)
+
+    assert host._pending_reload_keep_rows is False

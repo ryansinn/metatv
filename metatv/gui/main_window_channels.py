@@ -1404,14 +1404,8 @@ class _ChannelListMixin:
     #: Every filter widget connects to on_filter_changed and it reloaded
     #: immediately, so one gesture that touches several widgets — a state
     #: restore, a Clear, a chip that implies others — fired one full reload per
-    #: widget. The owner's startup log shows five reloads inside seven seconds,
-    #: each a query over 785,162 channels, all but the last thrown away:
-    #:
-    #:     15:01:12.895  set_channels gen=2
-    #:     15:01:18.393  set_channels gen=3
-    #:     15:01:18.832  set_channels gen=4
-    #:     15:01:19.406  set_channels gen=5
-    #:     15:01:32.223  set_channels gen=6
+    #: widget (the owner's startup log showed five reloads in seven seconds,
+    #: each a query over 785,162 channels, all but the last thrown away).
     #:
     #: 120 ms matches the existing batch debounce in discover_view: below what
     #: a person notices, above the gap between two widgets changing in one pass.
@@ -1427,6 +1421,10 @@ class _ChannelListMixin:
         from PyQt6.QtCore import QTimer
 
         self._capture_filter_state()
+        panel = getattr(self, "filter_panel", None)
+        self._pending_reload_keep_rows = bool(getattr(panel, "_pending_restore_reload", False))
+        if self._pending_reload_keep_rows:
+            panel._pending_restore_reload = False
 
         timer = getattr(self, "_filter_reload_timer", None)
         if timer is None:
@@ -1467,7 +1465,8 @@ class _ChannelListMixin:
         if getattr(self, "_shutting_down", False):
             return
         logger.info("Filter changed, reloading channels...")
-        self.load_channels(None)
+        # keep_rows: True only for FilterPanel's own restore-settling burst.
+        self.load_channels(None, keep_rows=bool(getattr(self, "_pending_reload_keep_rows", False)))
 
     def stop_filter_reload_timer(self) -> None:
         """Cancel any pending reload. Registered for cleanup by MainWindow."""

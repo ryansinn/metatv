@@ -1013,52 +1013,6 @@ class _ProviderMixin:
         if target is not None:
             target.update_provider_status(provider_id, status)
 
-    def test_all_providers(self):
-        """Test connection for all active providers on startup"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            providers = repos.providers.get_all(active_only=True)
-
-            for provider in providers:
-                self.update_provider_status(provider.id, "testing")
-                self.test_provider_connection(provider.id)
-        finally:
-            session.close()
-
-    def test_provider_connection(self, provider_id: str):
-        """Test connection to a specific provider"""
-        session = self.db.get_session()
-        try:
-            from metatv.core.provider_loader import ProviderTestThread
-
-            repos = RepositoryFactory(session)
-            db_provider = repos.providers.get_by_id(provider_id)
-            if not db_provider:
-                return
-
-            # Start test in background
-            test_thread = ProviderTestThread(
-                db_provider.type,
-                db_provider.url,
-                db_provider.username,
-                db_provider.password
-            )
-            test_thread.result.connect(
-                lambda success, msg, pid=provider_id: self.on_connection_test_result(pid, success, msg)
-            )
-
-            # Keep thread alive
-            self.active_threads.append(test_thread)
-            test_thread.finished.connect(
-                lambda: self.active_threads.remove(test_thread) if test_thread in self.active_threads else None
-            )
-
-            test_thread.start()
-        finally:
-            session.close()
-
-    def on_connection_test_result(self, provider_id: str, success: bool, message: str):
-        """Handle connection test result"""
-        logger.info(f"Provider {provider_id} test result: {'online' if success else 'offline'} - {message}")
-        self.update_provider_status(provider_id, "online" if success else "offline")
+    # test_all_providers / test_provider_connection / on_connection_test_result
+    # moved to main_window_provider_connectivity.py (_ProviderConnectivityMixin)
+    # — see that module's docstring for why (baseline-pin + isolation split).
