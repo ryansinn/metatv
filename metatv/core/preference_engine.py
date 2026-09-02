@@ -288,6 +288,53 @@ def build_idf(all_plots: list[str]) -> dict[str, float]:
     }
 
 
+_idf_cache_lock = threading.Lock()
+_idf_cache: "tuple[tuple[int, object], dict[str, float]] | None" = None
+
+
+def corpus_idf(session) -> dict[str, float]:
+    """Return the shared plot-corpus IDF table, rebuilt only when the corpus moved.
+
+    The IDF depends only on the METADATA CORPUS — not ratings, favorites, or
+    scoring settings — so rebuilding it per ``compute_weights`` call buys
+    nothing: Discover's workers, the details pane, preferences view, discovery
+    engine and trail map each call it independently, and one settings change
+    was measured building it twice within two seconds. The stamp —
+    ``(count of non-null plots, MAX(fetched_at))`` — changes exactly when
+    enrichment adds or re-fetches metadata, the only way the corpus moves; a
+    stale IDF is harmless (it weights terms, never gates content), so a cheap
+    stamp beats exact per-row invalidation.
+    """
+    from sqlalchemy import func
+    from metatv.core.database import MetadataDB
+
+    stamp = (
+        session.query(func.count(MetadataDB.plot), func.max(MetadataDB.fetched_at))
+        .filter(MetadataDB.plot.isnot(None))
+        .one()
+    )
+
+    global _idf_cache
+    # Held across the whole build (not just the compare): two consumers racing
+    # in from different threads must produce one build and one wait-then-hit,
+    # never two overlapping rebuilds of the same 129k-term table.
+    with _idf_cache_lock:
+        if _idf_cache is not None and _idf_cache[0] == stamp:
+            logger.debug(f"IDF corpus cache hit ({len(_idf_cache[1])} terms)")
+            return _idf_cache[1]
+        all_plots = [
+            row[0] for row in
+            session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
+        ]
+        idf = build_idf(all_plots)
+        _idf_cache = (stamp, idf)
+        logger.debug(
+            f"Preference engine: IDF corpus = {len(all_plots)} plots, "
+            f"{len(idf)} unique terms (rebuilt)"
+        )
+        return idf
+
+
 def _title_key(channel) -> str:
     """Collapse key for one channel's title identity (CLAUDE.md 'Content identity').
 
@@ -468,13 +515,7 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
     # single-appearance performers below (corroboration gate).
     actor_support: Counter = Counter()
 
-    # Column-only fetch for plots — 121,667 of them, not the "~1,300" this said.
-    all_plots = [
-        row[0] for row in
-        session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
-    ]
-    idf = build_idf(all_plots)
-    logger.debug(f"Preference engine: IDF corpus = {len(all_plots)} plots, {len(idf)} unique terms")
+    idf = corpus_idf(session)
 
     # Batch-fetch all needed MetadataDB rows in one IN query instead of per-channel session.get()
     all_metadata_ids = [ch.metadata_id for ch, _ in signal_pairs if ch and ch.metadata_id]
