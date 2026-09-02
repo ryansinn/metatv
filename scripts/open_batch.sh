@@ -33,6 +33,9 @@
 #   scripts/open_batch.sh --dry-run        Say what it would do; change nothing.
 #   scripts/open_batch.sh --push           Also push the chore commit to the trunk.
 #   scripts/open_batch.sh --force          Bump even with PRs still open.
+#   scripts/open_batch.sh --exclude-pr N   Do not count PR N as still open
+#                                          (merge_pr.sh passes the PR it just
+#                                          merged; GitHub still lists it).
 #   scripts/open_batch.sh -h | --help      Show this help.
 #
 # Config knobs (via repo-root .devscripts.conf, all optional):
@@ -46,16 +49,25 @@ EXPLICIT=""
 DRY=0
 PUSH=0
 FORCE=0
+# A PR number to discount from "still open" — see condition 3 below.
+EXCLUDE_PR=""
+_want_exclude=0
 for arg in "$@"; do
+    if [ "$_want_exclude" = 1 ]; then EXCLUDE_PR="$arg"; _want_exclude=0; continue; fi
     case "$arg" in
         -h|--help) usage; exit 0 ;;
         --dry-run) DRY=1 ;;
         --push)    PUSH=1 ;;
         --force)   FORCE=1 ;;
+        --exclude-pr) _want_exclude=1 ;;
+        --exclude-pr=*) EXCLUDE_PR="${arg#*=}" ;;
         [0-9]*.[0-9]*.[0-9]*) EXPLICIT="$arg" ;;
         *) echo "open_batch.sh: unknown argument '$arg'" >&2; usage >&2; exit 2 ;;
     esac
 done
+if [ "$_want_exclude" = 1 ]; then
+    echo "open_batch.sh: --exclude-pr needs a PR number" >&2; exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The worktree this copy of the script lives in — NOT the shared main repo.
@@ -112,9 +124,20 @@ fi
 # ── condition 3: is the batch actually finished? ──────────────────────────────
 # A label names what the tester receives together. Anything still open is part of
 # this batch, so closing the label now would split it across two names.
+#
+# ``--exclude-pr N`` discounts one number, and merge_pr.sh always passes the PR
+# it just merged. Without it this condition could essentially NEVER be satisfied
+# from the one place that calls this script: GitHub's PR list is eventually
+# consistent, so seconds after a squash-merge the PR it just landed still comes
+# back as open, and the bump is skipped on EXACTLY the merge that finishes a
+# batch. Observed twice out of two on 2026-09-02 — both times the label had to
+# be opened by hand afterwards, which is the manual step this script exists to
+# remove.
 if [ "$FORCE" = 0 ] && command -v gh >/dev/null 2>&1; then
     still_open="$(gh pr list --state open --base "$base_branch" --draft=false \
-        --json number --jq 'length' 2>/dev/null || echo "")"
+        --json number --jq \
+        "map(select(.number != (\"${EXCLUDE_PR:-0}\" | tonumber))) | length" \
+        2>/dev/null || echo "")"
     if [ -n "$still_open" ] && [ "$still_open" -gt 0 ]; then
         echo "open_batch.sh: $still_open PR(s) still open against $base_branch — the batch is not finished. Nothing to do (--force overrides)."
         exit 0

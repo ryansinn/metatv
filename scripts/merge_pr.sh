@@ -349,7 +349,11 @@ else
     echo
     echo "── batch label: scripts/open_batch.sh ──"
     batch_log="$(mktemp "${TMPDIR:-/tmp}/merge_pr.${PR}.batch.XXXXXX.log")"
-    if "$SCRIPT_DIR/open_batch.sh" --push 2>&1 | tee "$batch_log"; then
+    # --exclude-pr: GitHub still lists the PR we just merged as open for a
+    # few seconds, and open_batch.sh refuses to bump while anything is open.
+    # Without this the label is skipped on exactly the merge that finishes a
+    # batch, which is every batch (observed twice out of two, 2026-09-02).
+    if "$SCRIPT_DIR/open_batch.sh" --push --exclude-pr "$PR" 2>&1 | tee "$batch_log"; then
         batch_summary="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+ -> [0-9]+\.[0-9]+\.[0-9]+' "$batch_log" | tail -1)"
         [ -n "$batch_summary" ] || batch_summary="(unchanged — nothing owed)"
     else
