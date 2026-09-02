@@ -22,9 +22,26 @@
 # none of them.
 name: CI
 
+# EVERY pull request, whatever it targets. There is deliberately no
+# `branches:` filter here, and that is a fix rather than an oversight.
+#
+# `pull_request.branches` filters on the BASE branch, so `branches: [main]`
+# meant a PR stacked on another PR got no gate at all — not a slow run, not a
+# pending check: zero checks, silently, by configuration. #654 sat "green" in
+# the sense that nothing had ever disagreed with it.
+#
+# That is the same shape as the gap this whole workflow was created to close.
+# The pre-2026-08-27 hole was "the suite runs after merge"; this one was "the
+# suite runs unless you stack", and both are invisible in exactly the way that
+# lets work accumulate behind them. A gate with a quiet exemption is worse than
+# a missing gate, because the missing one is at least known to be missing.
+#
+# Cost of removing the filter: one extra full run per stacked PR, testing that
+# PR merged into its own base. That is the run you actually want — it is the
+# tree that lands. `concurrency` below keys on `github.ref`, which is
+# `refs/pull/<n>/merge`, so each PR still cancels only its own earlier runs.
 on:
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 # A new push to the same PR makes the previous run irrelevant. Cancelling keeps
