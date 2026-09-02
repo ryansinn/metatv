@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from metatv.gui.main_window_nav import _NavMixin
-from tests.conftest import wire_filter_chip_host, wire_header_search_sync
+from tests.conftest import wire_channel_model_double, wire_filter_chip_host, wire_header_search_sync
 from tests.conftest import wire_nav_host
 
 
@@ -124,8 +124,7 @@ def _make_host() -> _NavMixin:
     host.stats_label        = _FakeLabel()
     host._run_query         = MagicMock()
     host._in_provider_edit_mode = False
-    host.channel_model      = MagicMock()
-    host.channel_model.rowCount.return_value = 0
+    wire_channel_model_double(host)
     host.search_chip        = MagicMock()
     host.search_chip.is_enabled.return_value = False
     host.epg_chip           = MagicMock()

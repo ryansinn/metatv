@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.gui.main_window_nav import _NavMixin
-from tests.conftest import wire_nav_host
+from tests.conftest import wire_channel_model_double, wire_nav_host
 
 
 class _FakeWidget:
@@ -94,8 +94,7 @@ def _nav_host() -> _NavMixin:
     host.view_mode = "list"
     host._run_query = MagicMock()
     host._in_provider_edit_mode = False
-    host.channel_model = MagicMock()
-    host.channel_model.rowCount.return_value = 0
+    wire_channel_model_double(host)
     host.status_bar = MagicMock()
     host.search_chip = MagicMock()
     host.search_chip.is_enabled.return_value = False

@@ -92,14 +92,25 @@ ignore = [
               #       mismatch mean truncate, or mean a bug?
   "E712",     # 23  — `== True`. NOT blanket-fixable: SQLAlchemy filters
               #       require it, `if x == True` does not.
-  "F821",     # 20  — undefined name. Mostly quoted annotations (latent, not
+  "F821",     # 22  — undefined name. Mostly quoted annotations (latent, not
               #       live). "The one LIVE case" was not: a SECOND one stood
               #       here for months — details_pane._on_watchlist ended with
               #       `update_epg_title(title, patterns)`, so every click of the
-              #       watch bell raised NameError after toggling the rule. Both
-              #       are fixed; the ignore is a real risk, not a formality, so
-              #       run `ruff check --select F821` before trusting a clean
-              #       lint on a file you have edited.
+              #       watch bell raised NameError after toggling the rule. A
+              #       THIRD shipped on 2026-09-02 and cost a full CI cycle: a
+              #       worker referenced `search_query` and `session`, neither in
+              #       scope, and six of ten checks came back red on a path that
+              #       would have crashed the app on the first keystroke in the
+              #       search box.
+              #
+              #       This comment used to end "run `ruff check --select F821`
+              #       before trusting a clean lint" — and that is a prose rule,
+              #       which is the category this project keeps not following.
+              #       It is now a SHRINK-ONLY RATCHET on the count:
+              #       tests/test_no_new_undefined_names.py. The ignore stays,
+              #       because turning F821 on outright means 21 edits to quoted
+              #       annotations that never execute; the ratchet catches the
+              #       twenty-second kind, which is a name a running line reaches.
   "B008",     # 4   — function call in a default argument.
   "B017",     # 3   — `pytest.raises(Exception)`, too broad to assert anything.
   "B023",     # 1   — function in a loop closing over the loop variable.

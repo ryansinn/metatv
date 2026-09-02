@@ -32,6 +32,7 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
 from metatv.core.repositories.dtos import ChannelListDTO
+from metatv.core.repositories.search_ranking import SECTION_ORDER as _SEARCH_SECTIONS
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -133,8 +134,15 @@ def _media_kind(media_type: str | None) -> str:
     return value if value in MEDIA_KINDS else ""
 
 
-SECTION_ORDER: tuple[str, ...] = ("movie", "series", "live")
-_SECTION_LABELS: dict[str, str] = {"movie": "Movies", "series": "Series", "live": "Live"}
+# Search sections are appended here, not left to the alphabetically-sorted
+# "extras" branch, which renders Cast & Crew ABOVE Titles — backwards. Order
+# comes from search_ranking so there is one definition, not two that can drift.
+SECTION_ORDER: tuple[str, ...] = ("movie", "series", "live") + _SEARCH_SECTIONS
+_SECTION_LABELS: dict[str, str] = {
+    "movie": "Movies", "series": "Series", "live": "Live",
+    # "Cast & Crew" covers cast and director: three headers would be near-empty.
+    "title": "Titles", "cast": "Cast & Crew",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -202,12 +210,14 @@ class ChannelListModel(QAbstractListModel):
         # append_page so update_favorite is O(1) instead of O(n))
         self._id_to_index: dict[str, int] = {}
 
-        # ── Opt-in "Group by type" state (default OFF = flat list) ──────────────
-        # When grouping is ON the same flat ``_channels`` store is re-projected into
-        # collapsible Movies/Series/Live sections WITHOUT changing how rows are
-        # fetched/paged — grouping is purely a display transform layered over the
-        # already-loaded DTOs (see set_grouped / _resolve_row).
+        # ── Section state ───────────────────────────────────────────────────────
+        # Grouping re-projects the flat ``_channels`` store into collapsible
+        # sections WITHOUT changing how rows are fetched or paged — purely a
+        # display transform over the loaded DTOs (see set_grouped / _resolve_row).
+        # Two flags, not one: the checkbox is the user's, and a search groups on
+        # its own (by match, not media type) without overwriting their choice.
         self._grouped: bool = False
+        self._group_by_type: bool = False
         # media_types whose section is currently collapsed (header only, rows hidden).
         self._collapsed_sections: set[str] = set()
         # section media_type → list of indices into ``_channels`` (in load order).
@@ -224,6 +234,14 @@ class ChannelListModel(QAbstractListModel):
         if not self._grouped:
             return len(self._channels)
         return sum(self._section_size(sec) for sec in self._ordered_sections())
+
+    def loaded_count(self) -> int:
+        """Real channel rows — what every "Showing N channels" must read.
+
+        ``rowCount()`` is the DISPLAY count and includes section headers, which
+        every search now creates: three results reported as five.
+        """
+        return len(self._channels)
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:  # type: ignore[override]
         if not index.isValid():
@@ -374,15 +392,15 @@ class ChannelListModel(QAbstractListModel):
 
     def _ordered_sections(self) -> list[str]:
         """Sections that currently hold ≥1 loaded row, in fixed display order."""
-        present = [s for s in SECTION_ORDER if self._buckets.get(s)]
-        extras = sorted(
-            s for s in self._buckets
-            if s not in SECTION_ORDER and self._buckets.get(s)
-        )
-        return present + extras
+        return [s for s in self._final_section_order() if self._buckets.get(s)]
 
     def _final_section_order(self, extra_keys=()) -> list[str]:
-        """Display order over current buckets plus any soon-to-be-created sections."""
+        """Display order over current buckets plus any soon-to-be-created sections.
+
+        The single ordering rule; ``_ordered_sections`` is this filtered to the
+        non-empty ones. They were two implementations of the same sort until
+        adding a section to one and not the other became possible.
+        """
         keys = set(self._buckets.keys()) | set(extra_keys)
         known = [s for s in SECTION_ORDER if s in keys]
         others = sorted(k for k in keys if k not in SECTION_ORDER)
@@ -430,7 +448,7 @@ class ChannelListModel(QAbstractListModel):
         self._buckets = {}
         self._bucket_pos = {}
         for i, ch in enumerate(self._channels):
-            self._extend_bucket(ch.media_type or "other", [i])
+            self._extend_bucket(ch.section, [i])
 
     def _display_row_for_channel_index(self, ci: int) -> Optional[int]:
         """Grouped display row for a ``_channels`` index, or None if not visible."""
@@ -438,7 +456,7 @@ class ChannelListModel(QAbstractListModel):
             return ci
         if not (0 <= ci < len(self._channels)):
             return None
-        section = self._channels[ci].media_type or "other"
+        section = self._channels[ci].section
         if section in self._collapsed_sections:
             return None  # hidden under a collapsed header
         pos = self._bucket_pos.get(ci)
@@ -471,7 +489,7 @@ class ChannelListModel(QAbstractListModel):
                 (restored from config); ignored when None.
         """
         self.beginResetModel()
-        self._grouped = bool(grouped)
+        self._group_by_type = self._grouped = bool(grouped)
         if collapsed_sections is not None:
             self._collapsed_sections = set(collapsed_sections)
         if self._grouped:
@@ -586,6 +604,12 @@ class ChannelListModel(QAbstractListModel):
         self._has_more = has_more
         self._fetching = False
         self._query_params = dict(query_params)
+        # A search groups by MATCH regardless of the checkbox, and clearing it
+        # restores what the user had. Derived HERE, the one seam every load passes
+        # through holding the params — the alternative is a hand-kept list of
+        # "places the search state changes", the enumeration that never stays whole.
+        self._grouped = self._group_by_type or bool(
+            (query_params.get("search_query") or "").strip())
         self._current_offset = next_offset if next_offset is not None else len(dtos)
         self._provider_icon_map = dict(provider_icon_map)
         self._show_provider_icon = show_provider_icon

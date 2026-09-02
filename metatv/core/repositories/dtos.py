@@ -101,6 +101,19 @@ class ChannelListDTO:
     watch_percent: int = 0          # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
     # Provenance — "manual" (user played deliberately) vs "queue" (auto-advanced) vs None (unwatched)
     last_played_via: str | None = None
+    # ── search result grouping (None outside a search) ────────────────────
+    # Which section this row was put in — "title" or "cast". None means the
+    # model falls back to media_type, which is what "Group by type" uses, so
+    # one bucket mechanism serves both (see channel_list_model._section_of).
+    section_key: str | None = None
+    # WHY it matched, within its section: 0 exact, 1 prefix, 2 whole word,
+    # 3 part of a word. Drives the order inside a section, never the display.
+    match_tier: int = 0
+    # For a cast/crew match: the person whose name matched, verbatim. This is
+    # what the sub-heading prints ONCE per group rather than on every row —
+    # 85 Nicolas Cage films should say his name once.
+    match_person: str | None = None
+
     # User rating — +1 liked, -1 disliked, 0 unrated.  Populated from UserRatingDB at
     # query time via a batch lookup (RatingRepository.get_all_map()); 0 means no rating.
     user_rating: int = 0
@@ -158,8 +171,21 @@ class ChannelListDTO:
     sport_type: str | None = None
     league_name: str | None = None
 
+    @property
+    def section(self) -> str:
+        """Which list section this row belongs to — the ONE definition.
+
+        ``section_key`` wins when a search set one, else the media type, so a
+        search ("title"/"cast") and "Group by type" share the model's buckets,
+        collapse, persistence and delegate instead of two mechanisms for one
+        idea. A property because the row is what knows this, not the view.
+        """
+        return self.section_key or self.media_type or "other"
+
     @classmethod
-    def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
+    def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok",
+                 section_key: str | None = None,
+                 match_person: str | None = None) -> "ChannelListDTO":
         """Build a ChannelListDTO from a ChannelDB row (call inside a session).
 
         Args:
@@ -189,6 +215,8 @@ class ChannelListDTO:
             last_played_via=getattr(ch, "last_played_via", None),
             user_rating=user_rating,
             reliability_state=reliability_state,
+            section_key=section_key,
+            match_person=match_person,
             plot=getattr(ch, "_joined_plot", "") or "",
             poster_url=getattr(ch, "_joined_poster_url", "") or "",
             content_key=getattr(ch, "content_key", None),
