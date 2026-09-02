@@ -157,7 +157,11 @@ class ProviderURL:
     
     # Client IP failure tracking
     failed_client_ips: dict = field(default_factory=dict)  # {ip: failure_count}
-    
+
+    # One-shot: try this URL first on the next connection attempt; cleared as
+    # soon as the next attempt on it is recorded, so evidence resumes control.
+    try_first: bool = False
+
     def add_attempt(self, attempt: ConnectionAttempt):
         """Add a connection attempt to history"""
         self.recent_attempts.append(attempt)
@@ -289,8 +293,13 @@ class Provider:
     def ordered_urls(self, policy: Optional[UrlRankingPolicy] = None) -> List[str]:
         """Return base URLs ranked by what's happening NOW, not a lifetime average.
 
-        Sort key: ``(cooldown_tier, -health, median_latency_ms, priority)``.
+        Sort key: ``(0 if try_first else 1, cooldown_tier, -health, median_latency_ms, priority)``.
 
+        - ``try_first``: a one-shot user override ("I know something the stats
+          don't") that outranks even ``cooldown_tier`` — the user is asking to
+          try this address DESPITE a recent failure, not merely ahead of an
+          untested one. Cleared by :class:`~metatv.core.url_cycle.UrlCycler`
+          as soon as the next attempt on it is recorded.
         - ``cooldown_tier``: ``1`` if the URL's most recent attempt failed
           within the last ``config.url_cooldown_minutes``, else ``0``. This
           only DEMOTES — it never removes a URL from the list, so a total
@@ -330,7 +339,7 @@ class Provider:
                     cooldown_tier = 1
             health = pu.health_score(decay)
             latency = pu.median_latency_ms()
-            return (cooldown_tier, -health, latency, pu.priority)
+            return (0 if pu.try_first else 1, cooldown_tier, -health, latency, pu.priority)
 
         seen: set = set()
         ordered: List[str] = []

@@ -10,6 +10,13 @@ from metatv.core.url_policy import UrlRankingPolicy, get_url_ranking_policy
 from metatv.core.database import Database, ProviderDB, ChannelDB
 from metatv.core.models import ConnectionAttempt, Provider, ProviderURL
 
+__all__ = [
+    "ProviderRepository",
+    "parse_provider_urls",
+    "persist_url_stats",
+    "provider_url_to_raw",
+]
+
 
 def parse_provider_urls(raw: "str | list | None") -> list[dict]:
     """Coerce a ProviderDB.urls value (JSON string or list) into a list of dicts.
@@ -80,6 +87,39 @@ def _parse_attempt(raw: object) -> Optional[ConnectionAttempt]:
     )
 
 
+def provider_url_to_raw(pu: ProviderURL, *, priority: int) -> dict:
+    """Serialize one in-memory ``ProviderURL`` for the ``ProviderDB.urls`` JSON blob.
+
+    The single symmetric counterpart to :meth:`ProviderRepository.to_model`'s
+    URL-parsing loop — every field ``to_model`` reads back out is written here,
+    including ``recent_attempts`` (via ``_serialize_attempt``, the same helper
+    ``persist_url_stats`` uses) and ``try_first``. *priority* is taken as a
+    parameter rather than read off *pu* because callers serialize a whole list
+    and want the priority to reflect DISPLAY order (``enumerate()``), not
+    whatever stale value the field last held.
+
+    Exists because the provider editor's old hand-built save-loop dict wrote
+    only url/priority/is_active/success_count/failure_count — silently
+    discarding ``recent_attempts``, ``last_success``, ``last_failure``,
+    ``last_error``, and ``failed_client_ips`` on every Save. Centralizing the
+    serialization here means a future ``ProviderURL`` field only needs to be
+    added in ONE place to round-trip correctly.
+    """
+    return {
+        "url": pu.url,
+        "priority": priority,
+        "is_active": pu.is_active,
+        "success_count": pu.success_count,
+        "failure_count": pu.failure_count,
+        "last_success": pu.last_success.isoformat() if pu.last_success else None,
+        "last_failure": pu.last_failure.isoformat() if pu.last_failure else None,
+        "last_error": pu.last_error,
+        "recent_attempts": [_serialize_attempt(a) for a in pu.recent_attempts],
+        "failed_client_ips": pu.failed_client_ips,
+        "try_first": pu.try_first,
+    }
+
+
 def persist_url_stats(db: Database, provider: Provider, policy: Optional[UrlRankingPolicy] = None) -> None:
     """Write *provider*'s in-memory per-URL connection stats back to the DB.
 
@@ -143,6 +183,7 @@ def persist_url_stats(db: Database, provider: Provider, policy: Optional[UrlRank
                 entry['last_error'] = pu.last_error
                 kept = pu.recent_attempts[-keep_n:] if keep_n else []
                 entry['recent_attempts'] = [_serialize_attempt(a) for a in kept]
+                entry['try_first'] = pu.try_first
             db_prov.urls = raw
     except Exception as e:
         logger.warning(f"Failed to persist URL stats for provider {provider.id!r}: {e}")
@@ -409,6 +450,7 @@ class ProviderRepository:
                 last_failure=_parse_iso(u.get('last_failure')),
                 last_error=u.get('last_error'),
                 recent_attempts=recent_attempts,
+                try_first=bool(u.get('try_first', False)),
             ))
 
         return Provider(

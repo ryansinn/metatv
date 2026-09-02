@@ -38,6 +38,7 @@ from metatv.core.connection_diagnosis import diagnose
 from metatv.gui.connection_diagnosis_text import _DIAGNOSIS_TEXT
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.provider import provider_url_to_raw
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -333,6 +334,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._epg_manager = epg_manager
         self._provider_id: Optional[str] = None
         self._provider_urls: List[ProviderURL] = []
+        self._pending_url_removals: set = set()  # urls (never idx) pending Save-time removal
         self._account_thread: Optional[FetchAccountInfoThread] = None
         self._test_thread: Optional[TestAllURLsThread] = None
         self._test_results_pending: int = 0
@@ -695,24 +697,21 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             provider = repos.providers.to_model(db_prov)
             # Most reliable first, which is what the group box has always
             # CLAIMED ("sorted by reliability") and never did — the list was
-            # stored order, so a 0% address could sit above an 86% one. Owner
-            # asked for the sort; the label was already promising it.
+            # stored order, so a 0% address could sit above an 86% one.
             #
-            # Sorted on load only. The arrows below still reorder freely from
-            # there and that order is what gets saved, so a deliberate manual
-            # ranking is not fought by a re-sort on every repaint.
-            #
-            # Untested addresses (reliability_score returns 100.0 for "no
-            # attempts yet") are placed after tested ones rather than at the
-            # top: an address nobody has reached is not the most reliable one,
-            # it is the least known.
+            # Sorted on load only, so a ⤒ try-first pick isn't fought by a
+            # re-sort on repaint. try_first leads even this — a one-shot
+            # override outranks the evidence. Untested addresses sort after
+            # tested ones: unreached is not "most reliable", it's unknown.
             self._provider_urls = sorted(
                 provider.urls,
                 key=lambda pu: (
+                    not pu.try_first,
                     (pu.success_count + pu.failure_count) == 0,
                     -pu.reliability_score,
                 ),
             )
+            self._pending_url_removals = set()
 
             # Populate fields
             self._name_input.setText(db_prov.name)
@@ -826,19 +825,12 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             schedule_map = {0: "manual", 1: "launch", 2: "daily", 3: "weekly", 4: "monthly"}
             db_prov.refresh_schedule = schedule_map.get(self._refresh_combo.currentIndex(), "manual")
 
-            # URLs
-            if self._provider_urls:
-                db_prov.url = self._provider_urls[0].url  # primary = first in list
-            raw_urls = []
-            for i, pu in enumerate(self._provider_urls):
-                raw_urls.append({
-                    "url": pu.url,
-                    "priority": i,
-                    "is_active": pu.is_active,
-                    "success_count": pu.success_count,
-                    "failure_count": pu.failure_count,
-                })
-            db_prov.urls = raw_urls
+            # URLs — surviving excludes ghost rows the user removed (keyed by url, never index).
+            removed = self._pending_url_removals
+            surviving = [pu for pu in self._provider_urls if pu.url not in removed]
+            if surviving:
+                db_prov.url = surviving[0].url  # primary = first surviving URL
+            db_prov.urls = [provider_url_to_raw(pu, priority=i) for i, pu in enumerate(surviving)]
 
             # Account info (if freshly fetched)
             if self._pending_account_info:
@@ -865,6 +857,10 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._current_is_active = bool(db_prov.is_active)
             self._update_status_dot(self._current_is_active, self._current_is_expired)
             self._update_toggle_action_label(self._current_is_active)
+            # Ghost rows are now actually deleted — drop them from memory too and rebuild.
+            self._provider_urls = surviving
+            self._pending_url_removals = set()
+            self._rebuild_url_list()
             # Show transient "Saved" confirmation — persists until the next field edit,
             # at which point _mark_dirty() restores "Save Changes" and re-enables the button.
             self._save_btn.setText(f"{_icons.notification_success_icon} Saved")

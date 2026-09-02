@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QApplication, QHBoxLayout, QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget,
 )
 
 from metatv.core.models import ProviderURL
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -72,40 +74,74 @@ def reliability_tint_token(pu: ProviderURL) -> "str | None":
     return "OVERLAY_ORANGE_10"
 
 
+class _ClickToCopyLabel(QLabel):
+    """A ``QLabel`` whose full text copies to the clipboard on left-click.
+
+    Replaces the old ``TextSelectableByMouse`` flag (select + manual Ctrl+C)
+    with a single click — the URL row has no dedicated copy button, so the
+    text itself is the affordance.
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        cursor_affordance.set_clickable(self)
+        self.setToolTip("Click to copy URL")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            QApplication.clipboard().setText(self.text())
+            QToolTip.showText(QCursor.pos(), "Copied ✓", self)
+            return
+        super().mousePressEvent(event)
+
+
 class URLRowWidget(QWidget):
-    """Single URL row: move up/down, live test result badge, stats, remove."""
+    """Single URL row: try-first boost, click-to-copy URL, live test result, remove.
 
-    moveUp = pyqtSignal()
-    moveDown = pyqtSignal()
+    ``pending_remove=True`` renders the row in "ghost" mode — dimmed +
+    struck-through URL text, an Undo button in place of the remove button, and
+    the try-first button hidden — for a URL the user has removed but not yet
+    saved (``ProviderEditorView._pending_url_removals``). The mode is fixed at
+    construction; the list is rebuilt (a fresh widget per row) whenever it
+    changes, same as every other list mutation in this editor.
+    """
+
+    tryFirstToggled = pyqtSignal()
     removed = pyqtSignal()
+    restored = pyqtSignal()
 
-    def __init__(self, provider_url: ProviderURL, index: int, total: int, parent=None):
+    def __init__(self, provider_url: ProviderURL, index: int, total: int, parent=None,
+                 pending_remove: bool = False):
         super().__init__(parent)
         self.provider_url = provider_url
+        self._pending_remove = pending_remove
 
         # Reinforcement for the reliability text already on this row, never a
         # replacement for it. Untested rows stay untinted — see the helper.
-        tint_token = reliability_tint_token(provider_url)
+        # Ghost rows skip the tint entirely: the row is leaving, and a colour
+        # wash would compete with the muted/strikethrough treatment that is
+        # now the row's actual message.
+        tint_token = None if pending_remove else reliability_tint_token(provider_url)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
 
-        # Order controls
+        # Try-first column (replaces the old up/down reorder arrows — a
+        # placebo, since manual order landed in `priority`, the LAST tiebreak,
+        # so evidence always overrode it).
         order_col = QVBoxLayout()
         order_col.setSpacing(1)
-        self._up_btn = QPushButton(_icons.move_up_icon)
-        self._up_btn.setFixedSize(22, 18)
-        self._up_btn.setToolTip("Try this URL earlier (raise its priority)")
-        self._up_btn.setEnabled(index > 0)
-        self._up_btn.clicked.connect(self.moveUp)
-        self._down_btn = QPushButton(_icons.move_down_icon)
-        self._down_btn.setFixedSize(22, 18)
-        self._down_btn.setToolTip("Try this URL later (lower its priority)")
-        self._down_btn.setEnabled(index < total - 1)
-        self._down_btn.clicked.connect(self.moveDown)
-        order_col.addWidget(self._up_btn)
-        order_col.addWidget(self._down_btn)
+        self._try_first_btn = QPushButton(_icons.try_first_icon)
+        self._try_first_btn.setFixedSize(24, 24)
+        self._try_first_btn.setCheckable(True)
+        self._try_first_btn.setChecked(provider_url.try_first)
+        self._try_first_btn.setToolTip("Try this URL first on the next connection")
+        _theme.style(self._try_first_btn, "URL_TRY_FIRST_BTN")
+        self._try_first_btn.clicked.connect(self.tryFirstToggled)
+        if pending_remove:
+            self._try_first_btn.hide()
+        order_col.addWidget(self._try_first_btn)
         layout.addLayout(order_col)
 
         # Priority badge
@@ -127,12 +163,15 @@ class URLRowWidget(QWidget):
         info_col.setContentsMargins(6, 3, 6, 3)
         info_col.setSpacing(2)
 
-        url_label = QLabel(provider_url.url)
-        _theme.style(url_label, "FIELD_LABEL")
-        url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        url_label = _ClickToCopyLabel(provider_url.url)
+        if pending_remove:
+            _theme.style(url_label, "URL_ROW_GHOST")
+        else:
+            _theme.style(url_label, "FIELD_LABEL")
         info_col.addWidget(url_label)
 
-        self._stats_label = QLabel(self._build_stats(provider_url))
+        stats_text = "removed — will be deleted on Save" if pending_remove else self._build_stats(provider_url)
+        self._stats_label = QLabel(stats_text)
         _theme.style(self._stats_label, "META_HINT")
         info_col.addWidget(self._stats_label)
         if tint_token:
@@ -151,22 +190,34 @@ class URLRowWidget(QWidget):
         self._result_badge.hide()
         layout.addWidget(self._result_badge)
 
-        # Remove button
-        rm_btn = QPushButton(_icons.close_icon)
-        rm_btn.setFixedSize(24, 24)
-        rm_btn.setToolTip("Remove this URL")
-        _theme.style(rm_btn, "URL_REMOVE_BTN")
-        rm_btn.clicked.connect(self.removed)
-        layout.addWidget(rm_btn)
+        # Remove / Undo button
+        if pending_remove:
+            undo_btn = QPushButton(f"{_icons.undo_icon} undo")
+            undo_btn.setToolTip("Keep this URL")
+            _theme.style(undo_btn, "LINK_BTN_SM")
+            cursor_affordance.set_clickable(undo_btn)
+            undo_btn.clicked.connect(self.restored)
+            layout.addWidget(undo_btn)
+        else:
+            rm_btn = QPushButton(_icons.close_icon)
+            rm_btn.setFixedSize(24, 24)
+            rm_btn.setToolTip("Remove this URL")
+            _theme.style(rm_btn, "URL_REMOVE_BTN")
+            rm_btn.clicked.connect(self.removed)
+            layout.addWidget(rm_btn)
 
     def show_testing(self):
-        """Show a 'Testing…' spinner while waiting for result."""
+        """Show a 'Testing…' spinner while waiting for result. No-op in ghost mode."""
+        if self._pending_remove:
+            return
         self._result_badge.setText(f"{_icons.loading_icon} Testing…")
         _theme.style(self._result_badge, "URL_BADGE_TESTING")
         self._result_badge.show()
 
     def show_test_result(self, success: bool, message: str):
-        """Update badge with pass/fail result."""
+        """Update badge with pass/fail result. No-op in ghost mode."""
+        if self._pending_remove:
+            return
         if success:
             self._result_badge.setText(f"{_icons.notification_success_icon}  {message}")
             _theme.style(self._result_badge, "URL_BADGE_OK")

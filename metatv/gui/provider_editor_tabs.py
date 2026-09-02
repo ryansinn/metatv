@@ -36,7 +36,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -82,7 +82,10 @@ class _ProviderEditorTabsMixin:
         layout.setSpacing(16)
         self._build_credentials_group(layout)
         self._build_urls_group(layout)
-        layout.addStretch(1)
+        # No trailing addStretch(1) here: the URLs group itself carries
+        # stretch factor 1 (see _build_urls_group) so it fills the remaining
+        # column height instead of capping at its content and leaving the
+        # extra space blank below it.
         return _wrap_scroll(content)
 
     def _build_settings_tab(self) -> QScrollArea:
@@ -362,7 +365,10 @@ class _ProviderEditorTabsMixin:
     # ── DNS / URLs (Connection tab) ─────────────────────────────────────── #
 
     def _build_urls_group(self, layout: QVBoxLayout) -> None:
-        group = QGroupBox("DNS / URLs  (sorted by reliability — drag or use arrows to reorder)")
+        group = QGroupBox(
+            "Most reliable first. ⤒ tries an address first on the next "
+            "connection; click an address to copy it."
+        )
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(6)
 
@@ -392,28 +398,33 @@ class _ProviderEditorTabsMixin:
         self._url_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self._url_list.setSpacing(2)
         self._url_list.setToolTip(
-            "Addresses already added for this source, most reliable first. "
-            "Drag or use the arrows to reorder."
+            "Most reliable first. ⤒ tries an address first on the next "
+            "connection; click an address to copy it."
         )
-        group_layout.addWidget(self._url_list)
+        # Vertical Expanding only — horizontal stays whatever QListWidget's
+        # default already is. Paired with stretch factor 1 below (and on the
+        # group itself) so the list fills the pane instead of capping at a
+        # fixed ~4-row height.
+        size_policy = self._url_list.sizePolicy()
+        size_policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+        self._url_list.setSizePolicy(size_policy)
+        group_layout.addWidget(self._url_list, 1)
 
-        layout.addWidget(group)
+        layout.addWidget(group, 1)
 
     def _rebuild_url_list(self) -> None:
         self._url_list.clear()
         total = len(self._provider_urls)
         for i, pu in enumerate(self._provider_urls):
             item = QListWidgetItem()
-            widget = URLRowWidget(pu, i, total)
-            widget.moveUp.connect(lambda idx=i: self._move_url(idx, -1))
-            widget.moveDown.connect(lambda idx=i: self._move_url(idx, 1))
+            pending = pu.url in self._pending_url_removals
+            widget = URLRowWidget(pu, i, total, pending_remove=pending)
+            widget.tryFirstToggled.connect(lambda pu=pu: self._on_try_first_toggled(pu))
             widget.removed.connect(lambda idx=i: self._remove_url(idx))
+            widget.restored.connect(lambda url=pu.url: self._restore_url(url))
             item.setSizeHint(QSize(0, 58))
             self._url_list.addItem(item)
             self._url_list.setItemWidget(item, widget)
-        # Fit list height to content (max ~4 rows)
-        row_h = 62
-        self._url_list.setFixedHeight(min(max(row_h, total * row_h), row_h * 5))
 
     def _add_url(self) -> None:
         url = self._new_url_input.text().strip()
@@ -430,22 +441,32 @@ class _ProviderEditorTabsMixin:
         self._rebuild_url_list()
 
     def _remove_url(self, idx: int) -> None:
-        if len(self._provider_urls) <= 1:
+        """Flip URL *idx* to pending-remove (ghost row + Undo) — Save is what
+        actually deletes it. Keyed by url in ``_pending_url_removals``, never
+        by index: indices shift as ghost rows accumulate.
+        """
+        pu = self._provider_urls[idx]
+        surviving = sum(
+            1 for p in self._provider_urls if p.url not in self._pending_url_removals
+        )
+        if pu.url not in self._pending_url_removals and surviving <= 1:
             QMessageBox.warning(self, "Cannot Remove", "At least one URL is required.")
             return
-        self._provider_urls.pop(idx)
+        self._pending_url_removals.add(pu.url)
         self._rebuild_url_list()
 
-    def _move_url(self, idx: int, delta: int) -> None:
-        new_idx = idx + delta
-        if new_idx < 0 or new_idx >= len(self._provider_urls):
-            return
-        self._provider_urls[idx], self._provider_urls[new_idx] = (
-            self._provider_urls[new_idx], self._provider_urls[idx]
-        )
-        # Re-assign priority to match visual order
-        for i, pu in enumerate(self._provider_urls):
-            pu.priority = i
+    def _restore_url(self, url: str) -> None:
+        """Undo a pending removal — the row returns to normal."""
+        self._pending_url_removals.discard(url)
+        self._rebuild_url_list()
+
+    def _on_try_first_toggled(self, pu: ProviderURL) -> None:
+        """Flip one URL's one-shot try-first flag, then re-sort the display so
+        an armed row leads. Python's sort is stable, so the existing
+        (evidence-driven) order survives within each armed/unarmed group.
+        """
+        pu.try_first = not pu.try_first
+        self._provider_urls.sort(key=lambda p: not p.try_first)
         self._rebuild_url_list()
 
     # ── General settings (Settings tab) ─────────────────────────────────── #

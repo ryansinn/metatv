@@ -87,6 +87,7 @@ expand_icon: str = ">"
 collapse_icon: str = "⌄"
 move_up_icon: str = "▲"
 move_down_icon: str = "▼"
+try_first_icon: str = "⤒"  # U+2912 UPWARDS ARROW TO BAR — one-shot "try this URL first on the next connection"
 prev_icon: str = "◀"
 next_icon: str = "▶"
 # Carousel / single-axis navigation (monochrome single chevrons — no colour bleed)

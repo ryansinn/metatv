@@ -790,6 +790,16 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; }"
         "QPushButton:hover { background: " + OVERLAY_ERR + "; }"
     )
+    # One-shot try-first boost (replaces the old, ineffective up/down arrows) —
+    # checked = solid accent fill + COLOR_ON_ACCENT, same rule as DETAIL_RAIL_BTN.
+    URL_TRY_FIRST_BTN = (
+        "QPushButton { color: " + COLOR_TEXT + "; border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; }"
+        "QPushButton:hover { background: " + OVERLAY_10 + "; }"
+        "QPushButton:checked { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + "; border-color: " + COLOR_ACCENT + "; }"
+        "QPushButton:checked:hover { background: " + COLOR_ACCENT_HOVER + "; color: " + COLOR_ON_ACCENT + "; border-color: " + COLOR_ACCENT_HOVER + "; }"
+    )
+    # Pending-remove ghost row (mirrors DIALOG_PENDING_REMOVE_NAME).
+    URL_ROW_GHOST = "color: " + COLOR_MUTED_2 + "; text-decoration: line-through;"
 
     # Provider editor — icon picker
     ICON_PICK_BTN = (
