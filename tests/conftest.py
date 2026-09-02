@@ -2022,3 +2022,50 @@ def settings_config_double(**overrides):
     from metatv.core.config import Config
 
     return Config(**overrides)
+
+
+def wire_watchlist_card_host(host) -> None:
+    """Give a stand-in host what ``_make_watchlist_item`` needs for the rule row.
+
+    WL-1 slice 2 hung the Option B rule editor under each pattern card, so the
+    card now reaches two more things on its host: ``_rule_counts`` (filled by
+    the background read, empty until it lands) and ``_attach_rule_editor``.
+
+    Two test files build such a host with ``SimpleNamespace``, which is exactly
+    the "N copies" shape CLAUDE.md says to repair at the shared factory rather
+    than with ``getattr`` defaults in production — a card that silently skipped
+    its editor because an attribute was missing would hide the feature instead
+    of failing.
+
+    The bound method is taken off the real mixin, so a host wired here exercises
+    the SAME code the app runs; only the state it reads is supplied.
+    """
+    from metatv.gui.epg_watchlist_mixin import _EpgWatchlistMixin
+
+    host._rule_counts = {}
+    host._attach_rule_editor = _EpgWatchlistMixin._attach_rule_editor.__get__(host)
+    host._on_rule_changed = _EpgWatchlistMixin._on_rule_changed.__get__(host)
+
+
+def with_programme_render_fields(cls):
+    """Give a fake EPG programme class the fields the render path reads.
+
+    WL-1 slice 2 let a watch rule search the programme DESCRIPTION, so the
+    highlight test in Browse and On Now now passes ``prog.description`` and
+    ``prog.is_live`` to the matcher. Three test files carry their own
+    ``_FakeProg``/``_FakeProgram`` stub and 34 tests went red on the missing
+    attribute.
+
+    Fixed here rather than by adding a line to each stub — CLAUDE.md is
+    explicit that this shape gets repaired at the shared factory, and equally
+    explicit that it must NOT be papered over with ``getattr`` defaults in the
+    render code, which would hide a real ``EpgProgramDB`` losing a column.
+
+    Class-level defaults, so a stub whose ``__init__`` sets the field
+    explicitly still wins.
+    """
+    for name, default in (("description", ""), ("is_live", False),
+                          ("is_new", False)):
+        if not hasattr(cls, name):
+            setattr(cls, name, default)
+    return cls

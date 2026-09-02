@@ -218,7 +218,7 @@ class EpgRepository:
 
         for rule in as_rules(patterns):
             query = self.session.query(EpgProgramDB).filter(
-                sql_prefilter(EpgProgramDB.title, rule),
+                sql_prefilter(rule, EpgProgramDB.title, EpgProgramDB.description),
                 EpgProgramDB.start_time >= now,
                 EpgProgramDB.start_time <= cutoff,
                 EpgProgramDB.channel_db_id.isnot(None),
@@ -233,9 +233,55 @@ class EpgRepository:
             if len(rows) == _WATCHLIST_PREFETCH:
                 logger.debug("watchlist upcoming: prefetch cap hit for {!r}",
                              rule.key)
-            result[rule.key] = refine(rows, rule, lambda r: r.title, limit=20)
+            result[rule.key] = refine(rows, rule, limit=20)
 
         return result
+
+    def count_for_watchlist(
+        self,
+        patterns,
+        hours_ahead: int = 168,
+        provider_ids: list[str] | None = None,
+        lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+    ) -> "dict[str, tuple[int, int, bool]]":
+        """Per rule: how many programmes it matches, and how many its excludes ate.
+
+        Feeds the rule row's summary line, which is the control that makes an
+        exclude list trustworthy — without the suppressed count there is no way
+        to tell "my exclusions are working" from "my pattern stopped matching".
+
+        Returns:
+            ``{rule.key: (matched, suppressed, capped)}``. ``suppressed`` is
+            counted by running the SAME rule with its excludes dropped and
+            taking the difference, so it can never disagree with the matcher.
+            ``capped`` is True when the prefilter ceiling was reached and the
+            numbers are therefore floors — the caller must say so rather than
+            print a confident wrong total.
+        """
+        from dataclasses import replace
+
+        now = _now_utc()
+        cutoff = now + timedelta(hours=hours_ahead)
+        out: dict[str, tuple[int, int, bool]] = {}
+
+        for rule in as_rules(patterns):
+            query = self.session.query(EpgProgramDB).filter(
+                sql_prefilter(rule, EpgProgramDB.title, EpgProgramDB.description),
+                EpgProgramDB.start_time >= now,
+                EpgProgramDB.start_time <= cutoff,
+                EpgProgramDB.channel_db_id.isnot(None),
+            )
+            query = self._scope_watchlist_query(
+                query, provider_ids, lang_code, excluded_channel_provider_ids)
+            rows = query.limit(_WATCHLIST_PREFETCH).all()
+            capped = len(rows) == _WATCHLIST_PREFETCH
+            matched = len(refine(rows, rule))
+            without = len(refine(rows, replace(rule, exclude=())))
+            out[rule.key] = (matched, max(0, without - matched), capped)
+            if capped:
+                logger.debug("watchlist counts: prefilter cap hit for {!r}", rule.key)
+        return out
 
     def get_live_for_watchlist(
         self,
@@ -250,7 +296,7 @@ class EpgRepository:
 
         for rule in as_rules(patterns):
             query = self.session.query(EpgProgramDB).filter(
-                sql_prefilter(EpgProgramDB.title, rule),
+                sql_prefilter(rule, EpgProgramDB.title, EpgProgramDB.description),
                 EpgProgramDB.start_time <= now,
                 EpgProgramDB.stop_time  >  now,
                 EpgProgramDB.channel_db_id.isnot(None),
@@ -258,7 +304,7 @@ class EpgRepository:
             query = self._scope_watchlist_query(
                 query, provider_ids, lang_code, excluded_channel_provider_ids)
             # No LIMIT by design (tests/test_epg_watchlist_ranking.py).
-            result[rule.key] = refine(query.all(), rule, lambda r: r.title)
+            result[rule.key] = refine(query.all(), rule)
 
         return result
 

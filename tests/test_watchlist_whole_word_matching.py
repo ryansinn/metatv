@@ -18,6 +18,7 @@ from __future__ import annotations
 import pathlib
 import sqlite3
 import uuid
+from collections import namedtuple
 from datetime import timedelta
 
 import pytest
@@ -110,10 +111,13 @@ def test_refine_applies_the_limit_after_matching_not_before():
     Nine rows come back from the coarse prefilter and only the last two really
     match. Cutting to 2 first yields nothing; refining first yields both.
     """
-    rows = [f"Inflammation {i}" for i in range(7)] + ["NFL Live", "NFL Late"]
-    kept = refine(rows, rule_for("NFL"), text_of=lambda r: r, limit=2)
-    assert kept == ["NFL Live", "NFL Late"]
-    assert rows[:2] == ["Inflammation 0", "Inflammation 1"]   # what SQL would have cut to
+    Row = namedtuple("Row", "title description is_live")
+    rows = ([Row(f"Inflammation {i}", None, False) for i in range(7)]
+            + [Row("NFL Live", None, False), Row("NFL Late", None, False)])
+    kept = refine(rows, rule_for("NFL"), limit=2)
+    assert [r.title for r in kept] == ["NFL Live", "NFL Late"]
+    # what a SQL LIMIT 2 would have handed us instead:
+    assert [r.title for r in rows[:2]] == ["Inflammation 0", "Inflammation 1"]
 
 
 # --------------------------------------------------------------------------
