@@ -17,7 +17,7 @@ from metatv.core.database import (
     StreamRetryDB,
 )
 from metatv.core import channel_visibility, visibility_resolver
-from metatv.core.repositories.search_ranking import search_relevance_tier
+from metatv.core.repositories.search_ranking import search_order_terms
 from metatv.core.channel_name_utils import (
     QUALITY_TIER_RANK,
     quality_tier_rank,
@@ -584,8 +584,7 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         # tie-break — which stays, so an un-searched list is byte-identical and
         # ties never shuffle. search_relevance_tier returns a constant when the
         # term is empty, so this is one expression rather than a branch.
-        query = query.order_by(search_relevance_tier(search_query),
-                               ChannelDB.name, ChannelDB.id)
+        query = query.order_by(*search_order_terms(search_query, ChannelDB))
 
         # Comfy+ density's plot line (and the channel-list thumbnail's poster
         # URL): outerjoin MetadataDB and select ONLY its plot + poster_url
@@ -752,11 +751,7 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
             .select_from(grouped)
             .join(ChannelDB, ChannelDB.id == rep_id_expr)
         )
-        # The representative page is chosen HERE, so relevance applies here too:
-        # ranking only the rows that came back would rank page 1 against page 1
-        # and an exact match on page 6 would never arrive.
-        reps_q = reps_q.order_by(search_relevance_tier(search_query),
-                                 ChannelDB.name, ChannelDB.id)
+        reps_q = reps_q.order_by(*search_order_terms(search_query, ChannelDB))
         if offset is not None:
             reps_q = reps_q.offset(offset)
         reps = reps_q.limit(limit).all() if limit is not None else reps_q.all()

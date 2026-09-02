@@ -174,6 +174,56 @@ def search_section_expr(search_term: str):
                 else_=literal(SECTION_CAST))
 
 
+def search_order_terms(search_term: str, channel_cls):
+    """The ORDER BY for a search, as a tuple — one definition, two call sites.
+
+    Section, then relevance inside it, then the existing alphabetical
+    tie-break. Relevance alone would interleave a strong cast match with weak
+    title ones; a FIXED section order means a boundary can never move while the
+    user is typing.
+
+    Both the flat path and the collapsed one need it — the collapsed path picks
+    its representative page in SQL, so ordering only what came back would rank
+    page 1 against page 1 and an exact match on page 6 would never arrive.
+    Spelling it out twice is how those two drift.
+
+    Args:
+        search_term: Raw user text. Empty yields constants, so an un-searched
+            list orders exactly as it always did.
+        channel_cls: ``ChannelDB`` or a subquery's ``.c`` — whichever the
+            caller is ordering.
+
+    Returns:
+        A tuple for ``order_by(*terms)``.
+    """
+    return (search_section_expr(search_term),
+            search_relevance_tier(search_term),
+            channel_cls.name, channel_cls.id)
+
+
+def section_for_title(title: str | None, search_term: str) -> str:
+    """The Python half of :func:`search_section_expr` — the SAME rule.
+
+    The SQL expression decides the ORDER (it has to, because the page is chosen
+    in SQL); this decides the TAG on the DTO the GUI builds from the rows that
+    came back. Two expressions of one rule, so
+    ``test_search_sections`` asserts they agree over a corpus rather than
+    trusting that they do — the approximation-measuring habit
+    ``test_search_relevance_ranking`` established.
+
+    Args:
+        title: ``detected_title`` or the raw name.
+        search_term: Raw user text.
+
+    Returns:
+        ``"title"`` when the title contains the term, else ``"cast"``.
+    """
+    term = (search_term or "").strip().lower()
+    if not term:
+        return SECTION_TITLE
+    return SECTION_TITLE if term in (title or "").lower() else SECTION_CAST
+
+
 def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     """``{channel_id: person}`` for the rows whose CAST matched — one query.
 

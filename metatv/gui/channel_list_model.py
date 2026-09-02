@@ -136,9 +136,8 @@ def _media_kind(media_type: str | None) -> str:
 SECTION_ORDER: tuple[str, ...] = ("movie", "series", "live")
 _SECTION_LABELS: dict[str, str] = {
     "movie": "Movies", "series": "Series", "live": "Live",
-    # Search sections. The same bucket mechanism, a different key — see
-    # _section_of(). "Cast & Crew" covers cast, director and crew, because a
-    # person is a person and three sections would be three near-empty headers.
+    # Search sections — same buckets, different key (see _section_of).
+    # "Cast & Crew" covers cast and director: three headers would be near-empty.
     "title": "Titles", "cast": "Cast & Crew",
 }
 
@@ -147,21 +146,6 @@ _SECTION_LABELS: dict[str, str] = {
 # Page size for incremental fetches triggered by canFetchMore / fetchMore
 # ---------------------------------------------------------------------------
 _PAGE_SIZE = 1_000
-
-
-def _section_of(ch) -> str:
-    """Which section a row belongs to — the ONE definition.
-
-    Was ``ch.media_type or "other"``, written out at both call sites. It is a
-    function now because search groups the same list by a different key
-    (``title`` / ``cast``), and a second grouping mode with its own bucket
-    builder would be two mechanisms for one idea — the model already has header
-    rows, collapse, persistence and a delegate that paints them.
-
-    ``section_key`` wins when a row carries one, so "Group by type" and a search
-    result use identical machinery and cannot drift apart.
-    """
-    return getattr(ch, "section_key", None) or ch.media_type or "other"
 
 
 class ChannelListModel(QAbstractListModel):
@@ -451,7 +435,7 @@ class ChannelListModel(QAbstractListModel):
         self._buckets = {}
         self._bucket_pos = {}
         for i, ch in enumerate(self._channels):
-            self._extend_bucket(_section_of(ch), [i])
+            self._extend_bucket(ch.section, [i])
 
     def _display_row_for_channel_index(self, ci: int) -> Optional[int]:
         """Grouped display row for a ``_channels`` index, or None if not visible."""
@@ -459,7 +443,7 @@ class ChannelListModel(QAbstractListModel):
             return ci
         if not (0 <= ci < len(self._channels)):
             return None
-        section = _section_of(self._channels[ci])
+        section = self._channels[ci].section
         if section in self._collapsed_sections:
             return None  # hidden under a collapsed header
         pos = self._bucket_pos.get(ci)

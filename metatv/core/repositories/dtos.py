@@ -171,8 +171,21 @@ class ChannelListDTO:
     sport_type: str | None = None
     league_name: str | None = None
 
+    @property
+    def section(self) -> str:
+        """Which list section this row belongs to — the ONE definition.
+
+        ``section_key`` wins when a search set one, else the media type, so a
+        search ("title"/"cast") and "Group by type" share the model's buckets,
+        collapse, persistence and delegate instead of two mechanisms for one
+        idea. A property because the row is what knows this, not the view.
+        """
+        return self.section_key or self.media_type or "other"
+
     @classmethod
-    def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
+    def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok",
+                 section_key: str | None = None,
+                 match_person: str | None = None) -> "ChannelListDTO":
         """Build a ChannelListDTO from a ChannelDB row (call inside a session).
 
         Args:
@@ -202,6 +215,8 @@ class ChannelListDTO:
             last_played_via=getattr(ch, "last_played_via", None),
             user_rating=user_rating,
             reliability_state=reliability_state,
+            section_key=section_key,
+            match_person=match_person,
             plot=getattr(ch, "_joined_plot", "") or "",
             poster_url=getattr(ch, "_joined_poster_url", "") or "",
             content_key=getattr(ch, "content_key", None),

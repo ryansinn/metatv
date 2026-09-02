@@ -27,6 +27,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QTimer
 from loguru import logger
 
+from metatv.core.repositories import search_ranking
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
@@ -865,11 +866,21 @@ class _ChannelListMixin:
         # ORM rows → DTOs so no ChannelDB crosses the boundary.
         ratings_map = repos.ratings.get_all_map()
         reliability_map = repos.stream_retry.get_reliability_map()
+
+        # Search sections: which field matched, and for a cast match WHO. One
+        # batch query for the page, same shape as the two above (never N+1),
+        # and free when there is no term.
+        term = (search_query or "").strip()
+        persons_map = search_ranking.matched_persons_map(
+            session, [c.id for c in channels], term) if term else {}
         dtos = [
             ChannelListDTO.from_orm(
                 c,
                 user_rating=ratings_map.get(c.id, 0),
                 reliability_state=reliability_map.get(c.id, "ok"),
+                section_key=(search_ranking.section_for_title(
+                    c.detected_title or c.name, term) if term else None),
+                match_person=persons_map.get(c.id),
             )
             for c in channels
         ]
