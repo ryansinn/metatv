@@ -845,6 +845,12 @@ class ProfileDB(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+#: How long ``close()`` will wait for the write lock before giving up on its
+#: statistics refresh. Deliberately ~1/30th of the connection default: on the
+#: way out, a stale query plan is invisible and a hung window is not.
+_CLOSE_BUSY_TIMEOUT_MS = 1000
+
+
 class Database:
     """Database connection manager"""
 
@@ -1516,13 +1522,31 @@ class Database:
         ``PRAGMA optimize`` re-ANALYZEs only what has drifted, and costs 0.6 ms
         when nothing has — which is almost every time. Without it the planner
         keeps reading the statistics QueryIndexTask wrote once, however many
-        rows a catalog refresh has since added. Failures are swallowed: a
-        pragma must not stop the app closing.
+        rows a catalog refresh has since added.
+
+        It runs with a SHORT busy timeout, not the connection default. Every
+        connection inherits ``busy_timeout=30000`` from the pragma listener,
+        and on close that is exactly the wrong number: if a background writer
+        is still draining, the quit blocks for a full THIRTY SECONDS and then
+        fails anyway. The owner hit it twice in one evening and killed the app
+        with Ctrl+C the second time — its log shows 21:08:02 close,
+        21:08:32 "database is locked", a 30.0 s wait for a statistics refresh
+        that is pure optimisation.
+
+        Skipping it costs a slightly stale query plan until the next launch,
+        which is invisible. Waiting for it costs half a minute of the user
+        staring at a window that will not go away.
         """
         try:
             with self.engine.connect() as conn:
+                conn.exec_driver_sql(
+                    f"PRAGMA busy_timeout={_CLOSE_BUSY_TIMEOUT_MS}")
                 conn.exec_driver_sql("PRAGMA optimize")
                 conn.commit()
+        except OperationalError as exc:
+            # Expected whenever a writer is still finishing. Not worth a
+            # traceback in the user's face on the way out.
+            logger.debug("Database: skipped PRAGMA optimize on close ({})", exc)
         except Exception:
             logger.exception("Database: PRAGMA optimize failed on close")
         self.engine.dispose()
