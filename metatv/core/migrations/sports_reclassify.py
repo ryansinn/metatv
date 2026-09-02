@@ -155,6 +155,13 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v6 (2026-09-02): the slot form's "stop:" half is stored. The 56 rows that
+#: carry it already had a start, so nothing looked broken — but "still on" was
+#: a fixed 4h guess and their real windows are 3.00h to 7.22h. 32 ran long
+#: (median 3.22h of every slot filed "Finished" while the game was on: the
+#: owner's "Nothing is ever On Now") and 24 ran short (listed as on-now after
+#: they ended, and the provider recycles the stream id, so the row played a
+#: different game). Every v5 row must be recomputed to acquire the end time.
 #: v5 (2026-09-01): the event-slot form is LOCAL wall-clock, not UTC. v4 stored
 #: it as UTC and put a game the owner was actively watching into "Finished" —
 #: worse than the empty lane it replaced. Every v4 row must be recomputed.
@@ -170,13 +177,13 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
 DERIVED_FIELDS = (
     "special_view", "sport_type", "league_name", "team_name",
-    "event_start_time", "event_metadata",
+    "event_start_time", "event_stop_time", "event_metadata",
 )
 
 #: Every channel attribute ``special_content.update_channel_special_content``

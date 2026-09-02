@@ -34,8 +34,9 @@ from metatv.gui import theme as _theme
 from metatv.gui.content_view import ContentView
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
+from metatv.core.event_datetime import event_is_on_now
 from metatv.gui.relative_time import (
-    ELAPSED_WINDOW_S, humanize_countdown, humanize_elapsed, is_countdown_live)
+    humanize_countdown, humanize_elapsed, is_countdown_live)
 from metatv.gui.view_scope import resolve_visibility_scope
 
 #: (bucket, label, tooltip). ``""`` means both buckets — the default, because
@@ -210,15 +211,18 @@ class _EventCard(QFrame):
 
         if mode == "off":
             self.countdown_label.setText("")
-        elif 0 <= (now - start).total_seconds() < ELAPSED_WINDOW_S:
-            # Under way. Elapsed rather than a progress bar: a bar needs an end,
-            # and NO row has one — of 31,296 sports rows, 377 have EPG and zero
-            # have both a parsed start and an EPG stop_time. A bar would invent
-            # its denominator and read "94%" on a game in extra time.
+        elif event_is_on_now(start, self.dto.event_stop_time, now):
+            # Under way — by the provider's OWN end time when it sent one, and
+            # only otherwise by the assumed duration. The fixed window was wrong
+            # in both directions on the 56 slot-form rows: it expired 3.22h
+            # before the median MLB slot ended (the row read as finished while
+            # the owner was watching it) and outlived the 24 shorter ones by up
+            # to an hour, which matters because the provider recycles the
+            # stream id and the row then plays a different game.
             #
-            # Bounded by the window, because without an end time "under way" has
-            # to expire: a fixture that started 20 hours ago is over, and
-            # "20h 0m in" says the opposite with confidence.
+            # An assumed duration still has to expire: a fixture that started 20
+            # hours ago is over, and "20h 0m in" says the opposite with
+            # confidence. See humanize_elapsed for why this is not a bar.
             self.countdown_label.setText(
                 humanize_elapsed(start, now) if mode == "elapsed" else "")
         else:
@@ -226,7 +230,8 @@ class _EventCard(QFrame):
 
     def wants_ticks(self, now: datetime) -> bool:
         """Whether this card's countdown changes within the second."""
-        return is_countdown_live(self.dto.event_start_time, now)
+        return is_countdown_live(self.dto.event_start_time, now,
+                                 self.dto.event_stop_time)
 
     def mouseReleaseEvent(self, event):  # noqa: N802 (Qt override)
         """A click anywhere on the card selects it; the button plays it."""

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 
 #: UTC offsets, in MINUTES, for the timezone abbreviations providers actually
 #: emit. Measured on the live corpus 2026-08-31 across 555 day-name rows:
@@ -84,6 +84,22 @@ _EVENT_ISO_RE = re.compile(
 _EVENT_STARTSTOP_IS_LOCAL = True
 _EVENT_STARTSTOP_RE = re.compile(
     r"\bstart:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
+#: The other half of the same string, and the only end time any provider sends.
+#: It was matched by nothing and thrown away, so "still on" had to be guessed
+#: from a fixed 4h window — in BOTH directions, measured on the owner's 56 rows
+#: on 2026-09-02:
+#:
+#:   * 32 slots run LONGER than 4h (median 7.22h, overrun 3.22h). ~45% of a
+#:     typical MLB slot was filed "Finished" while the game was still on. That
+#:     is the owner's "Nothing is ever On Now" — by the time anyone looked, the
+#:     row had aged out from under them.
+#:   * 24 slots run SHORTER (min 3.00h), so they sat in "On now" for up to an
+#:     hour after they ended — and the provider RECYCLES the stream id, so
+#:     opening one plays a different game than the row names.
+#:
+#: One end time fixes both directions, and it was in the name the whole time.
+_EVENT_STARTSTOP_STOP_RE = re.compile(
+    r"\bstop:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
 #: "| Sat 29 Aug 14:00 CEST (DK) |" — day-name, carries a zone and NO YEAR.
 _EVENT_DAYNAME_RE = re.compile(
     r"\|\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+"
@@ -101,6 +117,73 @@ _EVENT_AT_RE = re.compile(
 #: A provider far-future sentinel meaning "always available", not a schedule.
 #: Mirrors channel_name_utils._EVENT_SENTINEL_YEAR.
 _SENTINEL_YEAR = 2090
+
+#: How long an event is assumed to run when the provider names no end.
+#:
+#: A FALLBACK, not a rule — :func:`event_is_on_now` prefers the real stop time
+#: whenever the name carries one. It stays 4h because that is the value the
+#: three surfaces already used independently (``channel_stats.LIVE_WINDOW``,
+#: ``relative_time.ELAPSED_WINDOW_S``, ``signal_check_manager.LIVE_WINDOW``);
+#: this is where the number lives now, so the next change to it moves one
+#: definition rather than three that can disagree.
+#:
+#: An assumed duration cannot simply be made longer: it is what expires "under
+#: way", and a fixture that started 20 hours ago is over — "20h 0m in" says the
+#: opposite with confidence. That is exactly why the real end time is worth
+#: reading rather than tuning this.
+DEFAULT_EVENT_DURATION = timedelta(hours=4)
+
+
+class EventWindow(NamedTuple):
+    """A scheduled event's two ends, either of which may be absent.
+
+    ``stop`` is present only for the provider's ``start:…stop:…`` slot form;
+    every other date shape names a start and nothing else, which is why the
+    fallback above still exists.
+    """
+
+    start: "Optional[datetime]"
+    stop: "Optional[datetime]"
+
+
+def _startstop_local_to_utc(year: str, month: str, day: str,
+                            hour: str, minute: str) -> "Optional[datetime]":
+    """One slot-form timestamp, LOCAL wall-clock in, UTC-naive out.
+
+    Shared by both ends so they cannot be converted differently — a start read
+    as local and a stop read as UTC would put every window hours out of true
+    and look entirely plausible while doing it.
+    """
+    try:
+        local = datetime(int(year), int(month), int(day), int(hour), int(minute))
+    except ValueError:
+        return None
+    return local.astimezone().astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def event_is_on_now(start: "Optional[datetime]", stop: "Optional[datetime]",
+                    now: "datetime") -> bool:
+    """Whether an event is under way at *now* — the ONE definition.
+
+    Every "is this on" surface routes through here: the Sports view's live
+    lane (as the SQL in ``channel_stats._sports_lane_rank``, which must stay
+    equivalent to this), the Events view's elapsed readout, and anything added
+    later. Three separate copies of a 4h window is what this replaces.
+
+    Args:
+        start: The event's parsed start, or None for a 24/7 rack.
+        stop: The provider's own end time when it sent one, else None.
+        now: The instant to judge against. Passed in and never read from the
+            clock here, so a caller's frame and this answer agree.
+
+    Returns:
+        True when *now* falls inside the window. A row with no start is never
+        on now — it is a feed that is always available, which is a different
+        thing and is not this function's to claim.
+    """
+    if start is None or now < start:
+        return False
+    return now < (stop if stop is not None else start + DEFAULT_EVENT_DURATION)
 
 
 def _resolve_year_by_weekday(month: int, day: int, weekday: str,
@@ -155,7 +238,25 @@ def _nearest_year(month: int, day: int, reference: "date") -> Optional[int]:
 
 def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
                          ) -> Optional[datetime]:
-    """Extract a pipe-form event's scheduled start as a **UTC-naive** datetime.
+    """A pipe-form event's scheduled START, or None. See :func:`parse_event_window`.
+
+    Kept as the name almost every caller uses, and as a thin read of the one
+    parser rather than a second copy of it: a start-only shortcut that walked
+    the regexes itself is how the two ends would drift apart.
+
+    Args:
+        name: The raw channel name.
+        reference: "Today", for the year-less forms.
+
+    Returns:
+        The UTC-naive start, or None when no date is present.
+    """
+    return parse_event_window(name, reference=reference).start
+
+
+def parse_event_window(name: str, *, reference: "Optional[date]" = None
+                       ) -> EventWindow:
+    """Extract a pipe-form event's window as **UTC-naive** datetimes.
 
     Handles all three date shapes the providers emit, and converts from the
     zone named in the string. Returns None when the name carries no date, which
@@ -184,10 +285,12 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
             comparison, never re-read from the clock underneath.
 
     Returns:
-        The UTC-naive start, or None when no date is present.
+        An :class:`EventWindow`. ``stop`` is set only for the slot form, which
+        is the one shape that carries an end; ``EventWindow(None, None)`` when
+        the name carries no date at all.
     """
     if not name:
-        return None
+        return EventWindow(None, None)
     if reference is None:
         from metatv.core.epg_utils import now_utc
         reference = now_utc().date()
@@ -201,13 +304,19 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
         # These carry NO zone and are local wall-clock (see the pattern's note),
         # so convert to the UTC-naive value the rest of the system stores. The
         # other forms name their zone and are handled by the shared offset below.
-        year, month, day, hour, minute = m.groups()
-        year, month, day = int(year), int(month), int(day)
-        try:
-            _local = datetime(year, month, day, int(hour), int(minute))
-        except ValueError:
-            return None
-        return _local.astimezone().astimezone(timezone.utc).replace(tzinfo=None)
+        start = _startstop_local_to_utc(*m.groups())
+        if start is None:
+            return EventWindow(None, None)
+        stop = None
+        if (ms := _EVENT_STARTSTOP_STOP_RE.search(name)) is not None:
+            stop = _startstop_local_to_utc(*ms.groups())
+            if stop is not None and stop <= start:
+                # A stop at or before its own start is malformed, and honouring
+                # it would read as "already finished" on a fixture that has not
+                # begun. Falling back to the assumed duration is the recoverable
+                # answer; trusting the number is not.
+                stop = None
+        return EventWindow(start, stop)
     elif (m := _EVENT_DMY_RE.search(name)) is not None:
         day, month, year, hour, minute, tz_name = m.groups()
         year, month, day = int(year), int(month), int(day)
@@ -218,21 +327,22 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
         weekday, day, month_name, hour, minute, tz_name = m.groups()
         month = _EVENT_MONTHS.get(month_name[:3].lower())
         if month is None:
-            return None
+            return EventWindow(None, None)
         day = int(day)
         year = _resolve_year_by_weekday(month, day, weekday, reference)
         if year is None:
-            return None
+            return EventWindow(None, None)
     elif (m := _EVENT_PAREN_TS_RE.search(name)) is not None:
         year, month, day, hour, minute = m.groups()
         year, month, day = int(year), int(month), int(day)
         if year >= _SENTINEL_YEAR:
-            return None          # "always available", not a scheduled start
+            # "always available", not a scheduled start
+            return EventWindow(None, None)
     elif (m := _EVENT_AT_RE.search(name)) is not None:
         month_name, day, hour, minute, meridiem = m.groups()
         month = _EVENT_MONTHS.get(month_name[:3].lower())
         if month is None:
-            return None
+            return EventWindow(None, None)
         day, hour = int(day), int(hour)
         if hour == 12:
             hour = 0
@@ -240,16 +350,18 @@ def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
             hour += 12
         year = _nearest_year(month, day, reference)
         if year is None:
-            return None
+            return EventWindow(None, None)
     else:
-        return None
+        return EventWindow(None, None)
 
     try:
         local = datetime(year, month, day, int(hour), int(minute))
     except ValueError:
-        return None      # 31 Feb, hour 25 — malformed, not parseable
+        return EventWindow(None, None)   # 31 Feb, hour 25 — malformed
 
     offset = _EVENT_TZ_OFFSET_MIN.get((tz_name or "").upper(), 0)
-    return local - timedelta(minutes=offset)
+    # No end: these forms name a start and nothing else, so a caller falls back
+    # to DEFAULT_EVENT_DURATION via event_is_on_now.
+    return EventWindow(local - timedelta(minutes=offset), None)
 
 

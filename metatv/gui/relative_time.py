@@ -26,6 +26,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from metatv.core.event_datetime import (DEFAULT_EVENT_DURATION,
+                                        event_is_on_now)
+
 # The ladder, coarsest-last. Each rung is (upper bound in seconds, formatter).
 _MINUTE = 60
 _HOUR = 60 * _MINUTE
@@ -218,44 +221,54 @@ def humanize_countdown(start: "datetime | None", now: "datetime") -> str:
     return "any moment"
 
 
-#: How long after its start an event is still shown as under way. No provider
-#: sends an end time and no row has both a parsed start and an EPG stop_time
-#: (measured 2026-08-31: 377 of 31,296 sports rows have EPG at all, and ZERO
-#: have both), so "still on" is a window rather than a fact.
-ELAPSED_WINDOW_S = 4 * _HOUR
+#: How long after its start an event is shown as under way when the provider
+#: sends NO end time. One shape does send one — the "start:… stop:…" slot form,
+#: carried on ``event_stop_time`` — and :func:`event_is_on_now` prefers it; this
+#: is the fallback for everything else. Derived rather than a second literal:
+#: the same 4h existed here, in ChannelStatsRepository.LIVE_WINDOW and in
+#: signal_check_manager, and three copies of one number can disagree.
+ELAPSED_WINDOW_S = DEFAULT_EVENT_DURATION.total_seconds()
 
 
-def is_countdown_live(start: "datetime | None", now: "datetime") -> bool:
+def is_countdown_live(start: "datetime | None", now: "datetime",
+                      stop: "datetime | None" = None) -> bool:
     """Whether this row's time string still moves and is worth repainting.
 
     The Events view repaints on a MINUTE timer, and a grid of 2,800 rows that
     all read ``"in 3d 4h"`` gains nothing from ticking — the string is stable
-    for the next hour. Rows under a day out, or under way within
-    :data:`ELAPSED_WINDOW_S`, are the ones whose text actually changes.
+    for the next hour. Rows under a day out, or under way, are the ones whose
+    text actually changes.
 
     Args:
         start: The event's start, or None.
         now: The instant to measure from.
+        stop: The provider's own end time when it sent one. Without it a row on
+            a 7h slot stopped ticking 4h in — while still on — and froze its
+            elapsed readout mid-game.
 
     Returns:
-        True when *start* is within a day ahead or the elapsed window behind.
+        True when *start* is within a day ahead, or the event is under way.
     """
     if start is None:
         return False
+    if event_is_on_now(start, stop, now):
+        return True
     delta = (start - now).total_seconds()
-    return -ELAPSED_WINDOW_S <= delta < _DAY
+    return 0 <= delta < _DAY
 
 
 def humanize_elapsed(start: "datetime | None", now: "datetime") -> str:
     """How long an event has been under way — ``"58m in"``, ``"2h 5m in"``.
 
-    **Deliberately not a progress bar.** A bar needs an end, and there is none
-    to be had: no provider sends a duration, ``event_metadata`` carries only a
-    start, and of 31,296 sports rows exactly **zero** have both a parsed start
-    and an EPG ``stop_time`` to borrow one from. A bar would therefore have to
-    invent its denominator from an assumed match length — and it would read
-    "94%" on a game in extra time, which is the same shape of confident wrongness
-    as the provider's own ``LIVE`` token that this view already declines to trust.
+    **Deliberately not a progress bar**, and the reason has narrowed rather
+    than gone away. It used to be that no end time existed anywhere; that is no
+    longer true — the slot form sends one and it is now stored on
+    ``event_stop_time``. But it covers 56 rows of 31,296, so a bar would appear
+    on a handful and be absent on the rest, and on the rest it would have to
+    invent its denominator from an assumed match length: "94%" on a game in
+    extra time, the same confident wrongness as the provider's own ``LIVE``
+    token this view already declines to trust. A bar becomes the right call
+    when most rows carry an end, not when a few do.
 
     Elapsed is what is actually known. When a sports data feed lands (ROADMAP:
     live event status) a real bar becomes possible and this is where it goes.

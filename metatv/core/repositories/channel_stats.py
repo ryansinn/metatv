@@ -6,15 +6,16 @@ changed — ChannelRepository composes _ChannelStatsMixin.
 """
 import re
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List, Dict
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 
 from metatv.core import channel_visibility
 from metatv.core.channel_visibility import VisibilityScope
 from metatv.core.database import ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc
+from metatv.core.event_datetime import DEFAULT_EVENT_DURATION
 from metatv.core.repositories.dtos import ChannelListDTO, SpecialContentDTO
 from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
@@ -288,10 +289,11 @@ class _ChannelStatsMixin:
             channel_cls=ChannelDB,
         )
 
-    #: How long after its start a fixture is still treated as under way. No
-    #: provider sends an end time, so "on now" is a window rather than a fact —
-    #: see relative_time.ELAPSED_WINDOW_S, which this mirrors.
-    LIVE_WINDOW = timedelta(hours=4)
+    #: How long after its start a fixture is treated as under way when the
+    #: provider sent NO end time — most of them. The slot form does send one
+    #: (``event_stop_time``) and the lane CASE prefers it; this is the fallback,
+    #: and it is the shared definition rather than a fourth private 4h.
+    LIVE_WINDOW = DEFAULT_EVENT_DURATION
 
     #: Lane keys, in the order the rundown presents them.
     SPORTS_LANES = ("live", "upcoming", "channels", "finished", "placeholders")
@@ -338,6 +340,7 @@ class _ChannelStatsMixin:
         this expression would let a chip disagree with the rows beneath it.
         """
         started = ChannelDB.event_start_time
+        stopped = ChannelDB.event_stop_time
         return case(
             # First: a placeholder is never a fixture, whatever else it looks
             # like. Its own lane rather than a filter, so "collapse, never hide"
@@ -346,7 +349,15 @@ class _ChannelStatsMixin:
              self.SPORTS_LANES.index("placeholders")),
             (started.is_(None), self.SPORTS_LANES.index("channels")),
             (started > now, self.SPORTS_LANES.index("upcoming")),
-            (started > now - self.LIVE_WINDOW, self.SPORTS_LANES.index("live")),
+            # The row has started. It is still on until its OWN end time when
+            # the provider sent one, and only then falls back to the assumed
+            # duration. Must stay equivalent to event_datetime.event_is_on_now,
+            # which is the same rule in Python for the Events view — the SQL
+            # cannot call it, so the two are pinned together by test
+            # ``test_sql_lane_agrees_with_the_python_predicate``.
+            (or_(and_(stopped.isnot(None), stopped > now),
+                 and_(stopped.is_(None), started > now - self.LIVE_WINDOW)),
+             self.SPORTS_LANES.index("live")),
             else_=self.SPORTS_LANES.index("finished"),
         )
 

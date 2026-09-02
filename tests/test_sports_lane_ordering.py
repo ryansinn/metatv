@@ -36,13 +36,16 @@ def db(tmp_path):
 
 
 def _seed(database, rows):
-    """rows: [(name, start_or_None)]"""
+    """rows: [(name, start_or_None)] or [(name, start, stop)]"""
     with database.session_scope() as session:
-        for i, (name, start) in enumerate(rows):
+        for i, row in enumerate(rows):
+            name, start = row[0], row[1]
+            stop = row[2] if len(row) > 2 else None
             session.add(ChannelDB(
                 id=f"c{i}", source_id=str(i), provider_id="p", name=name,
                 stream_url="u", media_type="live", special_view="sports",
                 sport_type="tennis", event_start_time=start,
+                event_stop_time=stop,
             ))
 
 
@@ -153,3 +156,86 @@ def test_now_is_taken_from_the_caller_not_the_clock(db):
             VisibilityScope(), now=later, lane="finished")
     # Five dated rows; the 24/7 channel stays a channel.
     assert len(rows) == 5
+
+
+# ── the provider's own end time ──────────────────────────────────────────────
+#
+# ``LIVE_WINDOW`` is an assumed duration, and the slot form makes it unnecessary
+# for the rows that carry one. Measured on the owner's 56 slot rows 2026-09-02:
+# windows run 3.00h to 7.22h, so the fixed 4h was wrong in BOTH directions.
+
+#: The real MLB slot length on the owner's library — every long row is this.
+_SLOT = datetime.timedelta(hours=7, minutes=13)
+
+
+def test_a_long_slot_is_still_live_past_the_assumed_duration(db):
+    """The owner's "Nothing is ever On Now", as an invariant.
+
+    32 of the 56 rows run longer than ``LIVE_WINDOW`` — median 7.22h — so the
+    assumed duration expired a median 3.22h before the game did, and ~45% of
+    every slot read "Finished" while it was being watched.
+
+    Fails against the pre-fix CASE, which files this row under ``finished``.
+    """
+    started = NOW - datetime.timedelta(hours=5)      # 5h into a 7h13m slot
+    _seed(db, [("MLB 04 | Mariners x Red Sox", started, started + _SLOT)])
+    assert _names(db, lane="live") == ["MLB 04 | Mariners x Red Sox"]
+    assert _names(db, lane="finished") == []
+
+
+def test_a_short_slot_is_finished_before_the_assumed_duration(db):
+    """The other direction — the one that plays a different game.
+
+    24 of the 56 run SHORTER than ``LIVE_WINDOW`` (min 3.00h). Listing a
+    finished fixture as on-now is worse than clutter: the provider recycles the
+    stream id, so opening it serves whatever occupies that slot now — the user
+    is shown one title and served another.
+
+    Fails against the pre-fix CASE, which files this row under ``live``.
+    """
+    started = NOW - datetime.timedelta(hours=3, minutes=30)
+    _seed(db, [("MLB 01 | Rays x Tigers", started,
+                started + datetime.timedelta(hours=3))])
+    assert _names(db, lane="live") == []
+    assert _names(db, lane="finished") == ["MLB 01 | Rays x Tigers"]
+
+
+def test_a_row_with_no_end_time_still_uses_the_assumed_duration(db):
+    """The fallback must survive: 56 rows of 31,296 carry an end time.
+
+    Reading the new column must not quietly make every OTHER dated fixture
+    un-classifiable — that would trade one empty lane for a much larger one.
+    """
+    from metatv.core.repositories.channel_stats import _ChannelStatsMixin as _M
+    window = _M.LIVE_WINDOW
+    _seed(db, [
+        ("no end, just inside",  NOW - window + datetime.timedelta(minutes=1)),
+        ("no end, just outside", NOW - window - datetime.timedelta(minutes=1)),
+    ])
+    assert _names(db, lane="live") == ["no end, just inside"]
+    assert _names(db, lane="finished") == ["no end, just outside"]
+
+
+def test_sql_lane_agrees_with_the_python_predicate(db):
+    """The lane CASE and ``event_is_on_now`` are one rule in two languages.
+
+    SQL cannot call the Python predicate, so nothing but this stops them
+    drifting — and a drift shows up as the Sports view and the Events view
+    disagreeing about the same fixture, which is unfalsifiable from either one
+    on its own.
+    """
+    from metatv.core.event_datetime import event_is_on_now
+
+    hours = datetime.timedelta(hours=1)
+    cases = []
+    for start_h in (-9, -7, -5, -4, -3, -1, 0, 1):
+        for dur_h in (None, 3, 4, 7):
+            start = NOW + start_h * hours
+            stop = None if dur_h is None else start + dur_h * hours
+            cases.append((f"s{start_h}_d{dur_h}", start, stop))
+    _seed(db, cases)
+
+    from_sql = set(_names(db, lane="live"))
+    from_python = {n for n, start, stop in cases
+                   if event_is_on_now(start, stop, NOW)}
+    assert from_sql == from_python
