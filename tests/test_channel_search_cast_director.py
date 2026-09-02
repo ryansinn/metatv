@@ -3,7 +3,7 @@
 Before this fix, every text-search call site (``_apply_channel_filters``,
 ``ChannelRepository.search``, ``get_similar_channels``, ``get_hidden_channels``)
 only matched ``ChannelDB.name.ilike(...)``. They now all route through the shared
-``_channel_text_search_predicate`` helper, which also matches
+``channel_text_search_predicate`` helper, which also matches
 ``MetadataDB.director``/``MetadataDB.cast`` (joined via ``ChannelDB.metadata_id``)
 so a search for an actor/director finds the title even when the channel *name*
 doesn't mention them.

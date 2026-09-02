@@ -28,7 +28,11 @@ from pathlib import Path
 import pytest
 
 from metatv.core.database import ChannelDB, Database, ProviderDB
-from metatv.core.repositories.channel import _channel_text_search_predicate
+# Imported from the module that DEFINES it (CLAUDE.md). It moved to
+# search_ranking so channel_user_state could share it without a circular
+# import, and lost its underscore because two modules now use it.
+from metatv.core.repositories.search_ranking import (
+    channel_text_search_predicate)
 
 
 @pytest.fixture
@@ -52,7 +56,7 @@ def _ch(session, cid, *, source_id, provider_id="p1", name="A Channel"):
 
 def _find(session, term):
     return session.query(ChannelDB).filter(
-        _channel_text_search_predicate(term)).all()
+        channel_text_search_predicate(term)).all()
 
 
 def test_the_full_channel_id_finds_exactly_that_channel(session):
