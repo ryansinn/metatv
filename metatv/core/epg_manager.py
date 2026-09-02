@@ -26,6 +26,7 @@ from metatv.core.epg_utils import (
 )
 from metatv.core.models import Provider
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.watchlist_burst import burst_banner
 from metatv.core.repositories.epg import delete_programmes_chunked
 from metatv.core.repositories.provider import parse_provider_urls, persist_url_stats
 from metatv.core.url_cycle import UrlCycler
@@ -98,60 +99,6 @@ EPG_KIND = "monitor"
 
 #: A guide fetch displaces nothing.
 EPG_PREEMPTS: tuple[str, ...] = ()
-
-
-#: Titles listed by name in a burst banner before it switches to a count.
-#: Three fits the banner at its normal width without wrapping to a third line;
-#: past that the names stop being scannable and the number is the useful part.
-BURST_NAMED_LIMIT = 3
-
-#: Auto-dismiss for a burst. Longer than the 10s a single alert gets, because
-#: there is more to read and missing it means missing several shows, not one.
-BURST_DISMISS_MS = 15_000
-
-SINGLE_DISMISS_MS = 10_000
-
-
-def _burst_banner(pending: list[tuple[str, str, str]]) -> tuple[str, str, int]:
-    """Compose ONE banner for everything a single 60-second tick found.
-
-    This used to emit one banner per programme, and on a real library that is a
-    toast every couple of minutes all evening — the owner's idle log showed
-    seven land in the same second at 01:15, because programmes cluster on the
-    half hour and every one of them entered the 15-minute window together.
-
-    A tick is the right unit to coalesce on, and not by approximation: after the
-    first sweep each tick only picks up programmes NEWLY inside the lead window,
-    so everything in one ``pending`` list starts within about the same minute.
-    Alerts genuinely minutes apart still arrive as separate banners, which is
-    what makes this a fix for a burst rather than a cap on the feature.
-
-    One programme keeps the banner it always had, naming the channel and the
-    time — no summary is clearer than the thing itself.
-
-    Args:
-        pending: ``(title, channel_name, time_str)`` per matching programme, in
-            the order the query returned them.
-
-    Returns:
-        ``(banner_title, banner_message, auto_dismiss_ms)``.
-    """
-    if len(pending) == 1:
-        title, channel_name, time_str = pending[0]
-        return (f"Starting {time_str}: {title}", f"On {channel_name}",
-                SINGLE_DISMISS_MS)
-
-    # The shared "in N min" reads as one clause when every programme agrees on
-    # it, which after the first sweep is the normal case. When a tick catches a
-    # spread (the first sweep, or a resume from sleep), say nothing rather than
-    # pick one time and be wrong about the rest.
-    times = {t for _title, _chan, t in pending}
-    when = f" {times.pop()}" if len(times) == 1 else ""
-
-    named = [t for t, _chan, _time in pending[:BURST_NAMED_LIMIT]]
-    rest = len(pending) - len(named)
-    listed = ", ".join(named) + (f" and {rest} more" if rest else "")
-    return (f"{len(pending)} shows starting{when}", listed, BURST_DISMISS_MS)
 
 
 class EpgManager(QObject):
@@ -1391,7 +1338,7 @@ class EpgManager(QObject):
                     pending.append((prog.title, channel_name, time_str))
 
             if not self._shutting_down and pending:
-                title, message, dismiss_ms = _burst_banner(pending)
+                title, message, dismiss_ms = burst_banner(pending)
                 self._notify.emit(title, message, "info", dismiss_ms)
         except Exception as e:
             logger.error(f"EPG notification check error: {e}")

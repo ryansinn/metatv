@@ -22,8 +22,10 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from metatv.core.epg_manager import (
-    BURST_DISMISS_MS, BURST_NAMED_LIMIT, SINGLE_DISMISS_MS, _burst_banner,
+# From the module that DEFINES them (CLAUDE.md): they live in watchlist_burst,
+# and epg_manager merely imports the composer.
+from metatv.core.watchlist_burst import (
+    BURST_DISMISS_MS, BURST_NAMED_LIMIT, SINGLE_DISMISS_MS, burst_banner,
 )
 
 
@@ -33,7 +35,7 @@ def _prog(title, channel="BBC One", when="in 15 min"):
 
 def test_one_programme_keeps_the_banner_it_always_had() -> None:
     """No summary is clearer than the thing itself."""
-    title, message, dismiss = _burst_banner([_prog("Match of the Day")])
+    title, message, dismiss = burst_banner([_prog("Match of the Day")])
 
     assert title == "Starting in 15 min: Match of the Day"
     assert message == "On BBC One"
@@ -43,7 +45,7 @@ def test_one_programme_keeps_the_banner_it_always_had() -> None:
 def test_seven_at_once_becomes_one_banner() -> None:
     """The owner's 01:15 case, verbatim."""
     pending = [_prog(f"Show {i}") for i in range(1, 8)]
-    title, message, dismiss = _burst_banner(pending)
+    title, message, dismiss = burst_banner(pending)
 
     assert title == "7 shows starting in 15 min"
     assert message == "Show 1, Show 2, Show 3 and 4 more"
@@ -52,17 +54,17 @@ def test_seven_at_once_becomes_one_banner() -> None:
 
 def test_a_burst_names_what_it_can_and_counts_the_rest() -> None:
     """Names stop being scannable past a few; the number is the useful part."""
-    named = _burst_banner([_prog(f"S{i}") for i in range(BURST_NAMED_LIMIT)])[1]
+    named = burst_banner([_prog(f"S{i}") for i in range(BURST_NAMED_LIMIT)])[1]
     assert named == ", ".join(f"S{i}" for i in range(BURST_NAMED_LIMIT))
     assert "more" not in named, "nothing was left over, so say nothing about it"
 
-    over = _burst_banner([_prog(f"S{i}") for i in range(BURST_NAMED_LIMIT + 1)])[1]
+    over = burst_banner([_prog(f"S{i}") for i in range(BURST_NAMED_LIMIT + 1)])[1]
     assert over.endswith(" and 1 more")
 
 
 def test_two_is_already_a_burst() -> None:
     """No threshold beyond 'more than one' — two toasts at once is the bug."""
-    title, message, _ = _burst_banner([_prog("A"), _prog("B")])
+    title, message, _ = burst_banner([_prog("A"), _prog("B")])
     assert title == "2 shows starting in 15 min"
     assert message == "A, B"
 
@@ -74,7 +76,7 @@ def test_a_spread_of_start_times_says_no_time_rather_than_a_wrong_one() -> None:
     window together — so the shared clause is the normal case and this is the
     exception that must not print a confident wrong answer.
     """
-    title, _message, _ = _burst_banner(
+    title, _message, _ = burst_banner(
         [_prog("A", when="in 2 min"), _prog("B", when="in 14 min")])
 
     assert title == "2 shows starting", f"picked a time it could not know: {title}"
@@ -82,7 +84,7 @@ def test_a_spread_of_start_times_says_no_time_rather_than_a_wrong_one() -> None:
 
 def test_the_channel_is_dropped_from_a_burst_on_purpose() -> None:
     """Seven channels will not fit; the titles are what identify the shows."""
-    _title, message, _ = _burst_banner(
+    _title, message, _ = burst_banner(
         [_prog("A", channel="BBC One"), _prog("B", channel="ITV2")])
 
     assert "BBC One" not in message and "ITV2" not in message
@@ -153,6 +155,6 @@ def test_the_worker_composes_through_the_shared_helper() -> None:
     """It must not hand-roll the banner text beside the tested composer."""
     called = {n.func.id for n in ast.walk(_func("_watchlist_notification_worker"))
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    assert "_burst_banner" in called, (
+    assert "burst_banner" in called, (
         "the worker builds its banner some other way — then every test above "
         "is checking a function the app does not use.")
