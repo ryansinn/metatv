@@ -57,8 +57,8 @@ def test_the_row_lays_its_controls_out_top_to_bottom_with_the_summary_last(qapp)
     """
     host, ed = _editor(qapp)
     try:
-        rows = [ed.mode_combo, ed.include_input, ed.exclude_input,
-                ed.whole_word_check, ed.summary_label]
+        rows = [ed.mode_chips[PHRASE], ed.include_input, ed.exclude_input,
+                ed.description_chip, ed.summary_label]
         tops = [w.mapTo(host, w.rect().topLeft()).y() for w in rows]
 
         assert tops == sorted(tops), (
@@ -69,7 +69,7 @@ def test_the_row_lays_its_controls_out_top_to_bottom_with_the_summary_last(qapp)
             assert widget.height() > 0 and widget.width() > 0, (
                 f"{widget} rendered with no area")
         assert ed.summary_label.mapTo(host, ed.summary_label.rect().topLeft()).y() > \
-            ed.whole_word_check.mapTo(host, ed.whole_word_check.rect().bottomLeft()).y() - 1, \
+            ed.description_chip.mapTo(host, ed.description_chip.rect().bottomLeft()).y() - 1, \
             "the summary must sit below the controls it describes"
     finally:
         _destroy(host, qapp)
@@ -86,7 +86,7 @@ def test_each_field_sits_BESIDE_its_label_in_a_real_two_column_form(qapp):
     """
     host, ed = _editor(qapp)
     try:
-        for field in (ed.mode_combo, ed.include_input, ed.exclude_input):
+        for field in (ed.include_input, ed.exclude_input):
             label = ed.form.labelForField(field)
             assert label is not None, f"{field} has no form label"
             label_right = label.mapTo(host, label.rect().topRight()).x()
@@ -157,7 +157,7 @@ def test_editing_clears_a_count_that_now_describes_the_old_rule(qapp):
         ed.set_rule(WatchRule(term="Denver"))
         ed.set_counts(18, 0)
         assert "18 matches" in ed.summary_label.text()
-        ed.whole_word_check.setChecked(False)
+        ed.whole_word_chip.click()
         assert "18 matches" not in ed.summary_label.text(), (
             "a stale number beside a just-edited rule is worse than no number")
         assert "counting…" in ed.summary_label.text()
@@ -194,7 +194,7 @@ def test_set_rule_does_not_emit(qapp):
         ed.set_rule(WatchRule(term="Denver, Broncos", match_mode=ANY_WORD,
                               exclude=("news",), search_description=True))
         assert seen == []
-        assert ed.mode_combo.currentData() == ANY_WORD
+        assert ed._current_mode() == ANY_WORD
         assert ed.include_input.text() == "Denver, Broncos"
         assert ed.exclude_input.text() == "news"
     finally:
@@ -209,10 +209,10 @@ def test_every_control_emits_a_complete_rule(qapp):
         ed.set_rule(WatchRule(term="Denver"))
         ed.include_input.setText("Denver, Broncos")
         ed.include_input.editingFinished.emit()
-        ed.mode_combo.setCurrentIndex(ed.mode_combo.findData(ANY_WORD))
+        ed.mode_chips[ANY_WORD].click()
         ed.exclude_input.setText("news, pregame")
         ed.exclude_input.editingFinished.emit()
-        ed.description_check.setChecked(True)
+        ed.description_chip.click()
 
         assert len(seen) == 4
         final = seen[-1]
@@ -230,7 +230,7 @@ def test_a_fresh_editor_describes_the_settled_default_not_a_bare_checkbox(qapp):
     opposite of what a new rule actually does."""
     host, ed = _editor(qapp)
     try:
-        assert ed.whole_word_check.isChecked() is True
+        assert ed.whole_word_chip.is_enabled() is True
         assert "Whole words only" in ed.summary_label.text()
         assert ed.rule().match_mode == PHRASE
     finally:
@@ -313,7 +313,7 @@ def test_the_card_attaches_a_collapsed_editor_that_the_toggle_opens(qapp, tmp_pa
         qapp.processEvents()
         assert editor.isVisible() is True
         assert editor.height() > 0, "expanded to nothing"
-        assert "Rule" in toggle.text()
+        assert "Edit" in toggle.text()
 
         toggle.click()
         qapp.processEvents()
@@ -365,3 +365,110 @@ def test_renaming_via_the_include_field_moves_the_rule(qapp, tmp_path):
             "the renamed rule lost the fields that were saved with it")
     finally:
         watchlist.unbind()
+
+
+# ---------------------------------------------------------------------------
+# Compose mode — "Track Something New"
+# ---------------------------------------------------------------------------
+
+def test_compose_mode_will_not_commit_an_empty_entry(qapp):
+    """A blank entry would match nothing and clutter the list."""
+    from metatv.gui.watch_rule_editor import WatchRuleEditor
+
+    ed = WatchRuleEditor(compose=True)
+    got = []
+    ed.rule_committed.connect(got.append)
+    try:
+        assert ed.add_btn.isEnabled() is False
+        ed.include_input.setText("   ")
+        assert ed.add_btn.isEnabled() is False, "whitespace is not a term"
+        ed.include_input.setText("Severance")
+        assert ed.add_btn.isEnabled() is True
+        ed.add_btn.click()
+        assert [r.term for r in got] == ["Severance"]
+    finally:
+        _destroy(ed, qapp)
+
+
+def test_compose_mode_does_not_live_edit(qapp):
+    """A half-typed new entry must not be written on every keystroke.
+
+    ``rule_changed`` is the live-edit signal for an EXISTING entry. In compose
+    mode the commit is the Track It button, so firing it here would create an
+    entry called "Sev" on the way to "Severance".
+    """
+    from metatv.gui.watch_rule_editor import WatchRuleEditor
+
+    ed = WatchRuleEditor(compose=True)
+    live = []
+    ed.rule_changed.connect(live.append)
+    try:
+        ed.include_input.setText("Sev")
+        ed.include_input.editingFinished.emit()
+        ed.description_chip.click()
+        assert live == []
+    finally:
+        _destroy(ed, qapp)
+
+
+def test_compose_carries_every_control_into_the_committed_entry(qapp):
+    """The point of replacing the text box: the extra fields actually arrive."""
+    from metatv.core.watchlist_matching import ALL_WORDS
+    from metatv.gui.watch_rule_editor import WatchRuleEditor
+
+    ed = WatchRuleEditor(compose=True)
+    got = []
+    ed.rule_committed.connect(got.append)
+    try:
+        ed.include_input.setText("Denver, Broncos")
+        ed.exclude_input.setText("news, pregame")
+        ed.mode_chips[ALL_WORDS].click()
+        ed.description_chip.click()
+        ed.whole_word_chip.click()
+        ed.add_btn.click()
+
+        rule = got[-1]
+        assert rule.terms == ("Denver", "Broncos")
+        assert rule.exclude == ("news", "pregame")
+        assert rule.match_mode == ALL_WORDS
+        assert rule.search_description is True
+        assert rule.whole_word is False
+    finally:
+        _destroy(ed, qapp)
+
+
+def test_the_mode_track_is_a_choice_not_three_switches(qapp):
+    """Clicking the ACTIVE segment must not leave the entry with no mode.
+
+    ToggleChip flips itself on click, so without the handler forcing the
+    clicked mode back on, a second click on "Phrase" would turn every mode off
+    and ``_current_mode`` would silently fall back — a rule quietly changing
+    what it matches because you clicked the thing it already was.
+    """
+    from metatv.core.watchlist_matching import ANY_WORD
+    from metatv.gui.watch_rule_editor import WatchRuleEditor
+
+    ed = WatchRuleEditor()
+    try:
+        ed.mode_chips[ANY_WORD].click()
+        assert ed._current_mode() == ANY_WORD
+        assert [m for m, c in ed.mode_chips.items() if c.is_enabled()] == [ANY_WORD]
+
+        ed.mode_chips[ANY_WORD].click()
+        assert ed._current_mode() == ANY_WORD, "clicking the active mode blanked it"
+        assert [m for m, c in ed.mode_chips.items() if c.is_enabled()] == [ANY_WORD]
+    finally:
+        _destroy(ed, qapp)
+
+
+def test_title_stays_searched_however_often_it_is_clicked(qapp):
+    """Turning Title off would be a rule that searches nothing."""
+    from metatv.gui.watch_rule_editor import WatchRuleEditor
+
+    ed = WatchRuleEditor()
+    try:
+        for _ in range(3):
+            ed.title_chip.click()
+            assert ed.title_chip.is_enabled() is True
+    finally:
+        _destroy(ed, qapp)

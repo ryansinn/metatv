@@ -580,8 +580,13 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
 
         # Watchlist / My Channels / Discover tabs (epg_watchlist_mixin.py)
-        _theme.style(self._watchlist_hint_lbl, "LABEL_MUTED")
-        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
+        # The add-row's hint and case-note labels are gone with the bare text
+        # box; the "Track Something New" button that replaced them needs no
+        # entry here at all, because theme.style() registers it weakly and
+        # apply_theme() re-applies from that registry. That is what this hand-
+        # maintained sweep is being retired in favour of — an enumeration never
+        # sees what nobody remembered to add, and here it broke on what nobody
+        # remembered to REMOVE.
         _theme.style(self.ch_empty_label, "EMPTY_LABEL")
         _theme.style(self._rec_title_lbl, "CHANNEL_NAME_DIM")
         _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")

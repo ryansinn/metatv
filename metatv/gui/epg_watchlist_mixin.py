@@ -54,7 +54,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -104,27 +103,31 @@ class _EpgWatchlistMixin:
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
-        # Add-keyword row
-        self._watchlist_hint_lbl = QLabel("Track a show or keyword — press Enter or click Track to add:")
-        _theme.style(self._watchlist_hint_lbl, "LABEL_MUTED")
-        layout.addWidget(self._watchlist_hint_lbl)
+        # A bare text box stopped fitting the moment a watchlist entry grew a
+        # match mode, an exclude list and a scope. Owner: *"having just the
+        # plain text box does not work with the complexity of the watchlist
+        # rule now."* So the same editor that EDITS an entry now composes one,
+        # behind a disclosure — the list stays scannable and the form you fill
+        # in is the form you come back to.
+        from metatv.gui.watch_rule_editor import WatchRuleEditor
 
-        add_row = QHBoxLayout()
-        self.add_pattern_input = QLineEdit()
-        self.add_pattern_input.setClearButtonEnabled(True)
-        self.add_pattern_input.setPlaceholderText("e.g.  NHL  ·  Jeopardy  ·  MasterChef Canada")
-        self.add_pattern_input.setToolTip("Pattern matching is not case-sensitive")
-        self.add_pattern_input.returnPressed.connect(self._on_add_pattern)
-        add_row.addWidget(self.add_pattern_input, 1)
-        self.add_btn = QPushButton("Track")
-        self.add_btn.setFixedWidth(60)
-        self.add_btn.clicked.connect(self._on_add_pattern)
-        add_row.addWidget(self.add_btn)
-        layout.addLayout(add_row)
+        self._new_item_btn = QPushButton(
+            f"{_icons.add_icon}  Track Something New")
+        _theme.style(self._new_item_btn, "WATCHLIST_TRACK_CTA")
+        cursor_affordance.set_clickable(self._new_item_btn)
+        self._new_item_btn.setToolTip(
+            "Watch for a show or keyword across all of your sources")
+        self._new_item_btn.clicked.connect(self._toggle_compose)
+        new_row = QHBoxLayout()
+        new_row.addWidget(self._new_item_btn)
+        new_row.addStretch()
+        layout.addLayout(new_row)
 
-        self._watchlist_ci_note_lbl = QLabel("Patterns are not case-sensitive")
-        _theme.style_fn(self._watchlist_ci_note_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
-        layout.addWidget(self._watchlist_ci_note_lbl)
+        self._compose_editor = WatchRuleEditor(compose=True)
+        self._compose_editor.setVisible(False)
+        self._compose_editor.rule_committed.connect(self._on_compose_committed)
+        self._compose_editor.cancelled.connect(self._close_compose)
+        layout.addWidget(self._compose_editor)
 
         # Pattern cards — responsive FlowLayout
         self.watchlist_scroll = QScrollArea()
@@ -603,7 +606,7 @@ class _EpgWatchlistMixin:
             _theme.style_fn(live_lbl, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
             header.addWidget(live_lbl)
 
-        edit_btn = QPushButton(f"Rule {_icons.expand_icon}")
+        edit_btn = QPushButton(f"Edit {_icons.expand_icon}")
         edit_btn.setFlat(True)
         _theme.style(edit_btn, "LINK_BTN_SM")
         edit_btn.setToolTip(f'Change how "{pattern}" matches')
@@ -1063,11 +1066,45 @@ class _EpgWatchlistMixin:
 
     # ── Pattern add/remove + dismiss ───────────────────────────────────
 
-    def _on_add_pattern(self) -> None:
-        pattern = self.add_pattern_input.text().strip()
-        if watchlist.add(self.config, pattern):
-            self.watchlist_changed.emit()
-        self.add_pattern_input.clear()
+    def _toggle_compose(self) -> None:
+        """Show or hide the new-entry form."""
+        showing = not self._compose_editor.isVisible()
+        self._compose_editor.setVisible(showing)
+        glyph = _icons.collapse_icon if showing else _icons.add_icon
+        self._new_item_btn.setText(f"{glyph}  Track Something New")
+        if showing:
+            self._compose_editor.include_input.setFocus()
+
+    def _close_compose(self) -> None:
+        """Hide the form and reset it, so the next open starts clean."""
+        from metatv.core.watchlist_matching import WatchRule
+
+        self._compose_editor.set_rule(WatchRule(term=""))
+        self._compose_editor.setVisible(False)
+        self._new_item_btn.setText(
+            f"{_icons.add_icon}  Track Something New")
+
+    def _on_compose_committed(self, rule) -> None:
+        """Store a newly composed entry with every field it was given.
+
+        Two writes rather than one: ``add`` creates the row (it is the only
+        path that knows how to, and it de-duplicates), then ``update`` puts the
+        match settings on it. Folding them into one ``add`` overload would give
+        the store two ways to create a row, which is how the two-write bug in
+        the first draft of this feature happened.
+        """
+        if not watchlist.add(self.config, rule.term):
+            self._close_compose()
+            return
+        watchlist.update(
+            self.config, rule.term,
+            whole_word=rule.whole_word,
+            exclude=rule.exclude,
+            match_mode=rule.match_mode,
+            search_description=rule.search_description,
+        )
+        self.watchlist_changed.emit()
+        self._close_compose()
         self._reload_watchlist()
 
     def _add_pattern(self, pattern: str) -> None:

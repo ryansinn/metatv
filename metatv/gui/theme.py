@@ -853,6 +853,26 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
     )
 
+    # The watchlist's primary action. Deliberately loud: the only two reasons
+    # to open that tab are to add something and to see what fired, so the add
+    # must not read as chrome. Owner: *"make Track Something New very obvious
+    # and not blending in, since it's a core feature."*
+    #
+    # A TINT of the surface rather than a solid fill, so it stays a call to
+    # action without competing with the accent used for navigation — which is
+    # also why the foreground is the surface ramp (COLOR_TEXT_HI on hover)
+    # rather than on_fill(): a translucent wash is not a solid fill and
+    # on_fill would answer the wrong question. Same green-affordance grammar
+    # as DETAIL_RAIL_BTN_NEW_MATCH, which is the app's existing "this is the
+    # good/new thing" treatment.
+    WATCHLIST_TRACK_CTA = (
+        "QPushButton { background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + ";"
+        " border: 1px solid " + COLOR_OK + "; border-radius: " + RADIUS_SM + ";"
+        " padding: 7px " + SPACE_LG + "; font-weight: 700; font-size: " + FONT_LG + "; }"
+        "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + ";"
+        " border-color: " + COLOR_OK + "; }"
+    )
+
     # Category / prefix chips (version chips, similar-title chips, title-area prefix badge)
     CATEGORY_CHIP = (
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
