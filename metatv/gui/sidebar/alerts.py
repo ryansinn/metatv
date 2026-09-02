@@ -225,13 +225,25 @@ class WatchAlertsSection(
         )
 
     def reapply_row_budget(self) -> None:
-        """Budget as the base class does, then size each view to its rows.
+        """Fit as the base class does, then catch the views it skipped.
 
-        The fit has to happen HERE rather than only at populate time. This hook
-        is called from a zero-timer after a resize, so the views have actually
-        been laid out — measuring at populate time reads a viewport that does
-        not exist yet and locks in a wrong fixed height, which is how rows
-        ended up drawn over each other.
+        The fit has to happen after layout rather than at populate time. This
+        hook is called from a zero-timer after a resize, so the views have
+        actually been laid out — measuring at populate time reads a viewport
+        that does not exist yet and locks in a wrong fixed height, which is how
+        rows ended up drawn over each other.
+
+        **Mostly redundant since 2026-09-02, deliberately kept for one case.**
+        Removing the "Show N more" mode folded the fit INTO
+        ``apply_row_budget`` and ``apply_tree_row_budget``, so the base class
+        now sizes all three of these views itself and this loop re-sizes them a
+        second time. ``fit_to_rows`` is a pure measure-and-set, so the repeat
+        costs one layout pass and changes nothing.
+
+        What it still covers: ``reapply_row_budget`` skips an extra list that
+        is not ``isVisible()``, and this does not. A collapsed sub-group's list
+        would otherwise keep whatever height it had when it was hidden. Worth
+        one honest sentence rather than a silent duplicate — ledger D22.
         """
         super().reapply_row_budget()
         for view in (self.__dict__.get("alerts_tree"),
