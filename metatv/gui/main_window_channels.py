@@ -24,7 +24,7 @@ split is behaviour-preserving.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt as _Qt, QTimer
 from loguru import logger
 
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
@@ -1961,12 +1961,12 @@ class _ChannelListMixin:
         Args:
             index: The clicked model index. Non-channel rows are ignored.
         """
-        from PyQt6.QtCore import Qt
-
-        channel_id = index.data(Qt.ItemDataRole.UserRole)
+        channel_id = index.data(_Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        # Deliberately NOT gated on _last_shown_channel_id: the user clicked.
+        view = self.__dict__.get("channels_list")
+        if view is not None and view.press_moved_current():
+            return   # currentChanged already rendered it; see press_moved_current
         self._last_shown_channel_id = channel_id
         try:
             self.show_channel_details_by_id(channel_id)
