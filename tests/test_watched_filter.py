@@ -179,38 +179,14 @@ class TestModelTargetedUpdate:
 
     @pytest.fixture
     def model(self):
-        """Minimal ChannelListModel — no QApplication needed for data-layer ops."""
-        from unittest.mock import patch
-        # Patch Qt signals/slots so we can instantiate without a QApplication
-        with patch("metatv.gui.channel_list_model.QAbstractListModel.__init__", return_value=None), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.beginResetModel", return_value=None), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.endResetModel", return_value=None), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.beginRemoveRows", return_value=None), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.endRemoveRows", return_value=None), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.dataChanged"), \
-             patch("metatv.gui.channel_list_model.QAbstractListModel.createIndex", return_value=None):
-            from metatv.gui.channel_list_model import ChannelListModel
-            m = ChannelListModel.__new__(ChannelListModel)
-            m._channels = []
-            m._has_more = False
-            m._fetching = False
-            m._query_params = {}
-            m._current_offset = 0
-            m._provider_icon_map = {}
-            m._show_provider_icon = False
-            m._favorite_icon = "★"
-            m._unfavorite_icon = "☆"
-            m._get_media_type_icon = None
-            m._partial_threshold_pct = 10
-            m._generation = 0
-            m._id_to_index = {}
-            m._new_match_ids = set()
-            # Group-by-type state (mirrors ChannelListModel.__init__); flat by default.
-            m._grouped = False
-            m._collapsed_sections = set()
-            m._buckets = {}
-            m._bucket_pos = {}
-            yield m
+        """A bare ChannelListModel from the shared factory.
+
+        This used to hand-list every attribute ``__init__`` sets, and went stale
+        twice in one session as the model grew state. The factory runs the real
+        ``__init__`` instead — see ``make_bare_channel_list_model``.
+        """
+        from tests.conftest import make_bare_channel_list_model
+        yield from make_bare_channel_list_model()
 
     def test_update_watch_completed_sets_dto_fields(self, model):
         """update_watch_completed patches the DTO in-place without resetting the model."""
