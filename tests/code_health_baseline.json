@@ -10,7 +10,7 @@
     "metatv/core/players/mpv.py": 1360,
     "metatv/core/preference_engine.py": 1163,
     "metatv/core/provider_loader.py": 1351,
-    "metatv/core/repositories/channel.py": 2443,
+    "metatv/core/repositories/channel.py": 2103,
     "metatv/core/repositories/channel_ingestion.py": 1327,
     "metatv/core/repositories/epg.py": 1066,
     "metatv/core/repositories/tag.py": 1810,
