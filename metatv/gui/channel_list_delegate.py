@@ -112,6 +112,7 @@ from metatv.gui import channel_row_lead as _lead
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.channel_list_roles import LABEL_ROW_KINDS
 from metatv.gui.channel_list_model import (
     CATEGORY_ROLE,
     CHANNEL_HTML_ROLE,
@@ -404,7 +405,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         row_kind = index.data(ROW_KIND_ROLE)
-        if row_kind == "header":
+        if row_kind in LABEL_ROW_KINDS:
             return QSize(option.rect.width(), QFontMetrics(opt.font).height() + 2 * _ROW_V_PAD)
 
         title_h = QFontMetrics(self._title_font(opt.font)).height()
@@ -421,7 +422,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         ))
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
-        if index.data(ROW_KIND_ROLE) == "header":
+        if index.data(ROW_KIND_ROLE) in LABEL_ROW_KINDS:
             self._paint_html_row(painter, option, index)
             return
 
@@ -542,7 +543,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         it was painted, so a click must land on rows that have never been
         hovered.
         """
-        if index.data(ROW_KIND_ROLE) == "header":
+        if index.data(ROW_KIND_ROLE) in LABEL_ROW_KINDS:
             return QRect()
         return _layout.row_layout(
             option_rect,
