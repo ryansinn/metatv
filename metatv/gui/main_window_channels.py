@@ -30,6 +30,7 @@ from loguru import logger
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import ui_phase as _phase
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
@@ -1518,6 +1519,7 @@ class _ChannelListMixin:
             on_error=lambda e: logger.error(f"Failed to load filter stats: {e}"),
         )
 
+    @_phase.timed("filter-stats.applied")
     def _on_filter_stats_loaded(self, result) -> None:
         """Main-thread handler: apply tag-facet counts to the filter panel."""
         tag_counts, untagged_counts = result
@@ -1525,8 +1527,7 @@ class _ChannelListMixin:
         self._filter_unmapped_prefixes = []
         if hasattr(self, 'filter_panel'):
             self.filter_panel.update_data(tag_counts, untagged_counts)
-            # Until now the sections are empty, so a filter restored at startup
-            # renders as "en"; this is the moment it can say "English".
+            # Sections were empty, so a restored filter read "en" until now.
             self._sync_filter_chips()
         total = sum(sum(v.values()) for v in tag_counts.values())
         logger.info(f"Initialized filter stats (tag model): {total:,} total tag-value occurrences")

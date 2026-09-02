@@ -32,6 +32,8 @@ import time
 from PyQt6.QtCore import QObject, QTimer
 from loguru import logger
 
+from metatv.gui import ui_phase as _phase
+
 #: How often to ask for a wake-up. Short enough to catch a stall a person
 #: notices, long enough to be free.
 _TICK_MS = 250
@@ -97,7 +99,9 @@ class MainThreadWatchdog(QObject):
             return
         self._last_report = now
         logger.warning(
-            "UI thread unresponsive for {:.0f}ms — whatever ran just before this "
-            "line blocked the event loop (worst so far {:.0f}ms across {} stalls)",
-            late_ms, self.max_stall_ms, self.stall_count,
+            "UI thread unresponsive for {:.0f}ms{} (worst so far {:.0f}ms across "
+            "{} stalls)",
+            late_ms, _phase.describe() or " — no phase open, so whatever ran "
+            "just before this line blocked the event loop",
+            self.max_stall_ms, self.stall_count,
         )
