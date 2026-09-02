@@ -229,7 +229,7 @@ def section_for_title(title: str | None, search_term: str) -> str:
 #: inside a longer word, which is where Astronaut answers a search for "tron".
 #: Tier 4 (matched on cast or an id, not the title) belongs to the Cast & Crew
 #: section and is never filtered by this control.
-WHOLE_TIERS = frozenset({0, 1, 2})
+WORD_TIERS = frozenset({0, 1, 2})
 
 
 def tier_for_title(title: str | None, search_term: str) -> int:
@@ -318,6 +318,35 @@ def best_person_part(person: str, search_term: str) -> str | None:
         if best_key is None or key < best_key:
             best, best_key = part, key
     return best
+def tier_for_row(title: str | None, person: str | None, section: str,
+                 search_term: str) -> int:
+    """The rung a row sits on IN ITS OWN SECTION.
+
+    The ladder runs on the field that put the row there — the artifact is
+    explicit: *"the ladder runs inside each section, so Nicolas Cage beats
+    Beaucage within Cast & Crew, just as Tron beats Astronaut within Titles."*
+
+    Scoring every row on its TITLE instead made every Cast & Crew row tier 4,
+    because a cast row's title never contains the term — so ``Whole`` on that
+    section emptied it completely. Found by the owner asking whether the control
+    should be ``All | Whole | Part``, which it should not: once the ladder runs
+    on the right field, ``Part`` already means everything the section holds.
+
+    Args:
+        title: ``detected_title`` or the raw name.
+        person: The matched person, for a Cast & Crew row.
+        section: ``SECTION_TITLE`` or ``SECTION_CAST``.
+        search_term: Raw user text.
+
+    Returns:
+        0 exact · 1 prefix · 2 whole word · 3 substring · 4 no match in that field.
+    """
+    if section == SECTION_CAST:
+        # No resolved name means nothing to rank — treat it as the loosest
+        # match rather than dropping it, because the row IS a real result and
+        # "mirror, never cage" says a row nobody can rank still gets a row.
+        return tier_for_title(person, search_term) if person else 3
+    return tier_for_title(title, search_term)
 
 
 def canonical_person(search_term: str, known: dict) -> str | None:

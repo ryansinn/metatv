@@ -43,11 +43,11 @@ def _lay(rect, *, has_toggle=True, count=462, label="TITLES"):
 
 
 def test_the_parts_run_left_to_right_in_the_designed_order(wide):
-    """Label · rule · count · Whole|Part · caret."""
+    """Label · rule · count · All|Word · caret."""
     b = _lay(wide)
     xs = [("label", b.label.left()), ("rule", b.rule.left()),
-          ("count", b.count.left()), ("whole", b.whole.left()),
-          ("part", b.part.left()), ("caret", b.caret.left())]
+          ("count", b.count.left()), ("all", b.all_seg.left()),
+          ("word", b.word_seg.left()), ("caret", b.caret.left())]
     assert xs == sorted(xs, key=lambda kv: kv[1]), xs
 
 
@@ -80,7 +80,7 @@ def test_a_section_without_a_toggle_leaves_no_gap_where_it_was(wide):
     with_toggle = _lay(wide, has_toggle=True)
     without = _lay(wide, has_toggle=False)
 
-    assert without.whole.isNull() and without.part.isNull()
+    assert without.all_seg.isNull() and without.word_seg.isNull()
     assert without.rule.width() > with_toggle.rule.width(), (
         "the rule must reclaim the control's space, not leave a hole")
     assert without.caret.right() == with_toggle.caret.right()
@@ -89,9 +89,9 @@ def test_a_section_without_a_toggle_leaves_no_gap_where_it_was(wide):
 def test_the_two_halves_are_adjacent_and_equal_height(wide):
     """One pill with a divide, not two buttons."""
     b = _lay(wide)
-    assert b.whole.right() == b.part.left(), "a gap between the halves"
-    assert b.whole.height() == b.part.height()
-    assert b.whole.center().y() == b.part.center().y() == b.caret.center().y()
+    assert b.all_seg.right() == b.word_seg.left(), "a gap between the halves"
+    assert b.all_seg.height() == b.word_seg.height()
+    assert b.all_seg.center().y() == b.word_seg.center().y() == b.caret.center().y()
 
 
 def test_a_longer_count_does_not_push_anything_off_the_edge(wide):

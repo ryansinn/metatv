@@ -1907,10 +1907,10 @@ class _ChannelListMixin:
             collapsed_sections=getattr(self.config, "group_collapsed_types", None) or [],
         )
 
-    def _on_section_mode_toggled(self, section: str, whole_only: bool) -> None:
+    def _on_section_mode_toggled(self, section: str, word_only: bool) -> None:
         """Narrow one section to whole-word matches, or open it back up."""
         if section:
-            self.channel_model.set_section_whole_only(section, whole_only)
+            self.channel_model.set_section_word_only(section, word_only)
 
     def _on_channel_list_clicked(self, index) -> None:
         """Header click toggles collapse; a channel click always shows details.
