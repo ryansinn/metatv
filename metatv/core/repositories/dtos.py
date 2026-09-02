@@ -101,6 +101,19 @@ class ChannelListDTO:
     watch_percent: int = 0          # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
     # Provenance — "manual" (user played deliberately) vs "queue" (auto-advanced) vs None (unwatched)
     last_played_via: str | None = None
+    # ── search result grouping (None outside a search) ────────────────────
+    # Which section this row was put in — "title" or "cast". None means the
+    # model falls back to media_type, which is what "Group by type" uses, so
+    # one bucket mechanism serves both (see channel_list_model._section_of).
+    section_key: str | None = None
+    # WHY it matched, within its section: 0 exact, 1 prefix, 2 whole word,
+    # 3 part of a word. Drives the order inside a section, never the display.
+    match_tier: int = 0
+    # For a cast/crew match: the person whose name matched, verbatim. This is
+    # what the sub-heading prints ONCE per group rather than on every row —
+    # 85 Nicolas Cage films should say his name once.
+    match_person: str | None = None
+
     # User rating — +1 liked, -1 disliked, 0 unrated.  Populated from UserRatingDB at
     # query time via a batch lookup (RatingRepository.get_all_map()); 0 means no rating.
     user_rating: int = 0
