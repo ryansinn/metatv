@@ -314,3 +314,30 @@ These legacy forms coexist with the rules above — new code follows the rule, d
 | Current audit + **Band 10** remediation plan | docs/AUDIT_2026-06-19.md |
 | **`channel.py` split — planned slices + constraints** | docs/CHANNEL_REPOSITORY_SPLIT.md |
 | **Watch Alerts rebuild — decisions, traps, what's left** | docs/WATCH_ALERTS_REBUILD.md |
+## The locks (2026-09-02)
+
+Three commands are **denied at the harness level** in `.claude/settings.json`.
+Not discouraged — denied. Claude cannot run them; only the wrappers.
+
+| Instead of | Use | The wrapper refuses when |
+|---|---|---|
+| `gh pr merge` | `scripts/merge_pr.sh <PR#> [--quick]` | any check is not SUCCESS, or none is reported |
+| `pytest` / `python -m pytest` | `scripts/pytest_verdict.sh <paths>` | a full local suite CI has already answered |
+| `scripts/ci_shard.py` | `scripts/ci_shards_local.sh` | an open PR has nothing failing; a shard lists no files |
+
+**Why deny rather than another rule.** Every rule broken on 2026-09-02 was
+prose, and every prose rule that had a script behind it held. `gh pr merge
+--auto` merged a PR with nine of ten checks in progress — a rule written in
+this file AND in the agent's notes, including that exact `--auto` behaviour.
+A rule you can choose not to follow is a suggestion. Overrides exist
+(`METATV_FULL_SUITE_ANYWAY`, `METATV_SHARDS_ANYWAY`, `MERGE_PR_SKIP_CHECKS`)
+and are named so that using one is a visible decision.
+
+`scripts/tests_for_change.sh [base]` answers *which* tests to run from the
+diff, and says when it cannot — a removed module-level name is invisible to
+any selection based on the modules you changed.
+
+**Not yet locked, and it needs one command from the owner:**
+`git config core.hooksPath .githooks` — until then `.githooks/pre-push` (ruff)
+and `.githooks/pre-commit` (no `Co-Authored-By`; no branch commits in the
+owner's own checkout) never run.
