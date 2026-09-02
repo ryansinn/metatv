@@ -36,6 +36,7 @@ that ``_setup_ui`` reads from tabs we don't care about.
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 import base64
 from types import SimpleNamespace
@@ -193,6 +194,7 @@ def _make_on_now_tab_host(qapp, config=None) -> SimpleNamespace:
 # Fake EPG program
 # ---------------------------------------------------------------------------
 
+@with_programme_render_fields
 class _FakeProgram:
     """Minimal stub satisfying _render_on_now's attribute reads."""
     def __init__(

@@ -95,6 +95,10 @@ class _EpgWatchlistMixin:
     # ── Tab 0: Watchlist ───────────────────────────────────────────────
 
     def _build_watchlist_tab(self) -> None:
+        #: pattern -> (matched, suppressed, capped) from the last background
+        #: read. Empty until the first payload lands, which is why the rule row
+        #: renders "counting…" rather than a zero it has not measured.
+        self._rule_counts: dict[str, tuple[int, int, bool]] = {}
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -294,8 +298,23 @@ class _EpgWatchlistMixin:
                 else:
                     channel_state[cid] = "ok"
 
+            # Rule-row summary counts, on this thread because it is a guide
+            # scan. Failure degrades to "no counts" — the rule row then says
+            # "counting…" forever, which is honest; it must never take the
+            # watchlist down with it.
+            try:
+                rule_counts = repo.count_for_watchlist(
+                    watchlist.rules(self.config),
+                    provider_ids=provider_ids,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
+                )
+            except Exception:
+                logger.exception("EpgView: watch-rule counts failed")
+                rule_counts = {}
+
             self._data_loaded.emit({
                 "tab": "watchlist",
+                "rule_counts": rule_counts,
                 "watchlist_data": watchlist_data,
                 "live_data": live_data,
                 "recommendations": recs,
@@ -316,6 +335,10 @@ class _EpgWatchlistMixin:
     def _on_data_loaded(self, payload: dict) -> None:
         tab = payload["tab"]
         if tab == "watchlist":
+            # Read by _make_watchlist_item rather than threaded through
+            # _render_watchlist, whose signature is already seven parameters
+            # wide and has three call sites.
+            self._rule_counts = payload.get("rule_counts", {})
             self._render_watchlist(
                 payload["watchlist_data"],
                 payload["live_data"],
@@ -580,6 +603,12 @@ class _EpgWatchlistMixin:
             _theme.style_fn(live_lbl, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
             header.addWidget(live_lbl)
 
+        edit_btn = QPushButton(f"Rule {_icons.expand_icon}")
+        edit_btn.setFlat(True)
+        _theme.style(edit_btn, "LINK_BTN_SM")
+        edit_btn.setToolTip(f'Change how "{pattern}" matches')
+        header.addWidget(edit_btn)
+
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Remove '{pattern}' from watchlist")
@@ -587,6 +616,8 @@ class _EpgWatchlistMixin:
         remove_btn.clicked.connect(lambda _=False, p=pattern: self._remove_pattern(p))
         header.addWidget(remove_btn)
         layout.addLayout(header)
+
+        self._attach_rule_editor(layout, pattern, edit_btn)
 
         # ── Live title groups ────────────────────────────────────────────── #
         _MAX_VISIBLE = 3  # channels shown per title group before "more" toggle
@@ -1017,6 +1048,18 @@ class _EpgWatchlistMixin:
             row_lbl = QLabel(f"{time_str}  ·  {title}")
             _theme.style(row_lbl, "DISCOVER_REC_MATCH_ROW")
             sub_layout.addWidget(row_lbl)
+
+    def _attach_rule_editor(self, layout, pattern: str, toggle_btn) -> None:
+        """Hang the collapsed Option B rule row under a pattern card."""
+        from metatv.gui.watch_rule_editor import attach_rule_editor
+
+        attach_rule_editor(self, layout, pattern, toggle_btn)
+
+    def _on_rule_changed(self, pattern: str, rule) -> None:
+        """Persist an edited rule, then refresh everything that reads rules."""
+        from metatv.gui.watch_rule_editor import apply_rule_change
+
+        apply_rule_change(self, pattern, rule)
 
     # ── Pattern add/remove + dismiss ───────────────────────────────────
 

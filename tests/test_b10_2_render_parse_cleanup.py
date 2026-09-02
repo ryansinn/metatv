@@ -278,7 +278,9 @@ class _FakeWatchlistProg:
 
 def _make_watchlist_host() -> SimpleNamespace:
     """Minimal namespace with the maps _ch_row / _up_row read from."""
+    from tests.conftest import wire_watchlist_card_host
     host = SimpleNamespace()
+    wire_watchlist_card_host(host)
     host._channel_name_map = {}
     host._channel_quality_map = {}
     host._channel_prefix_map = {}

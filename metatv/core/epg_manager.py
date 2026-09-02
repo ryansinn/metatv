@@ -1318,7 +1318,8 @@ class EpgManager(QObject):
                     # the ONLY match test here — and it shares the matcher with
                     # the watchlist queries so a toast cannot announce what the
                     # list never shows.
-                    if not matches_any(prog.title, rules):
+                    if not matches_any(prog.title, rules,
+                                       prog.description, prog.is_live):
                         continue
                     self._notified_this_session.add(prog.id)
 

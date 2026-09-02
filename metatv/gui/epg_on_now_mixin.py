@@ -465,7 +465,7 @@ class _EpgOnNowMixin:
 
             # Same matcher the query used, so the highlight cannot disagree
             # with what the watchlist decided was a match.
-            if matches_any(prog.title, rules):
+            if matches_any(prog.title, rules, prog.description, prog.is_live):
                 _apply_watchlist_highlight(item, range(5), 3)
 
             # Slice 3C: classify once at render, store on the item — filtering reads

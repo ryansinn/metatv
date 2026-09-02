@@ -838,7 +838,7 @@ class _EpgBrowseMixin:
                 item.setToolTip(3, quality_tooltip(quality))
 
             # Same matcher the query used — see epg_on_now_mixin.
-            if matches_any(prog.title, rules):
+            if matches_any(prog.title, rules, prog.description, prog.is_live):
                 _apply_watchlist_highlight(item, range(6), 4)
 
             self.browse_list.addTopLevelItem(item)
