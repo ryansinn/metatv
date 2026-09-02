@@ -113,3 +113,80 @@ def test_the_watchdog_is_registered_for_cleanup() -> None:
         and node.args and isinstance(node.args[0], ast.Constant)
     }
     assert "main_thread_watchdog" in registered
+
+
+def test_sampler_captures_the_blocking_stack(qapp) -> None:
+    """A stale heartbeat, sampled synchronously, names the calling frame.
+
+    No Qt timer needed — ``_sampler_iteration`` is the unit under test, called
+    directly the way the real sampler thread would call it mid-stall.
+    """
+    watchdog = MainThreadWatchdog()
+    watchdog._heartbeat = time.perf_counter() - 1.0
+
+    watchdog._sampler_iteration()
+
+    capture = watchdog._stall_capture
+    assert isinstance(capture, str)
+    assert "sampled during stall" in capture
+    # threading.main_thread() IS the pytest thread here, so the synchronous
+    # call above shows up in the captured main-thread stack.
+    assert "test_sampler_captures_the_blocking_stack" in capture
+
+
+def test_fresh_heartbeat_clears_the_capture(qapp) -> None:
+    """Once the heartbeat catches up, a stale capture must not linger."""
+    watchdog = MainThreadWatchdog()
+    watchdog._heartbeat = time.perf_counter() - 1.0
+    watchdog._sampler_iteration()
+    assert watchdog._stall_capture is not None
+
+    watchdog._heartbeat = time.perf_counter()
+    watchdog._sampler_iteration()
+
+    assert watchdog._stall_capture is None
+
+
+def test_one_capture_per_stall(qapp, monkeypatch) -> None:
+    """A single stall gets exactly one capture, however many times we poll."""
+    import metatv.gui.main_thread_watchdog as watchdog_module
+
+    calls = {"n": 0}
+    real_current_frames = watchdog_module.sys._current_frames
+
+    def counting_current_frames():
+        calls["n"] += 1
+        return real_current_frames()
+
+    monkeypatch.setattr(watchdog_module.sys, "_current_frames", counting_current_frames)
+
+    watchdog = MainThreadWatchdog()
+    watchdog._heartbeat = time.perf_counter() - 1.0
+
+    watchdog._sampler_iteration()
+    watchdog._sampler_iteration()
+
+    assert calls["n"] == 1
+
+
+def test_report_includes_and_clears_capture(qapp) -> None:
+    """A queued capture rides along in the stall's log line, then is gone."""
+    from loguru import logger
+
+    lines: list[str] = []
+    sink = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        watchdog = MainThreadWatchdog()
+        watchdog._stall_capture = "sampled during stall, heartbeat age 999ms\nthread MainThread:\n  metatv/gui/main_window.py:1 in bogus_marker_frame"
+        # Force a stall report without waiting on a real clock: back-date the
+        # last tick so _on_tick computes a stall on the very next call.
+        watchdog._last_tick = time.perf_counter() - (_STALL_MS + 500) / 1000.0
+
+        watchdog._on_tick()
+    finally:
+        logger.remove(sink)
+
+    stall_lines = [line for line in lines if "UI thread unresponsive" in line]
+    assert stall_lines, f"no stall was reported: {lines}"
+    assert any("bogus_marker_frame" in line for line in lines)
+    assert watchdog._stall_capture is None
