@@ -6,9 +6,13 @@
 # under ten seconds, which is exactly the point: the information was available
 # locally for free and the push happened without asking for it.
 #
-# Deliberately NOT a test run. CI does that on both platforms and a pre-push
-# suite would be the very habit the full-suite gate exists to stop. This is only
-# the checks that are near-instant.
+# NOT a test SUITE — that stays CI's job on both platforms, and a pre-push suite
+# would be the very habit the full-suite gate exists to stop. But the four
+# STRUCTURAL guards run in 564ms together, and on 2026-09-02 the code-health
+# ratchet failed CI four separate times in one session. Each was ~10 minutes of
+# CI to learn something that was free here. CI runs these same four as its own
+# fast "smoke" job precisely because they are cheap and catch a class nothing
+# else does; the only question was why they were not also run before the push.
 #
 # Enable with:  git config core.hooksPath .githooks
 # Bypass with:  git push --no-verify   (and be able to say why)
@@ -31,6 +35,43 @@ CI's lint job reports this in about ten seconds, so pushing first only spends a
 round trip to learn what was already knowable here. Most are auto-fixable:
 
     venv/bin/python -m ruff check --fix metatv/ tests/ scripts/
+
+Genuinely need to push anyway:  git push --no-verify
+MSG
+        exit 1
+    fi
+fi
+
+# ── the structural guards ──────────────────────────────────────────────────
+#
+# Skipped file-by-file when absent: these arrive on different branches (the
+# F821 ratchet was written on one), and a hook that dies on a branch missing a
+# file is a hook someone disables.
+GUARDS=""
+for t in tests/test_code_health_ratchet.py \
+         tests/test_no_new_undefined_names.py \
+         tests/test_mainwindow_launch_smoke.py \
+         tests/test_config_isolation.py; do
+    [ -f "$t" ] && GUARDS="$GUARDS $t"
+done
+
+if [ -n "$GUARDS" ] && [ -x scripts/pytest_verdict.sh ]; then
+    # Through the verdict script, so this decides on the exit code and takes the
+    # same lock — never a bare pytest whose summary then gets grepped.
+    if ! QT_QPA_PLATFORM=offscreen scripts/pytest_verdict.sh $GUARDS >/tmp/prepush-guards.log 2>&1; then
+        cat >&2 <<'MSG'
+
+PUSH BLOCKED: a structural guard failed.
+
+These four run in about half a second and catch what a lint pass cannot — a file
+grown past its code-health baseline, a new undefined name, a window that no
+longer launches, a test writing to the real user config.
+
+    tail -40 /tmp/prepush-guards.log
+
+The ratchet is the usual one. If the growth is deliberate and reviewed:
+
+    venv/bin/python scripts/rebaseline_code_health.py
 
 Genuinely need to push anyway:  git push --no-verify
 MSG

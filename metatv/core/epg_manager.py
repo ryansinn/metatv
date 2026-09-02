@@ -26,6 +26,7 @@ from metatv.core.epg_utils import (
 )
 from metatv.core.models import Provider
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.watchlist_burst import burst_banner
 from metatv.core.repositories.epg import delete_programmes_chunked
 from metatv.core.repositories.provider import parse_provider_urls, persist_url_stats
 from metatv.core.url_cycle import UrlCycler
@@ -110,7 +111,6 @@ class EpgManager(QObject):
     refresh_started  = pyqtSignal(str)        # provider_id
     refresh_finished = pyqtSignal(str, int)   # provider_id, programme_count
     refresh_error    = pyqtSignal(str, str)   # provider_id, error_message
-    watchlist_notification = pyqtSignal(str, str, str)  # title, channel_name, time_str
     # Internal signals marshal notification calls from worker threads to main thread
     _notify          = pyqtSignal(str, str, str, int)  # title, message, type, auto_dismiss_ms
     _progress_update = pyqtSignal(str, int, int, str)   # notif_id, current, total (-1=indeterminate), message
@@ -1337,12 +1337,9 @@ class EpgManager(QObject):
                     # detached crosses the boundary.
                     pending.append((prog.title, channel_name, time_str))
 
-            for title, channel_name, time_str in pending:
-                if self._shutting_down:
-                    return
-                self._notify.emit(f"Starting {time_str}: {title}",
-                                  f"On {channel_name}", "info", 10_000)
-                self.watchlist_notification.emit(title, channel_name, time_str)
+            if not self._shutting_down and pending:
+                title, message, dismiss_ms = burst_banner(pending)
+                self._notify.emit(title, message, "info", dismiss_ms)
         except Exception as e:
             logger.error(f"EPG notification check error: {e}")
         finally:
