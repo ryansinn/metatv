@@ -21,50 +21,55 @@ With no start time a row cannot be classified live, upcoming OR finished, so
 every dated game fell through to the catch-all "Channels" lane and both time
 lanes were permanently empty.
 
-**Read as LOCAL wall-clock**, converted to UTC-naive for storage.
+**These times are UTC**, matching the zone-carrying forms above for the same
+fixtures, and stored UTC-naive like every other form in this module.
 
-The first version read them as UTC, reasoning that 23:45/23:05/00:40 are
-19:45/19:05/19:40 Eastern — textbook MLB starts. That was clever and WRONG, and
-it made the feature worse than broken: the owner was watching MLB 04 live while
-the app filed it under "Finished", because 06:58 UTC had passed while 06:58
-local had not. Verified on the exact channel they were watching
-(``..._1037143``): read as UTC it lands in ``finished``; read as local it lands
-in ``LIVE``.
+For one day (2026-09-01 -> 09-02) this module read them as machine-LOCAL
+wall-clock instead. That change was made on a single observation: the owner
+was watching MLB 04 live while the UTC reading filed it "Finished", because
+06:58 UTC had passed while 06:58 local had not. The observation matched what
+the owner believed at that moment — but it was CONFOUNDED. These slots recycle
+stream ids: a slot keeps playing the provider's NEXT game after its own named
+fixture ends, so "I am watching this game right now" is not evidence about the
+fixture's own listed window — the owner could easily have been watching the
+game the slot had already rolled over to.
 
-The only test that settles this is empirical — the game being watched RIGHT NOW
-must classify as on-now. The slot windows are padded (start + ~7h), so a
-plausible real-world start time is not evidence of the zone.
+What actually decides the zone is a cross-grammar anchor: the SAME fixture
+appears in the owner's corpus in both the slot form and the zone-carrying
+day-name form —
+
+    "MLB 12 | Phillies x D-backs start:2026-09-01 02:40:00 stop:2026-09-01 09:53:20"
+    "NEXT | MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES | Tue 01 Sep 03:30 CEST (DK) | …"
+
+Read as UTC the two starts are ~70 minutes apart (a slot is a padded window
+that opens early). Read as local (owner: UTC-6) they are 7h10m apart. Games do
+not start seven hours apart in two listings of themselves. If this is ever
+doubted again: find the same fixture in the day-name form and compare the two
+— do not reason from which start time looks plausible for the sport. The full
+four-point case lives as the comment above ``_EVENT_STARTSTOP_RE`` in
+``metatv/core/event_datetime.py``.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import os
+import time
+from datetime import date, datetime
 
 import pytest
 
-
-def _as_utc(y, mo, d, h, mi):
-    """The local wall-clock the provider wrote, as the UTC-naive value stored.
-
-    Computed rather than hardcoded so this passes in any CI timezone — and so
-    it states the CONTRACT (local in, UTC-naive out) instead of one machine's
-    answer.
-    """
-    return (datetime(y, mo, d, h, mi).astimezone()
-            .astimezone(timezone.utc).replace(tzinfo=None))
-
-from metatv.core.event_datetime import parse_event_datetime
+from metatv.core.event_datetime import parse_event_datetime, parse_event_window
 
 
 class TestEventSlotForm:
 
     @pytest.mark.parametrize("name,expected", [
         ("MLB 04 | Mariners x Red Sox start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20",
-         _as_utc(2026, 8, 31, 23, 45)),
+         datetime(2026, 8, 31, 23, 45)),
         ("MLB 06 | Tigers x Twins start:2026-09-01 00:40:00 stop:2026-09-01 07:53:20",
-         _as_utc(2026, 9, 1, 0, 40)),
+         datetime(2026, 9, 1, 0, 40)),
         ("MLB 01 | Giants x Braves start:2026-08-31 23:05:00 stop:2026-09-01 06:18:20",
-         _as_utc(2026, 8, 31, 23, 5)),
+         datetime(2026, 8, 31, 23, 5)),
     ])
     def test_the_start_field_is_read(self, name, expected):
         assert parse_event_datetime(name) == expected, (
@@ -74,12 +79,12 @@ class TestEventSlotForm:
         """Both are ISO datetimes; taking the wrong one shifts a game by hours."""
         got = parse_event_datetime(
             "MLB 04 | X x Y start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20")
-        assert got == _as_utc(2026, 8, 31, 23, 45)
-        assert got != _as_utc(2026, 9, 1, 6, 58)
+        assert got == datetime(2026, 8, 31, 23, 45)
+        assert got != datetime(2026, 9, 1, 6, 58)
 
     def test_a_T_separator_is_accepted(self):
         assert parse_event_datetime("A | B start:2026-08-31T23:45:00") == \
-            _as_utc(2026, 8, 31, 23, 45)
+            datetime(2026, 8, 31, 23, 45)
 
     def test_a_name_with_no_schedule_still_returns_none(self):
         """29k+ rows are 24/7 channels; None is correct for them, not a failure."""
@@ -111,7 +116,7 @@ class TestTheWholeClassifierChain:
             media_type="live", category="US| MLB PACKAGE")
         update_channel_special_content(ch)
 
-        assert ch.event_start_time == _as_utc(2026, 8, 31, 23, 45), (
+        assert ch.event_start_time == datetime(2026, 8, 31, 23, 45), (
             "the classifier still stores nothing — the Sports lanes stay empty")
         assert ch.special_view == "sports"
         assert ch.sport_type == "baseball"
@@ -126,9 +131,80 @@ class TestExistingRowsAreBackfilled:
         NULL until the next full source refresh. ``CURRENT_VERSION`` is, in that
         module's own words, "the executable statement of 'the classifier
         changed'" — so changing the classifier without bumping it leaves the
-        fix invisible on every existing library.
+        fix invisible on every existing library. Floor raised to 7 for the
+        UTC-not-local correction below — that fix also needs a recompute pass
+        to reach rows already stored (and stored wrong) under the local
+        reading.
         """
         from metatv.core.migrations.sports_reclassify import CURRENT_VERSION
-        assert CURRENT_VERSION >= 5, (
-            "parse_event_datetime gained a form but the reclassify version did "
-            "not move — existing rows keep their NULL event_start_time")
+        assert CURRENT_VERSION >= 7, (
+            "the slot-form UTC fix needs a reclassify version bump too — "
+            "existing rows keep their machine-local-shifted event_start_time "
+            "otherwise")
+
+
+class TestSlotTimesAreUtc:
+    """The decisive regression: slot times must not depend on machine TZ.
+
+    Both tests are meaningless under UTC-as-machine-TZ CI runners, so they
+    force a non-UTC zone (``America/Denver``, the owner's own -6h/-7h zone)
+    before parsing. ``time.tzset`` is POSIX-only, so this whole class is
+    skipped where it does not exist (rare, but real) rather than erroring.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_tzset(self):
+        if not hasattr(time, "tzset"):
+            pytest.skip("time.tzset is POSIX-only; not available here")
+
+    def _with_denver_tz(self, fn):
+        """Run *fn* with TZ=America/Denver, restoring the prior TZ after."""
+        old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/Denver"
+        time.tzset()
+        try:
+            return fn()
+        finally:
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+            time.tzset()
+
+    def test_slot_times_are_utc_not_machine_local(self):
+        """Under the old local reading this test is RED: Denver is UTC-6 in
+        September, so 02:40/09:53 in the name would come back as 08:40/15:53.
+        """
+        window = self._with_denver_tz(lambda: parse_event_window(
+            "MLB 12 | Phillies x D-backs start:2026-09-01 02:40:00 "
+            "stop:2026-09-01 09:53:20"))
+        assert window.start == datetime(2026, 9, 1, 2, 40)
+        assert window.stop == datetime(2026, 9, 1, 9, 53)
+
+    def test_slot_and_dayname_forms_agree_on_the_same_fixture(self):
+        """The cross-grammar anchor pair — the property that FAILED under the
+        local reading (7h10m apart) and holds under UTC (~70 minutes apart,
+        since a slot is a padded window that opens early).
+        """
+        slot_name = (
+            "MLB 12 | Phillies x D-backs start:2026-09-01 02:40:00 "
+            "stop:2026-09-01 09:53:20")
+        dayname_name = (
+            "NEXT | MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES | "
+            "Tue 01 Sep 03:30 CEST (DK) | …")
+
+        def _parse_both():
+            slot_start = parse_event_datetime(slot_name)
+            dayname_start = parse_event_datetime(
+                dayname_name, reference=date(2026, 9, 1))
+            return slot_start, dayname_start
+
+        slot_start, dayname_start = self._with_denver_tz(_parse_both)
+
+        assert slot_start is not None
+        assert dayname_start is not None
+        delta_hours = abs((slot_start - dayname_start).total_seconds()) / 3600
+        assert delta_hours < 2, (
+            f"the same fixture in two grammars should agree within ~70 "
+            f"minutes under UTC; got {delta_hours:.2f}h apart — that is the "
+            f"7h10m the old local reading produced")
