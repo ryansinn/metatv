@@ -1,0 +1,276 @@
+"""Projecting a flat list of rows into collapsible sections.
+
+Split out of :mod:`channel_list_model` for the reason ``sidebar/section_cap``
+and ``core/db_lock`` were, and with the same test: one cohesive behaviour, one
+entry point, and a host file that reads better without it. The model was
+1,024 lines and had been re-baselined against the code-health ratchet THREE
+TIMES in a single session — every one of them for this concern growing. That is
+the ratchet doing its job: it is a place to stop and look, and what it kept
+pointing at was a second subject living inside the first.
+
+**What stays behind, deliberately.** The ``if self._grouped:`` branches in
+``rowCount``, ``data``, ``set_channels`` and ``append_page`` are not moved.
+Grouping is a display transform layered over the model's own row store, so the
+model necessarily asks "am I grouped?" at the points where Qt asks IT for rows.
+Moving those would mean inverting the model's public interface to satisfy a
+line count, which is the arithmetic answer the CLAUDE.md guidance rejects:
+"split by isolation, not the line count".
+
+**What moved** is everything that only grouping needs — the section order and
+labels, the bucket store and its ordering rules, the display-row arithmetic,
+the two public mutators, and the paged-append splice.
+"""
+
+from __future__ import annotations
+
+import html as _html
+from typing import Any, Optional
+
+from PyQt6.QtCore import QModelIndex, Qt
+
+from metatv.core.repositories.dtos import ChannelListDTO
+from metatv.core.repositories.search_ranking import SECTION_ORDER as _SEARCH_SECTIONS
+from metatv.gui.channel_list_roles import (
+    CHANNEL_HTML_ROLE, ROW_KIND_ROLE, SECTION_TYPE_ROLE,
+)
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
+
+
+# Search sections are appended here, not left to the alphabetically-sorted
+# "extras" branch, which renders Cast & Crew ABOVE Titles — backwards. Order
+# comes from search_ranking so there is one definition, not two that can drift.
+SECTION_ORDER: tuple[str, ...] = ("movie", "series", "live") + _SEARCH_SECTIONS
+_SECTION_LABELS: dict[str, str] = {
+    "movie": "Movies", "series": "Series", "live": "Live",
+    # "Cast & Crew" covers cast and director: three headers would be near-empty.
+    "title": "Titles", "cast": "Cast & Crew",
+}
+
+
+class ChannelListGroupingMixin:
+    """Section projection for :class:`ChannelListModel`.
+
+    Reaches the host through ``self`` and owns none of its widgets — the same
+    shape as ``RowBudgetMixin`` and ``SectionContentCapMixin`` in the sidebar.
+    """
+
+    # ── Group-by-type: section helpers ───────────────────────────────────────
+
+    def _header_data(self, section: str, role: int) -> Any:
+        """Return ``data()`` for a section-header row (grouped mode only)."""
+        if role == ROW_KIND_ROLE:
+            return "header"
+        if role == SECTION_TYPE_ROLE:
+            return section
+        if role in (Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE):
+            count = len(self._buckets.get(section, ()))
+            label = _SECTION_LABELS.get(section, (section or "Other").title())
+            arrow = (
+                _icons.expand_icon
+                if section in self._collapsed_sections
+                else _icons.collapse_icon
+            )
+            text = f"{arrow} {label} ({count:,})"
+            if role == Qt.ItemDataRole.DisplayRole:
+                return text
+            return (
+                f'<span style="color:{_theme.COLOR_TEXT_HI};font-weight:bold">'
+                f"{_html.escape(text)}</span>"
+            )
+        return None
+
+    def _ordered_sections(self) -> list[str]:
+        """Sections that currently hold ≥1 loaded row, in fixed display order."""
+        return [s for s in self._final_section_order() if self._buckets.get(s)]
+
+    def _final_section_order(self, extra_keys=()) -> list[str]:
+        """Display order over current buckets plus any soon-to-be-created sections.
+
+        The single ordering rule; ``_ordered_sections`` is this filtered to the
+        non-empty ones. They were two implementations of the same sort until
+        adding a section to one and not the other became possible.
+        """
+        keys = set(self._buckets.keys()) | set(extra_keys)
+        known = [s for s in SECTION_ORDER if s in keys]
+        others = sorted(k for k in keys if k not in SECTION_ORDER)
+        return known + others
+
+    def _section_size(self, section: str) -> int:
+        """Number of *display rows* a section occupies (0 if empty)."""
+        n = len(self._buckets.get(section, ()))
+        if n == 0:
+            return 0
+        return 1 + (0 if section in self._collapsed_sections else n)
+
+    def _section_display_start(self, section: str, order=None) -> int:
+        """Display-row index where ``section``'s header sits."""
+        order = order if order is not None else self._final_section_order([section])
+        total = 0
+        for s in order:
+            if s == section:
+                return total
+            total += self._section_size(s)
+        return total
+
+    def _resolve_row(self, row: int) -> Optional[tuple[str, Any]]:
+        """Map a grouped display row → ``("header", section)`` or ``("channel", idx)``."""
+        for section in self._ordered_sections():
+            size = self._section_size(section)
+            if row < size:
+                if row == 0:
+                    return ("header", section)
+                # Content rows are only reachable when the section is expanded
+                # (collapsed → size==1 so only row 0 is in range).
+                return ("channel", self._buckets[section][row - 1])
+            row -= size
+        return None
+
+    def _extend_bucket(self, section: str, indices: list[int]) -> None:
+        """Append channel indices to a section bucket, updating the position map."""
+        bucket = self._buckets.setdefault(section, [])
+        for ci in indices:
+            self._bucket_pos[ci] = len(bucket)
+            bucket.append(ci)
+
+    def _rebuild_buckets(self) -> None:
+        """Rebuild the section buckets + position map from ``_channels`` order."""
+        self._buckets = {}
+        self._bucket_pos = {}
+        for i, ch in enumerate(self._channels):
+            self._extend_bucket(ch.section, [i])
+
+    def _display_row_for_channel_index(self, ci: int) -> Optional[int]:
+        """Grouped display row for a ``_channels`` index, or None if not visible."""
+        if not self._grouped:
+            return ci
+        if not (0 <= ci < len(self._channels)):
+            return None
+        section = self._channels[ci].section
+        if section in self._collapsed_sections:
+            return None  # hidden under a collapsed header
+        pos = self._bucket_pos.get(ci)
+        if pos is None:
+            return None
+        return self._section_display_start(section) + 1 + pos
+
+    def row_for_channel_id(self, channel_id: str) -> Optional[int]:
+        """Public display-row lookup for a loaded channel id.
+
+        Returns ``None`` when the channel isn't loaded, or (grouped mode) its
+        section is currently collapsed. Used by the channel-list thumbnail
+        hydrator (``channel_list_thumbnails.py``) to map a completed
+        ``ImageCache.image_loaded(url, pixmap)`` signal back to the display
+        row(s) that requested it, so it can emit a targeted ``dataChanged``.
+        """
+        idx = self._id_to_index.get(channel_id)
+        if idx is None:
+            return None
+        return self._display_row_for_channel_index(idx)
+
+    # ── Group-by-type: public mutators ───────────────────────────────────────
+
+    def set_grouped(self, grouped: bool, collapsed_sections=None) -> None:
+        """Turn grouping on/off (a full reset — deliberate user toggle).
+
+        Args:
+            grouped: True → project the loaded rows into Movies/Series/Live sections.
+            collapsed_sections: Optional iterable of media_types to start collapsed
+                (restored from config); ignored when None.
+        """
+        self.beginResetModel()
+        self._group_by_type = self._grouped = bool(grouped)
+        if collapsed_sections is not None:
+            self._collapsed_sections = set(collapsed_sections)
+        if self._grouped:
+            self._rebuild_buckets()
+        self.endResetModel()
+
+    def set_section_collapsed(self, section: str, collapsed: bool) -> None:
+        """Collapse/expand one section, inserting/removing just its content rows."""
+        currently = section in self._collapsed_sections
+        if not self._grouped or collapsed == currently:
+            # Still record intent so a later set_grouped() restores it.
+            if collapsed:
+                self._collapsed_sections.add(section)
+            else:
+                self._collapsed_sections.discard(section)
+            return
+        n = len(self._buckets.get(section, ()))
+        start = self._section_display_start(section)
+        if collapsed:
+            if n > 0:
+                self.beginRemoveRows(QModelIndex(), start + 1, start + n)
+                self._collapsed_sections.add(section)
+                self.endRemoveRows()
+            else:
+                self._collapsed_sections.add(section)
+        else:
+            if n > 0:
+                self.beginInsertRows(QModelIndex(), start + 1, start + n)
+                self._collapsed_sections.discard(section)
+                self.endInsertRows()
+            else:
+                self._collapsed_sections.discard(section)
+        # Repaint the header so its arrow glyph flips.
+        hdr = self.createIndex(start, 0)
+        self.dataChanged.emit(
+            hdr, hdr, [Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE]
+        )
+
+    @property
+    def is_grouped(self) -> bool:
+        """Whether group-by-type display is currently ON."""
+        return self._grouped
+
+    def _append_grouped(self, dtos: list[ChannelListDTO]) -> None:
+        """Splice a fetched page into the grouped display, section by section.
+
+        Rows arrive in SQL (name) order — interleaving all media types — so each
+        type's new rows land at the END of its section's content block.  Sections
+        are processed in display order so every insert position is computed against
+        the model state AFTER earlier sections in this batch have been inserted.
+        """
+        start_index = len(self._channels)
+        new_by_section: dict[str, list[int]] = {}
+        for offset, ch in enumerate(dtos):
+            new_by_section.setdefault(ch.media_type or "other", []).append(
+                start_index + offset
+            )
+        # Store the DTOs first (buckets reference these indices).
+        self._channels.extend(dtos)
+        self._rebuild_index()
+
+        final_order = self._final_section_order(new_by_section.keys())
+        for section in final_order:
+            indices = new_by_section.get(section)
+            if not indices:
+                continue
+            existed = bool(self._buckets.get(section))
+            collapsed = section in self._collapsed_sections
+            if not existed:
+                # Brand-new section: header + (rows when expanded) as one block.
+                pos = self._section_display_start(section, final_order)
+                visible = 1 + (0 if collapsed else len(indices))
+                self.beginInsertRows(QModelIndex(), pos, pos + visible - 1)
+                self._extend_bucket(section, indices)
+                self.endInsertRows()
+            elif collapsed:
+                # Hidden under a collapsed header — only the count label changes.
+                self._extend_bucket(section, indices)
+                self._emit_header_changed(section, final_order)
+            else:
+                old_count = len(self._buckets[section])
+                pos = self._section_display_start(section, final_order) + 1 + old_count
+                self.beginInsertRows(QModelIndex(), pos, pos + len(indices) - 1)
+                self._extend_bucket(section, indices)
+                self.endInsertRows()
+                self._emit_header_changed(section, final_order)
+
+    def _emit_header_changed(self, section: str, order=None) -> None:
+        """Repaint a section header (its count/arrow changed)."""
+        start = self._section_display_start(section, order)
+        hdr = self.createIndex(start, 0)
+        self.dataChanged.emit(
+            hdr, hdr, [Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE]
+        )

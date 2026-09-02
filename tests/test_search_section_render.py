@@ -184,3 +184,37 @@ def test_the_count_a_user_sees_does_not_include_the_headers(qapp):
     # which is exactly why the wrong one went unnoticed for so long.
     _load(model, _mixed(), search=None)
     assert model.rowCount() == model.loaded_count() == 3
+
+
+def test_a_section_header_renders_the_html_the_delegate_paints(qapp):
+    """The role the DELEGATE asks for, which no test was asking for.
+
+    ``ChannelRowDelegate`` paints rows from ``CHANNEL_HTML_ROLE``, not
+    ``DisplayRole`` — the latter stays plain text for size hints, accessibility
+    and model tests. Every section test in this file read the plain text, so
+    when grouping moved to its own module and the header composer lost its
+    ``_theme`` and ``_html`` imports, 113 tests stayed green over a header row
+    that raises ``NameError`` the moment it is painted.
+
+    The F821 ratchet caught it before the push. This makes the render itself
+    the assertion, so the next move does not depend on a lint rule noticing.
+    """
+    from metatv.gui.channel_list_roles import CHANNEL_HTML_ROLE, ROW_KIND_ROLE
+
+    model = _model(qapp)
+    _load(model, _mixed(), search="cage")
+
+    headers = [model.index(r, 0) for r in range(model.rowCount())
+               if model.index(r, 0).data(ROW_KIND_ROLE) == "header"]
+    assert len(headers) == 2
+
+    for idx in headers:
+        html = idx.data(CHANNEL_HTML_ROLE)
+        assert html, "a header painted nothing"
+        assert html.startswith("<span"), html[:60]
+        assert "color:#" in html or "color:rgb" in html, (
+            f"the header carries no colour from the theme tokens: {html[:80]}")
+
+    assert "Titles" in headers[0].data(CHANNEL_HTML_ROLE)
+    assert "Cast &amp; Crew" in headers[1].data(CHANNEL_HTML_ROLE), (
+        "the ampersand must be HTML-escaped — this is rendered as rich text")
