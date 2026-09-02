@@ -1486,7 +1486,7 @@ class _StreamingMixin:
         try:
             props = self.player_manager.get_properties(
                 ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count",
-                 "time-pos"],
+                 "time-pos", "pause"],
                 key=key,
             )
         except Exception as e:
@@ -1554,6 +1554,7 @@ class _StreamingMixin:
 
         if _startwatch.on_playing(self) and (att := self.__dict__.get("_health_attempt")):
             self.status_bar.showMessage(f"Playing: {att.channel_name}")
+        _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")))
         text = format_playback_health(
             props.get("demuxer-cache-duration"),
             props.get("cache-speed"),
