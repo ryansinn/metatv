@@ -16,6 +16,7 @@ constructing the widget via __new__, avoiding the heavy full _setup_ui path.
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 import uuid
 from types import SimpleNamespace
@@ -258,6 +259,7 @@ def _now() -> datetime:
     return datetime(2026, 6, 19, 20, 0, 0)
 
 
+@with_programme_render_fields
 class _FakeWatchlistProg:
     """Minimal program stub for _ch_row / _up_row tests."""
     def __init__(

@@ -16,6 +16,7 @@ existing ``search_for_title`` (main_window_favorites.py) — jump-to-Search.
 """
 
 from __future__ import annotations
+from tests.conftest import with_programme_render_fields
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -36,6 +37,7 @@ def _now() -> datetime:
     return datetime(2026, 6, 19, 20, 0, 0)
 
 
+@with_programme_render_fields
 class _FakeProg:
     """Minimal EpgProgramDB-shaped stub for ranking / render tests."""
 
