@@ -513,6 +513,58 @@ class _NavMixin:
         self.switch_to_list_view()
         self.show_channel_details_by_id(channel_id)
 
+    # ── Sidebar section header menu ─────────────────────────────────────────
+
+    def _wire_sidebar_section_menu(self, section, section_id: str) -> None:
+        """Connect one section's header-menu signals (called from the sidebar
+        build loop in ``create_sidebar``, the same site that wires
+        ``exploreClicked`` — one place, not a per-section enumeration)."""
+        section.hideRequested.connect(lambda sid=section_id: self._hide_sidebar_section(sid))
+        section.sidebarSettingsRequested.connect(lambda: self.navigate_to("settings:Sidebar"))
+
+    def _hide_sidebar_section(self, section_id: str) -> None:
+        """Hide a section via the config chokepoint, with an Undo toast.
+
+        A right-click shortcut over what Settings -> Sidebar's checkboxes
+        already write; reapplied via the one chokepoint
+        (``_apply_sidebar_visibility``), never a direct ``setVisible``.
+        """
+        section = self.sidebar_sections.get(section_id)
+        order = list(self.config.sidebar_sections or self.sidebar_sections.keys())
+        visible = list(self.config.sidebar_visible_sections or order)
+        if section_id not in visible:
+            return
+        visible.remove(section_id)
+        self.config.sidebar_visible_sections = visible
+        self.config.save()
+        self._apply_sidebar_visibility()
+        title = section.title if section is not None else section_id
+
+        def _undo() -> None:
+            # Position by canonical order, not a blind append: [a,b,c] minus
+            # b, undone, must come back as [a,b,c] not [a,c,b].
+            current = list(self.config.sidebar_visible_sections or [])
+            if section_id in current:
+                return
+            target = order.index(section_id) if section_id in order else len(order)
+            insert_at = next(
+                (i for i, sid in enumerate(current)
+                 if sid in order and order.index(sid) > target),
+                len(current),
+            )
+            current.insert(insert_at, section_id)
+            self.config.sidebar_visible_sections = current
+            self.config.save()
+            self._apply_sidebar_visibility()
+
+        self.notification_manager.show(
+            title="Section hidden",
+            message=f"{title} is hidden — restore it any time in Settings → Sidebar.",
+            type="info",
+            auto_dismiss_ms=8000,
+            actions=[("Undo", _undo)],
+        )
+
     # ── View/chip wiring ────────────────────────────────────────────────────
 
     def _on_view_channel_selected(self, channel):
