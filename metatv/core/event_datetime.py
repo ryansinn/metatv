@@ -15,7 +15,7 @@ provider conventions, not two copies of one.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import NamedTuple, Optional
 
 #: UTC offsets, in MINUTES, for the timezone abbreviations providers actually
@@ -69,19 +69,33 @@ _EVENT_ISO_RE = re.compile(
 #: permanently empty and every dated game fell through to "Channels" — with no
 #: start time a row cannot be classified live, upcoming OR finished.
 #:
-#: Read as LOCAL wall-clock, then converted to UTC like every other form here.
+#: These times are UTC, matching the zone-carrying forms above for the SAME
+#: fixtures. Read as machine-local for one day (2026-09-01 -> 09-02) on a
+#: confounded observation; corrected 2026-09-02. The evidence:
 #:
-#: I first read these as UTC because 23:45/23:05/00:40 are 19:45/19:05/19:40
-#: Eastern — textbook MLB starts. That reasoning was clever and WRONG, and it
-#: made the feature worse than broken: the owner was watching MLB 04 live while
-#: the app filed it under "Finished", because 06:58 UTC had passed even though
-#: 06:58 local had not.
-#:
-#: The only test that decides this is empirical — the game the user is watching
-#: RIGHT NOW must classify as on-now — and it says local. A padded slot window
-#: (start + ~7h) makes the real-world start time a poor proxy, so do not
-#: re-derive the zone from what looks plausible for the sport.
-_EVENT_STARTSTOP_IS_LOCAL = True
+#: 1. Cross-grammar anchor — the SAME fixture appears in the owner's corpus in
+#:    both grammars: the day-name form carries an explicit zone —
+#:    "NEXT | MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES | Tue 01 Sep 03:30
+#:    CEST (DK) | …" (-> 01:30 UTC) — and the slot form names the same game —
+#:    "MLB 12 | Phillies x D-backs start:2026-09-01 02:40:00 stop:2026-09-01
+#:    09:53:20". Read as UTC the two starts are ~70 minutes apart (a slot is a
+#:    padded window). Read as local (owner: UTC-6) they are 7h10m apart. Games
+#:    do not start seven hours apart in two listings of themselves. If this is
+#:    ever doubted again: find the SAME fixture in the day-name form and
+#:    compare the two — do not reason from which start time looks plausible.
+#: 2. The padded windows only make sense in UTC — every slot is exactly 7h13m
+#:    (stop - start); under UTC they open ~2h before textbook ET/PT first
+#:    pitches; under local every MLB game would start between 22:45 and 07:00
+#:    owner-local — baseball at 3 AM Mountain, nightly.
+#: 3. The local reading predicts the exact reported symptom — with times +6h,
+#:    the live window lands 00:00-07:00 owner-local, so during real evening
+#:    games the lane says "upcoming". That is "there are NEVER any on-now
+#:    baseball games".
+#: 4. The observation that first justified "local" was confounded: the owner
+#:    was watching MLB 04 live while the UTC reading filed it Finished. These
+#:    slots RECYCLE stream ids — a slot keeps playing the provider's NEXT game
+#:    after its named fixture ends — so "I am watching this game" is not
+#:    reliable evidence about a recycled slot's own listed window.
 _EVENT_STARTSTOP_RE = re.compile(
     r"\bstart:\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})")
 #: The other half of the same string, and the only end time any provider sends.
@@ -146,19 +160,18 @@ class EventWindow(NamedTuple):
     stop: "Optional[datetime]"
 
 
-def _startstop_local_to_utc(year: str, month: str, day: str,
-                            hour: str, minute: str) -> "Optional[datetime]":
-    """One slot-form timestamp, LOCAL wall-clock in, UTC-naive out.
+def _startstop_utc(year: str, month: str, day: str,
+                   hour: str, minute: str) -> "Optional[datetime]":
+    """One slot-form timestamp: UTC in the name, UTC-naive out.
 
     Shared by both ends so they cannot be converted differently — a start read
-    as local and a stop read as UTC would put every window hours out of true
+    one way and a stop read another would put every window hours out of true
     and look entirely plausible while doing it.
     """
     try:
-        local = datetime(int(year), int(month), int(day), int(hour), int(minute))
+        return datetime(int(year), int(month), int(day), int(hour), int(minute))
     except ValueError:
         return None
-    return local.astimezone().astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def event_is_on_now(start: "Optional[datetime]", stop: "Optional[datetime]",
@@ -301,15 +314,17 @@ def parse_event_window(name: str, *, reference: "Optional[date]" = None
         # before the pipe forms means a name carrying both cannot be read as the
         # wrong one.
         #
-        # These carry NO zone and are local wall-clock (see the pattern's note),
-        # so convert to the UTC-naive value the rest of the system stores. The
-        # other forms name their zone and are handled by the shared offset below.
-        start = _startstop_local_to_utc(*m.groups())
+        # These carry NO zone and ARE UTC (see the pattern's note), matching
+        # what the zone-carrying forms resolve to for the same fixtures — the
+        # value is already the UTC-naive form the rest of the system stores.
+        # The other forms name their zone and are handled by the shared offset
+        # below.
+        start = _startstop_utc(*m.groups())
         if start is None:
             return EventWindow(None, None)
         stop = None
         if (ms := _EVENT_STARTSTOP_STOP_RE.search(name)) is not None:
-            stop = _startstop_local_to_utc(*ms.groups())
+            stop = _startstop_utc(*ms.groups())
             if stop is not None and stop <= start:
                 # A stop at or before its own start is malformed, and honouring
                 # it would read as "already finished" on a fixture that has not

@@ -155,6 +155,10 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v7 (2026-09-02): slot-form start:/stop: times are UTC, not machine-local —
+#: stored event windows were +machine-offset (owner: +6h, so "On now" landed
+#: at 3 AM and baseball never showed live). Every v6 row must be recomputed to
+#: correct its stored hour.
 #: v6 (2026-09-02): the slot form's "stop:" half is stored. The 56 rows that
 #: carry it already had a start, so nothing looked broken — but "still on" was
 #: a fixed 4h guess and their real windows are 3.00h to 7.22h. 32 ran long
@@ -177,7 +181,7 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
