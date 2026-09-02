@@ -93,7 +93,6 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import (
     QAbstractTextDocumentLayout,
     QBrush,
-    QColor,
     QFont,
     QFontMetrics,
     QTextDocument,
@@ -106,23 +105,18 @@ from PyQt6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from metatv.core.channel_name_utils import PLATFORM_CODES
-from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.gui import channel_row_layout as _layout
 from metatv.gui import channel_row_lead as _lead
+from metatv.gui.channel_row_cell_paint import (
+    _CELL_GAP, _OUTLINE_RADIUS, RowCellPaintMixin)
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import channel_list_section_band as _band
 from metatv.gui.channel_list_roles import LABEL_ROW_KINDS
 from metatv.gui.channel_list_model import (
-    CATEGORY_ROLE,
     CHANNEL_HTML_ROLE,
-    COLLECTION_ROLE,
     FAV_GLYPH_ROLE,
-    GENRE_ROLE,
-    LEAGUE_ROLE,
-    GENRES_ROLE,
     LANGUAGE_ROLE,
     MATCH_MARKER_ROLE,
     MEDIA_KIND_ROLE,
@@ -130,16 +124,9 @@ from metatv.gui.channel_list_model import (
     PLAYBACK_GLYPH_ROLE,
     PLOT_ROLE,
     POSTER_URL_ROLE,
-    PRIMARY_LANGUAGE_ROLE,
-    QUALITY_TOKEN_ROLE,
-    EVENT_WINDOW_ROLE,
     SPORT_ROLE,
     ROW_KIND_ROLE,
-    SECONDARY_LANGUAGE_ROLE,
-    SUBTITLE_MARKER_ROLE,
     TITLE_ROLE,
-    VARIANT_COUNT_ROLE,
-    YEAR_ROLE,
 )
 
 if TYPE_CHECKING:
@@ -173,9 +160,6 @@ _LINE_GAP = _layout.LINE_GAP
 _THUMB_W = _layout.ART_W
 _THUMB_H = _layout.ART_H
 _THUMB_GAP = _layout.ART_GAP
-
-# Cell-level spacing — these belong to the CHIPS, not to the row, so they stay.
-_CELL_GAP = 6         # horizontal gap between adjacent cells
 #: Gap on either side of the "·" that joins meta-line segments. Narrower than
 #: ``_CELL_GAP``: the separator is already doing the separating, and a full gap
 #: on both sides of it makes one sentence read as three fragments.
@@ -188,19 +172,8 @@ _META_SEPARATOR = "\u00b7"
 #: are alternatives describing one title, and the mockup's own rows read
 #: "Thriller / Drama".
 _GENRE_JOINER = " / "
-
-_CHIP_H_PAD = 7       # chip internal horizontal padding — matches theme.LANG_CHIP
                       # ("padding: 1px 7px"), the sidebar pill these should look like
 _THUMB_RADIUS = _layout.FILL_RADIUS   # poster/tile corner radius — the same
-                      # radius as the row fill it sits inside, so the artwork
-                      # reads as part of the row rather than as a card on it.
-_OUTLINE_RADIUS = 3   # TIER 3 corner radius. Deliberately NOT the pill radius
-                      # below: a filled pill and an outlined pill of the same
-                      # shape read as two colours of one thing, when the whole
-                      # point of the tiers is that they are different KINDS of
-                      # thing. A tight rounded rect also stops a short outlined
-                      # chip ("2024") from rendering as a squashed lozenge.
-_OUTLINE_V_INSET = 1  # px inset top+bottom on a tier-3 box. The stroke is drawn
                       # ON the rect's edge, and the row's clip rect cuts the
                       # line rect exactly — so a box at full line height loses
                       # its top and bottom edges to clipping.
@@ -236,38 +209,17 @@ def stacked_line_rects(container: QRect, line_height: int, gap: int) -> tuple[QR
 # see that module's docstring for the split. Re-exported here because this
 # module is the row's published surface.
 from metatv.gui.channel_row_cells import (  # noqa: E402
-    CHIP_SLOT_COLLECTION,
-    CHIP_SLOT_GENRE,
-    CHIP_SLOT_LANGUAGE,
-    CHIP_SLOT_LANGUAGE_2,
-    CHIP_SLOT_LEAGUE,
     CHIP_SLOT_QUALITY,
-    CHIP_SLOT_REGION,
-    CHIP_SLOT_SPORT,
-    CHIP_SLOT_STATE,
-    CHIP_SLOT_SUBTITLE,
-    CHIP_SLOT_VARIANTS,
-    CHIP_SLOT_YEAR,
     ROW_META_ORDER,
     ROW_RAIL_ORDER,
     _KIND_ICON_ROLES,
-    _category_cell,
     _Cell,
     _edged_on_selection,
-    _genre_cells,
-    _league_cell,
-    _sport_cell,
-    _state_cell,
-    _language_cell,
     _ordered,
-    _quality_cell,
-    _region_or_platform_cell,
-    _variant_badge_cell,
-    _year_cell,
 )
 
 
-class ChannelRowDelegate(QStyledItemDelegate):
+class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
     """Paints channel rows in one of three densities; header rows unchanged."""
 
     def __init__(self, parent=None, image_cache: Optional["ImageCache"] = None) -> None:
@@ -324,18 +276,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
     @property
     def platform_name_style(self) -> str:
         return self._platform_name_style
-
-    def _effective_platform_style(self) -> str:
-        """Resolve the configured Platform-names style against this row's
-        density: "auto" -> full brand name in comfy/comfy_plus, short code
-        in compact (owner spec #257); an explicit "full"/"short" override
-        wins regardless of density. Density-awareness is a control-layer
-        decision that belongs here (the delegate already tracks density),
-        never inside :func:`~metatv.core.channel_name_utils.platform_display`
-        itself."""
-        if self._platform_name_style in (PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT):
-            return self._platform_name_style
-        return PLATFORM_STYLE_SHORT if self._density == DENSITY_COMPACT else PLATFORM_STYLE_FULL
 
     def _comfy_plus_line_count(self, index) -> int:
         """comfy_plus is 3 lines when the row has plot text, else 2 (= comfy)."""
@@ -427,6 +367,20 @@ class ChannelRowDelegate(QStyledItemDelegate):
         return QSize(option.rect.width(), _layout.row_height(
             stack, has_art=self._shows_thumbnail(row_kind, index)
         ))
+
+    def _effective_platform_style(self) -> str:
+        """Resolve the configured Platform-names style against this row's
+        density: "auto" -> full brand name in comfy/comfy_plus, short code
+        in compact (owner spec #257); an explicit "full"/"short" override
+        wins regardless of density. Density-awareness is a control-layer
+        decision that belongs here (the delegate already tracks density),
+        never inside :func:`~metatv.core.channel_name_utils.platform_display`
+        itself."""
+        if self._platform_name_style in (PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT):
+            return self._platform_name_style
+        return PLATFORM_STYLE_SHORT if self._density == DENSITY_COMPACT else PLATFORM_STYLE_FULL
+
+    # ── Shared helpers ───────────────────────────────────────────────────────
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
         if index.data(ROW_KIND_ROLE) in LABEL_ROW_KINDS:
@@ -687,26 +641,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
         doc.documentLayout().draw(painter, ctx)
         painter.restore()
 
-    # ── Shared helpers ───────────────────────────────────────────────────────
-
-    def _resolve_default_color(self, opt: QStyleOptionViewItem, index) -> QColor:
-        """Default colour for non-chip text.
-
-        Selection is NOT a case here any more. It used to return
-        ``HighlightedText``, because a selected row was a saturated accent fill
-        and nothing else was legible on it — which meant the row the user was
-        actually looking at was the one row that lost its facet hues. V3's
-        selection is a TINT (``primary.4``), so the normal ramp holds and the
-        selected row reads exactly like its neighbours plus a marker bar.
-
-        The ForegroundRole override still wins: a row the model dimmed
-        (watched, degraded) stays dimmed.
-        """
-        fg = index.data(Qt.ItemDataRole.ForegroundRole)
-        if isinstance(fg, QBrush):
-            return fg.color()
-        return _to_qcolor(_theme.COLOR_ROW_META)
-
     def _title_color(self, opt: QStyleOptionViewItem, index) -> object:
         """Colour for the TITLE — the loudest thing in its row.
 
@@ -724,10 +658,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
         painter.setFont(font)
         painter.setPen(_to_qcolor(color))
         painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
-
-    def _cell_width(self, fm: QFontMetrics, cell: _Cell) -> int:
-        w = fm.horizontalAdvance(cell.text)
-        return w + 2 * _CHIP_H_PAD if cell.is_chip else w
 
     def hit_cells(self, row: int) -> list[tuple[QRect, _Cell]]:
         """Painted (rect, cell) pairs for *row* that carry hover/click meaning.
@@ -752,103 +682,6 @@ class ChannelRowDelegate(QStyledItemDelegate):
         is capped at half the height — which is exactly a pill.
         """
         return min(_CHIP_RADIUS, rect.height() / 2)
-
-    def _paint_cell(self, painter, rect: QRect, cell: _Cell, font) -> None:
-        # Record before painting so every drawn cell is hit-testable, including
-        # ones that return early below.
-        if cell.tip or cell.facet:
-            row = self._painting_row
-            if row is not None:
-                self._hit_regions.setdefault(row, []).append((QRect(rect), cell))
-        painter.setFont(font)
-        if cell.is_chip and cell.outline:
-            # TIER 3 — border-only. The interior is painted only if ``bg`` is
-            # set, which for the row's own outline cells it never is: a resting
-            # alpha tint is a hover effect in the wrong place. The stroke is
-            # ``border`` when the cell wants a box quieter than its text (the
-            # year), else ``fg`` (quality, whose box IS its tier hue).
-            box = rect.adjusted(0, _OUTLINE_V_INSET, 0, -_OUTLINE_V_INSET)
-            if cell.bg:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(_to_qcolor(cell.bg))
-                painter.drawRoundedRect(box, _OUTLINE_RADIUS, _OUTLINE_RADIUS)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(_to_qcolor(cell.border or cell.fg))
-            painter.drawRoundedRect(box, _OUTLINE_RADIUS, _OUTLINE_RADIUS)
-            painter.setPen(_to_qcolor(cell.fg))
-            # Text centres on the FULL rect, not the inset box: the inset is a
-            # stroke-clipping fix, and shifting the baseline with it would take
-            # the year off the line its neighbours sit on.
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
-        elif cell.is_chip:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(_to_qcolor(cell.bg))
-            _r = self._chip_radius(rect)
-            painter.drawRoundedRect(rect, _r, _r)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            if cell.border:
-                # A tier-1 chip normally needs no stroke — its fill is the
-                # signal. It gets one when the fill it is sitting ON is the same
-                # colour as its own (see ``_edged_on_selection``).
-                painter.setPen(_to_qcolor(cell.border))
-                painter.drawRoundedRect(rect, _r, _r)
-            painter.setPen(_to_qcolor(cell.fg))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
-        else:
-            painter.setPen(_to_qcolor(cell.fg))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, cell.text)
-
-    # ── Shared row-building seam ─────────────────────────────────────────────
-
-    def _cells_by_slot(self, index) -> dict[str, list[_Cell]]:
-        """Build EVERY cell this row can paint, keyed by its slot id.
-
-        The one place a role is turned into a ``_Cell``. The meta line and the
-        rail then each ask :func:`_ordered` for the subset they show, which is
-        what keeps them from drifting apart — the two used to build their own
-        tuples and had already ended up with the same facts in different orders.
-
-        Takes no selection argument: V3's selected row is a tint, so no cell has
-        to be re-coloured for it (see ``_resolve_default_color``).
-        """
-        region_code = index.data(LANGUAGE_ROLE) or ""
-        platform_code = region_code if region_code in PLATFORM_CODES else ""
-
-        def one(cell: Optional[_Cell]) -> list[_Cell]:
-            return [cell] if cell is not None else []
-
-        return {
-            CHIP_SLOT_QUALITY: one(_quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")),
-            CHIP_SLOT_VARIANTS: one(_variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1)),
-            CHIP_SLOT_GENRE: _genre_cells(
-                index.data(GENRES_ROLE), index.data(GENRE_ROLE) or ""
-            ),
-            CHIP_SLOT_STATE: one(_state_cell(index.data(EVENT_WINDOW_ROLE), _now_utc())),
-            CHIP_SLOT_SPORT: one(_sport_cell(index.data(SPORT_ROLE) or "")),
-            CHIP_SLOT_LEAGUE: one(_league_cell(index.data(LEAGUE_ROLE) or "")),
-            CHIP_SLOT_COLLECTION: one(_category_cell(
-                index.data(COLLECTION_ROLE) or "", platform_code,
-                filter_category=index.data(CATEGORY_ROLE) or "",
-            )),
-            CHIP_SLOT_YEAR: one(_year_cell(index.data(YEAR_ROLE) or "")),
-            CHIP_SLOT_REGION: one(_region_or_platform_cell(
-                region_code, self._effective_platform_style()
-            )),
-            # Sub/dub marker ("AR-SUB"), the category's disagreeing language,
-            # and the channel's OWN honest language — one hue, one tier.
-            CHIP_SLOT_SUBTITLE: one(_language_cell(
-                index.data(SUBTITLE_MARKER_ROLE) or "", filterable=False
-            )),
-            CHIP_SLOT_LANGUAGE_2: one(_language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or "")),
-            CHIP_SLOT_LANGUAGE: one(_language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or "")),
-        }
-
-    def _group_width(self, fm: QFontMetrics, cells: list[_Cell]) -> int:
-        """Total painted width of *cells* laid out with ``_CELL_GAP`` between
-        them — what ``row_layout`` needs to reserve the rail."""
-        if not cells:
-            return 0
-        return sum(self._cell_width(fm, c) for c in cells) + _CELL_GAP * (len(cells) - 1)
 
     # ── The text stack ───────────────────────────────────────────────────────
 

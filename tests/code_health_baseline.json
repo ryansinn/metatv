@@ -15,7 +15,6 @@
     "metatv/core/repositories/epg.py": 1066,
     "metatv/core/repositories/tag.py": 1810,
     "metatv/core/series_monitor.py": 1046,
-    "metatv/gui/channel_list_delegate.py": 1018,
     "metatv/gui/channel_menu.py": 1008,
     "metatv/gui/details_sections.py": 1811,
     "metatv/gui/discover_view.py": 1026,
