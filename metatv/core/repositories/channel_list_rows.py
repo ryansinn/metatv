@@ -36,17 +36,38 @@ def rows_to_dtos(repos, rows: list, search_query: str | None) -> list:
     # One batch query for the whole page, never N+1, and skipped without a term.
     persons = search_ranking.matched_persons_map(
         repos.session, [c.id for c in rows], term) if term else {}
-    return [
-        ChannelListDTO.from_orm(
+    # A row can match on its NAME rather than on metadata, because providers put
+    # the cast in the title. Those rows have no cast row to name them, so the
+    # term itself is the honest heading — see canonical_person, and the 182-vs-8
+    # measurement behind it.
+    from_name = search_ranking.canonical_person(term, persons) if term else None
+
+    def _person(ch, section):
+        # Only ever in Cast & Crew. A TITLES row matched on its own title, and
+        # the term is in its raw name BECAUSE the title is in its raw name — so
+        # the fallback would head "Arcadian" with "Arcadian" when someone
+        # searches for the film rather than the actor.
+        if section != search_ranking.SECTION_CAST:
+            return None
+        found = persons.get(ch.id)
+        if found:
+            return found
+        if from_name and term.lower() in (ch.name or "").lower():
+            return from_name
+        return None
+
+    def _dto(c):
+        section = (search_ranking.section_for_title(
+            c.detected_title or c.name, term) if term else None)
+        return ChannelListDTO.from_orm(
             c,
             user_rating=ratings_map.get(c.id, 0),
             reliability_state=reliability_map.get(c.id, "ok"),
-            section_key=(search_ranking.section_for_title(
-                c.detected_title or c.name, term) if term else None),
-            match_person=persons.get(c.id),
+            section_key=section,
+            match_person=_person(c, section),
             # The rung this row sits on — what a Whole/Part control filters.
             match_tier=(search_ranking.tier_for_title(
                 c.detected_title or c.name, term) if term else 0),
         )
-        for c in rows
-    ]
+
+    return [_dto(c) for c in rows]

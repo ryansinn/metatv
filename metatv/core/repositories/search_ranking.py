@@ -269,6 +269,41 @@ def tier_for_title(title: str | None, search_term: str) -> int:
     return 3 if term in low else 4
 
 
+def canonical_person(search_term: str, known: dict) -> str | None:
+    """The name to show when the term matched a channel's NAME, not its metadata.
+
+    Providers put the cast in the title. Measured on the owner's library for
+    "nicolas cage": **182** channels carry it in ``ChannelDB.name`` and only
+    **8** in ``detected_title`` —
+    ``'EN - Arcadian 4K (2024) NICOLAS CAGE'`` parses to ``'Arcadian'``. Those
+    rows have no ``metadata.cast`` at all (``8MM 1`` has neither cast nor
+    director) yet the search predicate matched them on the name, so they landed
+    in Cast & Crew with nothing to head them: **65 of 68 rows unlabelled, and
+    the one real group of 3 stranded at the bottom**.
+
+    The row genuinely IS a cast match — the provider is telling us he is in it —
+    so the honest heading is the term itself. Returned in the SAME spelling any
+    metadata row on the page already uses, so the two merge into one group
+    rather than "NICOLAS CAGE" sitting beside "Nicolas Cage"; failing that,
+    title case, which is what the provider blobs and TMDb both produce.
+
+    Args:
+        search_term: Raw user text.
+        known: The metadata-derived ``{channel_id: person}`` for this page.
+
+    Returns:
+        The display name, or None when the term is empty.
+    """
+    term = (search_term or "").strip()
+    if not term:
+        return None
+    low = term.lower()
+    for person in known.values():
+        if person and person.lower() == low:
+            return person        # match the spelling already on screen
+    return term.title()
+
+
 def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     """``{channel_id: person}`` for the rows whose CAST matched — one query.
 
