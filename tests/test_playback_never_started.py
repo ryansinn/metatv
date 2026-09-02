@@ -193,7 +193,8 @@ def test_the_host_actually_calls_the_watch(call):
 
 def test_the_play_path_names_what_it_launched():
     """Without the PlayAttempt the failure can be shown but never recorded."""
-    assert "_startwatch.PlayAttempt(channel_id, channel_name, final_url)" in HOST_SRC
+    assert "_startwatch.PlayAttempt(" in HOST_SRC
+    assert "channel_id, channel_name, final_url" in HOST_SRC
 
 
 # ── the read that must not explode ───────────────────────────────────────────
@@ -227,3 +228,101 @@ def test_every_read_survives_a_half_built_qobject_host():
     for _ in range(FAILED_AFTER_TICKS):
         watch.on_idle_tick(host)
     host.stream_retry_manager.add_failure.assert_called_once()
+
+
+# ── the other shape: the player EXITED without playing ───────────────────────
+#
+# #675 detects "still running, nothing loaded". It cannot see the case where mpv
+# is GONE: the app runs it with --idle=once when the user has asked it to close
+# when finished, so a file that ends immediately takes the whole process with
+# it. There is then no instance to probe, the health poll stops, and nothing was
+# ever reported.
+#
+# Reproduced locally 2026-09-02 against a range-capable server with the app's
+# exact flags: `loadfile … start=90` on a 60-second file ends the file at once
+# and mpv is gone within a second. A resume position past the real end does
+# that, and playback carries one on every part-watched title. The slow-server
+# theory was tested at the same time and ruled OUT — with
+# --cache-pause-initial=yes --cache-pause-wait=10 a 20 KB/s stream starts inside
+# three seconds.
+
+def test_the_player_vanishing_before_anything_played_is_reported():
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    assert watch.on_player_gone(host) is True
+    host.notification_manager.show.assert_called_once()
+    host.stream_retry_manager.add_failure.assert_called_once()
+
+
+def test_closing_a_player_that_WAS_playing_is_silent():
+    """The most common event in the app. It must stay silent, exactly as the
+    idle path does."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_playing(host)
+    assert watch.on_player_gone(host) is False
+    host.notification_manager.show.assert_not_called()
+
+
+def test_the_two_failure_paths_report_at_most_once_between_them():
+    """Both can fire for one failed play — idle probes, then the process dies.
+    Two toasts for one click is its own bug."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(FAILED_AFTER_TICKS):
+        watch.on_idle_tick(host)
+    watch.on_player_gone(host)
+    assert host.notification_manager.show.call_count == 1
+    assert host.stream_retry_manager.add_failure.call_count == 1
+
+
+def test_arming_a_new_play_allows_the_next_failure_to_report():
+    """The once-only latch is per PLAY, not per session."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_player_gone(host)
+    watch.arm(host, ATTEMPT)
+    assert watch.on_player_gone(host) is True
+    assert host.notification_manager.show.call_count == 2
+
+
+def test_a_resume_position_is_named_in_the_message():
+    """The one cause of this the USER can act on: a saved position past the end
+    of the file ends it instantly, and playing from the start works."""
+    host = _host()
+    watch.arm(host, PlayAttempt("p", "TRON Legacy", "http://x/1.mp4", 5657))
+    watch.on_player_gone(host)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "94m17s" in msg, msg
+    assert "from the start" in msg
+
+
+def test_no_resume_means_no_resume_advice():
+    """A live channel has no position; telling them to play from the start
+    would be nonsense."""
+    host = _host()
+    watch.arm(host, PlayAttempt("p", "Sky Sports", "http://x/1.ts", 0))
+    watch.on_player_gone(host)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "from the start" not in msg
+    assert "busy or the stream dead" in msg
+
+
+def test_the_health_tick_calls_it_when_no_player_is_left():
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / "metatv" / "gui" / "main_window_streaming.py").read_text()
+    body = src[src.index("def _playback_health_tick"):]
+    body = body[:body.index("\n    def ", 1)]
+    assert "_startwatch.on_player_gone(self)" in body, (
+        "a player that exits without playing is silent again")
+    # Before the poll stops, or it never runs.
+    assert (body.index("_startwatch.on_player_gone(self)")
+            < body.index("_playback_health_timer.stop()"))
+
+
+def test_the_play_path_carries_the_resume_offset():
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / "metatv" / "gui" / "main_window_streaming.py").read_text()
+    assert "final_url, start_seconds)" in src, (
+        "PlayAttempt no longer carries the resume offset, so the message "
+        "cannot name it")
