@@ -17,6 +17,7 @@ from metatv.core.database import (
     StreamRetryDB,
 )
 from metatv.core import channel_visibility, visibility_resolver
+from metatv.core.repositories.search_ranking import search_relevance_tier
 from metatv.core.channel_name_utils import (
     QUALITY_TIER_RANK,
     quality_tier_rank,
@@ -565,6 +566,7 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         if collapse_variants:
             return self._get_all_collapsed(
                 query, limit=limit, offset=offset,
+                search_query=search_query,
                 exclusion_sets={
                     "excluded_prefixes": excluded_prefixes,
                     "excluded_user_categories": excluded_user_categories,
@@ -578,7 +580,12 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
         # counters, whose floor is a set difference between this query and the
         # same query with one axis lifted — a tie that shuffles would read as a
         # row the axis hid. The collapse path below already tie-breaks this way.
-        query = query.order_by(ChannelDB.name, ChannelDB.id)
+        # Relevance first when searching, then the existing alphabetical
+        # tie-break — which stays, so an un-searched list is byte-identical and
+        # ties never shuffle. search_relevance_tier returns a constant when the
+        # term is empty, so this is one expression rather than a branch.
+        query = query.order_by(search_relevance_tier(search_query),
+                               ChannelDB.name, ChannelDB.id)
 
         # Comfy+ density's plot line (and the channel-list thumbnail's poster
         # URL): outerjoin MetadataDB and select ONLY its plot + poster_url
@@ -617,7 +624,7 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
 
     def _get_all_collapsed(
         self, filtered_query, *, limit: Optional[int], offset: Optional[int],
-        exclusion_sets=None,
+        exclusion_sets=None, search_query: Optional[str] = None,
     ) -> List[ChannelDB]:
         """Collapse *filtered_query* (an already-WHERE-filtered ChannelDB query)
         to one representative row per content_key group, in SQL.
@@ -744,8 +751,12 @@ class ChannelRepository(ChannelIngestionMixin, _ChannelStatsMixin,
             )
             .select_from(grouped)
             .join(ChannelDB, ChannelDB.id == rep_id_expr)
-            .order_by(ChannelDB.name, ChannelDB.id)
         )
+        # The representative page is chosen HERE, so relevance applies here too:
+        # ranking only the rows that came back would rank page 1 against page 1
+        # and an exact match on page 6 would never arrive.
+        reps_q = reps_q.order_by(search_relevance_tier(search_query),
+                                 ChannelDB.name, ChannelDB.id)
         if offset is not None:
             reps_q = reps_q.offset(offset)
         reps = reps_q.limit(limit).all() if limit is not None else reps_q.all()
