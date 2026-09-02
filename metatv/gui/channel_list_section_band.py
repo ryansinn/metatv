@@ -19,10 +19,16 @@ Painted rather than composed as rich text because none of that survives Qt's
 rich-text subset: a ``flex:1`` rule has no equivalent, and a segmented control
 needs its own hit rectangles anyway.
 
-Every colour is a token. The artifact's literals mapped almost one-to-one —
-``#151a21`` is ``COLOR_BG_SECTION``, ``#2e3742`` is ``COLOR_LINE``, ``#5697d7``
-is ``COLOR_ACCENT`` and ``#090c10`` is ``COLOR_ON_ACCENT``, which is the on-fill
-rule arriving at the same answer by itself.
+Every colour is a token, and the mockup's literals mapped almost one-to-one onto
+ones that already existed: the band takes ``COLOR_BG_SECTION``, its borders and
+the rule take ``COLOR_LINE``, the active half takes ``COLOR_ACCENT`` with
+``COLOR_ON_ACCENT`` on it — the on-fill rule arriving at the same answer by
+itself — and the quiet half and caret take ``COLOR_FAINT``.
+
+The hex values are deliberately NOT repeated here. ``test_no_stray_color_literals``
+scans source text, not just code, and it is right to: a hex in a comment is one
+copy-paste away from being a hex in a stylesheet, which is the whole failure the
+token layer exists to stop. It caught this docstring.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from PyQt6.QtCore import QRect, QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath
+from PyQt6.QtGui import QFont, QFontMetrics, QPainter, QPainterPath
 
 from metatv.gui import theme as _theme
 from metatv.gui.channel_list_roles import (
@@ -243,7 +249,7 @@ def _paint_segment(painter: QPainter, box: BandLayout, *, whole_only: bool) -> N
 
     line = to_qcolor(_theme.COLOR_LINE)
     painter.setPen(line)
-    painter.setBrush(QColor(0, 0, 0, 0))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawRoundedRect(outer, SEG_RADIUS, SEG_RADIUS)
     # Exactly one rule per boundary, the same as the widget track.
     painter.drawLine(box.part.left(), outer.top() + 1,
