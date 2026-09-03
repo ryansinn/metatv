@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=568,
-    version="0.88.0",
+    version="0.89.0",
     date="2026-09-03",
     title="Settings → Content gains a Live catalog refresh rate",
     items=(
