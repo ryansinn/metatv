@@ -270,12 +270,11 @@ def parse_platform_event(name: str) -> Optional[PlatformEvent]:
         always_available=always,
     )
 
-# Quality tokens that start with a digit (4K, 8K) — excluded from _SEPARATOR_RE
-# because that pattern requires [A-Z] as the first character.
-_DIGIT_QUALITY_PREFIX_RE = re.compile(
-    r'^(4K|8K)\s*(?:[★|]|-\s+)\s*(.+)$',
-    re.IGNORECASE,
-)
+# Digit-starting prefix tokens excluded from _SEPARATOR_RE ([A-Z]-only grammar): the
+# quality tokens 4K/8K, plus the literal age-rating code "18+" — a narrow admission, not
+# a general digit+punctuation widening (owner report 2026-09-03: 466 rows, all with an
+# empty detected_prefix). Step 7 below routes "18+" into region, not quality[].
+_DIGIT_QUALITY_PREFIX_RE = re.compile(r'^(4K|8K|18\+)\s*(?:[★|]|-\s+)\s*(.+)$', re.IGNORECASE)
 
 # Bracket-enclosed quality token at name start where the token begins with a digit.
 # _BRACKET_PREFIX_RE requires [A-Z] as its first char, so [4K] and [8K] fall through
@@ -3296,7 +3295,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
     # wins when both are present (e.g. "[US] 4K-DE - Movie UHD" → quality[0] = "UHD").
-    if _prefix_quality and _prefix_quality not in quality:
+    region = normalize_region_code(_prefix_quality) if _prefix_quality == "18+" else region
+    if _prefix_quality and _prefix_quality != "18+" and _prefix_quality not in quality:
         # Same-rank guard as _strip_attributes: a "4K|" prefix on a name whose
         # suffix already said UHD is one tier stated twice, and would render as
         # two chips meaning one thing.
