@@ -56,7 +56,13 @@ if TYPE_CHECKING:
 # title loses decoration — that is the point (`ESPN NEWS ᴴᴰ ⁶⁰ᶠᵖˢ` and
 # `ESPN NEWS` are the same channel and were two content keys), but it is a real
 # data change and the reason this is a version bump rather than a quiet edit.
-CURRENT_PREFIX_SCAN_VERSION = 5
+# v6 — (owner report 2026-09-03) the age-rating prefix "18+" ("18+ - Title
+# (Year)") was never captured: its leading digit fell outside _SEPARATOR_RE's
+# [A-Z] grammar, so 466 rows carried an empty detected_prefix. Now admitted as
+# a literal in _DIGIT_QUALITY_PREFIX_RE and routed to region, and "18+" joined
+# BASE_PREFIX_GROUPS["Adult"] — this same update_detected_prefixes() pass also
+# recomputes detected_restricted, so no separate restricted_backfill bump.
+CURRENT_PREFIX_SCAN_VERSION = 6
 
 # The compound-prefix parse version that the old nav-mixin tracked separately.
 # We persist this into config.prefix_parse_version on completion so existing
