@@ -247,6 +247,12 @@ class EventsView(ContentView):
     playRequested               = pyqtSignal(str)
     channelMiddleClicked        = pyqtSignal(str)
     channelContextMenuRequested = pyqtSignal(str, int, int)
+    #: LIVE-1: emitted every time this view activates — same signal name and
+    #: purpose as SportsView.liveRefreshOnOpenRequested, wired to the same
+    #: host hook (Sports and Events cover overlapping content, so either
+    #: opening can trigger a live-only refresh when
+    #: config.live_refresh_mode == "on_view_open").
+    liveRefreshOnOpenRequested  = pyqtSignal()
 
     def __init__(self, db, config, run_query: Callable, parent=None) -> None:
         """
@@ -320,6 +326,7 @@ class EventsView(ContentView):
     def on_activate(self) -> None:
         self._reload()
         self._timer.start()
+        self.liveRefreshOnOpenRequested.emit()
 
     def reload(self) -> None:
         """Re-read after a provider/source mutation.

@@ -78,6 +78,14 @@ class SportsView(ContentView):
     #: host (catalog_refresh_tick.py) resolves which sources are stale and
     #: enqueues them through the same path Sources' "Refresh All" uses.
     refreshSourcesRequested    = pyqtSignal()
+    #: LIVE-1: emitted every time this view activates. The host
+    #: (catalog_refresh_tick._maybe_live_refresh_on_view_open) decides whether
+    #: config.live_refresh_mode == "on_view_open" and the cooldown allow a
+    #: live-only refresh right now — this view has no opinion, same DR-0007
+    #: seam as refreshSourcesRequested. EventsView emits the identical signal
+    #: name into the same host hook (Sports and Events cover overlapping
+    #: content, so either opening can trigger it).
+    liveRefreshOnOpenRequested = pyqtSignal()
 
     def __init__(self, db, config, run_query: Callable, parent=None,
                  image_cache=None) -> None:
@@ -119,7 +127,7 @@ class SportsView(ContentView):
         #: True while refresh_queue_manager has ANY work queued/running — the
         #: banner hides during that window rather than nagging alongside the
         #: refresh toast already telling the user the same thing. Pushed in by
-        #: the host (catalog_refresh_tick._wire_sports_catalog_banner); this
+        #: the host (catalog_refresh_tick._wire_catalog_refresh_hooks); this
         #: view never reads refresh_queue_manager itself.
         self._catalog_refresh_pending = False
         #: Set when the taxonomy query is SUBMITTED, not when it returns —
@@ -208,6 +216,7 @@ class SportsView(ContentView):
             self._load_taxonomy()
         self._reload_channels()
         self._load_catalog_freshness()
+        self.liveRefreshOnOpenRequested.emit()
 
     def reload(self) -> None:
         """Re-read everything after a provider/source mutation.
@@ -273,7 +282,7 @@ class SportsView(ContentView):
     def set_refresh_pending(self, pending: bool) -> None:
         """Host-pushed flag: True while ANY source refresh is queued/running.
 
-        Pushed from ``catalog_refresh_tick._wire_sports_catalog_banner`` via
+        Pushed from ``catalog_refresh_tick._wire_catalog_refresh_hooks`` via
         ``refresh_queue_manager.queue_changed`` — this view never reads the
         queue manager itself. The banner hides while pending is True (no
         point nagging alongside the refresh toast already saying the same
@@ -302,8 +311,16 @@ class SportsView(ContentView):
         if stale:
             age = humanize_ago(self._catalog_newest_refresh) or "never"
             self._catalog_banner.setText(
-                f"{_icons.notification_warning_icon}  Catalog last refreshed {age} — "
+                f"{_icons.notification_warning_icon}  Live catalog last refreshed {age} — "
                 f"fixture times and titles may be outdated  —  Refresh sources"
+            )
+            # LIVE-1: "Refresh sources" enqueues a live-only refresh — a single
+            # get_live_streams call per source, seconds rather than the full
+            # multi-minute catalog refresh — covering every live channel and
+            # fixture (VOD/series are untouched).
+            self._catalog_banner.setToolTip(
+                "Refreshes live channels and fixtures only — usually a few "
+                "seconds per source. VOD and series are not affected."
             )
         self._catalog_banner.setVisible(stale)
 

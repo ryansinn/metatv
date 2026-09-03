@@ -458,48 +458,91 @@ class ProviderRepository:
             for p in rows
         ]
 
+    def _effective_live_refresh(self, provider: ProviderDB) -> Optional[datetime]:
+        """COALESCE(last_live_refresh_at, last_catalog_refresh_at,
+        MAX(channels.last_seen_at)) for one row (LIVE-1).
+
+        The Sports banner's staleness rule: a live-only refresh is a strict
+        subset of a full one, so it is checked FIRST — a source refreshed
+        live-only five minutes ago must not look stale just because its last
+        FULL refresh was hours ago. Falls back to ``_effective_catalog_refresh``
+        (full-refresh stamp, then newest ``last_seen_at``) so a source that
+        predates this column isn't infinitely stale the moment it ships.
+        """
+        if provider.last_live_refresh_at is not None:
+            return provider.last_live_refresh_at
+        return self._effective_catalog_refresh(provider)
+
+    def get_active_providers_live_refresh(self) -> List[tuple]:
+        """``(id, name, last_live_refresh_at)`` for every ACTIVE provider —
+        LIVE-1's live-refresh lane (5-minute interval tick) and the
+        Sports/Events on-view-open hook's one read.
+
+        Unlike :meth:`get_active_providers_with_refresh_schedule`, this
+        ignores the per-provider ``refresh_schedule`` column entirely: the
+        live-refresh rate is a single GLOBAL setting
+        (``config.live_refresh_mode``), not a per-source opt-in.
+        """
+        rows = self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all()  # noqa: E712
+        return [(p.id, p.name, p.last_live_refresh_at) for p in rows]
+
     def get_newest_catalog_refresh(self) -> Optional[datetime]:
-        """Newest effective catalog-refresh stamp across ACTIVE providers.
+        """Newest effective LIVE-refresh stamp across ACTIVE providers (LIVE-1).
 
         The freshest active source's stamp — if even THAT one is old, every
-        active source is at least as stale. Powers the Sports view banner:
-        ``None`` when no active provider has ever ingested a channel.
+        active source is at least as stale. Powers the Sports view banner's
+        displayed age: ``None`` when no active provider has ever ingested a
+        channel. Reads ``_effective_live_refresh`` (live-first COALESCE) since
+        the banner itself now tracks the live-only refresh, not the full one.
         """
         values = [
-            self._effective_catalog_refresh(p)
+            self._effective_live_refresh(p)
             for p in self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all()  # noqa: E712
         ]
         values = [v for v in values if v is not None]
         return max(values) if values else None
 
     def get_stale_active_providers(self, threshold, now: Optional[datetime] = None) -> List[tuple]:
-        """``(id, name)`` for ACTIVE providers whose effective catalog refresh
+        """``(id, name)`` for ACTIVE providers whose effective LIVE refresh
         is older than *threshold* (a ``timedelta``), or has never happened.
 
-        Powers the Sports banner's "Refresh sources" action — enqueues
-        exactly the sources that are actually stale rather than the whole
-        corpus, so a source refreshed moments ago elsewhere isn't
-        redundantly re-queued.
+        Powers the Sports banner's "Refresh sources" action (LIVE-1: enqueues
+        a live-only refresh, not the full multi-minute one) — exactly the
+        sources that are actually stale rather than the whole corpus, so a
+        source refreshed moments ago elsewhere isn't redundantly re-queued.
         """
         now = now or datetime.now()
         out = []
         for p in self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all():  # noqa: E712
-            effective = self._effective_catalog_refresh(p)
+            effective = self._effective_live_refresh(p)
             if effective is None or (now - effective) >= threshold:
                 out.append((p.id, p.name))
         return out
 
     def mark_catalog_refreshed(self, provider_id: str, when: Optional[datetime] = None) -> None:
-        """Stamp ``last_catalog_refresh_at`` on a SUCCESSFUL catalog refresh.
+        """Stamp ``last_catalog_refresh_at`` on a SUCCESSFUL FULL catalog refresh.
 
         Called only from the refresh-success path
-        (``main_window_providers._on_queue_refresh_finished``) — never on
-        failure, so a source that just failed to refresh isn't treated as
+        (``catalog_refresh_tick._mark_catalog_refreshed``, kind="full") — never
+        on failure, so a source that just failed to refresh isn't treated as
         freshly current by the tick or the banner.
         """
         provider = self.get_by_id(provider_id)
         if provider:
             provider.last_catalog_refresh_at = when or datetime.now()
+            self.session.commit()
+
+    def mark_live_refreshed(self, provider_id: str, when: Optional[datetime] = None) -> None:
+        """Stamp ``last_live_refresh_at`` on a SUCCESSFUL refresh — live-only
+        OR full (LIVE-1).
+
+        Called from ``catalog_refresh_tick._mark_catalog_refreshed`` for
+        EVERY successful refresh regardless of kind: a full refresh includes
+        the live half by definition, so it stamps this too. Never on failure.
+        """
+        provider = self.get_by_id(provider_id)
+        if provider:
+            provider.last_live_refresh_at = when or datetime.now()
             self.session.commit()
 
     def to_model(self, db_provider: ProviderDB) -> Provider:

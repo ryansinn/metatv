@@ -64,6 +64,10 @@ class _QueueEntry:
     status: ProviderRefreshStatus = ProviderRefreshStatus.QUEUED
     pct: int = 0
     thread: "ProviderLoadThread | None" = field(default=None, repr=False)
+    #: "full" or "live_only" (LIVE-1) — threaded into the ProviderLoadThread
+    #: this entry starts. See RefreshQueueManager.enqueue for the supersede
+    #: rule between the two.
+    kind: str = "full"
 
 
 class RefreshQueueManager(QObject):
@@ -126,14 +130,39 @@ class RefreshQueueManager(QObject):
     # Public API
     # ------------------------------------------------------------------
 
-    def enqueue(self, provider_id: str, provider_name: str) -> None:
+    def enqueue(self, provider_id: str, provider_name: str, kind: str = "full") -> None:
         """Add *provider_id* to the queue (no-op if already queued or running).
 
         Args:
             provider_id:   Unique provider identifier.
             provider_name: Human-readable label for the overview notification.
+            kind: "full" (default) or "live_only" (LIVE-1 — fetches only
+                ``get_live_streams``). A queued FULL refresh SUPERSEDES a
+                queued live-only entry for the same provider (upgraded in
+                place, still one queue slot) since the full refresh already
+                covers the live half; the reverse never enqueues a second
+                entry — the running/queued full refresh already covers it.
+                Once an entry is RUNNING its kind cannot change; a duplicate
+                enqueue while running is the ordinary dedup no-op.
         """
         if provider_id in self._queued_ids:
+            existing = next(
+                (e for e in self._queue if e.provider_id == provider_id), None
+            )
+            if (
+                existing is not None
+                and existing.status == ProviderRefreshStatus.QUEUED
+                and kind == "full"
+                and existing.kind == "live_only"
+            ):
+                existing.kind = "full"
+                logger.info(
+                    f"RefreshQueueManager: {provider_name!r}'s queued live-only "
+                    "refresh upgraded to full (a full refresh was enqueued for "
+                    "the same provider)"
+                )
+                self._emit_queue_changed()
+                return
             logger.debug(
                 f"RefreshQueueManager: {provider_name!r} already queued/running — skipped"
             )
@@ -142,10 +171,14 @@ class RefreshQueueManager(QObject):
         entry = _QueueEntry(
             provider_id=provider_id,
             provider_name=provider_name,
+            kind=kind,
         )
         self._queue.append(entry)
         self._queued_ids.add(provider_id)
-        logger.info(f"RefreshQueueManager: enqueued {provider_name!r} (queue depth {len(self._queue)})")
+        logger.info(
+            f"RefreshQueueManager: enqueued {provider_name!r} "
+            f"(kind={kind!r}, queue depth {len(self._queue)})"
+        )
 
         self._emit_queue_changed()
         self._ensure_overview_notification()
@@ -255,6 +288,7 @@ class RefreshQueueManager(QObject):
             quality_groups=self._config.filter_quality_groups,
             platform_groups=self._config.filter_platform_groups,
             regional_groups=self._config.filter_regional_groups,
+            kind=entry.kind,
         )
         thread.provider_id = entry.provider_id  # Store for the finished handler
         thread.progress.connect(_on_progress)

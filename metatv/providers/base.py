@@ -1,7 +1,7 @@
 """Provider plugin base class"""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Set, Tuple
 from metatv.core.models import Channel, Provider
 
 
@@ -28,14 +28,22 @@ class ProviderPlugin(ABC):
         """
     
     @abstractmethod
-    async def fetch_channels(self, provider: Provider, 
-                           progress_callback: Optional[callable] = None) -> List[Channel]:
-        """Fetch all channels from provider
-        
+    async def fetch_channels(self, provider: Provider,
+                           progress_callback: Optional[callable] = None,
+                           media_types: Optional[Set[str]] = None) -> List[Channel]:
+        """Fetch channels from provider
+
         Args:
             provider: Provider instance
             progress_callback: Optional callback(current, total, message)
-        
+            media_types: Restrict the fetch to these ``MediaType`` values
+                (e.g. ``{"live"}``). ``None`` (default) fetches every type —
+                the historical full-catalog behaviour. LIVE-1's live-only
+                refresh passes ``{"live"}`` so the round trip is a single
+                ``get_live_streams`` call rather than the whole catalog.
+                A plugin that has no cheaper per-type fetch may ignore this
+                and always return everything.
+
         Returns:
             List of Channel objects
         """

@@ -392,6 +392,14 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             adult_idx if adult_idx >= 0 else self._adult_mode_combo.findData("hide")
         )
 
+        live_refresh_idx = self._live_refresh_mode_combo.findData(
+            getattr(self.config, "live_refresh_mode", "manual")
+        )
+        self._live_refresh_mode_combo.setCurrentIndex(
+            live_refresh_idx if live_refresh_idx >= 0
+            else self._live_refresh_mode_combo.findData("manual")
+        )
+
         # Signal checking. Percentages are stored as fractions and shown as
         # whole numbers — nobody thinks in 0.5 of a sample.
         #
@@ -610,6 +618,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # Interaction
         c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
         c.filter_adult_mode = self._adult_mode_combo.currentData() or "hide"
+        c.live_refresh_mode = self._live_refresh_mode_combo.currentData() or "manual"
 
         c.signal_sample_seconds = self._signal_sample_spin.value()
         c.signal_black_fraction = self._signal_black_spin.value() / 100.0

@@ -125,6 +125,36 @@ def test_a_real_query_runs_after_the_upgrade(tmp_path):
         session.query(ChannelDB).filter(ChannelDB.is_favorite == True).all()  # noqa: E712
 
 
+def test_providers_last_live_refresh_at_survives_an_upgrade(tmp_path):
+    """LIVE-1's new column, upgraded exactly like the channels case above:
+    build a database, drop the column to simulate an older schema, re-run
+    the migration, then issue a real ORM query naming it.
+
+    ``ProviderDB`` isn't covered by the generic ``channels``-table check
+    above (that one is scoped to ``ChannelDB``), so this is the direct proof
+    for the one column this slice adds — the same failure shape as #617/#648
+    ("no such column") if the ALTER TABLE entry in ``Database._migrate()``
+    were ever missing or misspelled.
+    """
+    from metatv.core.database import ProviderDB
+
+    db = Database(f"sqlite:///{tmp_path / 'up_providers.db'}")
+    db.create_tables()
+    with db.engine.connect() as conn:
+        try:
+            conn.execute(sa.text(
+                "ALTER TABLE providers DROP COLUMN last_live_refresh_at"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    Database(f"sqlite:///{tmp_path / 'up_providers.db'}").create_tables()
+
+    with db.session_scope(commit=False) as session:
+        session.query(ProviderDB).filter(
+            ProviderDB.last_live_refresh_at.is_(None)).all()
+
+
 def test_every_table_the_orm_declares_actually_exists(tmp_path):
     """The sibling failure: a NEW table is created by create_all, so it is safe —
     but only while it is genuinely new. Asserted so the assumption is checked."""

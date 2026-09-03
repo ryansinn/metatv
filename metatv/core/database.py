@@ -380,6 +380,7 @@ class ProviderDB(Base):
     refresh_schedule = Column(String, default="manual")
     last_refresh = Column(DateTime)
     last_catalog_refresh_at = Column(DateTime, nullable=True)  # Stamped on refresh success (SPORT-7); NULL falls back to MAX(channels.last_seen_at)
+    last_live_refresh_at = Column(DateTime, nullable=True)  # Stamped on live-only OR full refresh success (LIVE-1); a full refresh stamps both
     
     is_active = Column(Boolean, default=True)
     last_sync = Column(DateTime)
@@ -1033,6 +1034,7 @@ class Database:
             ("alert_patterns", "live_only",                    "INTEGER DEFAULT 0"),
             ("alert_patterns", "action",                       "TEXT DEFAULT 'notify'"),
             ("providers",     "last_catalog_refresh_at",         "DATETIME"),  # SPORT-7
+            ("providers",     "last_live_refresh_at",            "DATETIME"),  # LIVE-1
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
