@@ -30,6 +30,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from metatv.core.repositories.queue import QueueEntry
+from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
 
 
@@ -73,6 +74,20 @@ def _rows(section) -> list[str]:
 
 def _headers(section) -> list[str]:
     return [v for kind, v in section._rendered if kind == "HEADER"]
+
+
+def _real_row_title(section, item) -> str:
+    """Title text of one item in a REAL ``QListWidget`` — a header's own text,
+    or a chip row's title label (mirrors ``test_sidebar_in_place_removal.py``)."""
+    widget = section._list.itemWidget(item)
+    if widget is None:
+        return item.text()
+    label = row_title_label(widget)
+    return label.text() if label is not None else ""
+
+
+def _real_texts(section) -> list[str]:
+    return [_real_row_title(section, section._list.item(i)) for i in range(section._list.count())]
 
 
 class TestNeverWatchedOrder:
@@ -168,3 +183,130 @@ class TestTheQueueStatesItsSize:
         ])
         assert "Never Watched (2)" in _headers(section)
         assert "Unavailable (1)" in _headers(section)
+
+
+class TestChunkedBuild:
+    """PERF-17: the owner's 666-entry Watch Queue froze the main thread
+    building one chip row per entry synchronously — sampled 4x in one launch,
+    worst 3,753ms. ``_populate_rows`` now streams rows through
+    ``build_chunked`` in batches of 40. These use a REAL ``WatchQueueSection``
+    over a REAL ``QListWidget`` (the stub in ``section`` above fakes out row
+    construction entirely, which is exactly what these need to observe).
+    """
+
+    def _real_section(self, qapp):
+        from metatv.core.config import Config
+        sec = WatchQueueSection(Config(), db=None)
+        sec.resize(260, 480)
+        sec.show()
+        QApplication.processEvents()
+        return sec
+
+    def _built_row_count(self, sec) -> int:
+        return sum(
+            1 for i in range(sec._list.count())
+            if sec._list.itemWidget(sec._list.item(i)) is not None
+        )
+
+    def _pump_until_done(self, sec, max_iterations: int = 200) -> None:
+        for _ in range(max_iterations):
+            if sec._build_handle.done:
+                return
+            QApplication.processEvents()
+        raise AssertionError("chunked build never finished")
+
+    def test_first_batch_renders_before_the_rest_arrives(self, qapp):
+        """The rendered-construction assertion: an actual batch's worth of row
+        WIDGETS exists before the event loop has had a single turn."""
+        sec = self._real_section(qapp)
+        entries = [_entry(f"m{i}", days=i) for i in range(120)]
+
+        sec._populate_rows(entries)
+
+        assert self._built_row_count(sec) == 40, (
+            "expected exactly one batch of row widgets before any event processing"
+        )
+
+        self._pump_until_done(sec)
+
+        assert self._built_row_count(sec) == 120
+        assert "Never Watched (120)" in _real_texts(sec)
+        sec.hide()
+
+    def test_a_refresh_mid_build_cancels_the_old_one_no_duplicates(self, qapp):
+        """The bug this exists to prevent: a refresh (second data-ready) while
+        the first build is still streaming in must not leave any of the
+        superseded build's later rows mixed into the new one. Mirrors what
+        ``BackgroundRefreshMixin._on_data_ready`` actually does: clear the
+        list, then populate."""
+        sec = self._real_section(qapp)
+
+        sec._list.clear()
+        sec._populate_rows([_entry(f"old{i}", days=i) for i in range(120)])
+        old_handle = sec._build_handle
+        assert self._built_row_count(sec) == 40
+
+        sec._list.clear()
+        sec._populate_rows([_entry(f"new{i}", days=i) for i in range(50)])
+
+        assert old_handle._cancelled is True
+
+        self._pump_until_done(sec)
+
+        rows = [
+            _real_row_title(sec, sec._list.item(i))
+            for i in range(sec._list.count())
+            if sec._list.itemWidget(sec._list.item(i)) is not None
+        ]
+        assert len(rows) == 50
+        assert all(t.startswith("new") for t in rows), (
+            f"a superseded row from the old build leaked in: {rows}"
+        )
+        sec.hide()
+
+    def test_filter_hides_a_later_batch_row_as_it_arrives(self, qtbot, qapp):
+        """A row that fails an ACTIVE filter must be hidden the moment it is
+        built, even when it arrives in the second (or later) batch — not only
+        once the whole build finishes and the final ``_apply_filter`` sweep
+        runs.
+
+        Records each row's hidden state the INSTANT ``_build_queue_row``
+        builds it, rather than inspecting ``_list`` afterwards: the section's
+        UNRELATED row-budget mechanism (``row_budget.py``'s
+        ``apply_row_budget``) unhides every row on its own schedule (a resize
+        event), which would otherwise race this assertion and prove nothing
+        about the filter specifically.
+        """
+        sec = self._real_section(qapp)
+        entries = [
+            _entry(f"keep {i}" if i % 2 == 0 else f"skip {i}", days=i)
+            for i in range(120)
+        ]
+        sec._set_filter_visible(True, save=False)
+        sec._filter.setText("keep")
+
+        seen: list[tuple[str, bool]] = []
+        real_build_row = sec._build_queue_row
+
+        def spy(work_item):
+            real_build_row(work_item)
+            item, haystack = work_item.group.rows[-1]
+            seen.append((haystack, item.isHidden()))
+
+        sec._build_queue_row = spy
+        sec._populate_rows(entries)
+
+        qtbot.waitUntil(lambda: sec._build_handle.done, timeout=2000)
+
+        assert len(seen) == 120
+        batch_2_plus = seen[40:]
+        assert batch_2_plus, "no rows were built past the first batch"
+        skip_rows = [hidden for haystack, hidden in batch_2_plus if "skip" in haystack]
+        keep_rows = [hidden for haystack, hidden in batch_2_plus if "keep" in haystack]
+        assert skip_rows and all(skip_rows), (
+            "a later-batch row failing the filter was not hidden AS it was built"
+        )
+        assert keep_rows and not any(keep_rows), (
+            "a later-batch row matching the filter was wrongly hidden AS it was built"
+        )
+        sec.hide()
