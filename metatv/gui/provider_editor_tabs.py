@@ -478,6 +478,16 @@ class _ProviderEditorTabsMixin:
 
         self._refresh_combo = QComboBox()
         self._refresh_combo.addItems(["Manual", "On App Launch", "Daily", "Weekly", "Every 30 Days"])
+        self._refresh_combo.setToolTip(
+            "How often MetaTV automatically re-fetches this source's full "
+            "catalog (channels, VOD, series, live event times) through the "
+            "same refresh the button above runs. Sports/live-event data can "
+            "go stale in hours; a movie library rarely needs more than a "
+            "weekly refresh — pick what matches how you actually use this "
+            "source. 'On App Launch' refreshes once, every time you open "
+            "MetaTV. A source currently streaming is skipped and retried "
+            "once playback stops."
+        )
         form.addRow("Auto-refresh:", self._refresh_combo)
 
         self._force_adult_check = QCheckBox("Mark all channels from this source as adult content")

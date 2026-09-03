@@ -80,6 +80,7 @@ from metatv.metadata_providers.tmdb import TMDbProvider
 from metatv.metadata_providers.omdb import OMDbProvider
 from metatv.gui.migration_progress_widget import MigrationProgressWidget
 from metatv.gui.refresh_queue_manager import RefreshQueueManager
+from metatv.gui.catalog_refresh_tick import _CatalogRefreshTickMixin
 
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
@@ -144,7 +145,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -622,6 +623,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.refresh_queue_manager.all_refreshes_finished.connect(
             self._on_all_refreshes_finished
         )
+        self._init_catalog_refresh_tick()  # SPORT-7 hourly tick
 
         self.load_providers()
         self.load_favorites()
@@ -763,6 +765,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # the first poke so the app honors the configured interval from launch
         # without requiring the user to open the EPG view.
         QTimer.singleShot(2000, self.epg_manager.refresh_all_if_needed)
+
+        # SPORT-7 — the one-time "On App Launch" catalog-refresh check.
+        QTimer.singleShot(2500, lambda: self._maybe_auto_refresh_catalogs(at_launch=True))
 
     def setup_ui(self):
         """Set up the user interface"""
@@ -2130,6 +2135,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.sports_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.sports_view.channelContextMenuRequested.connect(
             self._on_rec_channel_context_menu)
+        self._wire_sports_catalog_banner()  # SPORT-7 staleness banner
         self.sports_view.setVisible(False)
         self._list_layout.addWidget(self.sports_view)
 
