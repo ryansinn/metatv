@@ -127,19 +127,31 @@ class TmdbEnrichmentManager(QObject):
     collapses_found : pyqtSignal(int)
         Emitted (auto-queued onto the main thread) after a drain batch whose newly
         written ids produced at least one *new collapse* — an enriched row's
-        recomputed ``content_key`` now matches another visible row.  The host
-        connects this to ``_refresh_provider_dependent_views`` so the views
-        re-collapse (a gentle settle) without a restart.
+        recomputed ``content_key`` now matches another visible row.  Fires roughly
+        once per ~5s drain batch during an active run, so the host does NOT connect
+        it directly to ``_refresh_provider_dependent_views`` (that ran the full
+        canonical refresh cascade in a five-second loop — REC-LAG, owner log
+        2026-09-03: 107 stalls, worst 8,738ms); it goes through
+        ``gui.refresh_coalescer.RefreshCoalescer`` instead, which debounces the
+        burst to one refresh at quiet/cap/drain.
     enrichment_progress : pyqtSignal(str, str, int)
         ``(provider_id, provider_name, in_flight_count)``.  A main-thread slot
         renders ONE coalesced "Updating N titles from {name}…" toast per source:
         ``count > 0`` shows/updates it, ``count == 0`` clears it.  This also
         explains the re-collapse reflow.  Emitted only from the main-thread-owned
         QObject (never a direct NotificationManager call from the worker).
+    enrichment_settled : pyqtSignal()
+        Emitted (auto-queued onto the main thread) once the queue this drain was
+        working actually empties — after ``_clear_all_inflight`` and the
+        end-of-drain sibling propagation sweep have both run.  ``RefreshCoalescer``
+        stops its pending timers and refreshes immediately if a collapse was left
+        uncoalesced, since the drain finishing is the natural moment the user
+        should see everything land.
     """
 
     collapses_found = pyqtSignal(int)
     enrichment_progress = pyqtSignal(str, str, int)
+    enrichment_settled = pyqtSignal()
 
     def __init__(
         self,
@@ -398,6 +410,13 @@ class TmdbEnrichmentManager(QObject):
             # Clear every source's toast now the drain is done (queue drained).
             self._clear_all_inflight()
             self._propagate_after_drain()
+            # RefreshCoalescer's drain-complete flush — see enrichment_settled's
+            # docstring above. Read _shutdown under the lock (same pattern as
+            # _clear_all_inflight) so a closing window is never emitted into.
+            with self._lock:
+                shutting = self._shutdown
+            if not shutting:
+                self.enrichment_settled.emit()
 
     def _propagate_after_drain(self) -> None:
         """Push ids this drain learned out to their idless same-title siblings (#284).

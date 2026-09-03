@@ -215,6 +215,32 @@ def test_hide_channel_from_recommendations_publishes_and_rereads(db):
     assert state.is_hidden is True
 
 
+def test_hide_channel_from_recommendations_refreshes_synchronously(db):
+    """RefreshCoalescer (REC-LAG) only sits on the enrichment-driven trigger —
+    a user-initiated hide must still refresh its dependent views instantly,
+    with no debounce leaked onto this path.
+
+    No Qt event loop is spun here at all (no qtbot.wait / processEvents): the
+    recorders below are asserted called immediately, in the same call stack as
+    ``_hide_channel_from_recommendations`` — proof nothing deferred them
+    behind a QTimer.
+    """
+    from tests.conftest import make_channel_state_bus_host
+
+    channel_id = "ch-hide-recs-sync"
+    _make_channel(db, channel_id)
+    host = make_channel_state_bus_host(db)
+    refreshed: list = []
+    host._refresh_recommended_section = lambda: refreshed.append("recommended")
+    host.load_channels = lambda: refreshed.append("channels")
+    host.preferences_view = type("_P", (), {"refresh": staticmethod(
+        lambda: refreshed.append("preferences"))})()
+
+    host._hide_channel_from_recommendations(channel_id)
+
+    assert refreshed == ["preferences", "recommended", "channels"]
+
+
 def test_unhide_channel_publishes_after_deferred_reload(db, qtbot):
     """_unhide_channel's DB write is off-thread and its reload is deferred via
     QTimer.singleShot — the publish must run AFTER that deferred reload, not

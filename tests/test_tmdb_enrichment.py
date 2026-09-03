@@ -727,6 +727,35 @@ def test_progress_signal_is_source_attributed_and_coalesced(db, config_obj, qapp
     assert events == [("Provider p1", 2), ("Provider p1", 0)]
 
 
+def test_enrichment_settled_emitted_once_when_the_queue_fully_drains(
+    db, config_obj, monkeypatch, qapp
+):
+    """enrichment_settled fires exactly once after a real enqueue()-driven drain.
+
+    RefreshCoalescer (gui/refresh_coalescer.py) uses this signal as its
+    drain-complete flush trigger, so it must fire after the batch write AND
+    the end-of-drain sibling-propagation sweep have both run — not mid-drain.
+    """
+    with db.session_scope() as session:
+        _provider(session)
+        idless = _channel(session, media_type="movie", detected_title="ES Peli", source_id="200")
+
+    calls: list = []
+    monkeypatch.setattr("metatv.providers.xtream.XtreamAPI",
+                        _make_fake_api(vod={"200": {"info": {"tmdb_id": "999"}}}, calls=calls))
+
+    settled: list = []
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    mgr.enrichment_settled.connect(lambda: settled.append(None))
+    try:
+        mgr.enqueue([idless])
+        _drain(mgr, qapp)
+    finally:
+        mgr.shutdown()
+
+    assert settled == [None]
+
+
 def test_host_notification_slot_coalesces_show_update_dismiss():
     """MainWindow._on_tmdb_enrichment_progress: one toast per source, updated then cleared."""
     from metatv.gui.main_window import MainWindow
