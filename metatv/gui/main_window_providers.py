@@ -547,7 +547,7 @@ class _ProviderMixin:
         # exists.)
         if hasattr(self, "filter_panel"):
             self.initialize_filter_stats()
-        # Center overlay views — lazily constructed, refresh only if present
+        # Center overlay views — refresh only if present. reload() self-guards on activity.
         if hasattr(self, "discover_view"):
             self.discover_view.reload()
         if hasattr(self, "preferences_view"):
