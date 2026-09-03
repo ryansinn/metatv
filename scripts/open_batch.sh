@@ -70,11 +70,18 @@ if [ "$_want_exclude" = 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# The worktree this copy of the script lives in — NOT the shared main repo.
-# merge_pr.sh runs it from the trunk checkout, which is where the chore belongs;
-# running it from a worktree acts on that worktree, which is what makes it
-# testable without touching the owner's checkout.
-main="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+# The SHARED main repository — never a worktree. Mirrors verify_pr.sh's and
+# merge_pr.sh's `_main_repo`: `--git-common-dir` resolves to the ONE .git every
+# linked worktree shares, unlike `--show-toplevel`, which returns whichever
+# worktree happens to contain SCRIPT_DIR. This script commits (and optionally
+# pushes), so getting that wrong doesn't just read the wrong tree — it STRANDS
+# the version-bump commit on whatever branch is checked out in that worktree.
+# It did, twice, on 2026-09-02: merge_pr.sh invoked via a relative path from an
+# agent worktree's cwd, so SCRIPT_DIR resolved inside the worktree, and the old
+# `show-toplevel` logic here landed the commit on the worktree's feature
+# branch while origin/main never moved.
+_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
+main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "open_batch.sh: not inside a git repository." >&2; exit 2; }
 
 conf="$main/.devscripts.conf"
@@ -83,24 +90,41 @@ conf="$main/.devscripts.conf"
 base_branch="${BASE_BRANCH:-$(git -C "$main" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')}"
 base_branch="${base_branch:-main}"
 
+# A commit lands on whatever branch is checked out where it runs. $main is now
+# always the shared repo (never a worktree) — but that repo itself can have
+# ANY branch checked out, and a feature branch there would just as silently
+# take the bump. Refuse rather than commit to the wrong place.
+main_branch="$(git -C "$main" symbolic-ref --short -q HEAD 2>/dev/null || echo '')"
+if [ "$main_branch" != "$base_branch" ]; then
+    echo "open_batch.sh: refusing — $main has '${main_branch:-a detached HEAD}' checked out, not the trunk ('$base_branch'). Check out $base_branch there before opening a batch label." >&2
+    exit 2
+fi
+
 init_py="$main/metatv/__init__.py"
 batch_py="$main/metatv/whats_new/batch.py"
 for f in "$init_py" "$batch_py"; do
     [ -f "$f" ] || { echo "open_batch.sh: missing $f" >&2; exit 2; }
 done
 
+# Dirty in a way that blocks the bump: uncommitted changes to the exact files
+# this script writes would get swept into its automated commit as if they
+# were part of the version-bump chore.
+dirty="$(git -C "$main" status --porcelain -- "$init_py" "$batch_py" 2>/dev/null)"
+if [ -n "$dirty" ]; then
+    echo "open_batch.sh: refusing — $main has uncommitted changes to the files this bump writes:" >&2
+    printf '%s\n' "$dirty" | sed 's/^/  /' >&2
+    exit 2
+fi
+
 current="$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' "$init_py" | head -1)"
 opened_sha="$(sed -nE 's/^OPENED_AT_SHA: str = "([^"]+)".*/\1/p' "$batch_py" | head -1)"
 opened_id="$(sed -nE 's/^OPENED_AT_ID: int = ([0-9]+).*/\1/p' "$batch_py" | head -1)"
 head_sha="$(git -C "$main" rev-parse --short HEAD)"
 # The repo's venv if there is one — metatv.whats_new imports loguru, which a
-# bare system python3 will not have.
-# A worktree has no venv of its own, so fall back to the shared checkout's.
-shared_repo="$(dirname "$(git -C "$SCRIPT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")"
+# bare system python3 will not have. $main is always the shared repo (see
+# above), so there is no separate worktree-vs-shared venv to fall back to.
 py=""
-for cand in "$main/venv/bin/python" "$shared_repo/venv/bin/python"; do
-    [ -x "$cand" ] && { py="$cand"; break; }
-done
+[ -x "$main/venv/bin/python" ] && py="$main/venv/bin/python"
 [ -n "$py" ] || py="$(command -v python3)"
 latest_id="$(cd "$main" && "$py" -c 'from metatv.whats_new import latest_id; print(latest_id())' 2>/dev/null)"
 

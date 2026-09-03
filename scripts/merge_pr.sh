@@ -343,17 +343,27 @@ batch_summary="(skipped — --no-bump)"
 if [ "$NO_BUMP" = 1 ]; then
     echo
     echo "merge_pr.sh: --no-bump — leaving the batch label alone."
-elif [ ! -x "$SCRIPT_DIR/open_batch.sh" ]; then
+elif [ ! -x "$main/scripts/open_batch.sh" ]; then
     batch_summary="(open_batch.sh not present)"
 else
     echo
     echo "── batch label: scripts/open_batch.sh ──"
     batch_log="$(mktemp "${TMPDIR:-/tmp}/merge_pr.${PR}.batch.XXXXXX.log")"
+    # Run the MAIN repo's copy, explicitly by path — not "$SCRIPT_DIR/open_batch.sh".
+    # SCRIPT_DIR tracks however THIS script was invoked, which can be a worktree
+    # (e.g. `scripts/merge_pr.sh` typed with cwd inside an agent worktree resolves
+    # SCRIPT_DIR to that worktree's own scripts/ dir). open_batch.sh anchors its
+    # OWN git operations to the shared main repo regardless of where its script
+    # file sits, but running a worktree's possibly-stale copy of the script TEXT
+    # is still a hazard a fixed $main copy avoids outright. This is the fix for
+    # the 2026-09-02 incident: open_batch.sh committed the version bump onto an
+    # agent worktree's checked-out feature branch instead of origin/main.
+    #
     # --exclude-pr: GitHub still lists the PR we just merged as open for a
     # few seconds, and open_batch.sh refuses to bump while anything is open.
     # Without this the label is skipped on exactly the merge that finishes a
     # batch, which is every batch (observed twice out of two, 2026-09-02).
-    if "$SCRIPT_DIR/open_batch.sh" --push --exclude-pr "$PR" 2>&1 | tee "$batch_log"; then
+    if "$main/scripts/open_batch.sh" --push --exclude-pr "$PR" 2>&1 | tee "$batch_log"; then
         batch_summary="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+ -> [0-9]+\.[0-9]+\.[0-9]+' "$batch_log" | tail -1)"
         [ -n "$batch_summary" ] || batch_summary="(unchanged — nothing owed)"
     else
@@ -372,7 +382,9 @@ else
     echo
     echo "── cleanup: scripts/prune_merged.sh ──"
     prune_log="$(mktemp "${TMPDIR:-/tmp}/merge_pr.${PR}.prune.XXXXXX.log")"
-    "$SCRIPT_DIR/prune_merged.sh" 2>&1 | tee "$prune_log"
+    # Same reasoning as open_batch.sh above: run the main repo's own copy by
+    # path, not whatever worktree SCRIPT_DIR happens to resolve to.
+    "$main/scripts/prune_merged.sh" 2>&1 | tee "$prune_log"
     prune_summary="$(grep -E '^(removed|kept-unmerged|kept-active|skipped-dirty|kept-protected) *:' "$prune_log" \
         | sed -E 's/ +:/:/; s/[[:space:]]*$//' | paste -sd' ' -)"
     rm -f "$prune_log"
