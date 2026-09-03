@@ -29,7 +29,7 @@ class _Host(_ChannelListMixin, QWidget):
         self.selected_provider_id = None
         self._bypass_tier1_filters = True
 
-    def load_channels(self, provider_id=None):
+    def load_channels(self, provider_id=None, *, keep_rows: bool = False):
         self.reloads.append(provider_id)
 
     def _clear_id_filter(self):

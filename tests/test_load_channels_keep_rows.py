@@ -218,6 +218,9 @@ def test_on_filter_changed_captures_restore_flag_and_clears_it_on_panel():
     later, genuine user click (which never re-sets the panel's flag) is not
     mistaken for another restore-settling burst."""
     host = MagicMock()
+    # Explicit assignment lands in __dict__ (the real window sets self.filter_panel
+    # in setup_ui); an auto-created Mock child would be invisible to __dict__.get.
+    host.filter_panel = MagicMock()
     host.filter_panel._pending_restore_reload = True
 
     mw_channels_module._ChannelListMixin.on_filter_changed(host)
@@ -230,6 +233,7 @@ def test_on_filter_changed_user_click_does_not_set_keep_rows():
     """A genuine user click never sets FilterPanel._pending_restore_reload ->
     on_filter_changed() must leave _pending_reload_keep_rows False."""
     host = MagicMock()
+    host.filter_panel = MagicMock()
     host.filter_panel._pending_restore_reload = False
 
     mw_channels_module._ChannelListMixin.on_filter_changed(host)

@@ -1421,7 +1421,7 @@ class _ChannelListMixin:
         from PyQt6.QtCore import QTimer
 
         self._capture_filter_state()
-        panel = getattr(self, "filter_panel", None)
+        panel = self.__dict__.get("filter_panel")
         self._pending_reload_keep_rows = bool(getattr(panel, "_pending_restore_reload", False))
         if self._pending_reload_keep_rows:
             panel._pending_restore_reload = False
@@ -1466,7 +1466,7 @@ class _ChannelListMixin:
             return
         logger.info("Filter changed, reloading channels...")
         # keep_rows: True only for FilterPanel's own restore-settling burst.
-        self.load_channels(None, keep_rows=bool(getattr(self, "_pending_reload_keep_rows", False)))
+        self.load_channels(None, keep_rows=bool(self.__dict__.get("_pending_reload_keep_rows", False)))
 
     def stop_filter_reload_timer(self) -> None:
         """Cancel any pending reload. Registered for cleanup by MainWindow."""

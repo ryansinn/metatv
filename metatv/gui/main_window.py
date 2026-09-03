@@ -706,9 +706,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         (e.g. ``detected_title_reparse``'s 2000-row batches) — the cause of
         the 2026-07-31 / 2026-08-01 "database is locked" crash-loops.
 
-        Probes off the main thread via ``evaluate_pending_async()`` (was a
-        blocking ``has_pending_tasks()`` call — a sampled 2.0s stall, watchdog
-        2026-09-02): ``pending_evaluated`` gates the wait for ``all_finished``.
+        Probes off the main thread via ``evaluate_pending_async()`` (a blocking
+        ``has_pending_tasks()`` here was a sampled 2.0s stall); ``pending_evaluated`` gates it.
         """
         def _on_pending_evaluated(pending: bool) -> None:
             self.migration_manager.pending_evaluated.disconnect(_on_pending_evaluated)
