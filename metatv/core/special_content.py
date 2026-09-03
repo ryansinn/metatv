@@ -168,8 +168,11 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
         sport_kw = {k: list(v) for k, v in _DEFAULT_SPORT_KEYWORDS.items()}
         league_kw = {k: list(v) for k, v in _DEFAULT_LEAGUE_KEYWORDS.items()}
 
-    # Merge user overrides if the settings UI has created them
-    if user_path.exists():
+    # Merge user overrides if the settings UI has created them. The stamp in
+    # the cache key already answers "does the override file exist" — a
+    # separate exists() would be a second stat() per cache miss, the very
+    # syscall this TTL exists to avoid.
+    if cache_key[1] is not None:
         try:
             user_sports, user_leagues = _load_definitions_file(user_path)
             for sport, keywords in user_sports.items():
