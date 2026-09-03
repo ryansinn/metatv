@@ -628,6 +628,9 @@ class PreferencesView(QWidget):
         executor = self.__dict__.get("_executor")
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
+            # Null it so refresh() knows to rebuild on reactivation — a
+            # shutdown ThreadPoolExecutor raises on any further submit.
+            self._executor = None
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this view's own persistent chrome
@@ -652,6 +655,19 @@ class PreferencesView(QWidget):
         self._ver_prefs_toggle_btn.setStyleSheet(_toggle_style)
 
     def refresh(self) -> None:
+        # Inactive → drop the request outright. on_activate() always refreshes,
+        # so a cascade fire while this view is closed loses nothing — and before
+        # this guard, every provider/enrichment cascade ran the FULL preference
+        # engine (compute_weights + score_candidates over the corpus) for a
+        # dashboard nobody had open; its _bg_refresh sat in nearly every stall
+        # sample of the owner's 2026-09-03 launches. Same shape as
+        # recipe_view.reload()'s guard.
+        if not self._active:
+            return
+        # on_deactivate shuts the pool down (and nulls it); a reactivation must
+        # rebuild it or this submit raises on a dead executor.
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1)
         # Show a loading header so the stale "No ratings yet" never displays during
         # the (often multi-second) background load. _on_pref_data_ready → _render
         # overwrites this on both the has-ratings and genuinely-no-ratings branches.
