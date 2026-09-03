@@ -106,6 +106,7 @@ from metatv.core.channel_name_utils import (
 # Shared normalisation helper
 # ---------------------------------------------------------------------------
 
+_APOSTROPHE_RE = re.compile("[''’ʼ`]")  # straight, right single quote (U+2019), modifier, backtick
 _NONWORD_RE = re.compile(r"[^\w\s]")
 _WHITESPACE_RE = re.compile(r"\s+")
 # Matches the first four-digit year anywhere in detected_year (e.g. "2015-2018" → "2015").
@@ -145,13 +146,20 @@ def _strip_trailing_audio_noise(norm: str) -> str:
 
 
 def normalize_title_for_key(title: str) -> str:
-    """Lowercase, strip non-word characters, collapse whitespace, drop audio noise.
+    """Lowercase, delete apostrophes, strip non-word characters, collapse whitespace, drop audio noise.
 
     **This is THE definition of "same title" for content identity** — the single
     source of truth (CLAUDE.md: single chokepoint).  Anything that decides
     whether two rows describe the same production must call this, not a
     look-alike normaliser, or it will disagree with the key it is reasoning
     about.
+
+    **Apostrophes are DELETED, not space-replaced**, because providers list the
+    same production both ways (``"Three's Company"`` and ``"Threes Company"``
+    are the same show).  A space-replaced apostrophe (``"three s company"`` vs
+    ``"threes company"``) split 1,328 real title buckets in the owner's measured
+    library (Clarkson's Farm, Grey's Anatomy, The Queen's Gambit, …) — the
+    matcher is blind to the apostrophe the same way it is blind to case.
 
     Do NOT substitute ``content_dedup.normalize_title()`` here.  That function
     cleans a **raw provider channel name** (``ChannelDB.name``) — it strips
@@ -183,7 +191,8 @@ def normalize_title_for_key(title: str) -> str:
         when the entire title is punctuation/whitespace.
     """
     lowered = title.lower()
-    no_punct = _NONWORD_RE.sub(" ", lowered)
+    no_apos = _APOSTROPHE_RE.sub("", lowered)
+    no_punct = _NONWORD_RE.sub(" ", no_apos)
     collapsed = _WHITESPACE_RE.sub(" ", no_punct).strip()
     return _strip_trailing_audio_noise(collapsed)
 

@@ -56,7 +56,10 @@ if TYPE_CHECKING:
 #       the remake guard, so rows with unambiguous evidence were skipped. Re-run
 #       required: v1 recorded those skips permanently. Measured +498 adoptions,
 #       0 lost, on the owner's library.
-CURRENT_VERSION: int = 2
+#   3 — re-run after content_key apostrophe re-key (owner report 2026-09-03): an
+#       un-enriched apostrophe-free variant (e.g. "Threes Company", no tmdb id) now
+#       adopts its sibling's id and collapses onto the tmdb key.
+CURRENT_VERSION: int = 3
 
 
 class TmdbSiblingPropagationTask:

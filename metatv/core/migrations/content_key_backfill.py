@@ -56,12 +56,16 @@ if TYPE_CHECKING:
 #       MUST run AFTER TmdbIdBackfillTask (which populates detected_tmdb_id from
 #       raw_data) — see the migration registration order in gui/main_window.py.
 #       (Recomputes only the generated content_key column — user data untouched.)
-CURRENT_VERSION: int = 4
+#   5 — formula change (owner report 2026-09-03): apostrophes are deleted (not space-replaced)
+#       before the punctuation strip, so "Three's Company" and "Threes Company" share a key;
+#       1,328 apostrophe-split buckets measured on the live library. Requires recompute_all=True.
+#       (Recomputes only the generated content_key column — user data untouched.)
+CURRENT_VERSION: int = 5
 
 # Versions whose formula changed and therefore need every row recomputed, not
 # just NULL rows.  Add the new CURRENT_VERSION here whenever the key formula
 # changes.
-_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2, 3, 4})
+_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2, 3, 4, 5})
 
 
 class ContentKeyBackfillTask:
