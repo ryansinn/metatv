@@ -214,6 +214,62 @@ def _cards_for_saved_recipe(session, config: Config, name: str,
 
 
 # ---------------------------------------------------------------------------
+# Shelf-config canonicalization  (#4 chokepoint — moved out of DiscoverView
+# so its own file, pinned at its code_health_baseline ceiling, had room for
+# the PERF-17 chunked-build lifecycle wiring instead)
+# ---------------------------------------------------------------------------
+
+def normalize_shelf_config(config: Config) -> None:
+    """Canonicalize HTML-entity-encoded genre shelf keys in the persisted config.
+
+    Before bug A was fixed, provider genre strings like "Action &amp; Adventure"
+    were stored as-is, creating shelf keys like "genre:Action &amp; Adventure".
+    After the fix, get_all_genres() returns canonical "Action & Adventure" which
+    produces "genre:Action & Adventure" — a different key.  The two variants
+    would both appear in the zone lists, causing the same shelf to show twice.
+
+    Called once by ``DiscoverView.on_activate()`` before the first load, and
+    sanitizes all four discover_*_shelves lists by:
+      1. Unescaping HTML entities in any "genre:*" key.
+      2. De-duplicating while preserving original order (first occurrence wins
+         so the user's pinned/expanded/collapsed/order state is kept).
+
+    The config is saved only if any list changed.
+
+    Args:
+        config: The application Config to normalize in place.
+    """
+    import html as _html
+
+    def _clean(key: str) -> str:
+        if key.startswith("genre:"):
+            return "genre:" + _html.unescape(key[6:])
+        return key
+
+    def _dedup_ordered(lst: list) -> list:
+        seen: set = set()
+        out: list = []
+        for item in lst:
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
+        return out
+
+    changed = False
+    for attr in ("discover_pinned_shelves", "discover_expanded_shelves",
+                 "discover_collapsed_shelves", "discover_hidden_shelves",
+                 "discover_shelf_order"):
+        raw: list = list(getattr(config, attr, []))
+        normalized = _dedup_ordered([_clean(k) for k in raw])
+        if normalized != raw:
+            setattr(config, attr, normalized)
+            changed = True
+    if changed:
+        logger.debug("DiscoverView: migrated HTML-entity genre keys in shelf config")
+        config.save()
+
+
+# ---------------------------------------------------------------------------
 # Data transfer object
 # ---------------------------------------------------------------------------
 

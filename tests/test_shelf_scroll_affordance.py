@@ -34,10 +34,17 @@ def _cards(n: int) -> list[ContentCard]:
 
 
 @pytest.fixture()
-def shelf(qapp, tmp_path):
-    """A shelf wide enough to overflow, actually shown so geometry is real."""
+def shelf(qapp, qtbot, tmp_path):
+    """A shelf wide enough to overflow, actually shown so geometry is real.
+
+    40 cards build through ``build_chunked`` (PERF-17) — only the first batch
+    exists synchronously after construction — so this waits for the build to
+    finish before yielding; every assertion in this file needs the FULL row,
+    not just the first screenful.
+    """
     cfg = Config(config_dir=tmp_path)
     sh = _Shelf("Drama", "genre:drama", _cards(40), None, cfg)
+    qtbot.waitUntil(lambda: sh._build_handle is None or sh._build_handle.done, timeout=2000)
     sh.resize(800, 300)
     sh.show()
     qapp.processEvents()

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
+from metatv.gui.chunked_construction import ChunkHandle, build_chunked
 from metatv.gui.discover_card import _ContentCard, card_metrics
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
@@ -18,6 +19,18 @@ from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
+
+# Cards built per synchronous tick (PERF-17 — the chunker's second adopter;
+# see chunked_construction.py's module docstring, which names Discover as a
+# planned one). No reusable "cards per visible strip" count exists to derive
+# this from: _load_visible() checks each card's x-position against the
+# viewport rather than counting, and the viewport has no measured width yet
+# at the point a shelf's build starts — it runs before the shelf's first
+# layout pass. So this is a fixed floor, not derived geometry: 8 cards covers
+# the first screenful at the default 1.0 zoom (card_w=120 + 8px spacing ≈
+# 128px/card ≈ 1024px), and the on-done _load_visible() call below closes the
+# gap for anything still off-screen once the whole build finishes.
+_CARD_BATCH_SIZE = 8
 
 
 class _Shelf(QWidget):
@@ -49,6 +62,7 @@ class _Shelf(QWidget):
         self._config = config
         self._image_cache = image_cache
         self._cards_widgets: list[_ContentCard] = []
+        self._build_handle: ChunkHandle | None = None  # in-flight chunked card build, if any (PERF-17)
         self._pinned = pinned
         self._collapsed = collapsed
         self._scroll_area: QScrollArea | None = None
@@ -171,19 +185,72 @@ class _Shelf(QWidget):
         self._inner_layout = inner_hl
         self._inner_widget = inner
 
-        for card in cards:
-            w = _ContentCard(card, image_cache, config, inner)
-            inner_hl.addWidget(w)
-            self._cards_widgets.append(w)
-        inner_hl.addStretch()
-
-        self._size_card_row()
+        self._size_card_row()  # zero cards yet — chrome must be usable immediately
         scroll.setWidget(inner)
         vl.addWidget(scroll)
 
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
+
+        # Card widgets are the expensive part (DiscoverCard.__init__ — owner-
+        # sampled 3-6s stalls building a shelf's cards synchronously). Chrome
+        # above is already usable; the cards themselves go through the shared
+        # chunked-build mechanism (PERF-17) instead of a straight loop here.
+        self._build_handle = build_chunked(
+            cards,
+            lambda card: self._build_one_card(card, image_cache, config),
+            batch_size=_CARD_BATCH_SIZE,
+            on_done=self._on_cards_built,
+            parent=self,
+        )
         if not self._collapsed:
             QTimer.singleShot(120, self._load_visible)
+
+    def _build_one_card(self, card: ContentCard, image_cache: "ImageCache", config: Config) -> None:
+        """``build_chunked``'s per-item callback (PERF-17) — the single place a
+        card widget is built, shared by the initial construction batch and by
+        ``set_cards()``'s re-populate batches.
+
+        Wires the new card to every slot already registered via ``wire()`` —
+        so a card built after ``wire()`` has run still gets connected, without
+        the index-slicing ``set_cards()`` used to do — and keeps the row's
+        measured width in sync (``_size_card_row()``) after every card so a
+        later batch is never laid out into a still-narrower row (see
+        ``_size_card_row``'s docstring).
+        """
+        w = _ContentCard(card, image_cache, config, self._inner_widget)
+        self._inner_layout.addWidget(w)
+        self._cards_widgets.append(w)
+        for on_clicked, on_double_clicked, on_context_menu, on_middle_click in self._pending_wires:
+            w.clicked.connect(on_clicked)
+            w.doubleClicked.connect(on_double_clicked)
+            w.contextMenuRequested.connect(on_context_menu)
+            w.middleClicked.connect(on_middle_click)
+        self._size_card_row()
+
+    def _on_cards_built(self) -> None:
+        """``build_chunked``'s on-done callback: add the trailing stretch (kept
+        off the layout until every card is in, so a later batch never lands
+        AFTER it) and request images for whatever ended up on screen — the
+        single early ``_load_visible()`` call below covers the common case
+        (batch size ≥ the visible strip), this one guarantees completeness on
+        a wide window where the strip holds more than one batch.
+        """
+        self._inner_layout.addStretch()
+        self._size_card_row()
+        if not self._collapsed:
+            self._load_visible()
+
+    def cancel_pending_build(self) -> None:
+        """Stop any in-flight chunked card build (PERF-17).
+
+        Idempotent and safe to call whether or not a build is running — the
+        teardown paths that call this (DiscoverView's shelf-delete/refresh/
+        on_deactivate) may call it more than once, and a finished build has
+        nothing left to cancel.
+        """
+        handle = self.__dict__.get("_build_handle")
+        if handle is not None:
+            handle.cancel()
 
     def _page(self, direction: int) -> None:
         """Scroll one viewport-width left (-1) or right (+1).
@@ -398,7 +465,11 @@ class _Shelf(QWidget):
         header-only shelf created empty) and the zoom-rebuild flow (``replace``).
         The existing scroll-area inner widget is reused — cards are added before
         the trailing stretch, the row is re-sized via ``_size_card_row()``, and
-        the new widgets are wired to any connected slots.
+        the new widgets are wired to any connected slots. This is a
+        re-populate path (PERF-17): card widgets build through the same
+        ``build_chunked`` mechanism as the initial construction batch (see
+        ``_build_one_card``), and any build already in flight is cancelled
+        FIRST, before this one touches the same widgets.
 
         Args:
             cards:       The ``ContentCard`` list fetched by ``_ShelfCardsWorker``.
@@ -411,6 +482,8 @@ class _Shelf(QWidget):
         """
         if not hasattr(self, "_inner_layout") or self._inner_layout is None:
             return  # layout not yet built (should not happen in practice)
+
+        self.cancel_pending_build()
 
         # A successful fetch replaces any loading/error placeholder from a
         # prior lazy-expand attempt.
@@ -427,18 +500,30 @@ class _Shelf(QWidget):
                 w.deleteLater()
             self._cards_widgets.clear()
 
-        # Remove the trailing stretch so we can append cards before it.
+        # Remove the trailing stretch so batches can append before it.
         count = self._inner_layout.count()
         if count > 0:
             last = self._inner_layout.itemAt(count - 1)
             if last and last.spacerItem():
                 self._inner_layout.removeItem(last)
 
-        for card in cards:
-            w = _ContentCard(card, _ic, _cfg, self._inner_widget)
-            self._inner_layout.addWidget(w)
-            self._cards_widgets.append(w)
+        self._build_handle = build_chunked(
+            cards,
+            lambda card: self._build_one_card(card, _ic, _cfg),
+            batch_size=_CARD_BATCH_SIZE,
+            on_done=lambda: self._on_set_cards_done(_cfg),
+            parent=self,
+        )
+        if not self._collapsed:
+            QTimer.singleShot(120, self._load_visible)
 
+    def _on_set_cards_done(self, config: Config) -> None:
+        """``set_cards()``'s ``build_chunked`` on-done callback.
+
+        Mirrors ``_on_cards_built`` (trailing stretch + a completeness
+        ``_load_visible()`` pass) plus the zoom-rebuild-specific scroll-area
+        resize the eager construction path never needs.
+        """
         self._inner_layout.addStretch()
 
         # Re-size the inner widget so the scroll area reflects the true content
@@ -448,22 +533,16 @@ class _Shelf(QWidget):
         self._inner_layout.activate()
         self._size_card_row()
 
-        # Wire the new card widgets to any already-connected slots.
-        for slot in self._pending_wires:
-            on_clicked, on_double_clicked, on_context_menu, on_middle_click = slot
-            for w in self._cards_widgets[-len(cards):]:
-                w.clicked.connect(on_clicked)
-                w.doubleClicked.connect(on_double_clicked)
-                w.contextMenuRequested.connect(on_context_menu)
-                w.middleClicked.connect(on_middle_click)
-
         # Keep the scroll-area height in sync with the (possibly re-zoomed) cards.
         if self._scroll_area is not None:
-            self._scroll_area.setFixedHeight(card_metrics(_cfg.discover_zoom).card_h + 16)
+            self._scroll_area.setFixedHeight(card_metrics(config.discover_zoom).card_h + 16)
 
-        # Trigger image loading for the newly added cards if we're expanded.
+        # Completeness pass: guarantees every visible card has requested its
+        # image even on a window wide enough that the visible strip spans
+        # more than one batch (the early singleShot above only covers the
+        # common case).
         if not self._collapsed:
-            QTimer.singleShot(120, self._load_visible)
+            self._load_visible()
 
     def wire(self, on_clicked, on_double_clicked, on_context_menu, on_middle_click) -> None:
         self._pending_wires.append(

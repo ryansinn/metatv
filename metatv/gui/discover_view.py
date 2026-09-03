@@ -47,7 +47,7 @@ from metatv.gui.discover_shelf import _Shelf
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.discover_workers import (
     _LoaderWorker, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
-    _ZoneSnapshot, determine_zone,
+    _ZoneSnapshot, determine_zone, normalize_shelf_config,
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -89,6 +89,7 @@ class DiscoverView(QWidget):
         self._expand_worker: "_ShelfCardsWorker | None" = None
         self._inflight_expand: str | None = None  # shelf_key being fetched right now
         self._loaded = False
+        self._active = False  # True between on_activate() and on_deactivate()
         self._shelf_data_cache: dict[str, list[ContentCard]] = {}
         self._loaded_shelf_keys: set[str] = set()  # keys whose cards are fetched
         self._shelf_widgets: dict[str, _Shelf] = {}
@@ -635,6 +636,7 @@ class DiscoverView(QWidget):
         if old_zone:
             self._remove_from_zone(shelf, old_zone)
         self._loaded_shelf_keys.discard(shelf_key)
+        shelf.cancel_pending_build()  # PERF-17: stop any in-flight chunked card build
         shelf.deleteLater()
         cfg = self._config
         if shelf_key not in cfg.discover_hidden_shelves:
@@ -647,56 +649,10 @@ class DiscoverView(QWidget):
 
     # ---- Load lifecycle -----------------------------------------------------
 
-    def _normalize_shelf_config(self) -> None:
-        """Canonicalize HTML-entity-encoded genre shelf keys in the persisted config.
-
-        Before bug A was fixed, provider genre strings like "Action &amp; Adventure"
-        were stored as-is, creating shelf keys like "genre:Action &amp; Adventure".
-        After the fix, get_all_genres() returns canonical "Action & Adventure" which
-        produces "genre:Action & Adventure" — a different key.  The two variants
-        would both appear in the zone lists, causing the same shelf to show twice.
-
-        This method runs once before the first load and sanitizes all four
-        discover_*_shelves lists by:
-          1. Unescaping HTML entities in any "genre:*" key.
-          2. De-duplicating while preserving original order (first occurrence wins
-             so the user's pinned/expanded/collapsed/order state is kept).
-
-        The config is saved only if any list changed.
-        """
-        import html as _html
-
-        def _clean(key: str) -> str:
-            if key.startswith("genre:"):
-                return "genre:" + _html.unescape(key[6:])
-            return key
-
-        def _dedup_ordered(lst: list) -> list:
-            seen: set = set()
-            out: list = []
-            for item in lst:
-                if item not in seen:
-                    seen.add(item)
-                    out.append(item)
-            return out
-
-        cfg = self._config
-        changed = False
-        for attr in ("discover_pinned_shelves", "discover_expanded_shelves",
-                     "discover_collapsed_shelves", "discover_hidden_shelves",
-                     "discover_shelf_order"):
-            raw: list = list(getattr(cfg, attr, []))
-            normalized = _dedup_ordered([_clean(k) for k in raw])
-            if normalized != raw:
-                setattr(cfg, attr, normalized)
-                changed = True
-        if changed:
-            logger.debug("DiscoverView: migrated HTML-entity genre keys in shelf config")
-            cfg.save()
-
     def on_activate(self) -> None:
+        self._active = True
         if not self._loaded:
-            self._normalize_shelf_config()
+            normalize_shelf_config(self._config)
             self.refresh()
 
     def on_deactivate(self) -> None:
@@ -710,13 +666,20 @@ class DiscoverView(QWidget):
         loop).  Cancelling the worker first is what makes quit()/wait() actually
         succeed: the worker loops monopolize the thread event loop, so quit()
         alone never lands.
+
+        Also cancels every live shelf's chunked card-build (PERF-17, #712's
+        second adopter) — the mechanism keeps scheduling batches after its
+        owner is gone otherwise, same class of bug as the loader threads above.
         """
+        self._active = False
         self._stop_loader(getattr(self, "_worker", None), getattr(self, "_thread", None))
         self._stop_loader(getattr(self, "_see_all_worker", None), getattr(self, "_see_all_thread", None))
         self._stop_loader(getattr(self, "_expand_worker", None), getattr(self, "_expand_thread", None))
         # Clear inflight marker so a re-expand of the same key isn't blocked.
         if hasattr(self, "_inflight_expand"):
             self._inflight_expand = None
+        for shelf in self.__dict__.get("_shelf_widgets", {}).values():
+            shelf.cancel_pending_build()
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this view's own persistent chrome —
@@ -765,8 +728,20 @@ class DiscoverView(QWidget):
                 logger.warning("Discover loader thread did not stop within 5s")
 
     def reload(self) -> None:
-        """Force a full reload — used when global filters change."""
+        """Force a full reload — used when global filters change.
+
+        Safe whether or not Discover is the view on screen: while inactive
+        this only marks the data dirty (``self._loaded = False``) and returns
+        — ``on_activate()`` already refreshes on ``not self._loaded``, so the
+        real reload happens the next time the user opens Discover, not now.
+        ``_refresh_provider_dependent_views()`` calls this on EVERY provider
+        mutation, so an unconditional ``refresh()`` here spawned a loader
+        thread and built every shelf's cards even with Discover closed — the
+        owner's multi-second stalls were sampled with Discover never opened.
+        """
         self._loaded = False
+        if not self._active:
+            return
         self.refresh()
 
     def refresh(self) -> None:
@@ -785,8 +760,10 @@ class DiscoverView(QWidget):
         for layout in (self._pinned_layout, self._expanded_layout, self._collapsed_layout):
             while layout.count():
                 item = layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+                w = item.widget()
+                if w is not None:
+                    w.cancel_pending_build()  # PERF-17: stop any in-flight chunked card build
+                    w.deleteLater()
         self._pinned_zone.setVisible(False)
         self._expanded_zone.setVisible(False)
         self._collapsed_zone.setVisible(False)
