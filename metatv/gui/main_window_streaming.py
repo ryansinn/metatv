@@ -199,13 +199,11 @@ class _StreamingMixin:
         logger.warning(f"Primary URL failed validation: {stream_url}")
 
         # A genuine server text error ("This channel is not available") is
-        # content-level — no other host will have it either, so stop. Advisory
-        # auth/gating codes (401/403/511) and timeouts are HOST-level: this host
-        # said no, which says nothing about the next one.
+        # content-level — stop. Advisory auth/gating codes (401/403/511) and
+        # timeouts are HOST-level and say nothing about the next host.
         if err_msg and not self._is_advisory_error(err_msg):
             return "", err_msg
 
-        # Extract base URL from stream URL
         parsed = urlparse(stream_url)
         original_base = f"{parsed.scheme}://{parsed.netloc}"
 
@@ -219,19 +217,21 @@ class _StreamingMixin:
 
             provider_model = repos.providers.to_model(provider_db)
 
-        # Try alternate provider domains via the shared UrlCycler, persisting after
-        # EVERY attempt (not once at the end): each stat write (success_count /
-        # failure_count / timestamps) must survive even if a later attempt raises.
-        # persist_url_stats() opens and commits its own short session per call, so
-        # an earlier attempt's outcome is already durable before the next attempt's
-        # network call even starts.
+        # A single-URL provider has nothing to fail over TO — a host-level
+        # failure proves nothing about the only address; skip record_failure
+        # (peek urls directly, not cycler.candidates(), to keep Case 6's
+        # record_failure ordering intact below). The playback-start watch
+        # (#675/#685/#687) still reports a stream that truly never starts.
+        alt = any(u.is_active and u.url.rstrip('/') != original_base for u in provider_model.urls)
+        if not alt:
+            logger.info(f"pre-flight inconclusive on the only URL — letting mpv decide: {stream_url}")
+            return stream_url, err_msg or None
+
+        # Persisted after every attempt so a stat write survives even a later raise.
         cycler = UrlCycler(provider_model, "resolve_playable_url")
 
-        # The primary attempt happens on EVERY play and was never recorded, so a
-        # host that times out every time kept health=1.00 and stayed ranked first
-        # forever (owner log, 2026-08-16). A content-level text error returns
-        # above and is deliberately NOT recorded — that would punish a host for
-        # content it never carried.
+        # Recorded now that a comparison host exists — a chronically-timing-
+        # out primary used to keep health=1.00 forever (owner log, 2026-08-16).
         cycler.record_failure(
             original_base, err_msg or "validation failed", response_time_ms=primary_ms
         )

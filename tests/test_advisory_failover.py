@@ -343,6 +343,94 @@ def test_primary_text_error_not_recorded_against_host(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Group 4 (URL-1): a single-address provider's inconclusive probe lets mpv
+# decide rather than damaging that address's ranking stats — there is
+# nothing to fail over TO, so the probe's verdict on a timeout/advisory error
+# is worthless. See the "no alternate" early-return in
+# validate_and_failover_stream_url (main_window_streaming.py).
+# ---------------------------------------------------------------------------
+
+def test_single_url_timeout_lets_mpv_decide(tmp_path):
+    """A single-URL provider times out on its only address: record_failure
+    must NOT be called (nothing to compare it against), and the original URL
+    is handed back unchanged so the caller launches mpv directly."""
+    db = _make_db(tmp_path)
+    provider_id = str(uuid.uuid4())
+    primary_base = "http://onlyhost.example:8080"
+    stream_url = primary_base + "/live/u/p/2001.ts"
+
+    with db.session_scope() as session:
+        _insert_provider(session, provider_id, "TestProvSingle", primary_base)
+
+    obj = _make_mixin(db)
+    with patch.object(UrlCycler, "record_failure") as mock_record_failure, \
+         patch.object(obj, "validate_stream_url",
+                       return_value=(False, None)) as mock_validate:
+        final_url, err = obj.validate_and_failover_stream_url(stream_url, provider_id)
+
+    assert mock_validate.call_count == 1
+    assert final_url == stream_url
+    mock_record_failure.assert_not_called()
+
+
+def test_single_url_text_error_still_fails(tmp_path):
+    """A genuine content-level text error on a single-URL provider keeps the
+    existing failure behavior — content-level, so the toast is right and mpv
+    is never handed a URL the server explicitly refused."""
+    db = _make_db(tmp_path)
+    provider_id = str(uuid.uuid4())
+    primary_base = "http://onlyhost2.example:8080"
+    stream_url = primary_base + "/live/u/p/2002.ts"
+
+    with db.session_scope() as session:
+        _insert_provider(session, provider_id, "TestProvSingle2", primary_base)
+
+    obj = _make_mixin(db)
+    with patch.object(UrlCycler, "record_failure") as mock_record_failure, \
+         patch.object(obj, "validate_stream_url",
+                       return_value=(False, "This channel is not available")):
+        final_url, err = obj.validate_and_failover_stream_url(stream_url, provider_id)
+
+    assert final_url == ""
+    assert err == "This channel is not available"
+    mock_record_failure.assert_not_called()
+
+
+def test_multi_url_timeout_still_records_and_cycles(tmp_path):
+    """A multi-URL provider keeps the FULL existing behavior: a timeout on
+    the primary is still recorded through UrlCycler, and the sweep still
+    tries the alternate — pinned so the single-URL shortcut above never
+    silently widens to cover a provider that actually has somewhere to fail
+    over TO."""
+    db = _make_db(tmp_path)
+    provider_id = str(uuid.uuid4())
+    primary_base = "http://primary.example:8080"
+    alt_base = "http://alt.example:9001"
+    path_and_query = "/live/u/p/2003.ts"
+    stream_url = primary_base + path_and_query
+
+    with db.session_scope() as session:
+        _insert_provider(
+            session, provider_id, "TestProvMulti", primary_base,
+            urls=[{"url": alt_base, "priority": 0, "is_active": True}],
+        )
+
+    obj = _make_mixin(db)
+    with patch.object(UrlCycler, "record_failure") as mock_record_failure, \
+         patch.object(obj, "validate_stream_url", side_effect=[
+             (False, None),   # primary: timeout
+             (True, None),    # alt: succeeds
+         ]) as mock_validate:
+        final_url, err = obj.validate_and_failover_stream_url(stream_url, provider_id)
+
+    assert mock_validate.call_count == 2
+    assert final_url == alt_base + path_and_query
+    assert err is None
+    mock_record_failure.assert_called_once()
+    assert mock_record_failure.call_args[0][0] == primary_base
+
+
+# ---------------------------------------------------------------------------
 # Group 3: episode path gets the same advisory handling as the channel path.
 # ---------------------------------------------------------------------------
 
