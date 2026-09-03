@@ -129,7 +129,18 @@ class ProviderLoadThread(QThread):
                  language_groups: dict | None = None,
                  quality_groups: dict | None = None,
                  platform_groups: dict | None = None,
-                 regional_groups: dict | None = None):
+                 regional_groups: dict | None = None,
+                 kind: str = "full"):
+        """
+        Args:
+            kind: "full" (default) fetches live+VOD+series, the historical
+                behaviour. "live_only" (LIVE-1) fetches ONLY
+                ``get_live_streams`` — the same chunked upsert and ingestion
+                hooks (categorize/prefix/tag) run over just those rows, and
+                the vanished-channel prune is skipped so VOD/series rows this
+                pass never touched are not mistaken for gone (see
+                :meth:`load_provider`).
+        """
         super().__init__()
         self.provider = provider
         self.db = db
@@ -138,6 +149,7 @@ class ProviderLoadThread(QThread):
         self._quality_groups = quality_groups or {}
         self._platform_groups = platform_groups or {}
         self._regional_groups = regional_groups or {}
+        self.kind = kind
         self.prefix_stats: dict | None = None  # populated after run; read by main thread
     
     def run(self):
@@ -163,7 +175,14 @@ class ProviderLoadThread(QThread):
             pct = int(current / total * (_fe - _fs)) if total else _fs
             self.progress.emit(pct, 100, message)
 
-        channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
+        # LIVE-1: kind="live_only" restricts the fetch to get_live_streams —
+        # measured on the owner's two sources, that single call returns the
+        # COMPLETE live catalog (ProSat 17,906/5.0MB/1.6s; Shark 55,761/
+        # 18.7MB/3.9s), byte-identical to the live half of a full refresh.
+        media_types = {"live"} if self.kind == "live_only" else None
+        channels = await provider_plugin.fetch_channels(
+            self.provider, progress_callback=on_progress, media_types=media_types
+        )
         _t_fetched = time.monotonic()
 
         # Deduplicate by channel ID: some providers return the same stream_id in multiple
@@ -208,7 +227,14 @@ class ProviderLoadThread(QThread):
             # list is a failure wearing a success's clothes, and pruning on it
             # would erase the catalog. prune_vanished_channels applies a further
             # ceiling for the truncated-but-non-empty case.
-            if total:
+            #
+            # LIVE-1: a live_only pass never fetched VOD/series at all, so a
+            # prune here would read every untouched VOD/series row as "the
+            # source stopped listing it" and delete the catalog out from under
+            # itself. Skipped entirely for this kind — rows simply are not
+            # last_seen-restamped by this pass (existing aging semantics; no
+            # deletes), and a later FULL refresh prunes normally.
+            if total and self.kind == "full":
                 from metatv.core.repositories.channel import ChannelRepository
                 pruned = ChannelRepository(session).prune_vanished_channels(
                     self.provider.id, self._seen_at)
@@ -260,16 +286,17 @@ class ProviderLoadThread(QThread):
             f"tags {_fmt(_t_tagged - _t_prefixed)} · stats {_fmt(_t_statted - _t_tagged)}]"
         )
 
-        self.progress.emit(100, 100, f"Loaded {total:,} channels")
+        _kind_label = "live channels" if self.kind == "live_only" else "channels"
+        self.progress.emit(100, 100, f"Loaded {total:,} {_kind_label}")
 
         # If we loaded 0 channels, report as failure — this may indicate a timeout,
         # rate limit, network error, or an empty provider. The user needs visibility.
         if total == 0:
             self.finished.emit(False,
-                f"Connected to {self.provider.name}, but received 0 channels — the server may be slow, "
+                f"Connected to {self.provider.name}, but received 0 {_kind_label} — the server may be slow, "
                 f"rate-limited, or returned no content. Check the logs and try again.")
         else:
-            self.finished.emit(True, f"Loaded {total:,} channels successfully")
+            self.finished.emit(True, f"Loaded {total:,} {_kind_label} successfully")
 
     def _store_channels(self, session, channels: list, total: int) -> None:
         """Bulk-upsert *channels* into the DB using SQLite's INSERT OR REPLACE semantics.

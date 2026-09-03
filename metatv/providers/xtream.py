@@ -2,7 +2,7 @@
 
 import asyncio
 from time import monotonic
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Set, Tuple
 from urllib.parse import quote
 import aiohttp
 from loguru import logger
@@ -384,8 +384,17 @@ class XtreamProvider(ProviderPlugin):
             return await api.test_connection()
     
     async def fetch_channels(self, provider: Provider,
-                           progress_callback: Optional[callable] = None) -> List[Channel]:
-        """Fetch all channels, cycling through alternate URLs on connection failure."""
+                           progress_callback: Optional[callable] = None,
+                           media_types: Optional[Set[str]] = None) -> List[Channel]:
+        """Fetch channels, cycling through alternate URLs on connection failure.
+
+        Args:
+            media_types: See ``ProviderPlugin.fetch_channels``. ``None``
+                fetches live+VOD+series (unchanged historical behaviour);
+                ``{"live"}`` (LIVE-1) skips the VOD/series categories and
+                streams calls entirely, so the round trip is
+                ``get_live_categories`` + ``get_live_streams`` only.
+        """
         cycler = UrlCycler(provider, "fetch_channels")
         urls_to_try = cycler.candidates()
         last_error: Optional[str] = None
@@ -398,7 +407,7 @@ class XtreamProvider(ProviderPlugin):
 
             try:
                 channels = await self._fetch_from_base(
-                    base_url, provider, progress_callback
+                    base_url, provider, progress_callback, media_types
                 )
                 # Deliberately unrecorded: this call downloads the provider's ENTIRE catalog,
                 # so its elapsed time is payload-dominated, not a measure of host
@@ -422,8 +431,18 @@ class XtreamProvider(ProviderPlugin):
 
 
     async def _fetch_from_base(self, base_url: str, provider: Provider,
-                               progress_callback: Optional[callable]) -> List[Channel]:
-        """Fetch all channel types from a single base URL. Raises on connection error."""
+                               progress_callback: Optional[callable],
+                               media_types: Optional[Set[str]] = None) -> List[Channel]:
+        """Fetch the requested channel types from a single base URL. Raises on connection error.
+
+        Args:
+            media_types: See ``fetch_channels``. ``None`` means all three
+                (live+VOD+series) — every category/streams call below runs.
+                A restricted set (e.g. ``{"live"}``) skips the calls for the
+                excluded types entirely, not just the conversion — that is
+                the whole point of LIVE-1's fetch being a single round trip.
+        """
+        types = media_types or {MediaType.LIVE, MediaType.MOVIE, MediaType.SERIES}
         async with XtreamAPI(base_url, provider.username, provider.password) as api:
             channels: List[Channel] = []
 
@@ -440,24 +459,27 @@ class XtreamProvider(ProviderPlugin):
 
             if progress_callback:
                 progress_callback(8, 100, "Fetching categories…")
-            live_cats = _cat_map(await api.get_live_categories())
-            vod_cats = _cat_map(await api.get_vod_categories())
-            series_cats = _cat_map(await api.get_series_categories())
+            live_cats = _cat_map(await api.get_live_categories()) if MediaType.LIVE in types else {}
+            vod_cats = _cat_map(await api.get_vod_categories()) if MediaType.MOVIE in types else {}
+            series_cats = _cat_map(await api.get_series_categories()) if MediaType.SERIES in types else {}
 
-            if progress_callback:
-                progress_callback(10, 100, "Fetching live channels…")
-            for stream in await api.get_live_streams():
-                channels.append(api.convert_to_channel(stream, provider.id, MediaType.LIVE, live_cats))
+            if MediaType.LIVE in types:
+                if progress_callback:
+                    progress_callback(10, 100, "Fetching live channels…")
+                for stream in await api.get_live_streams():
+                    channels.append(api.convert_to_channel(stream, provider.id, MediaType.LIVE, live_cats))
 
-            if progress_callback:
-                progress_callback(40, 100, "Fetching VOD content…")
-            for stream in await api.get_vod_streams():
-                channels.append(api.convert_to_channel(stream, provider.id, MediaType.MOVIE, vod_cats))
+            if MediaType.MOVIE in types:
+                if progress_callback:
+                    progress_callback(40, 100, "Fetching VOD content…")
+                for stream in await api.get_vod_streams():
+                    channels.append(api.convert_to_channel(stream, provider.id, MediaType.MOVIE, vod_cats))
 
-            if progress_callback:
-                progress_callback(70, 100, "Fetching series…")
-            for series in await api.get_series():
-                channels.append(api.convert_to_channel(series, provider.id, MediaType.SERIES, series_cats))
+            if MediaType.SERIES in types:
+                if progress_callback:
+                    progress_callback(70, 100, "Fetching series…")
+                for series in await api.get_series():
+                    channels.append(api.convert_to_channel(series, provider.id, MediaType.SERIES, series_cats))
 
             if progress_callback:
                 progress_callback(100, 100, f"Loaded {len(channels):,} channels")

@@ -2135,7 +2135,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.sports_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.sports_view.channelContextMenuRequested.connect(
             self._on_rec_channel_context_menu)
-        self._wire_sports_catalog_banner()  # SPORT-7 staleness banner
         self.sports_view.setVisible(False)
         self._list_layout.addWidget(self.sports_view)
 
@@ -2148,6 +2147,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             self._on_rec_channel_context_menu)
         self.events_view.setVisible(False)
         self._list_layout.addWidget(self.events_view)
+        self._wire_catalog_refresh_hooks()  # SPORT-7 banner + LIVE-1 on-view-open
 
         # Explore views (History / Favorites / Watch Queue / Recommended) — ONE
         # embedded trail-map component per sidebar entry point, each seeded from that

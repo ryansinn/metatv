@@ -239,6 +239,114 @@ class TestDeduplication:
             assert len(manager._queue) == 1, "Queue length must remain 1 (no duplicate entries)"
 
 
+class TestLiveOnlyKind:
+    """LIVE-1 — ``kind`` threads into the started ``ProviderLoadThread``, and a
+    queued FULL refresh supersedes a queued live-only entry for the same
+    provider (never both)."""
+
+    def test_kind_threads_into_the_started_thread(self, qapp):
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+        thread_ctor = MagicMock(side_effect=thread_factory)
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", thread_ctor),
+        ):
+            manager.enqueue("p1", "Provider 1", kind="live_only")
+
+        _, kwargs = thread_ctor.call_args
+        assert kwargs.get("kind") == "live_only"
+
+    def test_default_kind_is_full(self, qapp):
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+        thread_ctor = MagicMock(side_effect=thread_factory)
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", thread_ctor),
+        ):
+            manager.enqueue("p1", "Provider 1")  # no kind passed
+
+        _, kwargs = thread_ctor.call_args
+        assert kwargs.get("kind") == "full"
+
+    def test_a_queued_full_refresh_supersedes_a_queued_live_only(self, qapp):
+        """p1 occupies the running slot; p2 is queued behind it, first as
+        live_only then upgraded to full — still ONE queue entry, and the
+        thread p2 eventually starts with must carry kind="full"."""
+        p1 = _make_db_provider("p1", "Provider 1")
+        p2 = _make_db_provider("p2", "Provider 2")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t2 = _FakeThread(_make_provider_model("p2", "Provider 2"), None)
+
+        manager, repo_factory, thread_factory, nm = _build_manager(
+            {"p1": t1, "p2": t2}, [p1, p2]
+        )
+        thread_ctor = MagicMock(side_effect=thread_factory)
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", thread_ctor),
+        ):
+            manager.enqueue("p1", "Provider 1")                     # starts running (full)
+            manager.enqueue("p2", "Provider 2", kind="live_only")   # queued behind p1
+            manager.enqueue("p2", "Provider 2", kind="full")        # supersedes in place
+
+            assert len(manager._queue) == 2, (
+                "the supersede must upgrade the existing entry, never add a second one"
+            )
+            p2_entry = next(e for e in manager._queue if e.provider_id == "p2")
+            assert p2_entry.kind == "full"
+
+            # A live-only enqueue against the now-full-queued p2 must change nothing —
+            # the reverse direction never enqueues (or downgrades) a second entry.
+            manager.enqueue("p2", "Provider 2", kind="live_only")
+            assert len(manager._queue) == 2
+            assert p2_entry.kind == "full", (
+                "a live-only enqueue must never downgrade an already-queued full refresh"
+            )
+
+            # Finish p1 -> p2 starts; its thread must be built with kind="full".
+            t1._fire_finished(True, "Loaded 100 channels")
+            qapp.processEvents()
+
+        _, kwargs = thread_ctor.call_args
+        assert kwargs.get("kind") == "full"
+
+    def test_a_queued_live_only_is_not_superseded_by_another_live_only(self, qapp):
+        """Sibling control: two live_only enqueues for the same queued
+        provider must still collapse to the ordinary dedup no-op, not the
+        supersede path (which only fires for kind="full")."""
+        p1 = _make_db_provider("p1", "Provider 1")
+        p2 = _make_db_provider("p2", "Provider 2")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t2 = _FakeThread(_make_provider_model("p2", "Provider 2"), None)
+
+        manager, repo_factory, thread_factory, nm = _build_manager(
+            {"p1": t1, "p2": t2}, [p1, p2]
+        )
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            manager.enqueue("p2", "Provider 2", kind="live_only")
+            manager.enqueue("p2", "Provider 2", kind="live_only")
+
+            assert len(manager._queue) == 2
+            p2_entry = next(e for e in manager._queue if e.provider_id == "p2")
+            assert p2_entry.kind == "live_only"
+
+
 class TestQueueChanged:
     """queue_changed signal must reflect QUEUED → RUNNING → done lifecycle."""
 
