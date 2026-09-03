@@ -65,8 +65,14 @@ def test_every_provider_date_form_parses(name, expected):
     # Form 4 — trailing parenthesised timestamp. 2,843 rows carry it and 842
     # stored NOTHING, because parse_platform_event only runs on the
     # 'live_event' branch while 603 of these classify as 'sports'.
+    #
+    # This is the FLSP idiom (SPORT-5): its clock is US Eastern, not UTC —
+    # 19:00 EDT (UTC-4) on 2026-09-03 is 23:00 UTC. See the evidence block
+    # above _FLSP_IDIOM_RE in event_datetime.py.
     ("(FLSP 697) | flohockey: 2026 Brockville Braves vs Cornwall Colts (Home) (2026-09-03 19:00:25)",
-     datetime.datetime(2026, 9, 3, 19, 0)),
+     datetime.datetime(2026, 9, 3, 23, 0)),
+    # A DIFFERENT platform carrying the SAME paren-timestamp grammar — stays
+    # UTC unchanged (SPORT-5's scope is strictly the FLSP idiom).
     ("US (Paramount 001) | Chelsea vs. Luton Town (2026-08-27 14:20:00)",
      datetime.datetime(2026, 8, 27, 14, 20)),
     # Form 5 — "@ Mon DD H:MM AM/PM". 205 rows, and the exact shape the owner

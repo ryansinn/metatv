@@ -27,7 +27,7 @@ from sqlalchemy import text
 
 from metatv.core.database import ChannelDB, Database
 from metatv.core.migrations.sports_reclassify import (
-    CURRENT_VERSION, DERIVED_FIELDS, SportsReclassifyTask,
+    CURRENT_VERSION, DERIVED_FIELDS, TITLE_FIELD, SportsReclassifyTask,
 )
 
 
@@ -261,6 +261,94 @@ def test_every_derived_field_is_reset(db):
         row = session.query(ChannelDB).first()
         for field in DERIVED_FIELDS:
             assert getattr(row, field) is None, f"{field} survived the reset"
+
+
+class TestFixtureTitleDerivation:
+    """SPORT-8: fixture rows derive a display title; everything else survives.
+
+    The reclassify pass scans ALL ~785k rows, not just sports ones — the
+    dangerous case is a plain movie/TV/live channel whose ``detected_title``
+    was set by the DIFFERENT ``update_detected_prefixes`` chokepoint. If
+    ``TITLE_FIELD`` were reset-and-recomputed the same way ``DERIVED_FIELDS``
+    is, that title would be blanked to None on every single pass.
+    """
+
+    _FIXTURE_NAME = (
+        "(FLSP 204) | hockey:  West Kent Steamers vs Miramichi "
+        "Timberwolves (Home) (2026-09-02 18:00:00)")
+
+    def test_a_fixture_row_gets_its_matchup_title(self, db):
+        with db.session_scope() as session:
+            session.add(ChannelDB(
+                id="c1", source_id="s1", provider_id="p",
+                name=self._FIXTURE_NAME, category="US| SPORTS",
+                stream_url="http://x/1", media_type="live",
+            ))
+        _run(db)
+        with db.session_scope() as session:
+            row = session.query(ChannelDB).one()
+            assert row.detected_title == "West Kent Steamers vs Miramichi Timberwolves"
+            assert row.special_view == "sports"
+
+    def test_a_non_fixture_rows_existing_title_survives_the_pass(self, db):
+        """The corruption this test exists to catch: a plain channel's real
+        title must not be blanked to None by the reset-then-recompute pass.
+        """
+        with db.session_scope() as session:
+            session.add(ChannelDB(
+                id="c2", source_id="s2", provider_id="p",
+                name="EN - The Godfather (1972)", category="Movies",
+                stream_url="http://x/2", media_type="movie",
+                detected_title="The Godfather",
+                content_key="the godfather|movie|1972",
+            ))
+        _run(db)
+        with db.session_scope() as session:
+            row = session.query(ChannelDB).one()
+            assert row.detected_title == "The Godfather", (
+                "a non-fixture row's title, owned by a DIFFERENT chokepoint, "
+                "must survive this pass untouched")
+            assert row.content_key == "the godfather|movie|1972"
+
+    def test_the_content_key_is_recomputed_when_the_title_changes(self, db):
+        from metatv.core.content_identity import content_key_for
+
+        class _Row:
+            detected_title = "West Kent Steamers vs Miramichi Timberwolves"
+            media_type = "live"
+            detected_year = None
+            detected_tmdb_id = None
+            id = "c3"
+
+        with db.session_scope() as session:
+            session.add(ChannelDB(
+                id="c3", source_id="s3", provider_id="p",
+                name=self._FIXTURE_NAME, category="US| SPORTS",
+                stream_url="http://x/3", media_type="live",
+                detected_title=self._FIXTURE_NAME, content_key="stale-key",
+            ))
+        _run(db)
+        with db.session_scope() as session:
+            row = session.query(ChannelDB).one()
+            assert row.detected_title == "West Kent Steamers vs Miramichi Timberwolves"
+            assert row.content_key == content_key_for(_Row())
+            assert row.content_key != "stale-key"
+
+    def test_a_second_run_is_a_no_op_for_an_already_titled_fixture(self, db):
+        """Idempotence: once the title has settled, re-running must not keep
+        rewriting it (or its content_key) forever."""
+        with db.session_scope() as session:
+            session.add(ChannelDB(
+                id="c4", source_id="s4", provider_id="p",
+                name=self._FIXTURE_NAME, category="US| SPORTS",
+                stream_url="http://x/4", media_type="live",
+            ))
+        _run(db)                       # first pass: settles the title
+        recorder = _TxnRecorder(db)
+        _run(db)                       # second pass: nothing to do
+        assert recorder.transactions == [], (
+            f"an already-titled fixture still took the write lock: "
+            f"{recorder.transactions}")
 
 
 def test_progress_reaches_the_total(db):
@@ -833,6 +921,13 @@ def test_the_classifier_reads_no_column_the_page_query_omits():
     and it is a hand-written tuple — so the day someone makes
     ``special_content`` read another column, this fails and names it, instead
     of the migration silently classifying every row against ``None``.
+
+    ``TITLE_FIELD`` (``detected_title``) is a WRITE, not a read — SPORT-8's
+    ``_apply_fixture_title`` — and is subtracted separately from
+    ``DERIVED_FIELDS`` because it is handled differently by ``_reclassify``
+    (seeded, never reset — see ``TITLE_FIELD``'s module comment). The AST
+    walk below does not distinguish Load from Store context, so a write
+    needs accounting for here exactly like a read does.
     """
     import ast
     from pathlib import Path
@@ -849,10 +944,12 @@ def test_the_classifier_reads_no_column_the_page_query_omits():
         and node.value.id == "channel"
     }
     assert touched, "the AST walk found nothing — this guard is not looking at the code"
-    stray = touched - set(CLASSIFIER_INPUTS) - set(DERIVED_FIELDS)
+    stray = touched - set(CLASSIFIER_INPUTS) - set(DERIVED_FIELDS) - {TITLE_FIELD}
     assert not stray, (
-        f"special_content reads {sorted(stray)} off a channel, which the page "
-        "query in sports_reclassify.py does not load — add it to CLASSIFIER_INPUTS")
+        f"special_content touches {sorted(stray)} off a channel, which the "
+        "page query in sports_reclassify.py does not load — add it to "
+        "CLASSIFIER_INPUTS (a read) or account for it like TITLE_FIELD (a "
+        "conditional write)")
 
 
 def test_the_bulk_write_round_trips_json_and_datetime_columns(db):

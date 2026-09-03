@@ -1,4 +1,4 @@
-"""Fixture OPPONENTS out of a sports channel name — the two teams, nothing else.
+"""Fixture OPPONENTS and DISPLAY TITLE out of a sports channel name (SPORT-8).
 
 Its own module for the same reason ``event_datetime.py`` gives its own note:
 one cohesive job, and a DIFFERENT grammar from both ``event_datetime.py``
@@ -6,6 +6,15 @@ one cohesive job, and a DIFFERENT grammar from both ``event_datetime.py``
 EPG-embedded ``REGION (NETWORK CH#) TITLE (time)`` form). A fixture's window
 and its opponents are independent facts read from independent parts of the
 same string — merging the two parsers would make neither easier to read.
+
+:func:`fixture_display_title` composes the opponents above into what the
+Sports list actually shows ("West Kent Steamers vs Miramichi Timberwolves"
+instead of the raw provider slot string) — stored into ``detected_title`` at
+the SAME two write sites: ``special_content.update_channel_special_content``
+(classification/reclassify) and, so a later provider refresh's prefix pass
+doesn't silently overwrite it back to the raw-name parse,
+``ChannelIngestionMixin.update_detected_prefixes`` via the
+:func:`fixture_ingest_title` wrapper.
 
 Measured on the owner's live corpus, 2026-09-02: 1,237 dated fixtures. The
 separator that actually names the two opponents splits as::
@@ -224,6 +233,51 @@ def _trim_known_league_prefix(team_a: str) -> str:
     return team_a
 
 
+def _parse_fixture_match(name: str) -> "tuple[str, str, bool] | None":
+    """Shared engine behind :func:`parse_fixture_opponents` and
+    :func:`fixture_display_title` — find the opponent-carrying segment,
+    clean it, and try the separators in priority order: ``vs`` > ``x`` >
+    ``@`` > ``v`` > the gated dash form. The first that structurally fits
+    wins.
+
+    Args:
+        name: The raw channel name.
+
+    Returns:
+        ``(team_a, team_b, is_at_form)``. ``is_at_form`` is True only for
+        the ``@`` AWAY-@-HOME grammar (:func:`_try_at`) — the one shape
+        :func:`fixture_display_title` renders as "away at home" rather than
+        "a vs b". None when no segment resolves to a pair (a 24/7 rack, a
+        single-event race, a racing "X at Y" venue listing, or any name
+        whose shape does not confidently resolve).
+    """
+    if not name:
+        return None
+    segment = _select_segment(name)
+    if segment is None:
+        return None
+
+    working = _cut_schedule_tail(_clean_segment(segment))
+    is_at_form = False
+    sides = _try_vs(working)
+    if sides is None:
+        sides = _try_x(working)
+    if sides is None:
+        sides = _try_at(working)
+        is_at_form = sides is not None
+    if sides is None:
+        sides = _try_v(working)
+    if sides is None:
+        sides = _try_dash(working)
+    if sides is None:
+        return None
+
+    team_a, team_b = (_EDGE_PUNCT_RE.sub("", s).strip() for s in sides)
+    if not team_a or not team_b or team_a.isdigit() or team_b.isdigit():
+        return None
+    return team_a, team_b, is_at_form
+
+
 def parse_fixture_opponents(name: str) -> "tuple[str | None, str | None]":
     """The two opponents named in a sports fixture's channel name.
 
@@ -241,21 +295,81 @@ def parse_fixture_opponents(name: str) -> "tuple[str | None, str | None]":
         single-event race, a racing "X at Y" venue listing (no opponent
         exists), or any name whose shape does not confidently resolve.
     """
+    match = _parse_fixture_match(name)
+    return (None, None) if match is None else match[:2]
+
+
+def fixture_display_title(name: str) -> "str | None":
+    """The fixture's display title — a matchup, or a cleaned single-event name.
+
+    A sports/PPV row's raw ``name`` is a provider slot string, not a title
+    ("(FLSP 246) | live: Ireland vs England _ Women's Cricket
+    (2026-09-03 08:00:00)"); this derives what should actually be shown.
+
+    Rules:
+
+    * Both opponents resolve (:func:`parse_fixture_opponents`, via the same
+      :func:`_parse_fixture_match` engine) -> ``"{team_a} vs {team_b}"`` for
+      every grammar except the ``@`` AWAY-@-HOME form, which reads more
+      naturally as ``"{away} at {home}"`` — the convention "Lakers @
+      Celtics" is spoken as "Lakers at Celtics", not "Lakers vs Celtics".
+    * No opponents -> the cleaned single-event segment: the SAME segment
+      :func:`_select_segment` would have picked for a pair (so this only
+      ever touches a segment that carried a real opponent-separator hint
+      and structurally failed to split, e.g. "EN - Sunny Dancer", where
+      "Sunny Dancer" is not uppercase-dominant enough to be a team name) —
+      cleaned with :func:`_clean_segment` and :func:`_cut_schedule_tail`,
+      the exact same two steps :func:`parse_fixture_opponents` applies
+      before trying a split. A name with NO separator hint anywhere (a
+      single-event race like "SPAIN: RACE", a racing "X at Y" venue
+      listing, or an ordinary provider string with no matchup at all, e.g.
+      "Rolling Loud") is deliberately left alone here — reusing the SAME
+      hint gate that guards the opponent parse is what keeps this from
+      grabbing a garbage leading segment ("End") off a PPV row that never
+      had a matchup to begin with.
+    * Nothing usable survives -> None, meaning "leave detected_title as it
+      is" — never an empty/whitespace string.
+
+    Args:
+        name: The raw channel name.
+
+    Returns:
+        The derived display title, or None.
+    """
     if not name:
-        return None, None
+        return None
+    match = _parse_fixture_match(name)
+    if match is not None:
+        team_a, team_b, is_at_form = match
+        return f"{team_a} at {team_b}" if is_at_form else f"{team_a} vs {team_b}"
+
     segment = _select_segment(name)
     if segment is None:
-        return None, None
+        return None
+    cleaned = _cut_schedule_tail(_clean_segment(segment))
+    return cleaned or None
 
-    working = _cut_schedule_tail(_clean_segment(segment))
-    sides = (
-        _try_vs(working) or _try_x(working) or _try_at(working)
-        or _try_v(working) or _try_dash(working)
-    )
-    if sides is None:
-        return None, None
 
-    team_a, team_b = (_EDGE_PUNCT_RE.sub("", s).strip() for s in sides)
-    if not team_a or not team_b or team_a.isdigit() or team_b.isdigit():
-        return None, None
-    return team_a, team_b
+def fixture_ingest_title(channel) -> "str | None":
+    """:func:`fixture_display_title`, gated to fixture-classified rows.
+
+    A thin wrapper for ``update_detected_prefixes`` (``channel_ingestion.py``),
+    which recomputes ``detected_title`` from the raw name on EVERY provider
+    refresh, for EVERY row, whether the name changed or not — a plain
+    ``fixture_display_title(channel.name)`` call there would happily derive
+    a "matchup" out of an ordinary movie or live channel's name too. Gating
+    on ``special_view`` (the SAME condition ``special_content.py`` stores
+    opponents under) is what makes it safe to call unconditionally.
+
+    Args:
+        channel: A real ``ChannelDB`` row or a duck-typed substitute (the
+            sports-reclassify migration's transient scratch instance) with
+            ``special_view`` and ``name`` attributes.
+
+    Returns:
+        The derived title, or None when the row is not a title-deriving
+        fixture — the caller then falls back to its own bare-name parse.
+    """
+    if getattr(channel, "special_view", None) not in ("sports", "ppv"):
+        return None
+    return fixture_display_title(getattr(channel, "name", None) or "")

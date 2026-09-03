@@ -11,7 +11,7 @@ from loguru import logger
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
 from metatv.core.event_datetime import parse_event_window
-from metatv.core.fixture_titles import parse_fixture_opponents
+from metatv.core.fixture_titles import fixture_display_title, parse_fixture_opponents
 
 
 # Built-in sport keyword map: canonical sport name → list of keywords to match
@@ -524,6 +524,21 @@ def detect_and_categorize_channel(channel: ChannelDB) -> Optional[str]:
     return None
 
 
+def _apply_fixture_title(channel: ChannelDB) -> None:
+    """Store a fixture's matchup title (SPORT-8), never blanking an existing one.
+
+    ``fixture_display_title()`` is the ONE chokepoint (``fixture_titles.py``)
+    for turning a fixture's raw provider slot string into what the Sports
+    list should show. None means "no derivable matchup" — the row's own
+    ``detected_title``, usually set by the DIFFERENT ``update_detected_prefixes``
+    chokepoint, is left exactly as it is. Shared by the ``ppv`` and ``sports``
+    branches below so the rule lives in one place, not two.
+    """
+    title = fixture_display_title(channel.name or "")
+    if title:
+        channel.detected_title = title
+
+
 def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
     """Update channel with special content categorization.
 
@@ -549,6 +564,7 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         # PPV fixtures (the day-name matchup form) carry opponents same as
         # the sports branch below — same chokepoint (SPORT-4).
         channel.event_team_a, channel.event_team_b = parse_fixture_opponents(channel.name or "")
+        _apply_fixture_title(channel)
 
         metadata = ppv_data.copy()
         for _key in ('start_time', 'stop_time'):
@@ -599,5 +615,6 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         # None for the 24/7 racks and racing "at venue" listings, which is
         # correct rather than a miss.
         channel.event_team_a, channel.event_team_b = parse_fixture_opponents(channel.name or "")
+        _apply_fixture_title(channel)
 
     return True
