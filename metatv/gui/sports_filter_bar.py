@@ -316,7 +316,7 @@ class SportsFilterBar(QWidget):
         # Search narrows WITHIN the active lane and chips (mockup Q6) — a
         # further filter, never a jump to a global result set.
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search fixtures…")
+        self.search_input.setPlaceholderText("Filter results…")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setMaximumWidth(200)
         self.search_input.textChanged.connect(lambda _t: self.filter_changed.emit())
