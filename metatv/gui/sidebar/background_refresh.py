@@ -23,12 +23,28 @@ state* ("rate to get recommendations"), not a failure, and it emits a
 Anything that exception must ALSO get belongs one level down, on
 ``CollapsibleSection`` — which is where the scroll-preservation helpers this module
 calls now live (they were here, and the exception silently missed out on them).
+
+``refresh()`` also defers to a running migration pass (MIG-1): on the owner's 2026-09-03
+launch log a 3-minute ``prefix_rescan`` v6 pass left Recommended taking ~30s to show
+anything and every other section sitting empty with no explanation, while the sections'
+own reads contended for the same SQLite writer turn the migration needed. Rather than
+submit into that contention, ``refresh()`` checks ``migration_gate.is_running()`` first —
+same sibling pattern as ``TmdbEnrichmentManager._defer_for_migration`` on the write side —
+renders a waiting row, and retries itself once, 3s later.
 """
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtCore import QTimer
 
 from loguru import logger
+
+from metatv.core import migration_gate
+
+#: Text shown instead of the loading row while a migration pass holds the DB.
+_WAITING_FOR_MIGRATION_MESSAGE = "Waiting for the library update…"
+
+#: How long to wait before a deferred refresh() retries itself.
+_MIGRATION_RETRY_MS = 3000
 
 
 class BackgroundRefreshMixin:
@@ -40,6 +56,9 @@ class BackgroundRefreshMixin:
     def _init_background_refresh(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._data_ready.connect(self._on_data_ready)
+        #: The single pending migration-retry timer, or None. Tracked so a
+        #: second refresh() call while still waiting arms no second timer.
+        self._migration_retry_timer: QTimer | None = None
 
     def shutdown(self) -> None:
         """Stop this section's worker pool.
@@ -56,11 +75,24 @@ class BackgroundRefreshMixin:
 
         Safe before ``_init_background_refresh`` (a section torn down mid-build
         never made a pool) and safe twice.
+
+        Also cancels a pending migration-retry timer (see ``refresh()``) — a
+        section torn down while waiting out a migration pass must not fire a
+        retry against a widget that no longer exists.
         """
+        self._cancel_migration_retry()
         executor = self.__dict__.get("_executor")
         if executor is None:
             return
         executor.shutdown(wait=False, cancel_futures=True)
+
+    def _cancel_migration_retry(self) -> None:
+        """Stop and drop the pending migration-retry timer, if one is armed."""
+        timer = self.__dict__.get("_migration_retry_timer")
+        if timer is None:
+            return
+        timer.stop()
+        self._migration_retry_timer = None
 
     def _loading_message(self) -> str:
         """Text for the transient loading placeholder. Sections MAY override."""
@@ -82,12 +114,49 @@ class BackgroundRefreshMixin:
 
         ``_capture_scroll``/``_restore_scroll`` come from ``CollapsibleSection``
         so the sections that do NOT compose this mixin share the one definition.
+
+        Defers instead of submitting while ``migration_gate.is_running()`` — see
+        ``_defer_for_migration_wait`` and the module docstring (MIG-1).
         """
+        if migration_gate.is_running():
+            self._defer_for_migration_wait()
+            return
         lst = self._refresh_list()
         self._capture_scroll(lst)
         lst.clear()
         self.show_loading(lst, self._loading_message())
         self._executor.submit(self._bg_refresh)
+
+    def _defer_for_migration_wait(self) -> None:
+        """Render a waiting row and arm a single retry instead of contending.
+
+        A section's background read is small next to a migration pass's bulk
+        batched commits, but both want the same SQLite writer turn — submitting
+        anyway is how Recommended took ~30s and every other section sat empty
+        with no explanation on the owner's 2026-09-03 launch log (a 3-minute
+        ``prefix_rescan`` v6 pass). Skip the read, tell the user why nothing has
+        loaded, and retry once the gate clears.
+
+        The retry timer must not stack: a second ``refresh()`` call while
+        already waiting (e.g. a provider mutation firing the canonical refresh
+        mid-wait) finds ``_migration_retry_timer`` already armed and no-ops —
+        one pending retry is enough, since the retry itself calls ``refresh()``
+        again and will pick up whatever prompted the second call.
+        """
+        lst = self._refresh_list()
+        self.show_loading(lst, _WAITING_FOR_MIGRATION_MESSAGE)
+        if self.__dict__.get("_migration_retry_timer") is not None:
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(self._on_migration_retry)
+        timer.start(_MIGRATION_RETRY_MS)
+        self._migration_retry_timer = timer
+
+    def _on_migration_retry(self) -> None:
+        """Fired 3s after a deferred refresh(); the gate may or may not be clear yet."""
+        self._migration_retry_timer = None
+        self.refresh()
 
     def _bg_refresh(self) -> None:
         """Worker thread — NO widget access. Loads rows, emits them (or None on failure)."""

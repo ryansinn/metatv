@@ -4,15 +4,26 @@ The mixin is the single shared skeleton that Favorites/History/Queue compose ins
 each hand-rolling the executor + signal + try/except/emit-None + clear/dispatch. These
 pin the skeleton directly: a failing load emits None (not a swallowed blank), None renders
 a visible error row, and success dispatches to _populate_rows.
+
+Also covers the MIG-1 migration gate: ``refresh()`` deferring to a running migration
+pass instead of contending for the SQLite writer turn, and the ``MigrationManager``
+wiring that flips ``migration_gate`` on/off around a pass (its read side lives in
+``metatv/core/migration_gate.py``, its write side in ``metatv/core/migration_manager.py``).
 """
 from __future__ import annotations
 
+import threading
+import time
+from unittest.mock import MagicMock
+
 import pytest
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QEventLoop, QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QListWidget
 
+from metatv.core import migration_gate
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import ScrollPreservingMixin
+from metatv.gui.sidebar.base import CollapsibleSection, ScrollPreservingMixin
+from tests.conftest import destroy_widget
 
 
 @pytest.fixture(scope="module")
@@ -101,3 +112,206 @@ def test_on_data_ready_clears_before_render(qapp):
     sec._on_data_ready(["only"])
     assert sec._list.count() == 1
     assert sec._list.item(0).text() == "only"
+
+
+# ---------------------------------------------------------------------------
+# Migration gate (MIG-1) — refresh() defers to a running migration pass instead
+# of contending for the SQLite writer turn.
+# ---------------------------------------------------------------------------
+
+def _stub_collapsible_state(obj) -> None:
+    """Give a CollapsibleSection-derived object the minimal attrs set_empty() reads."""
+    obj.is_empty = True
+    obj.is_collapsed = False
+    obj._user_collapsed = False
+
+
+def _make_real_section(qapp):
+    """A real BackgroundRefreshMixin + CollapsibleSection, executor swapped for a
+    MagicMock so no worker thread actually runs.
+
+    Needed instead of ``_FakeSection`` above because these tests exercise the REAL
+    ``show_loading``/``set_empty``/``QTimer(self)`` parenting ``CollapsibleSection``
+    provides — same pattern as ``tests/test_loading_indicators.py``'s
+    ``_make_mixin_section``. Unlike that helper, this one also connects a real
+    signal and parents a real ``QTimer(self)``, both of which need an actual
+    (not skipped) QObject C++ base — ``QFrame.__init__`` is called directly
+    rather than the full, widget-heavy ``CollapsibleSection.__init__`` (header/
+    content layout, theme styling), which this test has no use for.
+    """
+    from PyQt6.QtWidgets import QFrame
+
+    class _Section(BackgroundRefreshMixin, CollapsibleSection):
+        _data_ready = pyqtSignal(object)
+
+        def reapply_row_budget(self) -> None:
+            """No-op — this double skips CollapsibleSection's real init chain
+            (see the class docstring), so the real RowBudgetMixin geometry
+            logic has nothing valid to measure. Same shape as _FakeSection's
+            override above."""
+
+        def _refresh_list(self):
+            return self._list
+
+        def _load_error_message(self):
+            return "Couldn't load things"
+
+        def _populate_rows(self, rows):
+            for r in rows:
+                self._list.addItem(str(r))
+            self.set_empty(not rows)
+
+    sec = _Section.__new__(_Section)
+    QFrame.__init__(sec)  # real QObject base — signals/QTimer(self) need this
+    _stub_collapsible_state(sec)
+    sec._list = QListWidget()
+    sec.set_empty = lambda *a, **k: None  # avoid splitter geometry in headless test
+    sec._init_background_refresh()
+    sec._executor = MagicMock()  # don't actually run the worker
+    return sec
+
+
+@pytest.fixture()
+def _gate_reset():
+    """Migration-manager-wiring tests drive the REAL global gate — start and end clear."""
+    migration_gate._set_running(False)
+    yield
+    migration_gate._set_running(False)
+
+
+def test_refresh_defers_when_migration_running(qapp, monkeypatch):
+    """Gate on: refresh() must not submit the query, must render the waiting
+    row, and must arm exactly one retry timer even across a second refresh()."""
+    sec = _make_real_section(qapp)
+    monkeypatch.setattr(migration_gate, "is_running", lambda: True)
+
+    sec.refresh()
+
+    sec._executor.submit.assert_not_called()
+    assert sec._list.count() == 1
+    assert "Waiting for the library update" in sec._list.item(0).text()
+    timer = sec._migration_retry_timer
+    assert timer is not None and timer.isActive()
+
+    # A second refresh() call while still waiting must not arm a second timer.
+    sec.refresh()
+    assert sec._migration_retry_timer is timer
+    sec._executor.submit.assert_not_called()
+
+    timer.stop()  # tidy — avoid a stray real 3s fire mid-suite
+    destroy_widget(sec, sec._list)
+
+
+def test_refresh_retries_and_loads_once_gate_clears(qapp, monkeypatch):
+    """Gate clears: the retry timer firing re-enters refresh(), which this
+    time submits the real query and, once the worker's result lands, renders it
+    (recorder pattern via the mocked executor + a direct _on_data_ready call)."""
+    sec = _make_real_section(qapp)
+    monkeypatch.setattr(migration_gate, "is_running", lambda: True)
+
+    sec.refresh()
+    sec._executor.submit.assert_not_called()
+    timer = sec._migration_retry_timer
+    assert timer is not None
+
+    monkeypatch.setattr(migration_gate, "is_running", lambda: False)
+    timer.timeout.emit()  # fire the retry directly rather than waiting 3s
+
+    assert sec._migration_retry_timer is None
+    sec._executor.submit.assert_called_once_with(sec._bg_refresh)
+
+    # Simulate the worker's result landing on the signal — proves the deferred
+    # refresh reaches a real render, not just a resubmission.
+    sec._on_data_ready(["row-a", "row-b"])
+    texts = [sec._list.item(i).text() for i in range(sec._list.count())]
+    assert texts == ["row-a", "row-b"]
+    destroy_widget(sec, sec._list)
+
+
+class _TrivialTask:
+    """A migration task that completes immediately — for gate wiring tests."""
+
+    id = "trivial"
+    label = "Trivial task"
+
+    def needs_run(self, config) -> bool:
+        return True
+
+    def run(self, progress_cb, is_cancelled) -> None:
+        progress_cb(1, 1)
+
+
+class _BlockingTask:
+    """A migration task that blocks (checking ``is_cancelled``) until released.
+
+    Lets a test deterministically observe the gate mid-run without racing a
+    real sleep: the main thread waits on ``started`` rather than guessing timing.
+    """
+
+    id = "blocking"
+    label = "Blocking task"
+
+    def __init__(self) -> None:
+        self.started = threading.Event()
+
+    def needs_run(self, config) -> bool:
+        return True
+
+    def run(self, progress_cb, is_cancelled) -> None:
+        self.started.set()
+        for _ in range(500):  # bounded: 500 * 10ms = 5s max
+            if is_cancelled():
+                return
+            time.sleep(0.01)
+
+
+class _FakeMigrationConfig:
+    def save(self) -> None:
+        pass
+
+
+def test_migration_manager_flips_gate_on_start_and_off_at_all_done(qapp, _gate_reset):
+    """The manager — not a mock of it — is what this gate has to be correct
+    against: ON at the exact point the (only) task starts, OFF once
+    ``all_finished`` fires. Mirrors the "starting task"/"all tasks done" log
+    lines in ``MigrationManager._run_all``."""
+    from metatv.core.migration_manager import MigrationManager
+
+    mgr = MigrationManager(_FakeMigrationConfig(), MagicMock())
+    mgr.register(_TrivialTask())
+
+    seen_while_running: list[bool] = []
+    mgr.task_started.connect(lambda *_: seen_while_running.append(migration_gate.is_running()))
+
+    loop = QEventLoop()
+    mgr.all_finished.connect(loop.quit)
+    guard = QTimer()
+    guard.setSingleShot(True)
+    guard.timeout.connect(loop.quit)
+    guard.start(3000)
+
+    assert not migration_gate.is_running()
+    mgr.run_pending()
+    loop.exec()
+    guard.stop()
+
+    assert seen_while_running == [True], "gate must be ON while the task runs"
+    assert not migration_gate.is_running(), "gate must be OFF after all_finished"
+
+
+def test_migration_manager_shutdown_clears_gate_mid_run(qapp, _gate_reset):
+    """shutdown() mid-run must clear the gate even though the task never
+    reached its normal completion — a reader must never wait forever."""
+    from metatv.core.migration_manager import MigrationManager
+
+    mgr = MigrationManager(_FakeMigrationConfig(), MagicMock())
+    task = _BlockingTask()
+    mgr.register(task)
+
+    mgr.run_pending()
+    assert task.started.wait(timeout=3.0), "task never started"
+    assert migration_gate.is_running(), "gate must be ON while the task is mid-run"
+
+    mgr.shutdown()  # cancels + drains: blocks until the task's is_cancelled() check returns
+
+    assert not migration_gate.is_running(), "shutdown must clear the gate even mid-run"
