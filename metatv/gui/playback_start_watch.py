@@ -33,6 +33,7 @@ worse than the silence it replaces.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, NamedTuple, Optional
 
 #: Read through ``host.__dict__`` rather than ``getattr(host, name, default)``.
@@ -44,6 +45,8 @@ from typing import Any, NamedTuple, Optional
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
+
+from metatv.core import epg_utils
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -87,6 +90,10 @@ class PlayAttempt(NamedTuple):
     #: is the most likely cause of the second failure shape below, and because
     #: "it may be resuming past the end" is something the user can act on.
     resume_seconds: int = 0
+    #: The fixture's parsed start time (UTC-naive), or None for anything that
+    #: isn't a dated sports/PPV event. A pre-start play of one is the OTHER
+    #: likely cause of "it never started" — see :func:`prestart_detail`.
+    event_start_time: "datetime | None" = None
 
 
 def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
@@ -194,6 +201,33 @@ def on_idle_tick(host: Any) -> bool:
     return ticks >= STOP_POLLING_AFTER_TICKS
 
 
+def prestart_detail(event_start: "datetime | None", now: "datetime") -> "str | None":
+    """The pre-start explanation, or None when it doesn't apply.
+
+    Single chokepoint for the one detail line both "a fixture played before
+    its start" surfaces need — the pre-flight failure toast
+    (``main_window_streaming._on_stream_ready``) and the never-started report
+    below. Two hand-rolled copies of this sentence is exactly what the
+    chokepoint rules forbid.
+
+    ``now`` is injected, never read from the clock in here (the injected-clock
+    rule) — callers pass ``epg_utils.now_utc()``.
+
+    Args:
+        event_start: The fixture's UTC-naive start time, or None for anything
+            that isn't a dated event.
+        now: The current UTC-naive instant.
+
+    Returns:
+        The detail sentence naming the local start time, or None when there is
+        no event start or it has already begun.
+    """
+    if event_start is None or event_start <= now:
+        return None
+    start_local = epg_utils.to_local(event_start)
+    return f"This event hasn't started — scheduled for {start_local:%H:%M}."
+
+
 def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False) -> bool:
     """Tell the user, and put it in the retry ledger. Returns whether it did.
 
@@ -224,10 +258,16 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
     try:
+        # A pre-start fixture wins over every other guess — it is the one case
+        # the app can actually EXPLAIN rather than speculate about, so it takes
+        # precedence over the resume-position detail below when both apply.
+        event_start = getattr(attempt, "event_start_time", None)
+        prestart = prestart_detail(event_start, epg_utils.now_utc())
         # A resume is named explicitly when there was one: a saved position
         # past the real end of the file ends it instantly, which is the one
         # cause of this the USER can do something about (play from the start).
-        detail = ("The source may be busy or the stream dead."
+        detail = (prestart if prestart is not None else
+                  "The source may be busy or the stream dead."
                   if not resume else
                   f"It was resuming at {resume // 60}m{resume % 60:02d}s — if "
                   "that is past the end of this file, playing from the start "

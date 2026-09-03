@@ -49,6 +49,11 @@ class PlayableChannelDTO:
     # Resume position — populated for VOD channels; 0 for live / unwatched
     watch_progress: int = 0      # seconds; 0 when unwatched or completed
     watch_completed: bool = False  # True → do NOT resume (user finished it)
+    #: The fixture's parsed start time (ChannelDB.event_start_time), UTC-naive.
+    #: None for everything but a dated sports/PPV event. Threaded through
+    #: play_media → PlayAttempt so a pre-start play can name WHEN it starts
+    #: instead of the generic "may be busy" guess (SPORT-6).
+    event_start_time: "datetime | None" = None
 
 
 @dataclass(frozen=True)
