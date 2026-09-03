@@ -20,10 +20,20 @@ HIST-1 (2026-09-03): a play never appeared in History because the old
 ``_record_play`` called ``self.load_history()`` synchronously, immediately
 after submitting the DB write to the executor — the refresh ran before the
 write committed. ``_WatchNotifier.history_changed`` closes that race:
-``_bg_mark_played`` emits it only AFTER its ``session_scope()`` block commits,
-and the signal is delivered to the main thread's ``_on_history_changed`` slot
-via Qt's normal queued-connection delivery, which also drives the details
-pane's Resume state via ``channel_state_bus.publish``.
+``_bg_mark_played`` (and, for PLAY-9 below, ``_bg_finalise_progress``) emit it
+only AFTER their ``session_scope()`` block commits, and the signal is
+delivered to the main thread's ``_on_history_changed`` slot via Qt's normal
+queued-connection delivery, which also drives the details pane's Resume state
+via ``channel_state_bus.publish``.
+
+PLAY-9 (2026-09-03): the checkpoint's close branch (a tracked key that
+disappeared from ``player_manager.active_keys()`` between ticks — mpv exited
+via EOF or a manual quit) used to finalise only QUEUED episodes. A movie or
+single (non-queued) episode was popped from tracking silently, its last
+sampled position never persisted, and a >=90% watch never promoted to
+completed. ``_update_last_sample`` now records the last sampled
+position/duration on every ``_bg_capture_watch`` tick for non-queued tracks;
+the close branch finalises it via ``_bg_finalise_progress``.
 """
 
 from __future__ import annotations
@@ -77,12 +87,12 @@ class _WatchCaptureMixin:
         """Main-thread slot: a play/progress write committed — refresh dependents.
 
         Connected (queued, cross-thread-safe) to ``_WatchNotifier.history_changed``,
-        emitted by ``_bg_mark_played`` only after its DB write commits — this is
-        what closes the HIST-1 race, where the old synchronous ``load_history()``
-        call in ``_record_play`` ran before the write it was supposed to reflect.
-        Also republishes the channel on ``channel_state_bus`` so the details
-        pane's Play/Resume state (frozen after playback ends otherwise) re-reads
-        authoritatively.
+        emitted by ``_bg_mark_played`` and ``_bg_finalise_progress`` only after
+        their DB write commits — this is what closes the HIST-1 race, where the
+        old synchronous ``load_history()`` call in ``_record_play`` ran before
+        the write it was supposed to reflect. Also republishes the channel on
+        ``channel_state_bus`` so the details pane's Play/Resume state (frozen
+        after playback ends otherwise) re-reads authoritatively.
         """
         self.load_history()
         if channel_id:
@@ -125,6 +135,14 @@ class _WatchCaptureMixin:
                         ]
                         if auto_ids:
                             self._queue_end_detected.emit(auto_ids)
+                elif info and info.get("last_sample") and info.get("media_type") in ("movie", "episode"):
+                    # PLAY-9: mpv exited (EOF or quit) between checkpoints for a
+                    # movie or single (non-queued) episode — finalise the last
+                    # sample _update_last_sample recorded instead of dropping it.
+                    pos_s, dur_s = info["last_sample"]
+                    self.executor.submit(
+                        self._bg_finalise_progress, info["content_id"], info["media_type"],
+                        pos_s, dur_s, info.get("played_via", "manual"))
         if not keys:
             self._watch_checkpoint_timer.stop()
             return
@@ -159,6 +177,47 @@ class _WatchCaptureMixin:
         except Exception as exc:
             logger.debug(f"Episode finalise failed for {content_id!r}: {exc}")
 
+    def _bg_finalise_progress(
+        self, content_id: str, media_type: str, pos_s: float, dur_s: float, played_via: str
+    ) -> None:
+        """Worker: persist the last sampled position when a player window closes.
+
+        Companion to ``_bg_finalise_episode`` for the movie / single-episode
+        branch (PLAY-9): mpv can exit between 20s checkpoints (EOF or a manual
+        quit), and the periodic tick only persists progress for keys still
+        present in ``player_manager.active_keys()`` — a key that disappeared
+        was previously dropped from tracking with its last position never
+        written, so a >=threshold watch was never promoted to completed. This
+        finalises the LAST sample ``_update_last_sample`` recorded, through the
+        same repository chokepoint the periodic tick uses — the promotion-to-
+        complete / resume-point logic lives only in ``record_watch_progress``,
+        never duplicated here.
+
+        Args:
+            content_id: The movie/episode DB id to finalise.
+            media_type: ``"movie"`` or ``"episode"`` — selects the repository.
+            pos_s: Last sampled ``time-pos``, in seconds.
+            dur_s: Last sampled ``duration``, in seconds.
+            played_via: ``"manual"`` or ``"queue"``.
+        """
+        try:
+            threshold = getattr(self.config, "watch_complete_threshold", 0.9)
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                if media_type == "episode":
+                    repos.episodes.record_watch_progress(
+                        content_id, pos_s, dur_s, threshold, played_via
+                    )
+                else:
+                    repos.channels.record_watch_progress(
+                        content_id, pos_s, dur_s, threshold, played_via
+                    )
+            notifier = self.__dict__.get("_watch_notifier")
+            if notifier is not None:
+                notifier.history_changed.emit(content_id)
+        except Exception as exc:
+            logger.debug(f"Watch-progress finalise failed for {content_id!r}: {exc}")
+
     def _bg_capture_watch(self, key: str, info: dict) -> None:
         """Worker: read mpv position for *key* and persist watch progress.
 
@@ -170,7 +229,9 @@ class _WatchCaptureMixin:
         3. Records live progress for the *current* episode (at ``playlist-pos``)
            via ``record_watch_progress`` so partial state is not lost.
 
-        For single-episode and movie tracks the behaviour is unchanged.
+        For single-episode and movie tracks the behaviour is unchanged, plus
+        (PLAY-9) recording the last sample via ``_update_last_sample`` so a
+        close between ticks can still be finalised.
 
         Args:
             key: Player instance key (from ``player_manager.resolve_key``).
@@ -231,6 +292,7 @@ class _WatchCaptureMixin:
                 dur_s = props.get("duration")
                 if pos_s is None or not dur_s or dur_s <= 0:
                     return
+                self._update_last_sample(key, pos_s, dur_s)
                 threshold = getattr(self.config, "watch_complete_threshold", 0.9)
                 with self.db.session_scope() as session:
                     repos = RepositoryFactory(session)
@@ -262,3 +324,24 @@ class _WatchCaptureMixin:
         live = tracking.get(key)
         if live is not None and live.get("queue") is not None:
             live["last_seen_pos"] = new_pos
+
+    def _update_last_sample(self, key: str, pos_s: float, dur_s: float) -> None:
+        """Main-thread-safe update of the live tracking dict's last sample.
+
+        Called from the off-thread ``_bg_capture_watch`` worker, mirroring
+        ``_update_last_seen_pos``'s GIL-atomicity rationale: this single
+        dict-item assignment is atomic in CPython, so no additional locking is
+        needed even though it runs off the main thread. Only single-track
+        (movie / single-episode) entries carry a ``last_sample`` — queued
+        entries track position via ``last_seen_pos`` instead, so this is a
+        no-op for those (``live.get("queue") is None`` guards it).
+
+        Args:
+            key: Player instance key.
+            pos_s: Last sampled ``time-pos``, in seconds.
+            dur_s: Last sampled ``duration``, in seconds.
+        """
+        tracking = getattr(self, "_watch_tracking", {})
+        live = tracking.get(key)
+        if live is not None and live.get("queue") is None:
+            live["last_sample"] = (pos_s, dur_s)
