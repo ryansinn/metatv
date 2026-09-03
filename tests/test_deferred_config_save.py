@@ -253,3 +253,27 @@ def test_the_state_itself_is_still_updated_immediately():
     assert "self.config.last_search_state = state" in body
     assert (body.index("self.config.last_search_state = state")
             < body.index("_cfgsave.save_soon(self)"))
+
+
+def test_qobject_host_parents_the_timer(qapp):
+    """A real QObject host owns its timer, so Qt deletes both together.
+
+    The unparented version kept ticking after Qt destroyed the host widget
+    (a closed dialog; test teardown) and its timeout lambda fired into a
+    half-destroyed object — CI caught it as a shard-wide segfault inside
+    this module's lambda, twice on one shard (2026-09-03)."""
+    from PyQt6.QtWidgets import QWidget
+    from metatv.gui import deferred_config_save as _cfgsave
+
+    host = QWidget()
+    host.config = type("Cfg", (), {"save": lambda self: None})()
+    _cfgsave.save_soon(host)
+    timer = host.__dict__[_cfgsave._TIMER_ATTR]
+    assert timer.parent() is host
+
+    class _Duck:
+        config = type("Cfg", (), {"save": lambda self: None})()
+
+    duck = _Duck()
+    _cfgsave.save_soon(duck)
+    assert duck.__dict__[_cfgsave._TIMER_ATTR].parent() is None
