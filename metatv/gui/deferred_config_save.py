@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QObject, QTimer
 
 #: How long a burst has to be quiet before the write happens.
 #:
@@ -62,11 +62,28 @@ def save_soon(host: Any, *, delay_ms: int = DEFAULT_DELAY_MS) -> None:
     """
     timer = host.__dict__.get(_TIMER_ATTR)
     if timer is None:
-        # Unparented deliberately. ``QTimer(host)`` needs a real QObject, and
-        # half the hosts that reach here are duck-typed doubles — one went red
-        # with "argument 1 has unexpected type". The host's own __dict__ holds
-        # the only reference, so it still dies with the host.
-        timer = QTimer()
+        # PARENT the timer to a real QObject host so it dies WITH the host's
+        # C++ half. The earlier "unparented deliberately" version assumed the
+        # __dict__ reference made the timer die with the host — it does not:
+        # when Qt deletes the host widget (a closed dialog; test teardown) the
+        # Python-owned unparented timer keeps ticking and its timeout lambda
+        # fires into a half-destroyed object. CI caught it as a shard-wide
+        # segfault inside this module's lambda (2026-09-03, twice on one
+        # shard); in the app the same fire-after-free waits on any short-lived
+        # host. Duck-typed doubles are why this cannot be ``QTimer(host)``
+        # unconditionally — one went red with "argument 1 has unexpected
+        # type" — and a ``MainWindow.__new__`` shell passes isinstance while
+        # its C++ half was never initialised, yielding a stillborn timer, so
+        # the probe is ``host.thread()``, which raises RuntimeError on exactly
+        # that class of object.
+        parent = None
+        if isinstance(host, QObject):
+            try:
+                host.thread()
+                parent = host
+            except RuntimeError:
+                parent = None
+        timer = QTimer(parent)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda: _write(host))
         host.__dict__[_TIMER_ATTR] = timer
