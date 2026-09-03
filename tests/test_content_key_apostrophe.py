@@ -23,8 +23,12 @@ def test_normalize_title_apostrophes_deleted_not_spaced():
     """
     from metatv.core.content_identity import normalize_title_for_key
 
-    # Straight apostrophe
+    # Straight apostrophe (ASCII)
     assert normalize_title_for_key("Three's Company") == "threes company"
+    # Right single quotation mark U+2019 (most common in provider data)
+    # Using chr(0x2019) to ensure immunity to encoding issues
+    u2019_title = "Three" + chr(0x2019) + "s Company"
+    assert normalize_title_for_key(u2019_title) == "threes company"
     # Already apostrophe-free
     assert normalize_title_for_key("Threes Company") == "threes company"
     # Case insensitive

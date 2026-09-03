@@ -106,7 +106,7 @@ from metatv.core.channel_name_utils import (
 # Shared normalisation helper
 # ---------------------------------------------------------------------------
 
-_APOSTROPHE_RE = re.compile(r"[''ʼ`]")
+_APOSTROPHE_RE = re.compile("[''’ʼ`]")  # straight, right single quote (U+2019), modifier, backtick
 _NONWORD_RE = re.compile(r"[^\w\s]")
 _WHITESPACE_RE = re.compile(r"\s+")
 # Matches the first four-digit year anywhere in detected_year (e.g. "2015-2018" → "2015").
