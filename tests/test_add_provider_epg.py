@@ -67,6 +67,9 @@ def _main_window_stub():
     # (epg_enabled / usable URL) is covered in test_epg_on_source_refresh. Mock it
     # so the handler test needs no seeded DB.
     mw._maybe_refresh_provider_epg = MagicMock()
+    # SPORT-7's stamp seam — same treatment: it opens a real session_scope on
+    # self.db, which a __new__'d shell doesn't have.
+    mw._mark_catalog_refreshed = MagicMock()
     # Set so hasattr() resolves cleanly — on a __new__'d QMainWindow a *missing*
     # attr raises RuntimeError from PyQt rather than returning False.
     mw.stream_retry_manager = MagicMock()

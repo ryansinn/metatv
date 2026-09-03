@@ -79,6 +79,12 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
      "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
         "4.02:1 in Daylight — the owner's chosen banner pair, retuning it is "
         "their call (same reasoning as the Exclusions teal)",
+    ("sports_view.py", "QPushButton",
+     "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
+        "the SAME pair as main_window.py's banner directly above — the Sports "
+        "staleness banner reuses the notice grammar wholesale, so it inherits "
+        "the owner's-call status too; retune both together or neither "
+        "(yellow.12 clears the floor at 9.67:1 if the owner ever says go)",
     ("categories_dialog.py", "<bare>", "@COLOR_ERR_2@", "@OVERLAY_ERR2_15@"):
         "error red on its own red tint; the pair is the semantic signal and "
         "retinting it is a palette decision",
