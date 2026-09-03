@@ -53,9 +53,18 @@ class TestEscapeHatchPlaysAreRecorded:
         assert h.executor.submit.call_count == 1, (
             "the play was never recorded — this is the Play Anyway that "
             "vanished from History")
-        assert h.load_history.call_count == 1, "History was not refreshed"
         args = h.executor.submit.call_args[0]
         assert args[1] == "prov_123", "recorded the wrong channel"
+        # History itself now refreshes off the _bg_mark_played → notifier →
+        # _on_history_changed chain, only AFTER the write commits (HIST-1) —
+        # the old synchronous load_history() call here raced the DB commit.
+        # That ordering is proven end-to-end in
+        # tests/test_watch_capture_refresh.py; here we only assert the
+        # notifier's home (watch capture) was armed before the write was
+        # queued.
+        assert h._start_watch_capture.call_count == 1, (
+            "watch-capture (which wires the notifier the write emits on) "
+            "was not armed")
 
     def test_watch_capture_is_registered_too(self, qapp):
         """Not just History — resume position depends on this as well."""

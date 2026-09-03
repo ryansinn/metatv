@@ -43,7 +43,7 @@ import pathlib
 
 #: Frozen population, 2026-08-31. SHRINK ONLY — never raise this to make a
 #: new call site pass. Use ``"name" in self.__dict__`` instead.
-SKELETON_PROBE_BUDGET = 131
+SKELETON_PROBE_BUDGET = 127
 
 
 def _probe_sites() -> list[tuple[str, int, str, str]]:
