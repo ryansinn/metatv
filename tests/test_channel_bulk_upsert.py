@@ -14,6 +14,7 @@ Critical regression guarded:
 """
 
 from unittest.mock import MagicMock
+from datetime import datetime
 
 import pytest
 
@@ -22,6 +23,8 @@ from tests.conftest import make_channel_double
 from metatv.core.database import Database, ChannelDB
 from metatv.core.provider_loader import ProviderLoadThread, _STORE_BATCH
 from metatv.core.models import Provider
+from metatv.core.migrations.sports_reclassify import DERIVED_FIELDS
+from metatv.core.special_content import update_channel_special_content
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +110,15 @@ def _read_channel(db: Database, ch_id: str) -> dict:
             "play_count": row.play_count,
             "detected_prefix": row.detected_prefix,
             "user_category": row.user_category,
+            "special_view": row.special_view,
+            "sport_type": row.sport_type,
+            "league_name": row.league_name,
+            "team_name": row.team_name,
+            "event_start_time": row.event_start_time,
+            "event_stop_time": row.event_stop_time,
+            "event_metadata": row.event_metadata,
+            "event_team_a": row.event_team_a,
+            "event_team_b": row.event_team_b,
         }
     finally:
         session.close()
@@ -336,3 +348,133 @@ def test_is_adult_extracted_from_raw_data(store_thread, tmp_db):
     assert _read_channel(tmp_db, "adult_bool")["is_adult"] is True
     assert _read_channel(tmp_db, "not_adult")["is_adult"] is False
     assert _read_channel(tmp_db, "no_field")["is_adult"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — Event-slot channels drop sports classification when renamed
+# ---------------------------------------------------------------------------
+
+def test_renamed_row_drops_sports_classification(store_thread, tmp_db):
+    """Renamed event-slot channels must clear all nine sports/event classification columns.
+
+    When a provider rotates an event-slot's title in place (same channel id, different name),
+    the row's stale sports classification must be cleared so _categorize_special_content
+    can reclassify it from the new name. The rename-clear list now includes all nine
+    DERIVED_FIELDS.
+
+    Sequence:
+      1. Insert channel slot1 named "FLSP 988 | ATP tennis: Open Final".
+      2. In a session, set all nine classification columns to test values.
+      3. Assert that the mapping keys match DERIVED_FIELDS exactly.
+      4. Store the same id with a DIFFERENT name (wrestling event).
+      5. Read the row and assert every one of the nine columns is None.
+      6. Store again with the SAME name and pre-set columns → assert preserved.
+    """
+    # --- Step 1: initial insert ---
+    _store(store_thread, tmp_db, [
+        _make_channel("slot1", name="FLSP 988 | ATP tennis: Open Final")
+    ])
+
+    # --- Step 2: set all classification columns ---
+    mapping = {
+        "special_view": "sports",
+        "sport_type": "tennis",
+        "league_name": "ATP",
+        "team_name": "A vs B",
+        "event_start_time": datetime(2026, 9, 12, 8, 0),
+        "event_stop_time": datetime(2026, 9, 12, 10, 0),
+        "event_metadata": {"event_name": "Open Final"},
+        "event_team_a": "A",
+        "event_team_b": "B",
+    }
+
+    # --- Step 3: prove the test knows about all DERIVED_FIELDS ---
+    assert set(mapping) == set(DERIVED_FIELDS), (
+        f"Test mapping {set(mapping)} must match DERIVED_FIELDS {set(DERIVED_FIELDS)}"
+    )
+
+    with tmp_db.session_scope() as s:
+        row = s.query(ChannelDB).filter_by(id="slot1").one()
+        for key, value in mapping.items():
+            setattr(row, key, value)
+
+    # --- Step 4: re-store with a DIFFERENT name (renamed by provider) ---
+    _store(store_thread, tmp_db, [
+        _make_channel("slot1", name="(FLSP 988) | WWE: Florida Super 32 Early Entry (Mat 1)")
+    ])
+
+    # --- Step 5: assert all nine columns are cleared ---
+    row = _read_channel(tmp_db, "slot1")
+    for field in DERIVED_FIELDS:
+        assert row.get(field) is None, (
+            f"Field {field} must be None after rename (got {row.get(field)})"
+        )
+
+    # --- Step 6 (bonus): unchanged name must preserve columns ---
+    with tmp_db.session_scope() as s:
+        row = s.query(ChannelDB).filter_by(id="slot1").one()
+        for key, value in mapping.items():
+            setattr(row, key, value)
+
+    _store(store_thread, tmp_db, [
+        _make_channel("slot1", name="(FLSP 988) | WWE: Florida Super 32 Early Entry (Mat 1)")
+    ])
+
+    row = _read_channel(tmp_db, "slot1")
+    for field in DERIVED_FIELDS:
+        assert row.get(field) == mapping[field], (
+            f"Field {field} must be preserved when name doesn't change "
+            f"(got {row.get(field)}, expected {mapping[field]})"
+        )
+
+
+def test_renamed_slot_reclassified_from_new_name(store_thread, tmp_db):
+    """A renamed event slot is reclassified from its new name in the same refresh.
+
+    This proves that rename-clear + _categorize_special_content handoff works end-to-end:
+    after a provider rotates an event slot's name, the row lands with special_view IS NULL
+    (the rename cleared it) and _categorize_special_content picks it up and reclassifies it.
+
+    Sequence:
+      1. Insert slot2 named "ATP Tennis Tournament".
+      2. In a session, run update_channel_special_content(row) and commit.
+      3. Assert sport_type == "tennis".
+      4. Store the same id renamed to "UFC Boxing Match".
+      5. Read the row: assert special_view IS NULL (handoff point for reclassify).
+      6. Run update_channel_special_content again on the live row and commit.
+      7. Assert sport_type == "boxing" (reclassified from new name).
+    """
+    # --- Step 1: initial insert ---
+    _store(store_thread, tmp_db, [
+        _make_channel("slot2", name="ATP Tennis Tournament")
+    ])
+
+    # --- Step 2-3: classify and assert tennis ---
+    with tmp_db.session_scope() as s:
+        row = s.query(ChannelDB).filter_by(id="slot2").one()
+        update_channel_special_content(row)
+    # (session closed, row detached; read fresh)
+
+    row = _read_channel(tmp_db, "slot2")
+    assert row["sport_type"] == "tennis", f"Initial classification must be tennis (got {row['sport_type']})"
+
+    # --- Step 4: rename to UFC event ---
+    _store(store_thread, tmp_db, [
+        _make_channel("slot2", name="UFC Boxing Match")
+    ])
+
+    # --- Step 5: assert special_view IS NULL (handoff point) ---
+    row = _read_channel(tmp_db, "slot2")
+    assert row["special_view"] is None, (
+        f"Rename must clear special_view so reclassify picks it up (got {row['special_view']})"
+    )
+
+    # --- Step 6-7: reclassify and assert boxing ---
+    with tmp_db.session_scope() as s:
+        row = s.query(ChannelDB).filter_by(id="slot2").one()
+        update_channel_special_content(row)
+
+    row = _read_channel(tmp_db, "slot2")
+    assert row["sport_type"] == "boxing", (
+        f"Reclassified row must be boxing (got {row['sport_type']})"
+    )

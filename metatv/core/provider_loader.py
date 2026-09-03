@@ -15,6 +15,7 @@ from metatv.core.database import (
 )
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import persist_url_stats
+from metatv.core.migrations.sports_reclassify import DERIVED_FIELDS
 from metatv.providers.factory import get_provider
 
 # Columns written by the catalog loader on every channel upsert.
@@ -561,27 +562,14 @@ class ProviderLoadThread(QThread):
             (stmt.excluded.name != ChannelDB.name, literal(None)),
             else_=ChannelDB.metadata_id,
         )
-        # ...and the NAME-DERIVED fields, for exactly the same reason.
-        #
-        # This guard only ever covered metadata_id, so a renamed row kept the
-        # previous occupant's detected_* values forever: they are computed at
-        # ingestion and the pass that fills them is fill-empty-only, so a row
-        # that already has a detected_title is never revisited.
-        #
-        # Render reads detected_title, NOT name. The owner therefore saw a row
-        # titled "MLB 04 | Royals x Blue Jays" whose name column said
-        # "MLB 04 | Mariners x Red Sox" — the list, the details pane and the
-        # content_key all showed a game that had not been on that slot for days,
-        # and restarting could not help because the stale value was persisted.
-        # The provider rotates these event slots daily, so it renames in place
-        # constantly.
-        #
-        # Nulling them hands the row back to update_detected_prefixes, whose
-        # fill-empty-only contract then recomputes it from the new name.
+        # ...and NAME-DERIVED fields, for exactly the same reason. Also clear
+        # sports/event classification columns so _categorize_special_content
+        # (which runs after _store_channels and processes special_view IS NULL rows)
+        # reclassifies a renamed slot from its new name in the same pass.
         # detected_tmdb_id is deliberately NOT cleared: the enrichment layer owns
         # it and COALESCEs it above, so clearing here would undo that.
         for _derived in ("detected_title", "detected_prefix", "detected_quality",
-                         "detected_region", "detected_year", "content_key"):
+                         "detected_region", "detected_year", "content_key") + DERIVED_FIELDS:
             update_set[_derived] = case(
                 (stmt.excluded.name != ChannelDB.name, literal(None)),
                 else_=getattr(ChannelDB, _derived),
