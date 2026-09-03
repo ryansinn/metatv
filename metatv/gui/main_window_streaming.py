@@ -220,9 +220,9 @@ class _StreamingMixin:
         # A single-URL provider has nothing to fail over TO — a host-level failure
         # proves nothing about the only address, so skip record_failure; the
         # playback-start watch (#675/#685/#687) still reports a truly dead stream.
-        # Peek ordered_urls() (the real candidate universe — the legacy provider.url
-        # fallback lives there; .urls under-counts), NOT candidates(): Case 6 holds.
-        alt = any(u.rstrip('/') != original_base for u in provider_model.ordered_urls())
+        # has_alternate() lives inside the UrlCycler chokepoint (the ordered_urls
+        # drift guard forbids it elsewhere) and records nothing — Case 6 holds.
+        alt = UrlCycler(provider_model, "resolve_playable_url").has_alternate(original_base)
         if not alt:
             logger.info(f"pre-flight inconclusive on the only URL — letting mpv decide: {stream_url}")
             return stream_url, err_msg or None
