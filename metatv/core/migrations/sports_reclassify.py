@@ -199,7 +199,10 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 9
+#: v10 (2026-09-03): repairs rows renamed before ingestion enrolled the
+#: classification columns in the rename-clear — their stored sport/event columns
+#: are stale on disk.
+CURRENT_VERSION = 10
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
