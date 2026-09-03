@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from metatv.core import watchlist
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.gui.content_view import ContentView
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.details_versions import resolve_category_name
 from metatv.gui import theme as _theme
 from metatv.gui.epg_events_mixin import (
@@ -420,7 +421,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if title in hidden:
             hidden.remove(title)
             self.config.epg_hidden_titles = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._render_hidden()
         self._update_filler_btn_label()
 
@@ -429,7 +430,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if pattern in patterns:
             patterns.remove(pattern)
             self.config.epg_filler_patterns = patterns
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._render_hidden()
         self._update_filler_btn_label()
 
@@ -440,7 +441,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if pattern not in patterns:
             patterns.append(pattern)
             self.config.epg_filler_patterns = patterns
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._render_hidden()
         self._update_filler_btn_label()
 
@@ -753,7 +754,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if title not in hidden:
             hidden.append(title)
             self.config.epg_hidden_titles = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._reload_on_now()
 
     def _hide_channel(self, ch_id: str) -> None:
@@ -761,7 +762,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if ch_id not in hidden:
             hidden.append(ch_id)
             self.config.epg_hidden_channels = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._reload_on_now()
 
     def _hide_category(self, prefix: str) -> None:
@@ -769,7 +770,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if prefix not in hidden:
             hidden.append(prefix)
             self.config.epg_hidden_prefixes = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._reload_on_now()
 
     def _remove_hidden_channel(self, ch_id: str) -> None:
@@ -777,7 +778,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if ch_id in hidden:
             hidden.remove(ch_id)
             self.config.epg_hidden_channels = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._render_hidden()
         self._update_filler_btn_label()
 
@@ -786,7 +787,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         if prefix in hidden:
             hidden.remove(prefix)
             self.config.epg_hidden_prefixes = hidden
-            self.config.save()
+            _cfgsave.save_soon(self)
         self._render_hidden()
         self._update_filler_btn_label()
 
@@ -820,7 +821,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
     def _save_epg_sort(self, tab: str, col: int, order: Qt.SortOrder) -> None:
         self.config.epg_filter_state[f"{tab}_sort_col"] = col
         self.config.epg_filter_state[f"{tab}_sort_order"] = int(order.value)
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _on_force_refresh(self) -> None:
         for pid in self._provider_ids:
@@ -906,14 +907,14 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
     def _watch_channel(self, channel_db_id: str) -> None:
         if channel_db_id not in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.append(channel_db_id)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _unwatch_channel(self, channel_db_id: str) -> None:
         if channel_db_id in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.remove(channel_db_id)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self.watchlist_changed.emit()
             self._reload_watchlist()
 

@@ -43,7 +43,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
-
+from metatv.gui import deferred_config_save as _cfgsave
 
 def _format_probe_message(result: ProbeResult) -> str:
     """Render a :class:`ProbeResult` into a short badge string (UI layer).
@@ -380,7 +380,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
     def _on_tab_changed(self, index: int) -> None:
         if self.config is not None:
             self.config.provider_editor_selected_tab = index
-            self.config.save()
+            _cfgsave.save_soon(self)
 
     def _build_header_row(self, layout: QVBoxLayout) -> None:
         """Icon + provider name (with a small status dot beside it, consistent

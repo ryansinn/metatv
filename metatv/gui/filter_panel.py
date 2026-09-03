@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -26,7 +26,7 @@ from metatv.core.channel_name_utils import quality_display
 from metatv.gui import theme as _theme
 from metatv.gui.filter_panel_chip_seam import _ChipSeamMixin
 from metatv.gui.filter_group_row import _Section
-
+from metatv.gui import deferred_config_save as _cfgsave
 
 # ── Main FilterPanel ───────────────────────────────────────────────────────────
 
@@ -827,7 +827,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                     facet for facet, sec in self._facet_sections().items()
                     if sec.has_untagged_row() and not sec.untagged_included()
                 )
-            self.config.save()
+            _cfgsave.save_soon(self)
         except Exception as e:
             logger.warning(f"Could not save filter panel state: {e}")
 
@@ -1004,7 +1004,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         """Handle toggling the 'Hide watched' checkbox — persist and reload."""
         if not self._restoring:
             self.config.filter_hide_watched = self._hide_watched_cb.isChecked()
-            self.config.save()
+            _cfgsave.save_soon(self)
         self.filter_changed.emit()
 
     def _region_label(self, code: str) -> str:
@@ -1067,7 +1067,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             return
 
         self.config.global_filter_excluded_prefixes = excluded
-        self.config.save()
+        _cfgsave.save_soon(self)
         logger.info(f"Globally excluded {prefixes} via filter panel (key={item_key!r})")
 
         # Also uncheck the item locally so the UI is consistent

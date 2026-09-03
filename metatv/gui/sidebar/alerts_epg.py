@@ -33,6 +33,7 @@ from metatv.gui.sidebar.alerts_common import (
     _ALERTS_TREE_AUTOEXPAND_BUDGET,
     _ROLE_GROUP_KEY,
 )
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class EpgGroupMixin:
@@ -663,7 +664,7 @@ class EpgGroupMixin:
         self.config.alerts_epg_upcoming_collapsed = (
             not self.config.alerts_epg_upcoming_collapsed
         )
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_upcoming_collapse()
         self.reapply_row_budget()
 

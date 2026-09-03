@@ -67,6 +67,7 @@ from metatv.core.epg_utils import (
     now_utc as _now_utc,
     remaining_str as _remaining_str,
 )
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import resolve_category_name
@@ -546,7 +547,7 @@ class _EpgOnNowMixin:
         # convention) so a future type absent from a stale save still defaults to visible.
         to_store = [] if (not selected or set(selected) == all_types) else selected
         self.config.epg_filter_state["on_now_type_filter"] = to_store
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_on_now_filters()
 
     def _on_now_group_toggled(self, item: QTreeWidgetItem) -> None:
@@ -557,7 +558,7 @@ class _EpgOnNowMixin:
         collapsed_map = dict(self.config.epg_filter_state.get("on_now_group_collapsed", {}))
         collapsed_map[group_key] = not item.isExpanded()
         self.config.epg_filter_state["on_now_group_collapsed"] = collapsed_map
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _apply_on_now_filters(self) -> None:
         """Client-side filter on the On Now tree: search text + Category + All Types.
@@ -810,7 +811,7 @@ class _EpgOnNowMixin:
         for cid in ch_ids:
             overrides.pop(cid, None)
         self.config.epg_category_overrides = overrides
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._reload_on_now()
         self._render_hidden()
 
@@ -820,7 +821,7 @@ class _EpgOnNowMixin:
             if cid and cid not in hidden:
                 hidden.append(cid)
         self.config.epg_hidden_channels = hidden
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._reload_on_now()
 
     def _bulk_hide_titles(self, items: list[QTreeWidgetItem]) -> None:
@@ -830,7 +831,7 @@ class _EpgOnNowMixin:
             if title and title not in hidden:
                 hidden.append(title)
         self.config.epg_hidden_titles = hidden
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._reload_on_now()
 
     def _known_categories(self) -> list[str]:
@@ -851,7 +852,7 @@ class _EpgOnNowMixin:
         raw = bytes(self.on_now_list.header().saveState().toBase64()).decode("ascii")
         self.config.epg_filter_state["on_now_header_state"] = raw
         self.config.epg_filter_state["on_now_header_state_version"] = _ON_NOW_HEADER_STATE_VERSION
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _track_shows_from_items(self, items: list[QTreeWidgetItem]) -> None:
         from PyQt6.QtWidgets import QInputDialog

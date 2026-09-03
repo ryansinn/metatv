@@ -599,7 +599,7 @@ class DetailsPaneWidget(QWidget):
         # a hand-listed pair of blocks eventually produces.
         for section in self._collapsible_sections:
             section._header.toggled.connect(
-                lambda _collapsed, sec=section: sec.save_state(self.config)
+                lambda _collapsed, sec=section: sec.save_state(self)
             )
 
     def _configure_for(self, is_live: bool) -> None:

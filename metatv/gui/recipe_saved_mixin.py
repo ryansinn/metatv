@@ -24,6 +24,7 @@ from __future__ import annotations
 from loguru import logger
 
 from metatv.gui.recipe_widgets import _generate_recipe_name
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class _RecipeSavedMixin:
@@ -59,7 +60,7 @@ class _RecipeSavedMixin:
         """Write *recipes* to Config and save to disk (UI-state-persistence rule)."""
         self._config.saved_recipes = recipes
         try:
-            self._config.save()
+            _cfgsave.save_soon(self)
         except Exception as e:  # never let a config write crash the UI
             logger.warning("RecipeView: could not persist saved recipes: {}", e)
 

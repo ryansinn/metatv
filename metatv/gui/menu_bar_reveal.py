@@ -34,6 +34,8 @@ import sys
 from loguru import logger
 from PyQt6.QtCore import Qt
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 def auto_hide_supported() -> bool:
     """Whether this platform can meaningfully hide its menu bar.
@@ -83,7 +85,7 @@ class _MenuBarRevealMixin:
         a trap.
         """
         self.config.menu_bar_auto_hide = bool(auto_hide) and auto_hide_supported()
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.apply_menu_bar_auto_hide()
         self.sync_menu_bar_actions()
         logger.info(f"Menu bar auto-hide → {self.config.menu_bar_auto_hide}")

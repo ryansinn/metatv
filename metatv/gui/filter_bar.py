@@ -11,6 +11,7 @@ from PyQt6.QtGui import QCursor
 from loguru import logger
 
 from metatv.gui import theme as _theme
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class ToggleChip(QPushButton):
@@ -668,7 +669,7 @@ class FilterBar(QWidget):
             self.config.filter_included_platforms = state['platform_groups']
             self.config.filter_include_untagged = state['include_untagged']
             self.config.filter_adult_mode = state['adult_mode']
-            self.config.save()
+            _cfgsave.save_soon(self)
             logger.debug(f"Saved filter state: {state}")
         except Exception as e:
             logger.warning(f"Could not save filter state: {e}")

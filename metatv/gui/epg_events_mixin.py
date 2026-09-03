@@ -40,6 +40,7 @@ from metatv.core.epg_utils import (
     local_weekday as _local_weekday,
     to_local as _to_local,
 )
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import theme as _theme
 
 # ---------------------------------------------------------------------------
@@ -243,7 +244,7 @@ class _EpgEventsMixin:
         self._events_network_btn.setChecked(False)
         self._apply_events_toggle_styles()
         self.config.epg_events_view_mode = "timeline"
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._render_events(self._events_dto_cache)
 
     def _on_events_mode_network(self) -> None:
@@ -251,12 +252,12 @@ class _EpgEventsMixin:
         self._events_network_btn.setChecked(True)
         self._apply_events_toggle_styles()
         self.config.epg_events_view_mode = "network"
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._render_events(self._events_dto_cache)
 
     def _on_events_network_changed(self, network: str) -> None:
         self.config.epg_events_network_filter = network
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._render_events(self._events_dto_cache)
 
     def _on_events_item_clicked(self, item: "QListWidgetItem") -> None:

@@ -44,6 +44,7 @@ from metatv.core.database import Database
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.discover_workers import (
     _LoaderWorker, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
     _ZoneSnapshot, determine_zone,
@@ -64,7 +65,6 @@ _DEFAULT_EXPANDED = {
 _ZONE_PINNED    = "pinned"
 _ZONE_EXPANDED  = "expanded"
 _ZONE_COLLAPSED = "collapsed"
-
 
 class DiscoverView(QWidget):
     """🧭 Discover — horizontal shelf browse view with two-zone layout."""
@@ -420,7 +420,7 @@ class DiscoverView(QWidget):
     def _toggle_more_categories(self) -> None:
         self._more_expanded = not self._more_expanded
         self._config.discover_more_expanded = self._more_expanded
-        self._config.save()
+        _cfgsave.save_soon(self)
         self._update_more_btn()
 
     def _move_shelf(self, shelf_key: str, new_zone: str) -> None:
@@ -617,7 +617,7 @@ class DiscoverView(QWidget):
                 d for d in self._pending_collapsed if d.shelf_key != shelf_key
             ]
             self._update_more_btn()
-            # Persist the hide immediately.
+            # Persist the hide (in memory at once; write settles via save_soon).
             cfg = self._config
             if shelf_key not in cfg.discover_hidden_shelves:
                 cfg.discover_hidden_shelves.append(shelf_key)
@@ -625,7 +625,7 @@ class DiscoverView(QWidget):
                         cfg.discover_collapsed_shelves):
                 if shelf_key in lst:
                     lst.remove(shelf_key)
-            cfg.save()
+            _cfgsave.save_soon(self)
             return
 
         shelf = self._shelf_widgets.pop(shelf_key, None)
@@ -643,7 +643,7 @@ class DiscoverView(QWidget):
                     cfg.discover_collapsed_shelves):
             if shelf_key in lst:
                 lst.remove(shelf_key)
-        cfg.save()
+        _cfgsave.save_soon(self)
 
     # ---- Load lifecycle -----------------------------------------------------
 
@@ -993,7 +993,7 @@ class DiscoverView(QWidget):
             return  # no meaningful change
 
         self._config.discover_zoom = zoom
-        self._config.save()
+        _cfgsave.save_soon(self)
         logger.debug(f"Discover zoom changed to {zoom:.2f}")
 
         # Rebuild each loaded shelf's card row in-place at the new zoom, reusing

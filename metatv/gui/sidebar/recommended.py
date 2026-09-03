@@ -15,6 +15,7 @@ from metatv.gui.chip_row import (
     build_chip_row, media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, make_seamless
+from metatv.gui import deferred_config_save as _cfgsave
 
 # Re-exported for callers/tests that import the title label from this module; the
 # canonical definition now lives in ``metatv.gui.chip_row`` (shared by every
@@ -334,5 +335,5 @@ class RecommendedSection(CollapsibleSection):
         if channel_id not in overrides:
             overrides.append(channel_id)
             self.config.rec_dedupe_overrides = overrides
-            self.config.save()
+            _cfgsave.save_soon(self)
         self.refresh()

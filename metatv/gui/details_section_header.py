@@ -24,6 +24,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import cursor_affordance
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -157,8 +158,16 @@ class CollapsibleMixin:
         self._header.set_collapsed(self.COLLAPSE_KEY in (collapsed_sections or []))
         self._apply_collapsed()
 
-    def save_state(self, config) -> None:
-        """Persist this section's state into the shared list."""
+    def save_state(self, host) -> None:
+        """Persist this section's state into the shared list.
+
+        Args:
+            host: The details-pane object owning ``config`` — passed (not the
+                bare ``Config``) so the write can settle through
+                ``deferred_config_save.save_soon`` instead of writing on
+                every collapse/expand click.
+        """
+        config = host.config
         sections = list(getattr(config, "details_pane_collapsed_sections", []) or [])
         if self._header.is_collapsed():
             if self.COLLAPSE_KEY not in sections:
@@ -166,4 +175,4 @@ class CollapsibleMixin:
         elif self.COLLAPSE_KEY in sections:
             sections.remove(self.COLLAPSE_KEY)
         config.details_pane_collapsed_sections = sections
-        config.save()
+        _cfgsave.save_soon(host)

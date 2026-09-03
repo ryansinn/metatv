@@ -20,6 +20,7 @@ from metatv.core.database import Database
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
 from metatv.gui import theme as _theme
+from metatv.gui import deferred_config_save as _cfgsave
 
 # Debounce before a dragged mix slider is persisted + the list re-scored.
 _MIX_APPLY_DELAY_MS: int = 300
@@ -381,12 +382,12 @@ class PreferencesView(QWidget):
 
     def _apply_mix_override(self) -> None:
         self.config.rec_media_mix = self._mix_slider.value() / 100.0
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.refresh()
 
     def _on_mix_automatic(self) -> None:
         self.config.rec_media_mix = None
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._mix_auto_btn.setEnabled(False)
         self.refresh()
 
@@ -518,7 +519,7 @@ class PreferencesView(QWidget):
         icon = self.config.collapse_icon if visible else self.config.expand_icon
         self._ver_prefs_toggle_btn.setText(f"{icon} Version Preferences")
         self.config.preferences_version_prefs_expanded = visible
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _refresh_version_prefs_ui(self) -> None:
         self._ver_prefix_list.clear()
@@ -540,7 +541,7 @@ class PreferencesView(QWidget):
         if text not in prefixes:
             prefixes.append(text)
             self.config.preferred_version_prefixes = prefixes
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._ver_prefix_list.addItem(text)
         self._ver_prefix_input.clear()
 
@@ -552,7 +553,7 @@ class PreferencesView(QWidget):
         if row < len(prefixes):
             prefixes.pop(row)
             self.config.preferred_version_prefixes = prefixes
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._ver_prefix_list.takeItem(row)
 
     def _move_version_prefix(self, delta: int) -> None:
@@ -563,7 +564,7 @@ class PreferencesView(QWidget):
             return
         prefixes[row], prefixes[new_row] = prefixes[new_row], prefixes[row]
         self.config.preferred_version_prefixes = prefixes
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._ver_prefix_list.clear()
         for p in prefixes:
             self._ver_prefix_list.addItem(p)
@@ -574,7 +575,7 @@ class PreferencesView(QWidget):
             self.config.preferred_version_quality = ""
         else:
             self.config.preferred_version_quality = text
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _toggle_attributes(self) -> None:
         expanded = not self._attrs_container.isVisible()
@@ -586,14 +587,14 @@ class PreferencesView(QWidget):
             "Hide attribute breakdown" if expanded else "Show attribute breakdown"
         )
         self.config.preferences_attributes_expanded = expanded
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _toggle_exclusions(self) -> None:
         visible = not self._excl_container.isVisible()
         self._excl_container.setVisible(visible)
         self._update_excl_toggle_label()
         self.config.preferences_exclusions_expanded = visible
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _update_excl_toggle_label(self) -> None:
         muted = getattr(self.config, 'muted_attributes', {})
@@ -914,7 +915,7 @@ class PreferencesView(QWidget):
             muted.remove(attr_name)
         else:
             muted.append(attr_name)
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.refresh()
 
     def _on_restore_channel(self, channel_id: str) -> None:
@@ -947,7 +948,7 @@ class PreferencesView(QWidget):
         if channel_id not in overrides:
             overrides.append(channel_id)
             self.config.rec_dedupe_overrides = overrides
-            self.config.save()
+            _cfgsave.save_soon(self)
         self.refresh()
 
     def _on_restore_dedup(self, channel_id: str) -> None:
@@ -955,7 +956,7 @@ class PreferencesView(QWidget):
         if channel_id in overrides:
             overrides.remove(channel_id)
             self.config.rec_dedupe_overrides = overrides
-            self.config.save()
+            _cfgsave.save_soon(self)
         self.refresh()
 
     def _on_rec_context_menu(self, pos) -> None:

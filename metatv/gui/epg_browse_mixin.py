@@ -61,6 +61,7 @@ from metatv.core import watchlist
 from metatv.core.watchlist_matching import matches_any
 from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
@@ -324,7 +325,7 @@ class _EpgBrowseMixin:
         reflects current state instead of a hardcoded "✓" that never changed.
         """
         self.config.epg_hide_filler = self.hide_filler_btn.isChecked()
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._update_hide_filler_btn_label()
         self._reload_browse()
 
@@ -417,7 +418,7 @@ class _EpgBrowseMixin:
         """Persist Browse column order/widths so they survive restarts (Q6)."""
         raw = bytes(self.browse_list.header().saveState().toBase64()).decode("ascii")
         self.config.epg_filter_state["browse_header_state"] = raw
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _browse_time_ascending(self) -> bool:
         """True when the tree's live sort indicator is Time (col 0) ascending —

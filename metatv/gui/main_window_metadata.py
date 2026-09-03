@@ -19,6 +19,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.gui.details_actions import ChannelActionState
 from metatv.gui.details_versions import ChannelVersion
+from metatv.gui import deferred_config_save as _cfgsave
 
 # Owner's log (2026-09-02): one selection produced two full render+fetch
 # cycles for the same channel 185ms apart. #680 fixed the LIST's own
@@ -290,7 +291,7 @@ class _MetadataMixin:
     def _on_prefix_block(self, prefix: str) -> None:
         if prefix and prefix not in self.config.global_filter_excluded_prefixes:
             self.config.global_filter_excluded_prefixes.append(prefix)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._update_filter_btn_state()
             self.load_channels()
             if self.details_pane.current_channel:
@@ -322,7 +323,7 @@ class _MetadataMixin:
             removed = True
         if not removed:
             return
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._update_filter_btn_state()
         self.load_channels()
         if self.details_pane.current_channel:
@@ -338,7 +339,7 @@ class _MetadataMixin:
             self.config.category_name_overrides[prefix] = name
         else:
             self.config.category_name_overrides.pop(prefix, None)
-        self.config.save()
+        _cfgsave.save_soon(self)
         if self.details_pane.current_channel:
             self._fetch_channel_versions(self.details_pane.current_channel.id)
 

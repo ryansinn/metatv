@@ -15,7 +15,7 @@ from loguru import logger
 
 from metatv.gui.row_activation import connect_row_activation
 from concurrent.futures import ThreadPoolExecutor
-
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.core import watchlist
 from metatv.core.build_info import window_title
 from metatv.core.config import Config
@@ -1336,13 +1336,13 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     def _watch_channel_from_list(self, channel_id: str) -> None:
         if channel_id not in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.append(channel_id)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._refresh_watch_alerts()
 
     def _unwatch_channel_from_list(self, channel_id: str) -> None:
         if channel_id in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.remove(channel_id)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._refresh_watch_alerts()
 
     def _clear_epg_link(self, channel_id: str) -> None:
@@ -1713,7 +1713,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     def _on_vod_rule_remove(self, rule_created: str) -> None:
         """Remove a VOD watch-for rule from config and refresh the section."""
         self.config.remove_vod_watch_alert(rule_created)
-        self.config.save()
+        _cfgsave.save_soon(self)
         logger.info("Removed VOD watch-for rule via sidebar context menu: {}", rule_created)
         self._refresh_vod_alerts_section()
 
@@ -1748,7 +1748,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         Persists the new state to config and shows a brief status-bar message.
         """
         self.config.split_streams_by_source = checked
-        self.config.save()
+        _cfgsave.save_soon(self)
         msg = (
             "Split streams: on — one window per source"
             if checked
@@ -2921,7 +2921,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         if getattr(self.config, "theme_name", None) == name:
             return
         self.config.theme_name = name
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.refresh_theme()
 
     def _build_buffer_menu(self, menubar) -> None:
@@ -2977,7 +2977,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         if getattr(self.config, "buffer_profile", None) == value:
             return
         self.config.buffer_profile = value
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.status_bar.showMessage(
             "Buffer setting saved — applies to the next stream you start", 4000
         )
@@ -3323,7 +3323,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
                 self.config.details_pane_visible = (details_width > 0)
 
                 if _persist:
-                    self.config.save()
+                    _cfgsave.save_soon(self)
                 logger.debug(f"Saved splitter sizes: sidebar={sidebar_width}px, details={details_width}px")
         except Exception as e:
             logger.warning(f"Could not save splitter sizes: {e}")
@@ -3339,7 +3339,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             if sizes:
                 self.config.sidebar_section_sizes = sizes
                 if _persist:
-                    self.config.save()
+                    _cfgsave.save_soon(self)
                 logger.debug(f"Saved sidebar section sizes: {sizes}")
         except Exception as e:
             logger.warning(f"Could not save sidebar section sizes: {e}")
