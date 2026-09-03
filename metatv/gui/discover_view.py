@@ -636,6 +636,7 @@ class DiscoverView(QWidget):
         if old_zone:
             self._remove_from_zone(shelf, old_zone)
         self._loaded_shelf_keys.discard(shelf_key)
+        shelf.cancel_pending_build()  # PERF-17: stop any in-flight chunked card build
         shelf.deleteLater()
         cfg = self._config
         if shelf_key not in cfg.discover_hidden_shelves:
@@ -665,6 +666,10 @@ class DiscoverView(QWidget):
         loop).  Cancelling the worker first is what makes quit()/wait() actually
         succeed: the worker loops monopolize the thread event loop, so quit()
         alone never lands.
+
+        Also cancels every live shelf's chunked card-build (PERF-17, #712's
+        second adopter) — the mechanism keeps scheduling batches after its
+        owner is gone otherwise, same class of bug as the loader threads above.
         """
         self._active = False
         self._stop_loader(getattr(self, "_worker", None), getattr(self, "_thread", None))
@@ -673,6 +678,8 @@ class DiscoverView(QWidget):
         # Clear inflight marker so a re-expand of the same key isn't blocked.
         if hasattr(self, "_inflight_expand"):
             self._inflight_expand = None
+        for shelf in self.__dict__.get("_shelf_widgets", {}).values():
+            shelf.cancel_pending_build()
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this view's own persistent chrome —
@@ -753,8 +760,10 @@ class DiscoverView(QWidget):
         for layout in (self._pinned_layout, self._expanded_layout, self._collapsed_layout):
             while layout.count():
                 item = layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+                w = item.widget()
+                if w is not None:
+                    w.cancel_pending_build()  # PERF-17: stop any in-flight chunked card build
+                    w.deleteLater()
         self._pinned_zone.setVisible(False)
         self._expanded_zone.setVisible(False)
         self._collapsed_zone.setVisible(False)
