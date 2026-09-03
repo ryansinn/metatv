@@ -460,6 +460,33 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 
 Recorded here only so the roadmap watermark can move honestly — these fixed existing behaviour rather than building anything the roadmap was tracking.
 
+### 2026-09-03 — the live-QA wave (nineteen PRs, #704–#722, batches 0.86.0–0.92.0)
+
+One night of owner-driven testing; every item below carries its What's New entry (ids 555–576;
+#718 is the one entry-less crash fix — anchor `metatv/gui/deferred_config_save.py` timer parenting).
+
+- [x] Apostrophes no longer split content identity; propagation adopted 2,813 rows — SHIPPED 0.86.0 (#704, entry 557)
+- [x] History updates on play; details Resume state live on close — SHIPPED 0.86.0 (#705, entry 555)
+- [x] Closing the player saves the exact spot; movie EOF finalises — SHIPPED 0.86.0 (#705, entry 556)
+- [x] Sports reclassify stops stat()ing the definitions file per row — SHIPPED 0.86.0 (#706, entry 558)
+- [x] Sports search box says "Filter results…" — SHIPPED 0.86.0 (#707, entry 562)
+- [x] Paint never reads the disk: resident thumbnail cache — SHIPPED 0.86.0 (#708, entry 559)
+- [x] FLSP fixture clocks are US Eastern; fixture rows titled by matchup — SHIPPED 0.87.0 (#709, entries 560/561)
+- [x] Catalog staleness banner + the Auto-refresh setting wired (it had zero readers) — SHIPPED 0.87.0 (#710, entries 564/565)
+- [x] UI-state config writes settle to one per burst (88 sites) — SHIPPED 0.87.0 (#711, entry 563)
+- [x] Watch Queue builds in chunks (`gui/chunked_construction.py`) — SHIPPED 0.88.0 (#712, entry 566)
+- [x] Enrichment-driven refreshes coalesce to quiet/cap/drain — SHIPPED 0.89.0 (#713, entry 570)
+- [x] Trailer gets its own row; Watch Later un-crushed — SHIPPED 0.90.0 (#714, entry 571)
+- [x] Selected rows readable on the tinted selection, every palette — SHIPPED 0.89.0 (#715, entry 569)
+- [x] Live-only bulk refresh: banner + Content-tab rate + on-view-open — SHIPPED 0.90.0 (#716, entries 567/568)
+- [x] "18+" prefix parsed and classified adult (466 rows) — SHIPPED 0.90.0 (#717, entry 572)
+- [x] Deferred-save timer dies with its host (fire-after-free) — SHIPPED 0.90.0 (#718, no entry; crash fix)
+- [x] Nine sidebar lists route selection styling through the chokepoint — SHIPPED 0.90.0 (#719, entry 573)
+- [x] Sidebar sections wait out migration passes — SHIPPED 0.91.0 (#720, entry 574)
+- [x] Preferences stops computing while closed; reactivation survives — SHIPPED 0.91.0 (#721, entry 576)
+- [x] Discover: no hidden-view builds; cards chunk when open — SHIPPED 0.91.0 (#722, entry 575)
+
+
 - **Settings OK applied nothing (#319, v0.32.0).** `settings_applied` was Apply-only and the host compensated with a hand-written tail naming three of the five handlers it had connected, so OK silently dropped row density, thumbnails, platform-name style and collapse-variants. The Style menu also never re-read config, so picking the value Settings had just set hit an already-that early-return and did nothing.
 - **Icon-only buttons had no tooltips (#322, v0.32.0).** Five controls whose entire label is a glyph, including the source editor's URL reorder arrows — where the order IS failover priority. Guarded by `test_icon_button_tooltips.py`.
 - **Settings pages did not line up (#323, v0.32.0).** Three left edges for one kind of control and a control column that moved between groups, because `addRow("", w)` leaves an empty label holding the label column and Qt sizes each form's column independently. Fixed at a seam, per page.
