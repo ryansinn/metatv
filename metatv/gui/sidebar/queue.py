@@ -1,5 +1,7 @@
 """WatchQueueSection — user's ordered watch queue."""
 
+from dataclasses import dataclass
+
 from PyQt6.QtWidgets import (
     QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
     QGraphicsOpacityEffect, QLineEdit,
@@ -18,6 +20,7 @@ from metatv.gui.chip_row import (
     CHIP_LANG, CHIP_QUALITY, CHIP_YEAR, build_chip_row, episode_code,
     media_icon_role, quality_word, sidebar_meta_line,
 )
+from metatv.gui.chunked_construction import ChunkHandle, build_chunked
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
 from metatv.gui import deferred_config_save as _cfgsave
@@ -44,12 +47,20 @@ class _FilterGroup:
     Holds the row's searchable text next to the item rather than stashing it in
     an item role: the filter then needs nothing from Qt but ``setHidden``, which
     keeps this testable against the shared skeleton section in conftest.
+
+    The header is built LAZILY, on the group's first row (PERF-17 chunked
+    build — see ``_build_queue_row``): a group whose rows haven't started
+    arriving yet has nothing on screen to head, so it carries no header item
+    until it does. ``header_text`` is precomputed from the group's full,
+    already-known entry count, so the header reads correctly ("Never Watched
+    (597)") from the moment it appears — never an incrementally-growing count.
     """
 
-    __slots__ = ("header", "bare_label", "show_count", "rows")
+    __slots__ = ("header", "header_text", "bare_label", "show_count", "rows")
 
-    def __init__(self, header, bare_label: str, show_count: bool):
-        self.header = header
+    def __init__(self, header_text: str, bare_label: str, show_count: bool):
+        self.header = None                # QListWidgetItem — set on the first row built
+        self.header_text = header_text
         self.bare_label = bare_label      # "Never Watched"
         self.show_count = show_count      # does the unfiltered header carry (N)?
         self.rows: list[tuple[object, str]] = []   # (item, lowercased haystack)
@@ -65,6 +76,16 @@ class _FilterGroup:
         return f"{self.bare_label} ({len(self.rows)})"
 
 
+@dataclass(frozen=True, slots=True)
+class _QueueWorkItem:
+    """One row's ``build_chunked`` work unit: which group it belongs to, which
+    row builder it needs, and the source record."""
+
+    group: _FilterGroup
+    kind: str          # "entry" | "matched_channel" | "matched_series"
+    data: object
+
+
 def _haystack(*parts: str | None) -> str:
     """Lowercased text a row is matched against, from explicitly-passed fields.
 
@@ -75,6 +96,14 @@ def _haystack(*parts: str | None) -> str:
     that year.
     """
     return " ".join(p for p in parts if p).lower()
+
+
+def _matches_needle(needle: str, haystack: str) -> bool:
+    """Find-in-queue predicate — the ONE definition of "does this row match",
+    shared by ``_apply_filter`` (whole-list sweep) and ``_build_queue_row``
+    (applied to each row as it's built, so a filtered queue never flashes an
+    unfiltered row that arrives mid-build)."""
+    return not needle or needle in haystack
 
 
 class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
@@ -110,6 +139,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def __init__(self, config, db, parent=None):
         self.db = db
         self._has_unavailable = False
+        self._build_handle: ChunkHandle | None = None  # in-flight chunked build, if any (PERF-17)
         super().__init__("Watch Queue", config.queue_icon, config, parent)
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -329,7 +359,24 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             return entries
 
     def _populate_rows(self, entries) -> None:
-        """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
+        """Main-thread slot: populate the queue list from QueueEntry plain dataclasses.
+
+        Row WIDGETS are built through ``build_chunked`` (PERF-17): the owner's
+        666-entry queue froze the main thread building one chip row per entry
+        synchronously — sampled 4x in one launch, worst 3,753ms. This method
+        still runs synchronously (planning groups, computing sort order); only
+        the per-row widget construction is chunked, with the first viewport's
+        worth built before this method returns.
+
+        A refresh mid-build (this method re-entering while a previous build is
+        still in flight) must never leave duplicate rows behind, so any prior
+        ``_build_handle`` is cancelled FIRST, before anything else runs.
+        """
+        handle = self.__dict__.get("_build_handle")
+        if handle is not None:
+            handle.cancel()
+        self._build_handle = None
+
         # The pinned new-matches line is independent of queue contents (it reflects
         # config watch-for matches), so refresh it before the empty-list early-out.
         # Uses the AVAILABLE unviewed count (re-validated in _load_rows), not the raw
@@ -358,68 +405,103 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         has_content = bool(entries) or bool(matched) or bool(series_new)
         self.set_empty(not has_content)
 
-        self._add_alerts_matched_section(matched, series_new)
+        work_items = self._plan_alerts_matched_group(matched, series_new)
 
         if not entries:
             if not matched and not series_new:
                 item = QListWidgetItem("Queue is empty — right-click any channel to add")
                 item.setFlags(Qt.ItemFlag.NoItemFlags)
                 self._list.addItem(item)
-            return
+        else:
+            # Entries whose source is gone are grouped at the BOTTOM rather than
+            # interleaved. They are dimmed either way, but scattered through the
+            # list they read as breakage in the queue itself — the owner deleted a
+            # source, met 37 unplayable months-old entries mixed into everything
+            # else, and reasonably concluded the queue had invented them.
+            available = [e for e in entries if e.available]
+            unavailable = [e for e in entries if not e.available]
 
-        # Entries whose source is gone are grouped at the BOTTOM rather than
-        # interleaved. They are dimmed either way, but scattered through the
-        # list they read as breakage in the queue itself — the owner deleted a
-        # source, met 37 unplayable months-old entries mixed into everything
-        # else, and reasonably concluded the queue had invented them.
-        available = [e for e in entries if e.available]
-        unavailable = [e for e in entries if not e.available]
+            continue_watching = sorted(
+                [e for e in available if e.last_played],
+                key=lambda e: e.last_played,
+                reverse=True,
+            )
+            # Newest first, matching Continue Watching above. Queue `position` is
+            # append-only, so rendering in that order pinned the oldest additions to
+            # the top forever and buried anything queued today ~600 rows down — the
+            # queue showed the user exactly the items they no longer remembered.
+            never_watched = sorted(
+                [e for e in available if not e.last_played],
+                key=lambda e: (e.added_at is not None, e.added_at),
+                reverse=True,
+            )
 
-        continue_watching = sorted(
-            [e for e in available if e.last_played],
-            key=lambda e: e.last_played,
-            reverse=True,
+            if continue_watching:
+                work_items += self._plan_group("Continue Watching", False, continue_watching)
+
+            if never_watched:
+                work_items += self._plan_group("Never Watched", True, never_watched)
+
+            if unavailable:
+                # Count in the header because the queue never showed its size
+                # anywhere — 611 entries had accumulated with no indication.
+                work_items += self._plan_group("Unavailable", True, unavailable)
+
+        self._build_handle = build_chunked(
+            work_items, self._build_queue_row, on_done=self._on_queue_build_done, parent=self,
         )
-        # Newest first, matching Continue Watching above. Queue `position` is
-        # append-only, so rendering in that order pinned the oldest additions to
-        # the top forever and buried anything queued today ~600 rows down — the
-        # queue showed the user exactly the items they no longer remembered.
-        never_watched = sorted(
-            [e for e in available if not e.last_played],
-            key=lambda e: (e.added_at is not None, e.added_at),
-            reverse=True,
-        )
-
-        if continue_watching:
-            self._add_group("Continue Watching", False, continue_watching)
-
-        if never_watched:
-            self._add_group("Never Watched", True, never_watched)
-
-        if unavailable:
-            # Count in the header because the queue never showed its size
-            # anywhere — 611 entries had accumulated with no indication.
-            self._add_group("Unavailable", True, unavailable)
-
-        # Re-apply whatever the user is filtering by: a refresh is usually the
-        # side effect of acting on ONE row, and silently dropping the filter
-        # would dump all 600 entries back on them mid-triage.
-        self._apply_filter(self._filter.text())
 
     # --- Grouping + find-in-queue ---------------------------------------------
 
-    def _add_group(self, bare_label: str, show_count: bool, entries: list) -> None:
-        """Render one header + its rows, recording both for the filter."""
+    def _plan_group(self, bare_label: str, show_count: bool, entries: list) -> list[_QueueWorkItem]:
+        """Register one group (header built lazily on its first row) and return
+        its rows as chunked work — see ``_build_queue_row``."""
         header_text = f"{bare_label} ({len(entries)})" if show_count else bare_label
-        group = _FilterGroup(self._add_header(header_text), bare_label, show_count)
-        for e in entries:
-            group.rows.append((
-                self._add_entry_item(e),
-                _haystack(
-                    e.search_title, e.channel_name, e.episode_title, e.detected_year
-                ),
-            ))
+        group = _FilterGroup(header_text, bare_label, show_count)
         self._groups.append(group)
+        return [_QueueWorkItem(group, "entry", e) for e in entries]
+
+    def _build_queue_row(self, work_item: _QueueWorkItem) -> None:
+        """``build_chunked``'s per-item callback: builds one row's widget,
+        records it against its group, and hides it immediately if it fails the
+        LIVE filter text — read fresh here (not captured once at the start) so
+        a keystroke mid-build hides a row that arrives in a later batch exactly
+        like one already on screen."""
+        group = work_item.group
+        if group.header is None:
+            group.header = self._add_header(group.header_text)
+        if work_item.kind == "matched_channel":
+            m = work_item.data
+            item = self._add_matched_channel_item(m)
+            haystack = _haystack(m.title, m.detected_year)
+        elif work_item.kind == "matched_series":
+            s = work_item.data
+            item = self._add_matched_series_item(s)
+            haystack = _haystack(s.get("display_title"), s.get("title"))
+        else:
+            e = work_item.data
+            item = self._add_entry_item(e)
+            haystack = _haystack(e.search_title, e.channel_name, e.episode_title, e.detected_year)
+        group.rows.append((item, haystack))
+        item.setHidden(not _matches_needle(self._current_filter_needle(), haystack))
+
+    def _on_queue_build_done(self) -> None:
+        """``build_chunked``'s completion callback: re-apply whatever the user
+        is filtering by, exactly as the old single-shot build did at its end —
+        this also reconciles any group header count left stale by a filter
+        keystroke mid-build (``_build_queue_row`` hides/shows rows as they
+        arrive but does not retitle headers)."""
+        self._apply_filter(self._filter_box_text())
+
+    def _filter_box_text(self) -> str:
+        """Raw find-in-queue text, "" when the box was never wired — some test
+        doubles build matched-only rows without wiring the filter box at all."""
+        box = self.__dict__.get("_filter")
+        return box.text() if box is not None else ""
+
+    def _current_filter_needle(self) -> str:
+        """Live, normalized find-in-queue text — see :meth:`_filter_box_text`."""
+        return (self._filter_box_text() or "").strip().lower()
 
     def _on_filter_changed(self, text: str) -> None:
         self._apply_filter(text)
@@ -469,9 +551,11 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         needle = (text or "").strip().lower()
         visible = 0
         for group in self._groups:
+            if group.header is None:
+                continue  # chunked build hasn't reached this group yet — nothing to filter
             shown = 0
             for item, haystack in group.rows:
-                match = not needle or needle in haystack
+                match = _matches_needle(needle, haystack)
                 item.setHidden(not match)
                 shown += int(match)
             visible += shown
@@ -510,6 +594,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         # membership test, and the only one available here: QListWidgetItem is
         # unhashable under PyQt6, so a set of live items is not an option.
         for group in list(self._groups):
+            if group.header is None:
+                continue  # chunked build hasn't reached this group yet — nothing to remove
             group.rows = [
                 (item, hay) for item, hay in group.rows if list_widget.row(item) >= 0
             ]
@@ -619,25 +705,21 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     # unseen_new > 0.  Purely derived from config state (alerted_ids/viewed_ids,
     # monitored_series) — no new table, so it persists across restarts for free.
 
-    def _add_alerts_matched_section(self, matched, series_new) -> None:
-        """Render the Alerts Matched header + rows (no-op when both are empty)."""
+    def _plan_alerts_matched_group(self, matched, series_new) -> list[_QueueWorkItem]:
+        """Register the Alerts Matched group (no-op when both are empty) and
+        return its rows as chunked work — see ``_build_queue_row``."""
         if not matched and not series_new:
-            return
+            return []
         # No emoji: the render's group headings are text. The glyph was baked
         # into the label STRING, so styling the heading uppercased it and the
         # emoji rode along untouched.
         label = "Alerts Matched"
-        group = _FilterGroup(self._add_header(label), label, False)
-        for m in matched:
-            group.rows.append((
-                self._add_matched_channel_item(m), _haystack(m.title, m.detected_year)
-            ))
-        for s in series_new:
-            group.rows.append((
-                self._add_matched_series_item(s),
-                _haystack(s.get("display_title"), s.get("title")),
-            ))
+        group = _FilterGroup(label, label, False)
         self._groups.append(group)
+        return (
+            [_QueueWorkItem(group, "matched_channel", m) for m in matched]
+            + [_QueueWorkItem(group, "matched_series", s) for s in series_new]
+        )
 
     def _add_matched_channel_item(self, m) -> QListWidgetItem:
         """One unviewed keyword-match row — a chip row with the green NEW pill."""
