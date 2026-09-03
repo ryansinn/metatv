@@ -55,11 +55,11 @@ from metatv.core.channel_name_utils import (
     strip_collection_noise_tokens,
 )
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
+from metatv.core.fixture_titles import fixture_ingest_title
 from metatv.core.repositories.sweep_guard import single_flight
 from metatv.core.database import ChannelDB, MetadataDB
 from metatv.core.filter_utils import extract_prefix, genres_from_raw
 from metatv.core.tag_decomposer import region_code_from_category
-
 
 # Moved here WITH _start_year_int, its only user (CLAUDE.md: take the private
 # helpers with the concern — a move that leaves them behind grows the total).
@@ -500,7 +500,7 @@ class ChannelIngestionMixin:
                         else:
                             _marker_dub_lang = _lang_name
 
-            new_title = parsed.bare_name or None
+            new_title = fixture_ingest_title(channel) or parsed.bare_name or None
             new_year  = parsed.year or None
 
             # If extract_prefix set a prefix that parse_channel_name couldn't strip

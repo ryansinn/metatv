@@ -156,6 +156,19 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v9 (2026-09-03): two independent fixes, one shared bump —
+#:   1. SPORT-5: the FLSP/flolive idiom's paren-timestamp clock is US
+#:      Eastern, not UTC (owner-observed, two live observations — the cross-
+#:      grammar anchor that decides every other zone in this module found no
+#:      second listing of these synthetic timestamps to check against).
+#:      Scoped strictly to the FLSP idiom; every other platform sharing the
+#:      same paren-timestamp grammar stays UTC. event_start_time/
+#:      event_stop_time are already reset-and-recomputed by this pass, so
+#:      the corrected reading reaches existing rows automatically.
+#:   2. SPORT-8: fixture rows derive a display title from their parsed
+#:      matchup (``fixture_titles.fixture_display_title``) instead of
+#:      showing the raw provider slot string — see ``TITLE_FIELD`` below for
+#:      why this is handled separately from ``DERIVED_FIELDS``.
 #: v8 (2026-09-02): fixture opponents parsed and stored (SPORT-4 — the
 #: four-feature blocker: Team facet, team identity, reliable LIVE state, and
 #: live status all need event_team_a/event_team_b, which no row carried
@@ -186,7 +199,7 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 8
+CURRENT_VERSION = 9
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
@@ -195,6 +208,29 @@ DERIVED_FIELDS = (
     "event_start_time", "event_stop_time", "event_metadata",
     "event_team_a", "event_team_b",
 )
+
+#: ``detected_title`` is DIFFERENT from every field above: most rows' title
+#: comes from a completely different chokepoint (``update_detected_prefixes``'s
+#: ``parse_channel_name`` pass, which this migration never runs) —
+#: ``special_content.py`` only ever CONDITIONALLY overwrites it, for a fixture
+#: row whose matchup resolves (``fixture_titles.fixture_display_title``). A
+#: reset-then-recompute pass, applied the same way as ``DERIVED_FIELDS``,
+#: would write None over the real title of every one of the ~750k rows this
+#: pass ALSO scans that are not sports/PPV fixtures. So this is SEEDED from
+#: its current value in ``_reclassify`` (never reset to None) and only
+#: written back when it actually changes — see ``_reclassify``'s comment.
+#: Registered as its own name (not folded into ``DERIVED_FIELDS``) so
+#: ``test_every_derived_field_is_reset`` keeps meaning what it says, and
+#: separately declared to the AST guard test
+#: (``test_the_classifier_reads_no_column_the_page_query_omits``) so it
+#: still accounts for the write.
+TITLE_FIELD = "detected_title"
+
+#: Read alongside ``TITLE_FIELD`` purely to recompute ``content_key`` through
+#: its OWN single chokepoint (``content_identity.content_key_for``) on the
+#: rows where ``TITLE_FIELD`` actually changes — a re-titled fixture must not
+#: orphan its collapse key. Never reset; only read.
+TITLE_KEY_FIELDS = ("content_key", "media_type", "detected_year", "detected_tmdb_id")
 
 #: Every channel attribute ``special_content.update_channel_special_content``
 #: READS. The page query loads these and ``DERIVED_FIELDS`` and nothing else,
@@ -214,6 +250,27 @@ _BATCH = 2000
 #: measured 1.25% change rate, so this caps the outlier page, not the typical
 #: one.
 WRITE_CHUNK = 500
+
+
+class _TitleKeyInputs:
+    """Minimal duck-typed row for ``content_key_for`` (SPORT-8's title recompute).
+
+    ``content_key_for`` reads its inputs via ``getattr(..., default)`` off any
+    object carrying ``detected_title``/``media_type``/``detected_year``/
+    ``detected_tmdb_id``/``id`` — this is the four-value read
+    ``_reclassify`` already has in hand from the page query, without pulling
+    in a real ``ChannelDB`` sibling class from another module (CLAUDE.md:
+    import a private name from where it is defined, never a re-export).
+    """
+
+    __slots__ = ("detected_title", "media_type", "detected_year", "detected_tmdb_id", "id")
+
+    def __init__(self, title, media_type, year, tmdb_id, id_) -> None:
+        self.detected_title = title
+        self.media_type = media_type
+        self.detected_year = year
+        self.detected_tmdb_id = tmdb_id
+        self.id = id_
 
 
 class SportsReclassifyTask:
@@ -266,6 +323,7 @@ class SportsReclassifyTask:
         columns = tuple(
             getattr(ChannelDB, name)
             for name in ("id",) + CLASSIFIER_INPUTS + DERIVED_FIELDS
+                       + (TITLE_FIELD,) + TITLE_KEY_FIELDS
         )
 
         # Keyset pagination on the primary key. Not an id list + ``IN (...)``:
@@ -314,27 +372,58 @@ class SportsReclassifyTask:
         and it is the load-bearing half of the pass (a row that stops matching
         must LOSE its label, and the classifier writes nothing in that case).
 
+        ``TITLE_FIELD`` is the one exception to that reset: it is SEEDED from
+        the row's current value instead, because ``update_channel_special_
+        content`` only ever conditionally overwrites it (see ``TITLE_FIELD``'s
+        module comment) — resetting it like the fields above would blank the
+        real title of every row that is not a title-deriving fixture.
+
         Args:
             page: Rows from the page query, ``(id, *CLASSIFIER_INPUTS,
-                *DERIVED_FIELDS)``.
+                *DERIVED_FIELDS, TITLE_FIELD, *TITLE_KEY_FIELDS)``.
             config: Passed to the classifier for user keyword maps.
 
         Returns:
-            One ``{"id": …, **DERIVED_FIELDS}`` mapping per row whose labels
-            changed. Unchanged rows are omitted, which is what keeps 98.75% of
-            the catalog out of a write transaction entirely.
+            One ``{"id": …, **DERIVED_FIELDS, TITLE_FIELD: …}`` mapping per
+            row whose labels (or title) changed — always the FULL
+            ``DERIVED_FIELDS`` + ``TITLE_FIELD`` + ``content_key`` shape, so
+            every update in a chunk shares one column set and the bulk write
+            stays a single ``executemany`` (see ``_write_changes``). Unchanged
+            rows are omitted, which is what keeps 98.75% of the catalog out
+            of a write transaction entirely.
         """
+        from metatv.core.content_identity import content_key_for
         from metatv.core.database import ChannelDB
         from metatv.core.special_content import update_channel_special_content
 
         split = 1 + len(CLASSIFIER_INPUTS)
+        deriv_end = split + len(DERIVED_FIELDS)
+
         updates: list[dict[str, Any]] = []
         for row in page:
             scratch = ChannelDB(id=row[0], **dict(zip(CLASSIFIER_INPUTS, row[1:split])))
+            before_derived = row[split:deriv_end]
+            before_title = row[deriv_end]
+            scratch.detected_title = before_title
+
             update_channel_special_content(scratch, config)
-            after = tuple(getattr(scratch, field) for field in DERIVED_FIELDS)
-            if after != tuple(row[split:]):
-                updates.append({"id": row[0], **dict(zip(DERIVED_FIELDS, after))})
+
+            after_derived = tuple(getattr(scratch, field) for field in DERIVED_FIELDS)
+            title_changed = scratch.detected_title != before_title
+            if after_derived == tuple(before_derived) and not title_changed:
+                continue
+
+            update = dict(zip(DERIVED_FIELDS, after_derived))
+            update[TITLE_FIELD] = scratch.detected_title
+            if title_changed:
+                before_key, media_type, detected_year, detected_tmdb_id = row[deriv_end + 1:]
+                update["content_key"] = content_key_for(_TitleKeyInputs(
+                    scratch.detected_title, media_type, detected_year,
+                    detected_tmdb_id, row[0],
+                ))
+            else:
+                update["content_key"] = row[deriv_end + 1]  # pass-through: keeps chunk shape uniform
+            updates.append({"id": row[0], **update})
         return updates
 
     def _write_changes(self, updates: list[dict[str, Any]]) -> int:
