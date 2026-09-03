@@ -21,6 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -234,6 +236,11 @@ def test_hide_sidebar_section_removes_saves_and_reapplies(tmp_path):
 
     assert host.config.sidebar_visible_sections == ["a", "c"]
     host._apply_sidebar_visibility.assert_called_once()
+
+    # The write settles through the deferred-save chokepoint (CFG-10) rather
+    # than writing synchronously; flush forces it now so the file on disk can
+    # be checked without waiting out the real timer.
+    assert _cfgsave.flush(host) is True
 
     # .save() really ran (not mocked): the file it writes now exists on disk
     # and holds the mutated list — proving this isn't just an in-memory

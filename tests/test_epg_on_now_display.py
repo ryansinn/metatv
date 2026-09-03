@@ -44,6 +44,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 # ---------------------------------------------------------------------------
 # Qt fixture
@@ -390,6 +392,10 @@ def test_save_on_now_header_state_writes_to_config(qapp):
     assert len(decoded) > 0
     # Slice 3C: a version key must be written alongside the state
     assert config.epg_filter_state["on_now_header_state_version"] == _ON_NOW_HEADER_STATE_VERSION
+    # The write settles through the deferred-save chokepoint (CFG-10); flush
+    # forces it now instead of waiting out the real timer.
+    config.save.assert_not_called()
+    assert _cfgsave.flush(host) is True
     config.save.assert_called()
 
 

@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -351,6 +353,10 @@ class TestZoomSlider:
             assert abs(cfg.discover_zoom - 1.5) < 0.005, (
                 f"config.discover_zoom should be ~1.5 after apply, got {cfg.discover_zoom}"
             )
+            # The write settles through the deferred-save chokepoint (CFG-10);
+            # flush forces it now instead of waiting out the real timer.
+            mock_save.assert_not_called()
+            assert _cfgsave.flush(view) is True
             mock_save.assert_called_once()
 
     def test_apply_zoom_noop_when_value_unchanged(self, qapp):

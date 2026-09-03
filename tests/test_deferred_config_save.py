@@ -18,7 +18,7 @@ write flushes on shutdown, so deferring costs nothing on the path that matters.
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -132,6 +132,97 @@ def test_a_failing_save_does_not_propagate(qapp):
     host.config.save.side_effect = OSError("disk full")
     defer.save_soon(host)
     assert defer.flush(host) is False
+
+
+# ── CFG-10: the rest of the gui-side UI-state saves adopted the chokepoint ────
+
+def _shell_main_window():
+    """Thin ``MainWindow`` shell (no Qt/DB init) — same pattern as
+    ``test_splitter_resize_persist.py``'s ``_shell_window()``, the existing
+    precedent for driving a MainWindow method without booting the real window.
+    """
+    from metatv.gui import main_window as mw
+
+    with patch.object(mw.MainWindow, "__init__", lambda self: None):
+        win = mw.MainWindow.__new__(mw.MainWindow)
+
+    main_sp = MagicMock()
+    main_sp.sizes.return_value = [340, 900, 420]
+    win.main_splitter = main_sp
+    return win
+
+
+def test_a_converted_site_collapses_a_burst_to_one_write(qapp, qtbot, monkeypatch):
+    """``save_splitter_sizes`` is a real converted call site (a sidebar/details
+    toggle, or a splitter drag settling, can call it repeatedly). A real
+    ``Config`` is used — not a MagicMock — so this exercises the actual
+    ``Config.save`` entry point ``save_soon`` resolves to, with a counter
+    standing in for the expensive write.
+    """
+    from metatv.core.config import Config
+
+    calls = []
+    monkeypatch.setattr(Config, "save", lambda self, **k: calls.append(1))
+
+    win = _shell_main_window()
+    win.config = Config()
+
+    for _ in range(10):
+        win.save_splitter_sizes()
+
+    assert calls == [], "the write must be deferred, not synchronous"
+
+    qtbot.wait(defer.DEFAULT_DELAY_MS + 250)
+    assert len(calls) == 1, (
+        f"10 rapid calls produced {len(calls)} writes — a burst must collapse to one"
+    )
+
+
+def test_a_child_view_with_no_cleanup_registry_still_flushes(qapp, monkeypatch):
+    """Child views/sections (a sidebar ``CollapsibleSection``, a dialog, a
+    details-pane mixin host) have no ``_register_cleanable`` — MainWindow owns
+    that registry. ``save_soon`` must not raise for them, and an explicit
+    ``flush()`` — the module docstring's stand-in for "the app's final
+    save on close" — must still write.
+    """
+    from metatv.core.config import Config
+    from PyQt6.QtCore import QObject
+
+    calls = []
+    monkeypatch.setattr(Config, "save", lambda self, **k: calls.append(1))
+
+    class _ChildView(QObject):
+        """A bare host with `.config` and nothing else — no cleanup registry."""
+
+    view = _ChildView()
+    view.config = Config()
+    assert not hasattr(view, "_register_cleanable")
+
+    defer.save_soon(view)              # must not raise
+    assert calls == []
+
+    assert defer.flush(view) is True
+    assert calls == [1]
+
+
+def test_write_resolves_a_private_config_attribute_too(qapp, monkeypatch):
+    """Several adopters (dialogs, mixins, views) keep the config as ``_config``
+    rather than ``config`` — ``_write`` must resolve either name."""
+    from metatv.core.config import Config
+    from PyQt6.QtCore import QObject
+
+    calls = []
+    monkeypatch.setattr(Config, "save", lambda self, **k: calls.append(1))
+
+    class _PrivateConfigHost(QObject):
+        pass
+
+    host = _PrivateConfigHost()
+    host._config = Config()
+
+    defer.save_soon(host)
+    assert defer.flush(host) is True
+    assert calls == [1]
 
 
 # ── the wiring ───────────────────────────────────────────────────────────────

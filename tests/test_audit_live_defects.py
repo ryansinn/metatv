@@ -93,14 +93,19 @@ def test_the_disclosure_state_survives_a_restart(field, tmp_path):
 
 
 def test_both_toggles_actually_write_the_config():
-    """The write is what was missing, so assert the call, not just the field."""
+    """The write is what was missing, so assert the call, not just the field.
+
+    Persistence now goes through the debounced chokepoint (CFG-10,
+    ``deferred_config_save.save_soon``) rather than a synchronous
+    ``config.save()`` — either is proof the toggle schedules a persist.
+    """
     import inspect
 
     from metatv.gui.preferences_view import PreferencesView
 
     for name in ("_toggle_exclusions", "_toggle_version_prefs"):
         src = inspect.getsource(getattr(PreferencesView, name))
-        assert "self.config.save()" in src, (
+        assert "self.config.save()" in src or "_cfgsave.save_soon(self)" in src, (
             f"{name} changes visibility without persisting it")
 
 

@@ -27,6 +27,8 @@ from unittest.mock import MagicMock
 import pytest
 from tests.conftest import wire_nav_host
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -536,6 +538,10 @@ class TestLayoutSaveClobberGuard:
         assert cfg.sidebar_width == 340 and cfg.details_pane_width == 400, \
             "outside history the real widths are persisted as before"
         assert cfg.details_pane_visible is True
+        # The write settles through the deferred-save chokepoint (CFG-10);
+        # flush forces it now instead of waiting out the real timer.
+        cfg.save.assert_not_called()
+        assert _cfgsave.flush(host) is True
         cfg.save.assert_called_once()
 
 

@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 class _Host:
     """Minimal host binding the real menu-handler methods."""
@@ -43,6 +45,10 @@ class TestThemeSelection:
         host._set_theme_from_menu("Daylight")
 
         assert host.config.theme_name == "Daylight"
+        # The write settles through the deferred-save chokepoint (CFG-10);
+        # flush forces it now instead of waiting out the real timer.
+        host.config.save.assert_not_called()
+        assert _cfgsave.flush(host) is True
         host.config.save.assert_called_once()
         host.refresh_theme.assert_called_once()
 
@@ -80,6 +86,8 @@ class TestDensitySelection:
         host._set_density_from_menu(value)
 
         assert host.config.channel_list_density == value
+        host.config.save.assert_not_called()
+        assert _cfgsave.flush(host) is True
         host.config.save.assert_called_once()
         host._apply_channel_list_density.assert_called_once()
 

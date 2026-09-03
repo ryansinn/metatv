@@ -30,6 +30,7 @@ from PyQt6.QtCore import Qt
 
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import now_utc
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.epg_browse_mixin import (
     _EpgBrowseMixin,
     _SEPARATOR_ROLE,
@@ -628,12 +629,19 @@ def test_browse_header_sections_movable(qapp):
 def test_save_browse_header_state_writes_new_key(qapp):
     config = SimpleNamespace(epg_hide_filler=False, epg_filter_state={}, save=MagicMock())
     host = _make_browse_tab_host(qapp, config=config)
+    # Build-time one-shot (the sort-col migration) also calls config.save —
+    # reset so this test counts only the header-state save it drives.
+    config.save.reset_mock()
     host._save_browse_header_state()
     assert "browse_header_state" in config.epg_filter_state
     stored = config.epg_filter_state["browse_header_state"]
     assert isinstance(stored, str) and len(stored) > 0
     decoded = base64.b64decode(stored.encode("ascii"))
     assert len(decoded) > 0
+    # The write settles through the deferred-save chokepoint (CFG-10); flush
+    # forces it now instead of waiting out the real timer.
+    config.save.assert_not_called()
+    assert _cfgsave.flush(host) is True
     config.save.assert_called()
 
 
