@@ -210,3 +210,72 @@ class TestSlotTimesAreUtc:
             f"the same fixture in two grammars should agree within ~70 "
             f"minutes under UTC; got {delta_hours:.2f}h apart — that is the "
             f"7h10m the old local reading produced")
+
+
+class TestFlspIdiomIsEastern:
+    """SPORT-5: the FLSP/flolive paren-timestamp clock is US Eastern.
+
+    Owner-observed, 2026-09-03 — see the evidence block above
+    ``_FLSP_IDIOM_RE`` in ``event_datetime.py``: an FLSP fixture listed
+    18:00:00 was played dead at 18:37 UTC (18:00 ET = 22:00 UTC, the game had
+    not started), and a second row listed 08:00:00 was the app's ONE "On now"
+    row while mpv showed a black pre-air slate (08:00 ET = 12:00 UTC, a
+    normal cricket start; 08:00 UTC = 09:00 BST is not).
+
+    Forces a non-UTC MACHINE timezone the same way ``TestSlotTimesAreUtc``
+    does — ``ZoneInfo("America/New_York")`` conversion must come from the
+    IANA zone, never from the machine's own local clock underneath.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_tzset(self):
+        if not hasattr(time, "tzset"):
+            pytest.skip("time.tzset is POSIX-only; not available here")
+
+    def _with_denver_tz(self, fn):
+        old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/Denver"
+        time.tzset()
+        try:
+            return fn()
+        finally:
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+            time.tzset()
+
+    def test_the_flsp_idiom_converts_from_eastern_daylight(self):
+        """September is EDT (UTC-4): 08:00 ET -> 12:00 UTC.
+
+        This is the exact row from the owner's second observation — the ONE
+        "On now" row while mpv showed a black pre-air slate.
+        """
+        name = ("(FLSP 246) | live: Ireland vs England _ Women's Cricket "
+                "(2026-09-03 08:00:00)")
+        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        assert got == datetime(2026, 9, 3, 12, 0), (
+            "under the old UTC reading this stays 08:00, which is what "
+            "wrongly listed a not-yet-started game as On Now")
+
+    def test_the_flsp_idiom_converts_from_eastern_standard_in_january(self):
+        """January is EST (UTC-5): 18:00 ET -> 23:00 UTC — proves DST-awareness.
+
+        A fixed UTC-4 offset (no DST table) would pass the September case
+        above and still be wrong here by an hour.
+        """
+        name = "(FLSP 999) | live: A vs B (2026-01-15 18:00:00)"
+        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        assert got == datetime(2026, 1, 15, 23, 0)
+
+    def test_a_non_flsp_platform_sharing_the_same_grammar_is_unaffected(self):
+        """SCOPE STRICTLY: the other ~2,800 paren-timestamp rows stay UTC.
+
+        Same clock digits as the FLSP case above, different provider tag —
+        must come back UNCHANGED (byte-for-byte UTC), not shifted.
+        """
+        name = "US (Paramount 001) | Chelsea vs. Luton Town (2026-09-03 08:00:00)"
+        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        assert got == datetime(2026, 9, 3, 8, 0), (
+            "a non-FLSP platform must not be pulled into the Eastern "
+            "conversion — only the FLSP idiom is in scope")

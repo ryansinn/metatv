@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from typing import NamedTuple, Optional
+from zoneinfo import ZoneInfo
 
 #: UTC offsets, in MINUTES, for the timezone abbreviations providers actually
 #: emit. Measured on the live corpus 2026-08-31 across 555 day-name rows:
@@ -123,6 +124,41 @@ _EVENT_DAYNAME_RE = re.compile(
 #: on the 'live_event' branch while 603 of these classify as 'sports'.
 _EVENT_PAREN_TS_RE = re.compile(
     r"\(\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*\)")
+#: "(FLSP 246) | live: …" — the flolive/FLSP idiom, matched against the START
+#: of the NAME (never the matched timestamp text itself). SPORT-5: this
+#: provider's clock inside the paren-timestamp form above is US EASTERN, not
+#: UTC like every other user of that same grammar — DECIDED 2026-09-03 on two
+#: live observations, because the anchor hunt that settles every other zone
+#: question in this module (find the SAME fixture in a second, zone-carrying
+#: grammar and compare) came up empty:
+#:
+#: 1. The FLSP/flolive idiom appears in NO other zone-carrying grammar in the
+#:    owner's corpus — these are the provider's OWN synthetic timestamps (the
+#:    seconds field encodes a slot index, not a real second), so there is no
+#:    second listing of the same fixture to cross-check against. Searched
+#:    2026-09-02 and confirmed empty; a team-column anchor join against the
+#:    proven-UTC slot form (``_EVENT_STARTSTOP_RE`` above) found no fixture
+#:    shared between the two grammars either.
+#: 2. 2026-09-02: an FLSP fixture listed for 18:00:00 was played at 18:37 UTC
+#:    and the stream was dead — the game had not started. 18:00 US Eastern
+#:    (EDT, UTC-4) is 22:00 UTC; the row was 4 hours from its real start, not
+#:    37 minutes past it.
+#: 3. 2026-09-03 ~09:00 UTC: ``(FLSP 246) | live: Ireland vs England _
+#:    Women's Cricket (2026-09-03 08:00:00)`` was the ONE row the Sports view
+#:    listed "On now", and mpv showed a black pre-air slate under the FLO
+#:    bar — the game had not started. Read as UTC, 08:00 is 09:00 BST, an
+#:    implausible cricket start; read as US Eastern (EDT, UTC-4), 08:00 is
+#:    12:00 UTC / 13:00 BST — a normal one.
+#:
+#: These two live observations are the deciding evidence the worklog said was
+#: needed once the anchor hunt failed — not a plausibility guess, the same
+#: standard every other zone call in this module is held to.
+#:
+#: SCOPE STRICTLY: ~2,800 other rows carry this SAME paren-timestamp grammar
+#: (ESPN+, Peacock, TSN+, VIX, …) with no evidence any of them are wrong —
+#: those platforms stay read as UTC. Only a name starting with the FLSP tag
+#: gets the Eastern conversion.
+_FLSP_IDIOM_RE = re.compile(r"^\(\s*FLSP\s+\d+\s*\)")
 #: "… @ Aug 27 11:00 AM :Tennis 03" — month-name, 12-hour, NO YEAR and NO
 #: weekday to check one against, so the year is the calendar-nearest.
 _EVENT_AT_RE = re.compile(
@@ -353,6 +389,21 @@ def parse_event_window(name: str, *, reference: "Optional[date]" = None
         if year >= _SENTINEL_YEAR:
             # "always available", not a scheduled start
             return EventWindow(None, None)
+        if _FLSP_IDIOM_RE.match(name):
+            # SPORT-5: this idiom's clock is US Eastern — see the evidence
+            # block above _FLSP_IDIOM_RE. Handled here, not via the shared
+            # tz_name/offset tail below, because every OTHER paren-timestamp
+            # row (the ~2,800-row majority) must stay read as UTC unchanged.
+            try:
+                eastern_naive = datetime(year, month, day, int(hour), int(minute))
+            except ValueError:
+                return EventWindow(None, None)   # 31 Feb, hour 25 — malformed
+            start_utc = (
+                eastern_naive.replace(tzinfo=ZoneInfo("America/New_York"))
+                .astimezone(ZoneInfo("UTC"))
+                .replace(tzinfo=None)
+            )
+            return EventWindow(start_utc, None)
     elif (m := _EVENT_AT_RE.search(name)) is not None:
         month_name, day, hour, minute, meridiem = m.groups()
         month = _EVENT_MONTHS.get(month_name[:3].lower())
