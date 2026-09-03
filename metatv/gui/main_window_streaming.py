@@ -16,6 +16,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
+from metatv.core import epg_utils as _epg
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
@@ -407,7 +408,7 @@ class _StreamingMixin:
             force_new_window,
             start_seconds,
             open_ended_buffer,
-            deep_buffer,
+            deep_buffer, getattr(channel, "event_start_time", None),
         )
 
     # ── Auth/gating HTTP codes that are treated as uncertain (advisory, not hard) ──
@@ -447,6 +448,7 @@ class _StreamingMixin:
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
         deep_buffer: bool = False,
+        event_start_time=None,   # the channel's event_start_time, or None
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
@@ -462,9 +464,8 @@ class _StreamingMixin:
             by quality tier).  First one that validates wins; emit success silently
             (no failure toast).
 
-        On total failure the emit payload carries the original channel's URL,
-        any sibling alternatives (so the failure toast can offer them), and
-        a flag marking whether the error is advisory (→ "Play Anyway" offered).
+        On total failure the emit payload carries the original channel's URL and
+        any sibling alternatives (so the failure toast can offer them).
 
         Runs in ``self.executor``.  Must NOT touch Qt widgets — all UI work is
         done in ``_on_stream_ready``, which runs on the main thread via the signal.
@@ -511,8 +512,8 @@ class _StreamingMixin:
                 "start_seconds": start_seconds,
                 "open_ended_buffer": open_ended_buffer,
                 "deep_buffer": deep_buffer,
-                "advisory": False,
                 "siblings": [],
+                "event_start_time": event_start_time,
             })
             return
 
@@ -555,10 +556,10 @@ class _StreamingMixin:
                                 "start_seconds": start_seconds,
                                 "open_ended_buffer": open_ended_buffer,
                                 "deep_buffer": deep_buffer,
-                                "advisory": False,
                                 "siblings": [],
                                 "sibling_failover": True,   # for status-bar annotation
                                 "sibling_name": sib.get("name", ""),
+                                "event_start_time": event_start_time,
                             })
                             return
         except Exception as e:
@@ -566,7 +567,6 @@ class _StreamingMixin:
             siblings = []
 
         # ── Total failure — emit for the failure toast ───────────────────────
-        is_advisory = self._is_advisory_error(stream_err)
         self._stream_ready.emit({
             "ok": False,
             "channel_id": channel_id,
@@ -580,8 +580,8 @@ class _StreamingMixin:
             "start_seconds": start_seconds,
             "open_ended_buffer": open_ended_buffer,
             "deep_buffer": deep_buffer,
-            "advisory": is_advisory,
             "siblings": siblings,   # list of dicts for the failure toast
+            "event_start_time": event_start_time,
         })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -600,13 +600,13 @@ class _StreamingMixin:
         original_url = data.get("original_url", "")
         stream_err = data.get("stream_err", "")
         notif_id = data.get("notif_id", "")
-        is_advisory = data.get("advisory", False)
         siblings: list[dict] = data.get("siblings", [])
 
         if not data.get("ok"):
             logger.error(f"All stream URLs failed validation for {channel_name}")
             self.status_bar.showMessage(f"Error: Stream unavailable for {channel_name}")
-            detail = stream_err or "All URLs failed (possibly geo-blocked)"
+            prestart = _startwatch.prestart_detail(data.get("event_start_time"), _epg.now_utc())
+            detail = prestart or stream_err or "All URLs failed (possibly geo-blocked)"
             self.notification_manager.dismiss(notif_id)
             # Dismiss any prior failure toast for this channel (deduplicate)
             prior_fail_notif = self._stream_fail_notifs.pop(channel_id, None)
@@ -769,7 +769,7 @@ class _StreamingMixin:
             # "Playing:" comes from that probe seeing a loaded file, not from
             # a 2s timer — see gui/playback_start_watch.py.
             self._start_playback_health(_startwatch.PlayAttempt(
-                channel_id, channel_name, final_url, start_seconds))
+                channel_id, channel_name, final_url, start_seconds, data.get("event_start_time")))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")

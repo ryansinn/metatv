@@ -316,6 +316,57 @@ def test_on_stream_ready_calls_retry_manager_for_non_advisory():
     retry_mgr.add_failure.assert_called_once()
 
 
+def test_on_stream_ready_prestart_fixture_names_start_time(monkeypatch):
+    """A pre-flight failure for a fixture that hasn't started yet says WHEN —
+    the same wording playback_start_watch.prestart_detail gives the never-
+    started report (SPORT-6), not the generic "may be busy" guess.
+    """
+    from datetime import datetime, timedelta
+
+    from metatv.core import epg_utils
+
+    now = datetime(2026, 9, 2, 18, 0, 0)
+    monkeypatch.setattr(epg_utils, "now_utc", lambda: now)
+    start = now + timedelta(hours=2)
+
+    obj = _make_mixin()
+    data = {
+        "ok": False,
+        "channel_id": "ch-fixture",
+        "channel_name": "Mariners x Red Sox",
+        "original_url": "http://example.com/mlb.ts",
+        "final_url": "",
+        "stream_err": "Connection timeout",
+        "notif_id": "loading-fx",
+        "provider_id": "p1",
+        "force_new_window": False,
+        "start_seconds": 0,
+        "open_ended_buffer": False,
+        "siblings": [],
+        "event_start_time": start,
+    }
+    obj._on_stream_ready(data)
+
+    msg = obj.notification_manager.show.call_args.kwargs["message"]
+    assert "hasn't started" in msg
+    assert f"{epg_utils.to_local(start):%H:%M}" in msg
+    assert "geo-blocked" not in msg
+
+
+def test_on_stream_ready_success_dict_drops_dead_advisory_key():
+    """DEBT-6: the success-path payload no longer packs the never-read
+    ``advisory`` key, and ``_on_stream_ready`` no longer reads one either."""
+    import inspect
+
+    from metatv.gui import main_window_streaming as mod
+
+    src = inspect.getsource(mod._StreamingMixin._bg_validate_and_play)
+    assert '"advisory"' not in src
+    ready_src = inspect.getsource(mod._StreamingMixin._on_stream_ready)
+    assert '"advisory"' not in ready_src
+    assert "is_advisory" not in ready_src
+
+
 def test_on_stream_ready_deduplicates_failure_toasts():
     """A second failure for the same channel_id dismisses the first toast."""
     obj = _make_mixin()

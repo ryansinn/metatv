@@ -67,9 +67,6 @@ _LOCK_RETRY_DELAY_S = LOCK_RETRY_DELAY_S
 
 
 
-
-
-
 # Axes ``_apply_channel_filters`` understands that ``count_watched_matching``
 # deliberately does NOT forward, each with the reason it is excluded.
 _COUNT_WATCHED_OMITS = frozenset({
@@ -257,6 +254,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             metadata_id=ch.metadata_id,
             watch_progress=int(getattr(ch, "watch_progress", 0) or 0),
             watch_completed=bool(getattr(ch, "watch_completed", False)),
+            event_start_time=getattr(ch, "event_start_time", None),
         )
 
     def get_sample_channel_id(self, kind: str) -> Optional[str]:

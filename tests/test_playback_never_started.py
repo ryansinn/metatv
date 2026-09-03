@@ -21,6 +21,7 @@ the player would be worse than the silence it replaces.
 from __future__ import annotations
 
 import pathlib
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -324,9 +325,16 @@ def test_the_health_tick_calls_it_when_no_player_is_left():
 def test_the_play_path_carries_the_resume_offset():
     src = (pathlib.Path(__file__).resolve().parent.parent
            / "metatv" / "gui" / "main_window_streaming.py").read_text()
-    assert "final_url, start_seconds)" in src, (
+    assert "final_url, start_seconds," in src, (
         "PlayAttempt no longer carries the resume offset, so the message "
         "cannot name it")
+
+
+def test_the_play_path_carries_the_event_start_time():
+    """Without it the pre-start message (SPORT-6) has nothing to name."""
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / "metatv" / "gui" / "main_window_streaming.py").read_text()
+    assert 'data.get("event_start_time")' in src
 
 
 # ── the third shape: loaded but frozen ──────────────────────────────────────
@@ -428,3 +436,51 @@ def test_stalled_then_player_gone_reports_once_total():
     # Total notifications should be 1
     assert host.notification_manager.show.call_count == 1
     assert host.stream_retry_manager.add_failure.call_count == 1
+
+
+# ── the fourth shape: a fixture played before it started (SPORT-6) ──────────
+#
+# The app already stores every fixture's event_start_time. Playing one before
+# kickoff used to get the same "may be busy or dead" guess as a genuinely
+# broken stream — the one case the app can actually EXPLAIN instead.
+
+_NOW = datetime(2026, 9, 2, 18, 0, 0)   # UTC-naive, matches EPG storage format
+
+
+def _prestart_host(monkeypatch):
+    """A duck-typed host with the clock pinned to _NOW (injected-clock rule)."""
+    monkeypatch.setattr(watch.epg_utils, "now_utc", lambda: _NOW)
+    return _host()
+
+
+def test_prestart_fixture_names_its_start_time(monkeypatch):
+    host = _prestart_host(monkeypatch)
+    start = _NOW + timedelta(hours=1)
+    watch.arm(host, PlayAttempt("p", "Mariners x Red Sox", "http://x/1.ts", 0, start))
+    watch.on_player_gone(host)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "hasn't started" in msg
+    assert f"{watch.epg_utils.to_local(start):%H:%M}" in msg
+    assert "busy or the stream dead" not in msg
+
+
+def test_past_start_keeps_the_generic_detail(monkeypatch):
+    """An event that already started is not "pre-start" — the old guess stands."""
+    host = _prestart_host(monkeypatch)
+    start = _NOW - timedelta(hours=2)
+    watch.arm(host, PlayAttempt("p", "Old Game", "http://x/1.ts", 0, start))
+    watch.on_player_gone(host)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "hasn't started" not in msg
+    assert "busy or the stream dead" in msg
+
+
+def test_prestart_beats_resume_detail(monkeypatch):
+    """A future start AND a resume offset both apply — the pre-start line wins."""
+    host = _prestart_host(monkeypatch)
+    start = _NOW + timedelta(hours=1)
+    watch.arm(host, PlayAttempt("p", "Fixture", "http://x/1.mp4", 5657, start))
+    watch.on_player_gone(host)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "hasn't started" in msg
+    assert "from the start" not in msg
