@@ -471,16 +471,30 @@ def test_definitions_are_not_re_read_per_channel(tmp_path):
     assert first[0] is second[0] and first[1] is second[1]
 
 
-def test_a_settings_edit_still_takes_effect(tmp_path):
+def test_a_settings_edit_still_takes_effect(tmp_path, monkeypatch):
     """The cache keys on the override file's mtime, so it is not a freeze.
 
     The Settings UI writes ``sports_definitions.yaml``; a process-lifetime cache
-    would mean the user's edit did nothing until they restarted.
+    would mean the user's edit did nothing until they restarted. With the stat()
+    TTL, a file edit is picked up after the TTL expires, which is within a second.
     """
     import os
     import yaml
-
+    import metatv.core.special_content as mod
     from metatv.core.special_content import load_sports_definitions
+
+    # Reset TTL tracking and cache so test ordering doesn't leak.
+    mod._last_stamp_check.clear()
+    mod._last_stamp_check.update(path=None, at=0.0, key=None)
+    mod._DEFINITIONS_CACHE.clear()
+
+    # Mock time.monotonic to control the TTL boundary.
+    fake_time = {"now": 0.0}
+
+    def mock_monotonic():
+        return fake_time["now"]
+
+    monkeypatch.setattr("time.monotonic", mock_monotonic)
 
     cfg = _Cfg(config_dir=str(tmp_path))
     path = tmp_path / "sports_definitions.yaml"
@@ -490,8 +504,11 @@ def test_a_settings_edit_still_takes_effect(tmp_path):
 
     path.write_text(yaml.safe_dump({"league_keywords": {"League B": ["zzqx"]}}))
     os.utime(path, (0, 0))          # force a distinct mtime, not a same-second write
+
+    # Advance fake clock past TTL boundary so the file change is picked up.
+    fake_time["now"] = 1.5
     after = load_sports_definitions(cfg)[1]
-    assert "League B" in after, "a Settings edit did not reach the classifier"
+    assert "League B" in after, "a Settings edit did not reach the classifier after TTL expiry"
 
 
 def test_the_cached_maps_are_not_mutated_by_a_caller(tmp_path):
@@ -859,3 +876,152 @@ def test_the_bulk_write_round_trips_json_and_datetime_columns(db):
             f"event_metadata came back as {type(row.event_metadata).__name__}")
         assert isinstance(row.event_start_time, datetime)
         assert row.updated_at is not None
+
+
+# --------------------------------------------------------------------------
+# PERF-18: Stat() TTL to avoid 785k syscalls per backfill pass
+# --------------------------------------------------------------------------
+
+def test_stat_ttl_reuses_cache_key_within_window(tmp_path, monkeypatch):
+    """Within the 1s TTL, the cache key is reused without stat()ing again.
+
+    A hot backfill calls load_sports_definitions once per row; statting the
+    override file per call is 785k syscalls per pass. The TTL lets a hot
+    loop stat once per second instead of once per row.
+    """
+    import metatv.core.special_content as mod
+    from metatv.core.special_content import load_sports_definitions
+
+    cfg = _Cfg(config_dir=str(tmp_path))
+
+    # Mock time.monotonic and Path.stat to count stat calls.
+    stat_count = {"n": 0}
+    fake_time = {"now": 0.0}
+
+    def mock_stat(self, *args, **kwargs):
+        stat_count["n"] += 1
+        import os
+        return os.stat_result((0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
+    def mock_monotonic():
+        return fake_time["now"]
+
+    monkeypatch.setattr("pathlib.Path.stat", mock_stat)
+    monkeypatch.setattr("time.monotonic", mock_monotonic)
+
+    # Reset the TTL tracking so test ordering doesn't leak.
+    mod._last_stamp_check.clear()
+    mod._last_stamp_check.update(path=None, at=0.0, key=None)
+    mod._DEFINITIONS_CACHE.clear()
+
+    # Call 50 times at the same fake time — should stat only once.
+    for _ in range(50):
+        load_sports_definitions(cfg)
+    assert stat_count["n"] == 1, "multiple stat() calls within the TTL window"
+
+    # Advance fake clock past the 1.0s TTL boundary.
+    fake_time["now"] = 1.5
+    load_sports_definitions(cfg)
+    assert stat_count["n"] == 2, "stat() was not called after TTL expired"
+
+    # At same fake time again — reuse without stat.
+    load_sports_definitions(cfg)
+    assert stat_count["n"] == 2, "stat() called again within the same second"
+
+
+def test_stat_ttl_freshness_after_file_change(tmp_path, monkeypatch):
+    """After the TTL expires, a file edit is picked up.
+
+    This is the behavior that would break if the TTL logic went stale-forever:
+    modifying the override file with a new mtime and advancing past the TTL
+    must pick up the new definitions.
+    """
+    import os
+    import yaml
+    import metatv.core.special_content as mod
+    from metatv.core.special_content import load_sports_definitions
+
+    cfg = _Cfg(config_dir=str(tmp_path))
+    fake_time = {"now": 0.0}
+
+    def mock_monotonic():
+        return fake_time["now"]
+
+    monkeypatch.setattr("time.monotonic", mock_monotonic)
+
+    # Reset TTL tracking and cache.
+    mod._last_stamp_check.clear()
+    mod._last_stamp_check.update(path=None, at=0.0, key=None)
+    mod._DEFINITIONS_CACHE.clear()
+
+    # Write initial override file with one custom league.
+    path = tmp_path / "sports_definitions.yaml"
+    path.write_text(yaml.safe_dump({"league_keywords": {"League A": ["zzqx"]}}))
+
+    first = load_sports_definitions(cfg)[1]
+    assert "League A" in first
+
+    # Modify the file with new mtime.
+    path.write_text(yaml.safe_dump({"league_keywords": {"League B": ["zzqx"]}}))
+    os.utime(path, (0, 0))  # force distinct mtime
+
+    # Advance clock past TTL boundary.
+    fake_time["now"] = 1.5
+
+    second = load_sports_definitions(cfg)[1]
+    assert "League B" in second, "file edit after TTL expiry was not picked up"
+    assert "League A" not in second, "old definition persisted after file change"
+
+
+def test_stat_ttl_mutation_check(tmp_path, monkeypatch):
+    """Mutation test: make the TTL always hit and confirm test_freshness breaks.
+
+    This proves the freshness test would actually fail if the TTL logic
+    went stale-forever (i.e., if we never expired the cached key).
+    """
+    import os
+    import yaml
+    import metatv.core.special_content as mod
+    from metatv.core.special_content import load_sports_definitions
+
+    cfg = _Cfg(config_dir=str(tmp_path))
+    fake_time = {"now": 0.0}
+
+    def mock_monotonic():
+        return fake_time["now"]
+
+    monkeypatch.setattr("time.monotonic", mock_monotonic)
+
+    # Reset TTL tracking and cache.
+    mod._last_stamp_check.clear()
+    mod._last_stamp_check.update(path=None, at=0.0, key=None)
+    mod._DEFINITIONS_CACHE.clear()
+
+    # Temporarily patch _STAMP_TTL_S to an impossibly large value so the
+    # TTL never expires, simulating a stale-forever bug.
+    original_ttl = mod._STAMP_TTL_S
+    mod._STAMP_TTL_S = float('inf')
+
+    try:
+        # Write initial override with one league.
+        path = tmp_path / "sports_definitions.yaml"
+        path.write_text(yaml.safe_dump({"league_keywords": {"League A": ["zzqx"]}}))
+
+        first = load_sports_definitions(cfg)[1]
+        assert "League A" in first
+
+        # Modify the file.
+        path.write_text(yaml.safe_dump({"league_keywords": {"League B": ["zzqx"]}}))
+        os.utime(path, (0, 0))
+
+        # Advance time far past what would be the TTL.
+        fake_time["now"] = 100.0
+
+        second = load_sports_definitions(cfg)[1]
+        # With the mutation (TTL forever), the old definition persists.
+        assert "League A" in second, "mutation was not applied — TTL is working as intended"
+        assert "League B" not in second, "mutation check passed: TTL went stale"
+
+    finally:
+        # Restore the real TTL constant.
+        mod._STAMP_TTL_S = original_ttl
