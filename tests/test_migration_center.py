@@ -975,8 +975,14 @@ class TestMigrationManager:
         guard.timeout.connect(loop.quit)
         guard.start()
 
+        # Cancel ON task_started rather than immediately after run_pending():
+        # run_pending is async now (the evaluate pass runs on the worker), so an
+        # immediate cancel could land before the task ever starts on a loaded
+        # runner — making "task.run was called" a scheduling coincidence. The
+        # signal fires while the worker sits in the task's first sleep, so the
+        # cancel is mid-run by construction.
+        mgr.task_started.connect(lambda *_: mgr.request_cancel())
         mgr.run_pending()
-        mgr.request_cancel()  # cancel before the first sleep completes
         loop.exec()
         guard.stop()
 
