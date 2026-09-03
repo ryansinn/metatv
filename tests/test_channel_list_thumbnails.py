@@ -57,8 +57,12 @@ class _StubImageCache(QObject):
     """Offline stand-in for ``ImageCache``: no disk, no network, no thread pool.
 
     Mirrors the real class's public surface exactly (the two signals plus
-    ``get_image_sync``/``get_image_async``) so the delegate and the hydrator
-    can use it unmodified.
+    ``get_image_sync``/``get_image_async``/``get_image_resident``/
+    ``ensure_resident``) so the delegate and the hydrator can use it
+    unmodified. ``resident_hits`` is a SEPARATE dict from ``sync_hits`` —
+    the real cache's resident LRU and its disk-backed ``get_image_sync`` are
+    different sources of truth (PERF-19), and the delegate now reads only
+    the resident one.
     """
 
     image_loaded = pyqtSignal(str, QPixmap)
@@ -67,13 +71,21 @@ class _StubImageCache(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.sync_hits: dict[str, QPixmap] = {}
+        self.resident_hits: dict[str, QPixmap] = {}
         self.async_requests: list[str] = []
+        self.ensure_resident_requests: list[str] = []
 
     def get_image_sync(self, url: str):
         return self.sync_hits.get(url)
 
+    def get_image_resident(self, url: str):
+        return self.resident_hits.get(url)
+
     def get_image_async(self, url: str, provider_urls=None) -> None:
         self.async_requests.append(url)
+
+    def ensure_resident(self, url: str, provider_urls=None) -> None:
+        self.ensure_resident_requests.append(url)
 
 
 def _make_dto(**overrides) -> ChannelListDTO:
@@ -196,7 +208,9 @@ def test_poster_url_reaches_dto_via_join_without_scaling_query_count(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 2. Placeholder paints on a cache miss (no URL, and an uncached URL)
+# 2. Placeholder paints on a resident-cache miss (no URL, and an uncached
+#    URL); a miss also queues background hydration via ensure_resident, and
+#    NEVER on a hit (PERF-19: paint may only ever consult memory).
 # ---------------------------------------------------------------------------
 
 def test_placeholder_paints_when_channel_has_no_poster_url(qapp):
@@ -209,34 +223,45 @@ def test_placeholder_paints_when_channel_has_no_poster_url(qapp):
         delegate._paint_thumbnail(MagicMock(), QRect(0, 0, 32, 48), index)
 
     mock_ph.assert_called_once()
-    assert stub.async_requests == []  # paint() never downloads
+    assert stub.async_requests == []            # paint() never downloads
+    assert stub.ensure_resident_requests == []   # no URL, nothing to hydrate
 
 
 def test_placeholder_paints_when_url_present_but_not_yet_cached(qapp):
+    """THE fix for PERF-19: a resident-cache miss calls ``ensure_resident``
+    exactly once with the url (queuing background work, never disk IO on the
+    paint thread) and paints the placeholder — it must NOT call the old
+    ``get_image_sync`` path at all."""
     url = "https://img.example/not-cached.jpg"
     model = _flat_model([_make_dto(poster_url=url)])
     index = model.index(0)
-    stub = _StubImageCache()  # sync_hits empty → get_image_sync(url) misses
+    stub = _StubImageCache()  # resident_hits empty → get_image_resident(url) misses
     delegate = ChannelRowDelegate(image_cache=stub)
 
     with patch.object(ChannelRowDelegate, "_paint_thumbnail_placeholder") as mock_ph:
         delegate._paint_thumbnail(MagicMock(), QRect(0, 0, 32, 48), index)
 
     mock_ph.assert_called_once()
+    assert stub.ensure_resident_requests == [url]
 
 
 def test_real_pixmap_painted_when_cache_hits(qapp):
+    """A resident hit draws the real pixmap and never calls
+    ``ensure_resident`` — nothing to hydrate, it's already in memory."""
     url = "https://img.example/cached.jpg"
     model = _flat_model([_make_dto(poster_url=url)])
     index = model.index(0)
     stub = _StubImageCache()
-    stub.sync_hits[url] = QPixmap(10, 10)
+    stub.resident_hits[url] = QPixmap(10, 10)
     delegate = ChannelRowDelegate(image_cache=stub)
 
+    painter = MagicMock()
     with patch.object(ChannelRowDelegate, "_paint_thumbnail_placeholder") as mock_ph:
-        delegate._paint_thumbnail(MagicMock(), QRect(0, 0, 32, 48), index)
+        delegate._paint_thumbnail(painter, QRect(0, 0, 32, 48), index)
 
     mock_ph.assert_not_called()  # real pixmap was available — no placeholder
+    painter.drawPixmap.assert_called_once()   # the real-drawing branch ran
+    assert stub.ensure_resident_requests == []
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +424,72 @@ def test_comfy_density_reserves_thumbnail_when_enabled(qapp):
     assert delegate._shows_thumbnail("channel", index) is False
     delegate.set_thumbnails_enabled(True)
     assert delegate._shows_thumbnail("channel", index) is True
+
+
+# ---------------------------------------------------------------------------
+# 7. PERF-19: a burst of image_loaded arrivals coalesces into ONE viewport
+#    repaint, wired automatically through set_thumbnail_hydrator.
+# ---------------------------------------------------------------------------
+
+def test_image_loaded_burst_coalesces_into_one_viewport_repaint(qapp, qtbot):
+    """``_paint_thumbnail`` now paints from memory only and queues background
+    hydration on a miss (``ensure_resident``); something has to repaint once
+    that lands. ``ChannelListView.set_thumbnail_hydrator`` wires the shared
+    cache's ``image_loaded`` straight into a debounced repaint — a BURST of
+    arrivals (a fast scroll missing many rows at once) must still cost ONE
+    ``viewport().update()``, not one per image."""
+    from metatv.gui.channel_list_view import ChannelListView
+
+    model = _flat_model([_make_dto(id="c0", poster_url="https://img.example/0.jpg")])
+    stub = _StubImageCache()
+    hydrator = ChannelThumbnailHydrator(model, stub)
+    hydrator.set_enabled(True)
+
+    view = ChannelListView()
+    view.setModel(model)
+    view.set_thumbnail_hydrator(hydrator)
+
+    fake_viewport = MagicMock()
+    view.viewport = lambda: fake_viewport
+
+    stub.image_loaded.emit("https://img.example/0.jpg", QPixmap(4, 4))
+    stub.image_loaded.emit("https://img.example/1.jpg", QPixmap(4, 4))
+    stub.image_loaded.emit("https://img.example/2.jpg", QPixmap(4, 4))
+
+    fake_viewport.update.assert_not_called()  # still inside the coalesce window
+
+    qtbot.wait(150)  # past the 100ms coalesce window
+
+    fake_viewport.update.assert_called_once()
+
+
+def test_set_thumbnail_hydrator_none_disconnects_the_repaint_listener(qapp):
+    """Clearing the hydrator (``None``) must disconnect the old one's
+    ``image_loaded`` from the repaint slot — a torn-down/replaced hydrator
+    must never leave a dangling connection to a cache instance that outlives
+    it (same discipline the hydrator's own ``shutdown()`` documents)."""
+    from metatv.gui.channel_list_view import ChannelListView
+
+    model = _flat_model([_make_dto(id="c0", poster_url="https://img.example/0.jpg")])
+    stub = _StubImageCache()
+    hydrator = ChannelThumbnailHydrator(model, stub)
+    hydrator.set_enabled(True)
+
+    view = ChannelListView()
+    view.setModel(model)
+
+    with patch.object(ChannelListView, "_schedule_thumbnail_repaint") as mock_schedule:
+        view.set_thumbnail_hydrator(hydrator)
+        view.set_thumbnail_hydrator(None)  # disconnect
+
+        stub.image_loaded.emit("https://img.example/0.jpg", QPixmap(4, 4))
+
+        mock_schedule.assert_not_called()
+
+        # Re-attaching and clearing again must not raise (no double-disconnect
+        # error the first time round left it in a broken state).
+        view.set_thumbnail_hydrator(hydrator)
+        view.set_thumbnail_hydrator(None)
 
 
 # ---------------------------------------------------------------------------

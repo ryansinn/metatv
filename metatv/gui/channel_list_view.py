@@ -14,15 +14,29 @@ last_row)`` visible range via ``indexAt`` and forwards it to the hydrator —
 the only Qt-viewport-pixel-dependent part of the feature, kept here rather than
 in the hydrator so the hydrator's request/dedupe/repaint logic stays testable
 without a real, shown, resized widget.
+
+``set_thumbnail_hydrator`` also wires a COALESCED viewport repaint (PERF-19):
+the delegate now paints from an in-memory pixmap LRU only and queues a
+background load on a miss (``ImageCache.ensure_resident``), so something has
+to repaint the row once that load lands. Rather than one repaint per arriving
+image, ``_schedule_thumbnail_repaint`` debounces a burst of ``image_loaded``
+signals into a single ``viewport().update()`` ~100ms after the last one — a
+fast scroll through many misses would otherwise trigger a repaint per poster.
+Reached via the hydrator's ``image_cache`` property, since the hydrator is the
+one object this view already holds that has the shared cache.
 """
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, Qt, QModelIndex, QPoint, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QModelIndex, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QMouseEvent, QResizeEvent
 from PyQt6.QtWidgets import QListView, QToolTip
 
 from metatv.gui import cursor_affordance
 from metatv.gui.channel_list_thumbnails import ChannelThumbnailHydrator
+
+#: Coalesce window for the thumbnail-arrival repaint — see
+#: ``_schedule_thumbnail_repaint``.
+_THUMBNAIL_REPAINT_COALESCE_MS = 100
 
 
 class ChannelListView(QListView):
@@ -41,6 +55,8 @@ class ChannelListView(QListView):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._thumbnail_hydrator: Optional[ChannelThumbnailHydrator] = None
+        # Guards _schedule_thumbnail_repaint's coalescing — see that method.
+        self._thumbnail_repaint_pending = False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.verticalScrollBar().valueChanged.connect(self._request_hydration)
         # Chips are painted by the delegate, not child widgets, so hover has to
@@ -199,9 +215,35 @@ class ChannelListView(QListView):
     # ── Poster-thumbnail hydration wiring ────────────────────────────────────
 
     def set_thumbnail_hydrator(self, hydrator: Optional[ChannelThumbnailHydrator]) -> None:
-        """Attach (or clear, with ``None``) the viewport-only thumbnail hydrator."""
+        """Attach (or clear, with ``None``) the viewport-only thumbnail hydrator.
+
+        Also (re)wires the coalesced thumbnail-arrival repaint onto the
+        hydrator's ``image_cache`` — disconnect-old/connect-new, the same
+        pattern ``setModel`` uses for its own signals below.
+        """
+        if self._thumbnail_hydrator is not None:
+            try:
+                self._thumbnail_hydrator.image_cache.image_loaded.disconnect(
+                    self._schedule_thumbnail_repaint)
+            except TypeError:
+                pass
         self._thumbnail_hydrator = hydrator
+        if hydrator is not None:
+            hydrator.image_cache.image_loaded.connect(self._schedule_thumbnail_repaint)
         self._request_hydration()
+
+    def _schedule_thumbnail_repaint(self, *_args) -> None:
+        """Coalesce a burst of ``image_loaded`` arrivals into ONE viewport
+        repaint (PERF-19) — see the module docstring's "COALESCED viewport
+        repaint" section."""
+        if self._thumbnail_repaint_pending:
+            return
+        self._thumbnail_repaint_pending = True
+        QTimer.singleShot(_THUMBNAIL_REPAINT_COALESCE_MS, self._fire_thumbnail_repaint)
+
+    def _fire_thumbnail_repaint(self) -> None:
+        self._thumbnail_repaint_pending = False
+        self.viewport().update()
 
     def request_visible_hydration(self) -> None:
         """Public re-trigger for the visible-range hydration request.

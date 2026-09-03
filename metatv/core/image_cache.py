@@ -2,6 +2,7 @@
 import hashlib
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +21,13 @@ from loguru import logger
 # about that one file, not the host.
 _HOST_COOLDOWN_S = 600   # connect-timeout / connection error: skip the host
 _URL_COOLDOWN_S = 3600   # HTTP error status (e.g. 404): skip just that url
+
+# Bounded in-memory pixmap LRU (PERF-19): paint() may only ever consult this —
+# never disk. QPixmap construction and this dict are MAIN-THREAD-ONLY; see
+# ``_store_resident``. 512 pixmaps at a poster-thumbnail size is a few MB, well
+# inside the app's existing footprint, and comfortably covers a screen's worth
+# of rows plus recent scroll history.
+_RESIDENT_CAP = 512
 
 
 class ImageCache(QObject):
@@ -46,7 +54,12 @@ class ImageCache(QObject):
         
         # In-memory index: url -> cache_path mapping
         self.cache_index: Dict[str, Path] = {}
-        
+
+        # Bounded pixmap LRU — the ONLY thing paint() may read
+        # (get_image_resident). Written only from the main thread: QPixmap is
+        # a GUI object, so never touch this from a worker.
+        self._resident: "OrderedDict[str, QPixmap]" = OrderedDict()
+
         # Thread pool for async downloads
         self.executor = ThreadPoolExecutor(max_workers=4)
 
@@ -133,39 +146,112 @@ class ImageCache(QObject):
             if callback is not None:
                 callback(*args)
 
-    def get_image_sync(self, url: str) -> Optional[QPixmap]:
-        """Get image from cache synchronously (no download)
-        
-        Returns cached image if available, None otherwise.
-        Use this for immediate display without blocking.
+    def _store_resident(self, url: str, pixmap: QPixmap) -> None:
+        """Insert/refresh *url* in the in-memory pixmap LRU, evicting the
+        oldest entry while over ``_RESIDENT_CAP``.
+
+        MAIN-THREAD-ONLY: QPixmap is a GUI object and this dict backs
+        ``get_image_resident`` (paint's only accessor) — never call this from
+        a worker thread. The one worker-fed writer is ``_on_image_ready``,
+        which already marshals onto the main thread before touching QPixmap.
+        """
+        if pixmap is None or pixmap.isNull():
+            return
+        self._resident[url] = pixmap
+        self._resident.move_to_end(url)
+        while len(self._resident) > _RESIDENT_CAP:
+            self._resident.popitem(last=False)
+
+    def get_image_resident(self, url: str) -> Optional[QPixmap]:
+        """Memory-only lookup — the ONLY image accessor paint code may call.
+
+        Touches NO disk and never blocks: a hit returns the resident pixmap
+        (and marks it most-recently-used), a miss returns ``None``. Call
+        ``ensure_resident()`` on a miss to queue background hydration.
         """
         if not url:
             return None
-        
+        pixmap = self._resident.get(url)
+        if pixmap is None:
+            return None
+        self._resident.move_to_end(url)
+        return pixmap
+
+    def get_image_sync(self, url: str) -> Optional[QPixmap]:
+        """Get image from cache synchronously (no download)
+
+        Returns cached image if available, None otherwise. Checks the
+        resident pixmap LRU first (free); a miss there still falls through to
+        disk, so this call CAN block on I/O — safe for callers off the paint
+        path, never from paint() itself (use ``get_image_resident`` there).
+        """
+        if not url:
+            return None
+
+        resident = self.get_image_resident(url)
+        if resident is not None:
+            return resident
+
         # Check in-memory index first
         if url in self.cache_index:
             cache_path = self.cache_index[url]
             if cache_path.exists():
-                return QPixmap(str(cache_path))
-        
+                pixmap = QPixmap(str(cache_path))
+                self._store_resident(url, pixmap)
+                return pixmap
+
         # Generate cache key from URL
         cache_key = self._url_to_cache_key(url)
         cache_path = self._get_cache_path(url, cache_key)
-        
+
         # Check disk cache
         if cache_path.exists():
             if self._verify_image(cache_path):
                 self.cache_index[url] = cache_path
                 # Update access time for LRU
                 cache_path.touch()
-                return QPixmap(str(cache_path))
+                pixmap = QPixmap(str(cache_path))
+                self._store_resident(url, pixmap)
+                return pixmap
             else:
                 # Corrupted - remove
                 logger.warning(f"Corrupted cached image removed: {cache_key}")
                 cache_path.unlink()
-        
+
         return None
-    
+
+    def ensure_resident(self, url: str, provider_urls: Optional[list] = None) -> None:
+        """Queue background work so *url* becomes resident; never touches
+        disk or the network on the CALLER's thread.
+
+        Call this from paint-adjacent code on a ``get_image_resident`` miss
+        instead of doing any IO there. Deduped through the same ``_inflight``
+        set ``get_image_async`` uses, so a url already downloading — or
+        already queued by a concurrent ``ensure_resident``/``get_image_async``
+        call — is never resubmitted; its eventual ``image_loaded`` still
+        broadcasts to every caller, this one included via the coalesced
+        viewport repaint the channel list wires up.
+
+        The worker is ``_download_and_cache`` itself: its own worker-start
+        re-check already does exactly "on-disk hit -> emit the private
+        signal, else download" (see its docstring) — the same fallback this
+        method's docstring promises — so there is nothing new to write.
+
+        Args:
+            url: The image URL to make resident.
+            provider_urls: Optional alternate provider hosts, forwarded to
+                ``_download_and_cache`` on a disk miss.
+        """
+        if not url or self.get_image_resident(url) is not None:
+            return
+
+        with self._inflight_lock:
+            if url in self._inflight:
+                return
+            self._inflight.add(url)
+
+        self.executor.submit(self._download_and_cache, url, provider_urls)
+
     def get_image_async(self, url: str, provider_urls: Optional[list] = None):
         """Get image from cache or download asynchronously
         
@@ -331,12 +417,15 @@ class ImageCache(QObject):
         self._dispatch(url, 1, url, error)
 
     def _on_image_ready(self, url: str, cache_path_str: str) -> None:
-        """Main-thread slot: create QPixmap, then notify.
+        """Main-thread slot: create QPixmap, make it resident, then notify.
 
+        The only worker-fed writer of ``_resident`` — safe because this slot
+        runs on the main thread (the worker only ever emits the path string).
         Subscribers first, then the broadcast — the broadcast still fires for
         the one-per-view listeners that use it.
         """
         pixmap = QPixmap(cache_path_str)
+        self._store_resident(url, pixmap)
         self._dispatch(url, 0, url, pixmap)
         self.image_loaded.emit(url, pixmap)
 

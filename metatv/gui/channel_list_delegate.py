@@ -69,11 +69,16 @@ two previously drifted apart.
 
 Artwork (comfy/comfy_plus only, opt-out via ``set_thumbnails_enabled`` — never
 painted in compact) reserves a FIXED rect, so the columns after it never wobble.
-``paint`` fetches the pixmap via ``ImageCache.get_image_sync`` — a cache-hit-only
-lookup that is safe on the paint path (never downloads, never touches the
-network) — and falls back to a sunk tile carrying the row's kind mark on a miss.
-Actually fetching an uncached image is the VIEWPORT-ONLY hydrator's job
-(``channel_list_thumbnails.py``), never the delegate's.
+``paint`` fetches the pixmap via ``ImageCache.get_image_resident`` — a
+memory-only lookup that touches NO disk and never blocks, unlike the
+cache-hit-but-still-on-disk ``get_image_sync`` it replaced there (PERF-19: a
+disk read + JPEG decode per row, on the main thread, sampled mid-scroll at
+567ms and worst-case 2,705ms). A miss calls ``ImageCache.ensure_resident()`` —
+which only ever queues background work, never fetches on the caller's thread —
+and falls back to a sunk tile carrying the row's kind mark. The VIEWPORT-ONLY
+hydrator (``channel_list_thumbnails.py``) still proactively warms the visible
+range ahead of scroll; ``ensure_resident`` is deduped against the same
+in-flight set, so the two never double-download the same url.
 
 All three densities read the structured per-field roles on ``ChannelListModel``
 (``TITLE_ROLE``, ``MEDIA_KIND_ROLE``, ``YEAR_ROLE``, …) rather than the composed
@@ -545,12 +550,13 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
             painter.drawPixmap(rect, pixmap)
 
     def _paint_thumbnail(self, painter, rect: QRect, index, kind: str = "") -> None:
-        """Paint the real poster (cache-hit only — never downloads from
-        ``paint()``) cropped to fill *rect*, or a placeholder on a miss."""
+        """Paint the real poster from the resident pixmap cache — MEMORY
+        ONLY, never disk — cropped to fill *rect*; a miss queues background
+        hydration via ``ensure_resident`` and paints the placeholder."""
         url = index.data(POSTER_URL_ROLE) or ""
         pixmap = None
         if url and self._image_cache is not None:
-            pixmap = self._image_cache.get_image_sync(url)
+            pixmap = self._image_cache.get_image_resident(url)
         if pixmap is not None and not pixmap.isNull():
             scaled = pixmap.scaled(
                 rect.width(), rect.height(),
@@ -562,6 +568,8 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
             cropped = scaled.copy(x, y, rect.width(), rect.height())
             painter.drawPixmap(rect, cropped)
             return
+        if url and self._image_cache is not None:
+            self._image_cache.ensure_resident(url)
         self._paint_thumbnail_placeholder(painter, rect, index, kind)
 
     def _paint_thumbnail_placeholder(self, painter, rect: QRect, index,

@@ -23,9 +23,13 @@ Threading: ``ImageCache.get_image_async`` does the actual download on its own
 thread pool and marshals ``QPixmap`` construction back to the main thread
 before emitting ``image_loaded`` (see ``image_cache.py``) — this module never
 touches a ``QPixmap`` itself, only the URL string and the signal payload
-already built by ``ImageCache``. ``get_image_sync`` (cache-hit only, no I/O) is
-used to skip rows that are already on disk — nothing to request there; the
-delegate's own ``get_image_sync`` call at paint time will just find it.
+already built by ``ImageCache``. ``get_image_sync`` (checks the resident
+pixmap LRU first, then falls through to disk — this runs on the main thread,
+off a debounced timer, never from paint()) is used to skip rows that are
+already cached; nothing to request there. The delegate's own paint-time
+``get_image_resident`` call (memory-only, PERF-19) will just find it, and a
+row painted before this debounce fires makes itself resident via
+``ensure_resident`` independently.
 
 Connect/disconnect discipline mirrors ``discover_card.py``'s pattern (see its
 ``request_image``/``_on_image_loaded``/``_on_image_failed``): the hydrator
@@ -100,6 +104,17 @@ class ChannelThumbnailHydrator(QObject):
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    @property
+    def image_cache(self) -> "ImageCache":
+        """The shared ``ImageCache`` this hydrator was built with.
+
+        Lets ``ChannelListView.set_thumbnail_hydrator`` reach the same cache
+        instance to wire its own coalesced-repaint listener (PERF-19) without
+        the view needing a separate constructor argument — the hydrator
+        already holds the one reference that matters.
+        """
+        return self._image_cache
 
     def request_range(self, first_row: int, last_row: int) -> None:
         """Debounced entry point: the view's current visible row range.

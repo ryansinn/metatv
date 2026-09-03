@@ -19,8 +19,9 @@ import threading
 
 import pytest
 import requests
+from PyQt6.QtGui import QPixmap
 
-from metatv.core.image_cache import ImageCache, _HOST_COOLDOWN_S
+from metatv.core.image_cache import ImageCache, _HOST_COOLDOWN_S, _RESIDENT_CAP
 
 
 # A minimal, valid (per _verify_image's magic-byte + size check) PNG file:
@@ -166,3 +167,103 @@ def test_cooldown_expires(cache, monkeypatch) -> None:
     fake_now[0] += _HOST_COOLDOWN_S + 1  # step past the deadline
     cache._download_and_cache(url)
     assert call_count == 2, "the host was still on cooldown after its window expired"
+
+
+# ── PERF-19: resident pixmap cache — paint() may only ever consult memory ──
+#
+# The owner's live run sampled ``ChannelListDelegate._paint_thumbnail`` at a
+# 567ms stall (worst 2,705ms across 8 stalls in one launch), because
+# ``get_image_sync`` did a disk read + JPEG decode ON THE MAIN THREAD from
+# inside ``paint()``. ``get_image_resident`` is the fix: a bounded in-memory
+# LRU that paint code may call, backed by NO disk access at all.
+
+def _make_real_png_bytes() -> bytes:
+    """A genuinely decodable PNG — unlike ``_VALID_PNG_BYTES`` above (which
+    only satisfies ``_verify_image``'s magic-byte + size check), this one
+    must survive an actual ``QPixmap`` decode: ``ensure_resident`` stores
+    nothing when the decode comes back null (``_store_resident`` guards on
+    ``isNull()``), so a fake-but-"valid" file would silently fail this test's
+    real assertion instead of proving the resident path."""
+    from PyQt6.QtCore import QBuffer, QIODevice
+    from PyQt6.QtGui import QImage
+    import random
+
+    image = QImage(16, 16, QImage.Format.Format_RGB32)
+    rng = random.Random(0)
+    for y in range(16):
+        for x in range(16):
+            image.setPixel(x, y, rng.randrange(1 << 24))
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buf, "PNG")
+    return bytes(buf.data())
+
+
+def test_get_image_resident_never_touches_disk(cache, monkeypatch) -> None:
+    """A resident-cache miss must not touch disk at all — ``Path.exists`` is
+    monkeypatched to explode if paint's own accessor ever reaches it."""
+
+    def _boom(self):
+        raise AssertionError("get_image_resident touched disk")
+
+    monkeypatch.setattr("metatv.core.image_cache.Path.exists", _boom)
+
+    url = "http://example.com/resident.jpg"
+    assert cache.get_image_resident(url) is None  # miss: no raise, no disk
+
+    pixmap = QPixmap(4, 4)
+    cache._store_resident(url, pixmap)
+    assert cache.get_image_resident(url) is pixmap  # hit: still no disk
+
+
+def test_resident_lru_evicts_oldest_over_cap(cache) -> None:
+    """Storing more than ``_RESIDENT_CAP`` entries keeps exactly the cap and
+    evicts the OLDEST first — an unbounded dict here would leak forever on a
+    long scroll through a 785k-row library."""
+    urls = [f"http://example.com/{i}.jpg" for i in range(_RESIDENT_CAP + 5)]
+    for url in urls:
+        cache._store_resident(url, QPixmap(2, 2))
+
+    assert len(cache._resident) == _RESIDENT_CAP
+    for stale in urls[:5]:
+        assert cache.get_image_resident(stale) is None, f"{stale} should have been evicted"
+    for fresh in urls[-5:]:
+        assert cache.get_image_resident(fresh) is not None, f"{fresh} should still be resident"
+
+
+def test_ensure_resident_promotes_an_on_disk_hit(cache, qtbot) -> None:
+    """A url already cached on disk (but not yet resident) becomes resident
+    via ``ensure_resident`` — background work, main-thread pixmap decode,
+    ``image_loaded`` broadcast, exactly the private-signal chokepoint the
+    download path already uses."""
+    url = "http://example.com/disk-cached.jpg"
+    cache_key = cache._url_to_cache_key(url)
+    cache_path = cache._get_cache_path(url, cache_key)
+    cache_path.write_bytes(_make_real_png_bytes())
+
+    assert cache.get_image_resident(url) is None  # not resident yet
+
+    with qtbot.waitSignal(cache.image_loaded, timeout=5000):
+        cache.ensure_resident(url)
+
+    assert cache.get_image_resident(url) is not None
+
+
+def test_ensure_resident_dedupes_against_inflight(cache, monkeypatch) -> None:
+    """A second ``ensure_resident`` call for a url already in flight submits
+    nothing extra — the same ``_inflight`` set ``get_image_async`` uses."""
+    url = "http://example.com/inflight.jpg"
+    submitted = []
+
+    def _recording_submit(fn, *args, **kwargs):
+        submitted.append((fn, args))
+        # Don't run it — the point is to observe whether a SECOND call
+        # submits again while the first is still (nominally) in flight.
+        return None
+
+    monkeypatch.setattr(cache.executor, "submit", _recording_submit)
+
+    cache.ensure_resident(url)
+    cache.ensure_resident(url)
+
+    assert len(submitted) == 1, "a second ensure_resident for an in-flight url resubmitted work"
