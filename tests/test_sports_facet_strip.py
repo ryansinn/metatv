@@ -36,6 +36,9 @@ STORED_SPORT_TYPES = [
     "soccer", "mma", "racing", "tennis", "hockey", "boxing", "basketball",
     "wrestling", "american_football", "baseball", "golf", "field_hockey",
     "cricket", "rugby", "cycling",
+    # FloSports verticals (2026-09-03): volleyball, swimming and track join
+    # the taxonomy alongside the existing sports above.
+    "volleyball", "swimming", "track",
 ]
 
 

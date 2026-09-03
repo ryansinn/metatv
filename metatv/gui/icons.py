@@ -673,6 +673,13 @@ VECTOR_KEYS: dict[str, str] = {
     "sport_wrestling": "mdi6.kabaddi",
     "sport_racing": "mdi6.racing-helmet",
     "sport_cycling": "mdi6.bike",
+    # Added with the FloSports vertical keywords (2026-09-03) — volleyball,
+    # swimming and track are new stored sport_types. Verified present in the
+    # bundled font and non-colliding with every glyph above before being
+    # written down here, same as the rest of this block.
+    "sport_volleyball": "mdi6.volleyball",
+    "sport_swimming": "mdi6.swim",
+    "sport_track": "mdi6.run-fast",
     # The 15,944 multi-sport networks — Fox Sports 1, Sky Sports News, beIN.
     # "General", not "Unclassified": a rack carries many sports, so having no
     # single sport_type is correct rather than a classification failure.

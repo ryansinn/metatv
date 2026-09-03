@@ -14,27 +14,34 @@ from metatv.core.event_datetime import parse_event_window
 from metatv.core.fixture_titles import fixture_display_title, parse_fixture_opponents
 
 
-# Built-in sport keyword map: canonical sport name → list of keywords to match
+# Built-in sport keyword map: canonical sport name → list of keywords to match.
+# Mirrors metatv/data/sports_definitions.yaml — this is only the in-memory
+# fallback used if the bundled YAML fails to read (see load_sports_definitions),
+# so a keyword added to one must be added to the other.
 _DEFAULT_SPORT_KEYWORDS: Dict[str, List[str]] = {
     'soccer': [
         'soccer', 'football', 'fifa', 'premier league', 'la liga',
         'bundesliga', 'serie a', 'ligue 1', 'champions league',
         'europa league', 'mls', 'liga mx', 'eredivisie', 'superliga',
+        'flosoccer',
     ],
     'basketball': ['basketball', 'nba', 'wnba', 'euroleague', 'ncaa basketball'],
-    'american_football': ['nfl', 'american football', 'ncaa football', 'superbowl', 'super bowl'],
-    'baseball': ['baseball', 'mlb'],
+    'american_football': ['nfl', 'american football', 'ncaa football', 'superbowl', 'super bowl', 'flofootball'],
+    'baseball': ['baseball', 'mlb', 'flobaseball'],
     'field_hockey': ['field hockey'],
-    'hockey': ['ice hockey', 'hockey', 'nhl', 'stanley cup'],
-    'tennis': ['tennis', 'atp', 'wta', 'wimbledon', 'us open', 'roland garros', 'australian open'],
+    'hockey': ['ice hockey', 'hockey', 'nhl', 'stanley cup', 'flohockey'],
+    'tennis': ['tennis', 'atp', 'wta', 'wimbledon', 'us open', 'roland garros', 'australian open', 'flotennis'],
     'boxing': ['boxing', 'wbc', 'wba', 'ibf', 'wbo'],
-    'mma': ['ufc', 'mma', 'bellator', 'one fc', 'pfl'],
-    'racing': ['f1', 'formula 1', 'formula one', 'nascar', 'motogp', 'indycar', 'rally'],
+    'mma': ['ufc', 'mma', 'bellator', 'one fc', 'pfl', 'flograppling'],
+    'racing': ['f1', 'formula 1', 'formula one', 'nascar', 'motogp', 'indycar', 'rally', 'floracing'],
     'cricket': ['cricket', 'ipl', 'test match', 'odi', 't20'],
-    'rugby': ['rugby', 'six nations', 'super rugby', 'rugby league', 'rugby union'],
+    'rugby': ['rugby', 'six nations', 'super rugby', 'rugby league', 'rugby union', 'florugby'],
     'golf': ['golf', 'pga', 'masters', 'open championship', 'ryder cup'],
     'cycling': ['cycling', 'tour de france', 'vuelta', 'giro'],
-    'wrestling': ['wwe', 'wrestling', 'aew'],
+    'wrestling': ['wwe', 'wrestling', 'aew', 'flowrestling'],
+    'volleyball': ['volleyball', 'flovolleyball'],
+    'swimming': ['swimming', 'floswimming'],
+    'track': ['flotrack', 'athletics', 'track and field'],
 }
 
 # Built-in league keyword map: display name → list of keywords to match
@@ -396,12 +403,26 @@ SPORTS_GATE_STEMS: tuple[str, ...] = (
 #: and the acronyms, which hide inside unrelated words — nba in GREENBAY, nfl in
 #: Conflict. For soccer/boxing/basketball the two rules matched identically on
 #: real data, so they sit here with the rest of the vocabulary.
+#: FloSports verticals (2026-09-03). ``detect_sports_channel`` and
+#: ``parse_sports_channel`` are two separate sets over two separate vocabularies
+#: — see the module note above the gate — and "wrestling" was in the keyword
+#: map (``_DEFAULT_SPORT_KEYWORDS``/``sports_definitions.yaml``) all along but
+#: never in the gate, so 16 "| wrestling: …" rows never reached the sports view
+#: to be labelled. "flosports"/"flo network" name the network itself — all FLO
+#: content is sports, whatever vertical it carries. Each flo-vertical compound
+#: is a whole token, same as the acronyms above: it never appears inside another
+#: word (unlike the bare stem "flo", which would reach "florida"/"flower" and is
+#: deliberately not added here).
 SPORTS_GATE_TOKENS: tuple[str, ...] = (
     'nba', 'nfl', 'nhl', 'mlb', 'ufc',
     'bein', 'sky sports', 'fox sports', 'nbc sports',
     'football', 'soccer', 'boxing', 'kickboxing', 'basketball', 'baseball',
     'cricket', 'tennis', 'hockey', 'racing', 'fight',
     'premier league', 'champions league', 'la liga', 'bundesliga',
+    'flosports', 'flo network', 'wrestling', 'volleyball', 'swimming',
+    'flotrack', 'flofootball', 'flowrestling', 'flohockey', 'floracing',
+    'flograppling', 'flobaseball', 'florugby', 'flosoccer', 'flotennis',
+    'flovolleyball', 'floswimming',
 )
 
 

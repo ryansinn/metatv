@@ -104,3 +104,49 @@ def test_an_unclassified_channel_stays_visible():
     """``sport_type='unknown'`` is deliberate — the Sports view keeps them
     rather than silently excluding what it could not label."""
     assert _parse("US| RANDOM CHANNEL")["sport_type"] == "unknown"
+
+
+# --------------------------------------------------------------------------- #
+# FloSports vertical titles (2026-09-03) — real rows from the owner's DB.
+#
+# Whole-token matching correctly refuses to see "football" inside
+# "flofootball", so 1,370 of 1,960 FLSP rows classified as nothing and
+# vanished from the Sports view. Each FloSports vertical needs its own
+# compound keyword rather than relying on the base sport word to reach in.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("name,sport", [
+    ("(FLSP 980) | flofootball: 2026 Chaffey College vs Santa Ana College "
+     "(Non-Conference) (2026-09-05 21:00:10)", "american_football"),
+    ("| flovolleyball: 2026 X vs Y", "volleyball"),
+    ("| floswimming: 2026 X vs Y", "swimming"),
+    ("| flotrack: 2026 X vs Y", "track"),
+    ("(FLSP 983) | floracing: 2026 CARS Tour West at Tri_City Speedway",
+     "racing"),
+    ("| flograppling: 2026 X vs Y", "mma"),
+])
+def test_flosports_vertical_titles_classify_to_their_sport(name, sport):
+    assert _parse(name)["sport_type"] == sport
+
+
+def test_flo_network_wrestling_passes_the_gate_and_classifies():
+    """16 "| wrestling: …" rows failed ``detect_sports_channel`` even though
+    "wrestling" was already a keyword in ``parse_sports_channel`` — the gate
+    and the keyword map are separate sets (see ``special_content.py``'s
+    ``SPORTS_GATE_TOKENS``)."""
+    from metatv.core.special_content import detect_sports_channel
+
+    channel = _Channel(
+        "(FLSP 994) | wrestling: Queen of Hearts (Mat 4)", "US| FLO NETWORK")
+    assert detect_sports_channel(channel) is True
+    assert parse_sports_channel(channel)["sport_type"] == "wrestling"
+
+
+@pytest.mark.parametrize("name", ["Florida News 24/7", "Flower Garden 4K"])
+def test_flo_prefix_additions_do_not_gate_unrelated_names(name):
+    """The bare stem "flo" is deliberately never added — it would reach
+    "florida" and "flower". None of the new whole-token flo-vertical/
+    flosports/flo-network entries may match these either."""
+    from metatv.core.special_content import detect_sports_channel
+
+    assert detect_sports_channel(_Channel(name)) is False
