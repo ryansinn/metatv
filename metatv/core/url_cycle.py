@@ -106,6 +106,20 @@ class UrlCycler:
 
         return ordered
 
+    def has_alternate(self, base_url: str, policy: UrlRankingPolicy | None = None) -> bool:
+        """Whether any candidate besides *base_url* exists — read-only.
+
+        The single-URL question, answered inside the chokepoint (the
+        ``ordered_urls`` drift guard rightly forbids asking it anywhere else).
+        Unlike :meth:`candidates` this logs nothing and records nothing, so a
+        caller may consult it BEFORE deciding whether an attempt is even worth
+        recording — the record-before-candidates ordering is unaffected.
+        """
+        if policy is None:
+            policy = get_url_ranking_policy()
+        base = base_url.rstrip('/')
+        return any(u.rstrip('/') != base for u in self.provider.ordered_urls(policy))
+
     def _find(self, base_url: str) -> ProviderURL | None:
         """Return the ``ProviderURL`` matching *base_url*, or ``None``.
 
