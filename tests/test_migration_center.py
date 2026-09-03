@@ -920,6 +920,43 @@ class TestMigrationManager:
         assert "a" in events["finished"], "task 'a' not in finished"
         assert "b" in events["finished"], "task 'b' not in finished"
 
+    def test_needs_run_probe_runs_off_main_thread(self, qapp):
+        """The needs_run evaluation pass (run_pending's probe) must not run on
+        the calling (main) thread — the sampled 2.0s startup stall (watchdog,
+        2026-09-02, main() -> run_pending -> _pending_tasks -> needs_run) was
+        exactly this scan happening synchronously in-line. Also pins that
+        behavior is unchanged: the pending task still starts and all_finished
+        still fires — only the thread the probe runs on moved.
+        """
+        import threading
+
+        main_thread_id = threading.get_ident()
+        probe_thread_ids: list[int] = []
+
+        class _ThreadCapturingTask:
+            id = "thread_capture"
+            label = "Thread-capturing task"
+
+            def needs_run(self, config) -> bool:
+                probe_thread_ids.append(threading.get_ident())
+                return True
+
+            def run(self, progress_cb, is_cancelled) -> None:
+                progress_cb(1, 1)
+
+        mgr, _ = self._make_manager(qapp)
+        mgr.register(_ThreadCapturingTask())
+
+        events = self._collect_signals(mgr, qapp)
+
+        assert probe_thread_ids, "needs_run was never called"
+        assert all(tid != main_thread_id for tid in probe_thread_ids), (
+            f"needs_run ran on the main thread: {probe_thread_ids}"
+        )
+        started_ids = [tid for tid, _lbl in events["started"]]
+        assert "thread_capture" in started_ids, "pending task must still start"
+        assert events["all_finished"] == 1, "all_finished must still fire"
+
     def test_request_cancel_sets_is_cancelled_true(self, qapp):
         """request_cancel causes is_cancelled() → True inside the running task."""
         from PyQt6.QtCore import QEventLoop, QTimer
@@ -938,8 +975,14 @@ class TestMigrationManager:
         guard.timeout.connect(loop.quit)
         guard.start()
 
+        # Cancel ON task_started rather than immediately after run_pending():
+        # run_pending is async now (the evaluate pass runs on the worker), so an
+        # immediate cancel could land before the task ever starts on a loaded
+        # runner — making "task.run was called" a scheduling coincidence. The
+        # signal fires while the worker sits in the task's first sleep, so the
+        # cancel is mid-run by construction.
+        mgr.task_started.connect(lambda *_: mgr.request_cancel())
         mgr.run_pending()
-        mgr.request_cancel()  # cancel before the first sleep completes
         loop.exec()
         guard.stop()
 
@@ -1286,10 +1329,29 @@ class TestStartupFetchGate:
     the 2026-07-31 / 2026-08-01 'database is locked' crash-loops. These tests
     drive the real unbound ``_gate_startup_fetches`` against a
     ``SimpleNamespace`` host + a REAL ``MigrationManager`` (so
-    ``all_finished`` is a genuine ``pyqtSignal`` we can emit), spying on
-    ``_start_deferred_fetches`` rather than the ``QTimer.singleShot``
-    plumbing inside it (unchanged, pre-existing timing).
+    ``all_finished``/``pending_evaluated`` are genuine ``pyqtSignal``s we can
+    emit/await), spying on ``_start_deferred_fetches`` rather than the
+    ``QTimer.singleShot`` plumbing inside it (unchanged, pre-existing timing).
+
+    The pending-or-not answer is now async (``evaluate_pending_async`` runs
+    the ``needs_run`` probe off the main thread — see migration_manager.py),
+    so every test pumps a real ``QEventLoop`` until ``pending_evaluated``
+    arrives before asserting on the gate's decision.
     """
+
+    def _await_pending_evaluated(self, mgr, *, timeout_ms: int = 3000) -> None:
+        """Pump a real event loop until MigrationManager reports pending_evaluated."""
+        from PyQt6.QtCore import QEventLoop, QTimer
+
+        loop = QEventLoop()
+        mgr.pending_evaluated.connect(loop.quit)
+        guard = QTimer()
+        guard.setSingleShot(True)
+        guard.setInterval(timeout_ms)
+        guard.timeout.connect(loop.quit)
+        guard.start()
+        loop.exec()
+        guard.stop()
 
     def test_no_pending_migrations_fires_immediately(self, qapp):
         from types import SimpleNamespace
@@ -1298,13 +1360,14 @@ class TestStartupFetchGate:
         from metatv.core.migration_manager import MigrationManager
 
         mgr = MigrationManager(config=_FakeConfig(), db=MagicMock())
-        # No tasks registered → has_pending_tasks() is False.
+        # No tasks registered → the async probe reports pending=False.
         me = SimpleNamespace(
             migration_manager=mgr,
             _start_deferred_fetches=MagicMock(),
         )
         try:
             MainWindow._gate_startup_fetches(me)
+            self._await_pending_evaluated(mgr)  # await the off-thread probe
             me._start_deferred_fetches.assert_called_once()
         finally:
             mgr.shutdown()
@@ -1326,6 +1389,9 @@ class TestStartupFetchGate:
         )
         try:
             MainWindow._gate_startup_fetches(me)
+            # Wait for the off-thread probe to report pending=True and wire
+            # the all_finished handler — only then is emitting it meaningful.
+            self._await_pending_evaluated(mgr)
 
             assert me._start_deferred_fetches.call_count == 0, (
                 "must not fire the fetch storm while migrations are pending"
@@ -1357,6 +1423,8 @@ class TestStartupFetchGate:
         )
         try:
             MainWindow._gate_startup_fetches(me)
+            self._await_pending_evaluated(mgr)
+
             mgr.all_finished.emit()
             mgr.all_finished.emit()  # simulate a second completion signal
 

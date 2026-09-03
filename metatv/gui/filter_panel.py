@@ -35,6 +35,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
 
     filter_changed = pyqtSignal()
     settings_requested = pyqtSignal()
+    _pending_restore_reload = False  # set True just before the restore-only emit below
 
     # Section keys in display order.
     # "category" (live-channel kind: Sports/News/Kids…) sits between quality and
@@ -517,14 +518,13 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             f"{len(dub_items)} dub langs, {len(format_items)} audio formats"
         )
 
-        # On the very first call the channel list was loaded before dynamic
-        # sections were populated (restore_search_state fires load_channels while
-        # Language/Region/etc. are still empty).  Re-run load_channels with the
-        # restored filters — but ONLY if they actually constrain anything.
-        # A subsequent call (source refresh/import) does NOT blindly re-emit — but
-        # if it surfaced NEW facet values (already included by default), offer the
-        # opt-out popup and reload once the user has decided.
+        # First call: the list loaded before dynamic sections populated
+        # (restore_search_state fires load_channels while they're still
+        # empty) — re-run it, but only if the restored filters constrain
+        # anything.  A later call (refresh/import) only reloads if it
+        # surfaced NEW facet values, via the opt-out popup below.
         if was_first and self._restore_constrains_the_query():
+            self._pending_restore_reload = True  # keep rows: not a user click
             self.filter_changed.emit()
         elif new_by_facet:
             self._show_new_values_popup(new_by_facet)
