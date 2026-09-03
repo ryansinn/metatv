@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
+from metatv.core import migration_gate
+
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
@@ -131,6 +133,11 @@ class MigrationManager(QObject):
         ``TmdbEnrichmentManager._defer_for_migration``). A missed transition
         by a beat or two is harmless — the retry helpers on both sides are the
         actual correctness backstop.
+
+        A reader that does not hold (or want to hold) a manager reference —
+        e.g. sidebar sections, which construct independently of it — reads the
+        same fact via ``core.migration_gate.is_running()`` instead, set/cleared
+        by this class alongside ``self._running`` (see ``_run_all``/``shutdown``).
         """
         return self._running
 
@@ -232,12 +239,22 @@ class MigrationManager(QObject):
         logger.info("MigrationManager: shutting down")
         self._cancel_event.set()
         self._executor.shutdown(wait=True, cancel_futures=True)
+        # Clear even if no pass was running — idempotent, and guarantees a
+        # reader (BackgroundRefreshMixin.refresh) never sees a stuck gate past
+        # window teardown.
+        migration_gate._set_running(False)
         logger.info("MigrationManager: shutdown complete")
 
     # ── Internal worker (runs on the pool thread) ───────────────────────────
 
     def _run_all(self, pending: list["MigrationTask"]) -> None:
         """Worker: iterate through *pending* tasks sequentially."""
+        # Gate on for the whole pass — set at the same point the first task is
+        # about to start, cleared in `finally` alongside "all tasks done". A
+        # bulk-write manager (TmdbEnrichmentManager) already polls this same
+        # shape via its own `.is_running`; sidebar sections' background reads
+        # (BackgroundRefreshMixin.refresh) poll THIS gate instead of contending.
+        migration_gate._set_running(True)
         try:
             for task in pending:
                 if self._cancel_event.is_set():
@@ -291,5 +308,6 @@ class MigrationManager(QObject):
 
         finally:
             self._running = False
+            migration_gate._set_running(False)
             self._all_finished.emit()
             logger.info("MigrationManager: all tasks done")
