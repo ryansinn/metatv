@@ -1439,25 +1439,16 @@ REGION_FULL_NAMES: dict[str, str] = {
 }
 
 
-#: Spelled-out league names that prefix a dash-matchup fixture's team A —
-#: "NEXT | MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES | …" names the
-#: opponents "DIAMONDBACKS"/"PHILLIES", not "MAJOR LEAGUE BASEBALL
-#: DIAMONDBACKS"/"PHILLIES" (SPORT-4, ``core/fixture_titles.py``).
-#:
-#: Only ``MAJOR LEAGUE BASEBALL`` is directly measured on the owner's corpus
-#: (2026-09-02); the rest are the spelled-out forms of abbreviations this
-#: module already recognises (the "Sports leagues / brands" block above, and
-#: ``special_content.py``'s ``league_keywords``) — added for parity so the
-#: same trim behaves consistently across leagues the app already knows,
-#: rather than hand-picking one. A match must be the FULL phrase as a prefix;
-#: anything else is ambiguous and the parser keeps the whole left side rather
-#: than guess (bias to recall, DR-0006).
+#: Spelled-out league names prefixing a dash-matchup fixture's team A — "…
+#: MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES" names DIAMONDBACKS/PHILLIES,
+#: not "MAJOR LEAGUE BASEBALL DIAMONDBACKS" (SPORT-4, core/fixture_titles.py).
+#: Only MLB is corpus-measured (2026-09-02); the rest mirror abbreviations
+#: already known above/in special_content.py's league_keywords, for parity.
+#: Ambiguous prefixes are left alone rather than guessed (bias to recall).
 FIXTURE_LEAGUE_NAME_PREFIXES: tuple[str, ...] = (
-    "MAJOR LEAGUE BASEBALL",       # MLB
-    "NATIONAL BASKETBALL ASSOCIATION",  # NBA
-    "NATIONAL FOOTBALL LEAGUE",    # NFL
-    "NATIONAL HOCKEY LEAGUE",      # NHL
-    "ENGLISH PREMIER LEAGUE",      # EPL
+    "MAJOR LEAGUE BASEBALL", "NATIONAL BASKETBALL ASSOCIATION",
+    "NATIONAL FOOTBALL LEAGUE", "NATIONAL HOCKEY LEAGUE",
+    "ENGLISH PREMIER LEAGUE",
 )
 
 
