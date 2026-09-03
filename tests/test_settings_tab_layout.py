@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS, _SECTIONS
 from tests.conftest import (
+    wire_settings_content_widgets,
     wire_settings_density_widget,
     wire_settings_epg_widgets,
     wire_settings_playback_widgets,
@@ -104,11 +105,9 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._middle_click_combo = QComboBox()
     for _action in MIDDLE_CLICK_ACTIONS:
         dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
-    # -- Content tab widgets --
-    dlg._adult_mode_combo = QComboBox()
-    dlg._adult_mode_combo.addItem("Show everything", userData="all")
-    dlg._adult_mode_combo.addItem("Hide adult content", userData="hide")
-    dlg._adult_mode_combo.addItem("Show only adult content", userData="only")
+    # -- Content tab widgets -- (shared factory: CLAUDE.md — a duplicate found
+    # while touching this exact spot is fixed here, not left as a second copy)
+    wire_settings_content_widgets(dlg)
 
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()

@@ -1520,6 +1520,11 @@ class Config(BaseModel):
     # is never affected by this setting — that's always a deliberate user action.
     refresh_all_includes_inactive: bool = False
 
+    # LIVE-1 (Settings -> Content -> "Live catalog refresh"): auto-refresh
+    # rate for the LIVE catalog only (never VOD/series), per catalog_refresh.py.
+    # "manual" (default), "on_view_open", or "15m"/"30m"/"1h"/"3h".
+    live_refresh_mode: str = "manual"
+
     # Series monitor — user-opted series tracked for new episode arrivals.
     # Each entry is a plain dict:
     #   {"series_channel_id": str,   # ChannelDB.id of the PRIMARY (add-time) channel

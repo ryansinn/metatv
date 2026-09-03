@@ -1066,7 +1066,9 @@ def wire_settings_content_widgets(dlg) -> None:
     Adding ``_adult_mode_combo`` to the Content tab broke **37 tests across six
     files** that the PR never touched — the exact blind spot the local
     ``--quick`` gate has by construction, and CI caught it. One factory makes
-    the next Content widget a single edit here.
+    the next Content widget a single edit here — LIVE-1's
+    ``_live_refresh_mode_combo`` landed in this same edit rather than as a
+    seventh near-identical copy.
 
     Args:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
@@ -1077,6 +1079,16 @@ def wire_settings_content_widgets(dlg) -> None:
     dlg._adult_mode_combo.addItem("Show everything", userData="all")
     dlg._adult_mode_combo.addItem("Hide adult content", userData="hide")
     dlg._adult_mode_combo.addItem("Show only adult content", userData="only")
+
+    dlg._live_refresh_mode_combo = QComboBox()
+    dlg._live_refresh_mode_combo.addItem(
+        "Manual — banner and refresh button only", userData="manual")
+    dlg._live_refresh_mode_combo.addItem(
+        "Whenever Sports or Events opens", userData="on_view_open")
+    dlg._live_refresh_mode_combo.addItem("Every 15 minutes", userData="15m")
+    dlg._live_refresh_mode_combo.addItem("Every 30 minutes", userData="30m")
+    dlg._live_refresh_mode_combo.addItem("Every hour", userData="1h")
+    dlg._live_refresh_mode_combo.addItem("Every 3 hours", userData="3h")
 
 
 # ---------------------------------------------------------------------------
