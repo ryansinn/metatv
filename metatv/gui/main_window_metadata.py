@@ -9,6 +9,8 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 from __future__ import annotations
 
 import asyncio
+import sys
+import time
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
@@ -17,6 +19,17 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.gui.details_actions import ChannelActionState
 from metatv.gui.details_versions import ChannelVersion
+
+# Owner's log (2026-09-02): one selection produced two full render+fetch
+# cycles for the same channel 185ms apart. #680 fixed the LIST's own
+# click/selection double; this debounce covers every OTHER path into
+# update_details_pane_for_channel (sidebar sections, version_selected,
+# programmatic calls) that had no dedupe of its own. 300ms, not id-gating:
+# gating on the id alone breaks click-again-to-refresh, the deliberate escape
+# hatch #680's record relies on — a human re-click is seconds apart, the
+# measured accidental double was 185ms, so 300ms catches the double without
+# touching the escape hatch.
+_RERENDER_DEBOUNCE_S = 0.3
 
 
 class _MetadataMixin:
@@ -458,6 +471,36 @@ class _MetadataMixin:
     def update_details_pane_for_channel(self, channel):
         """Update details pane with channel metadata (async)."""
         from metatv.core.models import MediaType
+
+        # Deliberate diagnostics (2026-09-02): names the caller that reached
+        # this chokepoint, so the owner's next "double render" log can name
+        # which pair of surfaces fired it — the original report could not
+        # tell which pair it was.
+        logger.debug(
+            "details pane: render request for {} via {}",
+            channel.id, sys._getframe(1).f_code.co_name,
+        )
+
+        # Debounce: this is the ONE chokepoint every path funnels through
+        # (show_channel_details_by_id, on_channel_selection_changed,
+        # version_selected, programmatic sidebar calls). Read prior state via
+        # self.__dict__.get, never getattr/hasattr — a skeleton test double
+        # built with QObject.__new__ raises RuntimeError, not AttributeError,
+        # on an attribute probe. See _RERENDER_DEBOUNCE_S above for why this
+        # is time-gated rather than id-gated.
+        now = time.monotonic()
+        last = self.__dict__.get("_details_last_render")
+        if (
+            last is not None
+            and last[0] == channel.id
+            and (now - last[1]) < _RERENDER_DEBOUNCE_S
+        ):
+            logger.debug(
+                "details pane: suppressed duplicate render of {id} ({ms:.0f}ms after the last)",
+                id=channel.id, ms=(now - last[1]) * 1000,
+            )
+            return
+        self._details_last_render = (channel.id, now)
 
         if getattr(channel, "media_type", None) == MediaType.LIVE:
             self.details_pane.set_provider_urls([])
