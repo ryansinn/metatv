@@ -1,6 +1,7 @@
 """Special content detection and parsing for PPV, Live Events, and Sports"""
 
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
@@ -85,6 +86,13 @@ _BUNDLED_DEFINITIONS = Path(__file__).parent.parent / 'data' / 'sports_definitio
 #: key has to include the file's mtime, and ``config`` is not hashable.
 _DEFINITIONS_CACHE: "dict[tuple[str, int | None], Tuple[Dict, Dict]]" = {}
 
+_STAMP_TTL_S = 1.0
+#: A hot backfill calls load_sports_definitions once per row; re-statting the
+#: override file per row is 785k syscalls per pass. Within this TTL the last
+#: (path, mtime) key is reused unchecked — a Settings edit still lands within
+#: a second, which no caller can observe.
+_last_stamp_check: dict = {"path": None, "at": 0.0, "key": None}
+
 
 def get_user_definitions_path(config=None) -> Path:
     """Return path to the user's personal definitions override file.
@@ -137,11 +145,17 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
     # file. The cache went on the call site that was noticed rather than on the
     # function, so the hot caller kept paying.
     user_path = get_user_definitions_path(config)
-    try:
-        stamp = user_path.stat().st_mtime_ns
-    except OSError:
-        stamp = None                      # no override file — a valid state
-    cache_key = (str(user_path), stamp)
+    now = time.monotonic()
+    if (_last_stamp_check["path"] == str(user_path)
+            and (now - _last_stamp_check["at"]) < _STAMP_TTL_S):
+        cache_key = _last_stamp_check["key"]
+    else:
+        try:
+            stamp = user_path.stat().st_mtime_ns
+        except OSError:
+            stamp = None                      # no override file — a valid state
+        cache_key = (str(user_path), stamp)
+        _last_stamp_check.update(path=str(user_path), at=now, key=cache_key)
     cached = _DEFINITIONS_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -154,8 +168,11 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
         sport_kw = {k: list(v) for k, v in _DEFAULT_SPORT_KEYWORDS.items()}
         league_kw = {k: list(v) for k, v in _DEFAULT_LEAGUE_KEYWORDS.items()}
 
-    # Merge user overrides if the settings UI has created them
-    if user_path.exists():
+    # Merge user overrides if the settings UI has created them. The stamp in
+    # the cache key already answers "does the override file exist" — a
+    # separate exists() would be a second stat() per cache miss, the very
+    # syscall this TTL exists to avoid.
+    if cache_key[1] is not None:
         try:
             user_sports, user_leagues = _load_definitions_file(user_path)
             for sport, keywords in user_sports.items():
