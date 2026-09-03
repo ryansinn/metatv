@@ -254,16 +254,22 @@ def qapp():
     yield app
 
 
-def _make_provider_refresh_stub(recheck_failed_on_refresh: bool):
+def _make_provider_refresh_stub(tmp_path: Path, recheck_failed_on_refresh: bool):
     """Minimal MainWindow-shaped stub for _on_queue_refresh_finished's success path.
 
     Every attribute the handler's success path touches must be set explicitly —
     on a __new__'d QMainWindow a *missing* attr raises RuntimeError from PyQt
     rather than AttributeError/False (see test_add_provider_epg.py's identical
-    stub pattern).
+    stub pattern). ``db`` (real, file-backed) + a "prov-1" row were added for
+    SPORT-7's ``self._mark_catalog_refreshed(provider_id)`` call in the success
+    branch — repaired here, the shared factory, per CLAUDE.md's stub-repair rule.
     """
     from metatv.gui.main_window import MainWindow
+    db = _make_db(tmp_path)
+    with db.session_scope() as session:
+        _insert_provider(session, "prov-1")
     mw = MainWindow.__new__(MainWindow)
+    mw.db = db
     mw.active_threads = []
     mw.refreshing_providers = set()
     mw.notification_manager = MagicMock()
@@ -276,16 +282,43 @@ def _make_provider_refresh_stub(recheck_failed_on_refresh: bool):
     return mw
 
 
-def test_recheck_failed_on_refresh_true_triggers_check_all_now(qapp):
-    mw = _make_provider_refresh_stub(recheck_failed_on_refresh=True)
+def test_recheck_failed_on_refresh_true_triggers_check_all_now(qapp, tmp_path):
+    mw = _make_provider_refresh_stub(tmp_path, recheck_failed_on_refresh=True)
     mw._on_queue_refresh_finished("prov-1", True, "ok", None)
     mw.stream_retry_manager.check_all_now.assert_called_once()
 
 
-def test_recheck_failed_on_refresh_false_skips_check_all_now(qapp):
-    mw = _make_provider_refresh_stub(recheck_failed_on_refresh=False)
+def test_recheck_failed_on_refresh_false_skips_check_all_now(qapp, tmp_path):
+    mw = _make_provider_refresh_stub(tmp_path, recheck_failed_on_refresh=False)
     mw._on_queue_refresh_finished("prov-1", True, "ok", None)
     mw.stream_retry_manager.check_all_now.assert_not_called()
+
+
+def test_a_successful_refresh_stamps_last_catalog_refresh_at(qapp, tmp_path):
+    """SPORT-7: the catalog-refresh tick/banner's "how fresh" fact is stamped
+    on the refresh-success path, through ProviderRepository — not raw ORM
+    in gui code."""
+    from metatv.core.database import ProviderDB
+
+    mw = _make_provider_refresh_stub(tmp_path, recheck_failed_on_refresh=False)
+    mw._on_queue_refresh_finished("prov-1", True, "ok", None)
+
+    with mw.db.session_scope(commit=False) as session:
+        row = session.query(ProviderDB).filter_by(id="prov-1").first()
+        assert row.last_catalog_refresh_at is not None
+
+
+def test_a_failed_refresh_does_not_stamp_last_catalog_refresh_at(qapp, tmp_path):
+    """A source that just failed must not read as freshly current to the
+    tick or the banner."""
+    from metatv.core.database import ProviderDB
+
+    mw = _make_provider_refresh_stub(tmp_path, recheck_failed_on_refresh=False)
+    mw._on_queue_refresh_finished("prov-1", False, "boom", None)
+
+    with mw.db.session_scope(commit=False) as session:
+        row = session.query(ProviderDB).filter_by(id="prov-1").first()
+        assert row.last_catalog_refresh_at is None
 
 
 # ---------------------------------------------------------------------------

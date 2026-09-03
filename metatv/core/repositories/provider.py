@@ -417,6 +417,91 @@ class ProviderRepository:
         rows = self.session.query(ProviderDB.icon).all()
         return [r.icon for r in rows if r.icon]
 
+    # ── Catalog refresh (SPORT-7) ────────────────────────────────────────
+    #
+    # ``refresh_schedule`` (manual/launch/daily/weekly/monthly) shipped in the
+    # provider editor with zero readers — nothing anywhere fired a refresh
+    # from it. These three methods are what the tick
+    # (``main_window_providers._maybe_auto_refresh_catalogs``) and the Sports
+    # view staleness banner read; the due/interval decision itself is a pure
+    # function in ``core/catalog_refresh.py`` (control layer, DR-0007) — this
+    # class only returns data.
+
+    def _effective_catalog_refresh(self, provider: ProviderDB) -> Optional[datetime]:
+        """COALESCE(last_catalog_refresh_at, MAX(channels.last_seen_at)) for one row.
+
+        ``last_catalog_refresh_at`` is only stamped going forward (on a
+        SUCCESSFUL refresh through the queue); a source that predates the
+        column, or has never been refreshed since, falls back to the newest
+        ``last_seen_at`` its channels carry (stamped on every ingest) so it
+        isn't treated as infinitely stale the moment this shipped. ``None``
+        when neither is available — the source has never ingested a channel.
+        """
+        if provider.last_catalog_refresh_at is not None:
+            return provider.last_catalog_refresh_at
+        from sqlalchemy import func
+        return (
+            self.session.query(func.max(ChannelDB.last_seen_at))
+            .filter(ChannelDB.provider_id == provider.id)
+            .scalar()
+        )
+
+    def get_active_providers_with_refresh_schedule(self) -> List[tuple]:
+        """``(id, name, refresh_schedule, effective_last_refresh)`` for every
+        ACTIVE provider — the catalog-refresh tick's one read; see
+        ``metatv.core.catalog_refresh.catalog_refresh_due`` for what happens
+        with each row.
+        """
+        rows = self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all()  # noqa: E712
+        return [
+            (p.id, p.name, p.refresh_schedule or "manual", self._effective_catalog_refresh(p))
+            for p in rows
+        ]
+
+    def get_newest_catalog_refresh(self) -> Optional[datetime]:
+        """Newest effective catalog-refresh stamp across ACTIVE providers.
+
+        The freshest active source's stamp — if even THAT one is old, every
+        active source is at least as stale. Powers the Sports view banner:
+        ``None`` when no active provider has ever ingested a channel.
+        """
+        values = [
+            self._effective_catalog_refresh(p)
+            for p in self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all()  # noqa: E712
+        ]
+        values = [v for v in values if v is not None]
+        return max(values) if values else None
+
+    def get_stale_active_providers(self, threshold, now: Optional[datetime] = None) -> List[tuple]:
+        """``(id, name)`` for ACTIVE providers whose effective catalog refresh
+        is older than *threshold* (a ``timedelta``), or has never happened.
+
+        Powers the Sports banner's "Refresh sources" action — enqueues
+        exactly the sources that are actually stale rather than the whole
+        corpus, so a source refreshed moments ago elsewhere isn't
+        redundantly re-queued.
+        """
+        now = now or datetime.now()
+        out = []
+        for p in self.session.query(ProviderDB).filter(ProviderDB.is_active == True).all():  # noqa: E712
+            effective = self._effective_catalog_refresh(p)
+            if effective is None or (now - effective) >= threshold:
+                out.append((p.id, p.name))
+        return out
+
+    def mark_catalog_refreshed(self, provider_id: str, when: Optional[datetime] = None) -> None:
+        """Stamp ``last_catalog_refresh_at`` on a SUCCESSFUL catalog refresh.
+
+        Called only from the refresh-success path
+        (``main_window_providers._on_queue_refresh_finished``) — never on
+        failure, so a source that just failed to refresh isn't treated as
+        freshly current by the tick or the banner.
+        """
+        provider = self.get_by_id(provider_id)
+        if provider:
+            provider.last_catalog_refresh_at = when or datetime.now()
+            self.session.commit()
+
     def to_model(self, db_provider: ProviderDB) -> Provider:
         """Convert database model to domain model, including alternate URLs.
 

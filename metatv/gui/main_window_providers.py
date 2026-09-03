@@ -710,6 +710,7 @@ class _ProviderMixin:
             self.refreshing_providers.discard(provider_id)
 
         if success:
+            self._mark_catalog_refreshed(provider_id)  # SPORT-7 stamp; catalog_refresh_tick.py
             # Prefix stats were computed in the worker thread — keep the unmapped
             # list for the "Uncategorized" workflow.  NOTE: we no longer feed these
             # prefix stats to FilterPanel.update_data() — that expected the legacy
