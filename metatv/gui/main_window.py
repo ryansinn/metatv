@@ -413,12 +413,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             migration_manager=self.migration_manager,
             connection_accountant=self.player_manager.connection_accountant,
         )
-        # Connect to MainWindow bound methods (QObject receivers on the main thread)
-        # — NOT bare lambdas — so worker-thread emits are delivered via a queued
-        # connection on the main thread. collapses_found's int arg is dropped.
-        self.tmdb_enrichment_manager.collapses_found.connect(
-            self._refresh_provider_dependent_views
-        )
+        # Coalesced (REC-LAG) — see gui/refresh_coalescer.py for why.
+        from metatv.gui.refresh_coalescer import RefreshCoalescer
+        self._enrich_coalescer = RefreshCoalescer(self, self._refresh_provider_dependent_views)
+        self.tmdb_enrichment_manager.collapses_found.connect(self._enrich_coalescer.on_collapse)
+        self.tmdb_enrichment_manager.enrichment_settled.connect(self._enrich_coalescer.on_settled)
         # Coalesced per-source "Updating N titles from {name}…" toast (main thread).
         self._tmdb_enrich_notifs: dict[str, str] = {}
         self.tmdb_enrichment_manager.enrichment_progress.connect(
