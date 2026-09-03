@@ -160,7 +160,9 @@ def test_known_set_persists_round_trip(qapp):
 
     panel = FilterPanel(cfg)
     panel.update_data({"genre": {"Drama": 40, "Comedy": 30}})  # baseline records known
-    panel.save_state()  # writes config (to the tmp home, per the autouse fixture)
+    panel.save_state()  # queues the write (to the tmp home, per the autouse fixture)
+    from metatv.gui import deferred_config_save as _cfgsave
+    _cfgsave.flush(panel)  # the write defers; force it before the disk read
 
     reloaded, _ = Config.load()
     assert reloaded.filter_known_genres is not None

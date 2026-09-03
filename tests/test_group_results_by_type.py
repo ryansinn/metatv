@@ -344,6 +344,8 @@ def test_host_toggle_handler_persists_and_groups(qapp):
     host._on_group_by_type_toggled(True)
 
     assert host.config.group_by_type is True
+    from metatv.gui import deferred_config_save as _cfgsave
+    _cfgsave.flush(host)  # the write defers; force it before the disk read
     assert Config.load()[0].group_by_type is True  # persisted to disk
     assert host.channel_model.is_grouped is True
     assert host.channel_model.rowCount() == 4  # 2 headers + 2 channels
@@ -377,6 +379,8 @@ def test_host_header_click_toggles_and_persists_collapse(qapp):
     host._on_channel_list_clicked(movie_header_idx)
 
     assert "movie" in host.config.group_collapsed_types
+    from metatv.gui import deferred_config_save as _cfgsave
+    _cfgsave.flush(host)  # the write defers; force it before the disk read
     assert "movie" in Config.load()[0].group_collapsed_types  # persisted to disk
     # Movie channel row hidden → 4 - 1 = 3.
     assert host.channel_model.rowCount() == 3
