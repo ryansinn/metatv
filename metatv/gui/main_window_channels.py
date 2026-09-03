@@ -30,6 +30,7 @@ from loguru import logger
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import downloaded_scope as _dl_scope
 from metatv.gui import ui_phase as _phase
 from metatv.gui.channel_transparency import AT_LEAST as _transparency_at_least
 from metatv.core.filter_utils import is_channel_excluded
@@ -198,10 +199,12 @@ class _ChannelListMixin:
         if not getattr(self.config, 'remember_search', True):
             return
         query = self.search_input.text() if hasattr(self, 'search_input') else ""
+        scope = _dl_scope.scope_from_host(self)  # DL-5
         state = {
             "query": query,
             "provider_id": getattr(self, 'selected_provider_id', None),
-            "hidden_mode": bool(getattr(self, '_hidden_mode', False)),
+            "hidden_mode": scope == 'hidden',
+            "list_scope": scope,
             "genre_filter": getattr(self, '_details_genre_filter', None),
             "person_filter": getattr(self, '_details_person_filter', None),
             # Tag chip is a (facet_type, value) tuple → a list for YAML.
@@ -230,23 +233,23 @@ class _ChannelListMixin:
 
         query = state.get("query", "")
         provider_id = state.get("provider_id")
-        hidden_mode = bool(state.get("hidden_mode", False))
+        scope, hidden_mode, downloaded_mode = _dl_scope.scope_from_state(state)  # DL-5
         genre_filter = state.get("genre_filter")
         person_filter = state.get("person_filter")
         tag_filter = state.get("tag_filter")          # [facet_type, value] | None
         category_filter = state.get("category_filter")  # curated category | None
 
         any_non_trivial = (
-            query or provider_id or hidden_mode or genre_filter or person_filter
-            or tag_filter or category_filter
+            query or provider_id or hidden_mode or downloaded_mode or genre_filter
+            or person_filter or tag_filter or category_filter
         )
         if not any_non_trivial:
             return False  # saved state is the empty default — nothing to restore
 
         logger.info(
-            "Restoring search state: query={!r} provider={} hidden={} genre={} "
+            "Restoring search state: query={!r} provider={} scope={} genre={} "
             "person={} tag={} category={}",
-            query, provider_id, hidden_mode, genre_filter, person_filter,
+            query, provider_id, scope, genre_filter, person_filter,
             tag_filter, category_filter,
         )
 
@@ -280,18 +283,13 @@ class _ChannelListMixin:
             if hasattr(self, '_context_filter_chip'):
                 self._context_filter_chip.show()
 
-        # Restore hidden/all toggle — update UI buttons without retriggering load
-        if hidden_mode:
-            self._hidden_mode = True
-            if hasattr(self, '_tab_all_btn'):
-                self._tab_all_btn.blockSignals(True)
-                self._tab_hidden_btn.blockSignals(True)
-                self._tab_all_btn.setChecked(False)
-                self._tab_hidden_btn.setChecked(True)
-                self._tab_all_btn.blockSignals(False)
-                self._tab_hidden_btn.blockSignals(False)
-            if hasattr(self, '_hidden_banner'):
-                self._hidden_banner.setVisible(True)
+        # Restore the All/Downloaded/Hidden scope (DL-5) — buttons only, no
+        # load yet (the restored load is issued once, below).
+        self._list_scope = scope
+        self._hidden_mode = hidden_mode
+        _dl_scope.sync_scope_buttons(self, scope, hidden_mode, downloaded_mode)
+        if hidden_mode and hasattr(self, '_hidden_banner'):
+            self._hidden_banner.setVisible(True)
 
         # Restore source filter — update Sources UI selection without triggering load
         if provider_id:
@@ -457,6 +455,7 @@ class _ChannelListMixin:
             'provider_icon_map': provider_icon_map,
             'given_provider_id': provider_id,
             'hidden_only': self._hidden_mode,
+            'downloaded_only': _dl_scope.scope_from_host(self) == 'downloaded',
             'bypassing_tier1': _bypassing,
             # Watched filter — OFF by default; when ON excludes watch_completed channels
             'hide_watched': filter_state.get('hide_watched', False),
@@ -553,6 +552,8 @@ class _ChannelListMixin:
 
         force_adult_ids = params['force_adult_ids']
         hidden_only = params.get('hidden_only', False)
+        downloaded_only = params.get('downloaded_only', False)
+        _record_view = hidden_only or downloaded_only  # DR-0007/DL-5: both skip the probes below
         _page_size = params.get('page_size', 5_000)
 
         # ── The Global-Exclusion sets, resolved ONCE and early ─────────────────
@@ -662,6 +663,8 @@ class _ChannelListMixin:
                 provider_id=params['provider_id'],
                 excluded_provider_ids=providers_to_exclude or None,
             )
+        elif downloaded_only:
+            channels = _dl_scope.load(repos, params, force_adult_ids, _page_size)
         elif id_filter_show_all:
             # Relax only the SOFT filters — provider-scoping stays applied: content on
             # disabled/expired sources (get_hidden_provider_ids) is a top-level gate and
@@ -695,7 +698,7 @@ class _ChannelListMixin:
         # for the small alert/search result sets; for a huge corpus it is capped at the
         # page (same acceptable compromise as the existing counts).
         bypass_exclusions = bool(params.get('bypass_global_exclusions'))
-        exclusions_applied = not hidden_only and not id_filter_show_all and not bypass_exclusions
+        exclusions_applied = not _record_view and not id_filter_show_all and not bypass_exclusions
         hidden_by_exclusions = 0
         if exclusions_applied:
             _before_excl = len(channels)
@@ -722,7 +725,7 @@ class _ChannelListMixin:
         filtered_out_count = 0
         hidden_by_search = 0
         tier1_active = bool(params.get('tag_includes'))
-        if not hidden_only and not id_filter_show_all and tier1_active:
+        if not _record_view and not id_filter_show_all and tier1_active:
             unfiltered = repos.channels.get_all(**{**_axes, 'tag_includes': None})
             _raw_unfiltered = len(unfiltered)
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
@@ -759,7 +762,7 @@ class _ChannelListMixin:
         # load, which predates the collapse path.
         hidden_by_dead = 0
         dead_active = (
-            not hidden_only
+            not _record_view
             and not id_filter_show_all
             and not bypass_dead_gate
             and repos.stream_retry.has_dead()
@@ -788,7 +791,7 @@ class _ChannelListMixin:
         # measure, or the user already revealed this layer (bypass_keywords).
         hidden_by_keywords = 0
         keywords_active = (
-            not hidden_only and not id_filter_show_all
+            not _record_view and not id_filter_show_all
             and not bypass_keywords and bool(_excl_keywords)
         )
         if keywords_active:
@@ -813,7 +816,7 @@ class _ChannelListMixin:
         # it IS asked — every PORNBOX channel is flagged, so that category
         # returned 0 of 28 under "try a different search".
         hidden_by_adult = 0
-        if (not channels and not hidden_only and not id_filter_show_all
+        if (not channels and not _record_view and not id_filter_show_all
                 and params['adult_mode'] != 'all' and has_adult):
             with_adult = repos.channels.get_all(**{**_axes, 'adult_mode': 'all'})
             _raw_with_adult = len(with_adult)
@@ -830,7 +833,7 @@ class _ChannelListMixin:
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
         watched_hidden_count = 0
-        if not hidden_only and params.get('hide_watched', False):
+        if not _record_view and params.get('hide_watched', False):
             # Splat the SAME axis dict get_all() was given, so the "N hidden
             # because watched" count is computed from one definition of the axes
             # rather than a hand-copy of them.  This block used to re-list 22 of
@@ -924,6 +927,8 @@ class _ChannelListMixin:
             elif params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
+            elif params.get('downloaded_only'):
+                _dl_scope.show_empty(self.status_bar, self.stats_label)
             elif params.get('id_filter_active'):
                 # Dormant alert id-filter: single "N filtered — show" segment.
                 id_hidden = params.get('filtered_out_count', 0)
@@ -983,11 +988,11 @@ class _ChannelListMixin:
         shown = len(channels)
         # Paging is keyed off the RAW SQL rows fetched (before Python exclusions),
         # not the surviving `shown` — otherwise an active exclusion shortens page 1
-        # and wrongly reports exhaustion. hidden_only loads everything in one shot
-        # (no offset/limit), so it never pages.
+        # and wrongly reports exhaustion. hidden_only/downloaded_only load
+        # everything in one shot (no offset/limit), so neither ever pages.
         raw_fetched = params.get('raw_fetched', shown)
         page_size = params.get('page_size', self._search_page_size)
-        has_more = (not params.get('hidden_only')) and (raw_fetched >= page_size)
+        has_more = not (params.get('hidden_only') or params.get('downloaded_only')) and raw_fetched >= page_size
 
         # Populate the virtualized model — this replaces the old addItem loop.
         # Pass through display helpers so the model can compose identical text.
@@ -1011,6 +1016,7 @@ class _ChannelListMixin:
         # the "Showing N of M" label live as fetchMore() streams in more pages.
         self._stats_total_channels = total_channels
         self._stats_hidden_only = bool(params.get('hidden_only'))
+        self._stats_downloaded_only = bool(params.get('downloaded_only'))
         # tag_includes is the active filter indicator (Slice B); the alert id-filter
         # also drives "Showing N of M · K filtered out" (M = the matched id-set size).
         self._stats_panel_filtering = bool(params.get('tag_includes')) or bool(params.get('id_filter_active'))
@@ -1021,6 +1027,8 @@ class _ChannelListMixin:
 
         if params.get('hidden_only'):
             self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
+        elif params.get('downloaded_only'):
+            self.status_bar.showMessage(_dl_scope.count_text(shown))
         elif given_provider_id:
             self.status_bar.showMessage(f"{shown:,} channels from selected source")
         else:
@@ -1082,6 +1090,8 @@ class _ChannelListMixin:
         total = getattr(self, '_stats_total_channels', shown)
         if getattr(self, '_stats_hidden_only', False):
             self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
+        elif self.__dict__.get('_stats_downloaded_only', False):
+            self.stats_label.setText(_dl_scope.count_text(shown))
         elif getattr(self, '_stats_panel_filtering', False):
             excluded = max(0, total - shown)
             watched_hidden = getattr(self, '_stats_watched_hidden', 0)
@@ -2046,6 +2056,7 @@ class _ChannelListMixin:
         """
 
         hidden_only = query_params.get('hidden_only', False)
+        downloaded_only = query_params.get('downloaded_only', False)
         force_adult_ids = query_params.get('force_adult_ids', [])
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
         _id_filter = query_params.get('context_id_filter')
@@ -2064,6 +2075,8 @@ class _ChannelListMixin:
                 limit=page_size,
                 offset=offset,
             )
+        elif downloaded_only:
+            rows = []  # unreachable: page 1 always sets has_more=False for this scope
         elif id_filter_show_all:
             # Same relaxed reveal as page 1 (SOFT filters off), but provider-scoping
             # stays applied — disabled/expired-source content is never revealed.
@@ -2123,7 +2136,7 @@ class _ChannelListMixin:
         # or the id-filter show-all reveal — so paged rows match page 1's revealed set
         # (hidden_only page 1 never applies them either, so page N mustn't).
         bypass_exclusions = bool(query_params.get('bypass_global_exclusions'))
-        if not hidden_only and not id_filter_show_all and not bypass_exclusions:
+        if not (hidden_only or downloaded_only) and not id_filter_show_all and not bypass_exclusions:
             _excl_ct_slugs = query_params.get('excluded_tag_content_types') or set()
             _excl_ct_ids = (
                 repos.tags.channel_ids_for_content_types(_excl_ct_slugs)

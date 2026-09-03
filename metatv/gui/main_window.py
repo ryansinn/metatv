@@ -121,6 +121,20 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
     return yr_a is None or yr_b is None or yr_a == yr_b
 
 
+def _tab_btn_sheet(extra: str) -> str:
+    """Shared body of the All/Downloaded/Hidden scope-tab sheets.
+
+    Reads ``_theme`` fresh each call — wrap in ``theme.style_fn`` so a theme
+    switch re-composes it. *extra* is the per-button corner/border override.
+    """
+    return (
+        f"QPushButton {{ font-size: {_theme.FONT_MD}; padding: 3px 10px; border: 1px solid {_theme.COLOR_BORDER};"
+        f" background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_DISABLED}; }}"
+        f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; font-weight: bold; }}"
+        f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
+    ) + extra
+
+
 #: How long ``closeEvent`` waits for in-flight background work before closing
 #: the database under it. Sized ABOVE the slowest single query a worker runs —
 #: a channel-list load with variant collapsing is ~6 s on a large library — so
@@ -576,6 +590,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         self._filter_stats_token: list[int] = [0]
         self._channel_tags_token: list[int] = [0]
         self._hidden_mode: bool = False
+        #: "all" | "downloaded" | "hidden"; _hidden_mode above stays in sync.
+        self._list_scope: str = "all"
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
         self._category_assigned.connect(self._on_category_assigned)
@@ -1787,35 +1803,35 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         controls_layout = QHBoxLayout(self.search_controls)
         controls_layout.addWidget(QLabel("Search:"))
         
-        # All / Hidden tab toggle
-        _tab_style = (
-            f"QPushButton {{ font-size: {_theme.FONT_MD}; padding: 3px 10px;"
-            f" border: 1px solid {_theme.COLOR_BORDER}; background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_DISABLED}; }}"
-            f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; font-weight: bold; }}"
-            f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
-        )
+        # All / Downloaded / Hidden scope tabs (DL-5). Downloaded sits in the
+        # MIDDLE so All/Hidden keep their edge positions (muscle memory).
+        _radius_l = "QPushButton { border-right: none; border-top-left-radius: 4px; border-bottom-left-radius: 4px; }"
+        _radius_r = "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }"
         self._tab_all_btn = QPushButton("All")
         self._tab_all_btn.setCheckable(True)
         self._tab_all_btn.setChecked(True)
-        self._tab_all_btn.setStyleSheet(
-            _tab_style + "QPushButton { border-right: none;"
-            " border-top-left-radius: 4px; border-bottom-left-radius: 4px; }"
-        )
+        _theme.style_fn(self._tab_all_btn, lambda: _tab_btn_sheet(_radius_l))
         self._tab_all_btn.setToolTip("Show all channels")
-        self._tab_all_btn.clicked.connect(lambda: self._set_search_tab(False))
+        self._tab_all_btn.clicked.connect(lambda: self._set_list_scope("all"))
         controls_layout.addWidget(self._tab_all_btn)
+
+        self._tab_downloaded_btn = QPushButton(f"{_icons.download_icon} Downloaded")
+        self._tab_downloaded_btn.setCheckable(True)
+        self._tab_downloaded_btn.setChecked(False)
+        _theme.style_fn(self._tab_downloaded_btn,
+                        lambda: _tab_btn_sheet("QPushButton { border-right: none; }"))
+        self._tab_downloaded_btn.setToolTip("Show titles you have downloaded — available even when their source is off")
+        self._tab_downloaded_btn.clicked.connect(lambda: self._set_list_scope("downloaded"))
+        controls_layout.addWidget(self._tab_downloaded_btn)
 
         self._tab_hidden_btn = QPushButton(f"{self.config.hide_icon} Hidden")
         self._tab_hidden_btn.setCheckable(True)
         self._tab_hidden_btn.setChecked(False)
-        self._tab_hidden_btn.setStyleSheet(
-            _tab_style + "QPushButton { border-top-right-radius: 4px;"
-            " border-bottom-right-radius: 4px; }"
-        )
+        _theme.style_fn(self._tab_hidden_btn, lambda: _tab_btn_sheet(_radius_r))
         self._tab_hidden_btn.setToolTip(
             "Show channels hidden via right-click or assigned to an excluded category"
         )
-        self._tab_hidden_btn.clicked.connect(lambda: self._set_search_tab(True))
+        self._tab_hidden_btn.clicked.connect(lambda: self._set_list_scope("hidden"))
         controls_layout.addWidget(self._tab_hidden_btn)
 
         # Context filter chip — hidden until a details-pane genre/person filter is active
@@ -2714,23 +2730,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _SeriesMixin, _ChannelListMixin,
         if hasattr(self, "_playback_health_label"):
             _theme.style(self._playback_health_label, "NAV_HEALTH")
 
-        if hasattr(self, "_tab_all_btn") and hasattr(self, "_tab_hidden_btn"):
-            _tab_style = (
-                f"QPushButton {{ font-size: {_theme.FONT_MD}; padding: 3px 10px;"
-                f" border: 1px solid {_theme.COLOR_BORDER}; background: {_theme.COLOR_LINE_DARK};"
-                f" color: {_theme.COLOR_DISABLED}; }}"
-                f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI};"
-                f" font-weight: bold; }}"
-                f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
-            )
-            self._tab_all_btn.setStyleSheet(
-                _tab_style + "QPushButton { border-right: none;"
-                " border-top-left-radius: 4px; border-bottom-left-radius: 4px; }"
-            )
-            self._tab_hidden_btn.setStyleSheet(
-                _tab_style + "QPushButton { border-top-right-radius: 4px;"
-                " border-bottom-right-radius: 4px; }"
-            )
+        # All/Downloaded/Hidden scope tabs: built with theme.style_fn(), which
+        # self-registers and already got its builder re-invoked by apply_theme() above.
 
         if hasattr(self, "_context_filter_chip"):
             _theme.style(self._context_filter_chip, "CONTEXT_FILTER_CHIP")
