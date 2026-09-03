@@ -229,16 +229,33 @@ def test_refresh_retries_and_loads_once_gate_clears(qapp, monkeypatch):
 
 
 class _TrivialTask:
-    """A migration task that completes immediately — for gate wiring tests."""
+    """A migration task that completes immediately — for gate wiring tests.
+
+    ``run()`` records the gate's state AT THE MOMENT THE TASK EXECUTES — the
+    only deterministic observation point. The first version of the flips test
+    sampled the gate from a ``task_started`` lambda instead, but that signal
+    is QUEUED (worker → main thread): with a microsecond task, the pass is
+    over and the gate already OFF by the time the main loop delivers it. The
+    slice run and CI happened to interleave favourably; the full local suite
+    (9,818 tests of scheduler load) delivered it late every time — the wrap
+    gate of 2026-09-03 went red on exactly that race.
+    """
 
     id = "trivial"
     label = "Trivial task"
+
+    def __init__(self) -> None:
+        self.gate_seen_in_run: list[bool] = []
 
     def needs_run(self, config) -> bool:
         return True
 
     def run(self, progress_cb, is_cancelled) -> None:
+        self.gate_seen_in_run.append(migration_gate.is_running())
         progress_cb(1, 1)
+
+    def on_completed(self, config) -> None:
+        """No-op — without it the manager logs a noisy on_completed ERROR."""
 
 
 class _BlockingTask:
@@ -278,10 +295,8 @@ def test_migration_manager_flips_gate_on_start_and_off_at_all_done(qapp, _gate_r
     from metatv.core.migration_manager import MigrationManager
 
     mgr = MigrationManager(_FakeMigrationConfig(), MagicMock())
-    mgr.register(_TrivialTask())
-
-    seen_while_running: list[bool] = []
-    mgr.task_started.connect(lambda *_: seen_while_running.append(migration_gate.is_running()))
+    task = _TrivialTask()
+    mgr.register(task)
 
     loop = QEventLoop()
     mgr.all_finished.connect(loop.quit)
@@ -295,7 +310,7 @@ def test_migration_manager_flips_gate_on_start_and_off_at_all_done(qapp, _gate_r
     loop.exec()
     guard.stop()
 
-    assert seen_while_running == [True], "gate must be ON while the task runs"
+    assert task.gate_seen_in_run == [True], "gate must be ON while the task runs"
     assert not migration_gate.is_running(), "gate must be OFF after all_finished"
 
 
