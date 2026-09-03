@@ -2070,26 +2070,26 @@ def style_fn(widget, builder) -> None:
     _style_registry.append((weakref.ref(widget), builder))
 
 
-def apply_list_selection(view) -> None:
-    """Apply :data:`LIST_SELECTION_QSS` to *view* and pin its QPalette so
-    selected-text/branch painting matches the tint, not the app-wide
-    solid-accent pair (see the comment above the QSS). Registers via
-    :func:`style_fn` so :func:`apply_theme` re-runs both from current tokens;
-    *base* is captured once, so a replay never stacks a second copy.
+def pin_list_selection(view, base: str) -> str:
+    """Pin *view*'s QPalette for the tint and return *base* + the selection
+    rule (stripping a prior copy). Shared body of :func:`apply_list_selection`,
+    exposed so ``make_seamless`` folds it into its OWN ONE ``style_fn`` call
+    — a second ``setStyleSheet`` per sweep makes Qt discard this pin."""
+    palette = view.palette()
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_TEXT_HI))
+    palette.setColor(QPalette.ColorRole.Highlight, to_qcolor(OVERLAY_SELECTION))
+    view.setPalette(palette)
+    base = re.sub(r"QAbstractItemView::item:selected\s*\{[^}]*\}\s*$", "", base)
+    return (base + LIST_SELECTION_QSS) if base else LIST_SELECTION_QSS
 
-    Args:
-        view: A ``QAbstractItemView`` (QListWidget / QListView / QTreeWidget).
-    """
-    base, view_ref = view.styleSheet(), weakref.ref(view)  # weak: no view leak
+
+def apply_list_selection(view) -> None:
+    """Apply :func:`pin_list_selection` to *view* via :func:`style_fn`."""
+    view_ref = weakref.ref(view)  # weak: no view leak
 
     def _rebuild() -> str:
         target = view_ref()
-        if target is not None:
-            palette = target.palette()
-            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_TEXT_HI))
-            palette.setColor(QPalette.ColorRole.Highlight, to_qcolor(OVERLAY_SELECTION))
-            target.setPalette(palette)
-        return (base + LIST_SELECTION_QSS) if base else LIST_SELECTION_QSS
+        return pin_list_selection(target, target.styleSheet()) if target is not None else ""
 
     style_fn(view, _rebuild)
 

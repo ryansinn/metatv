@@ -269,23 +269,23 @@ def make_seamless(view) -> None:
     Recommended: "we can get rid of that black block around the actual
     content". They are one surface to the reader; two only to the layout.
 
-    Also applies the selection rules, and that ordering is the whole reason
-    this is one function rather than two calls. ``apply_list_selection``
-    APPENDS to a widget's stylesheet, so a sheet set afterwards replaces it and
-    the view falls back to Qt's raw saturated highlight with unreadable text on
-    it. Composing both in one ``style_fn`` is what makes the order impossible to
-    get wrong — see ledger F6, which is the same bug found app-wide.
+    Selection styling routes through ``theme.pin_list_selection()`` — the SAME
+    QPalette pin the main channel list gets via ``apply_list_selection`` —
+    rather than composing ``LIST_SELECTION_QSS`` inline, which skipped that
+    pin and left selected text unreadable in most palettes (ledger F35). Both
+    fold into this ONE ``style_fn`` call, not a second registration: two
+    ``setStyleSheet`` calls per widget per switch make Qt discard the pin.
 
     Args:
         view: Any ``QAbstractScrollArea`` — a QListWidget or QTreeWidget here.
     """
     view.setFrameShape(QFrame.Shape.NoFrame)
     view.viewport().setAutoFillBackground(False)
-    _theme.style_fn(view, lambda: (
+    _theme.style_fn(view, lambda: _theme.pin_list_selection(
+        view,
         f"QAbstractScrollArea, QListWidget, QTreeWidget {{"
         f" background: transparent; border: none;"
-        f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}"
-        + _theme.LIST_SELECTION_QSS
+        f" font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_HI}; }}",
     ))
 
 

@@ -27,16 +27,31 @@ reverted) and was RED: every palette but Graphite failed the palette-role
 assertions (Graphite's ``COLOR_ON_ACCENT`` happens to equal its
 ``COLOR_TEXT_HI``, both ``#eeeeee`` — coincidence, not correctness). Restoring
 the fix turns it GREEN. See the PR body for the exact before/after numbers.
+
+F35 (ledger, docs/REFACTOR_PLAN.md): nine sidebar lists (History, Favorites,
+Downloads, Alerts + its two sub-lists, Recordings, Queue, Recommended) went
+through ``sidebar/base.py``'s ``make_seamless()``, which composed
+``LIST_SELECTION_QSS`` DIRECTLY into its own stylesheet, bypassing
+``apply_list_selection`` entirely — so they never got the QPalette pin above
+and stayed near-invisible in Gruvbox exactly like the main list did before
+SEL-1. ``make_seamless`` now calls ``apply_list_selection(view)`` after
+applying its own seamless sheet, the SAME chokepoint the main channel list
+uses. ``test_make_seamless_pins_text_hi_and_single_rule`` below was run
+against the tree BEFORE that edit (``make_seamless`` temporarily reverted to
+composing ``LIST_SELECTION_QSS`` inline) and was RED on the palette-pin
+assertion for every palette except Graphite (same coincidence as test 1);
+restoring the fix turns it GREEN.
 """
 
 from __future__ import annotations
 
 import pytest
 from PyQt6.QtGui import QPalette
-from PyQt6.QtWidgets import QApplication, QTreeWidget
+from PyQt6.QtWidgets import QApplication, QListWidget, QTreeWidget
 
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
+from metatv.gui.sidebar import base as _sidebar_base
 from tests.test_widget_composed_contrast import _composite, _contrast, _rgba
 
 FLOOR = 4.5
@@ -139,4 +154,78 @@ def test_theme_switch_repalettes_and_does_not_stack_the_rule(qapp):
     assert sheet.count("QAbstractItemView::item:selected") == 1, (
         f"selection rule appears {sheet.count('QAbstractItemView::item:selected')} "
         f"times after a theme switch — it must not stack:\n{sheet}"
+    )
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_make_seamless_pins_text_hi_and_single_rule(qapp, palette_name):
+    """F35: the nine ``make_seamless()`` sidebar lists get the SAME palette
+    pin as the main channel list, through the same ``apply_list_selection``
+    chokepoint — not a second, bypassing composition of ``LIST_SELECTION_QSS``.
+
+    Pre-fix (``make_seamless`` composing the QSS inline, no chokepoint call)
+    this was RED on every palette but Graphite: ``HighlightedText`` stayed at
+    whatever ``qt_palette()`` gives a fresh ``QListWidget`` — Qt's own default,
+    not ``COLOR_TEXT_HI`` — because nothing ever pinned the view's palette.
+    """
+    _theme.apply_theme(palette_name)
+    view = QListWidget()
+
+    _sidebar_base.make_seamless(view)
+
+    pal = view.palette()
+    got_text = pal.color(QPalette.ColorRole.HighlightedText).name()
+    want_text = _rgba(_theme.COLOR_TEXT_HI)
+    assert got_text == "#" + "".join(f"{int(c):02x}" for c in want_text[:3]), (
+        f"{palette_name}: make_seamless()'s view has HighlightedText {got_text}, "
+        f"expected COLOR_TEXT_HI {_theme.COLOR_TEXT_HI} — this sidebar list never "
+        f"got apply_list_selection's palette pin"
+    )
+    got_hl = pal.color(QPalette.ColorRole.Highlight)
+    want_hl = _rgba(_theme.OVERLAY_SELECTION)
+    assert (got_hl.red(), got_hl.green(), got_hl.blue(), round(got_hl.alphaF(), 3)) == (
+        int(want_hl[0]), int(want_hl[1]), int(want_hl[2]), round(want_hl[3], 3)
+    ), (
+        f"{palette_name}: make_seamless()'s view has Highlight {got_hl.name()} "
+        f"alpha={got_hl.alphaF():.3f}, expected OVERLAY_SELECTION "
+        f"{_theme.OVERLAY_SELECTION}"
+    )
+
+    sheet = view.styleSheet()
+    assert sheet.count("QAbstractItemView::item:selected") == 1, (
+        f"{palette_name}: selection rule appears "
+        f"{sheet.count('QAbstractItemView::item:selected')} times in a "
+        f"make_seamless() sheet — it must appear exactly once:\n{sheet}"
+    )
+
+
+def test_make_seamless_survives_a_theme_switch_without_stacking(qapp):
+    """Companion to ``test_theme_switch_repalettes_and_does_not_stack_the_rule``
+    for the composed ``make_seamless`` case: the seamless sheet is registered
+    FIRST and ``apply_list_selection`` re-reads it fresh on every switch
+    (rather than freezing a "base" snapshot), so a second registration on the
+    same view never leaves a stale copy or a stacked rule behind.
+    """
+    _theme.apply_theme("Midnight")
+    view = QListWidget()
+    _sidebar_base.make_seamless(view)
+
+    _theme.apply_theme("Daylight")
+
+    pal = view.palette()
+    got_text = pal.color(QPalette.ColorRole.HighlightedText).name()
+    want_text = _rgba(_theme.COLOR_TEXT_HI)
+    assert got_text == "#" + "".join(f"{int(c):02x}" for c in want_text[:3]), (
+        "make_seamless()'s view kept Midnight's HighlightedText after "
+        "switching to Daylight"
+    )
+    sheet = view.styleSheet()
+    assert sheet.count("QAbstractItemView::item:selected") == 1, (
+        f"selection rule appears {sheet.count('QAbstractItemView::item:selected')} "
+        f"times after a theme switch on a make_seamless() view — it must not "
+        f"stack:\n{sheet}"
+    )
+    assert _theme.COLOR_TEXT_HI in sheet, (
+        "make_seamless()'s own seamless-sheet colour went stale after a theme "
+        "switch — apply_list_selection must re-read it fresh, not freeze it"
     )
