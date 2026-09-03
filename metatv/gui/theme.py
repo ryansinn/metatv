@@ -51,6 +51,7 @@ from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from metatv.gui import theme_palettes
+from metatv.gui.token_color import to_qcolor
 # The palette-invariant scales — corner radius, and the zoom transform for
 # the type scale. See tokens/scales.py, in particular why a PILL cannot be
 # a radius step.
@@ -446,27 +447,17 @@ def _build_semantic_constants() -> dict[str, object]:
     # the 🚨 glyph + a number, so colour is reinforcement only (colourblind-safe).
     ALERT_NEW_MATCH_BADGE = "color: " + COLOR_OK + "; font-weight: bold;"
 
-    # Shared subtle selection style for coloured-text item views — a soft translucent
-    # tint + a left accent bar, and deliberately NO foreground override (so green stays
-    # green and readable).  Applied per-widget via apply_list_selection() (one chokepoint)
-    # to the lists/trees that show coloured rows; leaves widgets with their own selection
-    # style (filter_panel, pantry OVERLAY_RECIPE_SELECTED) untouched.
+    # Subtle selection tint + accent bar for coloured-text item views (no
+    # `color:` override, so per-item colours survive). Qt still paints selected
+    # text via QPalette.HighlightedText, which qt_palette() sets to
+    # COLOR_ON_ACCENT — wrong for this translucent tint (1.22:1 in Gruvbox,
+    # owner screenshot 2026-09-03); apply_list_selection() (chokepoint, by
+    # style_fn below) pins HighlightedText -> COLOR_TEXT_HI and Highlight ->
+    # OVERLAY_SELECTION so the `::item`-unreachable branch/indent strip tints too.
     LIST_SELECTION_QSS = (
         "QAbstractItemView::item:selected { background: " + OVERLAY_SELECTION + ";"
         " border-left: 2px solid " + COLOR_ACCENT_BLUE + "; }"
     )
-
-
-    def apply_list_selection(view) -> None:
-        """Apply :data:`LIST_SELECTION_QSS` to an item view without clobbering its
-        existing stylesheet (appends the rule).  Duck-typed on ``styleSheet`` /
-        ``setStyleSheet`` so this module needs no Qt import.
-
-        Args:
-            view: A ``QAbstractItemView`` (QListWidget / QListView / QTreeWidget).
-        """
-        existing = view.styleSheet()
-        view.setStyleSheet((existing + LIST_SELECTION_QSS) if existing else LIST_SELECTION_QSS)
 
     # Flat inline text action that also has an inert state (Recommendations dashboard:
     # the "Automatic" mix reset, greyed out while the mix already IS automatic).
@@ -2077,6 +2068,30 @@ def style_fn(widget, builder) -> None:
     """
     widget.setStyleSheet(builder())
     _style_registry.append((weakref.ref(widget), builder))
+
+
+def apply_list_selection(view) -> None:
+    """Apply :data:`LIST_SELECTION_QSS` to *view* and pin its QPalette so
+    selected-text/branch painting matches the tint, not the app-wide
+    solid-accent pair (see the comment above the QSS). Registers via
+    :func:`style_fn` so :func:`apply_theme` re-runs both from current tokens;
+    *base* is captured once, so a replay never stacks a second copy.
+
+    Args:
+        view: A ``QAbstractItemView`` (QListWidget / QListView / QTreeWidget).
+    """
+    base, view_ref = view.styleSheet(), weakref.ref(view)  # weak: no view leak
+
+    def _rebuild() -> str:
+        target = view_ref()
+        if target is not None:
+            palette = target.palette()
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_TEXT_HI))
+            palette.setColor(QPalette.ColorRole.Highlight, to_qcolor(OVERLAY_SELECTION))
+            target.setPalette(palette)
+        return (base + LIST_SELECTION_QSS) if base else LIST_SELECTION_QSS
+
+    style_fn(view, _rebuild)
 
 
 def _role_qss(role) -> str:
