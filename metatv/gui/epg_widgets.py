@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.gui import theme as _theme
+from metatv.gui import deferred_config_save as _cfgsave
 
 # ---------------------------------------------------------------------------
 # Qt item-data roles shared across all EPG tree widgets
@@ -179,7 +180,7 @@ class _DismissedDialog(QDialog):
         cid = item.data(Qt.ItemDataRole.UserRole)
         if cid and cid in self.config.epg_dismissed_channels:
             del self.config.epg_dismissed_channels[cid]
-            self.config.save()
+            _cfgsave.save_soon(self)
             row = self.list.row(item)
             self.list.takeItem(row)
 

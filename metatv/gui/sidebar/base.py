@@ -230,7 +230,7 @@ _MIN_EXPANDED = 80   # absolute floor; a section's own MIN_ROWS usually raises i
 # is gone with the budget mode it belonged to (2026-09-02).
 from metatv.gui.sidebar.row_budget import RowBudgetMixin
 from metatv.gui.sidebar.section_cap import SectionContentCapMixin
-
+from metatv.gui import deferred_config_save as _cfgsave
 
 class SectionAction(NamedTuple):
     """One entry in a section's ⋯ menu.
@@ -1425,7 +1425,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
         # Save config to disk
         try:
-            self.config.save()
+            _cfgsave.save_soon(self)
         except Exception as e:
             logger.warning(f"Could not save section state: {e}")
 

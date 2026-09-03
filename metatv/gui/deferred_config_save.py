@@ -19,6 +19,16 @@ lags — which is the whole point, since the disk is the only expensive part.
 A pending write is flushed on shutdown through the cleanup registry, so
 deferring costs nothing on the path that matters: closing the app persists the
 same state it would have persisted before.
+
+**Adoption beyond MainWindow.** Child views and sidebar sections have no
+``_register_cleanable`` — that registry lives on MainWindow — so for them the
+``try/except`` below is routine, not exceptional. They are still safe: on
+close, MainWindow's own shutdown path runs a final ``config.save()``, and
+``Config.save()`` writes whatever is in memory at that moment — the very
+value ``save_soon`` already applied synchronously — so a pending write left
+un-flushed by a child host is simply picked up by the app-wide final save.
+The cleanup-registry flush is an optimisation (writes sooner, for hosts that
+have it), never the correctness backstop.
 """
 
 from __future__ import annotations
@@ -46,7 +56,8 @@ def save_soon(host: Any, *, delay_ms: int = DEFAULT_DELAY_MS) -> None:
     Calling this N times in quick succession produces ONE write.
 
     Args:
-        host: The MainWindow-family object owning ``config``.
+        host: The GUI object owning the config — MainWindow, a dialog, a
+            content view, or a sidebar section — as ``config`` or ``_config``.
         delay_ms: Quiet period before writing.
     """
     timer = host.__dict__.get(_TIMER_ATTR)
@@ -65,7 +76,10 @@ def save_soon(host: Any, *, delay_ms: int = DEFAULT_DELAY_MS) -> None:
         try:
             host._register_cleanable("deferred_config_save", lambda: flush(host))
         except Exception:                                # pragma: no cover
-            logger.exception("could not register the deferred config flush")
+            # Routine for a child view/section — see the module docstring:
+            # MainWindow's final config.save() on close covers them.
+            logger.debug(f"{type(host).__name__} has no cleanup registry; "
+                         "relying on MainWindow's final save to flush")
     host.__dict__[_PENDING_ATTR] = True
     timer.setInterval(delay_ms)
     timer.start()          # restarting is what collapses the burst into one
@@ -89,7 +103,13 @@ def _write(host: Any) -> bool:
     """The one place the deferred write actually happens."""
     host.__dict__[_PENDING_ATTR] = False
     try:
-        host.config.save()
+        # Most hosts (MainWindow-family) expose ``config``; dialogs, mixins
+        # and views more often keep it private as ``_config``. Try both
+        # rather than forcing every adopter to expose a public alias.
+        config = getattr(host, "config", None)
+        if config is None:
+            config = host._config
+        config.save()
         return True
     except Exception:                                    # pragma: no cover
         logger.exception("deferred config save failed")

@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -133,7 +134,7 @@ class DiscoverManageDialog(QDialog):
 
     def _commit(self) -> None:
         """Persist current config state and mark dialog as having changes."""
-        self._config.save()
+        _cfgsave.save_soon(self)
         self._changed = True
 
     # ---- UI construction ----------------------------------------------------

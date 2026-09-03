@@ -20,6 +20,7 @@ from metatv.gui.chip_row import (
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
+from metatv.gui import deferred_config_save as _cfgsave
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -450,7 +451,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         if save:
             self.config.queue_filter_visible = visible
             try:
-                self.config.save()
+                _cfgsave.save_soon(self)
             except Exception as exc:  # noqa: BLE001 — never break the toggle on a save fault
                 logger.warning(f"Could not save queue filter visibility: {exc}")
 

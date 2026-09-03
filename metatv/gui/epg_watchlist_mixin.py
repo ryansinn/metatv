@@ -73,16 +73,12 @@ from metatv.core.epg_utils import (
     is_local_today as _is_local_today,
     local_weekday as _local_weekday,
 )
-from metatv.gui.badge_utils import (
-    make_audio_chip,
-    make_quality_chip,
-    make_region_chip,
-    make_year_chip,
-)
+from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 from metatv.gui.epg_widgets import _DismissedDialog, _parse_iso
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class _EpgWatchlistMixin:
@@ -886,7 +882,7 @@ class _EpgWatchlistMixin:
             else:
                 cards_container.hide()
                 self.config.epg_watchlist_quiet_collapsed = True
-            self.config.save()
+            _cfgsave.save_soon(self)
             _update_label()
 
         toggle_btn.clicked.connect(_toggle)
@@ -1120,7 +1116,7 @@ class _EpgWatchlistMixin:
     def _dismiss_channel(self, channel_db_id: str) -> None:
         dismiss_until = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
         self.config.epg_dismissed_channels[channel_db_id] = dismiss_until
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._reload_watchlist()
 
     def _dismissed_ids(self) -> set[str]:

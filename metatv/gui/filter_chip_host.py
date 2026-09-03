@@ -21,6 +21,7 @@ from loguru import logger
 
 from metatv.gui.filter_chip_bar import FilterChipBar
 from metatv.gui.filter_chips import describe_active_filters
+from metatv.gui import deferred_config_save as _cfgsave
 
 #: The two presentations. Anything else in config is treated as "chips".
 MODE_CHIPS = "chips"
@@ -140,7 +141,7 @@ class _FilterChipHostMixin:
         # presentations at once, which is the layout the chips exist to undo.
         # Switching to panel mode opens it, because in that mode it IS the UI.
         self.config.filter_section_visible = (new_mode == MODE_PANEL)
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_filter_ui_mode()
         logger.info(f"Filter UI mode → {new_mode}")
         return new_mode

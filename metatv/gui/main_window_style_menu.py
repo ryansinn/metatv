@@ -19,6 +19,7 @@ from __future__ import annotations
 from PyQt6.QtGui import QAction, QActionGroup
 
 from metatv.gui import theme as _t
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class _StyleMenuMixin:
@@ -106,7 +107,7 @@ class _StyleMenuMixin:
         if bool(getattr(self.config, "channel_list_thumbnails", True)) == enabled:
             return
         self.config.channel_list_thumbnails = enabled
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_channel_list_density()
 
     def _set_platform_style_from_menu(self, value: str) -> None:
@@ -118,7 +119,7 @@ class _StyleMenuMixin:
         if getattr(self.config, "platform_name_style", None) == value:
             return
         self.config.platform_name_style = value
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_channel_list_density()
 
     def _set_density_from_menu(self, value: str) -> None:
@@ -130,7 +131,7 @@ class _StyleMenuMixin:
         if getattr(self.config, "channel_list_density", None) == value:
             return
         self.config.channel_list_density = value
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_channel_list_density()
 
     def _sync_style_menu_state(self) -> None:

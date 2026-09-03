@@ -25,6 +25,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 # ── headless Qt setup ─────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
@@ -103,6 +105,12 @@ def _build_window(qapp, config: _FakeConfig, entries: list) -> object:
 
 def _pass_rec() -> dict:
     return {"state": "pass", "sha": "", "ts": ""}
+
+
+def _flush(win) -> None:
+    """Force the deferred config write (CFG-10) so ``save_calls`` reflects an
+    action taken just now, instead of waiting out the real 1.5s timer."""
+    _cfgsave.flush(win)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -233,6 +241,7 @@ def test_marking_pass_sets_state_and_saves(qapp, tmp_path):
     win._step_buttons[40][1][0].click()  # pass button on step index 1
 
     assert config.qa_step_results["40"]["1"]["state"] == "pass"
+    _flush(win)
     assert config.save_calls > prior
 
 
@@ -245,6 +254,7 @@ def test_marking_fail_sets_state_and_saves(qapp, tmp_path):
     win._step_buttons[41][0][1].click()  # fail button on step 0
 
     assert config.qa_step_results["41"]["0"]["state"] == "fail"
+    _flush(win)
     assert config.save_calls >= 1
 
 
@@ -723,6 +733,7 @@ def test_complete_entry_archive_persists(qapp, tmp_path):
     win._on_archive(200)
 
     assert 200 in config.qa_archived_ids
+    _flush(win)
     assert config.save_calls > prior
 
 
@@ -842,6 +853,7 @@ def test_archived_toggle_flips_collapsed_state_and_persists(qapp, tmp_path):
         "_qa_collapsed must be False after expanding"
     )
     assert config.qa_archived_collapsed is False
+    _flush(win)
     assert config.save_calls > prior_saves
 
 
@@ -887,6 +899,7 @@ def test_create_flagged_item_persists_to_config(qapp, tmp_path):
 
     assert len(config.qa_flagged_items) == prior_count + 1
     assert item["id"] in [i["id"] for i in config.qa_flagged_items]
+    _flush(win)
     assert config.save_calls >= 1
 
 
@@ -1521,6 +1534,7 @@ def test_manual_mark_step_addressed_persists_to_config(qapp, tmp_path, monkeypat
     assert key in config.qa_addressed
     assert config.qa_addressed[key]["pr"] == 109
     assert config.qa_addressed[key]["manual"] is True
+    _flush(win)
     assert config.save_calls >= 1
 
 

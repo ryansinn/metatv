@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
 
 
@@ -83,7 +84,9 @@ def test_button_label_when_off_at_build(qapp):
 
 
 def test_click_persists_toggle_to_config(qapp):
-    """Clicking the button writes the NEW state to config.epg_hide_filler and calls save()."""
+    """Clicking the button updates config.epg_hide_filler at once; the disk
+    write settles through the deferred-save chokepoint (CFG-10) — forced here
+    with flush() rather than waiting out the real timer."""
     host = _make_browse_host(qapp, initial_hide_filler=False)
     assert host.config.epg_hide_filler is False
 
@@ -92,6 +95,8 @@ def test_click_persists_toggle_to_config(qapp):
     assert host.config.epg_hide_filler is True, (
         "clicking Hide Filler must persist the new checked state to config"
     )
+    host.config.save.assert_not_called()
+    assert _cfgsave.flush(host) is True
     host.config.save.assert_called_once()
 
 
@@ -113,12 +118,16 @@ def test_click_reloads_browse(qapp):
     host._reload_browse.assert_called_once()
 
 
-def test_repeated_toggles_persist_each_time(qapp):
-    """Two round-trip toggles each independently persist (not just the first)."""
+def test_repeated_toggles_collapse_to_one_write(qapp):
+    """Three rapid toggles each update config in memory at once, but the
+    debounced write (CFG-10) collapses the burst to a single disk write —
+    exactly the behavior this chokepoint exists for."""
     host = _make_browse_host(qapp, initial_hide_filler=False)
     host.hide_filler_btn.click()  # -> True
     host.hide_filler_btn.click()  # -> False
     host.hide_filler_btn.click()  # -> True
 
     assert host.config.epg_hide_filler is True
-    assert host.config.save.call_count == 3
+    host.config.save.assert_not_called()
+    assert _cfgsave.flush(host) is True
+    assert host.config.save.call_count == 1

@@ -17,6 +17,8 @@ import yaml
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -108,6 +110,10 @@ def test_save_persists_to_config_and_disk(qapp, tmp_path):
     assert entry["excludes"] == {"quality": ["SD"]}
     assert entry["name"]
 
+    # The write settles through the deferred-save chokepoint (CFG-10); flush
+    # forces it now instead of waiting out the real timer.
+    assert _cfgsave.flush(view) is True
+
     # …and it is on disk (reload from the written YAML).
     on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
     assert on_disk["saved_recipes"] == config.saved_recipes
@@ -178,6 +184,7 @@ def test_saved_reload_round_trips_after_disk_reload(qapp, tmp_path):
     view1._recipe_includes = {"genre": {"Horror"}}
     view1._recipe_excludes = {}
     view1._on_save_recipe()
+    assert _cfgsave.flush(view1) is True
 
     # Fresh Config reconstructed from the written file → fresh view.
     on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
@@ -201,6 +208,7 @@ def test_saved_rename_persists(qapp, tmp_path):
     view._on_saved_rename(0, "New Name")
 
     assert config.saved_recipes[0]["name"] == "New Name"
+    assert _cfgsave.flush(view) is True
     on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
     assert on_disk["saved_recipes"][0]["name"] == "New Name"
 
@@ -220,6 +228,7 @@ def test_saved_delete_removes_and_persists(qapp, tmp_path):
 
     assert [r["name"] for r in config.saved_recipes] == ["B"]
     assert len(view._saved_panel.cards()) == 1
+    assert _cfgsave.flush(view) is True
     on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
     assert [r["name"] for r in on_disk["saved_recipes"]] == ["B"]
 

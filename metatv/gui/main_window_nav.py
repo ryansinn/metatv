@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from loguru import logger
 
+from metatv.gui import deferred_config_save as _cfgsave
+
 
 #: Every host-owned widget that occupies the content area, in no particular
 #: order. ``_hide_all_content_views`` iterates it to deactivate and hide them —
@@ -536,7 +538,7 @@ class _NavMixin:
             return
         visible.remove(section_id)
         self.config.sidebar_visible_sections = visible
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._apply_sidebar_visibility()
         title = section.title if section is not None else section_id
 
@@ -554,7 +556,7 @@ class _NavMixin:
             )
             current.insert(insert_at, section_id)
             self.config.sidebar_visible_sections = current
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._apply_sidebar_visibility()
 
         self.notification_manager.show(
@@ -737,7 +739,7 @@ class _NavMixin:
     def _on_filter_toggle(self, resume: bool) -> None:
         """FilterChip clicked while filters are set: resume=True → unpause, False → pause."""
         self.config.global_filter_paused = not resume
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._update_filter_btn_state()
         self.load_channels()
         if hasattr(self, "discover_view"):

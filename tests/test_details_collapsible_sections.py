@@ -105,14 +105,14 @@ def test_every_section_persists_its_own_state(pane):
     """Six keys, six independent memories."""
     for section in pane._collapsible_sections:
         section._header.set_collapsed(True)
-        section.save_state(pane.config)
+        section.save_state(pane)
 
     stored = set(pane.config.details_pane_collapsed_sections)
     assert stored == {s.COLLAPSE_KEY for s in pane._collapsible_sections}
 
     for section in pane._collapsible_sections:
         section._header.set_collapsed(False)
-        section.save_state(pane.config)
+        section.save_state(pane)
     assert not pane.config.details_pane_collapsed_sections
 
 

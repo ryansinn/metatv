@@ -29,6 +29,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_row_lead import discriminator_for
 from metatv.gui.channel_results_list import ChannelResultsList
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.filter_bar import ToggleChip
 from metatv.gui.content_view import ContentView
 from metatv.gui.relative_time import humanize_ago
@@ -411,7 +412,7 @@ class SportsView(ContentView):
         if self._filters_restored and state != getattr(
                 config, "sports_filter_state", None):
             config.sports_filter_state = dict(state)
-            config.save()
+            _cfgsave.save_soon(self)
 
         lane = self._lane
 
@@ -487,7 +488,7 @@ class SportsView(ContentView):
             chip.setChecked(key == lane)
         # Every UI section remembers its state (DESIGN.md) — save on change.
         self.config.sports_lane = lane
-        self.config.save()
+        _cfgsave.save_soon(self)
         self._reload_channels(refresh_counts=False)
 
     def _on_lane_counts_loaded(self, counts: Any) -> None:

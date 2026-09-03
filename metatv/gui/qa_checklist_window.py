@@ -115,11 +115,11 @@ from PyQt6.QtWidgets import (
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.whats_new import step_target, step_text
+from metatv.gui import deferred_config_save as _cfgsave
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.whats_new import WhatsNewEntry
-
 
 # ── git helpers (all called off the UI thread) ────────────────────────────────
 
@@ -881,7 +881,7 @@ class QAChecklistWindow(QWidget):
         else:
             results.pop(str(entry_id), None)
         self._config.qa_step_results = results
-        self._config.save()
+        _cfgsave.save_soon(self)
 
     # ── private helpers ───────────────────────────────────────────────────────
 
@@ -1418,7 +1418,7 @@ class QAChecklistWindow(QWidget):
                 "Show archived entries" if want_collapsed else "Hide archived entries"
             )
             self._config.qa_archived_collapsed = want_collapsed
-            self._config.save()
+            _cfgsave.save_soon(self)
             logger.debug("QA checklist: archived section collapsed={}", want_collapsed)
 
         toggle_btn.clicked.connect(_on_toggle)
@@ -1506,7 +1506,7 @@ class QAChecklistWindow(QWidget):
                 "Show flagged items" if want_collapsed else "Hide flagged items"
             )
             self._config.qa_flagged_collapsed = want_collapsed
-            self._config.save()
+            _cfgsave.save_soon(self)
             logger.debug("QA checklist: flagged section collapsed={}", want_collapsed)
 
         flagged_toggle_btn.clicked.connect(_on_flagged_toggle)
@@ -1520,7 +1520,7 @@ class QAChecklistWindow(QWidget):
                 flagged_toggle_btn.setText(_icons.collapse_icon)
                 flagged_toggle_btn.setToolTip("Hide flagged items")
                 self._config.qa_flagged_collapsed = False
-                self._config.save()
+                _cfgsave.save_soon(self)
             # Insert the new card at position 0 (top of the list) so it's
             # immediately visible without any scrolling.
             self._render_flagged_item(item_dict, flagged_layout, insert_at=0)
@@ -1610,7 +1610,7 @@ class QAChecklistWindow(QWidget):
                 "Show resolved items" if want_collapsed else "Hide resolved items"
             )
             self._config.qa_resolved_collapsed = want_collapsed
-            self._config.save()
+            _cfgsave.save_soon(self)
             logger.debug("QA checklist: resolved section collapsed={}", want_collapsed)
 
         toggle_btn.clicked.connect(_on_toggle)
@@ -1808,7 +1808,7 @@ class QAChecklistWindow(QWidget):
     def _save_flagged_items(self, items: list[dict]) -> None:
         """Persist *items* to config and rewrite the digest."""
         self._config.qa_flagged_items = items
-        self._config.save()
+        _cfgsave.save_soon(self)
         _write_flagged_digest(self._config, addressed=self._merge_addressed())
 
     def _create_flagged_item(self) -> dict:
@@ -2213,7 +2213,7 @@ class QAChecklistWindow(QWidget):
             "manual": True,
         }
         self._config.qa_addressed = addressed
-        self._config.save()
+        _cfgsave.save_soon(self)
         logger.debug(
             "QA: step e{}_s{} manually marked addressed (PR {})",
             entry_id, step_idx, pr_num,
@@ -2403,7 +2403,7 @@ class QAChecklistWindow(QWidget):
         if entry_id not in archived:
             archived.append(entry_id)
         self._config.qa_archived_ids = archived
-        self._config.save()
+        _cfgsave.save_soon(self)
         logger.info("QA checklist: archived entry id={}", entry_id)
         self._refresh_preserving_scroll()
         self._write_digest()
@@ -2414,7 +2414,7 @@ class QAChecklistWindow(QWidget):
         if entry_id in archived:
             archived.remove(entry_id)
         self._config.qa_archived_ids = archived
-        self._config.save()
+        _cfgsave.save_soon(self)
         logger.info("QA checklist: unarchived entry id={}", entry_id)
         self._refresh_preserving_scroll()
         self._write_digest()
@@ -2442,7 +2442,7 @@ class QAChecklistWindow(QWidget):
             return
 
         self._config.qa_verified_id = max_clearable
-        self._config.save()
+        _cfgsave.save_soon(self)
         logger.info("QA checklist purged up to entry id={}", max_clearable)
 
         self._refresh()

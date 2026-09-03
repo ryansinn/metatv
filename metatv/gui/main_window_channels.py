@@ -110,7 +110,7 @@ class _ChannelListMixin:
             total = sum(self._inner_splitter.sizes())
             self._inner_splitter.setSizes([w, max(200, total - w)])
             self.config.filter_section_visible = True
-        self.config.save()
+        _cfgsave.save_soon(self)
 
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
@@ -1910,7 +1910,7 @@ class _ChannelListMixin:
         current page set into collapsible Movies/Series/Live sections.
         """
         self.config.group_by_type = bool(checked)
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.channel_model.set_grouped(
             bool(checked),
             collapsed_sections=getattr(self.config, "group_collapsed_types", None) or [],
@@ -1961,7 +1961,7 @@ class _ChannelListMixin:
         else:
             collapsed.discard(section)
         self.config.group_collapsed_types = sorted(collapsed)
-        self.config.save()
+        _cfgsave.save_soon(self)
         self.channel_model.set_section_collapsed(section, now_collapsed)
 
     def _show_details_for_clicked_row(self, index) -> None:

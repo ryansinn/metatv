@@ -14,6 +14,7 @@ from loguru import logger
 from PyQt6.QtCore import Qt, QTimer
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import deferred_config_save as _cfgsave
 
 
 class _FavoritesMixin:
@@ -620,7 +621,6 @@ class _FavoritesMixin:
         if channel:
             self.details_pane.show_channel(channel)
 
-
     def load_favorites(self):
         """Load favorites into sidebar"""
         if "favorites" in self.sidebar_sections:
@@ -764,7 +764,7 @@ class _FavoritesMixin:
         # Update config on main thread first so the signal-triggered reload sees the exclusion.
         if exclude and category not in self.config.global_filter_excluded_user_categories:
             self.config.global_filter_excluded_user_categories.append(category)
-            self.config.save()
+            _cfgsave.save_soon(self)
             self._update_filter_btn_state()
 
         def _do_assign():
