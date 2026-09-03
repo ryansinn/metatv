@@ -15,6 +15,8 @@ Panel width persists via the QSplitter in main_window.
 
 from __future__ import annotations
 
+import functools
+
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea,
@@ -22,8 +24,9 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.channel_name_utils import quality_display
 from metatv.gui import theme as _theme
+from metatv.gui import filter_panel_sections as _fp_sections
+from metatv.gui.chunked_construction import build_chunked
 from metatv.gui.filter_panel_chip_seam import _ChipSeamMixin
 from metatv.gui.filter_group_row import _Section
 from metatv.gui import deferred_config_save as _cfgsave
@@ -72,6 +75,9 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         # Dividers between sections (built by _add_divider) — tracked so
         # refresh_theme() can restyle them on a live theme switch.
         self._dividers: list[QFrame] = []
+        # Live handle on the in-flight chunked update_data() build, if any
+        # (PERF-17) — a superseding call cancels this before starting its own.
+        self._update_handle = None
 
         self.setMinimumWidth(160)
         self.setMaximumWidth(400)
@@ -348,7 +354,19 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         restored filters.  A later call (source refresh/import) does not blindly
         re-emit, but if it surfaced NEW facet values it shows the opt-out popup
         (:meth:`_show_new_values_popup`) and reloads once the user decides.
+
+        The nine dynamic facet sections used to rebuild in one synchronous pass —
+        measured a 2,037ms main-thread stall at launch. Each section's full
+        rebuild (items assembly + ``set_flat_items``/``set_grouped_items`` +
+        its opt-out ``restore`` call — see ``filter_panel_sections.py``) is now
+        one unit of ``build_chunked`` work, built one per event-loop turn
+        (PERF-17) so build+restore stay atomic and ordered within a section. A
+        call superseding one still in flight (e.g. a fast source refresh)
+        cancels it first — see ``self._update_handle``.
         """
+        if self._update_handle is not None:
+            self._update_handle.cancel()
+
         # Capture whether this is the first call BEFORE any state is modified.
         was_first = not self._stats_loaded
 
@@ -376,165 +394,58 @@ class FilterPanel(_ChipSeamMixin, QWidget):
 
         # ── Media — static items (no change needed)
 
-        # ── Language — tag values are group names (e.g. "English", "French")
-        lang_values: dict[str, int] = tag_counts.get('language', {})
-        lang_items = sorted(
-            [(k, k, v) for k, v in lang_values.items() if v > 0],
-            key=lambda x: (-x[2], x[1]),
-        )
-        prev_lang = set(self._lang_sec.get_selected_keys())
-        self._lang_sec.set_flat_items(lang_items)
-        _restore(self._lang_sec, prev_lang)
-
-        # ── Region — tag values are individual ISO codes (e.g. "US", "CA").
-        # Display hierarchically using config.filter_regional_groups: each group is a
-        # parent, and children are only the ISO codes present in the tag counts.
-        region_values: dict[str, int] = tag_counts.get('region', {})
-        regional_groups = self.config.filter_regional_groups
-        # Build reverse lookup: ISO code (uppercased) → group name(s)
-        code_to_groups: dict[str, list[str]] = {}
-        for group_name, codes in regional_groups.items():
-            for code in codes:
-                code_to_groups.setdefault(code.upper(), []).append(group_name)
-        # Accumulate group totals from tag counts
-        group_totals: dict[str, int] = {}
-        for code, cnt in region_values.items():
-            for grp in code_to_groups.get(code.upper(), []):
-                group_totals[grp] = group_totals.get(grp, 0) + cnt
-        # Build region_data for set_grouped_items
-        region_data: list[tuple[str, int, list[tuple[str, str, int]]]] = []
-        for group_name in sorted(regional_groups.keys()):
-            total = group_totals.get(group_name, 0)
-            if total == 0:
-                continue
-            children: list[tuple[str, str, int]] = [
-                (code, self._region_label(code), region_values.get(code, 0))
-                for code in regional_groups[group_name]
-                if region_values.get(code, 0) > 0
-            ]
-            children.sort(key=lambda x: -x[2])
-            if children:
-                region_data.append((group_name, total, children))
-        prev_region = set(self._region_sec.get_selected_keys())
-        self._region_sec.set_grouped_items(region_data)
-        _restore(self._region_sec, prev_region)
-
-        # ── Platform — tag values are group names (e.g. "Netflix", "Disney+")
-        platform_values: dict[str, int] = tag_counts.get('platform', {})
-        plat_items = sorted(
-            [(k, k, v) for k, v in platform_values.items() if v > 0],
-            key=lambda x: (-x[2], x[1]),
-        )
-        prev_plat = set(self._platform_sec.get_selected_keys())
-        self._platform_sec.set_flat_items(plat_items)
-        _restore(self._platform_sec, prev_plat)
-
-        # ── Quality — tag values are group names (e.g. "HD", "4K / UHD"); fixed display order
-        quality_order = ["RAW", "4K / UHD", "HD", "HQ", "SD", "LQ",
-                         "CAM / Pre-release"]
-        quality_values: dict[str, int] = tag_counts.get('quality', {})
-        # (key, LABEL, count): the key stays the stored group name (it is the filter
-        # identity); only the label goes through the shared display map, so the
-        # "RAW" group chip reads "Uncompressed" without changing what it selects.
-        qual_items = [
-            (n, quality_display(n), quality_values[n]) for n in quality_order
-            if n in quality_values and quality_values[n] > 0
+        # One chunked unit per dynamic facet, in display order — see
+        # filter_panel_sections.py for each section's moved-out rebuild body.
+        section_fns = [
+            functools.partial(_fp_sections.build_language, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_region, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_platform, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_quality, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_category, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_genre, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_subtitle, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_dub, self, tag_counts, _restore),
+            functools.partial(_fp_sections.build_format, self, tag_counts, _restore),
         ]
-        for n, v in quality_values.items():
-            if n not in quality_order and v > 0:
-                qual_items.append((n, quality_display(n), v))
-        prev_qual = set(self._quality_sec.get_selected_keys())
-        self._quality_sec.set_flat_items(qual_items)
-        _restore(self._quality_sec, prev_qual)
 
-        # ── Category — tag values are live-channel kinds (e.g. "Sports", "News")
-        category_values: dict[str, int] = tag_counts.get('category', {})
-        category_items = sorted(
-            [(k, k, v) for k, v in category_values.items() if v > 0],
-            key=lambda x: (-x[2], x[1]),
+        def _finish() -> None:
+            """Runs once, after the LAST section — never for a cancelled/superseded run."""
+            # Dynamic sections are now populated — safe for save_state() to persist them.
+            self._stats_loaded = True
+
+            # Persist the opt-out baseline / accumulated known sets and the restored
+            # selections.  _restore_facet_opt_out() set config.filter_known_* in memory;
+            # save_state() writes filter_included_* (guarded by _stats_loaded) and calls
+            # config.save(), which flushes the known sets to disk too.
+            self.save_state()
+
+            logger.debug(
+                "FilterPanel updated (tag model): " + ", ".join(
+                    f"{len(sec.get_all_keys())} {facet}"
+                    for facet, sec in self._facet_sections().items()
+                )
+            )
+
+            # First call: the list loaded before dynamic sections populated
+            # (restore_search_state fires load_channels while they're still
+            # empty) — re-run it, but only if the restored filters constrain
+            # anything.  A later call (refresh/import) only reloads if it
+            # surfaced NEW facet values, via the opt-out popup below.
+            if was_first and self._restore_constrains_the_query():
+                self._pending_restore_reload = True  # keep rows: not a user click
+                self.filter_changed.emit()
+            elif new_by_facet:
+                self._show_new_values_popup(new_by_facet)
+
+            self._apply_untagged_rows(untagged_counts)
+
+        self._update_handle = build_chunked(
+            section_fns, lambda f: f(), batch_size=1, parent=self, on_done=_finish,
         )
-        prev_category = set(self._category_sec.get_selected_keys())
-        self._category_sec.set_flat_items(category_items)
-        _restore(self._category_sec, prev_category)
-
-        # ── Genre — tag values are canonical genre names (e.g. "Drama")
-        genre_values: dict[str, int] = tag_counts.get('genre', {})
-        genre_items = sorted(
-            [(g, g, c) for g, c in genre_values.items() if c > 0],
-            key=lambda x: (-x[2], x[1]),
-        )
-        prev_genre = set(self._genre_sec.get_selected_keys())
-        self._genre_sec.set_flat_items(genre_items)
-        _restore(self._genre_sec, prev_genre)
-
-        # ── Subtitle language
-        subtitle_values: dict[str, int] = tag_counts.get('subtitle', {})
-        subtitle_items = sorted(
-            [(k, k, v) for k, v in subtitle_values.items() if v > 0],
-            key=lambda x: (-x[2], x[1]),
-        )
-        prev_subtitle = set(self._subtitle_sec.get_selected_keys())
-        self._subtitle_sec.set_flat_items(subtitle_items)
-        _restore(self._subtitle_sec, prev_subtitle)
-
-        # ── Dub language
-        dub_values: dict[str, int] = tag_counts.get('dub', {})
-        dub_items = sorted(
-            [(k, k, v) for k, v in dub_values.items() if v > 0],
-            key=lambda x: (-x[2], x[1]),
-        )
-        prev_dub = set(self._dub_sec.get_selected_keys())
-        self._dub_sec.set_flat_items(dub_items)
-        _restore(self._dub_sec, prev_dub)
-
-        # ── Audio format
-        format_order = ["Dub", "Original", "Multi", "Dual"]
-        format_values: dict[str, int] = tag_counts.get('format', {})
-        format_items = [
-            (n, n, format_values[n]) for n in format_order
-            if n in format_values and format_values[n] > 0
-        ]
-        for n, v in format_values.items():
-            if n not in format_order and v > 0:
-                format_items.append((n, n, v))
-        prev_format = set(self._format_sec.get_selected_keys())
-        self._format_sec.set_flat_items(format_items)
-        _restore(self._format_sec, prev_format)
-
-        # Dynamic sections are now populated — safe for save_state() to persist them.
-        self._stats_loaded = True
-
-        # Persist the opt-out baseline / accumulated known sets and the restored
-        # selections.  _restore_facet_opt_out() set config.filter_known_* in memory;
-        # save_state() writes filter_included_* (guarded by _stats_loaded) and calls
-        # config.save(), which flushes the known sets to disk too.
-        self.save_state()
-
-        logger.debug(
-            f"FilterPanel updated (tag model): {len(lang_items)} languages, "
-            f"{len(region_data)} region groups, {len(plat_items)} platforms, "
-            f"{len(qual_items)} quality tiers, {len(category_items)} categories, "
-            f"{len(genre_items)} genres, {len(subtitle_items)} subtitle langs, "
-            f"{len(dub_items)} dub langs, {len(format_items)} audio formats"
-        )
-
-        # First call: the list loaded before dynamic sections populated
-        # (restore_search_state fires load_channels while they're still
-        # empty) — re-run it, but only if the restored filters constrain
-        # anything.  A later call (refresh/import) only reloads if it
-        # surfaced NEW facet values, via the opt-out popup below.
-        if was_first and self._restore_constrains_the_query():
-            self._pending_restore_reload = True  # keep rows: not a user click
-            self.filter_changed.emit()
-        elif new_by_facet:
-            self._show_new_values_popup(new_by_facet)
-
-    #: facet type -> the section that shows it. One place, so the untagged
-    #: footer rows and the tag_includes builder can never cover different sets.
-
-        self._apply_untagged_rows(untagged_counts)
 
     def _facet_sections(self) -> dict[str, object]:
+        """Facet type -> the section that shows it. One place, so the untagged
+        footer rows and the tag_includes builder can never cover different sets."""
         return {
             "language": self._lang_sec,
             "region":   self._region_sec,

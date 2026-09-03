@@ -420,6 +420,47 @@ def destroy_widget(*widgets) -> None:
         app.processEvents()
 
 
+def drain_chunked_build(handle) -> None:
+    """Spin the Qt event loop until a ``build_chunked()`` :class:`ChunkHandle` finishes.
+
+    ``chunked_construction.build_chunked`` (PERF-17) runs its first batch
+    synchronously and schedules every later one on ``QTimer.singleShot(0,
+    ...)`` — a real caller's event loop turns between them, but a test that
+    calls e.g. ``FilterPanel.update_data()`` and asserts immediately runs
+    inside no such loop, so only the first unit of work exists yet. Tests that
+    need the FULL result (every section/row built) call this right after —
+    same pattern as ``qtbot.waitUntil(lambda: handle.done)`` in
+    ``tests/test_discover_shelf_chunked_build.py``, but usable from the many
+    older filter-panel tests that only depend on a bare ``qapp`` fixture, not
+    ``qtbot``.
+
+    A ``None`` handle (nothing was chunked — e.g. fewer items than one batch,
+    so the run already completed synchronously) is a no-op.
+
+    Args:
+        handle: The ``ChunkHandle`` returned by ``build_chunked()``, or ``None``.
+
+    Raises:
+        AssertionError: if the run never finishes within a generous bounded
+            number of event-loop turns — a genuinely stuck build should fail
+            loudly, not hang the suite.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    if handle is None:
+        return
+    app = QApplication.instance()
+    for _ in range(500):
+        if handle.done:
+            return
+        app.processEvents()
+    raise AssertionError(
+        "drain_chunked_build: the build_chunked run never finished — "
+        "either it was cancelled without a superseding call completing, "
+        "or something is genuinely stuck"
+    )
+
+
 def sidebar_config(**over):
     """A fake ``Config`` carrying every field a sidebar SECTION reads.
 

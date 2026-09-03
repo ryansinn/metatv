@@ -22,6 +22,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from tests.conftest import drain_chunked_build
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ class TestFilterPanelCategoryUpdateData:
         from metatv.gui.filter_panel import FilterPanel
         panel = FilterPanel(_make_config())
         panel.update_data(_make_tag_counts())
+        drain_chunked_build(panel._update_handle)
 
         keys = set(panel._category_sec.get_all_keys())
         assert "Sports" in keys, f"Sports must be in category section; got {keys}"
@@ -142,6 +144,7 @@ class TestFilterPanelCategoryUpdateData:
         from metatv.gui.filter_panel import FilterPanel
         panel = FilterPanel(_make_config())
         panel.update_data(_make_tag_counts())
+        drain_chunked_build(panel._update_handle)
         assert panel._category_sec.is_all_selected(), (
             "category section must be all-selected on first load"
         )
@@ -151,6 +154,7 @@ class TestFilterPanelCategoryUpdateData:
         from metatv.gui.filter_panel import FilterPanel
         panel = FilterPanel(_make_config())
         panel.update_data(_make_tag_counts())
+        drain_chunked_build(panel._update_handle)
 
         state = panel.get_filter_state()
         assert "category_filters" in state, (
@@ -162,6 +166,7 @@ class TestFilterPanelCategoryUpdateData:
         from metatv.gui.filter_panel import FilterPanel
         panel = FilterPanel(_make_config())
         panel.update_data(_make_tag_counts())
+        drain_chunked_build(panel._update_handle)
 
         # Deselect everything, then select only Sports
         panel._category_sec.restore_selection({"Sports"})
@@ -180,6 +185,7 @@ class TestFilterPanelCategoryUpdateData:
         from metatv.gui.filter_panel import FilterPanel
         panel = FilterPanel(_make_config())
         panel.update_data(_make_tag_counts())
+        drain_chunked_build(panel._update_handle)
 
         # All selected = no constraint
         panel._category_sec.select_all()

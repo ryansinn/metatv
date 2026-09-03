@@ -11,6 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from tests.conftest import drain_chunked_build
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +143,7 @@ class TestOnlyAction:
         cfg = _make_config()
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         # All sections start all-selected; confirm baseline
         assert panel._lang_sec.is_all_selected()
@@ -179,6 +181,7 @@ class TestOnlyAction:
         panel.filter_changed.connect(lambda: emitted.append(None))
 
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
         # update_data emits once (startup). Snapshot the count.
         startup_count = len(emitted)
 
@@ -197,6 +200,7 @@ class TestOnlyAction:
         emitted: list[None] = []
         panel.filter_changed.connect(lambda: emitted.append(None))
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
         startup_count = len(emitted)
 
         # Simulate the signal fired by the "Only" button on a platform row
@@ -216,6 +220,7 @@ class TestOnlyAction:
 
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         panel.select_only_group("HD", "quality")
 
@@ -232,6 +237,7 @@ class TestOnlyAction:
         cfg = _make_config()
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         panel.select_only_group("North America", "region")
 
@@ -250,6 +256,7 @@ class TestOnlyAction:
         emitted: list[None] = []
         panel.filter_changed.connect(lambda: emitted.append(None))
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
         startup_count = len(emitted)
 
         # Directly call the method the context menu item would invoke
@@ -275,6 +282,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config()
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         # User selects only FR
         panel._lang_sec.restore_selection({"FR"})
@@ -288,6 +296,7 @@ class TestNonePersistenceSentinel:
         # Build a fresh panel from that config and confirm restore
         panel2 = _build_panel(qapp, cfg)
         panel2.update_data(_make_stats())
+        drain_chunked_build(panel2._update_handle)
         assert set(panel2._lang_sec.get_selected_keys()) == {"FR"}, (
             "restore: language section should have only FR"
         )
@@ -297,6 +306,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config()
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         # Uncheck all in quality
         panel._quality_sec.select_none()
@@ -311,6 +321,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_qualities=[])  # explicitly none
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         selected = panel._quality_sec.get_selected_keys()
         assert selected == [], (
@@ -323,6 +334,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_qualities=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         assert panel._quality_sec.is_all_selected(), (
             "restore: None in config must leave quality at all-selected default"
@@ -333,6 +345,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_languages=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         assert panel._lang_sec.is_all_selected(), (
             "None language config must restore to all-selected"
@@ -343,6 +356,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_genres=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5}))
+        drain_chunked_build(panel._update_handle)
 
         assert panel._genre_sec.is_all_selected(), (
             "None genre config must select all genres (fresh install)"
@@ -353,6 +367,7 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_genres=[])  # explicitly none
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5}))
+        drain_chunked_build(panel._update_handle)
 
         selected = panel._genre_sec.get_selected_keys()
         assert selected == [], (
@@ -444,6 +459,7 @@ class TestNonePersistenceSentinel:
         emitted: list[None] = []
         panel.filter_changed.connect(lambda: emitted.append(None))
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         assert len(emitted) == 1, (
             f"a restored filter was never applied — #141; got {len(emitted)}"
@@ -463,6 +479,7 @@ class TestNonePersistenceSentinel:
         emitted: list[None] = []
         panel.filter_changed.connect(lambda: emitted.append(None))
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         assert emitted == [], (
             "reloaded despite no facet constraining the query — the list blanks "
@@ -473,12 +490,14 @@ class TestNonePersistenceSentinel:
         cfg = _make_config(filter_included_languages=["EN"])
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         # User changes to FR only
         panel._lang_sec.restore_selection({"FR"})
 
         # Second call (source refresh)
         panel.update_data(_make_stats())
+        drain_chunked_build(panel._update_handle)
 
         selected = set(panel._lang_sec.get_selected_keys())
         assert selected == {"FR"}, (
