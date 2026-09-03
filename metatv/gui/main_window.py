@@ -2135,6 +2135,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.sports_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.sports_view.channelContextMenuRequested.connect(
             self._on_rec_channel_context_menu)
+        self._wire_sports_catalog_banner()  # SPORT-7 staleness banner
         self.sports_view.setVisible(False)
         self._list_layout.addWidget(self.sports_view)
 

@@ -21,6 +21,8 @@ The geometry test is the other one that matters. A test asserting the list
 asserts the painted QRect instead.
 """
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from metatv.core.config import Config
@@ -95,9 +97,11 @@ def _activate(view, rows=(), taxonomy=None, counts=None):
 
 def test_activation_loads_the_taxonomy_then_the_channels(view):
     view.on_activate()
-    # Three: the taxonomy, the channel list, and the lane counts. The counts
-    # are a separate GROUP BY because they describe every lane, not the open one.
-    assert len(view._runner.calls) == 3
+    # Four: the taxonomy, the channel list, the lane counts, and the catalog
+    # staleness banner (SPORT-7). The counts are a separate GROUP BY because
+    # they describe every lane, not the open one; the staleness read is
+    # independent of both — it asks how fresh the SOURCES are, not the rows.
+    assert len(view._runner.calls) == 4
 
 
 def test_the_taxonomy_is_loaded_once_not_per_activation(view):
@@ -605,3 +609,102 @@ def test_the_widget_count_does_not_scale_with_the_row_count(view, qapp):
         f"a widget per row again. Use the virtualized model+delegate "
         f"(ChannelResultsList); see channel_results_list.py for why."
     )
+
+
+# --------------------------------------------------------------------------
+# Catalog staleness banner (SPORT-7)
+#
+# On origin/main SportsView has no `_catalog_banner` attribute at all — every
+# test below fails at construction/attribute-access against the pre-fix code,
+# which is the "proven to fail pre-fix" the UI-slice rule asks for.
+# --------------------------------------------------------------------------
+
+def _resolve_catalog(view, value=None, *, failed: bool = False) -> None:
+    """Deliver a result to the catalog-freshness query — always the 4th
+    _run_query call issued by on_activate() (taxonomy, rows, counts, catalog)."""
+    call = view._runner.calls[3]
+    if failed:
+        call["err"](RuntimeError("boom"))
+    else:
+        call["ok"](value)
+
+
+def test_stale_catalog_shows_the_banner_with_its_age(view):
+    view.on_activate()
+    old = datetime.now() - timedelta(hours=7)
+    _resolve_catalog(view, old)
+
+    assert not view._catalog_banner.isHidden()
+    assert "7 hours ago" in view._catalog_banner.text(), view._catalog_banner.text()
+    assert "Refresh sources" in view._catalog_banner.text()
+
+
+def test_fresh_catalog_hides_the_banner(view):
+    view.on_activate()
+    recent = datetime.now() - timedelta(hours=1)
+    _resolve_catalog(view, recent)
+
+    assert view._catalog_banner.isHidden()
+
+
+def test_a_source_that_never_refreshed_reads_as_never(view):
+    """None means no active provider has ever ingested a channel — the
+    banner must still speak up (never = maximally stale), not stay silent."""
+    view.on_activate()
+    _resolve_catalog(view, None)
+
+    assert not view._catalog_banner.isHidden()
+    assert "never" in view._catalog_banner.text()
+
+
+def test_a_failed_freshness_query_hides_the_banner(view):
+    """The banner is advisory, not content — a failed read must not paint a
+    visible error (unlike _on_channels_loaded, which must)."""
+    view.on_activate()
+    _resolve_catalog(view, failed=True)
+
+    assert view._catalog_banner.isHidden()
+
+
+def test_refresh_pending_hides_the_banner_even_when_stale(view):
+    view.on_activate()
+    _resolve_catalog(view, datetime.now() - timedelta(hours=27))
+    assert not view._catalog_banner.isHidden()
+
+    view.set_refresh_pending(True)
+    assert view._catalog_banner.isHidden()
+
+
+def test_the_queue_draining_re_checks_freshness(view):
+    """Covers the all-failed-refreshes case: reload() only fires on SUCCESS,
+    so without this the banner would stay optimistically hidden forever after
+    a refresh that enqueued and then failed."""
+    view.on_activate()
+    _resolve_catalog(view, datetime.now() - timedelta(hours=27))
+    view.set_refresh_pending(True)
+    before = len(view._runner.calls)
+
+    view.set_refresh_pending(False)
+    assert len(view._runner.calls) == before + 1, (
+        "the queue draining must re-query freshness, not just flip a flag")
+
+
+def test_clicking_the_banner_emits_refresh_sources_requested(view):
+    """The view never reaches into refresh_queue_manager itself — it asks the
+    host via this signal (engine <- control <- view, DR-0007)."""
+    view.on_activate()
+    _resolve_catalog(view, datetime.now() - timedelta(hours=27))
+
+    seen = []
+    view.refreshSourcesRequested.connect(lambda: seen.append(True))
+    view._catalog_banner.click()
+    assert seen == [True]
+
+
+def test_deactivate_bumps_the_catalog_token_too(view):
+    """Symmetric with the rows/counts tokens — an in-flight freshness read
+    must not paint a banner over whatever view the user switched to."""
+    view.on_activate()
+    before = view._catalog_token[0]
+    view.on_deactivate()
+    assert view._catalog_token[0] > before

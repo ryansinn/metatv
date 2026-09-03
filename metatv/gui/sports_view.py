@@ -14,19 +14,24 @@ it reaches History and Favorites.
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import partial
 from typing import Any, Callable
 
 from loguru import logger
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout,
+    QHBoxLayout, QPushButton, QVBoxLayout,
 )
 
+from metatv.core.catalog_refresh import BANNER_STALE_THRESHOLD
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 from metatv.gui.channel_row_lead import discriminator_for
 from metatv.gui.channel_results_list import ChannelResultsList
 from metatv.gui.filter_bar import ToggleChip
 from metatv.gui.content_view import ContentView
+from metatv.gui.relative_time import humanize_ago
 from metatv.gui.sports_filter_bar import SportsFilterBar
 from metatv.gui.view_scope import resolve_visibility_scope
 
@@ -67,6 +72,11 @@ class SportsView(ContentView):
     # takes. It is three args, not a QPoint, and connecting the wrong shape
     # fails only when someone actually right-clicks.
     channelContextMenuRequested = pyqtSignal(str, int, int)
+    #: The banner's "Refresh sources" click. The view never reaches into
+    #: refresh_queue_manager itself (engine <- control <- view, DR-0007) — the
+    #: host (catalog_refresh_tick.py) resolves which sources are stale and
+    #: enqueues them through the same path Sources' "Refresh All" uses.
+    refreshSourcesRequested    = pyqtSignal()
 
     def __init__(self, db, config, run_query: Callable, parent=None,
                  image_cache=None) -> None:
@@ -98,6 +108,19 @@ class SportsView(ContentView):
         # _results_token, _load_channels_token, …); this was the outlier.
         self._rows_token: list[int] = [0]
         self._counts_token: list[int] = [0]
+        self._catalog_token: list[int] = [0]
+        #: Newest effective catalog-refresh stamp across ACTIVE providers, or
+        #: None — set by _on_catalog_freshness_loaded, read by _render_catalog_banner.
+        self._catalog_newest_refresh: datetime | None = None
+        #: Whether the catalog-refresh tick/banner query has ever returned —
+        #: distinguishes "not stale" from "not loaded yet" (banner starts hidden).
+        self._catalog_freshness_loaded = False
+        #: True while refresh_queue_manager has ANY work queued/running — the
+        #: banner hides during that window rather than nagging alongside the
+        #: refresh toast already telling the user the same thing. Pushed in by
+        #: the host (catalog_refresh_tick._wire_sports_catalog_banner); this
+        #: view never reads refresh_queue_manager itself.
+        self._catalog_refresh_pending = False
         #: Set when the taxonomy query is SUBMITTED, not when it returns —
         #: two rapid activations would otherwise both see 'not loaded' and
         #: issue the same whole-corpus scan twice.
@@ -127,6 +150,17 @@ class SportsView(ContentView):
         self.filter_bar = SportsFilterBar(self)
         self.filter_bar.filter_changed.connect(self._reload_channels)
         layout.addWidget(self.filter_bar)
+
+        # Catalog-staleness notice — same clickable-segment grammar as the
+        # channel list's "N hidden by Global Exclusions — show" transparency
+        # bar (channel_transparency.py): one button, icon + message + action,
+        # hidden until there is something to say. Styled via style_fn (never
+        # a bare setStyleSheet) so a theme switch re-composes the tokens.
+        self._catalog_banner = QPushButton()
+        self._catalog_banner.setVisible(False)
+        _theme.style_fn(self._catalog_banner, self._catalog_banner_style)
+        self._catalog_banner.clicked.connect(self.refreshSourcesRequested)
+        layout.addWidget(self._catalog_banner)
 
         # Lane chips carry their own counts, so the standalone "183 channels"
         # line goes (mockup Q7). ToggleChip already renders "Label (N)" via
@@ -172,6 +206,7 @@ class SportsView(ContentView):
             self._taxonomy_requested = True
             self._load_taxonomy()
         self._reload_channels()
+        self._load_catalog_freshness()
 
     def reload(self) -> None:
         """Re-read everything after a provider/source mutation.
@@ -204,9 +239,86 @@ class SportsView(ContentView):
         """
         self._rows_token[0] += 1
         self._counts_token[0] += 1
+        self._catalog_token[0] += 1
 
     def get_view_name(self) -> str:
         return "sports"
+
+    # ------------------------------------------------------------------ #
+    # Catalog staleness banner                                            #
+    # ------------------------------------------------------------------ #
+
+    def _load_catalog_freshness(self) -> None:
+        """Off-thread read of the newest effective catalog-refresh stamp
+        across ACTIVE providers (the COALESCE rule — see
+        ``ProviderRepository.get_newest_catalog_refresh``).
+
+        This is advisory, not content: a failed query just hides the banner
+        rather than rendering a visible error (unlike ``_on_channels_loaded``,
+        which must never silently swallow a failure for actual content).
+        """
+        self._run_query(
+            lambda repos: repos.providers.get_newest_catalog_refresh(),
+            self._on_catalog_freshness_loaded,
+            token_ref=self._catalog_token,
+            on_error=lambda exc: self._on_catalog_freshness_loaded(None, failed=True),
+        )
+
+    def _on_catalog_freshness_loaded(self, newest: datetime | None, *, failed: bool = False) -> None:
+        self._catalog_freshness_loaded = not failed
+        self._catalog_newest_refresh = newest
+        self._render_catalog_banner()
+
+    def set_refresh_pending(self, pending: bool) -> None:
+        """Host-pushed flag: True while ANY source refresh is queued/running.
+
+        Pushed from ``catalog_refresh_tick._wire_sports_catalog_banner`` via
+        ``refresh_queue_manager.queue_changed`` — this view never reads the
+        queue manager itself. The banner hides while pending is True (no
+        point nagging alongside the refresh toast already saying the same
+        thing) and re-checks freshness the moment the queue drains, so a
+        run that ends in failure (nothing got stamped) still recovers the
+        banner rather than leaving it optimistically hidden forever.
+        """
+        was_pending = self._catalog_refresh_pending
+        self._catalog_refresh_pending = pending
+        if was_pending and not pending:
+            self._load_catalog_freshness()
+        else:
+            self._render_catalog_banner()
+
+    def _render_catalog_banner(self) -> None:
+        """Show the banner iff the newest active source is stale and no
+        refresh is currently in flight; hide it otherwise."""
+        stale = (
+            self._catalog_freshness_loaded
+            and not self._catalog_refresh_pending
+            and (
+                self._catalog_newest_refresh is None
+                or (datetime.now() - self._catalog_newest_refresh) >= BANNER_STALE_THRESHOLD
+            )
+        )
+        if stale:
+            age = humanize_ago(self._catalog_newest_refresh) or "never"
+            self._catalog_banner.setText(
+                f"{_icons.notification_warning_icon}  Catalog last refreshed {age} — "
+                f"fixture times and titles may be outdated  —  Refresh sources"
+            )
+        self._catalog_banner.setVisible(stale)
+
+    def _catalog_banner_style(self) -> str:
+        """Composed QPushButton stylesheet — same warm-warning token family
+        (``COLOR_BANNER_YEL_*``) as the channel list's filter-transparency
+        segments (``channel_transparency.py`` / ``main_window.py``'s
+        ``_seg_style``), registered via ``style_fn`` so a theme switch
+        re-reads the tokens."""
+        return (
+            f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
+            f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: {_theme.RADIUS_SM};"
+            f" padding: 8px 16px; font-size: {_theme.FONT_MD}; text-align: left; }}"
+            f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
+            f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
+        )
 
     # ------------------------------------------------------------------ #
     # Loading                                                             #
