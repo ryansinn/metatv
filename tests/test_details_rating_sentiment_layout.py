@@ -295,21 +295,14 @@ def test_queue_in_secondary_zone_full_width_button(qapp):
     )
     assert action_bar.queue_button.isCheckable(), "Queue button must stay checkable"
     assert action_bar.queue_button.toolTip(), "Queue button must keep a tooltip"
-    # In the secondary row, Trailer is pinned left at a fixed width and Watch
-    # Later is the only widget that stretches (the rating trio shares the line,
-    # pinned to the right). Order settled against the rendered mockup:
-    # Resume · Play · Trailer ▶ · Watch Later · 👍 🙅 👎.
+    # Trailer moved to its OWN row (fix/trailer-own-row, owner-reported
+    # 2026-09-03): the secondary row now starts with Watch Later, the only
+    # widget that stretches (the rating trio shares the line, pinned right).
     srow = poster._secondary_row_layout
-    assert srow.itemAt(0).widget() is action_bar.trailer_button, (
-        "Trailer must be the leftmost widget on the secondary row"
+    assert srow.itemAt(0).widget() is action_bar.queue_button, (
+        "Watch Later must be the leftmost widget on the secondary row"
     )
-    assert srow.stretch(0) == 0, (
-        "Trailer must NOT stretch — it is fixed-width so Watch Later keeps the slack"
-    )
-    assert srow.itemAt(1).widget() is action_bar.queue_button, (
-        "Watch Later must follow Trailer on the secondary row"
-    )
-    assert srow.stretch(1) == 1, "Watch Later must absorb the row's spare width"
+    assert srow.stretch(0) == 1, "Watch Later must absorb the row's spare width"
 
 
 def test_primary_row_play_full_width_when_no_resume(qapp):

@@ -223,10 +223,6 @@ class _PosterSection(QWidget):
     # minimum is (3 × chip) + spacing — never the button's text width.
     _SECONDARY_ROW_SPACING: int = 6
     _SENTIMENT_BTN_W: int = _RAIL_W
-    #: Trailer button width. Fixed, so it does not compete with Watch Later for
-    #: slack and does not add its label width to the row's minimum. Sized for
-    #: "Trailer ▶" at FONT_LG with the role's 12px horizontal padding.
-    _TRAILER_BTN_W = 92
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -382,20 +378,26 @@ class _PosterSection(QWidget):
         self._primary_action_row.hide()
         layout.addWidget(self._primary_action_row)
 
+        # Trailer row — its OWN full-width line between Play/Resume and Watch
+        # Later.  Moved off the secondary row: pinned there it ate Watch Later's
+        # slack down to a sliver at the owner's ~307px pane (reported 2026-09-03).
+        # Zero margins/spacing so a hidden trailer button leaves zero height.
+        self._trailer_action_row = QWidget()
+        self._trailer_row_layout = QHBoxLayout(self._trailer_action_row)
+        self._trailer_row_layout.setContentsMargins(0, 0, 0, 0)
+        self._trailer_row_layout.setSpacing(0)
+        self._trailer_action_row.hide()
+        layout.addWidget(self._trailer_action_row)
+
         # Secondary action row — ONE line, split by position:
         #
         #     [ 📋 Watch Later ..................... ] [👍] [🙅] [👎]
         #
-        # LEFT = the collection action (put this somewhere), RIGHT = the judgment
-        # cluster (what I think of this).  Position does the separating, so neither
-        # side needs a caption.
-        #
-        # The 👍/🙅/👎 trio used to sit at the BOTTOM of the slim rail as unlabelled
-        # 48×24 chips floating over the poster's left edge, 80px below everything
-        # else — present, but reported as MISSING.  They are MOVED here (never
-        # duplicated); _ActionBar still owns the buttons, their state and signals.
-        # They hide themselves for live channels (_ActionBar.set_mode), leaving
-        # Watch Later spanning the row exactly as it did before.
+        # LEFT = the collection action, RIGHT = the judgment cluster — position
+        # does the separating, so neither side needs a caption.  The trio used
+        # to sit at the BOTTOM of the rail as unlabelled chips, present but
+        # reported as MISSING; MOVED here (never duplicated), hiding for live
+        # channels (_ActionBar.set_mode) and leaving Watch Later the whole row.
         self._secondary_action_row = QWidget()
         self._secondary_row_layout = QHBoxLayout(self._secondary_action_row)
         self._secondary_row_layout.setContentsMargins(0, 6, 0, 0)
@@ -413,11 +415,12 @@ class _PosterSection(QWidget):
         # _ActionBar.set_mode()/set_monitorable().
         self._action_rail.setVisible(True)
         self._live_header.setVisible(is_live)
-        # Primary action row (Play / Resume) + the secondary "Watch Later" +
-        # sentiment line show for ALL channel types.  The rating chips on the right
-        # of that line gate themselves (VOD-only, _ActionBar.set_mode); with them
-        # hidden, Watch Later simply spans the whole row.
+        # Primary row (Play/Resume) + trailer row + secondary "Watch Later"
+        # line show for ALL channel types.  The trailer row self-collapses to
+        # zero height with no trailer; the secondary line's rating chips gate
+        # themselves (VOD-only, _ActionBar.set_mode), leaving Watch Later the row.
         self._primary_action_row.setVisible(True)
+        self._trailer_action_row.setVisible(True)
         self._secondary_action_row.setVisible(True)
         # Watched badge is a VOD-only affordance — track mode and refresh visibility.
         self._is_live = is_live
@@ -459,14 +462,16 @@ class _PosterSection(QWidget):
         * **Primary row** (below the poster): play + resume, full-size and labeled,
           each with equal stretch (50/50 when both show; Play full-width when Resume
           is hidden).  Resume is the dominant one when present.
-        * **Secondary row** (one line under the primary row): "Trailer" pinned
-          left (fixed width, hidden unless the provider sent one), then the
-          labeled "Watch Later" (queue) button absorbing all slack, then the
-          like · not-interested · dislike trio right-aligned.  Position separates
-          collection (left) from judgment (right), so neither side needs a caption.
-          The trio was promoted out of the rail so the rating controls sit legibly
-          in the main column instead of over the poster art — there is only ONE set
-          of them, moved not duplicated.
+        * **Trailer row** (its own full-width line, between primary and secondary):
+          present ONLY when the provider sent a trailer (114,308 of 785k channels) —
+          moved off the secondary row, where it ate Watch Later's slack at a narrow
+          pane (owner-reported 2026-09-03).
+        * **Secondary row** (one line under the trailer row): the labeled "Watch
+          Later" (queue) button absorbing all slack, then the like · not-interested ·
+          dislike trio right-aligned — collection left, judgment right, so neither
+          side needs a caption.  The trio was promoted out of the rail so it sits
+          legibly in the main column instead of over the poster art — only ONE set,
+          moved not duplicated.
         * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
           shares this slot) · Clear EPG link (live only) · hide.  Bracketed by a
           leading + trailing stretch and kept tight (favorite↔monitor = G/2,
@@ -482,30 +487,25 @@ class _PosterSection(QWidget):
         prow.addWidget(play, 1)
         prow.addWidget(resume, 1)
 
+        # Trailer row: its own full-width line — stretch 1, whole row is free.
+        trow = self._trailer_row_layout
+        while trow.count():
+            trow.takeAt(0)
+        trow.addWidget(trailer, 1)
+
         # Secondary row, ONE line: "Watch Later" on the left, the sentiment trio
         # right-aligned.  Position separates them — collection action left, judgment
         # cluster right — so neither side carries a caption.
         #
         # WIDTH DISCIPLINE (docs/DETAILS_PANE_DESIGN.md → "Width discipline"): a
-        # QHBoxLayout's minimum width is the SUM of its children's minimums, so a
-        # naive row would floor the pane at (Watch Later's text width + 3 chips) and
-        # clip every other section off the right edge.  The queue button therefore
-        # opts OUT of driving width — horizontal policy Ignored, the same escape
-        # hatch no_width_force() applies to wrapping labels — so it reports a 0
-        # minimum, absorbs all slack via its stretch factor, and yields that space
-        # back FIRST as the pane narrows (its label elides rather than the pane
-        # widening).  The row's true minimum is just 3 × 48px + spacing ≈ 162px,
-        # comfortably under the 300px pane minimum.
+        # QHBoxLayout's minimum is the SUM of its children's, so a naive row would
+        # floor the pane at (Watch Later's text width + 3 chips).  The queue button
+        # opts OUT via horizontal policy Ignored (same escape hatch no_width_force()
+        # uses) — 0 minimum, absorbs all slack, yields it back FIRST as the pane
+        # narrows.  Row's true minimum: 3 × 48px + spacing ≈ 162px, well under 300px.
         srow = self._secondary_row_layout
         while srow.count():
             srow.takeAt(0)
-        # Trailer sits FIRST, hard against the left edge under Play — it is the
-        # "before you decide" action, and it reads as part of the watch cluster
-        # rather than the judgment one. Fixed width like the sentiment trio, so
-        # it neither drives the pane's minimum (docs/DETAILS_PANE_DESIGN.md →
-        # "Width discipline") nor steals the slack Watch Later absorbs.
-        trailer.setFixedWidth(self._TRAILER_BTN_W)
-        srow.addWidget(trailer, 0)
         q_policy = queue.sizePolicy()
         q_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
         queue.setSizePolicy(q_policy)

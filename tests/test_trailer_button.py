@@ -8,10 +8,12 @@ trailer and **114,308** — measured across the owner's whole library.
 Even the 46,148 went nowhere: ``trailer_url`` was stored on ``MetadataDB`` and
 rendered by **nothing**. The pane had no control for it at all.
 
-Order in the action row was settled against the rendered mockup —
-``Resume · Play · Trailer ▶ · Watch Later · 👍 🙅 👎`` — so the tests below pin
-Trailer as the leftmost, fixed-width item on the secondary row, not merely as
-"present somewhere".
+Placement was settled against the rendered mockup — Trailer pinned left on the
+same row as Watch Later — until the owner's real ~307px pane showed that row
+had no slack left: the fixed-width Trailer button ate it, and Watch Later
+collapsed to a sliver (owner-reported 2026-09-03, fix/trailer-own-row).
+Trailer now gets its OWN full-width row between Play/Resume and Watch Later;
+the tests below pin that geometry, not merely "present somewhere".
 
 No lightbox: QtWebEngine is not available in this app, so an embedded player was
 never possible. Left-click plays through mpv (which resolves YouTube via
@@ -156,12 +158,15 @@ def test_the_menu_is_wired_to_a_custom_context_menu(qapp):
 # Rendered appearance — geometry, not membership
 # --------------------------------------------------------------------------
 
-def test_the_button_is_painted_leftmost_on_the_secondary_row(qapp):
-    """Order is a claim about PIXELS, and membership tests pass for any order.
+def test_the_button_sits_on_its_own_row_at_the_owners_pane_width(qapp):
+    """The sliver regression (fix/trailer-own-row, owner-reported 2026-09-03).
 
-    Settled against the rendered mockup: Resume · Play · Trailer ▶ · Watch
-    Later · 👍 🙅 👎. Asserted on laid-out geometry so a row that merely
-    CONTAINS the button in the wrong place fails.
+    Pinned beside Watch Later on the secondary row, the fixed-width Trailer
+    button left no slack at the owner's real ~307px pane, and Watch Later
+    collapsed to a several-pixel sliver. Trailer now gets its OWN full-width
+    row between Play/Resume and Watch Later — asserted on laid-out geometry
+    (not membership) so a row that merely CONTAINS the button in the wrong
+    place fails.
     """
     from unittest.mock import MagicMock
 
@@ -173,42 +178,78 @@ def test_the_button_is_painted_leftmost_on_the_secondary_row(qapp):
     poster = _PosterSection(cfg, MagicMock())
     bar = _bar(qapp)
     wire_details_action_buttons(poster, bar)
-    # VOD mode, or the judgment trio stays hidden at (0, 0) and every
-    # comparison against it is meaningless — a geometry test that passes on
-    # unlaid-out widgets is the fake-coverage case this file exists to avoid.
+    # VOD mode + shown + resized to the owner's reported pane width, or the
+    # judgment trio/rows stay hidden or unlaid-out and every geometry
+    # comparison is meaningless — the fake-coverage case this file exists to
+    # avoid.
     bar.set_mode(is_live=False)
+    poster.set_mode(is_live=False)
     bar.set_trailer(True)
-    poster._secondary_action_row.resize(400, 40)
-    poster._secondary_action_row.show()
+    poster.resize(307, 900)
+    poster.show()
+    qapp.processEvents()
+    poster.resize(307, 900)
     qapp.processEvents()
 
     for name, btn in (("trailer", bar.trailer_button), ("queue", bar.queue_button),
                       ("like", bar.like_button)):
         assert not btn.isHidden(), f"{name} must be visible for this to mean anything"
 
-    trailer = bar.trailer_button.geometry()
-    queue = bar.queue_button.geometry()
-    like = bar.like_button.geometry()
+    # Watch Later must get its width back now that Trailer isn't sharing its row.
+    assert bar.queue_button.width() >= 120, (
+        f"Watch Later collapsed to a sliver ({bar.queue_button.width()}px) at "
+        "307px — Trailer must not be sharing its row"
+    )
 
-    assert trailer.left() < queue.left(), (
-        f"Trailer must be painted LEFT of Watch Later; "
-        f"trailer.x={trailer.left()} queue.x={queue.left()}")
-    assert queue.right() <= like.left(), (
-        "Watch Later must end before the judgment cluster begins")
-    assert trailer.width() > 0 and trailer.height() > 0, (
-        "the button must occupy real space, not a zero rect")
-    # Fixed width: it must not have absorbed the row's slack.
-    assert trailer.width() < queue.width(), (
-        f"Trailer is fixed-width and Watch Later takes the slack; "
-        f"trailer={trailer.width()} queue={queue.width()}")
+    # Trailer's own row: its y sits strictly between the primary (Play/Resume)
+    # row and the secondary (Watch Later) row.
+    trailer_y = bar.trailer_button.mapTo(poster, bar.trailer_button.rect().topLeft()).y()
+    play_y = poster._primary_action_row.y()
+    queue_y = poster._secondary_action_row.y()
+    assert play_y < trailer_y < queue_y, (
+        f"Trailer must sit on its own row between Play (y={play_y}) and "
+        f"Watch Later (y={queue_y}); trailer y={trailer_y}"
+    )
+
+
+def test_the_row_contributes_zero_height_with_no_trailer(qapp):
+    """No trailer → no reserved gap where the row would be.
+
+    A QHBoxLayout with zero contentsMargins/spacing holding only the hidden
+    trailer button reports zero height, so the 670k/785k channels with no
+    trailer see no empty band between Play/Resume and Watch Later.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.config import Config
+    from metatv.gui.details_sections import _PosterSection
+    from tests.conftest import wire_details_action_buttons
+
+    poster = _PosterSection(Config(), MagicMock())
+    bar = _bar(qapp)
+    wire_details_action_buttons(poster, bar)
+    bar.set_mode(is_live=False)
+    poster.set_mode(is_live=False)
+    bar.set_trailer(False)  # explicit: this title has no trailer
+    poster.resize(307, 900)
+    poster.show()
+    qapp.processEvents()
+    poster.resize(307, 900)
+    qapp.processEvents()
+
+    assert bar.trailer_button.isHidden(), "sanity: no trailer must hide the button"
+    assert poster._trailer_action_row.height() == 0, (
+        "the trailer row must collapse to zero height with no trailer; got "
+        f"{poster._trailer_action_row.height()}px"
+    )
 
 
 def test_the_row_does_not_grow_the_pane_minimum(qapp):
     """docs/DETAILS_PANE_DESIGN.md → "Width discipline".
 
-    A QHBoxLayout's minimum is the SUM of its children's minimums, so a
-    fixed-width button added to this row raises the floor for the whole pane —
-    which is the recurring details-pane bug. 300px is the pane's minimum.
+    Now that Trailer stretches its OWN row rather than sitting fixed-width on
+    the secondary row, that secondary row's minimum must stay exactly what it
+    was before Trailer existed. 300px is the pane's minimum.
     """
     from unittest.mock import MagicMock
 

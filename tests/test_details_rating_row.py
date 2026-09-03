@@ -97,16 +97,19 @@ def test_rating_controls_share_the_watch_later_line(qapp):
 
 
 def test_row_order_is_watch_later_then_the_rating_trio(qapp):
-    """Collection action LEFT, judgment cluster RIGHT — position is the separator."""
+    """Collection action LEFT, judgment cluster RIGHT — position is the separator.
+
+    Trailer lives in its own row now (fix/trailer-own-row, owner-reported
+    2026-09-03) — it must NOT be on this line at all.
+    """
     poster, ab = _wired_poster(_make_config())
 
     assert _row_widgets(poster) == [
-        ab.trailer_button,
         ab.queue_button,
         ab.like_button,
         ab.not_interested_button,
         ab.dislike_button,
-    ], "the secondary row must read [Trailer] [Watch Later] → 👍 → 🙅 → 👎"
+    ], "the secondary row must read [Watch Later] → 👍 → 🙅 → 👎"
 
 
 def test_rating_controls_are_right_aligned_by_the_queue_stretch(qapp):
@@ -114,9 +117,8 @@ def test_rating_controls_are_right_aligned_by_the_queue_stretch(qapp):
     poster, ab = _wired_poster(_make_config())
     lay = poster._secondary_row_layout
 
-    assert lay.stretch(0) == 0, "Trailer is fixed-width and must not stretch"
-    assert lay.stretch(1) == 1, "Watch Later must absorb the spare width"
-    for idx in (2, 3, 4):
+    assert lay.stretch(0) == 1, "Watch Later must absorb the spare width"
+    for idx in (1, 2, 3):
         assert lay.stretch(idx) == 0, "the rating chips must not stretch"
 
 

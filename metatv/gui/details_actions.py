@@ -227,9 +227,13 @@ class _ActionBar(QWidget):
         self.queue_button.setToolTip("Add to Watch Later")
         self.queue_button.clicked.connect(self._on_queue_clicked)
 
-        # Trailer — tier 2, beside Watch Later. Shown only when the provider
-        # actually sent one, which is 114,308 of the owner's channels; a button
-        # that is present but dead on the other 670,000 is worse than absent.
+        # Trailer — tier 2, its own full-width row between Play/Resume and
+        # Watch Later (_PosterSection.set_action_buttons). It used to sit
+        # beside Watch Later on the secondary row, but at a narrow pane it
+        # consumed Watch Later's slack down to a sliver — owner-reported
+        # 2026-09-03. Shown only when the provider actually sent one, which is
+        # 114,308 of the owner's channels; a button that is present but dead
+        # on the other 670,000 is worse than absent.
         #
         # Left-click plays it; right-click offers the same thing on YouTube, for
         # the times mpv's extractor is out of date or the viewer wants the page
