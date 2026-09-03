@@ -127,6 +127,9 @@ class ChannelDB(Base):
     signal_checked_at = Column(DateTime, index=True)
     league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
     team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
+    #: Fixture opponents (SPORT-4, core/fixture_titles.py); @ fixtures: a=away, b=home.
+    event_team_a = Column(String)
+    event_team_b = Column(String)  # NULL for racks/races/racing-venue events
     event_metadata = Column(JSONEncoded)  # Additional parsed data (event name, quality, etc.)
 
     rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
@@ -1018,6 +1021,9 @@ class Database:
             ("channels",     "last_seen_at",                  "DATETIME"),
             # The provider's own event end time (SPORT-1).
             ("channels",     "event_stop_time",               "DATETIME"),
+            # Fixture opponents (SPORT-4) — see ChannelDB.event_team_a above.
+            ("channels",     "event_team_a",                  "TEXT"),
+            ("channels",     "event_team_b",                  "TEXT"),
             # WL-1 watch-rule fields; the UPDATE below stamps NULLs.
             ("alert_patterns", "whole_word",                  "INTEGER DEFAULT 1"),
             ("alert_patterns", "exclude_terms",               "TEXT"),

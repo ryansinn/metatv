@@ -57,9 +57,10 @@ Reset, then recompute
 ``update_channel_special_content`` returns early and writes NOTHING when the
 channel no longer matches anything, so recomputing in place would leave every
 false positive exactly where it is — the 7,163 rows that stop being sports are
-the whole point. The six derived fields are cleared first and then recomputed.
-All six are machine-derived; no user state is touched (CLAUDE.md: migrations
-rewrite only generated data).
+the whole point. ``DERIVED_FIELDS`` — now eight, since SPORT-4 added the
+fixture-opponent columns — are cleared first and then recomputed. All are
+machine-derived; no user state is touched (CLAUDE.md: migrations rewrite
+only generated data).
 
 CLASSIFIER_VERSION
 ------------------
@@ -155,6 +156,10 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v8 (2026-09-02): fixture opponents parsed and stored (SPORT-4 — the
+#: four-feature blocker: Team facet, team identity, reliable LIVE state, and
+#: live status all need event_team_a/event_team_b, which no row carried
+#: before this version). Every dated fixture re-derives to acquire them.
 #: v7 (2026-09-02): slot-form start:/stop: times are UTC, not machine-local —
 #: stored event windows were +machine-offset (owner: +6h, so "On now" landed
 #: at 3 AM and baseball never showed live). Every v6 row must be recomputed to
@@ -181,13 +186,14 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v2 (2026-08-31): event_start_time now parses all three provider date forms and
 #: converts from the zone named in the string, and the 'sports' branch extracts a
 #: time at all — 927 rows carry a parseable date and stored nothing before.
-CURRENT_VERSION = 7
+CURRENT_VERSION = 8
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
 DERIVED_FIELDS = (
     "special_view", "sport_type", "league_name", "team_name",
     "event_start_time", "event_stop_time", "event_metadata",
+    "event_team_a", "event_team_b",
 )
 
 #: Every channel attribute ``special_content.update_channel_special_content``

@@ -134,10 +134,12 @@ class TestExistingRowsAreBackfilled:
         fix invisible on every existing library. Floor raised to 7 for the
         UTC-not-local correction below — that fix also needs a recompute pass
         to reach rows already stored (and stored wrong) under the local
-        reading.
+        reading. Raised again to 8 for SPORT-4 (fixture opponents): every
+        existing dated fixture holds NULL event_team_a/event_team_b until a
+        recompute pass reaches it, same reasoning as every version above.
         """
         from metatv.core.migrations.sports_reclassify import CURRENT_VERSION
-        assert CURRENT_VERSION >= 7, (
+        assert CURRENT_VERSION >= 8, (
             "the slot-form UTC fix needs a reclassify version bump too — "
             "existing rows keep their machine-local-shifted event_start_time "
             "otherwise")

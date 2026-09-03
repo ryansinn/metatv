@@ -233,11 +233,13 @@ def test_untouched_rows_keep_their_nulls(db):
 # --------------------------------------------------------------------------
 
 def test_every_derived_field_is_reset(db):
-    """All seven, not just the three the sports view happens to read.
+    """All nine, not just the three the sports view happens to read.
 
     ``event_start_time``, ``event_stop_time`` and ``event_metadata`` are
     written by the ppv and live_event branches; leaving them behind would show
     a countdown for an event the row is no longer classified as.
+    ``event_team_a``/``event_team_b`` (SPORT-4) join the set for the same
+    reason — a row that stops being a fixture must not keep its old opponents.
 
     The exact set is pinned deliberately: a field added to the classifier that
     is NOT reset here keeps a stale value through the sweep, and that failure is
@@ -247,6 +249,7 @@ def test_every_derived_field_is_reset(db):
     assert set(DERIVED_FIELDS) == {
         "special_view", "sport_type", "league_name", "team_name",
         "event_start_time", "event_stop_time", "event_metadata",
+        "event_team_a", "event_team_b",
     }
     _seed(db, [("4K - Conflict (2024)", "Movies", "ppv", "football", "NFL", "Bears")])
     with db.session_scope() as session:

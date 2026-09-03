@@ -10,6 +10,7 @@ from loguru import logger
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
 from metatv.core.event_datetime import parse_event_window
+from metatv.core.fixture_titles import parse_fixture_opponents
 
 
 # Built-in sport keyword map: canonical sport name → list of keywords to match
@@ -528,6 +529,9 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         channel.event_start_time = ppv_data['start_time']
         channel.event_stop_time = ppv_data['stop_time']
         channel.sport_type = ppv_data['sport_type']
+        # PPV fixtures (the day-name matchup form) carry opponents same as
+        # the sports branch below — same chokepoint (SPORT-4).
+        channel.event_team_a, channel.event_team_b = parse_fixture_opponents(channel.name or "")
 
         metadata = ppv_data.copy()
         for _key in ('start_time', 'stop_time'):
@@ -574,5 +578,9 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         _window = parse_event_window(channel.name or "")
         channel.event_start_time = _window.start
         channel.event_stop_time = _window.stop
+        # Fixture opponents (SPORT-4) — same chokepoint as the ppv branch;
+        # None for the 24/7 racks and racing "at venue" listings, which is
+        # correct rather than a miss.
+        channel.event_team_a, channel.event_team_b = parse_fixture_opponents(channel.name or "")
 
     return True

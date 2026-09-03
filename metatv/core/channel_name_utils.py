@@ -1439,6 +1439,19 @@ REGION_FULL_NAMES: dict[str, str] = {
 }
 
 
+#: Spelled-out league names prefixing a dash-matchup fixture's team A — "…
+#: MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES" names DIAMONDBACKS/PHILLIES,
+#: not "MAJOR LEAGUE BASEBALL DIAMONDBACKS" (SPORT-4, core/fixture_titles.py).
+#: Only MLB is corpus-measured (2026-09-02); the rest mirror abbreviations
+#: already known above/in special_content.py's league_keywords, for parity.
+#: Ambiguous prefixes are left alone rather than guessed (bias to recall).
+FIXTURE_LEAGUE_NAME_PREFIXES: tuple[str, ...] = (
+    "MAJOR LEAGUE BASEBALL", "NATIONAL BASKETBALL ASSOCIATION",
+    "NATIONAL FOOTBALL LEAGUE", "NATIONAL HOCKEY LEAGUE",
+    "ENGLISH PREMIER LEAGUE",
+)
+
+
 def platform_display(code: str, style: str) -> str:
     """Return the viewer-facing label for a stored platform prefix *code*.
 
