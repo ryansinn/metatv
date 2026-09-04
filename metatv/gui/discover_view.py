@@ -46,7 +46,7 @@ from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.discover_workers import (
-    _LoaderWorker, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
+    _LoaderWorker, _RECIPE_PREFIX, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
     _ZoneSnapshot, determine_zone, normalize_shelf_config,
 )
 from metatv.gui import icons as _icons
@@ -74,6 +74,7 @@ class DiscoverView(QWidget):
     channelContextMenuRequested = pyqtSignal(str, int, int)
     channelMiddleClicked        = pyqtSignal(str)   # channel_id — configured middle-click play
     tmdbEnrichRequested         = pyqtSignal(list)  # channel_ids just rendered → lazy TMDb enrichment
+    recipeEditRequested         = pyqtSignal(str)   # recipe name — a shelf's ✎ click
 
     def __init__(self, db: Database, config: Config,
                  image_cache: "ImageCache", parent=None) -> None:
@@ -647,6 +648,16 @@ class DiscoverView(QWidget):
                 lst.remove(shelf_key)
         _cfgsave.save_soon(self)
 
+    def _on_shelf_edit_requested(self, shelf_key: str) -> None:
+        """A recipe shelf's ✎ click — re-emit with the ``recipe:`` prefix stripped.
+
+        Only recipe shelves wire ``editRequested`` at all (discover_shelf.py
+        only builds the button when ``_is_recipe``), so this is purely a
+        namespace strip, not a routing decision.
+        """
+        if shelf_key.startswith(_RECIPE_PREFIX):
+            self.recipeEditRequested.emit(shelf_key[len(_RECIPE_PREFIX):])
+
     # ---- Load lifecycle -----------------------------------------------------
 
     def on_activate(self) -> None:
@@ -819,6 +830,7 @@ class DiscoverView(QWidget):
         shelf.collapseRequested.connect(self._on_collapse_requested)
         shelf.expandRequested.connect(self._on_expand_requested)
         shelf.hideRequested.connect(self._on_hide_requested)
+        shelf.editRequested.connect(self._on_shelf_edit_requested)
         shelf.wire(self.channelSelected, self.playRequested,
                    self.channelContextMenuRequested, self.channelMiddleClicked)
 

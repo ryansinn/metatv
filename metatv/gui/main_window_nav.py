@@ -916,20 +916,26 @@ class _NavMixin:
         )
 
     def _on_tag_discover_requested(self, facet_type: str, value: str) -> None:
-        """Right-click a tag chip → open the Recipe view seeded with this one tag.
+        """Right-click a tag chip → the Recipe view seeded with this one tag.
+        Reuses the recipe/discover-shelf engine rather than a parallel discover
+        surface: the "Now Plating" grid IS the one-ingredient-recipe shelf."""
+        self._activate_recipe_view()
+        self.recipe_view.seed_facet(facet_type, value)
 
-        Reuses the existing recipe/discover-shelf engine (the tag-facet → poster
-        shelf path) rather than hand-rolling a parallel discover surface: the
-        Recipe view's "Now Plating" grid IS the one-ingredient-recipe shelf.
-        """
-        # Activate the Recipe view the same way clicking the Recipe nav chip does.
+    def _activate_recipe_view(self) -> None:
+        """Open the Recipe view the way its nav chip does (chip lit with signals
+        blocked, siblings dimmed, switch) — the one programmatic entry point."""
         if "recipe_chip" in self.__dict__:
             self.recipe_chip.blockSignals(True)
             self.recipe_chip.set_enabled(True)
             self.recipe_chip.blockSignals(False)
             self._deactivate_view_chips(self.recipe_chip)
         self.switch_to_recipe_view()
-        self.recipe_view.seed_facet(facet_type, value)
+
+    def _on_discover_recipe_edit_requested(self, name: str) -> None:
+        """A Discover recipe shelf's ✎ click (#587) — the builder, loaded."""
+        self._activate_recipe_view()
+        self.recipe_view.load_saved_recipe_by_name(name)
 
     def _on_trail_recipe_requested(self, channel_id: str) -> None:
         """"Make recipe" from the trail-map — open the Recipe builder, SEEDED.

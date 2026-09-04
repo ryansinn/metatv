@@ -13,6 +13,7 @@ from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.chunked_construction import ChunkHandle, build_chunked
 from metatv.gui.discover_card import _ContentCard, card_metrics
+from metatv.gui.discover_workers import _RECIPE_PREFIX
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -41,6 +42,7 @@ class _Shelf(QWidget):
       collapseRequested / expandRequested — move to/from collapsed zone
       hideRequested — remove from view entirely
       seeAllRequested — open browse drill-down
+      editRequested — a recipe shelf's ✎ click (recipe shelves only)
     """
 
     seeAllRequested   = pyqtSignal(str)  # shelf_key
@@ -49,6 +51,7 @@ class _Shelf(QWidget):
     collapseRequested = pyqtSignal(str)
     expandRequested   = pyqtSignal(str)
     hideRequested     = pyqtSignal(str)
+    editRequested     = pyqtSignal(str)  # shelf_key — ✎ click on a recipe shelf
 
     def __init__(self, title: str, shelf_key: str,
                  cards: list[ContentCard], image_cache: "ImageCache",
@@ -61,6 +64,11 @@ class _Shelf(QWidget):
         self._title = title
         self._config = config
         self._image_cache = image_cache
+        # Derived from the key's namespace (never a separate flag threaded
+        # through _ShelfData) — a recipe shelf gets an ✎ edit affordance the
+        # header never shows anyone else.
+        self._is_recipe = shelf_key.startswith(_RECIPE_PREFIX)
+        self._edit_btn: QPushButton | None = None
         self._cards_widgets: list[_ContentCard] = []
         self._build_handle: ChunkHandle | None = None  # in-flight chunked card build, if any (PERF-17)
         self._pinned = pinned
@@ -105,6 +113,18 @@ class _Shelf(QWidget):
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}")
         self._see_all_btn.clicked.connect(lambda: self.seeAllRequested.emit(self._shelf_key))
         header.addWidget(self._see_all_btn)
+
+        # ✎ edit — recipe shelves only. The header itself never becomes an
+        # editable title (locked design: stays consistent with every other
+        # shelf); this is the one control that opens the recipe editor.
+        if self._is_recipe:
+            self._edit_btn = QPushButton(_icons.recipe_edit_icon)
+            self._edit_btn.setFixedSize(24, 22)
+            self._edit_btn.setFlat(True)
+            self._edit_btn.setStyleSheet(btn_ss)
+            self._edit_btn.setToolTip("Edit this recipe")
+            self._edit_btn.clicked.connect(lambda: self.editRequested.emit(self._shelf_key))
+            header.addWidget(self._edit_btn)
 
         self._pin_btn = QPushButton(config.pin_icon)
         self._pin_btn.setFixedSize(24, 22)
@@ -327,6 +347,8 @@ class _Shelf(QWidget):
             return
         self._scroll_area.setVisible(not self._collapsed)
         self._see_all_btn.setVisible(not self._collapsed)
+        if self._edit_btn is not None:
+            self._edit_btn.setVisible(not self._collapsed)
 
         if self._collapsed:
             self._collapse_btn.setText(self._config.expand_icon)

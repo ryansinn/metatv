@@ -2104,6 +2104,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.discover_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.discover_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.discover_view.tmdbEnrichRequested.connect(self._enqueue_tmdb_enrichment)
+        self.discover_view.recipeEditRequested.connect(self._on_discover_recipe_edit_requested)
         self.discover_view.setVisible(False)
         self._list_layout.addWidget(self.discover_view)
 
@@ -2120,6 +2121,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # channel menu (same seam as DiscoverView and Recommendations).
         self.recipe_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.recipe_view.tmdbEnrichRequested.connect(self._enqueue_tmdb_enrichment)
+        # #587: a save/rename/delete/toggle re-feeds Discover's recipe shelves;
+        # reload() carries #722's dirty-while-inactive guard, so a closed
+        # Discover only marks itself stale.
+        self.recipe_view.savedRecipesChanged.connect(self.discover_view.reload)
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 

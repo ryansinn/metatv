@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -40,9 +41,10 @@ class _SavedRecipeCard(QFrame):
     loads it back into the builder.
     """
 
-    loadRequested   = pyqtSignal(int)        # index → reload into builder
-    deleteRequested = pyqtSignal(int)        # index → remove
-    renameRequested = pyqtSignal(int, str)   # (index, new_name)
+    loadRequested             = pyqtSignal(int)        # index → reload into builder
+    deleteRequested           = pyqtSignal(int)        # index → remove
+    renameRequested           = pyqtSignal(int, str)   # (index, new_name)
+    showInDiscoverToggled     = pyqtSignal(int, bool)  # (index, checked) — Discover-shelf master switch
 
     def __init__(self, index: int, recipe: dict, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -111,6 +113,22 @@ class _SavedRecipeCard(QFrame):
         tags_row.addStretch()
         outer.addLayout(tags_row)
 
+        # Discover-shelf master switch (#587): OFF -> no recipe:<name> shelf is
+        # emitted at all; ON -> a normal shelf, still pin/hide-able like any
+        # other. A QCheckBox — excluded from the pointer-cursor convention by
+        # design (cursor_affordance.py) and themed by the QPalette floor, same
+        # as every other settings checkbox in the app.
+        self._show_check = QCheckBox("Show in Discover")
+        self._show_check.setToolTip(
+            f"When on, this recipe appears as its own {_icons.recipe_icon} "
+            "shelf on the Discover page."
+        )
+        self._show_check.setChecked(bool(recipe.get("show_in_discover", True)))
+        self._show_check.toggled.connect(
+            lambda checked: self.showInDiscoverToggled.emit(self._index, checked)
+        )
+        outer.addWidget(self._show_check)
+
     def _tag(self, facet: str, value: str, *, excluded: bool) -> QLabel:
         lbl = QLabel(f"{_icons.tag_exclude_icon} {value}" if excluded else value)
         lbl.setStyleSheet(_facet_chip_style(_facet_color(facet), excluded=excluded))
@@ -133,9 +151,10 @@ class _SavedRecipesPanel(QWidget):
     ``renameRequested`` up to the host, keyed by list index.
     """
 
-    loadRequested   = pyqtSignal(int)
-    deleteRequested = pyqtSignal(int)
-    renameRequested = pyqtSignal(int, str)
+    loadRequested         = pyqtSignal(int)
+    deleteRequested       = pyqtSignal(int)
+    renameRequested       = pyqtSignal(int, str)
+    showInDiscoverToggled = pyqtSignal(int, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -159,6 +178,7 @@ class _SavedRecipesPanel(QWidget):
             card.loadRequested.connect(self.loadRequested)
             card.deleteRequested.connect(self.deleteRequested)
             card.renameRequested.connect(self.renameRequested)
+            card.showInDiscoverToggled.connect(self.showInDiscoverToggled)
             self._cards.append(card)
         self._relayout()
 

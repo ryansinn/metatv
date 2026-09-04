@@ -25,6 +25,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.discovery_engine import ContentCard
+from metatv.gui import icons as _icons
 
 if TYPE_CHECKING:
     pass
@@ -572,13 +573,19 @@ class _LoaderWorker(QObject):
             # user-category shelves because they are the same kind of thing:
             # curated by the user, so they come before the catalogue's own.
             #
-            # Named "Recipe: X" rather than bare "X" so a recipe and a user
-            # category of the same name stay distinguishable in the shelf
-            # manager, where both appear as reorderable rows.
+            # ``show_in_discover`` (default True — absent on pre-#587 saves)
+            # is the per-recipe master switch: OFF skips the shelf entirely,
+            # never even as a header-only strip. The title carries the ✦
+            # marker (icons.recipe_icon) as a non-color cue, which is also
+            # what keeps a recipe and a same-named user category
+            # distinguishable in the shelf manager, where both appear as
+            # reorderable rows.
             for recipe in (getattr(self._config, "saved_recipes", None) or []):
                 if self._cancelled:
                     return
                 if not isinstance(recipe, dict):
+                    continue
+                if not recipe.get("show_in_discover", True):
                     continue
                 recipe_name = (recipe.get("name") or "").strip()
                 if not recipe_name:
@@ -586,7 +593,7 @@ class _LoaderWorker(QObject):
                 key = f"{_RECIPE_PREFIX}{recipe_name}"
                 if key in hidden:
                     continue
-                title = f"Recipe: {recipe_name}"
+                title = f"{_icons.recipe_icon} {recipe_name}"
                 if _zone(key) in (_ZONE_PINNED, _ZONE_EXPANDED):
                     emit(_ShelfData(title, key, fetch_cards_for_key(
                         session, self._config, key, 30,

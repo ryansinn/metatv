@@ -137,6 +137,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
     channelMiddleClicked         = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested  = pyqtSignal(str, int, int)  # channel_id, gx, gy
     tmdbEnrichRequested          = pyqtSignal(list)       # channel_ids just rendered → lazy TMDb enrichment
+    savedRecipesChanged          = pyqtSignal()           # save/rename/delete/toggle — host refreshes Discover
 
     def __init__(
         self,
@@ -439,6 +440,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         self._saved_panel.loadRequested.connect(self._on_saved_load)
         self._saved_panel.deleteRequested.connect(self._on_saved_delete)
         self._saved_panel.renameRequested.connect(self._on_saved_rename)
+        self._saved_panel.showInDiscoverToggled.connect(self._on_saved_show_toggled)
         saved_scroll.setWidget(self._saved_panel)
         return saved_scroll
 
