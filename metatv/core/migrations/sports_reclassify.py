@@ -156,6 +156,9 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v12 (2026-09-03): owner rulings — "fight" leaves the gate vocabulary and
+#: VOD (movie/series) never enters the sports population; repairs ~5,032 VOD
+#: rows plus the fight-word false positives.
 #: v11 (2026-09-03): adds FloSports vertical keywords + gate entries and three
 #: new sports (volleyball, swimming, track); re-run captures the ~1,370 FLSP
 #: rows the v10 reset correctly unlabeled but could not re-capture.
@@ -205,7 +208,7 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v10 (2026-09-03): repairs rows renamed before ingestion enrolled the
 #: classification columns in the rename-clear — their stored sport/event columns
 #: are stale on disk.
-CURRENT_VERSION = 11
+CURRENT_VERSION = 12
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.
@@ -243,7 +246,10 @@ TITLE_KEY_FIELDS = ("content_key", "media_type", "detected_year", "detected_tmdb
 #: which is what keeps the 2 KB ``raw_data`` blob off the wire for 785k rows.
 #: Drift guard: ``test_the_classifier_reads_no_column_the_page_query_omits``
 #: AST-walks ``special_content.py`` and fails if a read escapes this tuple.
-CLASSIFIER_INPUTS = ("name", "category", "stream_url")
+#: ``media_type`` joined v12: ``detect_sports_channel`` now gates on it (VOD
+#: never enters the sports population), so the scratch row built per page
+#: must carry it or every row would read back ``None`` and never match.
+CLASSIFIER_INPUTS = ("name", "category", "stream_url", "media_type")
 
 #: Rows per page READ. Matches ProviderLoader's own categorize batch. Only ever
 #: a read now, in its own read-only scope, so it bounds memory rather than a
