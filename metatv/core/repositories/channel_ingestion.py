@@ -52,6 +52,7 @@ from metatv.core.channel_name_utils import (
     normalize_region_code,
     parse_category_marker,
     parse_channel_name,
+    split_category_prefix,
     strip_collection_noise_tokens,
 )
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
@@ -186,11 +187,16 @@ class ChannelIngestionMixin:
            parsed from the channel name (highest priority, unchanged behavior).
         2. **Own provider-category code** — when the name yields no region, derive
            it from ``channel.category`` (e.g. ``"|FR|"`` → ``"FR"``) via
-           :func:`~metatv.core.tag_decomposer.region_code_from_category` (the same
-           extraction that produces the region tag facet — single source of truth).
+           :func:`~metatv.core.tag_decomposer.region_code_from_category` (same
+           extraction as the region tag facet — single source of truth).
+        2b. **Bare "XX| REST" category code** (#582) — no leading pipe (e.g.
+            ``"AR| BEIN SPORTS NX"``); covers codes step 2 misses because
+            ``CODE_FACETS`` treats them as language-only (``AR`` = Arabic, never a
+            region). :func:`~metatv.core.channel_name_utils.split_category_prefix`
+            also fills ``detected_prefix`` — the field Exclusions checks first.
         3. **content_key sibling** — a final cross-source pass copies a region onto
            any still-empty row from a sibling sharing the same (non-NULL)
-           ``content_key``.  See :meth:`_propagate_region_from_siblings`.
+           ``content_key``. See :meth:`_propagate_region_from_siblings`.
 
         Args:
             provider_id: Only update channels for this provider, or None for all.
@@ -200,11 +206,10 @@ class ChannelIngestionMixin:
                 each batch commit.  ``done`` is non-decreasing and ends at
                 ``total`` on full completion.  Pass ``None`` (default) to skip
                 progress reporting (existing callers are unaffected).
-            is_cancelled: Optional ``() -> bool`` checked at the top of each
-                batch iteration.  When it returns True the loop exits early;
-                already-committed batches are durable but the task is not marked
-                complete (version not bumped by the manager).  Pass ``None``
-                (default) to run without cancellation support.
+            is_cancelled: Optional ``() -> bool`` checked at the top of each batch
+                iteration. When it returns True the loop exits early; already-
+                committed batches are durable but the task isn't marked complete
+                (version not bumped). Pass ``None`` (default) to skip cancellation.
             config: Optional live ``Config`` instance — supplies the filter groups
                 the category→region extraction consults.  Loaded lazily (default
                 ``Config()``) when ``None`` so existing callers are unaffected.
@@ -260,15 +265,13 @@ class ChannelIngestionMixin:
         sib_filled = 0
         tmdb_adopted = 0
         if not (is_cancelled is not None and is_cancelled()):
-            # Both propagation phases below are bulk writers just like the batch
-            # loop above and hit the identical lock-contention hazard (owner log
+            # Both propagation phases below are bulk writers like the batch loop
+            # above and hit the identical lock-contention hazard (owner log
             # 2026-08-01 18:48: propagate_tmdb_from_title_siblings crashed on
-            # `database is locked` at its bulk UPDATE, uncovered by #367's
-            # batch-only retry). Both methods retry internally via the same
-            # shared `_retry_on_lock` helper the batch loop uses, so every
-            # write phase of this method gets identical lock-contention
-            # coverage — including their OTHER caller, the standalone
-            # tmdb_sibling_propagation migration task.
+            # `database is locked`, uncovered by #367's batch-only retry). Both
+            # retry internally via the shared `_retry_on_lock` helper, covering
+            # their OTHER caller too — the standalone tmdb_sibling_propagation
+            # migration task.
             sib_filled = self._propagate_region_from_siblings(provider_id)
             # Free (no-network) tmdb propagation: an idless row self-heals by adopting
             # a confident same-title sibling's detected_tmdb_id so new content collapses
@@ -422,53 +425,50 @@ class ChannelIngestionMixin:
 
             # AI-provenance marker (single source of truth: detect_ai_provenance).
             # A trailing "(AI)" voiceover marker is TWO uppercase letters, so
-            # parse_channel_name reads it as a bogus lang/region qualifier ("AI",
-            # which is also the ISO code for Anguilla) and leaks it into region.
-            # Clear it here — the marker is an AI dub, not a locale — so the
-            # category/sibling fallbacks below can still fill a real region and no
-            # bogus region facet is ever produced.  The content_type:ai_voiceover
-            # tag carries the real signal.
+            # parse_channel_name reads it as a bogus lang/region qualifier ("AI" is
+            # also Anguilla's ISO code) and leaks it into region. Clear it here —
+            # it's an AI dub, not a locale — so the fallbacks below can still fill
+            # a real region; content_type:ai_voiceover carries the real signal.
             _ai_raw = detect_ai_provenance(channel.name)
             if (_ai_raw is not None and _ai_raw.value == AI_VOICEOVER_VALUE
                     and region and region.upper() == "AI"):
                 region = None
 
-            # Fill-empty fallback (step 2): when the NAME carries no region,
-            # derive it from the provider category (e.g. "|FR|" → "FR") via the
-            # shared tag_decomposer extraction. Never overwrites a name-derived
-            # region; only explicit region codes qualify (free text → None).
+            # Fill-empty fallback (step 2): when the NAME carries no region, derive
+            # it from the provider category via the shared tag_decomposer
+            # extraction (never overwrites a name-derived region).
             if not region and channel.category:
                 region = region_code_from_category(channel.category, config=config)
 
-            # ── Category marker (owner report: "|EN| ANIME" style leading
-            # marker duplicates channel-name language/subtitle info and
-            # crowds the title). Strips the marker into the clean
-            # detected_collection text and routes the token by kind — never
+            # Fill-empty fallback (step 2b, #582): a bare "XX| REST" category with
+            # NO leading pipe — a different convention from the marker below and
+            # from region_code_from_category's split, which misses codes
+            # CODE_FACETS treats as language-only (AR = Arabic, never a region —
+            # #138). Also fills detected_prefix — the field Exclusions checks
+            # first. Fill-empty-only: the name-derived value always wins.
+            if (prefix is None or not region) and channel.category:
+                _cat_code, _ = split_category_prefix(channel.category)
+                if _cat_code:
+                    if prefix is None:
+                        prefix = _cat_code
+                    if not region:
+                        region = _cat_code
+
+            # ── Category marker (owner report: "|EN| ANIME" style leading marker
+            # duplicates channel-name language/subtitle info and crowds the
+            # title). Strips the marker into the clean detected_collection text
+            # and routes the token by kind (see parse_category_marker) — never
             # guessing beyond a plain language code or a recognized SUB/DUB
-            # compound (see parse_category_marker):
-            #   - plain language code: adopted as detected_prefix ONLY when
-            #     the channel has none of its own (mirrors the detected_region
-            #     fill-empty-only pattern above); when the channel already has
-            #     its own prefix, the marker is kept — UNLESS it merely
-            #     repeats that same prefix — as detected_collection_language
-            #     so it can render its own "other language" chip. Nothing is
-            #     silently dropped on disagreement.
-            #   - compound "CODE-SUB"/"CODE-DUB": routed to the EXISTING
-            #     detected_audio sub/dub facet (below) AND kept as its own
-            #     chip-ready display value (detected_collection_subdub, e.g.
-            #     "AR-SUB") — never treated as a language.
-            # After the marker is stripped, strip_collection_noise_tokens()
-            # (channel_name_utils.py) removes whatever's LEFT that merely
-            # repeats a chip/icon the row already paints elsewhere — a
-            # quality tier (the quality chip), a media-type word (the media
-            # icon), or a multi/sub marker (the subtitle-marker chip), e.g.
-            # "MULTISUB SERIES 4K" -> "" (every token redundant) or
-            # "|MULTI| APPLE+ KIDS" -> "APPLE+ KIDS". A whole-noise SPAN
-            # clears entirely ("SERIES MANIA" survives intact — MANIA isn't
-            # noise); a TRAILING quality/sub-dub/multi word also gets peeled
-            # off a real name even when the rest is kept ("FILMOVI 4K UHD"
-            # -> "FILMOVI"), but a media-type word never is ("TAMIL MOVIES"
-            # stays — see strip_collection_noise_tokens()'s docstring).
+            # compound: a plain code fills detected_prefix ONLY when empty
+            # (mirrors the detected_region fill-empty-only pattern above),
+            # else survives as detected_collection_language UNLESS it merely
+            # repeats the existing prefix; a "CODE-SUB"/"CODE-DUB" compound
+            # routes to the EXISTING detected_audio sub/dub facet AND its own
+            # chip-ready detected_collection_subdub value (e.g. "AR-SUB").
+            # strip_collection_noise_tokens() (channel_name_utils.py) then
+            # removes whatever's left that merely repeats another chip/icon on
+            # the row — see that function's docstring for the whole-span-vs-
+            # trailing-peel rule.
             new_collection: str | None = None
             new_collection_language: str | None = None
             new_collection_subdub: str | None = None
