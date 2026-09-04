@@ -43,6 +43,9 @@ import subprocess
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 OPEN_BATCH = _ROOT / "scripts" / "open_batch.sh"
+# GATE-7: open_batch.sh sources this library for _main_repo/resolve_py, so a
+# staged copy of the script needs its one dependency staged beside it.
+REPO_PYTHON = _ROOT / "scripts" / "repo_python.sh"
 MERGE_PR = _ROOT / "scripts" / "merge_pr.sh"
 
 
@@ -83,6 +86,8 @@ def _write_repo_files(repo: pathlib.Path, version: str, opened_sha: str,
     dest = scripts / "open_batch.sh"
     dest.write_text(OPEN_BATCH.read_text(encoding="utf-8"), encoding="utf-8")
     _make_executable(dest)
+    (scripts / "repo_python.sh").write_text(
+        REPO_PYTHON.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _stub_gh(tmp_path: pathlib.Path) -> pathlib.Path:

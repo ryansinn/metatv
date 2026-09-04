@@ -21,9 +21,21 @@ set -u
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root" || exit 0
 
-PY="venv/bin/python"
-[ -x "$PY" ] || PY="$(command -v python3 || true)"
+# _main_repo / resolve_py (GATE-7): a branch lacking this file must not kill
+# the hook, so guard the source rather than assume it exists.
+[ -f "$repo_root/scripts/repo_python.sh" ] && . "$repo_root/scripts/repo_python.sh"
+PY=""
+if command -v resolve_py >/dev/null 2>&1; then
+    PY="$(resolve_py "$repo_root" 2>/dev/null || true)"
+fi
+[ -n "$PY" ] || PY="$(command -v python3 || true)"
 [ -n "$PY" ] || exit 0
+
+# Per-checkout, not the shared /tmp path: two worktrees pushing at once used
+# to clobber each other's guard log. A linked worktree's git-dir is its own
+# .git/worktrees/<name>/, so this is unique per checkout without being unique
+# per run.
+LOG="$(git rev-parse --git-dir)/prepush-guards.log"
 
 if "$PY" -m ruff --version >/dev/null 2>&1; then
     if ! "$PY" -m ruff check metatv/ tests/ scripts/ 2>&1; then
@@ -58,8 +70,8 @@ done
 if [ -n "$GUARDS" ] && [ -x scripts/pytest_verdict.sh ]; then
     # Through the verdict script, so this decides on the exit code and takes the
     # same lock — never a bare pytest whose summary then gets grepped.
-    if ! QT_QPA_PLATFORM=offscreen scripts/pytest_verdict.sh $GUARDS >/tmp/prepush-guards.log 2>&1; then
-        cat >&2 <<'MSG'
+    if ! QT_QPA_PLATFORM=offscreen scripts/pytest_verdict.sh $GUARDS >"$LOG" 2>&1; then
+        cat >&2 <<MSG
 
 PUSH BLOCKED: a structural guard failed.
 
@@ -67,7 +79,7 @@ These four run in about half a second and catch what a lint pass cannot — a fi
 grown past its code-health baseline, a new undefined name, a window that no
 longer launches, a test writing to the real user config.
 
-    tail -40 /tmp/prepush-guards.log
+    tail -40 $LOG
 
 The ratchet is the usual one. If the growth is deliberate and reviewed:
 

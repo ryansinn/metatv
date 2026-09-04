@@ -63,8 +63,33 @@ _KNOWN_PRIVATE_TEARDOWNS = {
 #: parse of its own, which is not a pytest invocation this scanner can see.
 _KNOWN_BARE_PYTEST_SCRIPTS = {"ship_batch.sh"}
 
+#: Scripts that resolve ``venv/bin/python`` on their own instead of sourcing
+#: ``scripts/repo_python.sh`` (``resolve_py`` / ``_main_repo``). Shrink-only.
+#: GATE-7 fixed the two sites that actually broke a push — ``.githooks/
+#: pre-push`` and ``scripts/pytest_verdict.sh``, both resolving relative to
+#: CWD, exit 127 from a worktree with no venv symlink — plus the three-way
+#: ``_main_repo`` duplicate (``verify_pr.sh`` / ``merge_pr.sh`` /
+#: ``open_batch.sh``). These two carry the same CWD-relative pattern but were
+#: out of that slice's scope (docs/REFACTOR_PLAN.md ledger D37):
+#:
+#: ``ci_shards_local.sh`` — ``PY="${PYTHON:-venv/bin/python}"`` after its own
+#:                          ``cd "$(git rev-parse --show-toplevel)"``.
+#: ``ship_batch.sh``       — the retired pre-rolling-release chore, already a
+#:                          known exception above.
+_KNOWN_VENV_PYTHON_SCRIPTS = {"ci_shards_local.sh", "ship_batch.sh"}
+
 _DRAIN = re.compile(r"sendPostedEvents\(\s*None\s*,\s*(?:QEvent\.Type\.)?DeferredDelete\s*\)")
 _BARE_PYTEST = re.compile(r"(?<!scripts/)\bpytest\b[^\n]*", re.M)
+_HEREDOC = re.compile(r"<<-?['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?\n.*?\n\1\n", re.S)
+
+
+def _strip_comments_and_heredocs(text: str) -> str:
+    """Drop comment lines and heredoc bodies, so a banner printed for humans
+    (``venv/bin/python -m ruff …``) doesn't read as executable code."""
+    text = _HEREDOC.sub("", text)
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("#")
+    )
 
 
 def test_no_new_private_widget_teardown_helper():
@@ -117,6 +142,48 @@ def test_no_new_script_runs_pytest_outside_the_verdict_script():
         "these scripts run pytest without scripts/pytest_verdict.sh, so their "
         f"verdict is decided somewhere new: {sorted(new)}"
     )
+
+
+def test_scripts_resolve_python_through_one_path():
+    """One place resolves the interpreter: ``scripts/repo_python.sh``.
+
+    GATE-7: ``.githooks/pre-push`` and ``scripts/pytest_verdict.sh`` each
+    hardcoded ``venv/bin/python`` relative to CWD, which is exit-127-wrong
+    the moment CWD is a git worktree with no venv symlink — it cost two
+    blocked pushes on 2026-09-03, with the hook's banner reading as a
+    structural-guard failure rather than a missing interpreter.
+    ``_main_repo`` was also separately defined in three scripts. Both now
+    live once in ``scripts/repo_python.sh``; every script that mentions
+    ``venv/bin/python`` in real code must source it rather than re-derive
+    the path.
+    """
+    lib = _SCRIPTS / "repo_python.sh"
+    assert lib.exists(), "scripts/repo_python.sh is gone"
+
+    candidates = sorted(_SCRIPTS.glob("*.sh")) + [_ROOT / ".githooks" / "pre-push"]
+    offenders = set()
+    for path in candidates:
+        if path.name == "repo_python.sh":
+            continue
+        raw = path.read_text(encoding="utf-8")
+        code = _strip_comments_and_heredocs(raw)
+        if "venv/bin/python" not in code:
+            continue
+        if "repo_python.sh" in raw:
+            continue
+        offenders.add(path.name)
+
+    new = offenders - _KNOWN_VENV_PYTHON_SCRIPTS
+    assert not new, (
+        "these resolve venv/bin/python without sourcing scripts/repo_python.sh: "
+        f"{sorted(new)}"
+    )
+    # Shrink-only: when one is migrated, delete it from the set above.
+    assert offenders <= _KNOWN_VENV_PYTHON_SCRIPTS
+    stale = _KNOWN_VENV_PYTHON_SCRIPTS - offenders
+    assert not stale, (
+        "these no longer resolve venv/bin/python on their own — remove them "
+        f"from the known set: {sorted(stale)}")
 
 
 def test_the_local_shard_runner_exists_and_routes_through_the_verdict_script():
