@@ -102,19 +102,11 @@ command -v gh >/dev/null 2>&1 || { echo "verify_pr.sh: the gh CLI is required." 
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Absolute path of the main worktree for any checkout dir (mirrors run.sh).
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
-
-# Echo a usable python: the checkout's own venv, else the main worktree's venv.
-# Generic for any linked-worktree Python repo (metatv runs from source, so a
-# linked worktree can borrow the main venv's identical interpreter).
-resolve_py() {
-    local base="$1" main
-    if [ -x "$base/venv/bin/python" ]; then printf '%s\n' "$base/venv/bin/python"; return 0; fi
-    main="$(_main_repo "$base")"
-    if [ -n "$main" ] && [ -x "$main/venv/bin/python" ]; then printf '%s\n' "$main/venv/bin/python"; return 0; fi
-    return 1
-}
+# _main_repo / resolve_py: the single sourced copy (GATE-7), shared with
+# merge_pr.sh, open_batch.sh, pytest_verdict.sh and .githooks/pre-push —
+# this script had the correct answer first, so the library was extracted
+# from here verbatim.
+source "$SCRIPT_DIR/repo_python.sh"
 
 # Echo a usable scripts/pytest_verdict.sh: the checkout's own copy (the merge
 # result being tested), else the main worktree's (mirrors resolve_py exactly —

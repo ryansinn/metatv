@@ -44,7 +44,7 @@
 #                                                full gate before a release.
 #   scripts/merge_pr.sh -h | --help              Show this help.
 #
-# _main_repo mirrors run.sh.
+# _main_repo / resolve_py come from scripts/repo_python.sh (GATE-7).
 
 set -u
 
@@ -105,8 +105,9 @@ command -v gh >/dev/null 2>&1 || { echo "merge_pr.sh: the gh CLI is required." >
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Absolute path of the main worktree for any checkout dir (mirrors run.sh).
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
+# _main_repo / resolve_py: the single sourced copy (GATE-7) — see
+# scripts/repo_python.sh.
+source "$SCRIPT_DIR/repo_python.sh"
 
 main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "merge_pr.sh: not inside a git repo." >&2; exit 1; }

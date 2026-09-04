@@ -70,17 +70,18 @@ if [ "$_want_exclude" = 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# The SHARED main repository — never a worktree. Mirrors verify_pr.sh's and
-# merge_pr.sh's `_main_repo`: `--git-common-dir` resolves to the ONE .git every
-# linked worktree shares, unlike `--show-toplevel`, which returns whichever
-# worktree happens to contain SCRIPT_DIR. This script commits (and optionally
-# pushes), so getting that wrong doesn't just read the wrong tree — it STRANDS
-# the version-bump commit on whatever branch is checked out in that worktree.
-# It did, twice, on 2026-09-02: merge_pr.sh invoked via a relative path from an
-# agent worktree's cwd, so SCRIPT_DIR resolved inside the worktree, and the old
-# `show-toplevel` logic here landed the commit on the worktree's feature
-# branch while origin/main never moved.
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
+# The SHARED main repository — never a worktree. `_main_repo` (from
+# scripts/repo_python.sh, GATE-7) uses `--git-common-dir`, which resolves to
+# the ONE .git every linked worktree shares, unlike `--show-toplevel`, which
+# returns whichever worktree happens to contain SCRIPT_DIR. This script
+# commits (and optionally pushes), so getting that wrong doesn't just read
+# the wrong tree — it STRANDS the version-bump commit on whatever branch is
+# checked out in that worktree. It did, twice, on 2026-09-02: merge_pr.sh
+# invoked via a relative path from an agent worktree's cwd, so SCRIPT_DIR
+# resolved inside the worktree, and the old `show-toplevel` logic here
+# landed the commit on the worktree's feature branch while origin/main never
+# moved.
+source "$SCRIPT_DIR/repo_python.sh"
 main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "open_batch.sh: not inside a git repository." >&2; exit 2; }
 

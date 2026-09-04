@@ -9,12 +9,63 @@ so they are asserted rather than trusted.
 import pathlib
 import subprocess
 
-SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "pytest_verdict.sh"
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "pytest_verdict.sh"
+REPO_PYTHON = ROOT / "scripts" / "repo_python.sh"
+PRE_PUSH = ROOT / ".githooks" / "pre-push"
 
 
 def test_the_script_exists_and_is_executable():
     assert SCRIPT.exists(), "scripts/pytest_verdict.sh is gone"
     assert SCRIPT.stat().st_mode & 0o111, "not executable"
+
+
+def test_resolve_py_borrows_the_main_worktrees_venv(tmp_path):
+    """``resolve_py()`` (scripts/repo_python.sh) is the one place a python
+    interpreter is resolved (GATE-7): a hardcoded ``venv/bin/python`` relative
+    to CWD is exit-127-wrong the moment CWD is a worktree with no venv
+    symlink — two blocked pushes on 2026-09-03.
+
+    A directory that is not even a git checkout must fail cleanly (no path
+    printed); the repo root should resolve to its own venv when it has one.
+    """
+    assert REPO_PYTHON.exists(), "scripts/repo_python.sh is gone"
+
+    # cwd=tmp_path: resolve_py's git-lookup failure branch falls back to a
+    # bare "./venv/bin/python" (dirname of an empty _main_repo() is "."), so
+    # the check is only meaningful relative to a CWD that is not itself the
+    # main checkout — otherwise this repo's own venv would false-positive.
+    not_a_checkout = subprocess.run(
+        ["bash", "-c", f'source "{REPO_PYTHON}"; resolve_py "{tmp_path}"'],
+        capture_output=True, text=True, timeout=30, cwd=tmp_path,
+    )
+    assert not_a_checkout.returncode != 0, (
+        "resolve_py must fail outside any git checkout, not guess a path")
+    assert not_a_checkout.stdout == "", (
+        f"resolve_py printed a path for a non-checkout dir: {not_a_checkout.stdout!r}")
+
+    venv_py = ROOT / "venv" / "bin" / "python"
+    if not venv_py.exists():
+        pytest.skip("this checkout has no venv/bin/python to resolve")
+    repo_root = subprocess.run(
+        ["bash", "-c", f'source "{REPO_PYTHON}"; resolve_py "{ROOT}"'],
+        capture_output=True, text=True, timeout=30, cwd=ROOT,
+    )
+    assert repo_root.returncode == 0, repo_root.stderr
+    assert repo_root.stdout.strip() == str(venv_py)
+
+
+def test_pre_push_log_is_per_checkout():
+    """Two worktrees pushing at once used to clobber one shared
+    ``/tmp/prepush-guards.log`` — a linked worktree's git-dir is its own
+    ``.git/worktrees/<name>/``, so keying the log off ``git rev-parse
+    --git-dir`` makes it per-checkout instead."""
+    body = PRE_PUSH.read_text(encoding="utf-8")
+    assert "rev-parse --git-dir" in body
+    assert "/tmp/prepush-guards.log" not in body, (
+        "the shared /tmp log path is still hardcoded somewhere in the hook")
 
 
 def test_it_refuses_a_full_suite_with_no_reason():
