@@ -9,7 +9,14 @@ A saved recipe is the plain, JSON/YAML-friendly shape stored in Config::
 
     {"name": str,
      "includes": {facet_type: [values]},
-     "excludes": {facet_type: [values]}}
+     "excludes": {facet_type: [values]},
+     "show_in_discover": bool}   # #587 — Discover-shelf master switch, default True
+
+Also owns the ``recipe:<name>`` Discover-shelf identity round-trip (#587): a
+new save seeds the shelf into Discover's pinned zone, a rename migrates
+whichever zone list held the old key, and a delete drops it — all through
+the single :meth:`_sync_recipe_shelf_key` chokepoint, and every mutation
+emits :attr:`RecipeView.savedRecipesChanged` so the host refreshes Discover.
 
 The runtime recipe state uses ``set`` values; this mixin is the single boundary
 that converts between the two forms, so no other code re-derives it.
@@ -39,6 +46,7 @@ class _RecipeSavedMixin:
             "name": name,
             "includes": {f: sorted(v) for f, v in includes.items() if v},
             "excludes": {f: sorted(v) for f, v in excludes.items() if v},
+            "show_in_discover": True,
         }
 
     @staticmethod
@@ -64,6 +72,65 @@ class _RecipeSavedMixin:
         except Exception as e:  # never let a config write crash the UI
             logger.warning("RecipeView: could not persist saved recipes: {}", e)
 
+    def _sync_recipe_shelf_key(self, old_name: str | None, new_name: str | None) -> None:
+        """Keep Discover's zone-list membership in sync with a recipe's identity.
+
+        The shelf key is ``recipe:<name>`` (discover_workers._RECIPE_PREFIX), so
+        save/rename/delete all change or remove that key — this is the single
+        chokepoint all three route through instead of three copies of the same
+        list-surgery:
+
+        - Save (``old_name=None``): the locked design defaults a NEW recipe
+          shelf into the PINNED zone, user-demotable afterwards like any other
+          shelf — seeding the existing ``discover_pinned_shelves`` list is the
+          whole mechanism; no special-casing of zone determination itself.
+        - Rename (both set): migrates whichever zone list currently holds the
+          old key to the new one, in place, so a rename never silently drops a
+          pin/hide the user set.
+        - Delete (``new_name=None``): removes the key from every zone list so
+          no orphaned entry lingers forever.
+        """
+        from metatv.gui.discover_workers import _RECIPE_PREFIX
+
+        old_key = f"{_RECIPE_PREFIX}{old_name}" if old_name else None
+        new_key = f"{_RECIPE_PREFIX}{new_name}" if new_name else None
+        if old_key == new_key:
+            return
+
+        if old_key is None:
+            pinned = list(getattr(self._config, "discover_pinned_shelves", []))
+            if new_key not in pinned:
+                pinned.append(new_key)
+                self._config.discover_pinned_shelves = pinned
+        else:
+            for attr in ("discover_pinned_shelves", "discover_expanded_shelves",
+                         "discover_hidden_shelves"):
+                lst = list(getattr(self._config, attr, []))
+                if old_key in lst:
+                    idx = lst.index(old_key)
+                    if new_key is not None:
+                        lst[idx] = new_key
+                    else:
+                        lst.pop(idx)
+                    setattr(self._config, attr, lst)
+        try:
+            _cfgsave.save_soon(self)
+        except Exception as e:  # never let a config write crash the UI
+            logger.warning("RecipeView: could not persist recipe shelf zone: {}", e)
+
+    def load_saved_recipe_by_name(self, name: str) -> None:
+        """Load the saved recipe called *name* into the builder.
+
+        Public entry point for a Discover recipe shelf's ✎ click — same effect
+        as clicking the card on the Saved tab, looked up by name (the shelf
+        key's identity) instead of list index. A no-op if the recipe was
+        deleted/renamed since the shelf was built (the click is now stale).
+        """
+        for index, entry in enumerate(self._saved_recipes()):
+            if isinstance(entry, dict) and entry.get("name") == name:
+                self._on_saved_load(index)
+                return
+
     # ── Save / render / reload / delete / rename ──────────────────────────
 
     def _on_save_recipe(self) -> None:
@@ -76,6 +143,8 @@ class _RecipeSavedMixin:
         recipes.append(entry)
         self._persist_saved_recipes(recipes)
         logger.debug("RecipeView: saved recipe {!r} ({} total)", name, len(recipes))
+        self._sync_recipe_shelf_key(None, name)
+        self.savedRecipesChanged.emit()
         # Jump to the Saved tab so the user sees the new card (and can rename it).
         self._tab_bar.set_index(1)
         self._show_tab(1)
@@ -163,6 +232,8 @@ class _RecipeSavedMixin:
         removed = recipes.pop(index)
         self._persist_saved_recipes(recipes)
         logger.debug("RecipeView: deleted saved recipe {!r}", removed.get("name"))
+        self._sync_recipe_shelf_key(removed.get("name"), None)
+        self.savedRecipesChanged.emit()
         self._load_saved_recipes()
 
     def _on_saved_rename(self, index: int, name: str) -> None:
@@ -170,5 +241,23 @@ class _RecipeSavedMixin:
         recipes = list(self._saved_recipes())
         if not (0 <= index < len(recipes)):
             return
-        recipes[index] = {**recipes[index], "name": name or "Untitled recipe"}
+        old_name = recipes[index].get("name")
+        new_name = name or "Untitled recipe"
+        recipes[index] = {**recipes[index], "name": new_name}
         self._persist_saved_recipes(recipes)
+        self._sync_recipe_shelf_key(old_name, new_name)
+        self.savedRecipesChanged.emit()
+
+    def _on_saved_show_toggled(self, index: int, checked: bool) -> None:
+        """Saved-tab "Show in Discover" toggle — the per-recipe master switch (#587).
+
+        Purely a Config write; the shelf's pin/hide zone membership is left
+        untouched (the layers compose per the locked design) — Discover's own
+        reload picks up the new gate on the next refresh.
+        """
+        recipes = list(self._saved_recipes())
+        if not (0 <= index < len(recipes)):
+            return
+        recipes[index] = {**recipes[index], "show_in_discover": checked}
+        self._persist_saved_recipes(recipes)
+        self.savedRecipesChanged.emit()
