@@ -62,6 +62,11 @@ class WatchAlertsSection(
     alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
     channel_selected = pyqtSignal(str)      # channel_db_id — single click → load details pane
     channelContextMenuRequested = pyqtSignal(str, int, int) # channel_db_id, global_x, global_y
+    # REC-3: emitted INSTEAD of channelContextMenuRequested when the row under
+    # the cursor carries a programme identity (channel_db_id, start, stop,
+    # title, global_x, global_y) — so "record_programme" can schedule THIS
+    # airing rather than "what's on now".
+    programmeContextMenuRequested = pyqtSignal(str, object, object, str, int, int)
     retryRemoveRequested = pyqtSignal(str)                  # entry_id
     retryClearAllRequested = pyqtSignal()
     retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name

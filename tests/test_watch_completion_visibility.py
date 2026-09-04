@@ -92,6 +92,8 @@ class _FakeThresholdConfig:
         self.signal_dead_streak_to_hide = 2
         self.mpv_args_override_all = False
         self.split_streams_by_source = False
+        self.recording_pad_start_seconds = -120
+        self.recording_pad_end_seconds = 900
         self.epg_default_refresh_interval = "3d"
         self.metadata_enabled = True
         self.metadata_auto_fetch = False
@@ -122,6 +124,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
         wire_settings_epg_widgets,
         wire_settings_playback_widgets,
         wire_settings_recommendation_widgets,
+        wire_settings_recording_widgets,
         wire_settings_signal_widgets,
         wire_settings_signal_widgets,
         wire_settings_theme_widget,
@@ -197,6 +200,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     wire_settings_signal_widgets(dlg)
     wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
+    wire_settings_recording_widgets(dlg)
 
     # Downloads tab (needed by _load_values / _save_values)
     from tests.conftest import wire_settings_downloads_widgets

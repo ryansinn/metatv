@@ -11,12 +11,16 @@ _SORT_ROLE
 _PROGRESS_ROLE
 _REMAIN_ROLE
 _CONTENT_TYPE_ROLE
+_PROG_START_ROLE
+_PROG_STOP_ROLE
 _ProgressBarDelegate
 _EpgTreeItem
 _progress_bar
 _DismissedDialog
 _AssignCategoryDialog
 _parse_iso
+apply_watchlist_highlight
+add_record_programme_handler
 """
 
 from __future__ import annotations
@@ -52,6 +56,13 @@ _SORT_ROLE         = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
 _PROGRESS_ROLE     = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
 _REMAIN_ROLE       = Qt.ItemDataRole.UserRole + 4  # "10m left" tooltip string
 _CONTENT_TYPE_ROLE = Qt.ItemDataRole.UserRole + 5  # On Now: classify_channel_content_type() result
+#: REC-3: a programme row's raw UTC-naive start/stop — read by the channel-menu
+#: handler that schedules a recording of THIS row, not "now". Shared across
+#: On Now, Browse and Watch Alerts so "record_programme" behaves identically
+#: on all three (CLAUDE.md: import a private name only from where it is
+#: defined — this is that definition).
+_PROG_START_ROLE   = Qt.ItemDataRole.UserRole + 6
+_PROG_STOP_ROLE    = Qt.ItemDataRole.UserRole + 7
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +131,38 @@ def apply_watchlist_highlight(item: QTreeWidgetItem, columns, bold_col: int) -> 
     font = item.font(bold_col)
     font.setBold(True)
     item.setFont(bold_col, font)
+
+
+# ---------------------------------------------------------------------------
+# "record_programme" handler — shared by On Now + Browse (REC-3)
+# ---------------------------------------------------------------------------
+
+def add_record_programme_handler(handlers: dict, ctx, host, cid: str) -> None:
+    """Register the "record_programme" channel-menu handler when *ctx* carries
+    a programme window — the identical block On Now and Browse both built.
+
+    Direct call, not ``hasattr``: ``schedule_recording_from_programme`` is a
+    real ``MainWindow`` method (``main_window_downloads.py``); a skeleton test
+    host gets it from the shared conftest factory (CLAUDE.md: never a
+    ``hasattr`` guard in production to satisfy a skeleton — wire the shared
+    factory instead).
+
+    Args:
+        handlers: The surface's handler dict, mutated in place.
+        ctx: The built ``ChannelMenuContext`` — read for
+            ``programme_start``/``programme_end``/``programme_title``.
+        host: The resolved menu host (``self._host()``), carrying
+            ``schedule_recording_from_programme``.
+        cid: The single selected channel id.
+    """
+    if ctx.programme_start is None or ctx.programme_end is None:
+        return
+
+    def _record_h(c=cid, s=ctx.programme_start, e=ctx.programme_end,
+                  t=ctx.programme_title):
+        host.schedule_recording_from_programme(c, s, e, t)
+
+    handlers["record_programme"] = _record_h
 
 
 # ---------------------------------------------------------------------------

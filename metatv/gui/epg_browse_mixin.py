@@ -68,7 +68,10 @@ from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import resolve_category_name
 from metatv.gui.epg_widgets import (
     _EpgTreeItem,
+    _PROG_START_ROLE,
+    _PROG_STOP_ROLE,
     _SORT_ROLE,
+    add_record_programme_handler,
     apply_watchlist_highlight as _apply_watchlist_highlight,
 )
 
@@ -832,6 +835,10 @@ class _EpgBrowseMixin:
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
             # Raw UTC-naive start_time for the scroll→scrubber-handle mapping.
             item.setData(0, _START_ROLE, prog.start_time)
+            # REC-3: this row's own guide window, so "record_programme"
+            # schedules THIS (possibly future) airing, not "what's on now".
+            item.setData(0, _PROG_START_ROLE, prog.start_time)
+            item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
             if prefix:
                 item.setToolTip(1, resolve_category_name(prefix, self.config) or prefix)
             item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
@@ -886,9 +893,15 @@ class _EpgBrowseMixin:
         cid = item.data(0, Qt.ItemDataRole.UserRole)
 
         # ── Build context ────────────────────────────────────────────────────
+        # REC-3: this row's OWN guide window (never "what's on now" — Browse
+        # rows are often in the future), so "record_programme" schedules the
+        # right airing.
         ctx_kwargs: dict = {
             "channel_ids": [cid] if cid else [],
             "surface": "epg_browse",
+            "programme_start": item.data(0, _PROG_START_ROLE),
+            "programme_end": item.data(0, _PROG_STOP_ROLE),
+            "programme_title": title,
         }
 
         if cid:
@@ -945,6 +958,8 @@ class _EpgBrowseMixin:
             handlers["play_new_window"] = _play_new_h
             handlers["favorite"] = _fav_h
             handlers["queue"] = _queue_h
+
+            add_record_programme_handler(handlers, ctx, host, cid)
 
             if ctx.media_type in ("movie", "series"):
                 def _like_h(c=cid):

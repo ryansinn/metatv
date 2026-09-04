@@ -24,10 +24,13 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu
+
+if TYPE_CHECKING:                                    # pragma: no cover
+    from datetime import datetime
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -66,22 +69,23 @@ class ChannelMenuContext:
     watch_progress: int = 0           # saved resume position in seconds (0 = unwatched/completed)
     watch_completed: bool = False     # True when VOD has been watched to completion
     playback_resume_mode: str = "resume"  # mirrors config.playback_resume_mode at menu-build time
-    # Stored detected_title, read straight off ChannelDB in the DB pass.  NEVER derived
-    # by calling parse_channel_name() here — name-derived fields are computed at
-    # ingestion and read at render (CLAUDE.md).  Empty when unset; use `title`.
+    # Stored detected_title, read straight off ChannelDB — NEVER re-derived via
+    # parse_channel_name() here (CLAUDE.md). Empty when unset; use `title`.
     detected_title: str = ""
-    # Cross-source identity key (ChannelDB.content_key) — read straight off the
-    # channel in the DB pass. "" when unset (pre-migration row or live channel).
+    # Cross-source identity key (ChannelDB.content_key). "" when unset.
     content_key: str = ""
-    # Sibling count for this content_key group ( >=1; 1 = no other versions),
-    # computed in the DB pass via ChannelRepository.get_content_key_siblings so
-    # "Show N versions" only appears when there is something to show.
+    # Sibling count for this content_key group (>=1; 1 = no other versions),
+    # so "Show N versions" only appears when there is something to show.
     variant_count: int = 1
-    # (quality, language, source) option list for the "Show N versions" picker —
-    # each dict is one row from get_content_key_siblings (id/name/detected_quality/
-    # detected_region/provider_name/...). Fetched alongside the rest of the DB-pass
-    # context so the picker handler needs no second round trip.
+    # (quality, language, source) options for the "Show N versions" picker —
+    # each dict a row from get_content_key_siblings, fetched alongside the
+    # rest of the DB-pass context so the picker needs no second round trip.
     variant_options: list = field(default_factory=list)
+    # REC-3: the EPG programme this row represents (alerts/On Now/Browse),
+    # else None/"" — what "record_programme"'s applies= predicate gates on.
+    programme_start: "datetime | None" = None
+    programme_end: "datetime | None" = None
+    programme_title: str = ""
 
     @property
     def is_single(self) -> bool:
@@ -91,10 +95,8 @@ class ChannelMenuContext:
     def title(self) -> str:
         """The clean title for title-based actions (search / copy).
 
-        One definition shared by every title action so "Search this title" and
-        "Copy title" can never disagree: the stored ``detected_title`` (prefix,
-        quality and suffix already stripped at ingestion), falling back to the raw
-        channel name when the channel has no detected title yet.
+        One definition shared by every title action, so they never disagree:
+        the stored ``detected_title``, falling back to the raw channel name.
         """
         return (self.detected_title or self.channel_name or "").strip()
 
@@ -130,11 +132,10 @@ class ChannelAction:
         default_factory=lambda: (lambda c: True)
     )
     disabled_tooltip: str = ""
-    # Optional dynamic glyph: when set it overrides ``icon`` (e.g. favorite flips
-    # on ``is_favorite``).  Returns an icons.py glyph string ("" = no icon).
+    # Dynamic glyph overriding ``icon`` (e.g. favorite flips on ``is_favorite``).
     icon_fn: "Callable[[ChannelMenuContext], str] | None" = None
-    # Optional dynamic icon colour: returns a theme colour token, or None for the
-    # default muted/gray.  Only the resume affordance returns the orange accent.
+    # Dynamic icon colour (theme token, or None for muted/gray) — only the
+    # resume affordance returns the orange accent.
     icon_color: "Callable[[ChannelMenuContext], str | None] | None" = None
 
 
@@ -293,9 +294,8 @@ ACTIONS: dict[str, ChannelAction] = {
             "source. Resumes if interrupted, and pauses by itself while you "
             "are watching something on the same source."
         ),
-        # VOD-only, the same predicate as the deep cache above: a live channel
-        # has no end to download TO. Recording live is a different feature with
-        # a different priority rule (ROADMAP: DVR).
+        # VOD-only — a live channel has no end to download TO; it records
+        # instead (below), a different feature with a different priority rule.
         applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
     ),
     "record": ChannelAction(
@@ -307,10 +307,25 @@ ACTIONS: dict[str, ChannelAction] = {
             "start watching something else, and waits rather than giving up if "
             "the source is busy."
         ),
-        # The exact inverse of "download" above, and deliberately so: a VOD has
-        # an end to download to, a live channel has a clock to record against.
-        # Neither predicate is a superset of the other.
+        # Exact inverse of "download": a VOD has an end to download to, a live
+        # channel a clock to record against — neither predicate is a superset.
         applies=lambda c: c.is_single and c.channel_found and c.media_type == "live",
+    ),
+    # REC-3: schedules THIS row's start/stop, unlike "record" (always "now"),
+    # so it works on a future Browse row too — gated on programme identity.
+    "record_programme": ChannelAction(
+        id="record_programme",
+        label=lambda c: "Record this programme",
+        icon=_icons.record_icon,
+        tooltip=(
+            "Schedule a recording for this programme's guide window, padded "
+            "by your Settings → Recording defaults. Scheduling now catches a "
+            "clash with another recording on this source before it happens."
+        ),
+        applies=lambda c: (
+            c.is_single and c.channel_found and c.media_type == "live"
+            and c.programme_start is not None and c.programme_end is not None
+        ),
     ),
     # ── Resume-position overrides ────────────────────────────────────────────
     "play_from_beginning": ChannelAction(
@@ -321,10 +336,8 @@ ACTIONS: dict[str, ChannelAction] = {
             "Start playback from the beginning, ignoring the saved resume position.\n"
             "Your resume position is preserved — this is a one-time override."
         ),
-        # Only meaningful when the default Play WOULD resume (resume mode + resumable).
-        # The exact mirror of resume_from (beginning-mode only): in beginning mode the
-        # default Play already starts at zero, so this override would be redundant —
-        # and would render a second ▶ next to Play. Reuses the one shared predicate.
+        # Only meaningful when the default Play WOULD resume — the exact mirror
+        # of resume_from (beginning-mode only, else a redundant second ▶).
         applies=_play_resumes_by_default,
     ),
     "resume_from": ChannelAction(
@@ -373,10 +386,9 @@ ACTIONS: dict[str, ChannelAction] = {
         checked=lambda c: c.rating == -1,
         applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
     ),
-    # ── Title actions ───────────────────────────────────────────────────────
-    # Both read ctx.title (the stored detected_title, falling back to the raw name)
-    # so they always agree on what "this title" means.  Hidden when the channel has
-    # no resolvable title at all — an action that would search/copy "" is noise.
+    # ── Title actions ────────────────────────────────────────────────────────
+    # Both read ctx.title (detected_title, falling back to the raw name); hidden
+    # when unresolvable — an action that would search/copy "" is noise.
     "search_title": ChannelAction(
         id="search_title",
         label=lambda c: "Search this title",
@@ -434,10 +446,9 @@ ACTIONS: dict[str, ChannelAction] = {
             and c.media_type == "series"
         ),
     ),
-    # ── Alert visibility ─────────────────────────────────────────────────────
-    # Shown ONLY when the item is an unviewed watch-for match.  Acknowledges the
-    # match (flips viewed → green-off everywhere); does NOT remove from the queue
-    # or mark anything watched.  The user dismisses — nothing auto-acts.
+    # ── Alert visibility ────────────────────────────────────────────────────
+    # Shown ONLY for an unviewed watch-for match. Acknowledges it (viewed →
+    # green-off everywhere) — never removes from the queue or marks watched.
     "clear_alert": ChannelAction(
         id="clear_alert",
         label=lambda c: "Clear alert — I've seen this",
@@ -687,27 +698,16 @@ ACTIONS: dict[str, ChannelAction] = {
 # Each list contains action ids and the literal "sep" for separator positions.
 # The builder emits separators lazily (never leading, trailing, or doubled).
 
-# Download appears on EVERY surface that can show a VOD row, and record on every
-# surface showing a live one. The action's own ``applies`` predicate does the
-# media-type gating, so listing it costs nothing where it cannot apply — a
-# movie in Favorites offers Download, a live channel there does not.
-#
-# It shipped on "channel" alone, which is the bug this fixes: the registry was
-# found and exactly one of nine entries was filled. The owner: "unless there's
-# a good reason, all vod channel context menus should be the same and have
-# download available, not just results."
-#
-# Discover, Recipe and Recommendations all route through the "recommended"
-# layout (main_window.py:2108/2117/2133 -> _on_rec_channel_context_menu), so
-# one entry covers three surfaces.
-#
-# The two deliberate omissions, so nobody "fixes" them later:
-#   retry       - a stream that failed to open. Downloading it would fail the
-#                 same way; there is nothing to save.
-#   epg_browse  - record() records what is on NOW, and this surface browses
-#                 FUTURE programmes, so it would record the wrong thing.
-#                 Recording a browsed programme needs the scheduling entry
-#                 point (REC-3), not this list.
+# Download/record/record_programme are listed on every surface that can show
+# a VOD/live/programme row respectively — each action's own ``applies`` does
+# the media-type/programme gating, so listing it costs nothing where it can't
+# apply (a movie in Favorites offers Download, a live channel there does not).
+# (Owner, on "download" shipping on "channel" alone: "all vod channel context
+# menus should be the same and have download available.") Discover/Recipe/
+# Recommendations share the "recommended" layout. Deliberate omission: "retry"
+# (nothing to save from a stream that failed to open). record_programme
+# (REC-3) schedules the ROW's own start/stop, which is what makes it correct
+# on epg_browse's future programmes too, not just epg_on_now/alerts.
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
@@ -803,12 +803,10 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_unavailable",
     ],
-    # Shared by every Discover-family movie surface: Discover shelves + Discover
-    # browse, sidebar Recommended, Recipe "Now Plating", and the Preferences
-    # dashboard.  This is the FULL standard movie menu — the same standard block
-    # as "channel"; per-action `applies=` predicates hide the ones that don't fit
-    # (e.g. mark_watched/category/monitor_series on a non-VOD, not_interested only
-    # when it can be suppressed).
+    # Shared by every Discover-family movie surface (Discover shelves/browse,
+    # sidebar Recommended, Recipe "Now Plating", Preferences dashboard) — the
+    # FULL standard movie menu, same block as "channel"; `applies=` hides
+    # what doesn't fit (mark_watched/category/monitor_series on non-VOD, etc).
     "recommended": [
         "download",
         "sep",
@@ -831,6 +829,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     ],
     "alerts": [
         "download",
+        "record_programme",
         "sep",
         "play", "play_new_window",
         "sep",
@@ -856,7 +855,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_retry", "clear_retry",
     ],
     "epg_on_now": [
-        "record",
+        "record_programme",
         "sep",
         "play", "play_new_window",
         "sep",
@@ -873,6 +872,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "clear_epg_link",
     ],
     "epg_browse": [
+        "record_programme",
+        "sep",
         "play", "play_new_window",
         "sep",
         "favorite", "queue",
@@ -980,11 +981,9 @@ def build_channel_menu(
         )
         act.setToolTip(tooltip_text)
 
-        # Set icon via QAction.setIcon() so Qt reserves a uniform icon column.
-        # Frequent-action rows get a rendered glyph icon; admin/rare rows get no
-        # icon (the blank column signals a different tier).  glyph_icon renders
-        # monochrome in the resolved colour — gray for everything except the
-        # orange resume affordance — so the menu reads as one monotone palette.
+        # QAction.setIcon() reserves a uniform icon column: frequent actions
+        # get a rendered glyph (monochrome, gray except orange resume), rare/
+        # admin rows get none — the blank column signals a different tier.
         glyph, glyph_color = _resolve_menu_icon(action_def, ctx)
         if glyph:
             act.setIcon(_icons.glyph_icon(glyph, glyph_color))
