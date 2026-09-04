@@ -55,6 +55,7 @@ class SettingsDownloadsTabMixin:
 
         folder_row = QHBoxLayout()
         self._download_dir_input = QLineEdit()
+        self._download_dir_input.setClearButtonEnabled(True)
         self._download_dir_input.setToolTip(
             "Where finished downloads are saved. Created automatically the\n"
             "first time something downloads to it."
