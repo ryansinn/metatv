@@ -24,9 +24,10 @@ from metatv.core.special_content import parse_sports_channel
 
 
 class _Channel:
-    def __init__(self, name: str, category: str = ""):
+    def __init__(self, name: str, category: str = "", media_type: str = "live"):
         self.name = name
         self.category = category
+        self.media_type = media_type
 
 
 def _parse(name: str, category: str = ""):
@@ -150,3 +151,51 @@ def test_flo_prefix_additions_do_not_gate_unrelated_names(name):
     from metatv.core.special_content import detect_sports_channel
 
     assert detect_sports_channel(_Channel(name)) is False
+
+
+# --------------------------------------------------------------------------- #
+# Owner rulings, 2026-09-03: "fight" leaves the gate vocabulary entirely, and
+# VOD (movie/series) can never enter the sports population — a title on
+# demand is not "on now". Measured before the fix: 4,611 movies + 421 series
+# sat in special_view='sports', including Netflix cartoons gated in only by
+# the word "Fight" in their titles.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("name,media_type,category", [
+    ("NF - Amend: The Fight for America", "series", "|MULTI| NETFLIX SERIES"),
+    ("NF - Asterix & Obelix: The Big Fight (2025)", "series",
+     "|MULTI| NETFLIX SERIES"),
+])
+def test_vod_fight_titles_never_gate_into_sports(name, media_type, category):
+    """A real row that used to false-positive on both rulings at once: a
+    Netflix VOD title containing "fight"."""
+    from metatv.core.special_content import detect_sports_channel
+
+    assert detect_sports_channel(_Channel(name, category, media_type)) is False
+
+
+def test_fight_alone_no_longer_gates_a_live_channel():
+    """The deliberate recall loss, pinned so the ruling cannot silently
+    regress: a live channel named only "FIGHT ..." no longer auto-classifies
+    as sports, because "fight" is no longer gate vocabulary at all."""
+    from metatv.core.special_content import detect_sports_channel
+
+    assert detect_sports_channel(_Channel("FIGHT NETWORK", media_type="live")) is False
+
+
+def test_ufc_still_gates_a_live_channel_via_its_own_keyword():
+    """"fight" left the gate, but "ufc" is untouched and still classifies —
+    removing one keyword must not touch its neighbours."""
+    from metatv.core.special_content import detect_sports_channel
+
+    channel = _Channel("UFC FIGHT PASS 1", media_type="live")
+    assert detect_sports_channel(channel) is True
+
+
+def test_vod_never_enters_the_sports_population():
+    """A live sports channel stays classified; the identical name as a movie
+    is not — a series/movie cannot be "on now"."""
+    from metatv.core.special_content import detect_sports_channel
+
+    assert detect_sports_channel(_Channel("US| ESPN", media_type="live")) is True
+    assert detect_sports_channel(_Channel("US| ESPN", media_type="movie")) is False

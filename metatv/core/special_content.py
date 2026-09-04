@@ -395,7 +395,6 @@ SPORTS_GATE_STEMS: tuple[str, ...] = (
 #: in the wrong thing:
 #:
 #:   bein      "BEING MARY JANE", "Being Flynn"      137 wrong rows
-#:   fight     "Freedom Fighters"                    300 wrong rows
 #:   football  "FOOTBALLERS WIVES"
 #:   cricket   "The Crickets Dance", "THE CRICKETER"
 #:   hockey    "HOCKEYVADERS"        baseball  "The Baseballs" (a band)
@@ -417,7 +416,10 @@ SPORTS_GATE_TOKENS: tuple[str, ...] = (
     'nba', 'nfl', 'nhl', 'mlb', 'ufc',
     'bein', 'sky sports', 'fox sports', 'nbc sports',
     'football', 'soccer', 'boxing', 'kickboxing', 'basketball', 'baseball',
-    'cricket', 'tennis', 'hockey', 'racing', 'fight',
+    'cricket', 'tennis', 'hockey', 'racing',
+    # 'fight' removed by owner ruling 2026-09-03 — "fight" in a title is not
+    # evidence of sports (it gated Netflix cartoons in); deliberate recall
+    # loss: a live channel named only "FIGHT ..." no longer auto-classifies.
     'premier league', 'champions league', 'la liga', 'bundesliga',
     'flosports', 'flo network', 'wrestling', 'volleyball', 'swimming',
     'flotrack', 'flofootball', 'flowrestling', 'flohockey', 'floracing',
@@ -428,9 +430,14 @@ SPORTS_GATE_TOKENS: tuple[str, ...] = (
 
 def detect_sports_channel(channel: ChannelDB) -> bool:
     """Detect if channel is a sports channel
-    
+
     Sports Pattern: Contains sports keywords in name or category
     """
+    # The sports population is the LIVE grammar — a series/movie cannot be
+    # "on now"; VOD sports content stays findable via search/genres.
+    if channel.media_type != 'live':
+        return False
+
     name = channel.name.lower()
     category = (channel.category or "").lstrip('#').strip().lower()
 

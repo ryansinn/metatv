@@ -152,8 +152,8 @@ def test_a_stem_still_reaches_the_words_it_compounds_into(name, category):
     ("4k| TF1 HDR/UHD/4K", "France"),            # "f1" inside "TF1"
     ("EN - Being There (1979)", "Movies"),       # "bein" inside "Being"
     ("24/7 BEING MARY JANE", "TV"),              # 137 rows, measured
-    ("EN - Freedom Fighters (2003)", "Movies"),  # 300 rows, measured
-    ("US| FIREFIGHTERS", "Reality"),             # "fight" inside "firefighter"
+    ("EN - Freedom Fighters (2003)", "Movies"),  # "fight" left the gate entirely 2026-09-03
+    ("US| FIREFIGHTERS", "Reality"),             # ditto — no gate keyword matches at all now
     ("NL - HOCKEYVADERS", "Movies"),             # "hockey" starting a real word
     ("[MV] The Baseballs - Umbrella", "Music"),  # a band, not a sport
     ("EN - The Godfather (1972)", "Movies"),
@@ -184,11 +184,16 @@ def test_every_gate_keyword_is_in_exactly_one_set():
     #   espn   prefix adds ESPN2 ESPNU ESPN3 ESPN8 ESPNEWS
     #   f1     prefix adds F1TV(35); TF1 is still blocked by the LEFT guard
     #   bein   prefix would add "BEING MARY JANE" and "Being Flynn" (137 rows)
-    #   fight  prefix would add "Freedom Fighters" (300 rows)
+    #
+    # "fight" left SPORTS_GATE_TOKENS entirely by owner ruling 2026-09-03 —
+    # see test_sports_keyword_boundaries.py's fight/VOD section — so it is
+    # asserted absent below, not present.
     for kw in ("sport", "moto", "formula", "f1", "rugby", "espn", "tsn"):
         assert kw in SPORTS_GATE_STEMS, kw
-    for kw in ("nba", "nfl", "bein", "fight", "hockey", "baseball"):
+    for kw in ("nba", "nfl", "bein", "hockey", "baseball"):
         assert kw in SPORTS_GATE_TOKENS, kw
+    assert "fight" not in SPORTS_GATE_TOKENS
+    assert "fight" not in SPORTS_GATE_STEMS
 
 
 
