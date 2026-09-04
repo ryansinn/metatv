@@ -105,8 +105,15 @@ class TestLastPlayedIndex:
         assert len(rows) == 1, "ix_channels_last_played not found after create_tables()"
 
     def test_migration_adds_index_to_existing_db(self, tmp_path):
-        """Existing DB without the index: _migrate() adds it."""
+        """Existing DB without the index: the upgrade path adds it.
+
+        Since DB-6 the index sweep is GENERATED from ``Base.metadata`` by
+        ``QueryIndexTask`` (the migration framework runs it at launch) rather
+        than hand-listed in ``_migrate()`` — so the upgrade path under test is
+        ``_migrate()`` followed by that task, exactly what a launch does.
+        """
         from metatv.core.database import Database
+        from metatv.core.migrations.query_indexes import QueryIndexTask
         db_path = tmp_path / "existing.db"
 
         # Create DB tables WITHOUT the index (simulate a pre-refactor DB)
@@ -127,6 +134,7 @@ class TestLastPlayedIndex:
         # Now open via Database (runs _migrate())
         db = Database(f"sqlite:///{db_path}")
         db._migrate()
+        QueryIndexTask(db).run(lambda done, total: None, lambda: False)
         with db.engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_channels_last_played'")

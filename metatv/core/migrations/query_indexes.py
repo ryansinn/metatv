@@ -1,12 +1,15 @@
-"""Migration task: build the channel list's indexes, then ANALYZE.
+"""Migration task: build every declared index (the channel list's included), then ANALYZE.
 
 The indexes
 -----------
-``ChannelDB`` declares three. SQLAlchemy's ``create_all`` builds them on a
-database that does not exist yet; it does NOT add an index to a table that is
-already there, and every existing user's library is already there — so this
-task creates them, and ``CREATE INDEX IF NOT EXISTS`` makes that a no-op where
-they exist.
+``ChannelDB`` declares three of the ones this section is about. SQLAlchemy's
+``create_all`` builds a declared index on a database that does not exist yet;
+it does NOT add an index to a table that is already there, and every existing
+user's library is already there — so this task creates them too, with
+``checkfirst=True`` making that a no-op where they already exist. (This task
+now builds every declared index on every table, not only these three — see
+"Generalized to every declared index" below; this section is kept for why
+these particular three are shaped the way they are.)
 
 The channel list filters on two columns and sorts on a third::
 
@@ -98,6 +101,32 @@ wrong. A brand-new install has all three indexes from ``create_all`` and an
 EMPTY channels table; ``ANALYZE`` on an empty table writes no ``sqlite_stat1``
 row at all, so the task stays pending and runs for real after the first catalog
 import — which is when the statistics start to mean something.
+
+Generalized to every declared index (DB-6)
+-------------------------------------------
+This task used to build only the three composite/partial indexes above, named
+in a literal dict. Everything else lived a second life: a column gets
+``index=True`` in the ORM, ``create_all`` builds it for anyone installing from
+scratch, and reaching an EXISTING database required someone to ALSO remember to
+append a ``CREATE INDEX IF NOT EXISTS`` line to the hand-written list in
+``Database._migrate()``. Nobody did, reliably — ``ChannelDB`` alone declares 39
+``index=True`` columns and that hand list covered about a third of them, so a
+real, long-lived library was missing a double-digit number of its own declared
+indexes with no error and no signal, just queries that stayed slow.
+
+So the set this task ensures is now DERIVED, not hand-listed:
+``for table in Base.metadata.sorted_tables: for index in table.indexes``
+walks every ``Index`` SQLAlchemy will materialize — both the implicit
+``ix_<table>_<column>`` index behind ``index=True`` and an explicit
+``Index(...)`` in a model's ``__table_args__`` (the three above, and the
+composite on ``content_tags`` that used to be hand-written SQL only — see
+``ContentTagDB.__table_args__``). That is exactly what ``create_all`` builds
+for a database that does not exist yet, so building the same set for one that
+does is what makes a newly added ``index=True`` column reach every existing
+user automatically, with no second edit anywhere. ``needs_run`` compares that
+declared name set against ``PRAGMA index_list`` per table — missing means
+pending — so a model that grows another indexed column is covered the moment
+it ships, not the moment someone remembers a migration list.
 """
 
 from __future__ import annotations
@@ -107,32 +136,36 @@ from typing import TYPE_CHECKING, Callable
 from loguru import logger
 from sqlalchemy import text
 
+from metatv.core.database import Base
+
 if TYPE_CHECKING:
+    from sqlalchemy import Index
+    from sqlalchemy.engine import Connection
+
     from metatv.core.config import Config
     from metatv.core.database import Database
 
-# Name → the CREATE statement that builds it. Kept as literal SQL rather than
-# reflected off ChannelDB.__table_args__ so that a mistake here is visible in a
-# diff, and so the task still works if the model and the database disagree.
-_INDEXES: dict[str, str] = {
-    "ix_channels_hidden_type_name": (
-        "CREATE INDEX IF NOT EXISTS ix_channels_hidden_type_name "
-        "ON channels (is_hidden, media_type, name)"
-    ),
-    "ix_channels_hidden_name": (
-        "CREATE INDEX IF NOT EXISTS ix_channels_hidden_name "
-        "ON channels (is_hidden, name)"
-    ),
-    # Partial, and is_hidden leads on purpose — see the module docstring.
-    "ix_channels_favorite_hidden_name": (
-        "CREATE INDEX IF NOT EXISTS ix_channels_favorite_hidden_name "
-        "ON channels (is_hidden, name) WHERE is_favorite = 1"
-    ),
-}
+
+def _all_declared_indexes() -> list[tuple[str, "Index"]]:
+    """Every ``(table_name, Index)`` SQLAlchemy will materialize for the ORM.
+
+    Covers both an ``index=True`` column's implicit index and an explicit
+    ``Index(...)`` in ``__table_args__`` — see the module docstring. Sorted by
+    ``(table, index name)`` so a run's progress and creation order are
+    deterministic and reproducible across launches.
+    """
+    return sorted(
+        (
+            (table.name, index)
+            for table in Base.metadata.sorted_tables
+            for index in table.indexes
+        ),
+        key=lambda pair: (pair[0], pair[1].name),
+    )
 
 
 class QueryIndexTask:
-    """Create the channel-list composite indexes and refresh query statistics."""
+    """Build every declared-but-missing index, then refresh query statistics."""
 
     id: str = "query_indexes"
     label: str = "Building channel indexes"
@@ -146,15 +179,24 @@ class QueryIndexTask:
 
     # ── State ───────────────────────────────────────────────────────────────
 
-    def _missing_indexes(self, conn) -> list[str]:
-        """Return the wanted index names that the database does not have."""
-        have = {
-            row[0] for row in conn.execute(text(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'index' AND tbl_name = 'channels'"
-            ))
-        }
-        return [name for name in _INDEXES if name not in have]
+    def _existing_index_names(self, conn: "Connection", table: str) -> set[str]:
+        """Index names SQLite already has for *table* (includes autoindexes)."""
+        return {row[1] for row in conn.execute(text(f"PRAGMA index_list({table})"))}
+
+    def _missing_indexes(self, conn: "Connection") -> list[tuple[str, "Index"]]:
+        """Return the declared ``(table, Index)`` pairs the database lacks.
+
+        One ``PRAGMA index_list`` per table, cached for the call — cheap next
+        to the index BUILDs this drives (~15 tables vs. up to 785k rows/index).
+        """
+        have_by_table: dict[str, set[str]] = {}
+        missing = []
+        for table, index in _all_declared_indexes():
+            if table not in have_by_table:
+                have_by_table[table] = self._existing_index_names(conn, table)
+            if index.name not in have_by_table[table]:
+                missing.append((table, index))
+        return missing
 
     def _has_channel_stats(self, conn) -> bool:
         """Return True when ANALYZE has recorded statistics for ``channels``.
@@ -195,7 +237,7 @@ class QueryIndexTask:
         is_cancelled: Callable[[], bool],
         config: "Config | None" = None,
     ) -> None:
-        """Create any missing index, then ANALYZE.
+        """Create every missing declared index, then ANALYZE.
 
         Runs on a **worker thread** (called by ``MigrationManager``). Exceptions
         propagate so the manager leaves the task pending and it retries next
@@ -206,18 +248,24 @@ class QueryIndexTask:
             is_cancelled: Returns True when the manager has been asked to stop.
             config: Unused; accepted for the manager's keyword call.
         """
-        total = len(_INDEXES) + 1  # every index, then the ANALYZE
+        declared = _all_declared_indexes()
+        total = len(declared) + 1  # every declared index, then the ANALYZE
         done = 0
         progress_cb(done, total)
 
         with self._db.engine.connect() as conn:
-            for name in list(_INDEXES):
+            missing = {
+                (table, index.name) for table, index in self._missing_indexes(conn)
+            }
+            for table, index in declared:
                 if is_cancelled():
                     logger.info("QueryIndexTask: cancelled after {} of {}", done, total)
                     return
-                if name in self._missing_indexes(conn):
-                    logger.info("QueryIndexTask: creating {}", name)
-                    conn.execute(text(_INDEXES[name]))
+                if (table, index.name) in missing:
+                    # index.create (not hand-formatted SQL) so a partial
+                    # index's sqlite_where survives — see the module docstring.
+                    logger.info("QueryIndexTask: creating {}", index.name)
+                    index.create(bind=conn, checkfirst=True)
                     conn.commit()
                 done += 1
                 progress_cb(done, total)

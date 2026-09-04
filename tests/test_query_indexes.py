@@ -15,8 +15,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
-from metatv.core.database import ChannelDB, Database
-from metatv.core.migrations.query_indexes import QueryIndexTask
+from metatv.core.database import Base, ChannelDB, Database
+from metatv.core.migrations.query_indexes import QueryIndexTask, _all_declared_indexes
 
 # The three shapes the channel list actually issues.
 Q_TYPED = (
@@ -174,14 +174,20 @@ def test_needs_run_stays_true_until_channels_have_statistics(db):
 
 
 def test_running_twice_is_a_no_op_and_reports_every_step(db):
-    """Interrupting the task must be safe, so re-running it must be too."""
+    """Interrupting the task must be safe, so re-running it must be too.
+
+    ``total`` is derived (every declared index + the ANALYZE), not a literal
+    4 — the whole point of DB-6 is that this count grows on its own as the
+    model gains indexed columns, with nothing here to keep in sync.
+    """
     task = QueryIndexTask(db)
+    total = len(_all_declared_indexes()) + 1
 
     first = _run(task)
-    assert first[0] == (0, 4) and first[-1] == (4, 4), first
+    assert first[0] == (0, total) and first[-1] == (total, total), first
 
     second = _run(task)
-    assert second[-1] == (4, 4), second
+    assert second[-1] == (total, total), second
     assert task.needs_run(None) is False
 
 
@@ -239,3 +245,77 @@ def test_closing_refreshes_statistics_that_the_catalog_has_outgrown(tmp_path):
         )
     finally:
         reopened.engine.dispose()
+
+
+def _index_names(conn, table: str) -> set[str]:
+    """Every index SQLite has for *table*, autoindexes included."""
+    return {row[1] for row in conn.execute(text(f"PRAGMA index_list({table})"))}
+
+
+def test_every_declared_index_exists_after_the_upgrade(tmp_path):
+    """DB-6: a library that predates every declared index must end up with all of them.
+
+    Builds the schema, then drops every non-autoindex index on every table —
+    simulating a long-lived library that only ever got what a hand-maintained
+    migration list remembered to create. Must FAIL on the pre-fix tree: the old
+    ``QueryIndexTask`` only knew about the three composite/partial indexes on
+    ``channels``, so 85 of the 88 indexes ``Base.metadata`` declares (across
+    every table, not just ``channels``) were left behind.
+    """
+    database = Database(f"sqlite:///{tmp_path}/legacy.db")
+    database.create_tables()
+
+    declared = _all_declared_indexes()
+    with database.engine.connect() as conn:
+        for table in Base.metadata.sorted_tables:
+            for name in _index_names(conn, table.name):
+                if not name.startswith("sqlite_autoindex_"):
+                    conn.execute(text(f"DROP INDEX {name}"))
+        conn.commit()
+
+        have_before = {
+            table.name: _index_names(conn, table.name) for table in Base.metadata.sorted_tables
+        }
+    assert not any(index.name in have_before[table] for table, index in declared), (
+        "test setup failed to drop every declared index"
+    )
+
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        have_after = {
+            table.name: _index_names(conn, table.name)
+            for table in Base.metadata.sorted_tables
+        }
+    missing = [
+        f"{table}.{index.name}"
+        for table, index in declared
+        if index.name not in have_after[table]
+    ]
+    assert not missing, (
+        f"{len(missing)} declared index(es) missing after the upgrade: {missing}"
+    )
+
+
+def test_the_index_task_is_idempotent(tmp_path):
+    """A second run against an already-complete database creates nothing."""
+    database = Database(f"sqlite:///{tmp_path}/idem.db")
+    database.create_tables()
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        before = {
+            table.name: _index_names(conn, table.name)
+            for table in Base.metadata.sorted_tables
+        }
+
+    second = _run(QueryIndexTask(database))
+    total = len(_all_declared_indexes()) + 1
+    assert second[-1] == (total, total), second
+
+    with database.engine.connect() as conn:
+        after = {
+            table.name: _index_names(conn, table.name)
+            for table in Base.metadata.sorted_tables
+        }
+    assert before == after, "the idempotent second run changed the index set"
