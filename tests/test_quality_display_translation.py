@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import drain_chunked_build
 
 
 @pytest.fixture(scope="module")
@@ -238,6 +239,7 @@ def test_filter_panel_quality_chip_label_translates_but_key_does_not(qapp):
 
     panel = FilterPanel(Config())
     panel.update_data({"quality": {"RAW": 12, "4K / UHD": 30, "CAM / Pre-release": 3}})
+    drain_chunked_build(panel._update_handle)
 
     sec = panel._quality_sec
     labels = {lbl.text() for row in sec._rows for lbl in row.findChildren(QLabel)}

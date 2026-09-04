@@ -20,6 +20,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from tests.conftest import drain_chunked_build
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +511,7 @@ class TestFilterPanelGenreSection:
             "language": {}, "region": {}, "platform": {}, "quality": {},
             "genre": genre_counts,
         })
+        drain_chunked_build(panel._update_handle)
 
         sec = panel._genre_sec
         assert sec._show_all_btn is not None, (
@@ -527,6 +529,7 @@ class TestFilterPanelGenreSection:
             "language": {}, "region": {}, "platform": {}, "quality": {},
             "genre": genre_counts,
         })
+        drain_chunked_build(panel._update_handle)
 
         sec = panel._genre_sec
         sec._toggle_show_all()
@@ -544,6 +547,7 @@ class TestFilterPanelGenreSection:
             "language": {}, "region": {}, "platform": {}, "quality": {},
             "genre": genre_counts,
         })
+        drain_chunked_build(panel._update_handle)
 
         sec = panel._genre_sec
         assert sec._show_all_btn is None, (
@@ -558,6 +562,7 @@ class TestFilterPanelGenreSection:
             "language": {}, "region": {}, "platform": {}, "quality": {},
             "genre": genre_counts,
         })
+        drain_chunked_build(panel._update_handle)
 
         state = panel.get_filter_state()
         # All genres checked (default) → tag_includes has no genre entry (unconstrained)

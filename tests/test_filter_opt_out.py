@@ -12,6 +12,7 @@ The autouse ``_isolate_user_config`` fixture (tests/conftest.py) already patches
 """
 
 import os
+from tests.conftest import drain_chunked_build
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -37,6 +38,7 @@ def test_new_value_defaults_included(qapp):
     panel = FilterPanel(cfg)
     # "German" is new (not in known); "French" is known-but-deselected.
     panel.update_data({"language": {"English": 5, "French": 3, "German": 2}})
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._lang_sec.get_selected_keys())
     assert "German" in selected, "new value must default INCLUDED (opt-out)"
@@ -54,6 +56,7 @@ def test_deselected_value_stays_unchecked_across_refresh(qapp):
     # rows actually render (US/CA/MX all belong to a North America group).
     counts = {"region": {"US": 10, "CA": 4, "MX": 6}}
     panel.update_data(counts)  # baseline → all present included, known recorded
+    drain_chunked_build(panel._update_handle)
 
     # User deselects MX and saves.
     keep = set(panel._region_sec.get_selected_keys()) - {"MX"}
@@ -65,6 +68,7 @@ def test_deselected_value_stays_unchecked_across_refresh(qapp):
     # config must keep MX excluded — it is known + deselected, not new.
     panel2 = FilterPanel(cfg)
     panel2.update_data(counts)
+    drain_chunked_build(panel2._update_handle)
     sel2 = set(panel2._region_sec.get_selected_keys())
     assert "MX" not in sel2, "deselection must survive a refresh, not be re-added"
     assert "US" in sel2 and "CA" in sel2
@@ -78,6 +82,7 @@ def test_first_run_baseline_unhides_everything(qapp):
 
     panel = FilterPanel(cfg)
     panel.update_data({"language": {"English": 5, "French": 3, "German": 2}})
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._lang_sec.get_selected_keys())
     assert selected == {"English", "French", "German"}, (
@@ -96,6 +101,7 @@ def test_baseline_run_shows_no_popup(qapp, monkeypatch):
     calls: list = []
     monkeypatch.setattr(panel, "_show_new_values_popup", lambda nbf: calls.append(nbf))
     panel.update_data({"language": {"English": 5, "French": 3}})
+    drain_chunked_build(panel._update_handle)
     assert calls == [], "baseline/first-run must not trigger the new-values popup"
 
 
@@ -110,10 +116,12 @@ def test_refresh_new_value_triggers_popup_computation(qapp, monkeypatch):
 
     # Call 1: establishes the baseline (was_first=True) → no popup.
     panel.update_data({"language": {"English": 5}})
+    drain_chunked_build(panel._update_handle)
     assert captured == []
 
     # Call 2 (source refresh): "Spanish" is brand new → popup computation fires.
     panel.update_data({"language": {"English": 5, "Spanish": 4}})
+    drain_chunked_build(panel._update_handle)
     assert len(captured) == 1
     assert captured[0] == {"language": {"Spanish"}}
     # And the new value is CHECKED by default (opt-out), pending the user's choice.
@@ -128,6 +136,7 @@ def test_apply_new_value_exclusions_unchecks(qapp):
 
     panel = FilterPanel(cfg)
     panel.update_data({"platform": {"Netflix": 9, "Disney+": 3, "Prime": 2}})
+    drain_chunked_build(panel._update_handle)
     # Disney+ and Prime are new → included by default.
     sel = set(panel._platform_sec.get_selected_keys())
     assert {"Disney+", "Prime"} <= sel
@@ -160,6 +169,7 @@ def test_known_set_persists_round_trip(qapp):
 
     panel = FilterPanel(cfg)
     panel.update_data({"genre": {"Drama": 40, "Comedy": 30}})  # baseline records known
+    drain_chunked_build(panel._update_handle)
     panel.save_state()  # queues the write (to the tmp home, per the autouse fixture)
     from metatv.gui import deferred_config_save as _cfgsave
     _cfgsave.flush(panel)  # the write defers; force it before the disk read

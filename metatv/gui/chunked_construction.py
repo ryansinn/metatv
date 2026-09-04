@@ -9,11 +9,10 @@ QThread can build them), so the fix is not threading, it is scheduling: build
 one viewport's worth immediately, then let the event loop breathe between
 batches for the rest.
 
-``queue.py`` is the first adopter. ``filter_panel.py`` and the Discover
-shelves are the next two, in their own slices — this module is meant to be
-THE shared chunked-build mechanism for all three; a new caller imports
-``build_chunked`` rather than hand-rolling a second ``QTimer.singleShot``
-batch loop.
+``queue.py`` is the first adopter, the Discover shelves the second, and
+``filter_panel.py`` the third — this module is THE shared chunked-build
+mechanism for all three; a new caller imports ``build_chunked`` rather than
+hand-rolling a second ``QTimer.singleShot`` batch loop.
 """
 from __future__ import annotations
 

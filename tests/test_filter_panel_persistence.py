@@ -30,6 +30,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from tests.conftest import drain_chunked_build
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +165,7 @@ def test_startup_language_selection_applied(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._lang_sec.get_selected_keys())
     assert selected == {"FR"}, (
@@ -178,6 +180,7 @@ def test_startup_region_selection_applied(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._region_sec.get_selected_keys())
     assert selected == {"CA"}, (
@@ -192,6 +195,7 @@ def test_startup_quality_selection_applied(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._quality_sec.get_selected_keys())
     assert selected == {"HD"}, (
@@ -206,6 +210,7 @@ def test_startup_platform_selection_applied(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._platform_sec.get_selected_keys())
     assert selected == {"Netflix"}, (
@@ -220,6 +225,7 @@ def test_startup_genre_selection_applied(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._genre_sec.get_selected_keys())
     assert selected == {"Drama"}, (
@@ -239,6 +245,7 @@ def test_live_refresh_preserves_in_memory_language(qapp):
 
     # First call — startup, applies saved "EN"
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
     assert "EN" in panel._lang_sec.get_selected_keys()
 
     # User manually changes to "FR" only
@@ -246,6 +253,7 @@ def test_live_refresh_preserves_in_memory_language(qapp):
 
     # Second call (e.g. after a source refresh) — must preserve "FR", not revert to "EN"
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._lang_sec.get_selected_keys())
     assert selected == {"FR"}, (
@@ -260,11 +268,13 @@ def test_live_refresh_preserves_in_memory_quality(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     # User narrows to SD only
     panel._quality_sec.restore_selection({"SD"})
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._quality_sec.get_selected_keys())
     assert selected == {"SD"}, (
@@ -284,6 +294,7 @@ def test_genre_fresh_install_selects_all(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5, "Comedy": 3}))
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._genre_sec.get_selected_keys())
     assert selected == {"Action", "Drama", "Comedy"}, (
@@ -309,6 +320,7 @@ def test_startup_untagged_exceptions_restored(qapp):
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats(), {"subtitle": 400, "language": 5, "genre": 3})
+    drain_chunked_build(panel._update_handle)
 
     assert panel._subtitle_sec.untagged_included() is False, (
         "the facet saved as an exception must come back switched OFF"
@@ -323,6 +335,7 @@ def test_untagged_exception_round_trips_through_save(qapp):
     cfg = _make_config()
     panel = _build_panel(qapp, cfg)
     panel.update_data(_make_stats(), {"genre": 12})
+    drain_chunked_build(panel._update_handle)
 
     panel._genre_sec._untagged_row.set_checked(False)
     panel.save_state()
@@ -424,6 +437,7 @@ def test_clobber_then_update_data_restores_language(qapp):
 
     # Now update_data runs (as it does at startup after the channel load finishes)
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     selected = set(panel._lang_sec.get_selected_keys())
     assert selected == {"FR"}, (
@@ -441,6 +455,7 @@ def test_normal_save_after_update_data_writes_correctly(qapp):
     cfg = _make_config(filter_included_languages=["EN", "FR"])
     panel = _build_panel(qapp, cfg)
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     # User narrows to FR only
     panel._lang_sec.restore_selection({"FR"})
@@ -472,6 +487,7 @@ def test_update_data_emits_filter_changed_on_first_call(qapp):
     panel.filter_changed.connect(lambda: emitted.append(None))
 
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     assert len(emitted) == 1, (
         "first update_data() must emit filter_changed exactly once; "
@@ -498,6 +514,7 @@ def test_update_data_does_not_emit_filter_changed_on_second_call(qapp):
     first_emitted: list[None] = []
     panel.filter_changed.connect(lambda: first_emitted.append(None))
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
     assert len(first_emitted) == 1, "sanity: first call must emit"
 
     # Disconnect and wire a new counter for the second call
@@ -510,6 +527,7 @@ def test_update_data_does_not_emit_filter_changed_on_second_call(qapp):
 
     # Second call — source refresh
     panel.update_data(_make_stats())
+    drain_chunked_build(panel._update_handle)
 
     assert len(second_emitted) == 0, (
         "second update_data() must NOT emit filter_changed; "
