@@ -157,7 +157,9 @@ def test_cooldown_expires(cache, monkeypatch) -> None:
     monkeypatch.setattr("metatv.core.image_cache.requests.get", fake_get)
 
     fake_now = [1_000.0]
-    monkeypatch.setattr("metatv.core.image_cache.time.monotonic", lambda: fake_now[0])
+    # IMG-1 switched cooldowns to the wall clock (persistable across a
+    # relaunch); patch time.time, not time.monotonic.
+    monkeypatch.setattr("metatv.core.image_cache.time.time", lambda: fake_now[0])
 
     url = "http://51.158.145.100/a.jpg"
 
