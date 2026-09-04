@@ -1,13 +1,19 @@
 """Behavioral tests for detected_region coverage at ingestion.
 
-Pins the two fill-empty-only fallbacks added to
+Pins the fill-empty-only fallbacks added to
 ``ChannelRepository.update_detected_prefixes`` so a region surfaces as the
 list-row left ``[XX]`` chip even when the channel NAME carries no region token:
 
 1. **Own provider-category code** — a row whose name lacks a region but whose
    ``category`` is an explicit bracketed code (e.g. ``"|FR|"``) gets
    ``detected_region == "FR"`` (reusing the tag_decomposer region extraction).
-2. **content_key sibling propagation** — a still-empty row inherits a region
+2. **Bare "XX| REST" category code** (#582) — a DIFFERENT provider convention
+   with no leading pipe (e.g. ``"AR| BEIN SPORTS NX"``), covering codes step 1
+   misses because ``CODE_FACETS`` classifies them as language-only (``AR`` =
+   Arabic, never a region facet — #138). Via
+   :func:`~metatv.core.channel_name_utils.split_category_prefix`, which ALSO
+   fills ``detected_prefix`` — the field Global Exclusions checks first.
+3. **content_key sibling propagation** — a still-empty row inherits a region
    from a sibling sharing its (real) ``content_key``.
 
 Precedence is fill-empty-only and NEVER overwrites: name > own category >
@@ -27,6 +33,8 @@ import uuid
 from pathlib import Path
 
 import pytest
+
+from metatv.core.channel_name_utils import split_category_prefix
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +76,13 @@ def _region_of(db, cid: str) -> str | None:
 
     with db.session_scope(commit=False) as session:
         return session.query(ChannelDB.detected_region).filter_by(id=cid).scalar()
+
+
+def _prefix_of(db, cid: str) -> str | None:
+    from metatv.core.database import ChannelDB
+
+    with db.session_scope(commit=False) as session:
+        return session.query(ChannelDB.detected_prefix).filter_by(id=cid).scalar()
 
 
 def _run(db, **kwargs) -> None:
@@ -293,3 +308,134 @@ def test_user_curated_data_untouched(db):
         assert ch.detected_region == "FR", "Region still fills from the category"
         assert ch.is_favorite is True, "User favorite flag must be preserved"
         assert ch.user_category == "My Shelf", "User-curated category must be preserved"
+
+
+# ---------------------------------------------------------------------------
+# 7. split_category_prefix — pure function (channel_name_utils.py)
+# ---------------------------------------------------------------------------
+
+
+class TestSplitCategoryPrefix:
+    """A bare 'XX| REST' category (no leading pipe) splits into a validated
+    region code plus the trimmed remainder — distinct from parse_category_marker's
+    '|XX| REST' (leading-pipe) shape."""
+
+    def test_two_letter_code_splits(self):
+        assert split_category_prefix("AR| BEIN SPORTS NX") == ("AR", "BEIN SPORTS NX")
+
+    def test_two_letter_code_splits_us(self):
+        assert split_category_prefix("US| FLO NETWORK") == ("US", "FLO NETWORK")
+
+    def test_three_letter_alias_normalizes(self):
+        # "USA" is an alias for "US" (normalize_region_code) — the returned
+        # code is the NORMALIZED form, not the raw provider token.
+        assert split_category_prefix("USA| FLO SPORTS") == ("US", "FLO SPORTS")
+
+    def test_non_region_leading_token_yields_no_code(self):
+        # No pipe at all: the whole string is the remainder, no region guessed.
+        code, rest = split_category_prefix("4K UHD 3840P")
+        assert code is None
+        assert rest == "4K UHD 3840P"
+
+    def test_non_region_token_before_pipe_yields_no_code(self):
+        # A quality/format token before a pipe must not be mistaken for a region.
+        code, rest = split_category_prefix("RAW| Some Feed")
+        assert code is None
+        assert rest == "Some Feed"
+
+    def test_empty_category_returns_none_none(self):
+        assert split_category_prefix("") == (None, None)
+        assert split_category_prefix(None) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# 8. Bare "XX| REST" category (no leading pipe) fills BOTH detected_prefix
+#    and detected_region at ingestion — #582
+# ---------------------------------------------------------------------------
+
+
+def test_bare_category_code_fills_prefix_and_region(db):
+    """A beIN-style category with no leading pipe fills detected_prefix."""
+    with db.session_scope() as session:
+        cid = _make_channel(
+            session,
+            name="BEIN SPORTS ENGLISH 1",  # no region/prefix token in the name
+            category="AR| BEIN SPORTS NX",
+            media_type="live",
+        )
+
+    _run(db)
+
+    assert _prefix_of(db, cid) == "AR", (
+        "A bare 'AR| REST' category must fill detected_prefix when the name yields none"
+    )
+    assert _region_of(db, cid) == "AR", "detected_region is also filled from the same code"
+
+
+def test_name_prefix_wins_over_bare_category_code(db):
+    """A channel's own name-derived prefix is NEVER overwritten by the category."""
+    with db.session_scope() as session:
+        cid = _make_channel(
+            session,
+            name="UK| SKY SPORTS F1",  # name carries its own prefix
+            category="AR| BEIN SPORTS NX",
+            media_type="live",
+        )
+
+    _run(db)
+
+    assert _prefix_of(db, cid) == "UK", (
+        "The channel's own name-derived prefix must win over the category's code"
+    )
+
+
+def test_non_region_category_token_stays_null(db):
+    """A category whose leading token isn't a known region never invents one."""
+    with db.session_scope() as session:
+        cid = _make_channel(
+            session,
+            name="Some Random Channel",
+            category="4K UHD 3840P",
+            media_type="live",
+        )
+
+    _run(db)
+
+    assert _prefix_of(db, cid) is None
+    assert _region_of(db, cid) is None
+
+
+def test_bare_category_fill_excluded_by_visibility_scope(db):
+    """Integration: once the category fill runs, Global Exclusions on 'AR'
+    hides the beIN row via channel_visibility.apply() — closing the leak
+    where a channel's region lived only in its category, never its name."""
+    from metatv.core.channel_visibility import VisibilityScope, apply as apply_visibility
+    from metatv.core.database import ChannelDB
+
+    with db.session_scope() as session:
+        cid_bein = _make_channel(
+            session,
+            name="BEIN SPORTS ENGLISH 1",
+            category="AR| BEIN SPORTS NX",
+            media_type="live",
+        )
+        cid_other = _make_channel(
+            session,
+            name="Some Unrelated Channel",
+            category="US| FLO NETWORK",
+            media_type="live",
+        )
+
+    _run(db)
+
+    with db.session_scope(commit=False) as session:
+        scope = VisibilityScope(excluded_prefixes={"AR"})
+        result_ids = {
+            row.id for row in apply_visibility(session.query(ChannelDB), scope).all()
+        }
+
+    assert cid_bein not in result_ids, (
+        "A channel whose region lived only in its category must be excluded "
+        "once AR is in the user's Global Exclusions"
+    )
+    assert cid_other in result_ids, "An unrelated (US) channel must remain visible"

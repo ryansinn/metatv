@@ -642,11 +642,10 @@ _AUDIO_NORM: dict[str, str] = {
 }
 
 # Bare subtitle/dub markers that appear as *leaf tokens* inside multi-word
-# parentheticals like "(SPANISH ENG-SUB)" or "(ENG DUB)".  These are NOT full
-# _AUDIO_NORM keys (which cover complete bracket/paren contents), but individual
-# tokens within a compound qualifier.  The recognized-qualifier allowlist in
-# _is_all_qualifier_tokens() checks each space/dash/slash-split leaf against this
-# set alongside lang codes and quality tokens.
+# parentheticals like "(SPANISH ENG-SUB)" or "(ENG DUB)" — NOT full _AUDIO_NORM
+# keys (which cover complete bracket/paren contents), but individual tokens
+# within a compound qualifier. _is_all_qualifier_tokens()'s allowlist checks each
+# space/dash/slash-split leaf against this set alongside lang codes and quality.
 _SUB_DUB_TOKENS: frozenset[str] = frozenset({
     "SUB", "SUBS", "SUBBED", "SUBTITLED", "SUBTITULADO", "SUBTITLE",
     "DUB", "DUBBED", "DUBBING",
@@ -656,11 +655,11 @@ _SUB_DUB_TOKENS: frozenset[str] = frozenset({
     "AUDIO", "DUAL",
 })
 
-# Unambiguous subtitle/dub markers.  Their PRESENCE in a trailing parenthetical is
-# strong enough to treat the whole parenthetical as a qualifier annotation even when a
-# co-occurring language word (KURDISH, PERSIAN, NORWEGIAN, …) is not in the recognized
-# vocabulary.  DUAL / AUDIO / MULTI are DELIBERATELY EXCLUDED — they appear in real
-# titles ("Dual Survival", "Multiplicity") and are ambiguous.
+# Unambiguous subtitle/dub markers. Their PRESENCE in a trailing parenthetical is
+# strong enough to treat the whole parenthetical as a qualifier annotation even
+# when a co-occurring language word (KURDISH, PERSIAN, NORWEGIAN, …) isn't in the
+# recognized vocabulary. DUAL/AUDIO/MULTI are DELIBERATELY EXCLUDED — they appear
+# in real titles ("Dual Survival", "Multiplicity") and are ambiguous.
 _UNAMBIGUOUS_SUBDUB_MARKERS: frozenset[str] = frozenset({
     "SUB", "SUBS", "SUBBED", "SUBTITLED", "SUBTITLES",
     "DUB", "DUBBED",
@@ -669,16 +668,16 @@ _UNAMBIGUOUS_SUBDUB_MARKERS: frozenset[str] = frozenset({
     "MULTISUB", "ENGSUB",
 })
 
-# Bare audio-track annotation tokens that providers sometimes append to a title as a
-# *trailing word with no bracket/paren delimiter*, e.g. "The Bridge MULTI" or
-# "The Killing MULTI SUB".  Bracketed/parenthesised forms ([MULTI], (Multi-Sub)) are
-# already stripped by strip_title_qualifiers; this set targets the bare-word leak.
-# They denote the audio track, NOT the production, so the content-identity key
-# normalisation (content_identity.py) strips a trailing run of them — but only when it
-# is anchored by a MULTI/MUTI token (AUDIO_KEY_ANCHOR_TOKENS), so standalone real-word
-# titles ending in "Sub"/"Audio"/"Dual" are preserved (see the DUAL/AUDIO/MULTI caveat
-# above).  Single source of truth — keep in sync with the canonical _AUDIO_NORM forms;
-# lowercase because the key normaliser lowercases before matching.
+# Bare audio-track annotation tokens providers sometimes append as a *trailing
+# word with no bracket/paren delimiter* ("The Bridge MULTI", "The Killing MULTI
+# SUB") — bracketed forms ([MULTI], (Multi-Sub)) are already stripped by
+# strip_title_qualifiers; this set targets the bare-word leak. They denote the
+# audio track, NOT the production, so content_identity.py's key normalisation
+# strips a trailing run of them, but only when anchored by a MULTI/MUTI token
+# (AUDIO_KEY_ANCHOR_TOKENS) so real titles ending "Sub"/"Audio"/"Dual" survive
+# (DUAL/AUDIO/MULTI caveat above). Single source of truth — keep in sync with
+# the canonical _AUDIO_NORM forms; lowercase since the key normaliser lowercases
+# before matching.
 AUDIO_KEY_NOISE_TOKENS: frozenset[str] = frozenset({
     "multi", "muti", "sub", "audio", "au",
 })
@@ -691,13 +690,11 @@ AUDIO_KEY_ANCHOR_TOKENS: frozenset[str] = frozenset({"multi", "muti"})
 
 # ── Region/platform lookup tables ────────────────────────────────────────────── #
 
-# Platform codes — displayed with steel blue chip instead of grey
-# "A+" (Apple TV+, distinct from the "APPLE" variant above — both observed in
-# real provider data) was already listed as a "surfaced by Ninja" streaming
-# platform in REGION_FULL_NAMES below but missing from this set, so it fell
+# Platform codes — displayed with steel blue chip instead of grey. "A+" (Apple
+# TV+, distinct from "APPLE" above — both observed in real provider data) was
+# already in REGION_FULL_NAMES below but missing from this set, so it fell
 # through to the plain geographic-region chip instead of the platform one
-# (#257 owner report). Adapting the lookup table per CLAUDE.md's "single
-# source of truth" rule rather than special-casing it at a render call site.
+# (#257 owner report) — fixed in the lookup table, never at a render site.
 PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
     "ASTRO", "F1TV", "A+",
@@ -912,11 +909,10 @@ _BRACKET_QUALITY_ALIASES: dict[str, str] = {
 
 # Full language names in bracket suffixes → codes stored as detected_region.
 # Covers dubbed/localized audio tracks: "EN ★ Movie [SPANISH]" → detected_region = "ES".
-#
-# Semantic note: values like KR/JP/CN are ISO 3166-1 *country* codes rather than
-# ISO 639-1 *language* codes (ko/ja/zh). The IPTV convention conflates country and
-# language (EN already serves as both in REGION_FULL_NAMES), so we follow the same
-# pattern here for consistency. Tracked as semantic debt in project_filter_system.
+# Semantic note: KR/JP/CN are ISO 3166-1 *country* codes, not ISO 639-1 *language*
+# codes (ko/ja/zh) — the IPTV convention conflates the two (EN already serves as
+# both in REGION_FULL_NAMES), so this follows suit for consistency. Tracked as
+# semantic debt in project_filter_system.
 _BRACKET_LANG_NORM: dict[str, str] = {
     "SPANISH":    "ES",
     "FRENCH":     "FR",
@@ -934,12 +930,11 @@ _BRACKET_LANG_NORM: dict[str, str] = {
     "POLISH":     "PL",
 }
 
-# Mapping from language words found inside sub/dub annotations → canonical language name
-# (the same names used in CODE_FACETS and REGION_FULL_NAMES for the `language:` facet).
-# Used by extract_audio_annotation() to convert language tokens from (ENG DUB),
-# (SPANISH ENG-SUB), (VOSTFR), etc. into canonical language names.
-# Key = UPPERCASE token as it appears in provider names; value = canonical display name.
-# SINGLE SOURCE OF TRUTH for this mapping — do NOT define parallel dicts elsewhere.
+# Mapping from language words found inside sub/dub annotations → canonical language
+# name (the same names CODE_FACETS/REGION_FULL_NAMES use for the `language:` facet).
+# Used by extract_audio_annotation() to convert tokens from (ENG DUB), (SPANISH
+# ENG-SUB), (VOSTFR) etc. Key = UPPERCASE provider token; value = display name.
+# SINGLE SOURCE OF TRUTH — do NOT define parallel dicts elsewhere.
 AUDIO_LANG_WORD_MAP: dict[str, str] = {
     # English variants
     "ENGLISH":       "English",
@@ -1320,37 +1315,19 @@ _ALIAS_MAP: dict[str, str] = {
 }
 
 REGION_FULL_NAMES: dict[str, str] = {
-    # ── Codes evidenced from the owner's library, 2026-08-29 ────────────────
-    # 293 of 421 distinct prefixes resolved to no name at all, so ~111,000
-    # channels rendered with a blank geographic chip. These were not guessed:
-    # every one was read off the PROVIDER'S OWN category label, which spells
-    # the code out. That is a better source than an ISO table, because the
-    # provider is the one who chose the code.
-    #
-    #   AR    68,593  categories in Arabic script ("|AR| أفلام أجنبية"), plus
-    #                 an "|AR-SUB|" variant — a LANGUAGE marker, not Argentina
-    #   EX    14,798  "|EXYU| STRANI FILMOVI" — ex-Yugoslavia, not "extra"
-    #   TM     7,036  "|IN| TAMIL MOVIES"
-    #   TG     4,388  "|IN| TELEGU MOVIES"
-    #   TL     4,293  "|IN| TELEGU MOVIES" + "|TL| TELUGU" (second Telugu code)
-    #   AF     3,719  "|AF| AFRICAN MOVIES" — Africa, not Afrikaans
-    #   SW     3,183  "|SW| SWEDEN" (2,632) + "EU| SVERIGE" (81) + Scandinavia
-    #                 (75) vs "CH| SWITZERLAND" (194). ~93% Sweden. The Swiss
-    #                 minority is a PROVIDER inconsistency — it files Swiss
-    #                 channels under both SW and CH. Labelled Sweden because a
-    #                 93%-correct chip beats 3,183 blank ones; the ~6% is a
-    #                 known, recorded imperfection rather than an oversight.
-    #   UR     1,894  "|IN| URDU MOVIES"
-    #   SCAN   1,260  "|SCAN| SCANDINAVIA"
-    #   KD       969  "|IN| KANNADA MOVIES"
-    #   IS       844  "IS| HEBREW SDAROT" — Israel
-    #
-    # DELIBERATELY NOT ADDED, because the evidence is genuinely split:
-    #   SO     1,688  "|IN| SOUTH HINDI DUBBED" (1,344) AND "|AF| SO FANPROJ"
-    #                 (158, a Somali brand). Two different meanings in one
-    #                 library; a single label would be wrong for one of them.
-    #   MULTI  5,284  "|MULTI| NETFLIX" — a multi-audio marker, not a region.
-    #                 It needs its own concept, not a country name.
+    # ── Codes evidenced from the owner's library, 2026-08-29 ──────────────── #
+    # 293/421 distinct prefixes had no name (~111,000 blank chips); each code
+    # below was read off the PROVIDER'S OWN category label (a better source
+    # than an ISO table — the provider chose the code), with its measured
+    # count: AR 68,593 ("|AR| أفلام أجنبية" + "|AR-SUB|" — LANGUAGE, not
+    # Argentina/ARG), EX 14,798 (ex-Yugoslavia, "|EXYU| …"), TM 7,036 / TG
+    # 4,388 / TL 4,293 (Tamil/Telugu, "|IN| … MOVIES"), AF 3,719 (Africa, not
+    # Afrikaans), SW 3,183 (93% Sweden "|SW|"/"EU| SVERIGE" vs 7% Swiss "CH|
+    # SWITZERLAND" provider inconsistency — labelled Sweden, a known
+    # imperfection), UR 1,894 (Urdu), SCAN 1,260, KD 969 (Kannada), IS 844
+    # (Israel). DELIBERATELY NOT ADDED (evidence genuinely split): SO 1,688
+    # ("South Hindi Dubbed" 1,344 vs a Somali brand 158) and MULTI 5,284
+    # (a multi-audio marker, not a country — needs its own concept).
     "AR": "Arabic", "EX": "Ex-Yugoslavia", "TM": "Tamil", "TG": "Telugu",
     "TL": "Telugu", "AF": "Africa", "SW": "Sweden", "UR": "Urdu",
     "SCAN": "Scandinavia", "KD": "Kannada", "IS": "Israel",
@@ -1362,10 +1339,8 @@ REGION_FULL_NAMES: dict[str, str] = {
     "US": "United States", "UK": "United Kingdom", "FR": "France",
     "DE": "Germany", "ES": "Spain", "IT": "Italy", "PT": "Portugal",
     "NL": "Netherlands", "SE": "Sweden", "NO": "Norway", "DK": "Denmark",
-    # DNK is the ISO 3166-1 alpha-3 for Denmark. "DEN" (below) is the IOC/FIFA
-    # code and was the only three-letter form here, so a real provider channel
-    # named "KANAL 4 [DNK] [HEVC]" matched nothing and kept the bracket glued
-    # into its title (owner report).
+    # DNK = ISO 3166-1 alpha-3 for Denmark ("DEN" below is IOC/FIFA); missing
+    # it left "KANAL 4 [DNK] [HEVC]" with the bracket glued to the title.
     "DNK": "Denmark",
     "FI": "Finland", "PL": "Poland", "RO": "Romania", "HU": "Hungary",
     "CZ": "Czech Republic", "GR": "Greece", "TR": "Turkey", "RU": "Russia",
@@ -1438,12 +1413,12 @@ REGION_FULL_NAMES: dict[str, str] = {
 }
 
 
-#: Spelled-out league names prefixing a dash-matchup fixture's team A — "…
-#: MAJOR LEAGUE BASEBALL DIAMONDBACKS - PHILLIES" names DIAMONDBACKS/PHILLIES,
-#: not "MAJOR LEAGUE BASEBALL DIAMONDBACKS" (SPORT-4, core/fixture_titles.py).
-#: Only MLB is corpus-measured (2026-09-02); the rest mirror abbreviations
-#: already known above/in special_content.py's league_keywords, for parity.
-#: Ambiguous prefixes are left alone rather than guessed (bias to recall).
+#: Spelled-out league names prefixing a dash-matchup fixture's team A — "MAJOR
+#: LEAGUE BASEBALL DIAMONDBACKS - PHILLIES" names DIAMONDBACKS/PHILLIES, not
+#: "MAJOR LEAGUE BASEBALL DIAMONDBACKS" (SPORT-4, core/fixture_titles.py). Only
+#: MLB is corpus-measured (2026-09-02); the rest mirror abbreviations already
+#: known above/in special_content.py's league_keywords, for parity — ambiguous
+#: prefixes are left alone rather than guessed (bias to recall).
 FIXTURE_LEAGUE_NAME_PREFIXES: tuple[str, ...] = (
     "MAJOR LEAGUE BASEBALL", "NATIONAL BASKETBALL ASSOCIATION",
     "NATIONAL FOOTBALL LEAGUE", "NATIONAL HOCKEY LEAGUE",
@@ -1498,17 +1473,15 @@ CONF_WEAK_PRIOR: float = 0.15
 
 # ── Name-derived cast: words that prove a trailing residual is NOT a person ──── #
 # ``parse_channel_name().trailing`` captures whatever a provider appended after the
-# year — "EN - Adaptation. 4K (2002) NICOLAS CAGE".  Measured over the owner's
-# 414,800 VOD rows, 8,257 names carry such a residual across 917 distinct values,
-# and only about half are people.  The rest are language words, formats and studio
-# or collection labels: POLSKI (918), 4K (652), DOKUMENT (531), DUBBING (221),
-# NAPISY (122), BG-AUDIO (54), PIXAR (52).
-#
-# Emitting those as ``person`` tags would not be "capture generously with low
-# confidence" (DR-0006) — it would be recording something the vocabulary already
-# knows to be false.  Confidence ranks a real guess; it does not launder a wrong
-# one.  So a residual containing any of these is never read as a person, and the
-# genuinely unclassifiable remainder becomes a LOW-confidence person tag.
+# year — "EN - Adaptation. 4K (2002) NICOLAS CAGE". Measured over the owner's
+# 414,800 VOD rows, 8,257 names carry such a residual across 917 distinct values
+# and only about half are people — the rest are language/format/studio/collection
+# labels (POLSKI 918, 4K 652, DOKUMENT 531, DUBBING 221, NAPISY 122, BG-AUDIO 54,
+# PIXAR 52). Emitting those as ``person`` tags would not be "capture generously
+# with low confidence" (DR-0006) — confidence ranks a real guess, it does not
+# launder one the vocabulary already knows is wrong — so a residual containing
+# any of these is never read as a person; the genuinely unclassifiable remainder
+# becomes a LOW-confidence person tag.
 NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({
     # Collection / edition labels
     "COLLECTION", "COLECCION", "COLECCIÓN", "COLLECTIE", "SAGA", "TRILOGY",
@@ -1528,21 +1501,16 @@ NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({
 })
 
 # ── AI-provenance markers (single source of truth) ───────────────────────────── #
-# Some providers stamp a trailing parenthetical marker onto a channel name to flag
-# how it was produced.  Two DISTINCT user-facing concepts (a user may tolerate an
-# AI dub but not AI-generated content), so two distinct content_type facet values:
-#
-#   • "(AI Generated)"  — the CONTENT itself is AI-generated (fabricated music-video
-#     "collaborations" like "[MV] Lady Gaga - Born To Win - ft. Sia & The Weeknd
-#     (AI Generated)").  → value "ai_generated".
-#   • "(AI)"            — an AI-generated VOICEOVER / dub, not AI content (Polish VOD
-#     like "PL - Bugonia (2025) Lektor (AI)"; "Lektor" = Polish voice-over narration).
-#     → value "ai_voiceover".
-#
-# Both are matched ONLY as a TRAILING marker (end of name, optional surrounding
-# whitespace), case-insensitively.  A mid-title parenthetical or a bare "AI" without
-# parens never matches — the anchoring ($) and the required parens guard against
-# false positives like "AI Superstars" or "Terminator (AI Uprising)".
+# Some providers stamp a trailing parenthetical marker to flag how a channel was
+# produced. Two DISTINCT user-facing concepts (a user may tolerate an AI dub but
+# not AI-generated content), so two content_type facet values: "(AI Generated)"
+# — the CONTENT itself is AI-generated (fabricated "[MV] Lady Gaga - Born To Win
+# - ft. Sia & The Weeknd (AI Generated)") → "ai_generated"; "(AI)" — an
+# AI-generated VOICEOVER/dub, not AI content ("PL - Bugonia (2025) Lektor (AI)",
+# "Lektor" = Polish voice-over) → "ai_voiceover". Both match ONLY as a TRAILING
+# marker (end of name, optional whitespace), case-insensitively — a mid-title
+# parenthetical or bare "AI" without parens never matches, so "AI Superstars" /
+# "Terminator (AI Uprising)" are never false positives.
 
 # Trailing "(AI Generated)" and the defensive spellings "(AI-Generated)" /
 # "(A.I. Generated)".  The token right after "(" must be AI / A.I. (not e.g.
@@ -1571,16 +1539,14 @@ AI_VOICEOVER_VALUE: str = "ai_voiceover"
 
 # ── content_type value → display name (single source of truth) ──────────────── #
 # The ``content_type`` facet stores snake_case slugs as the queried/stored identity
-# (``ppv``, ``live_event``, ``sports``, ``ai_generated``, ``ai_voiceover``).  Those
-# slugs are NOT presentation-ready, so every surface that shows a content_type VALUE
-# (details-pane Tags chips, the recipe/tag-cloud pantry, the Global Exclusions
-# "Content Provenance" section) routes the slug through :func:`content_type_display`
-# for its English label.  The slug remains the identity everywhere — display only.
-#
-# This is the value-display sibling of the details pane's ``_FACET_LABELS`` (which
-# names the facet TYPES, e.g. ``content_type`` → "Content Type"); it lives here
-# because ``channel_name_utils.py`` is the lookup-table home (CLAUDE.md) and the
-# slugs originate here (``AI_GENERATED_VALUE`` / ``AI_VOICEOVER_VALUE``).
+# (``ppv``, ``live_event``, ``sports``, ``ai_generated``, ``ai_voiceover``) — NOT
+# presentation-ready, so every surface showing a content_type VALUE (details-pane
+# Tags chips, the recipe/tag-cloud pantry, Global Exclusions' "Content Provenance"
+# section) routes it through :func:`content_type_display` for its English label;
+# the slug stays the identity everywhere else. Value-display sibling of the
+# details pane's ``_FACET_LABELS`` (names the facet TYPES, e.g. ``content_type``
+# → "Content Type"); lives here per CLAUDE.md's lookup-table-home rule, beside the
+# slugs' origin (``AI_GENERATED_VALUE`` / ``AI_VOICEOVER_VALUE``).
 CONTENT_TYPE_DISPLAY_NAMES: dict[str, str] = {
     "ppv":            "PPV",
     "live_event":     "Live Event",
@@ -1674,16 +1640,13 @@ def detect_ai_provenance(name: str) -> Optional[AiProvenance]:
 
 # ── Content-descriptor groups (single source of truth for the `category:` facet) ── #
 # These group names appear in BASE_PREFIX_GROUPS or BASE_PLATFORM_GROUPS for
-# display-grouping purposes, but they are NOT locales or platforms.  They denote
-# a content KIND, so their facet depends on media_type at tag time:
-#   - live  channel → `category:` (a live-channel kind / programming genre)
-#   - movie / series → `genre:` (a VOD content descriptor)
-#
-# Routing is performed by remap_content_descriptor_facets() in tag_decomposer.py,
-# called from _collect_tags() in tag_backfill.py (the ONE per-channel tag builder).
-#
-# "Pay TV" is deliberately absent — it is a real distribution platform (channels
-# from a pay-TV bundle) and correctly stays as `platform:Pay TV`.
+# display-grouping purposes, but they are NOT locales or platforms — they denote a
+# content KIND, so their facet depends on media_type at tag time: live channel →
+# `category:` (a live-channel kind/programming genre); movie/series → `genre:` (a
+# VOD content descriptor). Routed by remap_content_descriptor_facets() in
+# tag_decomposer.py, called from tag_backfill.py's _collect_tags() (the ONE
+# per-channel tag builder). "Pay TV" is deliberately absent — it is a real
+# distribution platform and correctly stays `platform:Pay TV`.
 CONTENT_DESCRIPTOR_GROUPS: frozenset[str] = frozenset({
     "Adult", "Sports", "Kids", "Music", "News", "Religious", "24/7",
 })
@@ -2109,6 +2072,51 @@ def normalize_region_code(raw: str) -> str:
     return upper
 
 
+def split_category_prefix(category: str) -> tuple[Optional[str], Optional[str]]:
+    """Split a provider ``category`` string's leading region-code token.
+
+    A distinct provider convention from :func:`parse_category_marker`'s
+    ``"|XX| REST"`` (LEADING pipe, e.g. ``"|EN| ANIME"``): this shape has NO
+    leading pipe — ``"AR| BEIN SPORTS NX"``, ``"US| FLO NETWORK"`` — the code
+    sits at the very start, followed by one pipe. ``update_detected_prefixes()``
+    uses this as the category-fallback source for a channel whose NAME yields
+    no prefix/region of its own (fill-empty-only: the name-derived value
+    always wins — #582).
+
+    The leading token only becomes ``code`` when it is a KNOWN region code —
+    validated by :func:`normalize_region_code` + membership in
+    :data:`REGION_FULL_NAMES` — so a quality/format token before a pipe
+    (``"4K| UHD Channels"``, ``"RAW| Feed"``) is never mistaken for a region;
+    it falls through to ``(None, rest)`` instead.
+
+    Args:
+        category: The raw provider ``category`` string (may be ``None``/empty).
+
+    Returns:
+        ``(code, rest)`` — ``code`` is the normalized region code, or
+        ``None`` when there is no pipe or the leading token isn't a known
+        region; ``rest`` is the trimmed remainder after ``"CODE|"`` (or the
+        whole collapsed string when there was no pipe), or ``None`` when
+        nothing is left.
+    """
+    if not category:
+        return None, None
+    collapsed = " ".join(category.split())
+    if not collapsed:
+        return None, None
+    if "|" not in collapsed:
+        return None, collapsed
+    code_raw, _, rest_raw = collapsed.partition("|")
+    code_raw = code_raw.strip()
+    rest = rest_raw.strip() or None
+    if not code_raw or " " in code_raw:
+        return None, rest if rest is not None else collapsed
+    code = normalize_region_code(code_raw)
+    if code in REGION_FULL_NAMES:
+        return code, rest
+    return None, rest
+
+
 def parse_category_marker(category: str) -> tuple[str, Optional[CategoryMarker]]:
     """Strip a leading ``|TOKEN|`` marker from a provider category string.
 
@@ -2154,54 +2162,45 @@ def parse_category_marker(category: str) -> tuple[str, Optional[CategoryMarker]]
     return clean, CategoryMarker(code=normalize_region_code(code_raw), kind="language")
 
 
-# Bare "multiple audio/subtitle tracks available" indicator tokens.  Distinct
-# from _SUB_DUB_TOKENS (the SUB/DUB *role* family) because these denote "more
-# than one track", not a specific sub/dub role; MUTI is the common
-# missing-L typo, MULTISUB the compound form.  A dedicated collection-noise
-# constant (rather than extending _SUB_DUB_TOKENS or reusing the *function*-
-# local ``_MULTI_MARKERS`` inside extract_audio_annotation) so this stays
-# scoped to collection-string cleanup and never silently reshapes the
-# (deliberately conservative — see the DUAL/AUDIO/MULTI caveat near
-# _UNAMBIGUOUS_SUBDUB_MARKERS) title-parenthetical qualifier logic.
+# Bare "multiple audio/subtitle tracks available" indicator tokens — distinct
+# from _SUB_DUB_TOKENS (a specific sub/dub *role*) because these denote "more
+# than one track"; MUTI is the common missing-L typo, MULTISUB the compound
+# form. Own constant (not folded into _SUB_DUB_TOKENS or the *function*-local
+# ``_MULTI_MARKERS`` in extract_audio_annotation) so it stays scoped to
+# collection-string cleanup and never reshapes the (deliberately conservative
+# — see the DUAL/AUDIO/MULTI caveat near _UNAMBIGUOUS_SUBDUB_MARKERS)
+# title-parenthetical qualifier logic.
 _MULTI_TRACK_TOKENS: frozenset[str] = frozenset({"MULTI", "MUTI", "MULTISUB"})
 
-# Leading pipe-delimited marker that _CATEGORY_MARKER_RE didn't recognize
-# because its code exceeds that regex's 2-4 char code slot (e.g. "MULTI" is
-# 5 chars) — parse_category_marker() leaves it in place unrecognized.
-# strip_collection_noise_tokens() below re-examines exactly this shape and
-# removes it when every token inside is noise.
+# Leading pipe-delimited marker _CATEGORY_MARKER_RE didn't recognize because
+# its code exceeds that regex's 2-4 char slot (e.g. "MULTI" is 5 chars);
+# strip_collection_noise_tokens() below re-examines this shape and removes it
+# when every token inside is noise.
 _LEADING_BRACKET_RE = re.compile(r'^\|\s*([^|]+?)\s*\|\s*')
 
-# Combined vocabulary for strip_collection_noise_tokens(): a token counts as
-# collection noise when it duplicates the quality chip (QUALITY_TOKENS), the
-# subtitle-marker chip's sub/dub family (_SUB_DUB_TOKENS), a multi-track
-# marker (_MULTI_TRACK_TOKENS), or the media-type icon (MEDIA_TYPE_TOKENS).
+# Collection-noise vocabulary: a token duplicating the quality chip
+# (QUALITY_TOKENS), sub/dub chip (_SUB_DUB_TOKENS), multi-track marker
+# (_MULTI_TRACK_TOKENS), or media-type icon (MEDIA_TYPE_TOKENS).
 _COLLECTION_NOISE_TOKENS: frozenset[str] = (
     QUALITY_TOKENS | _SUB_DUB_TOKENS | _MULTI_TRACK_TOKENS | MEDIA_TYPE_TOKENS
 )
 
-# Restricted vocabulary for the TRAILING-token pass in
-# strip_collection_noise_tokens() — deliberately excludes MEDIA_TYPE_TOKENS.
+# TRAILING-token pass vocabulary — deliberately excludes MEDIA_TYPE_TOKENS.
 # Measured against the owner's real 486,588-row library: the whole-span gate
-# above only fully/partially cleans ~5.2% of noisy rows because real feeds
-# routinely tack a single quality/sub-dub/multi word onto an otherwise-real
-# name ("HINDI SUBS", "FILMOVI 4K UHD") rather than making the WHOLE string
-# noise. Those trailing words are safe to peel one at a time regardless of
-# what remains. Media-type words are NOT safe to peel this way — "TAMIL
-# MOVIES" / "NORDIC FILMS" are legitimate collection names where the media
-# word IS part of the name, and a media word can lead too ("MOVIES
-# 2018-2021"), so MEDIA_TYPE_TOKENS never participates in the trailing pass
-# (only the whole-span gate above, where "every token is noise" already
-# proves the media word isn't naming anything real).
+# above only cleans ~5.2% of noisy rows, since real feeds usually tack ONE
+# quality/sub-dub/multi word onto an otherwise-real name ("HINDI SUBS",
+# "FILMOVI 4K UHD") rather than making the whole string noise — safe to peel
+# one at a time. Media words are NOT safe to peel this way ("TAMIL MOVIES" /
+# "NORDIC FILMS" are legitimate names; a media word can also LEAD, "MOVIES
+# 2018-2021"), so MEDIA_TYPE_TOKENS only participates in the whole-span gate,
+# where "every token is noise" already proves the media word names nothing.
 _TRAILING_NOISE_TOKENS: frozenset[str] = (
     QUALITY_TOKENS | _SUB_DUB_TOKENS | _MULTI_TRACK_TOKENS
 )
 
-# Matches the last whitespace/hyphen/slash-delimited leaf of a string, plus
-# any separator run immediately before it — group 1 is the leaf itself;
-# slicing the source string at m.start() drops that leaf (and its leading
-# separator) while leaving every character before it untouched, so a kept
-# prefix is never reformatted/rejoined.
+# Matches the string's last whitespace/hyphen/slash-delimited leaf plus any
+# separator run before it — group 1 is the leaf; slicing at m.start() drops
+# leaf+separator while leaving the kept prefix untouched/unreformatted.
 _TRAILING_TOKEN_RE = re.compile(r'[\s\-/]*([^\s\-/]+)\s*$')
 
 
