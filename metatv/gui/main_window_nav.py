@@ -32,8 +32,6 @@ CONTENT_VIEW_ATTRS: tuple[str, ...] = (
     "provider_editor",
     "source_analytics_view",
     "recipe_view",
-    "sports_view",
-    "events_view",
     "missing_tmdb_view",
     "reconnect_engaged_view",
     "metadata_enrichment_view",
@@ -54,9 +52,22 @@ _NAV_VIEW_TARGETS: dict[str, tuple[str, str | None]] = {
     "recipe": ("switch_to_recipe_view", "recipe_chip"),
     "epg": ("switch_to_epg_view", "epg_chip"),
     "preferences": ("switch_to_preferences_view", "prefs_chip"),
-    "sports": ("switch_to_sports_view", "sports_chip"),
-    "events": ("switch_to_events_view", "events_chip"),
     "history": ("switch_to_full_history_view", None),
+}
+
+#: Retired ``view:<name>`` targets — nav surfaces that used to exist and are
+#: gone, but old What's New ``test_steps`` are an append-only, never-edited
+#: historical record (CLAUDE.md) that still names them. Each maps the retired
+#: name to the CURRENT ``_NAV_VIEW_TARGETS`` key it should resolve to, so a
+#: legacy deep link lands on something coherent instead of silently no-oping.
+#:
+#: "sports"/"events" -> "list": the Sports and Events views were retired
+#: (owner: "it's better the channels are just in search results flagged as
+#: live") — live sports channels are found in the list/search view now, so
+#: that is where their old deep links land.
+_RETIRED_NAV_VIEW_TARGETS: dict[str, str] = {
+    "sports": "list",
+    "events": "list",
 }
 
 
@@ -336,24 +347,6 @@ class _NavMixin:
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
 
-    def switch_to_events_view(self) -> None:
-        """Switch content area to the Events view."""
-        self.__dict__.pop("_first_source_pending", None)
-        self.view_mode = "events"
-        self._hide_all_content_views()
-        self.events_view.setVisible(True)
-        self.stats_label.setText("Events")
-        self.events_view.on_activate()
-
-    def switch_to_sports_view(self) -> None:
-        """Switch content area to the Sports view."""
-        self.__dict__.pop("_first_source_pending", None)
-        self.view_mode = "sports"
-        self._hide_all_content_views()
-        self.sports_view.setVisible(True)
-        self.stats_label.setText("Sports")
-        self.sports_view.on_activate()
-
     def switch_to_sources_manager(self) -> None:
         """Switch content area to the Sources manager view.
 
@@ -465,6 +458,12 @@ class _NavMixin:
         Lights up the view's nav chip (when it has one) and deactivates the
         others, then calls the registered ``switch_to_*`` method.  No-ops
         gracefully when the view/chip isn't built in this session.
+
+        A RETIRED name (``_RETIRED_NAV_VIEW_TARGETS`` — a view that used to
+        exist and is gone) resolves to whatever current target replaces it,
+        rather than no-oping: an old What's New entry's ``test_steps`` is an
+        append-only historical record and still says ``view:sports``, and a
+        "Go ▸" button that silently does nothing reads as a bug, not history.
         """
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
@@ -476,6 +475,13 @@ class _NavMixin:
             if name in EXPLORE_SOURCES:
                 self.switch_to_explore_view(name)
                 return True
+            retired_target = _RETIRED_NAV_VIEW_TARGETS.get(name)
+            if retired_target is not None:
+                logger.info(
+                    "navigate_to: 'view:{}' was retired — landing on 'view:{}' instead",
+                    name, retired_target,
+                )
+                return self._navigate_to_view(retired_target)
             logger.warning("navigate_to: unknown view '{}'", name)
             return False
         method_name, chip_attr = mapping
@@ -623,20 +629,6 @@ class _NavMixin:
         if self.recipe_chip.is_enabled():
             self._deactivate_view_chips(self.recipe_chip)
             self.switch_to_recipe_view()
-        else:
-            self.switch_to_list_view()
-
-    def on_events_view_toggle(self) -> None:
-        if self.events_chip.is_enabled():
-            self._deactivate_view_chips(self.events_chip)
-            self.switch_to_events_view()
-        else:
-            self.switch_to_list_view()
-
-    def on_sports_view_toggle(self) -> None:
-        if self.sports_chip.is_enabled():
-            self._deactivate_view_chips(self.sports_chip)
-            self.switch_to_sports_view()
         else:
             self.switch_to_list_view()
 

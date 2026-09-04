@@ -1,4 +1,4 @@
-"""SPORT-7/LIVE-1 — the catalog-refresh ticks and the Sports/Events refresh triggers.
+"""SPORT-7/LIVE-1 — the catalog-refresh ticks and the live-refresh lane.
 
 ``_CatalogRefreshTickMixin`` is mixed into :class:`~metatv.gui.main_window.MainWindow`
 (main_window.py's class bases), same shape as every other ``main_window_*.py``
@@ -18,10 +18,17 @@ Two ticks live here:
 
 * SPORT-7's hourly full-catalog tick (``_maybe_auto_refresh_catalogs``) — a
   per-source opt-in ``refresh_schedule``, unchanged by LIVE-1.
-* LIVE-1's 5-minute live-only lane (``_maybe_live_refresh_tick``) plus the
-  Sports/Events on-view-open hook (``_maybe_live_refresh_on_view_open``) — a
-  single GLOBAL ``config.live_refresh_mode`` setting, always enqueuing
+* LIVE-1's 5-minute live-only lane (``_maybe_live_refresh_tick``) — a single
+  GLOBAL ``config.live_refresh_mode`` setting, always enqueuing
   ``kind="live_only"`` rather than the full multi-minute refresh.
+
+The Sports and Events views that used to trigger ``_on_sports_refresh_stale_requested``
+and ``_maybe_live_refresh_on_view_open`` on open/refresh-click were retired
+(owner direction: live sports channels stay in search/browse, wearing the
+live flag, rather than a dedicated surface). Both hooks are kept — they are
+general live-refresh infrastructure, not view-specific — but neither has a
+live caller today; ``config.live_refresh_mode == "on_view_open"`` is
+consequently dormant until something else wires a trigger to them.
 
 Every due-ness decision is a pure function in ``core/catalog_refresh.py`` —
 this module is orchestration only (offloading the DB read, resolving
@@ -56,8 +63,8 @@ LIVE_REFRESH_TICK_MS = 5 * 60 * 1000
 
 class _CatalogRefreshTickMixin:
     """Fires the existing serial refresh queue from a source's opted-in
-    ``refresh_schedule`` (SPORT-7), from the global live-refresh rate
-    (LIVE-1), and serves the Sports/Events refresh triggers.
+    ``refresh_schedule`` (SPORT-7) and from the global live-refresh rate
+    (LIVE-1).
     """
 
     def _init_catalog_refresh_tick(self) -> None:
@@ -83,31 +90,6 @@ class _CatalogRefreshTickMixin:
         self._live_refresh_timer.start(LIVE_REFRESH_TICK_MS)
         self._register_cleanable(
             "live_refresh_timer", self._live_refresh_timer.stop
-        )
-
-    def _wire_catalog_refresh_hooks(self) -> None:
-        """Connect SportsView's refresh-stale signal + queue-busy flag
-        (SPORT-7), and both views' on-view-open live-refresh trigger (LIVE-1).
-
-        Called once from ``MainWindow.setup_ui``, after BOTH ``sports_view``
-        and ``events_view`` are constructed — moved here from right after
-        ``sports_view``'s own construction (main_window.py) so ``events_view``
-        exists too by the time this runs.
-        """
-        self.sports_view.refreshSourcesRequested.connect(
-            self._on_sports_refresh_stale_requested
-        )
-        self.refresh_queue_manager.queue_changed.connect(
-            lambda queue: self.sports_view.set_refresh_pending(bool(queue))
-        )
-        # LIVE-1: Sports and Events cover overlapping content ("either could
-        # trigger it" — owner), so both wire to the SAME host hook, which
-        # shares its cooldown for free via the last_live_refresh_at stamp.
-        self.sports_view.liveRefreshOnOpenRequested.connect(
-            self._maybe_live_refresh_on_view_open
-        )
-        self.events_view.liveRefreshOnOpenRequested.connect(
-            self._maybe_live_refresh_on_view_open
         )
 
     def _mark_catalog_refreshed(self, provider_id: str | None, kind: str = "full") -> None:
@@ -189,16 +171,19 @@ class _CatalogRefreshTickMixin:
         self._run_query(query, on_result, on_error=lambda exc: None)
 
     def _on_sports_refresh_stale_requested(self) -> None:
-        """``SportsView.refreshSourcesRequested`` -> enqueue a LIVE-ONLY
-        refresh (LIVE-1) for every active, stale source — not the full
-        multi-minute catalog refresh. Measured on the owner's two sources:
-        ``get_live_streams`` alone returns the complete live catalog in
-        ~1.6-3.9s, so the banner button now only pays for that single call.
+        """Enqueue a LIVE-ONLY refresh (LIVE-1) for every active, stale source
+        — not the full multi-minute catalog refresh. Measured on the owner's
+        two sources: ``get_live_streams`` alone returns the complete live
+        catalog in ~1.6-3.9s, so a "refresh stale sources" button only pays
+        for that single call.
 
-        The view never reaches into ``refresh_queue_manager`` itself (engine
-        <- control <- view, DR-0007); it asks the host, which resolves
-        "stale" the same live-first COALESCE rule the banner's own age
-        display uses (``ProviderRepository._effective_live_refresh``).
+        Formerly wired to ``SportsView.refreshSourcesRequested`` (a banner
+        button on the now-retired Sports view). Kept as general live-refresh
+        infrastructure — it never reached into ``refresh_queue_manager``
+        itself (engine <- control <- view, DR-0007), it resolves "stale" via
+        the same live-first COALESCE rule the (also retired) banner's age
+        display used (``ProviderRepository._effective_live_refresh``) — but it
+        currently has no caller.
         """
         with self.db.session_scope(commit=False) as session:
             stale = RepositoryFactory(session).providers.get_stale_active_providers(
@@ -231,16 +216,17 @@ class _CatalogRefreshTickMixin:
         self._run_query(query, on_result, on_error=lambda exc: None)
 
     def _maybe_live_refresh_on_view_open(self) -> None:
-        """LIVE-1: called from BOTH ``SportsView.on_activate`` and
-        ``EventsView.on_activate`` (they cover overlapping content, so either
-        opening can trigger it — owner) when
-        ``config.live_refresh_mode == "on_view_open"``.
+        """LIVE-1: enqueue a live-only refresh for every ACTIVE, due provider
+        when ``config.live_refresh_mode == "on_view_open"``.
 
-        A shared 5-minute cooldown (owner: "within 5-10 minutes or
-        something") keeps rapid tab-switching between the two views from
-        hammering the API — shared for free because both compare against the
-        same ``last_live_refresh_at`` stamp, so opening Sports then Events
-        inside the window sees the stamp Sports's own refresh already wrote.
+        Formerly wired to ``SportsView.on_activate`` / ``EventsView.on_activate``
+        (they covered overlapping content, so either opening could trigger it
+        — owner) via a shared 5-minute cooldown against ``last_live_refresh_at``
+        so rapid tab-switching between the two views would not hammer the API.
+        Both views were retired; this method is kept as general live-refresh
+        infrastructure (not view-specific) but currently has no caller, so
+        ``"on_view_open"`` mode is dormant until something else wires a
+        trigger to it.
         """
         if getattr(self.config, "live_refresh_mode", "manual") != "on_view_open":
             return

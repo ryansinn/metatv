@@ -515,7 +515,7 @@ class _EpgOnNowMixin:
         First population restores the persisted ``on_now_type_filter`` selection
         (empty list / missing = "all"); subsequent reloads preserve whatever the user
         currently has selected, intersected with the types present in this reload —
-        mirrors the established FilterDropdown reload pattern in ``sports_filter_bar.py``.
+        the established FilterDropdown reload pattern.
         """
         is_first_load = not bool(self.on_now_type_dropdown.groups)
         prev_selected = set(self.on_now_type_dropdown.get_selected())
@@ -543,7 +543,7 @@ class _EpgOnNowMixin:
         """Persist the "All Types" selection to config, then re-apply filters."""
         selected = self.on_now_type_dropdown.get_selected()
         all_types = set(self.on_now_type_dropdown.groups.keys())
-        # Empty-list sentinel = "all selected" (mirrors sports_filter_bar.get_filter_state
+        # Empty-list sentinel = "all selected" (the established FilterDropdown
         # convention) so a future type absent from a stale save still defaults to visible.
         to_store = [] if (not selected or set(selected) == all_types) else selected
         self.config.epg_filter_state["on_now_type_filter"] = to_store

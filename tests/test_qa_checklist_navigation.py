@@ -229,6 +229,18 @@ def test_navigate_to_unknown_is_noop():
     assert host.calls == []
 
 
+@pytest.mark.parametrize("retired_name", ["sports", "events"])
+def test_navigate_to_retired_view_lands_on_list(retired_name):
+    """navigate_to('view:sports'/'view:events') — both views were retired,
+    but old What's New test_steps (an append-only historical record) still
+    say ``view:sports``. The legacy deep link must land somewhere real —
+    the list/search view live channels are found in today — not silently
+    no-op like a genuinely unknown target."""
+    host = _FakeHost()
+    assert host.navigate_to(f"view:{retired_name}") is True
+    assert host.calls == ["list"]
+
+
 def test_navigate_to_sample_resolves_real_channel(tmp_path):
     """navigate_to('sample:vod') resolves a REAL matching channel and opens it in Browse."""
     db = _make_db(tmp_path)

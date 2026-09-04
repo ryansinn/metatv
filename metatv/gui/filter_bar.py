@@ -278,13 +278,11 @@ class FilterChip(ToggleChip):
 
 #: The two footer buttons every multi-select dropdown menu carries.
 #:
-#: Shared constants because there are TWO dropdown classes — ``FilterDropdown``
-#: here and ``sports_filter_bar.HierarchicalFilterDropdown``, which is a
-#: copy-and-extend of it — and they sit SIDE BY SIDE on the sports filter bar:
-#: "Sport:" is one, "League:" is the other. Their footers had drifted to
-#: "Clear" and "Clear All", so one bar offered two different words for the
-#: same button. Merging the classes is the real fix and is a larger change;
-#: this makes the label impossible to diverge again in the meantime.
+#: Named constants rather than an inline literal: a second dropdown class
+#: once sat side-by-side with this one on the (now-retired) Sports filter bar
+#: and had drifted to "Clear All" while this one said "Clear" — one bar
+#: offering two different words for the same button. Kept named so a future
+#: sibling dropdown cannot repeat that drift.
 DROPDOWN_SELECT_ALL_LABEL = "Select All"
 DROPDOWN_CLEAR_LABEL = "Clear"
 

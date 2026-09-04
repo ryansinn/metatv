@@ -565,16 +565,6 @@ class _ProviderMixin:
         # derived, so any provider mutation can change it. reload() self-guards on visible.
         if "reconnect_engaged_view" in self.__dict__:
             self.reconnect_engaged_view.reload()
-        # Sports and Events read the same channel corpus and were the only
-        # centre views missing here, so a refresh that renamed a fixture left
-        # them showing the old name (owner, 2026-09-01: clicked one game and
-        # watched another — the row had been renamed in place and only the view
-        # was stale). ``__dict__`` membership, not hasattr, so the check stays
-        # callable on the bare-__new__ MainWindow the tests construct.
-        if "sports_view" in self.__dict__:
-            self.sports_view.reload()
-        if "events_view" in self.__dict__:
-            self.events_view.reload()
         # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
         # state. Re-resolve provider ids + reload live only when EPG is on screen;
         # a hidden EPG view re-resolves its scope on its next on_activate().

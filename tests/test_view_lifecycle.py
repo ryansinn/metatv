@@ -3,7 +3,6 @@
 Verifies:
 - discover_view and preferences_view have on_deactivate() methods
 - _hide_all_content_views() calls on_deactivate() on the departing discover/preferences view
-- events_view and sports_view have on_deactivate() methods (symmetric lifecycle)
 """
 
 
