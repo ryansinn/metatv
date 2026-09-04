@@ -221,6 +221,9 @@ class WatchRuleEditor(QWidget):
             chip.set_enabled(mode == rule.match_mode)
         self.whole_word_chip.set_enabled(rule.whole_word)
         self.description_chip.set_enabled(rule.search_description)
+        # Unknown until the host's next set_counts() — cleared rather than
+        # left showing the PREVIOUS rule's would-find number.
+        self.description_chip.set_count(0)
         for widget in (self.include_input, self.exclude_input):
             widget.blockSignals(True)
         try:
@@ -246,11 +249,23 @@ class WatchRuleEditor(QWidget):
         )
 
     def set_counts(self, matched: int | None, suppressed: int | None,
-                   horizon_days: int = 7) -> None:
-        """Show what this rule currently finds. ``None`` renders as "counting…"."""
+                   horizon_days: int = 7,
+                   description_gain: int | None = None) -> None:
+        """Show what this rule currently finds. ``None`` renders as "counting…".
+
+        ``description_gain`` — how many MORE programmes turning Description on
+        would find — lands on the Description chip itself via
+        :meth:`ToggleChip.set_count`, the same "(N)" badge the filter bar
+        already uses for a chip's match count (Q2, "Catch, Keep, Record": *"the
+        count next to it says what turning it on would find"*). ``0``/``None``
+        clears the badge; the repository layer already reports ``0`` once the
+        toggle is on, so the badge only ever appears while there is something
+        to gain.
+        """
         self._matched = matched
         self._suppressed = suppressed
         self._horizon_days = horizon_days
+        self.description_chip.set_count(description_gain or 0)
         self._refresh_summary()
 
     # ── internals ────────────────────────────────────────────────────────
@@ -302,6 +317,7 @@ class WatchRuleEditor(QWidget):
         # The counts describe the OLD rule the moment anything changes, and a
         # stale number beside a just-edited rule is worse than no number.
         self._matched = self._suppressed = None
+        self.description_chip.set_count(0)
         self._refresh_summary()
         if not self._compose:
             self.rule_changed.emit(rule)
@@ -365,8 +381,8 @@ def attach_rule_editor(host, layout, pattern: str, toggle_btn) -> None:
     editor.set_rule(rule)
     counts = host._rule_counts.get(pattern)
     if counts is not None:
-        matched, suppressed, _capped = counts
-        editor.set_counts(matched, suppressed)
+        matched, suppressed, _capped, description_gain = counts
+        editor.set_counts(matched, suppressed, description_gain=description_gain)
     editor.setVisible(False)
     editor.rule_changed.connect(
         lambda new_rule, p=pattern: host._on_rule_changed(p, new_rule))

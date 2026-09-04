@@ -323,8 +323,57 @@ def test_counts_report_matches_and_what_the_excludes_ate(tmp_path):
     with db.session_scope(commit=False) as s:
         counts = EpgRepository(s).count_for_watchlist([rule])
 
-    matched, suppressed, capped = counts["Denver Broncos"]
+    matched, suppressed, capped, description_gain = counts["Denver Broncos"]
     assert (matched, suppressed, capped) == (1, 2, False), (
         "three titles carry the phrase and two are excluded — a suppressed "
         "count of 0 here is what 'my exclusions are working' looks like when "
         "it is a lie")
+    assert description_gain == 0, (
+        "no programme here carries the phrase only in its (empty) "
+        "description, so there is nothing for the toggle to gain")
+
+
+def test_description_gain_reports_what_turning_the_toggle_on_would_find(tmp_path):
+    """Q2 ("Catch, Keep, Record"): "the count next to it says what turning it
+    on would find" — the fourth number beside matched/suppressed/capped.
+
+    A programme carrying the phrase ONLY in its description is invisible to a
+    title-only rule; the gain is exactly the count of those, and drops to 0
+    once the rule already searches descriptions — there is nothing left to
+    gain from a toggle that is already on.
+    """
+    from metatv.core.database import ChannelDB, Database, EpgProgramDB
+    from metatv.core.epg_utils import now_utc
+    from metatv.core.repositories.epg import EpgRepository
+
+    db = Database(f"sqlite:///{tmp_path / 'gain.db'}")
+    db.create_tables()
+    now = now_utc()
+    with db.session_scope() as s:
+        s.add(ChannelDB(id="c1", source_id="s1", provider_id="p1", name="Chan"))
+        s.add(EpgProgramDB(id=200, channel_db_id="c1", channel_epg_id="e",
+                           provider_id="p1", title="Sunday Night Football",
+                           description="The Denver Broncos host the Chiefs.",
+                           start_time=now + timedelta(hours=1),
+                           stop_time=now + timedelta(hours=2)))
+        s.add(EpgProgramDB(id=201, channel_db_id="c1", channel_epg_id="e",
+                           provider_id="p1", title="Denver Broncos Pregame",
+                           description="",
+                           start_time=now + timedelta(hours=3),
+                           stop_time=now + timedelta(hours=4)))
+
+    off_rule = WatchRule(term="Denver Broncos")
+    with db.session_scope(commit=False) as s:
+        counts = EpgRepository(s).count_for_watchlist([off_rule])
+    matched, _suppressed, _capped, gain = counts["Denver Broncos"]
+    assert matched == 1, "only the title match is visible with the toggle off"
+    assert gain == 1, (
+        "one more programme carries the phrase in its description only — "
+        "that is exactly what turning the toggle on would find")
+
+    on_rule = WatchRule(term="Denver Broncos", search_description=True)
+    with db.session_scope(commit=False) as s:
+        counts = EpgRepository(s).count_for_watchlist([on_rule])
+    matched_on, _suppressed_on, _capped_on, gain_on = counts["Denver Broncos"]
+    assert matched_on == 2, "both programmes are visible with the toggle on"
+    assert gain_on == 0, "nothing left to gain once the toggle is already on"

@@ -179,6 +179,66 @@ def test_the_summary_names_the_matching_mode_in_words(qapp):
 
 
 # ---------------------------------------------------------------------------
+# The Description toggle's own trust line — Q2, "Catch, Keep, Record":
+# "the count next to it says what turning it on would find"
+# ---------------------------------------------------------------------------
+
+def test_description_toggle_shows_what_turning_it_on_would_find(qapp):
+    """A (N) badge lands directly on the Description chip — the same
+    ``ToggleChip.set_count`` mechanism the filter bar already uses for a
+    chip's own match count, not a second label bolted on beside it.
+    """
+    host, ed = _editor(qapp)
+    try:
+        ed.set_rule(WatchRule(term="Denver Broncos"))
+        bare_hint = ed.description_chip.sizeHint().width()
+        assert ed.description_chip.text() == "Description", (
+            "a freshly-loaded rule must not show a stale badge from a "
+            "previous rule")
+
+        ed.set_counts(18, 0, description_gain=24)
+        assert ed.description_chip.text() == "Description (24)", (
+            f"chip text is {ed.description_chip.text()!r} — the would-find "
+            "count never reached the toggle")
+        # sizeHint(), not width(): the chip sits in a layout that has not
+        # necessarily re-flowed inside this test's event loop, but sizeHint()
+        # is what Qt itself will lay the chip out to on the next pass — the
+        # real, deterministic measure of "this would paint wider."
+        assert ed.description_chip.sizeHint().width() > bare_hint, (
+            "the badge must actually widen the painted chip, not just "
+            "change internal state nothing repaints")
+
+        # Nothing left to gain once the rule already searches descriptions —
+        # the repository layer reports 0 for that case, and the badge must
+        # disappear rather than show "(0)".
+        ed.set_rule(WatchRule(term="Denver Broncos", search_description=True))
+        ed.set_counts(20, 0, description_gain=0)
+        assert ed.description_chip.text() == "Description", (
+            "a rule that already searches descriptions must not show a "
+            "gain badge")
+    finally:
+        _destroy(host, qapp)
+
+
+def test_editing_clears_the_description_gain_badge_too(qapp):
+    """Same staleness rule as the matched/suppressed numbers (see
+    ``test_editing_clears_a_count_that_now_describes_the_old_rule``): a badge
+    describing the OLD rule is worse than no badge."""
+    host, ed = _editor(qapp)
+    try:
+        ed.set_rule(WatchRule(term="Denver"))
+        ed.set_counts(4, 0, description_gain=9)
+        assert ed.description_chip.text() == "Description (9)"
+
+        ed.whole_word_chip.click()
+        assert ed.description_chip.text() == "Description", (
+            "the description-gain badge must clear along with the other "
+            "counts the moment the rule changes under it")
+    finally:
+        _destroy(host, qapp)
+
+
+# ---------------------------------------------------------------------------
 # Signals
 # ---------------------------------------------------------------------------
 
@@ -241,7 +301,7 @@ def test_a_fresh_editor_describes_the_settled_default_not_a_bare_checkbox(qapp):
 # Hosting — the path the card actually takes
 # ---------------------------------------------------------------------------
 
-def _card_host(tmp_path, qapp, term="Denver"):
+def _card_host(tmp_path, qapp, term="Denver", description_gain=0):
     """A host with a REAL bound watchlist database holding one rule.
 
     The existing card hosts in ``test_epg_watchlist_ranking`` and
@@ -273,7 +333,7 @@ def _card_host(tmp_path, qapp, term="Denver"):
     signals = _Signals()
     host = SimpleNamespace()
     host.config = cfg
-    host._rule_counts = {term: (18, 6, False)}
+    host._rule_counts = {term: (18, 6, False, description_gain)}
     host.watchlist_changed = signals.watchlist_changed
     host.reloaded = []
     host._reload_watchlist = lambda: host.reloaded.append(True)

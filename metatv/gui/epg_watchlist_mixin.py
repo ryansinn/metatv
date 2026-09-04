@@ -65,6 +65,7 @@ from loguru import logger
 from metatv.core import watchlist
 from metatv.core.channel_name_utils import quality_tier_rank
 from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.watchlist_matching import WatchRule
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
     fmt_time as _format_time,
@@ -90,10 +91,9 @@ class _EpgWatchlistMixin:
     # ── Tab 0: Watchlist ───────────────────────────────────────────────
 
     def _build_watchlist_tab(self) -> None:
-        #: pattern -> (matched, suppressed, capped) from the last background
-        #: read. Empty until the first payload lands, which is why the rule row
-        #: renders "counting…" rather than a zero it has not measured.
-        self._rule_counts: dict[str, tuple[int, int, bool]] = {}
+        #: pattern -> (matched, suppressed, capped, description_gain) from the
+        #: last background read; empty until the first payload lands ("counting…").
+        self._rule_counts: dict[str, tuple[int, int, bool, int]] = {}
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -206,10 +206,12 @@ class _EpgWatchlistMixin:
     # ── Reload + background fetch ──────────────────────────────────────
 
     def _reload_watchlist(self) -> None:
-        patterns = list(watchlist.patterns(self.config))
+        # WL-1: RULES, not bare pattern strings — as_rules() would otherwise
+        # default every row to whole-word PHRASE and drop its excludes.
+        rules = list(watchlist.rules(self.config))
         provider_ids = self._filtered_provider_ids()
         self._show_watchlist_loading()
-        self._executor.submit(self._fetch_watchlist, patterns, provider_ids)
+        self._executor.submit(self._fetch_watchlist, rules, provider_ids)
 
     def _show_watchlist_loading(self) -> None:
         """Swap a transient loading placeholder into the watchlist scroll area.
@@ -231,7 +233,7 @@ class _EpgWatchlistMixin:
         layout.addStretch()
         self.watchlist_scroll.setWidget(placeholder)
 
-    def _fetch_watchlist(self, patterns: list[str], provider_ids: list[str]) -> None:
+    def _fetch_watchlist(self, rules: list[WatchRule], provider_ids: list[str]) -> None:
         session = self.db.get_session()
         try:
             from metatv.core.repositories import RepositoryFactory
@@ -239,12 +241,12 @@ class _EpgWatchlistMixin:
             excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
             repo = repos.epg
             watchlist_data = repo.get_upcoming_for_watchlist(
-                patterns, hours_ahead=48,
+                rules, hours_ahead=48,
                 provider_ids=provider_ids,
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
             live_data = repo.get_live_for_watchlist(
-                patterns,
+                rules,
                 provider_ids=provider_ids,
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
@@ -256,8 +258,9 @@ class _EpgWatchlistMixin:
                 if _parse_iso(ts_str) > now
             }
 
+            # get_recommendations is still a plain ilike scan (F37): bare terms.
             recs = repo.get_recommendations(
-                patterns=patterns,
+                patterns=[r.key for r in rules],
                 dismissed_ids=dismissed,
                 provider_ids=provider_ids,
                 limit=8,
@@ -303,7 +306,7 @@ class _EpgWatchlistMixin:
             # watchlist down with it.
             try:
                 rule_counts = repo.count_for_watchlist(
-                    watchlist.rules(self.config),
+                    rules,
                     provider_ids=provider_ids,
                     excluded_channel_provider_ids=excluded_ch_provider_ids,
                 )
