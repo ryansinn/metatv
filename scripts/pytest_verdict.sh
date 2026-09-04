@@ -32,13 +32,6 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/repo_python.sh"
 
 LOG="${PYTEST_VERDICT_LOG:-$(mktemp -t pytest-verdict.XXXXXX.log)}"
-if [ -n "${PYTHON:-}" ]; then
-    PY="$PYTHON"
-elif ! PY="$(resolve_py "$(pwd)")"; then
-    _main="$(_main_repo "$(pwd)" 2>/dev/null || true)"
-    echo "pytest_verdict.sh: no python found — looked for $(pwd)/venv/bin/python and ${_main:-<no main repo found>}/venv/bin/python. Set PYTHON=... to override." >&2
-    exit 2
-fi
 
 # A FULL local suite is a deliberate act, not a default.
 #
@@ -206,6 +199,18 @@ if ! flock $_FLOCK_ARGS 9; then
     echo "VERDICT: RED (another pytest run holds $LOCK — concurrent pytest-qt segfaults)"
     exit 75          # EX_TEMPFAIL: not a test failure, a scheduling refusal
 fi
+# The interpreter is resolved HERE, after every refusal gate above: a refusal
+# (exit 64) must not depend on a venv existing — CI checkouts have none and the
+# no-reason test runs with a bare PATH — and GATE-7's resolve_py borrows the
+# main worktree's venv for a linked worktree that lacks its own symlink.
+if [ -n "${PYTHON:-}" ]; then
+    PY="$PYTHON"
+elif ! PY="$(resolve_py "$(pwd)")"; then
+    _main="$(_main_repo "$(pwd)" 2>/dev/null || true)"
+    echo "pytest_verdict.sh: no python found — looked for $(pwd)/venv/bin/python and ${_main:-<no main repo found>}/venv/bin/python. Set PYTHON=... to override." >&2
+    exit 2
+fi
+
 
 TZ=UTC QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
     "$PY" -m pytest "$@" > "$LOG" 2>&1
