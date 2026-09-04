@@ -55,6 +55,21 @@ _NAV_VIEW_TARGETS: dict[str, tuple[str, str | None]] = {
     "history": ("switch_to_full_history_view", None),
 }
 
+#: Retired ``view:<name>`` targets — nav surfaces that used to exist and are
+#: gone, but old What's New ``test_steps`` are an append-only, never-edited
+#: historical record (CLAUDE.md) that still names them. Each maps the retired
+#: name to the CURRENT ``_NAV_VIEW_TARGETS`` key it should resolve to, so a
+#: legacy deep link lands on something coherent instead of silently no-oping.
+#:
+#: "sports"/"events" -> "list": the Sports and Events views were retired
+#: (owner: "it's better the channels are just in search results flagged as
+#: live") — live sports channels are found in the list/search view now, so
+#: that is where their old deep links land.
+_RETIRED_NAV_VIEW_TARGETS: dict[str, str] = {
+    "sports": "list",
+    "events": "list",
+}
+
 
 class _NavMixin:
     """Mixin: view switching, chip activation, filter controls."""
@@ -443,6 +458,12 @@ class _NavMixin:
         Lights up the view's nav chip (when it has one) and deactivates the
         others, then calls the registered ``switch_to_*`` method.  No-ops
         gracefully when the view/chip isn't built in this session.
+
+        A RETIRED name (``_RETIRED_NAV_VIEW_TARGETS`` — a view that used to
+        exist and is gone) resolves to whatever current target replaces it,
+        rather than no-oping: an old What's New entry's ``test_steps`` is an
+        append-only historical record and still says ``view:sports``, and a
+        "Go ▸" button that silently does nothing reads as a bug, not history.
         """
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
@@ -454,6 +475,13 @@ class _NavMixin:
             if name in EXPLORE_SOURCES:
                 self.switch_to_explore_view(name)
                 return True
+            retired_target = _RETIRED_NAV_VIEW_TARGETS.get(name)
+            if retired_target is not None:
+                logger.info(
+                    "navigate_to: 'view:{}' was retired — landing on 'view:{}' instead",
+                    name, retired_target,
+                )
+                return self._navigate_to_view(retired_target)
             logger.warning("navigate_to: unknown view '{}'", name)
             return False
         method_name, chip_attr = mapping

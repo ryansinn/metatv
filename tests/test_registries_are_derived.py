@@ -96,9 +96,17 @@ def test_whats_new_step_targets_resolve(entry_path):
 
     The deep-link gap above shipped because nothing checked this end of it
     either — the button is only exercised when a human clicks it.
+
+    A target in ``_RETIRED_NAV_VIEW_TARGETS`` also resolves: What's New
+    entries are an append-only historical record (CLAUDE.md — "never edit
+    the shared list"), so a step written while the Sports/Events views still
+    existed keeps saying ``view:sports``/``view:events`` forever. navigate_to
+    itself resolves a retired name (to the current replacement target), so
+    checking that registry here is checking the SAME thing navigate_to
+    actually does, not a narrower stand-in for it.
     """
     from metatv.gui.explore_view import EXPLORE_SOURCES
-    from metatv.gui.main_window_nav import _NAV_VIEW_TARGETS
+    from metatv.gui.main_window_nav import _NAV_VIEW_TARGETS, _RETIRED_NAV_VIEW_TARGETS
 
     for node in ast.walk(ast.parse(entry_path.read_text())):
         if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
@@ -106,6 +114,7 @@ def test_whats_new_step_targets_resolve(entry_path):
         if not node.value.startswith("view:"):
             continue
         target = node.value.split(":", 1)[1]
-        assert target in _NAV_VIEW_TARGETS or target in EXPLORE_SOURCES, (
+        assert (target in _NAV_VIEW_TARGETS or target in EXPLORE_SOURCES
+                or target in _RETIRED_NAV_VIEW_TARGETS), (
             f"{entry_path.name} has step target {node.value!r}, which "
             f"navigate_to cannot resolve")
