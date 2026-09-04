@@ -820,7 +820,8 @@ class ContentTagDB(Base):
     #
     #   channel_id  -> leading column of UNIQUE(channel_id, tag_id, source),
     #                  whose autoindex SQLite creates whether we like it or not
-    #   tag_id      -> leading column of ix_content_tags_tag_channel
+    #   tag_id      -> leading column of ix_content_tags_tag_channel, declared
+    #                  below in __table_args__
     #
     # Three independent auditors reached this separately, and EXPLAIN QUERY PLAN
     # on the real call sites (tags_for, channels_for_tag) shows the wider
@@ -834,6 +835,12 @@ class ContentTagDB(Base):
 
     __table_args__ = (
         UniqueConstraint("channel_id", "tag_id", "source", name="uq_content_tag"),
+        # (tag_id, channel_id) — the wider index the comment above refers to.
+        # Declared here (DB-6) rather than only as hand-written SQL in
+        # Database._migrate(), so QueryIndexTask's Base.metadata sweep builds
+        # it for an existing library the same way create_all builds it here
+        # for a new one — one declaration, not two mechanisms.
+        Index("ix_content_tags_tag_channel", "tag_id", "channel_id"),
     )
 
 
@@ -1045,28 +1052,18 @@ class Database:
                 except OperationalError:
                     pass  # silent: "duplicate column name" — the migration already ran
 
-            # Index migrations — idempotent via IF NOT EXISTS
+            # Building every declared-but-missing index is QueryIndexTask's job
+            # now (DB-6, metatv/core/migrations/query_indexes.py) — it derives
+            # the full set from Base.metadata instead of a hand list here.
             index_migrations = [
-                "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
-                "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_genre_enrich_state ON channels (genre_enrich_state)",
-                "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_signal_verdict ON channels (signal_verdict)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_signal_checked_at ON channels (signal_checked_at)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_last_seen_at ON channels (last_seen_at)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_event_stop_time ON channels (event_stop_time)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
-                "CREATE INDEX IF NOT EXISTS ix_channels_metadata_enrich_state ON channels (metadata_enrich_state)",
                 # Redundant single-column indexes on content_tags — each a strict
                 # left-prefix of an index that already exists. 221 MB on the
                 # owner's 3.1M-row table, plus two extra b-tree writes on every
                 # tag insert, for query shapes the wider indexes already serve.
-                # Dropped here rather than left to new installs alone, because
-                # the model change only helps a database created from scratch.
+                # A drop is policy, not a declaration, so it stays hand-written
+                # here rather than moving to the ORM — ContentTagDB.channel_id/
+                # tag_id must NOT carry index=True, or the generated sweep would
+                # recreate exactly what this removes.
                 "DROP INDEX IF EXISTS ix_content_tags_channel_id",
                 "DROP INDEX IF EXISTS ix_content_tags_tag_id",
             ]

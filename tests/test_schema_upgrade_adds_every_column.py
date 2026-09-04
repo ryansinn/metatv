@@ -165,3 +165,26 @@ def test_every_table_the_orm_declares_actually_exists(tmp_path):
             sa.text("SELECT name FROM sqlite_master WHERE type='table'"))}
     missing = [t for t in Base.metadata.tables if t not in present]
     assert not missing, f"declared but never created: {missing}"
+
+
+def test_database_py_declares_no_index_by_hand():
+    """DB-6's index sibling: one source of truth, same spirit as the ALTER
+    TABLE guard above.
+
+    Indexes are no longer hand-listed in ``Database._migrate()`` — the full
+    set is derived from ``Base.metadata`` by
+    ``QueryIndexTask`` (``metatv/core/migrations/query_indexes.py``), which is
+    what makes a newly ``index=True``'d column reach an existing library
+    automatically. A ``CREATE INDEX`` literal reappearing here would mean a
+    second, hand-maintained mechanism has grown back beside the generated one
+    — exactly the kind of enumeration this project keeps finding drifts.
+
+    Dropping an index is policy, not a declaration (``ix_content_tags_*``
+    stays hand-written on purpose), so this guards ``CREATE INDEX`` only.
+    """
+    src = Path(database.__file__).read_text(encoding="utf-8")
+    assert "CREATE INDEX" not in src, (
+        "found a hand-written CREATE INDEX in database.py — indexes are "
+        "declared on the ORM model and built by QueryIndexTask, never by a "
+        "literal SQL string here."
+    )
