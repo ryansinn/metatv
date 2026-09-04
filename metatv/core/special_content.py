@@ -82,6 +82,16 @@ _DEFAULT_LEAGUE_KEYWORDS: Dict[str, List[str]] = {
     'WWE': ['wwe'],
 }
 
+# Context-scoped keyword precedence: mirrors metatv/data/sports_definitions.yaml's
+# sport_keyword_overrides section — this is only the in-memory fallback used if
+# the bundled YAML fails to read, so a change to one must change the other. Each
+# entry is checked BEFORE the global sport_kw first-match loop in
+# parse_sports_channel: a keyword can mean different sports in different
+# category contexts (same specific-beats-global precedence as the region rule).
+_DEFAULT_SPORT_KEYWORD_OVERRIDES: List[Dict[str, str]] = [
+    {'category_token': 'flo', 'keyword': 'football', 'sport': 'american_football'},
+]
+
 _VS_PATTERN = re.compile(r'\s+(?:vs\.?|v\.?)\s+', re.IGNORECASE)
 _TRAILING_JUNK = re.compile(r'[\[\(].*$')  # Strip trailing "[EVENT]", "(HD)", etc.
 
@@ -89,9 +99,10 @@ _TRAILING_JUNK = re.compile(r'[\[\(].*$')  # Strip trailing "[EVENT]", "(HD)", e
 _BUNDLED_DEFINITIONS = Path(__file__).parent.parent / 'data' / 'sports_definitions.yaml'
 
 
-#: (path, mtime_ns) -> (sport_keywords, league_keywords). Not lru_cache: the
-#: key has to include the file's mtime, and ``config`` is not hashable.
-_DEFINITIONS_CACHE: "dict[tuple[str, int | None], Tuple[Dict, Dict]]" = {}
+#: (path, mtime_ns) -> (sport_keywords, league_keywords, sport_keyword_overrides).
+#: Not lru_cache: the key has to include the file's mtime, and ``config`` is not
+#: hashable.
+_DEFINITIONS_CACHE: "dict[tuple[str, int | None], Tuple[Dict, Dict, List[Dict[str, str]]]]" = {}
 
 _STAMP_TTL_S = 1.0
 #: A hot backfill calls load_sports_definitions once per row; re-statting the
@@ -112,21 +123,25 @@ def get_user_definitions_path(config=None) -> Path:
     return Path.home() / '.config' / 'metatv' / 'sports_definitions.yaml'
 
 
-def _load_definitions_file(path: Path) -> Tuple[Dict, Dict]:
-    """Read a definitions YAML and return (sport_keywords, league_keywords)."""
+def _load_definitions_file(path: Path) -> Tuple[Dict, Dict, List[Dict[str, str]]]:
+    """Read a definitions YAML and return (sport_keywords, league_keywords, sport_keyword_overrides)."""
     with open(path) as f:
         data = yaml.safe_load(f) or {}
-    return data.get('sport_keywords') or {}, data.get('league_keywords') or {}
+    return (
+        data.get('sport_keywords') or {},
+        data.get('league_keywords') or {},
+        data.get('sport_keyword_overrides') or [],
+    )
 
 
-def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
-    """Load sport and league keyword maps.
+def _load_definitions_cached(config=None) -> Tuple[Dict, Dict, List[Dict[str, str]]]:
+    """Load sport keywords, league keywords, and sport keyword overrides.
 
     Always reads from the bundled ``metatv/data/sports_definitions.yaml`` as the
     base. If the user has a personal override file at
     ``~/.config/metatv/sports_definitions.yaml`` (written by the settings UI),
-    those entries are merged on top — new sports/leagues are added, existing
-    keyword lists are extended.
+    those entries are merged on top — new sports/leagues/overrides are added,
+    existing keyword lists are extended.
 
     The user override file is never auto-created by this function.
 
@@ -135,7 +150,7 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
                 user's config directory.
 
     Returns:
-        Tuple of (sport_keywords, league_keywords) dicts.
+        Tuple of (sport_keywords, league_keywords, sport_keyword_overrides).
     """
     # Cached on the override file's identity + mtime, so a Settings edit still
     # takes effect on the next call while a re-read costs nothing.
@@ -169,11 +184,12 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
 
     # Load bundled defaults
     try:
-        sport_kw, league_kw = _load_definitions_file(_BUNDLED_DEFINITIONS)
+        sport_kw, league_kw, overrides = _load_definitions_file(_BUNDLED_DEFINITIONS)
     except Exception as e:
         logger.warning(f"Failed to read bundled sports definitions: {e} — using in-memory defaults")
         sport_kw = {k: list(v) for k, v in _DEFAULT_SPORT_KEYWORDS.items()}
         league_kw = {k: list(v) for k, v in _DEFAULT_LEAGUE_KEYWORDS.items()}
+        overrides = [dict(entry) for entry in _DEFAULT_SPORT_KEYWORD_OVERRIDES]
 
     # Merge user overrides if the settings UI has created them. The stamp in
     # the cache key already answers "does the override file exist" — a
@@ -181,21 +197,62 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
     # syscall this TTL exists to avoid.
     if cache_key[1] is not None:
         try:
-            user_sports, user_leagues = _load_definitions_file(user_path)
+            user_sports, user_leagues, user_overrides = _load_definitions_file(user_path)
             for sport, keywords in user_sports.items():
                 existing = set(sport_kw.get(sport, []))
                 sport_kw.setdefault(sport, []).extend(k for k in keywords if k not in existing)
             for league, keywords in user_leagues.items():
                 existing = set(league_kw.get(league, []))
                 league_kw.setdefault(league, []).extend(k for k in keywords if k not in existing)
+            # Appended after the bundled ones — same "first match wins" order
+            # as the keyword lists above, so a bundled override still takes
+            # precedence unless the user's own entry is genuinely new.
+            overrides = overrides + list(user_overrides)
             logger.debug(f"Merged user sports definitions from {user_path}")
         except Exception as e:
             logger.warning(f"Failed to read user sports definitions ({user_path}): {e}")
 
     # Callers only READ these (parse_sports_channel iterates them), so one
     # shared object per key is correct. Anything that needs to mutate must copy.
-    _DEFINITIONS_CACHE[cache_key] = (sport_kw, league_kw)
+    _DEFINITIONS_CACHE[cache_key] = (sport_kw, league_kw, overrides)
+    return sport_kw, league_kw, overrides
+
+
+def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Load sport and league keyword maps.
+
+    See :func:`_load_definitions_cached` for the caching/merge behavior this
+    wraps. Sibling :func:`load_sport_keyword_overrides` reads the third element
+    of the same cached load.
+
+    Args:
+        config: Application Config object (optional). Used only to locate the
+                user's config directory.
+
+    Returns:
+        Tuple of (sport_keywords, league_keywords) dicts.
+    """
+    sport_kw, league_kw, _overrides = _load_definitions_cached(config)
     return sport_kw, league_kw
+
+
+def load_sport_keyword_overrides(config=None) -> List[Dict[str, str]]:
+    """Load context-scoped sport keyword overrides (see the YAML's
+    ``sport_keyword_overrides`` section and ``_DEFAULT_SPORT_KEYWORD_OVERRIDES``).
+
+    Each entry is ``{'category_token': ..., 'keyword': ..., 'sport': ...}`` and
+    is checked by :func:`parse_sports_channel` before the generic sport
+    first-match loop — see that function's docstring.
+
+    Args:
+        config: Application Config object (optional). Used only to locate the
+                user's config directory.
+
+    Returns:
+        List of override dicts, bundled entries first, user entries appended.
+    """
+    _sport_kw, _league_kw, overrides = _load_definitions_cached(config)
+    return overrides
 
 
 @lru_cache(maxsize=4096)
@@ -283,6 +340,7 @@ def parse_sports_channel(channel: ChannelDB, config=None) -> Dict[str, Any]:
     }
 
     sport_kw, league_kw = load_sports_definitions(config)
+    overrides = load_sport_keyword_overrides(config)
 
     name = channel.name or ''
     category = (channel.category or '').lstrip('#').strip()
@@ -290,10 +348,23 @@ def parse_sports_channel(channel: ChannelDB, config=None) -> Dict[str, Any]:
     category_lower = category.lower()
 
     # --- Sport detection (first match wins) ---
-    for sport, keywords in sport_kw.items():
-        if _matches_keyword(keywords, name_lower, category_lower):
-            result['sport_type'] = sport
+    # Context-scoped overrides are checked FIRST: a keyword can mean different
+    # sports in different category contexts (same specific-beats-global
+    # precedence as the region rule). A match here skips the generic loop
+    # entirely — league detection and everything after runs unchanged.
+    sport_matched = False
+    for entry in overrides:
+        if (_matches_keyword([entry.get('category_token', '')], category_lower)
+                and _matches_keyword([entry.get('keyword', '')], name_lower)):
+            result['sport_type'] = entry['sport']
+            sport_matched = True
             break
+
+    if not sport_matched:
+        for sport, keywords in sport_kw.items():
+            if _matches_keyword(keywords, name_lower, category_lower):
+                result['sport_type'] = sport
+                break
 
     # --- League detection ---
     for league_name, keywords in league_kw.items():

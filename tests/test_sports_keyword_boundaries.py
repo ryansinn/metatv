@@ -150,3 +150,51 @@ def test_flo_prefix_additions_do_not_gate_unrelated_names(name):
     from metatv.core.special_content import detect_sports_channel
 
     assert detect_sports_channel(_Channel(name)) is False
+
+
+# --------------------------------------------------------------------------- #
+# Context-scoped keyword precedence (2026-09-03, owner ruling): inside a FLO
+# category a bare "| football:" title means AMERICAN football; everywhere
+# else "football" stays the global soccer keyword. 73 real rows were filed
+# under Soccer this way. The mechanism (``sport_keyword_overrides`` in
+# sports_definitions.yaml) is checked BEFORE the generic sport first-match
+# loop and is scoped by category, same specific-beats-global precedence as
+# the region rule.
+# --------------------------------------------------------------------------- #
+
+_FLSP_FOOTBALL_NAME = (
+    "(FLSP 217) | football:  Belhaven University vs Millsaps "
+    "(Belhaven vs Millsaps) (2026-09-03 20:00:00)"
+)
+
+
+def test_flo_context_bare_football_is_american_football():
+    """Real row: a FLO-category "| football:" title is a college game, not
+    soccer."""
+    result = _parse(_FLSP_FOOTBALL_NAME, "US| FLO NETWORK")
+    assert result["sport_type"] == "american_football"
+
+
+def test_bare_football_outside_flo_context_stays_soccer():
+    """Same NAME, non-FLO category — the global "football" -> soccer keyword
+    is untouched. The override is scoped by category, not by title alone."""
+    result = _parse(_FLSP_FOOTBALL_NAME, "UK| SPORTS")
+    assert result["sport_type"] == "soccer"
+
+
+def test_flofootball_compound_is_unaffected_by_the_override():
+    """The existing "flofootball:" compound keyword already resolves to
+    american_football on its own (see the FloSports vertical titles above);
+    the new context-scoped override must not change that, in ANY category."""
+    for category in ("", "US| FLO NETWORK", "UK| SPORTS", "US| GENERAL"):
+        result = _parse("| flofootball: 2026 X vs Y", category)
+        assert result["sport_type"] == "american_football"
+
+
+def test_florida_category_does_not_trigger_the_flo_override():
+    """"florida" contains the substring "flo" but is not the whole token
+    "flo" — the category_token match must respect the same word-boundary
+    rule as every other keyword, or a news channel in a Florida-named
+    category would be mislabeled the moment its title says "football"."""
+    result = _parse(_FLSP_FOOTBALL_NAME, "US| FLORIDA NEWS")
+    assert result["sport_type"] == "soccer"

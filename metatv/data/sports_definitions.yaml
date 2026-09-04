@@ -218,3 +218,12 @@ league_keywords:
     - super rugby
   WWE:
     - wwe
+
+# Context-scoped keyword precedence: a keyword can mean different sports in
+# different category contexts. Entries here are checked BEFORE the global
+# sport_keywords first-match loop; category_token and keyword are both
+# whole-token matched (same boundary rules as every other keyword).
+sport_keyword_overrides:
+  - category_token: flo
+    keyword: football
+    sport: american_football
