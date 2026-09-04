@@ -129,13 +129,21 @@ class ProviderItemWidget(QWidget):
         if not show_actions:
             return
 
+        # The glyph is COLOR_TEXT_HI, not the action's own rgb(r,g,b): that hue
+        # at full saturation is the tint's SOURCE colour, and as icon-on-tint
+        # text it fails the 4.5:1 floor outright in Daylight (as low as
+        # 1.54:1) and marginally in the dark palettes. CLAUDE.md's "text on a
+        # solid fill" rule treats a translucent tint OF the app surface as a
+        # different case from a solid fill: use the surface's own ramp
+        # (COLOR_TEXT_HI), not on_fill(). The tint itself still carries the
+        # per-action hue via background/border.
         _btn_style = (
             "QPushButton {{\n"
             "    background: rgba({r},{g},{b},0.15);\n"
             "    border: 1px solid rgba({r},{g},{b},0.5);\n"
             "    border-radius: 3px;\n"
             "    font-size: " + _theme.FONT_SM + ";\n"
-            "    color: rgb({r},{g},{b});\n"
+            "    color: " + _theme.COLOR_TEXT_HI + ";\n"
             "}}\n"
             "QPushButton:hover {{ background: rgba({r},{g},{b},0.35); }}"
         )

@@ -75,6 +75,10 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
         "COLOR_MUTED-family secondary text; see module docstring",
     ("main_window.py", "QPushButton", "@COLOR_DISABLED@", "@COLOR_LINE_DARK@"):
         "COLOR_MUTED-family secondary text; see module docstring",
+    ("sources.py", "QPushButton", "@COLOR_TEXT@", "@OVERLAY_15@"):
+        "COLOR_MUTED-family secondary text; see module docstring — same pair "
+        "as discover_view.py's QPushButton:hover above, newly visible here "
+        "because it is now reachable through a .format() template",
     ("main_window.py", "QPushButton",
      "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
         "4.02:1 in Daylight — the owner's chosen banner pair, retuning it is "
@@ -95,7 +99,76 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
 # Reconstructing a composed stylesheet
 # ---------------------------------------------------------------------------
 
-def _resolve(node: ast.AST, *, names: bool) -> str | None:
+_SCOPE_DEPTH_CAP = 8
+
+# A node type that introduces its own local-variable namespace when walking a
+# module for composed sheets. Lambdas are deliberately excluded: the
+# `_theme.style_fn(w, lambda: _btn_style.format(...))` pattern closes over a
+# variable from the ENCLOSING function, so a lambda body must keep resolving
+# names against its parent's scope map, not a fresh (empty) one of its own.
+_SCOPE_OWNERS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _scope_map(body: list[ast.stmt]) -> dict[str, ast.AST]:
+    """``name -> value node`` for simple assignments directly in *body*.
+
+    Only ``x = ...`` (single ``Name`` target) and ``x: T = ...`` are
+    recognised — good enough, since a composed sheet is assigned once. Descends
+    into compound statements (if/for/while/try) so a sheet assigned inside a
+    branch is still found, but NOT into a nested ``FunctionDef``/
+    ``AsyncFunctionDef``/``ClassDef`` — those get their own independent map
+    when the walker reaches them. The LAST assignment to a name wins.
+    """
+    mapping: dict[str, ast.AST] = {}
+
+    def visit(stmts: list[ast.stmt]) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, (*_SCOPE_OWNERS, ast.ClassDef)):
+                continue
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+            ):
+                mapping[stmt.targets[0].id] = stmt.value
+            elif (
+                isinstance(stmt, ast.AnnAssign)
+                and isinstance(stmt.target, ast.Name)
+                and stmt.value is not None
+            ):
+                mapping[stmt.target.id] = stmt.value
+            for field in ("body", "orelse", "finalbody"):
+                child = getattr(stmt, field, None)
+                if isinstance(child, list):
+                    visit(child)
+            for handler in getattr(stmt, "handlers", None) or []:
+                visit(handler.body)
+
+    visit(body)
+    return mapping
+
+
+def _iter_scoped_nodes(node: ast.AST, scope: dict[str, ast.AST]):
+    """Yield every descendant of *node*, each paired with the local-variable
+    scope map of its nearest enclosing function (or the module, at top level).
+
+    A ``FunctionDef``/``AsyncFunctionDef`` gets its OWN map (built from its own
+    body only — no inheriting outer locals); everything else — including a
+    ``lambda`` body, so it can see its enclosing function's variables —
+    continues under the current scope.
+    """
+    yield node, scope
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _SCOPE_OWNERS):
+            yield from _iter_scoped_nodes(child, _scope_map(child.body))
+        else:
+            yield from _iter_scoped_nodes(child, scope)
+
+
+def _resolve(
+    node: ast.AST, *, names: bool, scope: dict[str, ast.AST] | None = None,
+    _depth: int = 0,
+) -> str | None:
     """Rebuild a string expression.
 
     Args:
@@ -103,16 +176,30 @@ def _resolve(node: ast.AST, *, names: bool) -> str | None:
         names: When True, a ``{_theme.TOKEN}`` read renders as the literal text
             ``@TOKEN@`` — a palette-independent key. When False it renders as
             the token's CURRENT value, which is what gets measured.
+        scope: name -> value-node map for the node's enclosing function (or
+            module), used to resolve a bare ``ast.Name`` reference to a local
+            variable. ``None`` (the default) resolves nothing new — every
+            pre-existing call site keeps working unchanged.
+        _depth: Recursion guard against a name-assignment cycle (``a = b``,
+            ``b = a``); capped at :data:`_SCOPE_DEPTH_CAP`.
     """
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, (int, float))
+        and not isinstance(node.value, bool)
+    ):
+        # A `.format()`/`.join()` argument is often numeric (`fs=13`, an rgb
+        # component…) — `str()` is exactly what the real call does with it.
+        return str(node.value)
     if isinstance(node, ast.JoinedStr):
         parts = []
         for piece in node.values:
             if isinstance(piece, ast.Constant):
                 parts.append(str(piece.value))
             elif isinstance(piece, ast.FormattedValue):
-                sub = _resolve_token(piece.value, names=names)
+                sub = _resolve_token(piece.value, names=names, scope=scope, _depth=_depth)
                 if sub is None:
                     return None
                 parts.append(sub)
@@ -120,13 +207,25 @@ def _resolve(node: ast.AST, *, names: bool) -> str | None:
                 return None
         return "".join(parts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = _resolve(node.left, names=names)
-        right = _resolve(node.right, names=names)
+        left = _resolve(node.left, names=names, scope=scope, _depth=_depth)
+        right = _resolve(node.right, names=names, scope=scope, _depth=_depth)
         return None if left is None or right is None else left + right
-    return _resolve_token(node, names=names)
+    if isinstance(node, ast.Name):
+        if scope is None or _depth >= _SCOPE_DEPTH_CAP:
+            return None
+        target = scope.get(node.id)
+        if target is None:
+            return None
+        return _resolve(target, names=names, scope=scope, _depth=_depth + 1)
+    if isinstance(node, ast.Call):
+        return _resolve_call(node, names=names, scope=scope, _depth=_depth)
+    return _resolve_token(node, names=names, scope=scope, _depth=_depth)
 
 
-def _resolve_token(node: ast.AST, *, names: bool) -> str | None:
+def _resolve_token(
+    node: ast.AST, *, names: bool, scope: dict[str, ast.AST] | None = None,
+    _depth: int = 0,
+) -> str | None:
     if (
         isinstance(node, ast.Attribute)
         and isinstance(node.value, ast.Name)
@@ -138,6 +237,71 @@ def _resolve_token(node: ast.AST, *, names: bool) -> str | None:
             return "@" + node.attr + "@"
         value = getattr(_theme, node.attr, None)
         return str(value) if isinstance(value, str) else None
+    if isinstance(node, ast.Name):
+        # Reached from a JoinedStr's `{...}` slot: `f"...{some_local_var}..."`.
+        if scope is None or _depth >= _SCOPE_DEPTH_CAP:
+            return None
+        return _resolve(node, names=names, scope=scope, _depth=_depth)
+    return None
+
+
+def _resolve_call(
+    node: ast.Call, *, names: bool, scope: dict[str, ast.AST] | None, _depth: int,
+) -> str | None:
+    """``"...".format(...)`` and ``"sep".join([...])`` over resolvable pieces.
+
+    Deliberately minimal: no ``**kwargs``/``*args`` spreading, no format specs
+    beyond what ``str.format`` itself does (a template that came from real
+    source already has its literal ``{``/``}`` doubled, so the built-in method
+    is the correct substitution, not a reimplementation of it). Anything else
+    (an arbitrary function call, e.g. a zero-arg sheet-builder helper) is out
+    of scope for this resolver and yields ``None``, same as today.
+    """
+    if _depth >= _SCOPE_DEPTH_CAP:
+        return None
+    func = node.func
+    if not isinstance(func, ast.Attribute):
+        return None
+    if func.attr == "format":
+        if any(isinstance(a, ast.Starred) for a in node.args):
+            return None
+        if any(kw.arg is None for kw in node.keywords):
+            return None
+        template = _resolve(func.value, names=names, scope=scope, _depth=_depth)
+        if template is None:
+            return None
+        args = []
+        for arg_node in node.args:
+            value = _resolve(arg_node, names=names, scope=scope, _depth=_depth + 1)
+            if value is None:
+                return None
+            args.append(value)
+        kwargs = {}
+        for kw in node.keywords:
+            value = _resolve(kw.value, names=names, scope=scope, _depth=_depth + 1)
+            if value is None:
+                return None
+            kwargs[kw.arg] = value
+        try:
+            return template.format(*args, **kwargs)
+        except (KeyError, IndexError, ValueError):
+            return None
+    if func.attr == "join":
+        if len(node.args) != 1:
+            return None
+        pieces_node = node.args[0]
+        if not isinstance(pieces_node, (ast.List, ast.Tuple)):
+            return None
+        sep = _resolve(func.value, names=names, scope=scope, _depth=_depth)
+        if sep is None:
+            return None
+        pieces = []
+        for elt in pieces_node.elts:
+            value = _resolve(elt, names=names, scope=scope, _depth=_depth + 1)
+            if value is None:
+                return None
+            pieces.append(value)
+        return sep.join(pieces)
     return None
 
 
@@ -222,13 +386,16 @@ def _measured_blocks():
             tree = ast.parse(path.read_text())
         except SyntaxError:  # pragma: no cover - all tracked files parse
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp)):
+        module_scope = _scope_map(tree.body)
+        for node, scope in _iter_scoped_nodes(tree, module_scope):
+            if not isinstance(
+                node, (ast.Constant, ast.JoinedStr, ast.BinOp, ast.Name, ast.Call)
+            ):
                 continue
-            values = _resolve(node, names=False)
+            values = _resolve(node, names=False, scope=scope)
             if not values or "color" not in values or ":" not in values:
                 continue
-            keys = _resolve(node, names=True)
+            keys = _resolve(node, names=True, scope=scope)
             if not keys:
                 continue
             for (sel, body), (_, key_body) in zip(_blocks(values), _blocks(keys)):
@@ -294,15 +461,73 @@ def test_the_sweep_actually_reaches_widget_modules():
     Pins that the AST reconstruction still finds a substantial population — if
     a refactor changes how sheets are written and the resolver stops matching,
     this fails instead of reporting zero problems forever.
+
+    GUARD-3 (scope-aware ``Name``/``.format()``/``.join()`` resolution) raised
+    the measured population from 28 blocks/16 files to 34/17; these floors are
+    ~90% of that new count, rounded down, so a resolver regression is still
+    caught at the new level rather than silently falling back to the old one.
     """
     _theme.apply_theme("Midnight")
     measured = list(_measured_blocks())
-    assert len(measured) >= 25, (
+    assert len(measured) >= 30, (
         f"only {len(measured)} widget stylesheet blocks resolved — the AST "
         f"reconstruction has probably stopped matching how sheets are written"
     )
     files = {k[0] for k, _ in measured}
-    assert len(files) >= 8, f"only reached {sorted(files)}"
+    assert len(files) >= 15, f"only reached {sorted(files)}"
+
+
+def test_a_sheet_composed_from_a_local_variable_is_measured():
+    """A ``local_var + f"…"`` sheet must not vanish, hover block included.
+
+    The hover piece's OWN background comes from a second local
+    (``hover_bg = _theme.COLOR_ACCENT``), not a direct ``_theme.X`` read — so
+    it is not a self-contained literal ``ast.walk`` could stumble onto on its
+    own; seeing it requires resolving TWO ``ast.Name`` references (``base``
+    for the whole tail, ``hover_bg`` inside it).
+
+    Proven to FAIL on the pre-GUARD-3 resolver two ways at once:
+    ``_resolve(BinOp)`` recursed into its ``Name("base")`` operand, which fell
+    through to ``_resolve_token`` (Attribute-only) and returned ``None`` —
+    collapsing the whole concatenation; and even ``ast.walk`` finding the
+    hover ``JoinedStr`` on its own (it is still a node in the tree) went
+    nowhere, because its ``{hover_bg}`` slot hit the same Attribute-only
+    ``_resolve_token`` and returned ``None`` too. Only the base block —
+    resolvable from its own assignment, no local-variable indirection — was
+    measured.
+    """
+    _theme.apply_theme("Midnight")
+    source = (
+        "def build(w):\n"
+        '    base = f"QLabel {{ color: {_theme.COLOR_TEXT}; '
+        'background: {_theme.COLOR_BG_CARD}; }}"\n'
+        "    hover_bg = _theme.COLOR_ACCENT\n"
+        '    w.setStyleSheet(base + f"QLabel:hover {{ color: {_theme.COLOR_TEXT}; '
+        'background: {hover_bg}; }}")\n'
+    )
+    tree = ast.parse(source)
+    module_scope = _scope_map(tree.body)
+    selectors_with_fg_and_bg = set()
+    for node, scope in _iter_scoped_nodes(tree, module_scope):
+        if not isinstance(
+            node, (ast.Constant, ast.JoinedStr, ast.BinOp, ast.Name, ast.Call)
+        ):
+            continue
+        values = _resolve(node, names=False, scope=scope)
+        if not values or "color" not in values or ":" not in values:
+            continue
+        for sel, body in _blocks(values):
+            fg = _declared(body, "color")
+            bg = _declared(body, "background") or _declared(body, "background-color")
+            if fg and bg:
+                selectors_with_fg_and_bg.add(sel)
+    assert "QLabel" in selectors_with_fg_and_bg, (
+        "the base block (reachable via its own assignment) went missing too"
+    )
+    assert "QLabel:hover" in selectors_with_fg_and_bg, (
+        "the :hover block, which lives only in the concatenated tail, was not "
+        "measured — a Name operand in a BinOp is silently dropping its sibling"
+    )
 
 
 def test_translucent_fills_are_composited_not_taken_literally():
