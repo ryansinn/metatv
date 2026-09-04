@@ -253,10 +253,18 @@ class ImageCache(QObject):
         self.executor.submit(self._download_and_cache, url, provider_urls)
 
     def get_image_async(self, url: str, provider_urls: Optional[list] = None):
-        """Get image from cache or download asynchronously
-        
+        """Get image from cache or download it — never touches disk on the
+        caller's thread.
+
         Emits image_loaded(url, pixmap) on success or image_failed(url, error) on failure.
-        
+
+        A resident-LRU hit is served synchronously (memory only, no I/O).
+        Anything else — including an on-disk-but-not-resident hit — is handed
+        to ``ensure_resident``, whose worker-start re-check already does the
+        stat/decode off the caller's thread (PERF-19b: ``discover_card.
+        request_image`` sampled a 3,110 ms main-thread stall from the old
+        ``get_image_sync`` fallback here).
+
         Args:
             url: Primary image URL
             provider_urls: Optional list of alternative base URLs to try if primary fails
@@ -264,26 +272,13 @@ class ImageCache(QObject):
         if not url:
             self.image_failed.emit(url, "Empty URL")
             return
-        
-        # Try sync first
-        pixmap = self.get_image_sync(url)
-        if pixmap:
+
+        pixmap = self.get_image_resident(url)
+        if pixmap is not None:
             self.image_loaded.emit(url, pixmap)
             return
 
-        # In-flight dedup: two callers racing for the same url (measured 7ms
-        # apart) both miss the sync check above; only the first submits a
-        # download. The second's own image_loaded/image_failed connection
-        # still fires — both signals are broadcasts keyed by url — when the
-        # one in-flight download completes.
-        with self._inflight_lock:
-            if url in self._inflight:
-                logger.debug(f"Already downloading, skipping duplicate: {url}")
-                return
-            self._inflight.add(url)
-
-        # Download in thread pool with failover support
-        self.executor.submit(self._download_and_cache, url, provider_urls)
+        self.ensure_resident(url, provider_urls)
 
     def _download_and_cache(self, url: str, provider_urls: Optional[list] = None):
         """Download image and cache it (runs in thread pool)
