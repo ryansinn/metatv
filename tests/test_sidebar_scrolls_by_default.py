@@ -73,11 +73,18 @@ def test_every_row_is_present_and_the_section_scrolls(section):
     assert lst.height() >= 40 * 1, "the list was not sized to its rows"
 
 
-def test_rows_hidden_by_anything_else_are_restored(section):
-    """Sizing a view is also what un-hides it — including after an upgrade.
+def test_rows_hidden_by_anything_else_stay_hidden(section):
+    """Sizing a view must NOT un-hide it (HIDE-1, superseding this test).
 
-    Someone running the old build with the setting ON has 20 hidden rows in
-    their session the moment this version loads. They have to come back.
+    This test used to assert the opposite: that ``apply_row_budget`` un-hid
+    every row, on the theory that someone upgrading from an old build with
+    the "Show N more" setting ON would have stale hidden rows to recover.
+    That theory turned into a live bug once the Watch Queue grew a REAL
+    reason to hide rows on purpose (the find-in-queue filter, #291): the
+    budget ran on every resize and after every populate, so a filtered queue
+    lost its filter on a mere splitter drag. There is exactly one owner of a
+    row's visibility now — whichever filter or fold hid it — and the budget
+    only ever sizes the view.
     """
     section, lst = section()
     for i in range(20, 40):
@@ -85,7 +92,10 @@ def test_rows_hidden_by_anything_else_are_restored(section):
 
     section.apply_row_budget(lst)
 
-    assert _hidden(lst) == 0
+    assert _hidden(lst) == 20, (
+        "apply_row_budget changed which rows are hidden — it must only size "
+        "the view"
+    )
 
 
 def test_the_setting_is_gone(qapp, tmp_path):
