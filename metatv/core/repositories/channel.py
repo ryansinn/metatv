@@ -776,7 +776,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         if hidden_only:
             query = query.filter(ChannelDB.is_hidden == True)  # noqa: E712
         elif downloaded_only:
-            query = query.filter(channel_downloads.predicate())  # also skips the dead-stream gate below
+            query = query.filter(channel_downloads.predicate(self.session))  # DL-2: verifies the file on disk; also skips the dead-stream gate below
         elif not include_hidden:
             # Graduated play-failure ledger (roadmap S3): a channel whose
             # reliability_state has graduated to "dead" (6+ consecutive

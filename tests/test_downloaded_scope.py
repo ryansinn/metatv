@@ -39,10 +39,19 @@ def db(tmp_path: Path):
     database.close()
 
 
-def _seed(db: Database) -> None:
+def _seed(db: Database, tmp_path: Path) -> Path:
     """3 channels: one completed download (on an INACTIVE provider, with a
     title a Global Exclusion keyword would hide), one running download, one
-    with none at all."""
+    with none at all.
+
+    The completed download's ``dest_path`` points at a REAL file under
+    ``tmp_path`` — DL-2: the scope is truth-checked against the disk, so a
+    ``dest_path`` that does not exist must not count, and these tests would
+    fail against the pre-DL-2 predicate if it were still a bare path string.
+    Returns that file's path so callers can delete it mid-test.
+    """
+    completed_file = tmp_path / "forbidden-movie.mkv"
+    completed_file.write_bytes(b"fake movie bytes")
     with db.session_scope() as session:
         session.add_all([
             ProviderDB(id="active-src", name="Active", type="xtream",
@@ -65,36 +74,37 @@ def _seed(db: Database) -> None:
         session.add(DownloadDB(
             id=str(uuid.uuid4()), channel_id="ch-completed", provider_id="inactive-src",
             channel_name="Forbidden Movie", source_url="http://x/1.mkv",
-            dest_path="/tmp/1.mkv", state="completed",
+            dest_path=str(completed_file), state="completed",
         ))
         session.add(DownloadDB(
             id=str(uuid.uuid4()), channel_id="ch-running", provider_id="active-src",
             channel_name="Running Movie", source_url="http://x/2.mkv",
-            dest_path="/tmp/2.mkv", state="running",
+            dest_path=str(tmp_path / "running-movie.mkv"), state="running",
         ))
+    return completed_file
 
 
 # ---------------------------------------------------------------------------
 # 1-3: the repository predicate + its record-view exemptions
 # ---------------------------------------------------------------------------
 
-def test_downloaded_scope_lists_only_completed(db):
+def test_downloaded_scope_lists_only_completed(db, tmp_path):
     """downloaded_only=True returns exactly the completed-download channel."""
-    _seed(db)
+    _seed(db, tmp_path)
     with db.session_scope() as session:
         channels = RepositoryFactory(session).channels.get_all(downloaded_only=True)
         ids = {c.id for c in channels}
     assert ids == {"ch-completed"}, "running != downloaded; must not appear"
 
 
-def test_downloaded_scope_ignores_source_scoping(db):
+def test_downloaded_scope_ignores_source_scoping(db, tmp_path):
     """Its provider is inactive — the channel still appears (record-view exemption).
 
     Passes the inactive provider as excluded_provider_ids on purpose, mirroring
     what a caller (mistakenly) forwarding active-source scoping would do — the
     engine must ignore it for downloaded_only regardless of caller input.
     """
-    _seed(db)
+    _seed(db, tmp_path)
     with db.session_scope() as session:
         channels = RepositoryFactory(session).channels.get_all(
             downloaded_only=True, excluded_provider_ids=["inactive-src"],
@@ -103,15 +113,59 @@ def test_downloaded_scope_ignores_source_scoping(db):
     assert "ch-completed" in ids
 
 
-def test_downloaded_scope_ignores_global_exclusions(db):
+def test_downloaded_scope_ignores_global_exclusions(db, tmp_path):
     """A Global Exclusion keyword matching its title still doesn't hide it."""
-    _seed(db)
+    _seed(db, tmp_path)
     with db.session_scope() as session:
         channels = RepositoryFactory(session).channels.get_all(
             downloaded_only=True, excluded_keywords=["forbidden"],
         )
         ids = {c.id for c in channels}
     assert "ch-completed" in ids
+
+
+# ---------------------------------------------------------------------------
+# DL-2: truth, not a stored boolean — a file deleted outside the app drops
+# out of the scope on the next refresh.
+# ---------------------------------------------------------------------------
+
+def test_downloaded_scope_drops_a_completed_row_whose_file_is_gone(db, tmp_path):
+    """The whole point of DL-2. ``state == "completed"`` is not enough."""
+    completed_file = _seed(db, tmp_path)
+    with db.session_scope() as session:
+        before = {c.id for c in RepositoryFactory(session)
+                  .channels.get_all(downloaded_only=True)}
+    assert before == {"ch-completed"}
+
+    completed_file.unlink()  # deleted outside the app
+
+    with db.session_scope() as session:
+        after = {c.id for c in RepositoryFactory(session)
+                 .channels.get_all(downloaded_only=True)}
+    assert after == set(), "the badge/scope must clear once the file is gone"
+
+
+def test_downloaded_scope_predicate_verifies_the_filesystem_not_the_state_column(db, tmp_path):
+    """Direct unit test of ``channel_downloads.predicate`` against a fake
+    completed row whose ``dest_path`` was never written — proves the check
+    is a real ``Path.is_file()``, not ``state == "completed"``."""
+    from metatv.core.database import DownloadDB
+    from metatv.core.repositories import channel_downloads
+
+    with db.session_scope() as session:
+        session.add(ChannelDB(
+            id="ch-phantom", name="Phantom", provider_id="p",
+            media_type="movie", source_id="src-phantom",
+        ))
+        session.add(DownloadDB(
+            id=str(uuid.uuid4()), channel_id="ch-phantom", provider_id="p",
+            channel_name="Phantom", source_url="http://x/3.mkv",
+            dest_path=str(tmp_path / "never-written.mkv"), state="completed",
+        ))
+    with db.session_scope(commit=False) as session:
+        matches = (session.query(ChannelDB)
+                   .filter(channel_downloads.predicate(session)).all())
+    assert matches == []
 
 
 # ---------------------------------------------------------------------------

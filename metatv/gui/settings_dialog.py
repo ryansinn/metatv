@@ -12,6 +12,7 @@ from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
+from metatv.gui.settings_downloads_tab import SettingsDownloadsTabMixin
 from metatv.gui.three_panel_section_nav import ThreePanelSectionNav
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
@@ -208,6 +209,12 @@ SECTIONS: tuple[tuple[str, str, str, str], ...] = (
      "the source while it runs, so on an account limited to a single "
      "connection it competes with playback — which is why it defaults to "
      "once a day rather than hourly."),
+    ("downloads", "Downloads", "_build_downloads_tab",
+     "Where saved VOD downloads land, and how they are organized: a "
+     "Movies/Series tree Plex, Jellyfin and Kodi read without configuration, "
+     "or one flat folder. Also the free-space floor — downloads stop before "
+     "they fill the disk, either right away or after finishing whatever is "
+     "already in flight."),
     ("signal", "Signal checking", "_build_signal_tab",
      "How MetaTV decides an event stream is dead air rather than a picture, "
      "and what it does with the ones that are. A check spends a provider "
@@ -237,7 +244,7 @@ def _dial_or_none(value: float, default: float):
     return None if abs(float(value) - float(default)) < 1e-9 else value
 
 
-class SettingsDialog(SettingsTabsMixin, QDialog):
+class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, QDialog):
     """Modal settings dialog: left-nav sections, center controls, right contextual help.
 
     Five sections — Playback, Interaction, Recommendations, Metadata & API Keys,
@@ -458,6 +465,24 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         self._override_all_check.setChecked(getattr(c, "mpv_args_override_all", False))
         self._split_check.setChecked(getattr(c, "split_streams_by_source", False))
 
+        # Downloads
+        self._download_dir_input.setText(
+            str(getattr(c, "download_dir", "~/Videos/MetaTV")))
+        dl_layout_idx = self._download_layout_combo.findData(
+            getattr(c, "download_layout", "tree"))
+        self._download_layout_combo.setCurrentIndex(
+            dl_layout_idx if dl_layout_idx >= 0
+            else self._download_layout_combo.findData("tree")
+        )
+        self._download_floor_spin.setValue(
+            float(getattr(c, "download_free_space_floor_gb", 10.0) or 0.0))
+        dl_policy_idx = self._download_policy_combo.findData(
+            getattr(c, "download_space_policy", "finish_current"))
+        self._download_policy_combo.setCurrentIndex(
+            dl_policy_idx if dl_policy_idx >= 0
+            else self._download_policy_combo.findData("finish_current")
+        )
+
         # Recommendations — every dial falls back to the engine's own default.
         rec = RecScoringSettings.from_config(c)
         saved_mix = getattr(c, "rec_media_mix", None)
@@ -619,6 +644,15 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
         c.filter_adult_mode = self._adult_mode_combo.currentData() or "hide"
         c.live_refresh_mode = self._live_refresh_mode_combo.currentData() or "manual"
+
+        # Downloads — read live by download_manager.py on every scheduler
+        # step (library_dir/_space_shortfall), so nothing here needs an
+        # APPLY hook the way series_monitor_interval_minutes does.
+        c.download_dir = self._download_dir_input.text().strip() or "~/Videos/MetaTV"
+        c.download_layout = self._download_layout_combo.currentData() or "tree"
+        c.download_free_space_floor_gb = self._download_floor_spin.value()
+        c.download_space_policy = (
+            self._download_policy_combo.currentData() or "finish_current")
 
         c.signal_sample_seconds = self._signal_sample_spin.value()
         c.signal_black_fraction = self._signal_black_spin.value() / 100.0

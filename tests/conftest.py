@@ -2145,6 +2145,59 @@ def wire_settings_signal_widgets(dlg) -> None:
     dlg._signal_streak_spin.setRange(1, 10)
 
 
+def wire_settings_downloads_widgets(dlg) -> None:
+    """Attach the Settings → Downloads tab's widgets to a skeleton dialog.
+
+    Same shape and same reason as its siblings: ``_load_values`` and
+    ``_save_values`` touch every tab, so a skeleton missing one widget raises
+    the moment either runs — and raises ``RuntimeError``, not the
+    ``AttributeError`` a ``hasattr`` guard would absorb, because the skeleton
+    never ran ``QDialog.__init__``.
+
+    Args:
+        dlg: A ``SettingsDialog.__new__`` skeleton.
+    """
+    from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QLineEdit
+
+    from metatv.core.download_naming import LAYOUT_FLAT, LAYOUT_TREE
+
+    dlg._download_dir_input = QLineEdit()
+    dlg._download_layout_combo = QComboBox()
+    dlg._download_layout_combo.addItem("Media-server tree", userData=LAYOUT_TREE)
+    dlg._download_layout_combo.addItem("Flat", userData=LAYOUT_FLAT)
+    dlg._download_floor_spin = QDoubleSpinBox()
+    dlg._download_floor_spin.setRange(0, 1000)
+    dlg._download_policy_combo = QComboBox()
+    dlg._download_policy_combo.addItem(
+        "Finish the current download, then stop", userData="finish_current")
+    dlg._download_policy_combo.addItem("Stop immediately", userData="stop_now")
+
+
+def mock_settings_downloads_widgets(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_downloads_widgets`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.download_naming import LAYOUT_TREE
+
+    def _stub(method: str, value):
+        m = MagicMock()
+        getattr(m, method).return_value = value
+        return m
+
+    dlg._download_dir_input = _stub("text", "~/Videos/MetaTV")
+    dlg._download_layout_combo = _stub("currentData", LAYOUT_TREE)
+    dlg._download_floor_spin = _stub("value", 10.0)
+    dlg._download_policy_combo = _stub("currentData", "finish_current")
+
+
 def wire_settings_widgets(dlg) -> None:
     """Attach EVERY settings tab's widgets to a skeleton dialog.
 
@@ -2165,6 +2218,7 @@ def wire_settings_widgets(dlg) -> None:
     wire_settings_theme_widget(dlg)
     wire_settings_density_widget(dlg)
     wire_settings_signal_widgets(dlg)
+    wire_settings_downloads_widgets(dlg)
 
 
 def settings_config_double(**overrides):
