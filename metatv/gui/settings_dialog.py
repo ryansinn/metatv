@@ -13,6 +13,7 @@ from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
 from metatv.gui.settings_downloads_tab import SettingsDownloadsTabMixin
+from metatv.gui.settings_recording_tab import SettingsRecordingTabMixin
 from metatv.gui.three_panel_section_nav import ThreePanelSectionNav
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
@@ -181,6 +182,11 @@ SECTIONS: tuple[tuple[str, str, str, str], ...] = (
      "What a double-click and a middle-click do on a channel row. These are "
      "shortcuts, not required setup — right-click any movie for a one-time "
      "override without changing either default."),
+    ("recording", "Recording", "_build_recording_tab",
+     "The default start/end padding a scheduled recording gets when you "
+     "record a programme from the guide — signed, so trimming a pregame hour "
+     "off the start is as valid as running over at the end. Stored per "
+     "recording; this is only the default a new one starts from."),
     ("content", "Content", "_build_content_tab",
      "What the library is allowed to show you. Adult content is hidden by "
      "default; this is where that is changed. While it is hidden, a category "
@@ -244,7 +250,7 @@ def _dial_or_none(value: float, default: float):
     return None if abs(float(value) - float(default)) < 1e-9 else value
 
 
-class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, QDialog):
+class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecordingTabMixin, QDialog):
     """Modal settings dialog: left-nav sections, center controls, right contextual help.
 
     Five sections — Playback, Interaction, Recommendations, Metadata & API Keys,
@@ -454,6 +460,12 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, QDialog):
             getattr(c, "recheck_failed_on_refresh", True)
         )
 
+        # Recording — stored in seconds, shown in minutes.
+        self._rec_pad_start_spin.setValue(
+            int(round(c.recording_pad_start_seconds / 60)))
+        self._rec_pad_end_spin.setValue(
+            int(round(c.recording_pad_end_seconds / 60)))
+
         buf_idx = self._buffer_combo.findData(c.buffer_profile)
         self._buffer_combo.setCurrentIndex(buf_idx if buf_idx >= 0 else self._buffer_combo.findData("modest"))
 
@@ -628,6 +640,10 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, QDialog):
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()
         c.recheck_failed_on_refresh = self._recheck_failed_on_refresh_check.isChecked()
+
+        # Recording
+        c.recording_pad_start_seconds = self._rec_pad_start_spin.value() * 60
+        c.recording_pad_end_seconds = self._rec_pad_end_spin.value() * 60
         c.buffer_profile = self._buffer_combo.currentData()
         # Reset to "auto" so the buffer_profile (now the sole buffer control) takes effect;
         # an explicit byte size in default_cache_size would bypass the profile entirely.

@@ -103,7 +103,6 @@
     "ProviderDB.epg_url",
     "ProviderDB.last_sync",
     "RecordingDB.pad_end_seconds",
-    "RecordingDB.pad_start_seconds",
-    "RecordingDB.programme_end"
+    "RecordingDB.pad_start_seconds"
   ]
 }

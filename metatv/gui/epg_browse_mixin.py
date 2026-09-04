@@ -68,7 +68,10 @@ from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import resolve_category_name
 from metatv.gui.epg_widgets import (
     _EpgTreeItem,
+    _PROG_START_ROLE,
+    _PROG_STOP_ROLE,
     _SORT_ROLE,
+    add_record_programme_handler,
     apply_watchlist_highlight as _apply_watchlist_highlight,
 )
 
@@ -92,8 +95,9 @@ _BROWSE_PAGE_SIZE = 200
 
 # Per-item role storing the programme's UTC-naive start_time datetime — read by the
 # scroll→handle sync to map the topmost visible row back to a scrubber position.
-# (_SORT/_PROGRESS/_REMAIN use UserRole +2/+3/+4 in epg_widgets; +5 is distinct.)
-_START_ROLE = int(Qt.ItemDataRole.UserRole) + 5
+# The SAME role REC-3's record_programme reads (epg_widgets defines it): one
+# programme start per row, never two roles carrying one datetime.
+_START_ROLE = _PROG_START_ROLE
 
 # Marks a row as a Q3 day-separator (non-interactive, spanning label row) — every
 # click/selection/context-menu/scroll-sync handler checks this first and no-ops.
@@ -832,6 +836,9 @@ class _EpgBrowseMixin:
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
             # Raw UTC-naive start_time for the scroll→scrubber-handle mapping.
             item.setData(0, _START_ROLE, prog.start_time)
+            # REC-3: with the start above, this row's own guide window — so
+            # "record_programme" schedules THIS (possibly future) airing.
+            item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
             if prefix:
                 item.setToolTip(1, resolve_category_name(prefix, self.config) or prefix)
             item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
@@ -886,9 +893,15 @@ class _EpgBrowseMixin:
         cid = item.data(0, Qt.ItemDataRole.UserRole)
 
         # ── Build context ────────────────────────────────────────────────────
+        # REC-3: this row's OWN guide window (never "what's on now" — Browse
+        # rows are often in the future), so "record_programme" schedules the
+        # right airing.
         ctx_kwargs: dict = {
             "channel_ids": [cid] if cid else [],
             "surface": "epg_browse",
+            "programme_start": item.data(0, _PROG_START_ROLE),
+            "programme_end": item.data(0, _PROG_STOP_ROLE),
+            "programme_title": title,
         }
 
         if cid:
@@ -945,6 +958,8 @@ class _EpgBrowseMixin:
             handlers["play_new_window"] = _play_new_h
             handlers["favorite"] = _fav_h
             handlers["queue"] = _queue_h
+
+            add_record_programme_handler(handlers, ctx, host, cid)
 
             if ctx.media_type in ("movie", "series"):
                 def _like_h(c=cid):

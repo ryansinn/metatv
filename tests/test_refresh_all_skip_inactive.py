@@ -247,6 +247,8 @@ def _minimal_config(*, refresh_all_includes_inactive: bool = True):
         signal_dead_streak_to_hide = 2
         mpv_args_override_all = False
         split_streams_by_source = False
+        recording_pad_start_seconds = -120
+        recording_pad_end_seconds = 900
         remember_search = True
         epg_default_refresh_interval = "3d"
         metadata_enabled = True
@@ -278,6 +280,7 @@ def _wire_minimal_dialog(dlg, qapp):
         wire_settings_epg_widgets,
         wire_settings_playback_widgets,
         wire_settings_recommendation_widgets,
+        wire_settings_recording_widgets,
         wire_settings_signal_widgets,
         wire_settings_theme_widget,
     )
@@ -346,3 +349,4 @@ def _wire_minimal_dialog(dlg, qapp):
     # Downloads tab (needed by _load_values / _save_values)
     from tests.conftest import wire_settings_downloads_widgets
     wire_settings_downloads_widgets(dlg)
+    wire_settings_recording_widgets(dlg)

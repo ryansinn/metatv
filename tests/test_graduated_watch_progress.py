@@ -504,6 +504,9 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     # Downloads tab — mock flavor: this skeleton is deliberately Qt-free.
     from tests.conftest import mock_settings_downloads_widgets
     mock_settings_downloads_widgets(dialog)
+    # Recording tab spins — mock flavor (same Qt-free reason as above).
+    from tests.conftest import mock_settings_recording_widgets
+    mock_settings_recording_widgets(dialog)
 
     dialog._save_values()
 

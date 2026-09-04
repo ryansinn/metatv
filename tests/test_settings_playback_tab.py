@@ -20,6 +20,7 @@ from tests.conftest import (
     wire_settings_density_widget,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
+    wire_settings_recording_widgets,
     wire_settings_signal_widgets,
     wire_settings_theme_widget,
 )
@@ -67,6 +68,8 @@ class _FakeConfig:
         self.signal_dead_streak_to_hide = 2
         self.mpv_args_override_all = mpv_args_override_all
         self.split_streams_by_source = False
+        self.recording_pad_start_seconds = -120
+        self.recording_pad_end_seconds = 900
         self.epg_default_refresh_interval = "3d"
         self.metadata_enabled = True
         self.metadata_auto_fetch = False
@@ -198,6 +201,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
     wire_settings_density_widget(dlg)
     wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
+    wire_settings_recording_widgets(dlg)
 
     # Downloads tab (needed by _load_values / _save_values)
     from tests.conftest import wire_settings_downloads_widgets

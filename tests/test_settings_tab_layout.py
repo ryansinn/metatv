@@ -31,6 +31,7 @@ from tests.conftest import (
     wire_settings_epg_widgets,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
+    wire_settings_recording_widgets,
     wire_settings_signal_widgets,
     wire_settings_theme_widget,
 )
@@ -69,6 +70,8 @@ class _FakeConfig:
         self.signal_dead_streak_to_hide = 2
         self.mpv_args_override_all = False
         self.split_streams_by_source = False
+        self.recording_pad_start_seconds = -120
+        self.recording_pad_end_seconds = 900
         self.remember_search: bool = True
         self.refresh_all_includes_inactive: bool = True
         self.epg_default_refresh_interval = "3d"
@@ -162,6 +165,8 @@ def _full_dialog(qapp) -> SettingsDialog:
 
     # -- Downloads tab widgets --
     wire_settings_downloads_widgets(dlg)
+    # -- Recording tab widgets --
+    wire_settings_recording_widgets(dlg)
 
     return dlg
 

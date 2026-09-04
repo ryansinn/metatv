@@ -11,8 +11,9 @@ no Qt at all — this module is the wiring and the two sentences the user reads.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
@@ -21,6 +22,10 @@ from metatv.core.download_manager import DownloadManager, library_dir
 from metatv.core.recording_manager import RecordingManager, recordings_dir
 from metatv.core.signal_check_manager import SignalCheckManager
 from metatv.gui.file_reveal import open_folder, reveal_file
+
+if TYPE_CHECKING:                                    # pragma: no cover
+    from metatv.core.recording_manager import ScheduleOutcome
+    from metatv.core.repositories.dtos import PlayableChannelDTO
 
 #: How often the two transfer sections re-read their manager. Two seconds
 #: matches the download scheduler's own POLL_SECONDS, so a row never lags the
@@ -291,6 +296,64 @@ class _DownloadsMixin:
             starts_at, ends_at, title, pad = (
                 now, now + timedelta(minutes=minutes), "", False)
 
+        self._schedule_and_announce(channel, starts_at, ends_at, title, pad=pad)
+
+    def schedule_recording_from_programme(
+            self, channel_id: str, starts_at: datetime, ends_at: datetime,
+            title: str) -> None:
+        """Record a SPECIFIC guide programme (REC-3), not "what's on now".
+
+        Reached from the "record_programme" channel-menu action, which carries
+        the row's own window on three surfaces — Watch Alerts, On Now, and
+        Browse (future programmes) — so unlike ``record_channel_by_id`` this
+        is correct on a row that has not started yet.
+
+        Args:
+            channel_id: The channel's unique ID string.
+            starts_at: The programme's start, UTC-naive, unpadded.
+            ends_at: The programme's end, UTC-naive, unpadded.
+            title: The programme title.
+        """
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        self._schedule_and_announce(channel, starts_at, ends_at, title, pad=True)
+
+    def _on_alert_programme_context_menu(
+            self, channel_db_id: str, starts_at: datetime, ends_at: datetime,
+            title: str, gx: int, gy: int) -> None:
+        """Thin wrapper → unified channel menu (alerts surface, programme row).
+
+        ``WatchAlertsSection.programmeContextMenuRequested`` fires this INSTEAD
+        of ``channelContextMenuRequested`` when the row under the cursor
+        carries a programme identity, so the menu offers "Record this
+        programme" against the row's own window (REC-3) rather than "now".
+        """
+        self._show_channel_menu(
+            [channel_db_id], "alerts", gx, gy,
+            programme=(starts_at, ends_at, title))
+
+    def _schedule_and_announce(
+            self, channel: "PlayableChannelDTO", starts_at: datetime,
+            ends_at: datetime, title: str, *, pad: bool) -> None:
+        """Schedule a recording and tell the user what happened.
+
+        The one chokepoint both ``record_channel_by_id`` (a live channel's
+        "now") and ``schedule_recording_from_programme`` (REC-3, a specific
+        guide row) end in, so the notification copy — and the conflict
+        handling — exists once rather than twice.
+
+        Args:
+            channel: The playable DTO already resolved by the caller.
+            starts_at: Programme start, UTC-naive, unpadded.
+            ends_at: Programme end, UTC-naive, unpadded.
+            title: Programme title, or "" for the no-EPG "record now for N
+                minutes" fallback (every message below falls back to the
+                channel name).
+            pad: Whether the configured default padding applies — False only
+                for the no-EPG fallback, which has no real guide window to pad.
+        """
         outcome = self.recording_manager.schedule(
             channel_id=channel.id, provider_id=channel.provider_id,
             channel_name=channel.name, source_url=channel.stream_url,
@@ -303,23 +366,34 @@ class _DownloadsMixin:
                 message="", type="info", dismissible=True)
             return
 
+        if outcome.conflicts:
+            # Surfaced now rather than at start time, which is the whole point
+            # of detecting it here: the user can still drop one (settled).
+            others = ", ".join(name for _rid, name in outcome.conflicts)
+            choice = self._resolve_recording_conflict(
+                outcome, title or channel.name, others)
+            if choice == "drop_this":
+                self.recording_manager.cancel(outcome.recording_id)
+                return
+            if choice == "drop_other":
+                for rid, _name in outcome.conflicts:
+                    self.recording_manager.cancel(rid)
+                # Falls through — this recording now stands alone, so it gets
+                # the normal success notification below.
+            else:
+                self.notification_manager.show(
+                    title=f"Recording {title or channel.name} — but it clashes",
+                    message=(f"This source allows one connection and {others} "
+                             f"already wants it at the same time. One of them "
+                             f"will not record."),
+                    type="warning", dismissible=True)
+                return
+
         # The EFFECTIVE window, not the guide's — the offsets move it, and a
         # message promising a stop fifteen minutes before the recorder actually
         # stops is the kind of small lie that teaches people to distrust the app.
         window = self.recording_manager.window_of(outcome.recording_id)
         ends_local = to_local(window[1] if window else ends_at)
-
-        if outcome.conflicts:
-            # Surfaced now rather than at start time, which is the whole point
-            # of detecting it here: the user can still drop one.
-            others = ", ".join(name for _rid, name in outcome.conflicts)
-            self.notification_manager.show(
-                title=f"Recording {title or channel.name} — but it clashes",
-                message=(f"This source allows one connection and {others} "
-                         f"already wants it at the same time. One of them will "
-                         f"not record."),
-                type="warning", dismissible=True)
-            return
 
         self.notification_manager.show(
             title=f"Recording {title or channel.name}",
@@ -327,6 +401,107 @@ class _DownloadsMixin:
                      f"it will take this source's connection off whatever you "
                      f"are watching — with a countdown you can cancel."),
             type="info", dismissible=True)
+
+    def _resolve_recording_conflict(
+            self, outcome: "ScheduleOutcome", title: str,
+            others_label: str) -> str:
+        """Ask what to do about a same-source recording clash (settled).
+
+        Its own seam, separate from ``_schedule_and_announce``, so a test can
+        monkeypatch the decision without driving a live ``QMessageBox``. The
+        caller applies whatever cancel(s) the answer implies and decides what
+        to notify — this method only asks and reports back.
+
+        Returns:
+            ``"keep_both"``, ``"drop_other"`` (cancel every id in
+            ``outcome.conflicts``), or ``"drop_this"`` (cancel
+            ``outcome.recording_id``).
+        """
+        from PyQt6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Recording clash")
+        box.setText(
+            f"Recording {title} clashes with {others_label} — this source "
+            f"allows only one connection at a time.")
+        keep_btn = box.addButton("Keep both", QMessageBox.ButtonRole.RejectRole)
+        drop_other_btn = box.addButton(
+            "Drop the other", QMessageBox.ButtonRole.DestructiveRole)
+        drop_this_btn = box.addButton(
+            "Drop this one", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(keep_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is drop_other_btn:
+            return "drop_other"
+        if clicked is drop_this_btn:
+            return "drop_this"
+        return "keep_both"
+
+    def _confirm_quit_with_due_recordings(self) -> bool:
+        """Whether it is safe to quit right now (settled Q4).
+
+        ``recording_manager.progress()`` already omits terminal rows, so its
+        length IS "recordings that still need the app running" — nothing else
+        to count.
+        """
+        count = len(self.recording_manager.progress())
+        if count == 0:
+            return True
+        return self._ask_quit_with_recordings(count)
+
+    def _ask_quit_with_recordings(self, count: int) -> bool:
+        """Seam wrapping the actual confirmation dialog, so a test can
+        monkeypatch the answer without driving a live ``QMessageBox``."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        noun = "recording" if count == 1 else "recordings"
+        reply = QMessageBox.question(
+            self, "Quit MetaTV?",
+            f"{count} {noun} scheduled or running — MetaTV must stay open to "
+            f"record. Quit anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _on_epg_refreshed_resync_recordings(
+            self, provider_id: str, count: int) -> None:
+        """REC-5: after every completed EPG refresh, re-check the guide.
+
+        ``resync_from_guide`` opens its own DB session, so it must not run on
+        the UI thread — routed through the ``_run_query`` async seam like any
+        other background DB work, even though this one writes rather than
+        reads (``RecordingManager`` manages its own session and commit; the
+        outer read-only session ``_run_query`` opens is simply unused).
+
+        Args:
+            provider_id: Unused — every scheduled recording is re-checked
+                regardless of which provider's guide just refreshed, since a
+                recording's own channel may belong to a different provider
+                than the one that triggered this refresh.
+            count: Unused — signature matched to
+                ``EpgManager.refresh_finished``.
+        """
+        def _query(_repos):
+            return self.recording_manager.resync_from_guide()
+
+        self._run_query(_query, self._on_recordings_resynced)
+
+    def _on_recordings_resynced(self, moved: list) -> None:
+        """Main-thread slot for :meth:`_on_epg_refreshed_resync_recordings`.
+
+        One notification per moved row — a recording is a promise ("this will
+        be there when you look for it"), and a silently-moved window breaks
+        that promise if nothing says so.
+        """
+        if not moved:
+            return
+        for _recording_id, title, new_start in moved:
+            self.notification_manager.show(
+                title=f"{title} moved to {to_local(new_start):%H:%M}",
+                message="", type="info", dismissible=True)
+        self._refresh_transfer_sections()
 
     def _on_recording_countdown(self, recording_id: str, title: str,
                                 seconds: int) -> None:

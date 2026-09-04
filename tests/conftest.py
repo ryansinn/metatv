@@ -1571,6 +1571,61 @@ def make_channel_state_bus_host(db_obj):
     return host
 
 
+def make_downloads_mixin_host(db_obj, config, recording_manager=None):
+    """A MainWindow-shaped double carrying ``_DownloadsMixin``'s REAL methods.
+
+    Same pattern as :func:`make_channel_state_bus_host`: the real unbound
+    methods are bound onto a plain host instead of copied, so record-from-the-
+    guide's chokepoint (``_schedule_and_announce``) is exercised exactly as
+    production runs it — nothing here can go stale the way a hand-listed
+    double would (CLAUDE.md: run the real one, don't copy ``__init__``).
+
+    Args:
+        db_obj: A real ``Database`` (CLAUDE.md: never ``:memory:`` for
+            session-scope work).
+        config: A config carrying ``recording_pad_start_seconds``/
+            ``_end_seconds`` (a real ``Config``, or the ``recording_manager``
+            fixture's minimal stub — either works, since only
+            ``RecordingManager`` reads it).
+        recording_manager: An existing ``RecordingManager`` to reuse, or
+            ``None`` to build one against *db_obj*/*config* with a
+            single-slot ``ConnectionAccountant``.
+
+    Returns:
+        A host with ``db``, ``config``, ``recording_manager``, a
+        ``notification_manager`` MagicMock (assert ``.show.call_args`` on it),
+        and every ``_DownloadsMixin`` recording method bound.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.connection_accountant import ConnectionAccountant
+    from metatv.core.recording_manager import RecordingManager
+    from metatv.gui.main_window_downloads import _DownloadsMixin
+
+    if recording_manager is None:
+        accountant = ConnectionAccountant(capacity_resolver=lambda _pid: 1)
+        recording_manager = RecordingManager(db_obj, config, accountant)
+
+    host = SimpleNamespace(
+        db=db_obj,
+        config=config,
+        recording_manager=recording_manager,
+        notification_manager=MagicMock(),
+    )
+    for _name in (
+        "record_channel_by_id",
+        "schedule_recording_from_programme",
+        "_schedule_and_announce",
+        "_resolve_recording_conflict",
+        "_confirm_quit_with_due_recordings",
+        "_ask_quit_with_recordings",
+        "_on_epg_refreshed_resync_recordings",
+        "_on_recordings_resynced",
+    ):
+        setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
+    return host
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # V3 channel-row paint harness
 #
@@ -2202,6 +2257,44 @@ def mock_settings_downloads_widgets(dlg) -> None:
     dlg._download_policy_combo = _stub("currentData", "finish_current")
 
 
+def wire_settings_recording_widgets(dlg) -> None:
+    """Attach the Settings → Recording tab's widgets to a skeleton dialog.
+
+    Same shape and same reason as its siblings: ``_load_values`` and
+    ``_save_values`` touch every tab, so a skeleton missing one widget raises
+    the moment either runs — and raises ``RuntimeError``, not the
+    ``AttributeError`` a ``hasattr`` guard would absorb, because the skeleton
+    never ran ``QDialog.__init__``.
+
+    Args:
+        dlg: A ``SettingsDialog.__new__`` skeleton.
+    """
+    from PyQt6.QtWidgets import QSpinBox
+
+    dlg._rec_pad_start_spin = QSpinBox()
+    dlg._rec_pad_start_spin.setRange(-120, 120)
+    dlg._rec_pad_end_spin = QSpinBox()
+    dlg._rec_pad_end_spin.setRange(-120, 120)
+
+
+def mock_settings_recording_widgets(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_recording_widgets`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    dlg._rec_pad_start_spin = MagicMock()
+    dlg._rec_pad_start_spin.value.return_value = -2
+    dlg._rec_pad_end_spin = MagicMock()
+    dlg._rec_pad_end_spin.value.return_value = 15
+
+
 def wire_settings_widgets(dlg) -> None:
     """Attach EVERY settings tab's widgets to a skeleton dialog.
 
@@ -2223,6 +2316,7 @@ def wire_settings_widgets(dlg) -> None:
     wire_settings_density_widget(dlg)
     wire_settings_signal_widgets(dlg)
     wire_settings_downloads_widgets(dlg)
+    wire_settings_recording_widgets(dlg)
 
 
 def settings_config_double(**overrides):

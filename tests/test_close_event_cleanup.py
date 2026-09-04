@@ -29,6 +29,9 @@ def _build_mock_window():
     win.image_cache          = MagicMock()
     win.executor             = MagicMock()
     win.config               = MagicMock()
+    # REC-3's quit guard counts non-terminal recordings before any teardown.
+    win.recording_manager    = MagicMock()
+    win.recording_manager.progress.return_value = []
 
     # B3-1: populate the cleanup registry (mirrors registration order in __init__ / setup_ui)
     win._cleanables = [

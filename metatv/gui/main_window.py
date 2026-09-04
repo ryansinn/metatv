@@ -1194,6 +1194,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section.alertClicked.connect(self._on_alert_clicked)
             section.channel_selected.connect(self._on_alert_channel_details)
             section.channelContextMenuRequested.connect(self._on_alert_channel_context_menu)
+            section.programmeContextMenuRequested.connect(
+                self._on_alert_programme_context_menu)
             section.retryRemoveRequested.connect(self.stream_retry_manager.remove)
             section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
             section.retryPlayRequested.connect(self._on_retry_play_requested)
@@ -2141,6 +2143,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # needs_refresh() does the real per-provider gating; this is just the clock tick.
         self.epg_manager.start_scheduler()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
+        # REC-5: a scheduled recording's window follows the guide if it moves.
+        self.epg_manager.refresh_finished.connect(
+            self._on_epg_refreshed_resync_recordings)
         # Recolor the sidebar EPG indicator (and clear its spinner) when a fetch ends.
         self.epg_manager.refresh_finished.connect(self._on_provider_epg_refreshed)
         self.epg_manager.refresh_error.connect(self._on_provider_epg_refreshed)
@@ -3401,6 +3406,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
 
     def closeEvent(self, event):
         """Handle window close"""
+        # Ask FIRST, before any state changes — a due recording is the one
+        # thing that makes "just close it" the wrong default (settled Q4).
+        if not self._confirm_quit_with_due_recordings():
+            event.ignore()
+            return
+
         # FIRST — before any teardown. In-flight background work polls this and
         # abandons rather than emitting into a dying window or hitting the
         # database this method is about to close.

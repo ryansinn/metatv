@@ -324,6 +324,59 @@ class RecordingManager:
             return ((row.effective_start, row.effective_end)
                     if row is not None else None)
 
+    def resync_from_guide(self) -> "list[tuple[str, str, datetime]]":
+        """Re-check not-yet-started recordings against the guide (REC-5).
+
+        A recording binds to the guide's window at the moment it is scheduled.
+        If the provider's guide later shifts that programme's start — an
+        earlier broadcast running long, a schedule correction — the recording
+        stays pinned to the STALE time until something re-checks it. Called
+        once per completed EPG refresh (never from a worker thread itself:
+        ``RecordingManager`` holds no Qt, so the caller does the notifying).
+
+        Programme identity is channel + exact title, narrowed to the closest
+        guide entry within a day of the recording's last known start — the
+        same title can recur tomorrow, so "same title, anywhere in the guide"
+        would jump a recording onto the wrong day's airing.
+
+        Returns:
+            ``(recording_id, title, new_start)`` for every recording whose
+            window moved, so the caller can notify once per row. Only
+            ``state == "scheduled"`` rows are eligible — a row already
+            recording has already taken its slot at the old time.
+        """
+        from metatv.core.database import EpgProgramDB, RecordingDB
+
+        window = timedelta(hours=20)
+        moved: "list[tuple[str, str, datetime]]" = []
+        with self.db.session_scope() as session:
+            pending = session.query(RecordingDB).filter(
+                RecordingDB.state == "scheduled").all()
+            for row in pending:
+                if not row.programme_title:
+                    continue  # no-EPG fallback recording — nothing to re-match
+                candidates = session.query(EpgProgramDB).filter(
+                    EpgProgramDB.channel_db_id == row.channel_id,
+                    EpgProgramDB.title == row.programme_title,
+                    EpgProgramDB.start_time >= row.programme_start - window,
+                    EpgProgramDB.start_time <= row.programme_start + window,
+                ).all()
+                if not candidates:
+                    continue
+                closest = min(candidates, key=lambda p: abs(
+                    (p.start_time - row.programme_start).total_seconds()))
+                if (closest.start_time == row.programme_start
+                        and closest.stop_time == row.programme_end):
+                    continue
+                row.programme_start = closest.start_time
+                row.programme_end = closest.stop_time
+                moved.append((row.id, row.programme_title, closest.start_time))
+        if moved:
+            self._wake.set()
+            logger.info("Recording guide drift: {} window(s) followed the guide",
+                        len(moved))
+        return moved
+
     def cancel(self, recording_id: str) -> None:
         """Cancel a scheduled or running recording.
 

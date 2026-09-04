@@ -45,6 +45,24 @@ def _region(airing) -> str:
     return airing[7] if len(airing) > 7 else ""
 
 
+def _prog_start(airing) -> "datetime | None":
+    """The airing's TRUE programme start (unpadded, regardless of live/upcoming),
+    or ``None`` — REC-3. Sibling of :func:`_prog_stop`.
+
+    Unlike ``started_at`` (only populated for a LIVE airing, for the progress
+    bar), this is always the guide's real start — what
+    ``schedule_recording_from_programme`` needs to schedule the row's OWN
+    window rather than "now".
+    """
+    return airing[8] if len(airing) > 8 else None
+
+
+def _prog_stop(airing) -> "datetime | None":
+    """The airing's TRUE programme stop (unpadded), or ``None`` — sibling of
+    :func:`_prog_start`."""
+    return airing[9] if len(airing) > 9 else None
+
+
 def _started_at(airing) -> "datetime | None":
     """The airing's start, or ``None`` — sibling of :func:`_when`.
 
@@ -88,6 +106,13 @@ class _Airing(NamedTuple):
             the duration, and 30 minutes left means something different on a
             half-hour show than on a three-hour one. ``None`` on upcoming rows,
             which have not started.
+        prog_start: The programme's real start, UTC-naive, unpadded — set for
+            EVERY airing (live or upcoming), unlike ``started_at``. What
+            "record_programme" (REC-3) schedules from, since a recording of a
+            not-yet-started programme needs its own window rather than "now".
+        prog_stop: The programme's real stop, UTC-naive, unpadded — sibling of
+            ``prog_start``. ``when`` cannot stand in for this: on an upcoming
+            airing ``when`` IS ``start_time``, not the stop.
     """
 
     sort_key: float
@@ -98,6 +123,8 @@ class _Airing(NamedTuple):
     started_at: "datetime | None" = None
     quality: str = ""
     region: str = ""
+    prog_start: "datetime | None" = None
+    prog_stop: "datetime | None" = None
 
 # Row budget (px) for _apply_expansion()'s "expand every group only if the fully
 # expanded list still fits a compact height" decision.  It is NOT a widget maximum:

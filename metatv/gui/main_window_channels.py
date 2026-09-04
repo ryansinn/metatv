@@ -1549,7 +1549,7 @@ class _ChannelListMixin:
         surface: str,
         gx: int,
         gy: int,
-        entry_id: str = "",
+        entry_id: str = "", programme: "tuple | None" = None,
     ) -> None:
         """Gather DB context off-thread, then build and exec the menu on the main thread.
 
@@ -1561,7 +1561,7 @@ class _ChannelListMixin:
         """
         self.executor.submit(
             self._bg_fetch_ctx_data,
-            channel_ids, surface, gx, gy, entry_id,
+            channel_ids, surface, gx, gy, entry_id, programme,
         )
 
     def _bg_fetch_ctx_data(
@@ -1570,7 +1570,7 @@ class _ChannelListMixin:
         surface: str,
         gx: int,
         gy: int,
-        entry_id: str,
+        entry_id: str, programme: "tuple | None" = None,
     ) -> None:
         """Worker: gather DB fields for context menu (runs off-thread)."""
         from metatv.gui.channel_menu import ChannelMenuContext
@@ -1583,12 +1583,8 @@ class _ChannelListMixin:
                 if channel is None and surface != "retry":
                     return
                 if channel is not None:
-                    # "Show N versions" — reuse the SAME sibling lookup the
-                    # details-pane "Other Versions" / Similar-Titles lightbox
-                    # already use (get_content_key_siblings), scoped by the same
-                    # hidden-provider set as the rest of this menu's context, so
-                    # the count/options never surface a variant that is not
-                    # actually visible. "" content_key (unset/live) → no lookup.
+                    # "Show N versions": reuse get_content_key_siblings, same
+                    # lookup as details-pane "Other Versions", hidden-scoped.
                     content_key = getattr(channel, "content_key", "") or ""
                     variant_options: list = []
                     if content_key:
@@ -1622,6 +1618,9 @@ class _ChannelListMixin:
                         content_key=content_key,
                         variant_count=len(variant_options) + 1,
                         variant_options=variant_options,
+                        programme_start=programme[0] if programme else None,
+                        programme_end=programme[1] if programme else None,
+                        programme_title=programme[2] if programme else "",
                     )
                 else:
                     # retry surface with no matching channel row
@@ -1632,8 +1631,7 @@ class _ChannelListMixin:
                         channel_found=False,
                     )
         else:
-            # Multi-select — query watch state so the bulk-toggle label is accurate.
-            # is_vod_watched=True only when every selected channel is watch_completed.
+            # Multi-select: watch state for the bulk-toggle label (all watched?).
             from metatv.core.database import ChannelDB as _ChannelDB
             with self.db.session_scope(commit=False) as session:
                 watched_count = (
@@ -1776,6 +1774,8 @@ class _ChannelListMixin:
             "play_deep_cache": lambda: self.play_channel_deep_cache_by_id(cid),
             "download": lambda: self.download_channel_by_id(cid),
             "record": lambda: self.record_channel_by_id(cid),
+            "record_programme": lambda: self.schedule_recording_from_programme(
+                cid, ctx.programme_start, ctx.programme_end, ctx.programme_title),
             "play_from_beginning": lambda: self.play_channel_from_beginning_by_id(cid),
             "resume_from": lambda: self.play_channel_resume_by_id(cid),
             "favorite": lambda: self._toggle_favorite_by_id(

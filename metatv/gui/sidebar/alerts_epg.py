@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 from metatv.core import watchlist
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
+from metatv.gui.epg_widgets import _PROG_START_ROLE, _PROG_STOP_ROLE
 from metatv.gui.relative_time import humanize_remaining, humanize_until
 from metatv.gui.sidebar.alerts_rows import TITLE_INDENT, _AlertRow
 from metatv.gui.sidebar.base import (
@@ -26,6 +27,8 @@ from metatv.gui.sidebar.base import (
 from metatv.gui.sidebar.alerts_common import (
     _CHILD_INDENT,
     _Airing,
+    _prog_start,
+    _prog_stop,
     _quality,
     _region,
     _started_at,
@@ -121,8 +124,19 @@ class EpgGroupMixin:
         if not item or not item.parent():  # skip headers
             return
         channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
-        if channel_db_id:
-            gp = self.alerts_tree.viewport().mapToGlobal(pos)
+        if not channel_db_id:
+            return
+        gp = self.alerts_tree.viewport().mapToGlobal(pos)
+        # REC-3: a programme row (child under a group) carries its own guide
+        # window, so "record_programme" can schedule THIS airing rather than
+        # "what's on now" — the plain channel menu has no programme identity.
+        prog_start = item.data(0, _PROG_START_ROLE)
+        prog_stop = item.data(0, _PROG_STOP_ROLE)
+        if prog_start is not None and prog_stop is not None:
+            title = item.data(0, _ROLE_GROUP_KEY) or ""
+            self.programmeContextMenuRequested.emit(
+                channel_db_id, prog_start, prog_stop, title, gp.x(), gp.y())
+        else:
             self.channelContextMenuRequested.emit(channel_db_id, gp.x(), gp.y())
 
     def _refresh_list(self) -> QTreeWidget:
@@ -356,7 +370,8 @@ class EpgGroupMixin:
                     live_groups[key]['live'].append(
                         _Airing(mins_left, time_str, ch_display,
                                 prog.channel_db_id, prog.stop_time,
-                                prog.start_time, ch_quality, ch_region)
+                                prog.start_time, ch_quality, ch_region,
+                                prog.start_time, prog.stop_time)
                     )
 
             for _pattern, progs in upcoming_data.items():
@@ -372,7 +387,8 @@ class EpgGroupMixin:
                         live_groups[key]['upcoming'].append(
                             _Airing(ts, time_str, ch_display,
                                     prog.channel_db_id, prog.start_time,
-                                    None, ch_quality, ch_region)
+                                    None, ch_quality, ch_region,
+                                    prog.start_time, prog.stop_time)
                         )
                     else:
                         if key not in upcoming_only:
@@ -380,7 +396,8 @@ class EpgGroupMixin:
                         upcoming_only[key]['airings'].append(
                             _Airing(ts, time_str, ch_display,
                                     prog.channel_db_id, prog.start_time,
-                                    None, ch_quality, ch_region)
+                                    None, ch_quality, ch_region,
+                                    prog.start_time, prog.stop_time)
                         )
 
             # Only asked when there is nothing to show, and only to explain the
@@ -516,9 +533,17 @@ class EpgGroupMixin:
 
         def _add_child(parent_item, ch_name, time_str, channel_db_id, title,
                        when=None, live=False, started_at=None,
-                       quality="", region="") -> None:
+                       quality="", region="", prog_start=None,
+                       prog_stop=None) -> None:
             child = QTreeWidgetItem()
             child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+            # REC-3: this row's own guide window (never the padded/effective
+            # one) plus its title — _ROLE_GROUP_KEY already means "programme
+            # title" on the group header above; reused here rather than a new
+            # role, since the meaning is identical.
+            child.setData(0, _PROG_START_ROLE, prog_start)
+            child.setData(0, _PROG_STOP_ROLE, prog_stop)
+            child.setData(0, _ROLE_GROUP_KEY, title)
             child.setToolTip(0, f"{title}\n{ch_name}")
             parent_item.addChild(child)
             row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
@@ -573,10 +598,12 @@ class EpgGroupMixin:
                     for a in live_items[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
                                    started_at=_started_at(a),
-                                   quality=_quality(a), region=_region(a))
+                                   quality=_quality(a), region=_region(a),
+                                   prog_start=_prog_start(a), prog_stop=_prog_stop(a))
                     for a in up_items[:5]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
-                                   quality=_quality(a), region=_region(a))
+                                   quality=_quality(a), region=_region(a),
+                                   prog_start=_prog_start(a), prog_stop=_prog_stop(a))
 
         if upcoming_only:
             self._add_upcoming_heading(len(upcoming_only))
@@ -606,7 +633,8 @@ class EpgGroupMixin:
                     self._upcoming_items.append(hdr)
                     for a in airings[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=False,
-                                   quality=_quality(a), region=_region(a))
+                                   quality=_quality(a), region=_region(a),
+                                   prog_start=_prog_start(a), prog_stop=_prog_stop(a))
 
         self._apply_upcoming_collapse()
         self._reveal_epg_subsection()

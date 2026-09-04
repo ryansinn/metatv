@@ -75,10 +75,13 @@ from metatv.gui.epg_widgets import (
     _AssignCategoryDialog,
     _CONTENT_TYPE_ROLE,
     _EpgTreeItem,
+    _PROG_START_ROLE,
+    _PROG_STOP_ROLE,
     _PROGRESS_ROLE,
     _REMAIN_ROLE,
     _SORT_ROLE,
     _ProgressBarDelegate,
+    add_record_programme_handler,
     apply_watchlist_highlight as _apply_watchlist_highlight,
 )
 
@@ -450,6 +453,8 @@ class _EpgOnNowMixin:
             )
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
+            item.setData(0, _PROG_START_ROLE, prog.start_time)
+            item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
             if quality:
                 item.setToolTip(2, quality_tooltip(quality))
@@ -687,6 +692,15 @@ class _EpgOnNowMixin:
         else:
             ctx_kwargs["channel_found"] = True
 
+        # REC-3: the row's own programme window, so "Record this programme"
+        # schedules THIS airing rather than re-querying "what's on now".
+        if is_single and items:
+            ctx_kwargs.update(
+                programme_start=items[0].data(0, _PROG_START_ROLE),
+                programme_end=items[0].data(0, _PROG_STOP_ROLE),
+                programme_title=items[0].data(5, Qt.ItemDataRole.UserRole) or "",
+            )
+
         ctx = ChannelMenuContext(**ctx_kwargs)
 
         # ── Build handlers ───────────────────────────────────────────────────
@@ -723,6 +737,8 @@ class _EpgOnNowMixin:
             handlers["play_new_window"] = _play_new_h
             handlers["favorite"] = _fav_h
             handlers["queue"] = _queue_h
+
+            add_record_programme_handler(handlers, ctx, host, cid)
 
             if ctx.media_type in ("movie", "series"):
                 def _like_h(c=cid):
