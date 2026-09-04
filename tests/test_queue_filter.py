@@ -311,6 +311,45 @@ def test_year_and_provider_name_are_both_searchable(section):
     assert not any("2049" in p for p in painted)
 
 
+def test_reapply_row_budget_does_not_resurrect_filtered_rows(section):
+    """HIDE-1: the row budget must never be a second, silent un-hider of rows
+    a filter hid on purpose.
+
+    ``RowBudgetMixin.apply_row_budget`` used to un-hide every row
+    unconditionally — a leftover of the removed "Show N more" mode, which had
+    nothing left to undo once that mode stopped hiding rows itself. It kept
+    running anyway, and ``reapply_row_budget`` fires on every resize (a
+    splitter drag) and after every populate — so a filtered queue lost its
+    filter the moment the sidebar was resized, with the filter box still
+    showing text and still checked. Row visibility has exactly one owner
+    (whichever filter or fold hid the row); the budget only ever sizes.
+    """
+    _type_filter(section, "blade")
+    header_before = next(
+        p for p in _painted_titles(section) if p.startswith("Never Watched")
+    )
+    assert any("Lobster" not in p for p in _painted_titles(section))
+    assert not any("Lobster" in p for p in _painted_titles(section))
+
+    section.reapply_row_budget()
+    QApplication.processEvents()
+
+    painted = _painted_titles(section)
+    assert not any("Lobster" in p for p in painted), (
+        f"reapply_row_budget resurrected a row the filter had hidden: {painted}"
+    )
+    assert section._filter.text() == "blade", (
+        "the filter box's own text must be untouched by a row-budget pass"
+    )
+    header_after = next(
+        p for p in _painted_titles(section) if p.startswith("Never Watched")
+    )
+    assert header_after == header_before, (
+        f"header count drifted after reapply_row_budget: "
+        f"{header_before!r} -> {header_after!r}"
+    )
+
+
 def _item_for(section, title: str):
     for i in range(section._list.count()):
         item = section._list.item(i)

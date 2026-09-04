@@ -89,3 +89,64 @@ def test_reapply_walks_every_budgeted_surface(qapp, tmp_path):
     section, _tree = _section(tmp_path)
     section.reapply_row_budget()            # must not raise
     destroy_widget(section)
+
+
+def test_a_hidden_child_under_a_visible_group_stays_hidden(qapp, tmp_path):
+    """HIDE-1: a child row hidden by something else (a filter, a fold) must
+    stay hidden through ``apply_tree_row_budget`` — not only a folded
+    TOP-LEVEL group, which the loop already skipped before this fix.
+
+    The tree budget used to un-hide every child of every visible group
+    unconditionally, a leftover of the removed "Show N more" mode that had
+    nothing left to reveal once that mode stopped hiding rows itself. It kept
+    running anyway, which is exactly the mechanism that resurrected the Watch
+    Queue's find-in-queue filter results on a mere splitter drag — this is
+    the tree-shaped sibling of that same bug.
+    """
+    section, tree = _section(tmp_path)
+    group = tree.topLevelItem(0)
+    group.child(2).setHidden(True)
+
+    section.apply_tree_row_budget(tree)
+
+    assert group.child(2).isHidden(), (
+        "a child hidden by something else was resurrected by the row budget"
+    )
+    for j in range(group.childCount()):
+        if j != 2:
+            assert not group.child(j).isHidden(), (
+                f"child {j} was hidden but nothing hid it"
+            )
+    destroy_widget(section)
+
+
+def test_fixed_height_tracks_only_the_visible_rows(qapp, tmp_path):
+    """The tree's fitted height must fall when rows leave the visible set —
+    proof that ``fit_to_rows`` (not a stale figure) is what governs the height,
+    and that hiding a row is not silently undone before that measurement.
+
+    A relationship, not a pinned pixel count: an improvement to row height or
+    spacing must not turn this into a red gate.
+    """
+    section, tree = _section(tmp_path)
+    section.apply_tree_row_budget(tree)
+    full_height = tree.height()
+    assert full_height > 0
+
+    group = tree.topLevelItem(0)
+    for j in range(group.childCount() - 2):
+        group.child(j).setHidden(True)
+
+    section.apply_tree_row_budget(tree)
+
+    assert tree.height() < full_height, (
+        f"hiding all but two children left the tree at {tree.height()}px, "
+        f"same as the full {full_height}px — the budget is not measuring "
+        "what is actually visible"
+    )
+    for j in range(group.childCount() - 2):
+        assert group.child(j).isHidden(), (
+            f"child {j} was revealed by the very budget pass whose height "
+            "this test measured"
+        )
+    destroy_widget(section)

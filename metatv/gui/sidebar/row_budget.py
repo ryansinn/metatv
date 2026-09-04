@@ -94,7 +94,7 @@ class RowBudgetMixin:
     # ── Row budget: no nested scrollbars ────────────────────────────────────
 
     def apply_row_budget(self, list_widget) -> None:
-        """Show every row at full height and let the SECTION scroll.
+        """Fit the view's height to its rows and let the SECTION scroll.
 
         The view itself must not scroll: the section owns one scroll area
         (``CollapsibleSection.content_scroll``), and a view scrolling inside it
@@ -107,15 +107,26 @@ class RowBudgetMixin:
         own rows and draws over whatever follows it — which is how Stream
         Monitoring ended up printed across the Series rows.
 
-        **This used to have a second mode** — hide the rows that did not fit and
-        end the list with a "Show N more" row that grew the section by taking
-        pixels from its neighbours. It was off by default, and the argument for
-        keeping it was that anyone with a scroll wheel could reveal the rows
-        anyway: *"Wheeling the list reveals more (see eventFilter)"*. **There was
-        no eventFilter.** Budgeted rows were ``setHidden(True)``, so scrolling
-        could never reach them, and the only way to see one was the tail row
-        itself. The mode's stated audience — people who cannot use a wheel — was
-        the one group it did not help.
+        **Visibility is not this method's concern — it never was, after
+        2026-09-02.** It used to un-hide every row unconditionally, a leftover
+        of a removed "Show N more" mode (hide the rows that did not fit, end
+        the list with a tail row that grew the section by taking pixels from
+        its neighbours — see below). The budget stopped hiding anything that
+        day, so the loop had nothing left to undo, and it kept running anyway —
+        which meant it undid whatever ELSE had hidden a row on purpose. The
+        Watch Queue's find-in-queue filter (``queue.py``) hides non-matching
+        rows with ``setHidden``; this method ran on every resize and after
+        every populate and silently resurrected them on a mere splitter drag
+        (HIDE-1). Row visibility has exactly one owner now — whichever filter
+        or fold hid the row — and this method only ever sizes the view.
+
+        The removed mode itself, for context: it was off by default, and the
+        argument for keeping it was that anyone with a scroll wheel could
+        reveal the rows anyway: *"Wheeling the list reveals more (see
+        eventFilter)"*. **There was no eventFilter.** Budgeted rows were
+        ``setHidden(True)``, so scrolling could never reach them, and the only
+        way to see one was the tail row itself. The mode's stated audience —
+        people who cannot use a wheel — was the one group it did not help.
 
         It cost about 333 of this file's 552 lines plus 84 of splitter
         arithmetic in ``main_window``, and every sidebar change had to be
@@ -126,28 +137,24 @@ class RowBudgetMixin:
         Args:
             list_widget: The section's ``QListWidget``, already populated.
         """
-        for index in range(list_widget.count()):
-            list_widget.item(index).setHidden(False)
         list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.fit_to_rows(list_widget)
 
     def apply_tree_row_budget(self, tree) -> None:
         """Fit a ``QTreeWidget`` of sub-groups to its contents.
 
-        Same single behaviour as :meth:`apply_row_budget`: every child visible,
-        the tree sized to its rows, and the SECTION does the scrolling — never
-        the tree, which would be the nested scrollbar R13 forbids.
-
-        Hidden top-level rows are skipped rather than un-hidden: a folded
-        sub-group (Watch Alerts' "Upcoming") is folded because the USER folded
-        it, and re-opening it here would be the app undoing a person's choice —
-        the defect ``section_cap``'s docstring records four times over.
+        Same single behaviour as :meth:`apply_row_budget`: the tree sized to
+        its rows, and the SECTION does the scrolling — never the tree, which
+        would be the nested scrollbar R13 forbids. This method never touches a
+        row's hidden flag, in either direction (HIDE-1) — a folded sub-group
+        (Watch Alerts' "Upcoming") is folded because the USER folded it, and a
+        filtered-out row is hidden because a filter hid it; re-opening either
+        here would be the app undoing someone else's decision, which is the
+        defect ``section_cap``'s docstring records four times over for folds
+        alone. ``fit_to_rows`` already counts only VISIBLE rows
+        (``_has_visible_rows``/``viewportSizeHint``), so a hidden row is simply
+        excluded from the height — nothing here needs to know why it is hidden.
         """
-        groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
-                  if not tree.topLevelItem(i).isHidden()]
-        for group in groups:
-            for index in range(group.childCount()):
-                group.child(index).setHidden(False)
         # The SECTION scrolls, never the tree — one scrolling surface.
         tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Unconditional, including when there are no groups at all: an unsized
