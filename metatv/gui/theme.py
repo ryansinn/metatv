@@ -296,11 +296,12 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:hover { background:" + COLOR_SURFACE_LIGHT_2 + "; color:" + COLOR_TEXT_HI + "; }"
     )
     # Filter-bar controls — the multi-select dropdowns ("Genres ▼") in
-    # filter_bar.py and sports_filter_bar.py, and filter_bar's "Clear" button.
-    # One role rather than three copies of the same sheet. Both used to hardcode ``background-color: white`` with
-    # ``COLOR_LINE`` as the text: a hard-white slab in the dark themes, lettered
-    # in a hairline-separator colour. Same shape as the #298 view-chip bug
-    # documented in filter_bar.py — a literal cannot track a palette.
+    # filter_bar.py, and filter_bar's "Clear" button. One role rather than
+    # copies of the same sheet. Used to hardcode ``background-color: white``
+    # with ``COLOR_LINE`` as the text: a hard-white slab in the dark themes,
+    # lettered in a hairline-separator colour. Same shape as the #298
+    # view-chip bug documented in filter_bar.py — a literal cannot track a
+    # palette.
     FILTER_CONTROL_BTN = (
         "QPushButton { background-color: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
@@ -617,44 +618,6 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-color: " + COLOR_BORDER + "; }"
         "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_BORDER + "; }"
-    )
-
-    # ── Events view ────────────────────────────────────────────────────────
-    # A dated event is a CARD, not a row: the countdown wants its own line and
-    # the badges differ per bucket, neither of which a chip row can carry.
-    # COLOR_PPV_ACCENT is one of the theme-INVARIANT fills (identical in all
-    # three palettes by design), so anything drawn on it takes its foreground
-    # from on_fill() rather than from the on-background ramp.
-    EVENT_CARD = (
-        "QFrame { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " background: " + COLOR_BG_CARD + "; }"
-        "QFrame:hover { border-color: " + COLOR_TEXT_HI + "; }"
-    )
-    # EVENT_CARD_TITLE is aliased to DIALOG_TITLE, and is declared BESIDE it
-    # rather than here — this block is built before DIALOG_TITLE exists.
-    # The countdown is the card's one live value. Accent-coloured because it is
-    # the thing that changes; the WORDS carry the state ("in 3d 4h" vs "ended"),
-    # so the colour is reinforcement and never the only cue.
-    EVENT_CARD_COUNTDOWN = (
-        "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_PPV_ACCENT + ";"
-    )
-    EVENT_CARD_BADGE = (
-        "QLabel { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " padding: 1px 7px; font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
-        " background: transparent; }"
-    )
-    # NOTE: the Play button is NOT a role here. It is a saturated fill and its
-    # foreground has to come from on_fill(), which is defined below this
-    # builder and so cannot be called from it. The view composes it with
-    # theme.style_fn — the sanctioned path for a composed sheet (CLAUDE.md).
-
-    # NOTE: the scope switch has no role of its own. EVENTS_SEG_ACTIVE /
-    # EVENTS_SEG_INACTIVE above are already "Events tab — segmented view-mode
-    # toggle", which is the same control in the same context, and they are
-    # applied by SWAPPING the role rather than by a :checked rule.
-
-    EVENT_EMPTY_MSG = (
-        "font-size: " + FONT_LG + "; color: " + COLOR_DIM_2 + "; padding: 40px;"
     )
 
     # Poster watched badge — a corner check overlay (Plex/Jellyfin convention).
@@ -1065,10 +1028,6 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     # Kept as a name because the What's New call site reads better for it.
     WHATS_NEW_TITLE = DIALOG_TITLE
-    # An Events card's title is the same sheet. Aliased rather than
-    # re-declared: a near-twin declaration is what test_theme_role_duplication
-    # exists to stop, and WHATS_NEW_TITLE above is the precedent for the alias.
-    EVENT_CARD_TITLE = "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
     WHATS_NEW_META = (
         "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )

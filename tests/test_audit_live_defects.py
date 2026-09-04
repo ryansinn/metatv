@@ -1,4 +1,4 @@
-"""Three defects a user could hit, each the same shape: a second copy that drifted.
+"""Two defects a user could hit, each the same shape: a second copy that drifted.
 
 None of these is exotic. In every case the correct behaviour already existed
 somewhere in the app, and a sibling written later did it differently — which is
@@ -107,25 +107,3 @@ def test_both_toggles_actually_write_the_config():
         src = inspect.getsource(getattr(PreferencesView, name))
         assert "self.config.save()" in src or "_cfgsave.save_soon(self)" in src, (
             f"{name} changes visibility without persisting it")
-
-
-# ---------------------------------------------------------------------------
-# 3. "Clear" beside "Clear All"
-# ---------------------------------------------------------------------------
-
-def test_both_dropdown_classes_use_one_footer_label():
-    """They sit side by side: Sport: is a FilterDropdown, League: is a
-    HierarchicalFilterDropdown, and their footers had drifted to two different
-    words for the same button on the same bar."""
-    import inspect
-
-    from metatv.gui import filter_bar, sports_filter_bar
-
-    for mod in (filter_bar, sports_filter_bar):
-        src = inspect.getsource(mod)
-        assert 'QPushButton("Clear All")' not in src
-        assert 'QPushButton("Select All")' not in src, (
-            f"{mod.__name__} hardcodes a dropdown footer label again")
-
-    assert 'QPushButton(DROPDOWN_CLEAR_LABEL)' in inspect.getsource(sports_filter_bar)
-    assert 'QPushButton(DROPDOWN_CLEAR_LABEL)' in inspect.getsource(filter_bar)

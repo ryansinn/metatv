@@ -109,9 +109,8 @@ Design notes on what varies vs. what's held fixed across all three palettes:
   selection unreadable. Anywhere COLOR_ACCENT is a background, the foreground
   is COLOR_ON_ACCENT, never the text ramp.
 * **COLOR_SURFACE_LIGHT/_2/_3** are the inverse case of the lightbox family
-  above: a fixed-LIGHT "highlight chip" surface used by filter_bar.py /
-  sports_filter_bar.py regardless of app theme, always light in every
-  palette by design.
+  above: a fixed-LIGHT "highlight chip" surface used by filter_bar.py
+  regardless of app theme, always light in every palette by design.
 * **COLOR_ACCENT_ORANGE_FADED** is the one 8-digit ``#RRGGBBAA`` value in
   this file; it stayed byte-identical across all three palettes before this
   slice and stays that way now (re-deriving the alpha-baked format correctly
