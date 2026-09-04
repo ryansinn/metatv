@@ -22,6 +22,9 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.xmltv_parser import normalize_channel_name
 
 
+# The trailing dot-suffix some feeds use as a language/region TLD idiom on an
+# epg_id ("UandEden.uk" -> "uk"); only a 2-3 letter alpha suffix counts — anything
+# else is not a TLD and the region gate abstains (channel_name_utils.epg_tld_compatible).
 _EPG_ID_TLD_RE = re.compile(r"\.([A-Za-z]{2,3})$")
 
 

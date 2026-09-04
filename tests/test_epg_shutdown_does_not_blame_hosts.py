@@ -206,8 +206,9 @@ def test_a_genuine_host_failure_is_still_recorded(manager, db, monkeypatch):
     monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url",
                         _first_host_dies)
 
-    channels, programmes = manager._resolve_and_fetch_guide(
+    fetch = manager._resolve_and_fetch_guide(
         "trex", "TREX Shared", lambda n: None)
+    channels, programmes = fetch.channels, fetch.programmes
 
     assert len(programmes) == 2, "the cycle did not fall through to a live host"
     counts = _failure_counts(db)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import types as _types
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -33,21 +35,17 @@ from metatv.core.url_cycle import UrlCycler
 from metatv.core.xmltv_parser import (
     XmltvAborted,
     XmltvChannel,
+    XmltvEvicted,
     XmltvProgramme,
     parse_xmltv_url,
 )
 
 
-# Matches the trailing dot-suffix of an XMLTV epg_id used as a language/region
-# TLD idiom by some feeds (e.g. "UandEden.uk" -> "uk"; see also the ilike
-# "%.{code}" idiom in repositories/epg.py). Only a 2-3 letter alpha suffix is
-# treated as a TLD — anything else (numeric, longer) is not a TLD and the
-# region gate abstains (see channel_name_utils.epg_tld_compatible).
 # ``EPG_FILLER_THRESHOLD`` now lives in ``epg_utils`` (single source of truth) and is
 # imported above; existing ``from metatv.core.epg_manager import EPG_FILLER_THRESHOLD``
 # imports still resolve via this module's namespace. A programme longer than this is a
-# multi-day placeholder slot (e.g. "Program" spanning several days on a sparse XMLTV
-# feed) excluded from the real guide-depth calculation.
+# multi-day placeholder slot (e.g. "Program" spanning several days) excluded from the
+# real guide-depth calculation.
 
 
 def _compute_honest_guide_end(
@@ -56,21 +54,11 @@ def _compute_honest_guide_end(
     """Return the maximum ``stop_time`` among non-filler programmes.
 
     A programme is "filler" when its duration exceeds ``EPG_FILLER_THRESHOLD``
-    (12 hours).  Filler entries (e.g. a multi-day "Program" slot) inflate
-    ``epg_data_end`` and falsely indicate coverage well beyond the real
-    schedule depth, causing the Browse UI to show nothing while the provider
-    appears "good through" a far-future date.
-
-    Falls back to the maximum stop among filler-only entries when every
-    programme in the feed is filler (pathological feed), so ``epg_data_end``
-    is never ``None`` when programmes exist.
-
-    Args:
-        programmes: Parsed XMLTV programme objects (``XmltvProgramme``).
-
-    Returns:
-        The latest honest guide-end datetime, or ``None`` if ``programmes``
-        is empty.
+    (12h) — e.g. a multi-day "Program" placeholder — which would otherwise
+    inflate ``epg_data_end`` past the real schedule depth and make Browse show
+    nothing while the provider appears "good through" a far-future date. Falls
+    back to the filler-only max when every programme is filler, so the result
+    is never ``None`` when ``programmes`` is non-empty.
     """
     real_end: datetime | None = None
     filler_end: datetime | None = None
@@ -100,6 +88,21 @@ EPG_KIND = "monitor"
 #: A guide fetch displaces nothing.
 EPG_PREEMPTS: tuple[str, ...] = ()
 
+#: Prefix of every guide-fetch accountant holder id — see ``_fetch_holder_id``.
+_EPG_FETCH_HOLDER_PREFIX = "epg_fetch:"
+
+
+@dataclass
+class GuideFetch:
+    """Result of a guide download (EPG-2b). ``partial``: playback pre-empted
+    the fetch, so ``programmes`` holds only the rows fully parsed before
+    eviction — never a half-read one, per xmltv_parser's "end"-event guarantee.
+    """
+
+    channels: list[XmltvChannel]
+    programmes: list[XmltvProgramme]
+    partial: bool = False
+
 
 class EpgManager(QObject):
     """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
@@ -128,14 +131,12 @@ class EpgManager(QObject):
         self.config = config
         self.notifications = notifications  # NotificationManager or None
         #: ``player_manager``'s ConnectionAccountant, or None (tests/headless).
-        #:
         #: A guide fetch is a full XMLTV download from the SAME host the user
         #: plays from, and most accounts allow ONE connection — so an
         #: unenrolled fetch silently takes the connection playback needs. This
-        #: is the third consumer in that state: #622 enrolled series_monitor,
-        #: #632 the tmdb backfill, each after it had already cost the owner a
-        #: stream. metadata_manager is deliberately NOT enrolled — it only
-        #: reaches api.themoviedb.org and www.omdbapi.com, never the provider.
+        #: is the third consumer in that state (#622 series_monitor, #632 tmdb
+        #: backfill). metadata_manager is deliberately NOT enrolled — it only
+        #: reaches api.themoviedb.org / www.omdbapi.com, never the provider.
         self._accountant = connection_accountant
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
@@ -154,6 +155,15 @@ class EpgManager(QObject):
         # deleted this object's C++ side, which is the worker's exact case.
         self._shutting_down = False
         self._unmatched_refresh_attempted: set[str] = set()  # per-session unmatched-relink guard
+        #: Guide-fetch holder ids the accountant has evicted (EPG-2b), so the
+        #: in-flight parse can notice and stop. Set from ANY thread by
+        #: ``_on_slot_preempted``, guarded by ``_evicted_lock``.
+        self._evicted_holders: set[str] = set()
+        self._evicted_lock = threading.Lock()
+        # Registered LAST: the listener reads _evicted_holders/_evicted_lock,
+        # so wiring it earlier repeats the v0.14.1 init-order-callback bug.
+        if self._accountant is not None:
+            self._accountant.add_preempt_listener(self._on_slot_preempted)
 
     def _do_notify(self, title: str, message: str, type_: str, auto_dismiss_ms: int) -> None:
         if self.notifications:
@@ -259,6 +269,22 @@ class EpgManager(QObject):
             logger.exception("epg: connection release failed")
 
     @staticmethod
+    def _fetch_holder_id(provider_id: str) -> str:
+        """The accountant holder id for a guide fetch — built once, so the
+        acquire site and the eviction listener can't drift apart on its shape
+        (mirrors ``TmdbEnrichmentManager``)."""
+        return f"{_EPG_FETCH_HOLDER_PREFIX}{provider_id}"
+
+    def _on_slot_preempted(self, provider_id: str, holder_id: str, kind: str) -> None:
+        """Accountant callback (any thread, EPG-2b): note a guide fetch was evicted.
+
+        Every listener hears every eviction, so screen on the prefix first.
+        """
+        if holder_id.startswith(_EPG_FETCH_HOLDER_PREFIX):
+            with self._evicted_lock:
+                self._evicted_holders.add(holder_id)
+
+    @staticmethod
     def effective_epg_url(provider: ProviderDB) -> str:
         """Return the URL to fetch: a user override wins, else derive from live credentials.
 
@@ -295,12 +321,13 @@ class EpgManager(QObject):
            expiry floor fires (guide ran out — time intervals must never leave an
            empty "On Now").
 
-        Expiry floor & stale-at-source: the floor forces an immediate re-fetch when
-        the guide has run out, but is SUPPRESSED when the guide was already expired
-        at fetch time (``epg_data_end < epg_last_fetched``) — a feed lagging real
-        time re-serves the same stale guide, so the floor would re-fetch on every
-        launch forever. Such feeds fall back to the interval throttle. (Sibling of
-        the TREX unmatched-guide convergence fix, #285.)
+        Expiry floor & stale-at-source: the floor forces an immediate re-fetch
+        when the guide has run out, but is SUPPRESSED when the guide was
+        already expired at fetch time (``epg_data_end < epg_last_fetched``) —
+        a feed lagging real time re-serves the same stale guide, so the floor
+        would re-fetch on every launch forever (sibling of the TREX
+        unmatched-guide convergence fix, #285). Such feeds fall back to the
+        interval throttle instead.
         """
         if not self.effective_epg_url(provider):
             return False
@@ -323,17 +350,9 @@ class EpgManager(QObject):
         data_start = getattr(provider, "epg_data_start", None)
         guide_expired = epg_is_stale(data_end)  # True if data_end < now_utc()
 
-        # A guide that was ALREADY expired when we last fetched it (data_end <
-        # last_fetched) means the FEED itself lags real time — it serves programme
-        # data ending in the past. Re-fetching pulls the same stale guide, so
-        # honouring the "expiry floor" (refresh-now-because-the-guide-ran-out) would
-        # re-fetch on EVERY launch and never converge. That is the BiggyJuke loop —
-        # a sibling of the TREX unmatched-guide loop fixed in #285. When the feed is
-        # stale at source we suppress the expiry floor and let the normal interval
-        # throttle govern, so a genuinely-recovering feed is still re-checked
-        # periodically (every auto delta, min 6 h) rather than hammered every launch.
-        # A guide that was valid at fetch time but has since run out (data_end >=
-        # last_fetched) is the legitimate case the floor exists for — it stays.
+        # Stale-at-source (the BiggyJuke loop, sibling of #285's TREX fix) —
+        # see docstring. Suppressing the floor here is what stops it re-fetching
+        # every launch; the normal interval throttle still governs below.
         guide_stale_at_source = data_end is not None and data_end < last_fetched
         expiry_floor = guide_expired and not guide_stale_at_source
 
@@ -379,24 +398,18 @@ class EpgManager(QObject):
         backwards compatibility with rows predating the column.
 
         In addition to the normal time-staleness check, this method detects the
-        "unnamed legacy guide" case: EPG rows exist but are unmatched
-        (``channel_db_id=NULL``) AND lack a stored ``channel_name``, so the cheap
-        DB-only relink can't fuzzy-match them.  A one-time re-fetch is triggered to
-        populate names, guarded by TWO layers:
+        "unnamed legacy guide" case: rows unmatched (``channel_db_id=NULL``)
+        AND lacking a stored ``channel_name``, so the cheap DB-only relink
+        can't fuzzy-match them. A one-time re-fetch populates names, guarded
+        by TWO layers: ``_unmatched_refresh_attempted`` (in-memory,
+        per-session) and ``ProviderDB.epg_unnamed_refetch_attempted``
+        (**persistent**, cleared only on content refresh).
 
-        - ``_unmatched_refresh_attempted`` — in-memory, per-session dedupe.
-        - ``ProviderDB.epg_unnamed_refetch_attempted`` — **persistent** cross-launch
-          marker (reset only when the source is content-refreshed).
-
-        The persistent marker is what stops the every-launch loop: a feed that
-        genuinely serves nameless programme rows (channel ids with no ``<channel>``
-        display-name, e.g. TREX) keeps ``has_unmatched_unnamed_epg`` True forever, so
-        the in-memory guard alone re-fetched the full guide on EVERY launch (it resets
-        each start).  Once the marker is set, this branch never fires again for that
-        provider; the guide still refreshes on the normal ``needs_refresh`` interval.
-        A content refresh clears the marker so a genuinely-improved feed re-attempts
-        the names re-fetch exactly once.  (Sibling of the #285 fix, which converged the
-        unmatched-but-NAMED case but not the nameless-forever case.)
+        The persistent marker is what stops the every-launch loop: a feed
+        genuinely serving nameless rows (e.g. TREX) keeps
+        ``has_unmatched_unnamed_epg`` True forever, so the in-memory guard
+        alone would re-fetch on EVERY launch. Sibling of the #285 fix, which
+        converged the unmatched-but-NAMED case but not this nameless-forever one.
         """
         if not self.config.epg_auto_refresh:
             return
@@ -405,12 +418,10 @@ class EpgManager(QObject):
         try:
             from metatv.core.repositories.epg import EpgRepository
             epg_repo = EpgRepository(session)
-            # is_active alone is not the gate. An EXPIRED subscription stays
-            # active until the user removes it, and fetching its guide means
-            # cycling every host for a 451 apiece — the owner's TREX expired at
-            # 16:00 and the app spent the evening doing exactly that.
-            # get_hidden_provider_ids is the canonical inactive ∪ expired ∪
-            # orphaned set the visibility layer already uses.
+            # is_active alone is not the gate: an EXPIRED subscription stays
+            # active until removed, and fetching its guide cycles every host
+            # for a 451 apiece (TREX did exactly that for an evening).
+            # get_hidden_provider_ids is the canonical inactive ∪ expired set.
             hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             for provider in providers:
@@ -428,27 +439,14 @@ class EpgManager(QObject):
                     and not getattr(provider, "epg_unnamed_refetch_attempted", False)
                     and epg_repo.has_unmatched_unnamed_epg(provider.id)
                 ):
-                    # Guide is time-fresh but has LEGACY rows that are unmatched AND
-                    # lack a stored channel_name, so the DB-only relink can't fuzzy-match
-                    # them. Re-fetch ONCE to populate channel_name; the cheap relink then
-                    # handles everything without a further network fetch.
-                    #
-                    # We deliberately do NOT re-fetch the merely "unmatched but named"
-                    # case (``has_unmatched_epg``): ``relink_all()`` already re-matches
-                    # named rows DB-only on every activation, so a network re-fetch adds
-                    # nothing.  For a provider whose guide can never match its channels
-                    # (a source serving placeholder/foreign EPG, e.g. TREX) those rows
-                    # stay permanently unmatched AND unnamed — a channel id with no
-                    # ``<channel>`` display-name in the feed is written with an empty
-                    # ``channel_name`` and no re-fetch can ever fill it — so
-                    # ``has_unmatched_unnamed_epg`` never goes False.  With ONLY the
-                    # in-memory guard (resets each launch) this branch re-fetched the
-                    # full guide on EVERY launch, ignoring the refresh interval.  The
-                    # persistent ``epg_unnamed_refetch_attempted`` marker (set + committed
-                    # below) is what stops the cross-launch loop; the guide still
-                    # refreshes on the normal ``needs_refresh`` interval.  A content
-                    # refresh clears the marker so a genuinely-improved feed re-attempts
-                    # exactly once.
+                    # Guide is time-fresh but has LEGACY rows unmatched AND
+                    # nameless — re-fetch ONCE to populate channel_name; the
+                    # cheap relink then handles the rest with no more network
+                    # calls. NOT the merely "unmatched but named" case
+                    # (``has_unmatched_epg``): ``relink_all()`` already
+                    # re-matches those DB-only. See docstring for why the
+                    # persistent marker (set below) is what stops this from
+                    # looping every launch.
                     logger.info(
                         f"EPG: provider {provider.name!r} has unnamed (legacy) guide "
                         f"data — triggering one-time re-fetch to populate channel names"
@@ -597,39 +595,30 @@ class EpgManager(QObject):
     def _resolve_and_fetch_guide(
         self, provider_id: str, provider_name: str,
         on_parse_progress: Callable[[int], None],
-    ) -> tuple[list[XmltvChannel], list[XmltvProgramme]]:
+    ) -> GuideFetch:
         """Resolve the fetch URL(s) for *provider_id* and return the first working guide.
 
         A non-empty ``epg_url_override`` is fetched once, verbatim, with no
-        cycling — it is an explicit instruction to use exactly one URL, and
-        trying other hosts against a hand-written URL would be wrong. With no
-        override, the provider's hosts are tried in reliability order via
-        ``UrlCycler`` (CLAUDE.md: URL cycling has exactly one path, never a
-        bare loop over ``ordered_urls()``) until a host returns a parseable,
-        non-empty guide. ``record_success``/``record_failure`` follow EVERY
-        attempt and are flushed with ``persist_url_stats`` before the next
-        attempt starts, so a dead host stops ranking first — cycling without
-        recording is the bug that already shipped once (CLAUDE.md). No
-        response-time is recorded: mirrors the ``fetch_channels`` latency
-        exclusion, since a full XMLTV download is the same bulk-download shape,
-        not a comparably-sized request, and mixing it into
-        ``median_latency_ms()`` would make the median meaningless.
+        cycling. With no override, hosts are tried in reliability order via
+        ``UrlCycler`` (CLAUDE.md: cycling has exactly one path, never a bare
+        loop over ``ordered_urls()``) until one returns a parseable, non-empty
+        guide; ``record_success``/``record_failure`` follow EVERY attempt,
+        flushed via ``persist_url_stats`` before the next. No response-time is
+        recorded — mirrors the ``fetch_channels`` latency exclusion, since a
+        bulk XMLTV download would make ``median_latency_ms()`` meaningless.
 
-        A guide that parses but is already expired (its date range is in the
-        past) is NOT a failure and does NOT advance to the next host — every
-        host on a panel serves the same guide, and an XMLTV payload is a bulk
-        download (hundreds of thousands of programmes), so re-downloading it
-        from every other host to receive identical stale content would be a
-        serious harm, not a fix. Staleness is handled later, by
-        ``needs_refresh()``'s interval throttle — never here.
+        A guide that parses but is already expired is NOT a failure and does
+        NOT advance to the next host — every host on a panel serves the same
+        guide, so re-downloading identical stale content elsewhere would be a
+        harm. Staleness is handled later, by ``needs_refresh()`` — never here.
 
         Returns:
-            ``(channels, programmes)`` from whichever host succeeded first.
+            A :class:`GuideFetch` from whichever host succeeded (or was
+            evicted) first.
 
         Raises:
-            Exception: whatever the last attempt raised, or a ``RuntimeError``
-                if there were no hosts to try or every host returned an empty
-                guide.
+            Exception: whatever the last attempt raised, or ``RuntimeError``
+                if there were no hosts, or every host returned an empty guide.
         """
         with self.db.session_scope(commit=False) as session:
             provider_db = session.query(ProviderDB).filter_by(id=provider_id).first()
@@ -642,19 +631,23 @@ class EpgManager(QObject):
             )
 
         if override:
-            return parse_xmltv_url(
-                override, timeout=180, on_progress=on_parse_progress,
-            )
+            try:
+                channels, programmes = parse_xmltv_url(
+                    override, timeout=180, on_progress=on_parse_progress,
+                )
+            except XmltvEvicted as e:
+                return GuideFetch(e.channels, e.programmes, partial=True)
+            return GuideFetch(channels, programmes)
 
         cycler = UrlCycler(provider_model, "fetch_epg")
         candidates = cycler.candidates()
         if not candidates:
             raise RuntimeError(f"No configured hosts for provider {provider_name!r}")
 
-        # Hold a real slot for the download so playback/downloads/recordings can
-        # SEE this fetch and evict it. A guide is large and slow; losing a
+        # Hold a real slot so playback/downloads/recordings can SEE this fetch
+        # and evict it (EPG-2b) — a guide is large and slow, so losing a
         # stream to it is the worst possible trade.
-        _holder = f"epg_fetch:{getattr(provider_model, 'id', provider_name)}"
+        _holder = self._fetch_holder_id(getattr(provider_model, "id", provider_name))
         if not self._acquire_slot(getattr(provider_model, "id", ""), _holder):
             raise RuntimeError(
                 f"Provider {provider_name!r} is busy with playback — "
@@ -676,6 +669,10 @@ class EpgManager(QObject):
                     # on every remaining one, so one app close would mark them all
                     # unreliable.
                     raise
+                except XmltvEvicted as e:
+                    # Same reasoning as XmltvAborted just above: not a host
+                    # failure, and every remaining host would evict identically.
+                    return GuideFetch(e.channels, e.programmes, partial=True)
                 except Exception as e:
                     logger.warning(
                         f"EPG fetch failed for {provider_name} @ {base_url}: {e}"
@@ -705,7 +702,7 @@ class EpgManager(QObject):
                 if cycler.dirty:
                     persist_url_stats(self.db, provider_model)
                 self._remember_good_epg_host(provider_id, base_url)
-                return channels, programmes
+                return GuideFetch(channels, programmes)
 
             raise last_error or RuntimeError(
                 f"All EPG hosts failed for provider {provider_name!r}"
@@ -713,22 +710,17 @@ class EpgManager(QObject):
 
         finally:
             self._release_slot(getattr(provider_model, "id", ""), _holder)
+            with self._evicted_lock:
+                self._evicted_holders.discard(_holder)
+
     def _remember_good_epg_host(self, provider_id: str, base_url: str) -> None:
         """Record the host that just served a guide, for the next fetch and the UI.
 
-        Cycling already finds a working host, but nothing survived the attempt:
-        ``build_epg_url`` defaulted to the first entry in ``urls``, so the
-        displayed URL and the one ``effective_epg_url`` gates on could keep
-        naming a host that returns 403 while every actual fetch succeeded
-        elsewhere. That is the shape of the owner's report — a red 403 beside a
-        green AUTODETECTED badge that never updated.
-
-        Only the host is stored; the credentials are re-derived on every build,
-        so this cannot go stale the way the cached ``epg_url`` column did.
-
-        Args:
-            provider_id: Row to update.
-            base_url: The host that returned a parseable, non-empty guide.
+        Without this, ``build_epg_url``'s default (first entry in ``urls``)
+        could keep naming a host that 403s while every real fetch succeeded
+        elsewhere — a red 403 beside a green AUTODETECTED badge that never
+        updated. Only the host is stored; credentials are re-derived on every
+        build, so this cannot go stale like the cached ``epg_url`` column did.
         """
         try:
             with self.db.session_scope() as session:
@@ -782,20 +774,26 @@ class EpgManager(QObject):
                    notif_id: str | None = None) -> None:
         """Resolve the fetch URL(s), download, parse, and store XMLTV data
         (see ``_resolve_and_fetch_guide`` for URL resolution + host cycling)."""
+        fetch_holder = self._fetch_holder_id(provider_id)
+
         def on_parse_progress(count: int) -> None:
-            """Report parse progress; aborts the parse once we are torn down."""
+            """Report parse progress; aborts on teardown, evicts on preemption (EPG-2b)."""
+            with self._evicted_lock:
+                evicted = fetch_holder in self._evicted_holders
+            if evicted:
+                raise XmltvEvicted()
             self._emit_or_abort(
                 self._progress_update, notif_id or "", count, -1,
                 f"Parsing… {count:,} programmes",
             )
 
         # Phase 1: download — indeterminate (no Content-Length on most XMLTV feeds)
-        self._emit_or_abort(self._progress_update, 
+        self._emit_or_abort(self._progress_update,
             notif_id or "", 0, -1, "Downloading guide…"
         )
 
         try:
-            channels, programmes = self._resolve_and_fetch_guide(
+            fetch = self._resolve_and_fetch_guide(
                 provider_id, provider_name,
                 on_parse_progress if notif_id else None,
             )
@@ -812,9 +810,29 @@ class EpgManager(QObject):
             self._active_refreshes.discard(provider_id)
             return
 
+        channels, programmes = fetch.channels, fetch.programmes
         session = self.db.get_session()
         try:
             total_progs = len(programmes)
+
+            if fetch.partial:
+                # EPG-2b: an evicted fetch only REPLACES the stored guide when
+                # it holds more than what's already there — otherwise leave
+                # the existing guide alone and let the next scheduler tick
+                # (epg_last_fetched stays untouched below) retry the fetch.
+                stored = session.query(EpgProgramDB).filter_by(
+                    provider_id=provider_id).count()
+                if total_progs <= stored:
+                    logger.info(
+                        f"EPG: {provider_name} partial fetch ({total_progs}) did "
+                        f"not beat the stored guide ({stored}) — keeping it"
+                    )
+                    self._emit_or_abort(
+                        self._progress_done, notif_id or "",
+                        f"Guide fetch for {provider_name} paused for playback — "
+                        f"kept the current guide ({stored:,} programmes); will retry",
+                    )
+                    return
 
             # Phase 2: channel matching — indeterminate (fast, no useful fraction)
             self._emit_or_abort(self._progress_update, 
@@ -893,7 +911,11 @@ class EpgManager(QObject):
                 # excluded so multi-day placeholder slots do not inflate epg_data_end
                 # and falsely indicate coverage far beyond the real schedule depth.
                 honest_end = _compute_honest_guide_end(programmes)
-                provider.epg_last_fetched = now
+                # EPG-2b: a partial fetch never stamps epg_last_fetched, so
+                # needs_refresh() retries at the next scheduler tick instead of
+                # believing this incomplete guide is the finished article.
+                if not fetch.partial:
+                    provider.epg_last_fetched = now
                 provider.epg_data_start = min_start
                 provider.epg_data_end = honest_end
                 # The provider's feed can serve year-old data (e.g. ottcst returns a
@@ -921,7 +943,12 @@ class EpgManager(QObject):
             logger.info(f"EPG: stored {count:,} programmes for {provider_name}")
 
             self.refresh_finished.emit(provider_id, count)
-            self._emit_or_abort(self._progress_done, notif_id or "", f"{count:,} programmes loaded")
+            done_msg = (
+                f"{count:,} programmes loaded (partial — playback took the "
+                f"connection; will complete later)" if fetch.partial
+                else f"{count:,} programmes loaded"
+            )
+            self._emit_or_abort(self._progress_done, notif_id or "", done_msg)
 
         except XmltvAborted:
             session.rollback()   # no half-written guide; finally still closes
@@ -974,10 +1001,9 @@ class EpgManager(QObject):
         if not pairs:
             return 0
 
-        # Build fake channel objects so _build_match_map can run all three tiers:
-        # tier 1 keys off epg_id; tiers 2/3 fuzzy-match the display_name. Use the
-        # stored channel_name as the display_name, falling back to the epg_id for
-        # legacy rows stored before display-name persistence (tier-1 still works).
+        # Fake channel objects so _build_match_map runs all three tiers (tier 1
+        # keys off epg_id; 2/3 fuzzy-match display_name); fall back to epg_id
+        # for legacy rows stored before display-name persistence.
         fake_channels = [
             _types.SimpleNamespace(epg_id=eid, display_name=(name or eid))
             for eid, name in pairs
@@ -1016,11 +1042,9 @@ class EpgManager(QObject):
         session = self.db.get_session()
         try:
             # Same gate as the fetch scan above, and for the same reason: an
-            # EXPIRED subscription stays is_active until the user removes it,
-            # so is_active alone still admits sources whose content is hidden
-            # everywhere else in the app. #536 fixed the fetch loop and left
-            # this one and the watchlist check behind — the fix was applied at
-            # one call site instead of the three that share the mistake.
+            # EXPIRED subscription stays is_active until removed — #536 fixed
+            # the fetch loop and left this one + the watchlist check behind,
+            # applied at one call site instead of the three sharing the mistake.
             hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
             providers = [
                 p for p in session.query(ProviderDB).filter_by(is_active=True).all()
@@ -1057,9 +1081,8 @@ class EpgManager(QObject):
                     f"EPG relink complete: {grand_total} rows updated across "
                     f"{len(changed_provider_ids)} provider(s)"
                 )
-                # Notify views so they repopulate — reuse refresh_finished so the
-                # already-wired handlers (_refresh_watch_alerts + _on_epg_refreshed)
-                # reload On Now / Watchlist without any new signal plumbing.
+                # Reuse refresh_finished so the already-wired handlers reload
+                # On Now / Watchlist without any new signal plumbing.
                 for pid in changed_provider_ids:
                     count = (
                         session.query(EpgProgramDB)
@@ -1077,15 +1100,12 @@ class EpgManager(QObject):
     def relink_all(self) -> None:
         """Re-run channel matching for all providers using existing EPG rows.
 
-        Unlike ``refresh_all_if_needed``, this is a DB-only operation — no network
-        fetch. It fixes the **partial-match** case where some channels were linked
-        at fetch time but others (e.g. those whose channel list was not yet loaded,
-        or whose name match changed) were left with ``channel_db_id=NULL``.
-
-        Runs in the manager's existing single-worker executor so it never races
-        with a live fetch for the same SQLite file.  Emits ``refresh_finished``
-        for each provider where rows changed so the EPG view and sidebar Watch
-        Alerts reload automatically.
+        A DB-only operation, unlike ``refresh_all_if_needed`` — fixes the
+        **partial-match** case where some channels linked at fetch time but
+        others (channel list not yet loaded, or a name match changed) were
+        left ``channel_db_id=NULL``. Runs on the single-worker executor so it
+        never races a live fetch; emits ``refresh_finished`` per changed
+        provider so the EPG view / sidebar Watch Alerts reload automatically.
         """
         self._executor.submit(self._relink_worker)
 
@@ -1096,15 +1116,11 @@ class EpgManager(QObject):
     def clear_channel_epg_link(self, channel_id: str) -> None:
         """Unlink *channel_id*'s EPG guide data and block it from re-matching.
 
-        Persists the block first (``config.epg_link_blocklist`` — consulted by
-        ``_build_match_map`` so a later ``relink_all()`` — which runs on every EPG
-        view activation — can never silently re-attach guide data), then nulls the
-        channel's ``epg_channel_id`` and any already-linked ``EpgProgramDB`` rows
-        on the manager's single-worker executor (same one-write-at-a-time rule as
-        fetch/relink, so it never races a concurrent EPG write).
-
-        Args:
-            channel_id: The ``ChannelDB.id`` to unlink and block.
+        Persists the block first (``config.epg_link_blocklist``, consulted by
+        ``_build_match_map`` so a later ``relink_all()`` can never silently
+        re-attach it), then nulls the channel's ``epg_channel_id`` and any
+        linked ``EpgProgramDB`` rows on the single-worker executor (same
+        one-write-at-a-time rule as fetch/relink).
         """
         blocklist = list(self.config.epg_link_blocklist or [])
         if channel_id not in blocklist:
@@ -1242,18 +1258,11 @@ class EpgManager(QObject):
     def _check_watchlist_notifications(self) -> None:
         """Timer tick. Does no database work here — see the worker below.
 
-        This ran the whole check ON THE UI THREAD every 60 seconds: a hidden-
-        provider query, a provider query, a scan of the programmes table
-        (344,468 rows) and then an N+1 channel lookup per match against 785k
-        channels. The owner's log shows exactly what that costs — a stall on
-        the minute, every minute, for as long as the app is open::
-
-            04:38:37  UI thread unresponsive for  925ms
-            04:39:37  UI thread unresponsive for  831ms
-            04:40:37  UI thread unresponsive for  984ms
-
-        CLAUDE.md is explicit that an EPG-sized query never runs on the UI
-        thread. This one predates the rule; it does not get an exception.
+        This used to run the whole check (a 344,468-row programme scan, then
+        an N+1 channel lookup against 785k channels) ON THE UI THREAD every 60
+        seconds — the owner's log showed a ~900ms stall every minute the app
+        was open. CLAUDE.md bars an EPG-sized query from the UI thread; this
+        predates the rule and does not get an exception.
         """
         if self._shutting_down or self._notif_check_pending:
             return
@@ -1272,15 +1281,11 @@ class EpgManager(QObject):
     def _watchlist_notification_worker(self) -> None:
         """Off-thread half of the 60s watchlist check.
 
-        On the manager's single-worker executor, which is also what serialises
-        fetch/relink writes — so this can never race an EPG write, and a long
-        guide fetch simply delays it. That delay is acceptable and the queueing
-        guard above is what makes it safe: without it an 11-minute fetch would
-        stack eleven checks behind itself.
-
-        Notifications are raised through the private ``_notify`` signal, never
-        ``self.notifications`` directly: ``NotificationManager.show`` builds a
-        QTimer, which must happen on the main thread.
+        Runs on the manager's single-worker executor, so it can never race an
+        EPG write — a long guide fetch just delays it, made safe by the
+        queueing guard above (else an 11-minute fetch stacks eleven checks).
+        Notifications go through the private ``_notify`` signal, never
+        ``self.notifications`` directly (``.show`` builds a QTimer, main-thread only).
         """
         try:
             minutes = self.config.epg_notification_minutes_before
@@ -1288,12 +1293,9 @@ class EpgManager(QObject):
             with self.db.session_scope(commit=False) as session:
                 from metatv.core.repositories.epg import EpgRepository
                 repo = EpgRepository(session)
-                # Hidden sources must not raise watch alerts. This is the one
-                # of the three that a user would actually SEE: a notification
-                # for a programme on an expired source is an alert about
-                # something they cannot watch, which is the "disabled/expired
-                # is an absolute gate" rule failing in the most visible way
-                # available to it.
+                # Hidden sources must not raise watch alerts — a notification
+                # for a programme on an expired source is the "disabled/expired
+                # is an absolute gate" rule failing in the most visible way.
                 hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
                 providers = [
                     p for p in session.query(ProviderDB).filter_by(is_active=True).all()
@@ -1303,10 +1305,9 @@ class EpgManager(QObject):
                 if not provider_ids:
                     return
 
-                # `hidden` on BOTH axes: the feed list above, and the matched
-                # CHANNEL here. Different sets — cross-provider matching is
-                # deliberate — and only doing the first let 18 future
-                # programmes on 6 channels stay eligible to raise a toast.
+                # `hidden` on BOTH axes (feed list above, matched CHANNEL here,
+                # deliberately different sets) — doing only the first once let
+                # 18 future programmes on 6 channels raise a toast.
                 upcoming = repo.get_programs_starting_soon(
                     minutes, provider_ids, excluded_channel_provider_ids=hidden)
 
@@ -1314,10 +1315,9 @@ class EpgManager(QObject):
                 for prog in upcoming:
                     if prog.id in self._notified_this_session:
                         continue
-                    # get_programs_starting_soon takes no patterns, so this is
-                    # the ONLY match test here — and it shares the matcher with
-                    # the watchlist queries so a toast cannot announce what the
-                    # list never shows.
+                    # The only match test — shares the matcher with the
+                    # watchlist queries so a toast can't announce what the list
+                    # never shows.
                     if not matches_any(prog.title, rules,
                                        prog.description, prog.is_live):
                         continue
@@ -1332,9 +1332,8 @@ class EpgManager(QObject):
                     mins_away = max(
                         0, int((prog.start_time - now_utc()).total_seconds() / 60))
                     time_str = f"in {mins_away} min" if mins_away > 0 else "now"
-                    # Collected inside the session and emitted outside it: the
-                    # values are plain strings by this point, so nothing
-                    # detached crosses the boundary.
+                    # Plain strings by this point, so nothing detached
+                    # crosses the session boundary when emitted below.
                     pending.append((prog.title, channel_name, time_str))
 
             if not self._shutting_down and pending:

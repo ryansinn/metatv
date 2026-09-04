@@ -2117,6 +2117,10 @@ def wire_epg_manager_skeleton(mgr, db, *, accountant=None) -> None:
     mgr.db = db
     mgr._shutting_down = False
     mgr._accountant = accountant
+    # EPG-2b: _resolve_and_fetch_guide's finally clause discards the fetch
+    # holder from these on every call, accountant or not.
+    mgr._evicted_holders = set()
+    mgr._evicted_lock = threading.Lock()
 def wire_settings_signal_widgets(dlg) -> None:
     """Attach the Settings → Signal checking tab's widgets to a skeleton dialog.
 

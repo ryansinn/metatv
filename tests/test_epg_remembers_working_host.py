@@ -114,8 +114,9 @@ def test_a_403_on_the_first_host_advances_and_is_remembered(db, monkeypatch):
     mgr = EpgManager.__new__(EpgManager)
     wire_epg_manager_skeleton(mgr, db)
 
-    channels, programmes = mgr._resolve_and_fetch_guide(
+    fetch = mgr._resolve_and_fetch_guide(
         "p1", "T", on_parse_progress=lambda n: None)
+    channels, programmes = fetch.channels, fetch.programmes
 
     assert programmes == ["prog"], "the working host's guide was not returned"
     assert len(tried) == 2, f"it did not advance past the 403: tried {tried}"

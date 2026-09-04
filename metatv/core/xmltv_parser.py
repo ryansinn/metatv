@@ -39,6 +39,30 @@ class XmltvAborted(Exception):
     """
 
 
+class XmltvEvicted(Exception):
+    """The connection this fetch holds was taken back for playback (EPG-2b).
+
+    ``XmltvAborted`` means "we are going away — keep nothing"; this means the
+    opposite: the app is very much alive, playback just needs the one
+    connection this download is using, and every programme parsed so far is
+    worth keeping. That is safe *because* of iterparse's "end"-event
+    guarantee this parser relies on throughout — an item lands in
+    ``channels``/``programmes`` only once its element has fully CLOSED, so
+    there is no such thing as a half-read row here, only fewer of them.
+
+    A caller's ``on_progress`` raises this bare to signal the eviction;
+    ``parse_xmltv_url`` catches that and re-raises a second instance carrying
+    the ``channels``/``programmes`` collected so far, which is what callers
+    read.
+    """
+
+    def __init__(self, channels: "list[XmltvChannel] | None" = None,
+                 programmes: "list[XmltvProgramme] | None" = None) -> None:
+        super().__init__("guide fetch evicted for playback")
+        self.channels: "list[XmltvChannel]" = channels if channels is not None else []
+        self.programmes: "list[XmltvProgramme]" = programmes if programmes is not None else []
+
+
 @dataclass
 class XmltvChannel:
     epg_id: str
@@ -130,10 +154,19 @@ def parse_xmltv_url(
                     f"XMLTV feed truncated, malformed, or corrupt gzip ({e}); "
                     f"using {len(programmes)} programmes collected before the error"
                 )
+            except XmltvEvicted:
+                # Re-raise carrying the payload (unlike the truncation family
+                # above, which is absorbed) so the caller can tell this apart
+                # from a normal, complete parse.
+                logger.info(
+                    f"guide fetch evicted for playback after {len(programmes):,} "
+                    f"programmes — keeping the fully parsed ones"
+                )
+                raise XmltvEvicted(channels, programmes) from None
 
-    except XmltvAborted:
-        # Not a fetch error — the caller is tearing down. Propagate silently so
-        # it is not logged as a failure and, crucially, not recorded as one.
+    except (XmltvAborted, XmltvEvicted):
+        # Neither is a fetch error — teardown or a preemption, not something
+        # this host did. Propagate silently so it is not logged/recorded below.
         raise
     except Exception as e:
         logger.error(f"XMLTV fetch/parse error: {e}")
