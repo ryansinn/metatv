@@ -342,3 +342,7 @@ def _wire_minimal_dialog(dlg, qapp):
     wire_settings_density_widget(dlg)
     wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
+
+    # Downloads tab (needed by _load_values / _save_values)
+    from tests.conftest import wire_settings_downloads_widgets
+    wire_settings_downloads_widgets(dlg)

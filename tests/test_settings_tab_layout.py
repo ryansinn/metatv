@@ -27,6 +27,7 @@ from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS, _S
 from tests.conftest import (
     wire_settings_content_widgets,
     wire_settings_density_widget,
+    wire_settings_downloads_widgets,
     wire_settings_epg_widgets,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
@@ -158,6 +159,9 @@ def _full_dialog(qapp) -> SettingsDialog:
     wire_settings_density_widget(dlg)
     wire_settings_signal_widgets(dlg)
     wire_settings_theme_widget(dlg)
+
+    # -- Downloads tab widgets --
+    wire_settings_downloads_widgets(dlg)
 
     return dlg
 

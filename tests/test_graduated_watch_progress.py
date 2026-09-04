@@ -501,6 +501,10 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     from tests.conftest import mock_settings_recommendation_widgets
     mock_settings_recommendation_widgets(dialog)
 
+    # Downloads tab — mock flavor: this skeleton is deliberately Qt-free.
+    from tests.conftest import mock_settings_downloads_widgets
+    mock_settings_downloads_widgets(dialog)
+
     dialog._save_values()
 
     assert abs(config.watch_partial_threshold - 0.15) < 1e-9, (
