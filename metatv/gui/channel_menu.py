@@ -307,20 +307,21 @@ ACTIONS: dict[str, ChannelAction] = {
             "start watching something else, and waits rather than giving up if "
             "the source is busy."
         ),
-        # Exact inverse of "download": a VOD has an end to download to, a live
-        # channel a clock to record against — neither predicate is a superset.
-        applies=lambda c: c.is_single and c.channel_found and c.media_type == "live",
+        # Inverse of "download" (a VOD has an end, a live channel a clock). A row
+        # that carries its programme window offers record_programme instead.
+        applies=lambda c: (
+            c.is_single and c.channel_found and c.media_type == "live"
+            and c.programme_start is None
+        ),
     ),
-    # REC-3: schedules THIS row's start/stop, unlike "record" (always "now"),
-    # so it works on a future Browse row too — gated on programme identity.
+    # REC-3: THIS row's start/stop, not "now" — so a future Browse row works too.
     "record_programme": ChannelAction(
         id="record_programme",
         label=lambda c: "Record this programme",
         icon=_icons.record_icon,
         tooltip=(
-            "Schedule a recording for this programme's guide window, padded "
-            "by your Settings → Recording defaults. Scheduling now catches a "
-            "clash with another recording on this source before it happens."
+            "Schedule a recording for this programme's guide window, padded by your "
+            "Settings → Recording defaults; a clash on this source is caught now."
         ),
         applies=lambda c: (
             c.is_single and c.channel_found and c.media_type == "live"
@@ -855,7 +856,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_retry", "clear_retry",
     ],
     "epg_on_now": [
-        "record_programme",
+        "record", "record_programme",
         "sep",
         "play", "play_new_window",
         "sep",

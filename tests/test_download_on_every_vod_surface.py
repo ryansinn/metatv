@@ -71,7 +71,7 @@ def test_download_is_gated_to_vod_not_by_the_layout():
 
     def ctx(media_type):
         return SimpleNamespace(is_single=True, channel_found=True,
-                               media_type=media_type)
+                               media_type=media_type, programme_start=None)
 
     assert applies(ctx("movie")) is True
     assert applies(ctx("series")) is True
@@ -93,7 +93,7 @@ def test_record_is_gated_to_live():
 
     def ctx(media_type):
         return SimpleNamespace(is_single=True, channel_found=True,
-                               media_type=media_type)
+                               media_type=media_type, programme_start=None)
 
     assert applies(ctx("live")) is True
     assert applies(ctx("movie")) is False

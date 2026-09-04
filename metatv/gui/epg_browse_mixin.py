@@ -95,8 +95,9 @@ _BROWSE_PAGE_SIZE = 200
 
 # Per-item role storing the programme's UTC-naive start_time datetime — read by the
 # scroll→handle sync to map the topmost visible row back to a scrubber position.
-# (_SORT/_PROGRESS/_REMAIN use UserRole +2/+3/+4 in epg_widgets; +5 is distinct.)
-_START_ROLE = int(Qt.ItemDataRole.UserRole) + 5
+# The SAME role REC-3's record_programme reads (epg_widgets defines it): one
+# programme start per row, never two roles carrying one datetime.
+_START_ROLE = _PROG_START_ROLE
 
 # Marks a row as a Q3 day-separator (non-interactive, spanning label row) — every
 # click/selection/context-menu/scroll-sync handler checks this first and no-ops.
@@ -835,9 +836,8 @@ class _EpgBrowseMixin:
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
             # Raw UTC-naive start_time for the scroll→scrubber-handle mapping.
             item.setData(0, _START_ROLE, prog.start_time)
-            # REC-3: this row's own guide window, so "record_programme"
-            # schedules THIS (possibly future) airing, not "what's on now".
-            item.setData(0, _PROG_START_ROLE, prog.start_time)
+            # REC-3: with the start above, this row's own guide window — so
+            # "record_programme" schedules THIS (possibly future) airing.
             item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
             if prefix:
                 item.setToolTip(1, resolve_category_name(prefix, self.config) or prefix)

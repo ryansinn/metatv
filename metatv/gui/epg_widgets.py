@@ -60,9 +60,11 @@ _CONTENT_TYPE_ROLE = Qt.ItemDataRole.UserRole + 5  # On Now: classify_channel_co
 #: handler that schedules a recording of THIS row, not "now". Shared across
 #: On Now, Browse and Watch Alerts so "record_programme" behaves identically
 #: on all three (CLAUDE.md: import a private name only from where it is
-#: defined — this is that definition).
-_PROG_START_ROLE   = Qt.ItemDataRole.UserRole + 6
-_PROG_STOP_ROLE    = Qt.ItemDataRole.UserRole + 7
+#: defined — this is that definition). +8/+9, not +6/+7: On Now uses +1 for
+#: its category/group key and Browse uses +6 for its day-separator marker —
+#: on +6 every Browse programme row read as a separator (CI on #741).
+_PROG_START_ROLE   = Qt.ItemDataRole.UserRole + 8
+_PROG_STOP_ROLE    = Qt.ItemDataRole.UserRole + 9
 
 
 # ---------------------------------------------------------------------------

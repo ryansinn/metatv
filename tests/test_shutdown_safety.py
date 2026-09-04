@@ -446,6 +446,9 @@ def _build_close_event_window():
     win.image_cache = MagicMock()
     win.executor = MagicMock()
     win.config = MagicMock()
+    # REC-3's quit guard counts non-terminal recordings before any teardown.
+    win.recording_manager = MagicMock()
+    win.recording_manager.progress.return_value = []
 
     for name in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
         view = MagicMock()

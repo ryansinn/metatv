@@ -351,6 +351,7 @@ class TestCreateSectionWiring:
         host._on_alert_clicked = MagicMock()
         host._on_alert_channel_details = MagicMock()
         host._on_alert_channel_context_menu = MagicMock()
+        host._on_alert_programme_context_menu = MagicMock()  # REC-3 rows
         host._on_retry_play_requested = MagicMock()
         host._on_retry_context_menu_requested = MagicMock()
         host._on_add_watch_for = MagicMock()
