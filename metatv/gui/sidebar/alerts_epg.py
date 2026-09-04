@@ -245,6 +245,13 @@ class EpgGroupMixin:
         patterns = watchlist.patterns(self.config)
         if not patterns:
             return _empty(self.EPG_EMPTY_NO_PATTERNS)
+        # WL-1: the RULE, not the bare pattern string — a rule set to Any word
+        # or All words (or carrying excludes) must match that way here too.
+        # patterns() stays above only for the empty check; as_rules() inside
+        # the repo calls would silently default a bare string to PHRASE, which
+        # is exactly the "consecutive words only" bug this fixes (Q4: one
+        # list, two surfaces — this IS the second surface).
+        rules = watchlist.rules(self.config)
 
         with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
@@ -256,11 +263,11 @@ class EpgGroupMixin:
 
             repo = EpgRepository(session)
             live_data     = repo.get_live_for_watchlist(
-                patterns, provider_ids=provider_ids,
+                rules, provider_ids=provider_ids,
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
             upcoming_data = repo.get_upcoming_for_watchlist(
-                patterns, hours_ahead=24, provider_ids=provider_ids,
+                rules, hours_ahead=24, provider_ids=provider_ids,
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
 
