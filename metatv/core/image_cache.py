@@ -14,13 +14,23 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from loguru import logger
 
+from metatv.core import profile_store
 
-# Negative-cache windows (in-memory only; reset every launch). Keyed at two
-# grains because the two failure modes mean different things: a host that
-# won't connect won't connect for ANY url on it, but an HTTP error status is
-# about that one file, not the host.
-_HOST_COOLDOWN_S = 600   # connect-timeout / connection error: skip the host
-_URL_COOLDOWN_S = 3600   # HTTP error status (e.g. 404): skip just that url
+
+# Negative-cache windows. Keyed at two grains because the two failure modes
+# mean different things: a host that won't connect won't connect for ANY url
+# on it, but an HTTP error status is about that one file, not the host.
+#
+# IMG-1: host cooldowns are persisted across relaunches (see __init__ and
+# _set_cooldown's persist=True path) — a host that will not connect is dead
+# for the evening, and a 10-minute in-memory-only window re-paid a fresh 5s
+# connect timeout per dead-host image on every relaunch (owner log: the same
+# three 51.158.145.100 urls timed out again 10 minutes after they had just
+# cooled down). Url cooldowns are NOT persisted — a 404 is about one file,
+# not worth remembering past this process, and persisting every broken
+# poster url ever seen would grow unboundedly.
+_HOST_COOLDOWN_S = 3 * 3600  # 3 hours: connect-timeout / connection error
+_URL_COOLDOWN_S = 3600        # HTTP error status (e.g. 404): skip just that url
 
 # Bounded in-memory pixmap LRU (PERF-19): paint() may only ever consult this —
 # never disk. QPixmap construction and this dict are MAIN-THREAD-ONLY; see
@@ -70,9 +80,27 @@ class ImageCache(QObject):
         self._inflight: set[str] = set()
         self._inflight_lock = threading.Lock()
 
-        # Negative cache: host or full url -> cooldown deadline
-        # (time.monotonic()). Guarded by the same lock as _inflight.
+        # Negative cache: host or full url -> cooldown deadline. Wall-clock
+        # (time.time()), not time.monotonic() — a cooldown is not precision
+        # timing, a clock jump only shortens or lengthens a skip, and a wall
+        # deadline is what IMG-1 can persist and compare against on the next
+        # launch. Guarded by the same lock as _inflight.
         self._download_cooldowns: Dict[str, float] = {}
+
+        # IMG-1: seed HOST cooldowns a previous run persisted (see
+        # _set_cooldown's persist=True path), expired entries dropped. Url
+        # entries are never persisted, so there is nothing to seed for them.
+        # profile_store is bound before ImageCache is constructed (see
+        # MainWindow.__init__: config.attach_profile_store(self.db) then
+        # ImageCache(...)) — unbound (a bare ImageCache() in a test or
+        # headless script), this is simply a no-op: the old always-fresh
+        # behaviour, unchanged.
+        if profile_store.is_bound():
+            now = time.time()
+            stored = profile_store.read_all().get("image_host_cooldowns") or {}
+            self._download_cooldowns.update(
+                {host: deadline for host, deadline in stored.items() if deadline > now}
+            )
 
         # Marshal pixmap creation to the main thread
         self._image_ready.connect(self._on_image_ready)
@@ -323,7 +351,12 @@ class ImageCache(QObject):
 
                 try:
                     logger.debug(f"Trying to download image from: {attempt_url}")
-                    response = requests.get(attempt_url, timeout=5, stream=True)
+                    # (connect, read): the connect half is what a dead host
+                    # burns — that is the half IMG-1's cooldown exists to
+                    # avoid re-paying, so it is cut from 5s to just over the
+                    # usual 3s TCP handshake ceiling; read gets more slack
+                    # since a slow-but-alive host still gets its content.
+                    response = requests.get(attempt_url, timeout=(3.05, 10), stream=True)
                     response.raise_for_status()
 
                     # Write to disk
@@ -361,7 +394,7 @@ class ImageCache(QObject):
                     # it — cool down the host.
                     logger.debug(f"Failed to connect to {host or attempt_url}: {e}")
                     last_error = str(e)
-                    self._set_cooldown(host, _HOST_COOLDOWN_S)
+                    self._set_cooldown(host, _HOST_COOLDOWN_S, persist=True)
                     continue  # Try next URL
                 except requests.RequestException as e:
                     logger.debug(f"Failed to download from {attempt_url}: {e}")
@@ -395,17 +428,49 @@ class ImageCache(QObject):
             deadline = self._download_cooldowns.get(key)
             if deadline is None:
                 return False
-            if time.monotonic() >= deadline:
+            if time.time() >= deadline:
                 del self._download_cooldowns[key]
                 return False
             return True
 
-    def _set_cooldown(self, key: str, seconds: float) -> None:
-        """Put *key* (a host or a full url) on the negative cache for *seconds*."""
+    def _set_cooldown(self, key: str, seconds: float, *, persist: bool = False) -> None:
+        """Put *key* (a host or a full url) on the negative cache for *seconds*.
+
+        Args:
+            key: A host (bare netloc) or a full url.
+            seconds: Cooldown length.
+            persist: True only for a HOST cooldown (IMG-1) — a dead host is
+                worth remembering across a relaunch, a single 404'd url is
+                not. The snapshot is built under ``_inflight_lock`` (so it
+                can't race a concurrent ``_set_cooldown``/prune) but the
+                actual write is queued through ``profile_store.record``
+                OUTSIDE the lock, so a slow/blocked writer thread never
+                holds up a download worker.
+        """
         if not key:
             return
         with self._inflight_lock:
-            self._download_cooldowns[key] = time.monotonic() + seconds
+            self._download_cooldowns[key] = time.time() + seconds
+            snapshot = self._host_cooldowns_snapshot_locked() if persist else None
+        if snapshot is not None:
+            profile_store.record({"image_host_cooldowns": snapshot})
+
+    def _host_cooldowns_snapshot_locked(self) -> Dict[str, float]:
+        """Wall-clock deadlines for HOST-only cooldown entries, expired ones
+        pruned. Caller must hold ``_inflight_lock``.
+
+        A host key is a bare netloc (``urlparse(url).netloc``, e.g.
+        ``"51.158.145.100"``); a url key is always a full url and so always
+        contains ``"://"`` — that is what tells the two grains sharing
+        ``_download_cooldowns`` apart, since (per this module's design) only
+        one dict is kept rather than splitting host/url storage.
+        """
+        now = time.time()
+        return {
+            key: deadline
+            for key, deadline in self._download_cooldowns.items()
+            if "://" not in key and deadline > now
+        }
 
     def _on_failed_main(self, url: str, error: str) -> None:
         """Main-thread slot: hand a failure to this url's subscribers."""
