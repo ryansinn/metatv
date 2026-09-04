@@ -156,6 +156,8 @@ if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
 
 #: Bump when special_content.py's classification changes. See the module note.
+#: v12 (2026-09-03): bare vertical forms (racing/grappling/flofc) join the
+#: keyword map — ~319 FLO rows classified unknown by v11 get their sport.
 #: v11 (2026-09-03): adds FloSports vertical keywords + gate entries and three
 #: new sports (volleyball, swimming, track); re-run captures the ~1,370 FLSP
 #: rows the v10 reset correctly unlabeled but could not re-capture.
@@ -205,7 +207,7 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: v10 (2026-09-03): repairs rows renamed before ingestion enrolled the
 #: classification columns in the rename-clear — their stored sport/event columns
 #: are stale on disk.
-CURRENT_VERSION = 11
+CURRENT_VERSION = 12
 
 #: Fields the classifier owns end-to-end. Cleared before each recompute so a row
 #: that stops matching loses its stale label instead of keeping it.

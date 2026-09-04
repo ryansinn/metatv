@@ -124,6 +124,9 @@ def test_an_unclassified_channel_stays_visible():
     ("(FLSP 983) | floracing: 2026 CARS Tour West at Tri_City Speedway",
      "racing"),
     ("| flograppling: 2026 X vs Y", "mma"),
+    ("(FLSP 227) | racing: HLR Skagit Nationals", "racing"),
+    ("| grappling: 2026 X vs Y", "mma"),
+    ("| flofc: 2026 X vs Y", "soccer"),
 ])
 def test_flosports_vertical_titles_classify_to_their_sport(name, sport):
     assert _parse(name)["sport_type"] == sport

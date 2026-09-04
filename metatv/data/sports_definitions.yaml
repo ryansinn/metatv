@@ -35,6 +35,7 @@ sport_keywords:
     - liga mx
     - eredivisie
     - superliga
+    - flofc
     - flosoccer
   basketball:
     - basketball
@@ -82,8 +83,10 @@ sport_keywords:
     - bellator
     - one fc
     - pfl
+    - grappling
     - flograppling
   racing:
+    - racing
     - f1
     - formula 1
     - formula one
