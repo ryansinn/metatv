@@ -31,7 +31,13 @@ import pytest
 from metatv.core.database import ChannelDB, Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.tag import _clear_tag_cache
-from metatv.core.tmdb_enrichment_manager import TmdbEnrichmentManager, _extract_tmdb_id
+from metatv.core.tmdb_enrichment_manager import (
+    _EMPTY_BACKOFF_S,
+    _EMPTY_STREAK_LIMIT,
+    _EMPTY_STREAK_MIN_ROWS,
+    TmdbEnrichmentManager,
+    _extract_tmdb_id,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +519,215 @@ def test_process_batch_http_error_defers_gracefully(db, config_obj, monkeypatch,
         ).filter_by(id=cid).one()
     assert row.tmdb_enrich_state is None  # deferred, not marked
     assert row.detected_tmdb_id is None
+
+
+# ---------------------------------------------------------------------------
+# 3c. Per-provider empty-batch backoff (ENRICH-1)
+# ---------------------------------------------------------------------------
+#
+# Owner log 2026-09-03 04:37-04:38: one provider answered two consecutive
+# drain batches ALL EMPTY (0/18, then 0/27) at latency=11161ms while another
+# provider on the same drain landed 39-40 hits per batch. _process_batch had
+# no memory between batches, so the silent provider kept eating its share of
+# every drain. These tests drive _process_batch directly (same pattern as 3b
+# above) with a monkeypatched _fetch_provider, reusing the `_provider`/
+# `_channel` seeders shared with every other test in this file — no second
+# seeder.
+
+
+def _scripted_fetch_provider(monkeypatch, responses):
+    """Monkeypatch stand-in for ``TmdbEnrichmentManager._fetch_provider``.
+
+    ``responses`` maps provider_id -> a list of "recipes" consumed one per
+    call to that provider (the last entry repeats once the list is down to
+    one). A recipe is the string ``"empty"`` (every row of that call is a
+    miss), ``"hit"`` (every row is a hit with a canned tmdb id), or a
+    callable ``recipe(rows) -> (hits, misses, meta, errors)`` for a test that
+    needs to control specific rows (ids aren't known until the DB assigns
+    them). ``deferred`` is always False — these are real, completed batches.
+
+    Returns the list of provider ids ``_fetch_provider`` was actually called
+    for, in call order — the thing every test below asserts against.
+    """
+    calls: list[str] = []
+    queues = {pid: list(seq) for pid, seq in responses.items()}
+
+    async def fake(self, provider, rows, concurrency, throttle):
+        calls.append(provider.id)
+        queue = queues[provider.id]
+        recipe = queue.pop(0) if len(queue) > 1 else queue[0]
+        if recipe == "empty":
+            return ({}, [r["id"] for r in rows], {}, 0, False)
+        if recipe == "hit":
+            hits = {r["id"]: str(900000 + i) for i, r in enumerate(rows)}
+            return (hits, [], {}, 0, False)
+        hits, misses, meta, errors = recipe(rows)
+        return (dict(hits), list(misses), dict(meta), errors, False)
+
+    monkeypatch.setattr(TmdbEnrichmentManager, "_fetch_provider", fake)
+    return calls
+
+
+def _idless_movies(session, provider_id: str, n: int) -> list[str]:
+    """Seed *n* fresh idless/unattempted movie candidates for *provider_id*."""
+    return [
+        _channel(session, provider_id=provider_id, media_type="movie",
+                 detected_title=f"{provider_id}-{i}", source_id=f"{provider_id}-{i}")
+        for i in range(n)
+    ]
+
+
+def test_three_consecutive_empty_batches_backs_off_provider(db, config_obj, monkeypatch, qapp):
+    """3 straight all-empty (>= _EMPTY_STREAK_MIN_ROWS-row) batches for A ->
+    the 4th drain does NOT call _fetch_provider for A, while B (which hits
+    every batch) keeps being fetched. The "skipped — backing off" line is
+    logged exactly once — at the moment the backoff is set, not per skip.
+
+    Pre-fix (no streak/backoff at all) this fails: A would be fetched a 4th
+    time and no "backing off" line would ever be logged.
+    """
+    from loguru import logger as _loguru_logger
+
+    with db.session_scope() as session:
+        _provider(session, "pA")
+        _provider(session, "pB")
+
+    calls = _scripted_fetch_provider(monkeypatch, {"pA": ["empty"], "pB": ["hit"]})
+
+    messages: list[str] = []
+    sink_id = _loguru_logger.add(
+        lambda msg: messages.append(msg.record["message"]), level="INFO")
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        for _ in range(_EMPTY_STREAK_LIMIT):
+            with db.session_scope() as session:
+                a_ids = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+                b_ids = _idless_movies(session, "pB", 2)
+            mgr._process_batch(a_ids + b_ids)
+
+        assert calls.count("pA") == _EMPTY_STREAK_LIMIT
+        assert calls.count("pB") == _EMPTY_STREAK_LIMIT
+
+        with db.session_scope() as session:
+            a_ids_4 = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+            b_ids_4 = _idless_movies(session, "pB", 2)
+        mgr._process_batch(a_ids_4 + b_ids_4)
+    finally:
+        mgr.shutdown()
+        _loguru_logger.remove(sink_id)
+
+    # 4th drain: A is skipped entirely, B is still fetched.
+    assert calls.count("pA") == _EMPTY_STREAK_LIMIT, \
+        "A must NOT be fetched on the backed-off drain"
+    assert calls.count("pB") == _EMPTY_STREAK_LIMIT + 1
+
+    with db.session_scope(commit=False) as session:
+        untouched = session.query(ChannelDB.tmdb_enrich_state).filter(
+            ChannelDB.id.in_(a_ids_4)).all()
+    assert all(r.tmdb_enrich_state is None for r in untouched), \
+        "A's rows on the skipped drain must stay pending, not marked"
+
+    backoff_lines = [m for m in messages if "backing off" in m]
+    assert len(backoff_lines) == 1
+    assert "Provider pA" in backoff_lines[0]
+
+
+def test_a_hit_after_two_empties_resets_the_streak(db, config_obj, monkeypatch, qapp):
+    """A hit resets the streak — 2 empties + 1 hit + 2 more empties never backs off.
+
+    Without the reset, the two pre-hit empties would still count: the two
+    empties after the hit would carry the streak from 2 straight to the
+    _EMPTY_STREAK_LIMIT and back A off before the 5th call — proving this
+    needs the reset, not just the plain empty-batch counter.
+    """
+    def _one_hit(rows):
+        ids = [r["id"] for r in rows]
+        return {ids[0]: "12345"}, ids[1:], {}, 0
+
+    with db.session_scope() as session:
+        _provider(session, "pA")
+
+    calls = _scripted_fetch_provider(
+        monkeypatch, {"pA": ["empty", "empty", _one_hit, "empty", "empty"]})
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        for _ in range(5):
+            with db.session_scope() as session:
+                ids = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+            mgr._process_batch(ids)
+    finally:
+        mgr.shutdown()
+
+    # All 5 batches were actually fetched — the hit on batch 3 cleared the
+    # streak the first two empties had built, so the two empties after it
+    # (2 total, short of the 3-limit) never triggered a backoff.
+    assert calls.count("pA") == 5
+    with mgr._lock:
+        assert mgr._empty_streak.get("pA", 0) == 2
+        assert "pA" not in mgr._provider_backoff_until
+
+
+def test_small_empty_batch_does_not_count_toward_streak(db, config_obj, monkeypatch, qapp):
+    """A batch under _EMPTY_STREAK_MIN_ROWS that misses says nothing — no streak."""
+    assert _EMPTY_STREAK_MIN_ROWS > 3, "test assumes 3 rows is below the floor"
+
+    with db.session_scope() as session:
+        _provider(session, "pA")
+
+    calls = _scripted_fetch_provider(monkeypatch, {"pA": ["empty"]})
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        for _ in range(_EMPTY_STREAK_LIMIT + 2):
+            with db.session_scope() as session:
+                ids = _idless_movies(session, "pA", 3)
+            mgr._process_batch(ids)
+    finally:
+        mgr.shutdown()
+
+    # Every batch was fetched — a 3-row miss never advances the streak, so
+    # the provider was never backed off no matter how many ran.
+    assert calls.count("pA") == _EMPTY_STREAK_LIMIT + 2
+    with mgr._lock:
+        assert mgr._empty_streak.get("pA", 0) == 0
+        assert "pA" not in mgr._provider_backoff_until
+
+
+def test_provider_is_fetched_again_after_backoff_expires(db, config_obj, monkeypatch, qapp):
+    """Past the _EMPTY_BACKOFF_S deadline, a rested provider is tried again."""
+    with db.session_scope() as session:
+        _provider(session, "pA")
+
+    calls = _scripted_fetch_provider(monkeypatch, {"pA": ["empty"]})
+
+    clock = {"t": 1_000_000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["t"])
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        for _ in range(_EMPTY_STREAK_LIMIT):
+            with db.session_scope() as session:
+                ids = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+            mgr._process_batch(ids)
+        assert calls.count("pA") == _EMPTY_STREAK_LIMIT
+
+        # Still well inside the backoff window: not fetched.
+        clock["t"] += 60.0
+        with db.session_scope() as session:
+            ids = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+        mgr._process_batch(ids)
+        assert calls.count("pA") == _EMPTY_STREAK_LIMIT
+
+        # Past the deadline: fetched again.
+        clock["t"] += _EMPTY_BACKOFF_S + 1.0
+        with db.session_scope() as session:
+            ids = _idless_movies(session, "pA", _EMPTY_STREAK_MIN_ROWS)
+        mgr._process_batch(ids)
+        assert calls.count("pA") == _EMPTY_STREAK_LIMIT + 1
+    finally:
+        mgr.shutdown()
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,23 @@ _DEFAULT_THROTTLE_MS = 150      # sleep before each request
 _CONSECUTIVE_ERROR_ABORT = 10   # abort a provider after this many errors in a row
 _DRAIN_BATCH = 40               # candidates resolved + fetched per drain iteration
 
+# Per-provider empty-batch backoff (ENRICH-1). Owner log 2026-09-03 04:37-04:38
+# showed one provider answering two back-to-back drain batches ALL EMPTY
+# (0/18, then 0/27) at latency=11161ms, while the other provider on the same
+# drain landed 39-40 hits per batch. _process_batch groups the drained ids by
+# provider and fetches "one provider at a time" with no memory between
+# batches, so a provider that never answers keeps eating its share of every
+# drain. A flat backoff — not a circuit breaker — fixes that: after
+# _EMPTY_STREAK_LIMIT consecutive all-empty batches (each at least
+# _EMPTY_STREAK_MIN_ROWS rows, so a 2-row batch that misses says nothing) the
+# provider is rested for _EMPTY_BACKOFF_S; any batch with >=1 hit resets the
+# streak and clears the backoff. Row state itself is untouched — a skipped
+# provider's rows are simply not attempted this drain, and the next browse's
+# enqueue re-offers them once the backoff expires.
+_EMPTY_STREAK_LIMIT = 3
+_EMPTY_STREAK_MIN_ROWS = 10
+_EMPTY_BACKOFF_S = 15 * 60
+
 # Migration-defer tuning (owner log 2026-08-01: a details-pane browse enqueued
 # a drain batch that wrote mid-migration, "database is locked" 90s after an
 # earlier migration crash). Both this manager's bulk write phases yield the
@@ -220,6 +237,12 @@ class TmdbEnrichmentManager(QObject):
         # learned something new, so its end-of-drain sibling propagation is worth
         # running; reset as it is consumed (#284).
         self._ids_written_this_drain = 0
+        # Per-provider empty-batch streak + backoff deadline (ENRICH-1). Read
+        # and written under _lock like the counters above; see the
+        # module-level constants for the policy and the log numbers that
+        # motivated it.
+        self._empty_streak: dict[str, int] = {}
+        self._provider_backoff_until: dict[str, float] = {}
 
         # Registered LAST, and by this manager rather than by its caller.
         #
@@ -520,6 +543,19 @@ class TmdbEnrichmentManager(QObject):
             for r in rows:
                 by_provider.setdefault(r["provider_id"], []).append(r)
 
+            # Drop any provider still resting from an ENRICH-1 empty-batch
+            # backoff. Their ids are simply not attempted this drain — the row
+            # state stays pending, so the next browse's enqueue re-offers them
+            # once the backoff expires. Logged when the backoff is SET (in
+            # _update_empty_streak below), not here, so a long drain doesn't
+            # spam one line per skipped batch.
+            now = time.monotonic()
+            with self._lock:
+                for pid in list(by_provider):
+                    deadline = self._provider_backoff_until.get(pid)
+                    if deadline is not None and deadline > now:
+                        del by_provider[pid]
+
             providers: dict[str, "Provider"] = {}
             names: dict[str, str] = {}
             for pid in list(by_provider):
@@ -562,6 +598,7 @@ class TmdbEnrichmentManager(QObject):
                 "tmdb_enrich: {} — {} hit(s), {} empty of {} attempted",
                 names.get(pid, pid), len(hits), len(misses), len(prows),
             )
+            self._update_empty_streak(pid, names.get(pid, pid), hits, errors, len(prows))
 
         # 4. (settle) one refresh per batch drives the re-collapse (the toast
         #    explains the reflow); emitted only when a real fold happened.
@@ -660,6 +697,54 @@ class TmdbEnrichmentManager(QObject):
                 names.get(pid, pid), filled, len(prows), errors,
             )
         return attempted
+
+    # ------------------------------------------------------------------
+    # Per-provider empty-batch backoff (ENRICH-1)
+    # ------------------------------------------------------------------
+
+    def _update_empty_streak(
+        self, pid: str, name: str, hits: dict[str, str], errors: int, row_count: int,
+    ) -> None:
+        """Advance/reset provider *pid*'s empty-batch streak; rest it if it's dead.
+
+        Called once per provider per drain batch, right after ``_fetch_provider``
+        returns for it. A batch with at least one hit resets the streak and
+        clears any standing backoff. An all-empty batch big enough to mean
+        something (``_EMPTY_STREAK_MIN_ROWS`` — a tiny batch that misses says
+        nothing) and with no transport errors (those are the accountant's /
+        URL cycler's business, not this policy's) advances the streak; three
+        in a row (``_EMPTY_STREAK_LIMIT``) rests the provider for
+        ``_EMPTY_BACKOFF_S`` — see the module-level comment above the
+        constants for the log numbers that motivated this. The "skipped —
+        backing off" line is logged here, once, at the moment the backoff is
+        SET — never per skipped batch (see the step-1 filter in
+        ``_process_batch``).
+
+        Args:
+            pid: Provider id this batch was fetched for.
+            name: Provider display name, for the log line.
+            hits: The ``hits`` dict returned by ``_fetch_provider`` for this batch.
+            errors: The failed-call count returned alongside it.
+            row_count: How many rows this provider's batch attempted.
+        """
+        backing_off = False
+        with self._lock:
+            if hits:
+                self._empty_streak.pop(pid, None)
+                self._provider_backoff_until.pop(pid, None)
+            elif not errors and row_count >= _EMPTY_STREAK_MIN_ROWS:
+                streak = self._empty_streak.get(pid, 0) + 1
+                if streak >= _EMPTY_STREAK_LIMIT:
+                    self._provider_backoff_until[pid] = time.monotonic() + _EMPTY_BACKOFF_S
+                    self._empty_streak[pid] = 0
+                    backing_off = True
+                else:
+                    self._empty_streak[pid] = streak
+        if backing_off:
+            logger.info(
+                "tmdb_enrich: {} skipped — {} consecutive empty batches, "
+                "backing off {} min", name, _EMPTY_STREAK_LIMIT, _EMPTY_BACKOFF_S // 60,
+            )
 
     # ------------------------------------------------------------------
     # In-flight accounting for the coalesced per-source toast
