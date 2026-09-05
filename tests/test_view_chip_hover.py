@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import destroy_widget
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
 from metatv.gui.filter_bar import ToggleChip
@@ -41,7 +42,9 @@ def _sheet(palette: str, *, selected: bool) -> str:
     _theme.apply_theme(palette)
     chip = ToggleChip("Discover", segment="middle")
     chip.set_enabled(selected)
-    return chip.styleSheet()
+    sheet = chip.styleSheet()
+    destroy_widget(chip)
+    return sheet
 
 
 @pytest.mark.parametrize("palette", PALETTES)
