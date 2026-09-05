@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# commit-msg — no attribution trailers.
+#
+# This check used to live in pre-commit, which git invokes with NO arguments,
+# so its `msg_file="${1:-}"` was always empty and the check never ran — three
+# agent commits carried the trailer past it on 2026-09-05. commit-msg is the
+# hook git hands the message file to.
+#
+# The owner's standing instruction, and the harness default is to add one — so
+# this is a rule that has to survive a tool actively pushing the other way.
+# Existing history containing them is not consent.
+#
+# Enable with:  git config core.hooksPath .githooks
+# Bypass with:  git commit --no-verify   (and be able to say why)
+set -u
+msg_file="${1:-}"
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+if grep -qiE '^[[:space:]]*(Co-Authored-By|Claude-Session):' "$msg_file"; then
+    cat >&2 <<'MSG'
+
+COMMIT BLOCKED: the message carries a Co-Authored-By / Claude-Session trailer.
+
+This project does not use them. Remove the line(s) and commit again.
+MSG
+    exit 1
+fi
+exit 0

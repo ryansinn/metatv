@@ -254,12 +254,16 @@ def test_a_script_answers_which_tests_to_run():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell hook")
-def test_the_pre_commit_hook_refuses_a_co_authored_by_trailer(tmp_path):
+def test_the_commit_msg_hook_refuses_a_co_authored_by_trailer(tmp_path):
     """The owner's standing instruction, against a tool that adds one by default.
 
-    Executed, not read: a hook that parses is not a hook that runs.
+    Executed, not read: a hook that parses is not a hook that runs. And it
+    has to be the COMMIT-MSG hook: this test used to drive ``pre-commit``
+    with a message-file argument, which git never passes to pre-commit — so
+    the guard it "proved" never ran in a real commit (2026-09-05, three
+    agent commits carried the trailer past it).
     """
-    hook = _ROOT / ".githooks" / "pre-commit"
+    hook = _ROOT / ".githooks" / "commit-msg"
     assert hook.exists()
 
     bad = tmp_path / "bad.txt"
@@ -273,11 +277,7 @@ def test_the_pre_commit_hook_refuses_a_co_authored_by_trailer(tmp_path):
     good.write_text("a commit\n", encoding="utf-8")
     result = subprocess.run(["bash", str(hook), str(good)], cwd=_ROOT,
                             capture_output=True, text=True)
-    # Not asserting exit 0: the hook's OTHER rule (no branch work in the
-    # owner's own checkout) legitimately fires in some checkouts, including
-    # CI's. What must be true is that a clean message is not blamed for a
-    # trailer it does not have.
-    assert "Co-Authored-By" not in result.stderr
+    assert result.returncode == 0, result.stderr
 
 
 def test_auto_merge_refuses_when_the_repo_setting_would_make_it_immediate():

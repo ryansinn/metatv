@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit — the two things that are cheap here and expensive to undo.
+# pre-commit — the one thing that is cheap here and expensive to undo.
 #
 # Sibling of pre-push, same reasoning: a rule that costs nothing to check and
 # has been broken anyway belongs in a hook, not in another sentence of prose.
@@ -11,24 +11,9 @@ set -u
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root" || exit 0
 
-msg_file="${1:-}"
-
-# 1. No Co-Authored-By trailer.
-#
-# The owner's standing instruction, and the harness default is to add one — so
-# this is a rule that has to survive a tool actively pushing the other way.
-# Existing history containing them is not consent.
-if [ -n "$msg_file" ] && [ -f "$msg_file" ]; then
-    if grep -qiE '^[[:space:]]*Co-Authored-By:' "$msg_file"; then
-        cat >&2 <<'MSG'
-
-COMMIT BLOCKED: the message carries a Co-Authored-By trailer.
-
-This project does not use them. Remove the line and commit again.
-MSG
-        exit 1
-    fi
-fi
+# 1. No Co-Authored-By trailer — moved to .githooks/commit-msg (2026-09-05):
+# git invokes pre-commit with no arguments, so the message-file check that sat
+# here never ran. commit-msg is the hook that receives the message file.
 
 # 2. Not on a branch in the owner's own checkout.
 #
