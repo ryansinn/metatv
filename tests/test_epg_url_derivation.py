@@ -19,7 +19,7 @@ host would be a serious harm, not a fix).
 
 All tests execute the real changed code paths against a file-backed Database
 (NOT :memory:) and fake the HTTP layer by monkeypatching
-``metatv.core.epg_manager.parse_xmltv_url`` — no real network calls.
+``metatv.core.epg_fetch.parse_xmltv_url`` — no real network calls.
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ def test_cycling_first_working_host_wins(db, monkeypatch):
     """Host 1 fails outright (connection error), host 2 returns a valid guide:
     the guide from host 2 is stored, host 2's URL was actually fetched, and
     the outcome of BOTH attempts is recorded."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
 
     with db.session_scope() as session:
         _add_cycling_provider(
@@ -237,7 +237,7 @@ def test_cycling_first_working_host_wins(db, monkeypatch):
 def test_cycling_zero_programme_payload_advances(db, monkeypatch):
     """A host that parses cleanly but returns ZERO programmes must be treated
     as a failure and the cycle must advance to the next host."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
 
     with db.session_scope() as session:
         _add_cycling_provider(
@@ -279,7 +279,7 @@ def test_cycling_expired_guide_does_not_advance(db, monkeypatch):
     guide; re-downloading an identical stale payload from every other host
     (hundreds of thousands of programmes) would be a harm, not a fix. Exactly
     ONE host must be attempted."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
 
     with db.session_scope() as session:
         _add_cycling_provider(
@@ -322,7 +322,7 @@ def test_cycling_expired_guide_does_not_advance(db, monkeypatch):
 def test_override_never_cycles_one_attempt_even_on_failure(db, monkeypatch):
     """A user override is fetched exactly once — even when it fails — never
     falling back to the provider's other configured hosts."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
 
     with db.session_scope() as session:
         _add_cycling_provider(
@@ -364,7 +364,7 @@ def test_no_latency_recorded_for_epg_attempts(db, monkeypatch):
     mirrors the fetch_channels exclusion: a full XMLTV download is a bulk
     transfer, not a comparably-sized request, so mixing it into
     median_latency_ms() would make the median meaningless."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
 
     with db.session_scope() as session:
         _add_cycling_provider(

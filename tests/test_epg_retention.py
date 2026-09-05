@@ -187,7 +187,7 @@ def test_fetch_worker_prunes_expired_rows_across_all_providers(db, monkeypatch):
     """A successful _fetch_worker run for provider A also sweeps provider B's
     already-expired rows — the natural post-fetch hook (after the
     provider-timestamp commit) reuses the fetch's own open session."""
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
     from metatv.core.xmltv_parser import XmltvProgramme
 
     with db.session_scope() as session:

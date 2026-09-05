@@ -99,7 +99,7 @@ def test_an_override_still_wins(db):
 
 def test_a_403_on_the_first_host_advances_and_is_remembered(db, monkeypatch):
     """End to end: the reported failure mode, from 403 to a corrected URL."""
-    import metatv.core.epg_manager as mod
+    import metatv.core.epg_fetch as mod
 
     _provider(db)
     tried: list[str] = []

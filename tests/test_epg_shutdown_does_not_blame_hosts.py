@@ -92,7 +92,7 @@ def test_a_teardown_abort_blames_no_host(manager, db, monkeypatch):
         attempted.append(url)
         raise XmltvAborted("EPG manager is shutting down")
 
-    monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url",
+    monkeypatch.setattr("metatv.core.epg_fetch.parse_xmltv_url",
                         _aborting_parse)
 
     with pytest.raises(XmltvAborted):
@@ -120,7 +120,7 @@ def test_the_real_runtime_error_is_what_triggers_it(manager, db, monkeypatch):
             on_progress(10_000)          # the tick that used to explode
         return [], _programmes()
 
-    monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url",
+    monkeypatch.setattr("metatv.core.epg_fetch.parse_xmltv_url",
                         _parse_calling_progress)
 
     # Exactly what PyQt does once the C++ side is gone, quoted from the
@@ -159,7 +159,7 @@ def test_the_shutdown_flag_stops_a_fetch_that_has_not_crashed_yet(
             on_progress(10_000)
         return [], _programmes()
 
-    monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url",
+    monkeypatch.setattr("metatv.core.epg_fetch.parse_xmltv_url",
                         _parse_calling_progress)
     manager.shutdown()
     assert manager._shutting_down is True
@@ -171,7 +171,7 @@ def test_the_shutdown_flag_stops_a_fetch_that_has_not_crashed_yet(
 def test_the_worker_stays_quiet_on_abort(manager, monkeypatch):
     """No error signal and no toast — both touch objects being destroyed."""
     monkeypatch.setattr(
-        "metatv.core.epg_manager.parse_xmltv_url",
+        "metatv.core.epg_fetch.parse_xmltv_url",
         lambda url, timeout=180, on_progress=None: (_ for _ in ()).throw(
             XmltvAborted("gone")))
 
@@ -203,7 +203,7 @@ def test_a_genuine_host_failure_is_still_recorded(manager, db, monkeypatch):
             raise OSError("connection refused")
         return [], _programmes()
 
-    monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url",
+    monkeypatch.setattr("metatv.core.epg_fetch.parse_xmltv_url",
                         _first_host_dies)
 
     fetch = manager._resolve_and_fetch_guide(
