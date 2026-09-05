@@ -83,6 +83,27 @@ def to_local(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc).astimezone(_local_tz())
 
 
+def to_utc_naive(local_dt: datetime, tz=None) -> datetime:
+    """Convert a naive LOCAL wall-clock datetime to UTC-naive EPG storage form.
+
+    Inverse of :func:`to_local`. ``local_dt`` is naive but already expressed
+    in local time — e.g. ``QDateTimeEdit.dateTime().toPyDateTime()`` — so it
+    is stamped with the local tzinfo before converting, never re-derived from
+    the machine's current clock (``browse_anchors``' own ``_utc_naive``
+    closure needed only the reverse direction and takes an already-aware
+    datetime, which this does not have).
+
+    Args:
+        local_dt: A naive datetime in local wall-clock time (no tzinfo).
+        tz: Local tzinfo; defaults to the machine's local timezone. Pass
+            explicitly in tests to freeze the timezone.
+    Returns:
+        The same instant as a UTC-naive datetime.
+    """
+    _tz = tz if tz is not None else _local_tz()
+    return local_dt.replace(tzinfo=_tz).astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def local_date(dt: datetime) -> date:
     """Return the local calendar date for a UTC-naive EPG datetime.
 

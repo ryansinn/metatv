@@ -110,6 +110,40 @@ def test_every_listed_action_has_a_handler_in_the_shared_builder():
 
     source = (pathlib.Path(__file__).resolve().parent.parent
               / "metatv" / "gui" / "main_window_channels.py").read_text()
-    for action in ("download", "record"):
+    for action in ("download", "record", "record_window"):
         assert f'"{action}": lambda' in source, (
             f"{action} is listed in a layout but has no handler — a dead click")
+
+
+# --------------------------------------------------------------------------- #
+# record_window (Option B — no guide data needed) — sibling of "record" above
+# --------------------------------------------------------------------------- #
+
+def test_record_window_listed_immediately_after_record():
+    """Every surface offering "record" offers "record_window" right next to it."""
+    for surface, layout in SURFACE_LAYOUTS.items():
+        if "record" not in layout:
+            continue
+        assert "record_window" in layout, (
+            f'"{surface}" lists record but not record_window')
+        assert layout.index("record_window") == layout.index("record") + 1, (
+            f'"{surface}" does not list record_window immediately after record')
+
+
+def test_record_window_is_gated_like_record_but_not_by_a_programme_window():
+    """Same single/found/live gate as "record" — but a programme window on
+    the row (which excludes "record") must NOT exclude "record_window": the
+    whole point of Option B is that it needs no guide data, so it stays
+    offered even where a guide row happens to be present.
+    """
+    from types import SimpleNamespace
+
+    applies = ACTIONS["record_window"].applies
+
+    def ctx(media_type, programme_start=None):
+        return SimpleNamespace(is_single=True, channel_found=True,
+                               media_type=media_type, programme_start=programme_start)
+
+    assert applies(ctx("live")) is True
+    assert applies(ctx("live", programme_start="2026-09-04T19:00:00")) is True
+    assert applies(ctx("movie")) is False

@@ -136,27 +136,34 @@ def apply_watchlist_highlight(item: QTreeWidgetItem, columns, bold_col: int) -> 
 
 
 # ---------------------------------------------------------------------------
-# "record_programme" handler — shared by On Now + Browse (REC-3)
+# "record_programme"/"record_window" handlers — shared by On Now + Browse
 # ---------------------------------------------------------------------------
 
 def add_record_programme_handler(handlers: dict, ctx, host, cid: str) -> None:
-    """Register the "record_programme" channel-menu handler when *ctx* carries
-    a programme window — the identical block On Now and Browse both built.
+    """Register the EPG surfaces' record handlers — the identical block On Now
+    and Browse both built.
 
-    Direct call, not ``hasattr``: ``schedule_recording_from_programme`` is a
-    real ``MainWindow`` method (``main_window_downloads.py``); a skeleton test
-    host gets it from the shared conftest factory (CLAUDE.md: never a
-    ``hasattr`` guard in production to satisfy a skeleton — wire the shared
-    factory instead).
+    "record_window" (Option B) needs no programme identity at all, so it is
+    registered unconditionally; "record_programme" (REC-3) only when *ctx*
+    actually carries a programme window — a Browse row past its own end has
+    neither, so nothing is added there.
+
+    Direct calls, not ``hasattr``: both ``record_channel_window`` and
+    ``schedule_recording_from_programme`` are real ``MainWindow`` methods
+    (``main_window_downloads.py``); a skeleton test host gets them from the
+    shared conftest factory (CLAUDE.md: never a ``hasattr`` guard in
+    production to satisfy a skeleton — wire the shared factory instead).
 
     Args:
         handlers: The surface's handler dict, mutated in place.
         ctx: The built ``ChannelMenuContext`` — read for
             ``programme_start``/``programme_end``/``programme_title``.
         host: The resolved menu host (``self._host()``), carrying
-            ``schedule_recording_from_programme``.
+            ``record_channel_window``/``schedule_recording_from_programme``.
         cid: The single selected channel id.
     """
+    handlers["record_window"] = lambda c=cid: host.record_channel_window(c)
+
     if ctx.programme_start is None or ctx.programme_end is None:
         return
 

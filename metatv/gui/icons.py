@@ -45,6 +45,7 @@ play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
 open_ended_buffer_icon: str = "∞"  # U+221E INFINITY — open-ended disk-backed buffer (monochrome, "buffer without end")
 download_icon: str = "⬇"   # U+2B07 DOWNWARDS ARROW — save a VOD to the library
 record_icon: str = "⏺"     # U+23FA BLACK CIRCLE FOR RECORD — record a live channel
+record_window_icon: str = "⏱"  # U+23F1 STOPWATCH — record a live channel for a picked start/end window, no guide needed (REC Option B)
 deep_cache_icon: str = "💽"  # U+1F4BD COMPUTER DISK — deep-cache "Buffer without limit" (VOD pre-load-to-disk), distinct from ∞ open-ended buffer
 play_from_beginning_icon: str = "▶"  # U+25B6 play triangle — force start from position 0; gray, distinct from the orange ⏩ resume affordance by COLOUR (⏮ U+23EE rendered as a tofu/box in many fonts)
 resume_from_icon: str = "⏩"  # U+23E9 BLACK RIGHT-POINTING DOUBLE TRIANGLE — resume from saved position

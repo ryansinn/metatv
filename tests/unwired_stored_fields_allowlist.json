@@ -101,8 +101,6 @@
     "Config.vod_watch_alerts",
     "ProviderDB.epg_refresh_hours_before",
     "ProviderDB.epg_url",
-    "ProviderDB.last_sync",
-    "RecordingDB.pad_end_seconds",
-    "RecordingDB.pad_start_seconds"
+    "ProviderDB.last_sync"
   ]
 }

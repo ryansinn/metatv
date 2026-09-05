@@ -1774,6 +1774,7 @@ class _ChannelListMixin:
             "play_deep_cache": lambda: self.play_channel_deep_cache_by_id(cid),
             "download": lambda: self.download_channel_by_id(cid),
             "record": lambda: self.record_channel_by_id(cid),
+            "record_window": lambda: self.record_channel_window(cid),
             "record_programme": lambda: self.schedule_recording_from_programme(
                 cid, ctx.programme_start, ctx.programme_end, ctx.programme_title),
             "play_from_beginning": lambda: self.play_channel_from_beginning_by_id(cid),
@@ -1811,9 +1812,8 @@ class _ChannelListMixin:
                 else (lambda: self._mark_channel_watched(cid))
             ),
             "track": lambda: self._prompt_track_from_list(ctx.channel_name),
-            # Title actions — both read ctx.title (stored detected_title, falling
-            # back to the raw name) so they can never disagree.  Search reuses the
-            # existing search_for_title seam rather than poking search_input.
+            # Title actions both read ctx.title (detected_title, falling back to
+            # the raw name) — search reuses search_for_title, not search_input.
             "search_title": lambda: self.search_for_title(ctx.title),
             "copy_title": lambda: self._copy_title_to_clipboard(ctx.title),
             "unhide": lambda: self._unhide_channel(cid),

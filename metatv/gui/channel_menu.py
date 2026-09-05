@@ -9,13 +9,7 @@ Usage::
 
     from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
-    ctx = ChannelMenuContext(
-        channel_ids=[channel_id],
-        surface="channel",
-        media_type=channel.media_type,
-        is_favorite=channel.is_favorite,
-        ...
-    )
+    ctx = ChannelMenuContext(channel_ids=[channel_id], surface="channel", ...)
     handlers = {"play": lambda: play_channel_by_id(cid), ...}
     menu = build_channel_menu(ctx, handlers, parent=self)
     menu.exec(QPoint(gx, gy))
@@ -276,10 +270,9 @@ ACTIONS: dict[str, ChannelAction] = {
         label=lambda c: "Buffer without limit (pre-load fully)",
         icon=_icons.deep_cache_icon,
         tooltip=(
-            "Pre-load this title fully to a scratch cache before/while playing — "
-            "goes further than the open-ended buffer by recording the stream to "
-            "disk. VOD only; the recording is temporary and is discarded when "
-            "playback stops."
+            "Pre-load this title fully to a scratch cache before/while playing — goes "
+            "further than the open-ended buffer by recording to disk. VOD only; the "
+            "recording is temporary and discarded when playback stops."
         ),
         # VOD-only (movie/series) — live channels have no fixed end to pre-load to,
         # so this action is never shown for them (same predicate as like/dislike).
@@ -290,9 +283,8 @@ ACTIONS: dict[str, ChannelAction] = {
         label=lambda c: "Download to library",
         icon=_icons.download_icon,
         tooltip=(
-            "Save this title to your library folder so it plays without the "
-            "source. Resumes if interrupted, and pauses by itself while you "
-            "are watching something on the same source."
+            "Save this title to your library folder so it plays without the source. "
+            "Resumes if interrupted, and pauses while you watch anything on this source."
         ),
         # VOD-only — a live channel has no end to download TO; it records
         # instead (below), a different feature with a different priority rule.
@@ -303,9 +295,8 @@ ACTIONS: dict[str, ChannelAction] = {
         label=lambda c: "Record what's on",
         icon=_icons.record_icon,
         tooltip=(
-            "Record this channel to your library. Keeps recording even if you "
-            "start watching something else, and waits rather than giving up if "
-            "the source is busy."
+            "Record this channel to your library. Keeps recording if you start "
+            "watching something else, and waits rather than giving up if busy."
         ),
         # Inverse of "download" (a VOD has an end, a live channel a clock). A row
         # that carries its programme window offers record_programme instead.
@@ -313,6 +304,14 @@ ACTIONS: dict[str, ChannelAction] = {
             c.is_single and c.channel_found and c.media_type == "live"
             and c.programme_start is None
         ),
+    ),
+    # Option B: a picked window, no guide data — "record" minus its gate clause.
+    "record_window": ChannelAction(
+        id="record_window",
+        label=lambda c: "Record for a time window…",
+        icon=_icons.record_window_icon,
+        tooltip="Record a start/end window you set — no guide needed. MetaTV must stay open.",
+        applies=lambda c: c.is_single and c.channel_found and c.media_type == "live",
     ),
     # REC-3: THIS row's start/stop, not "now" — so a future Browse row works too.
     "record_programme": ChannelAction(
@@ -709,13 +708,14 @@ ACTIONS: dict[str, ChannelAction] = {
 # (nothing to save from a stream that failed to open). record_programme
 # (REC-3) schedules the ROW's own start/stop, which is what makes it correct
 # on epg_browse's future programmes too, not just epg_on_now/alerts.
+# record_window (Option B) is listed beside "record" wherever THAT is.
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "download",
-        "record",
+        "record", "record_window",
         "sep",
         "favorite", "queue",
         "sep",
@@ -856,7 +856,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_retry", "clear_retry",
     ],
     "epg_on_now": [
-        "record", "record_programme",
+        "record", "record_window", "record_programme",
         "sep",
         "play", "play_new_window",
         "sep",
