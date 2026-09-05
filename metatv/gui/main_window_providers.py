@@ -897,36 +897,38 @@ class _ProviderMixin:
     def refresh_all_providers(self) -> None:
         """Enqueue providers for serial refresh via the queue manager.
 
-        When ``config.refresh_all_includes_inactive`` is False (default),
-        providers with ``is_active=False`` are silently skipped — the user has
-        toggled them off and doesn't want to pay the refresh cost for them (and
-        they're already scoped out of every content view).  Set it True to also
-        enqueue disabled sources, matching the historical behaviour.
-
-        Note: this setting never affects per-source refresh (the individual
-        refresh button) — that is always a deliberate user action and always
-        works regardless of ``is_active``.
+        When ``config.refresh_all_includes_inactive`` is False (default), skips
+        providers that are inactive OR expired — via ``get_hidden_provider_ids()``
+        (core/repositories/provider.py), the one canonical "hidden from every
+        forward-looking view" predicate (CLAUDE.md). Set True to also enqueue
+        inactive AND expired sources (historical behaviour). Per-source refresh
+        (the refresh button) ignores this and always runs, even when expired —
+        that is what re-fetches account info and rewrites ``account_exp_date``
+        (core/provider_loader.py); gating it would self-lock.
         """
         skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", False)
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
-            # Fetch all providers; filter inactive here so we can log the count.
             all_providers = repos.providers.get_all(active_only=False)
             if skip_inactive:
-                skipped = [p for p in all_providers if not p.is_active]
-                providers = [p for p in all_providers if p.is_active]
-                if skipped:
+                hidden = set(repos.providers.get_hidden_provider_ids())
+                expired_ids = set(repos.providers.get_expired_provider_ids())
+                providers = [p for p in all_providers if p.id not in hidden]
+                expired = [p for p in all_providers if p.id in expired_ids]
+                inactive = [p for p in all_providers if p.id in hidden - expired_ids]
+                if inactive:
                     logger.info(
-                        "Refresh All: skipped %d inactive source(s): %s",
-                        len(skipped),
-                        ", ".join(p.name for p in skipped),
+                        "Refresh All: skipped {} inactive source(s): {}",
+                        len(inactive), ", ".join(p.name for p in inactive),
+                    )
+                if expired:
+                    logger.info(
+                        "Refresh All: skipped {} expired source(s): {}",
+                        len(expired), ", ".join(p.name for p in expired),
                     )
             else:
                 providers = all_providers
             provider_pairs = [(p.id, p.name) for p in providers]
-        finally:
-            session.close()
         # Enqueue through the manager so they run serially, not concurrently
         for pid, pname in provider_pairs:
             if hasattr(self, "refresh_queue_manager"):
