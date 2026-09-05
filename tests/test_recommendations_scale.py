@@ -128,31 +128,57 @@ def test_a_nonpositive_chunk_size_is_refused():
 
 
 # ── the scoring path uses it, and does not load raw_data ────────────────────
+#
+# PERF-21a moved the candidate fetch out of ``score_candidates`` entirely, into
+# ``metatv.core.preference_candidates.fetch_candidates`` — a column-only
+# statement that joins straight to ``MetadataDB`` (1:1 on ``metadata_id ==
+# MetadataDB.id``, so it cannot fan out rows) instead of running a second query
+# with a per-candidate ``metadata_id`` ``IN (...)`` list. That removes the
+# crash site this file exists to guard: there is no longer an ``IN (...)``
+# whose length scales with the candidate count, so
+# ``test_a_single_in_past_the_ceiling_really_does_raise``'s premise can no
+# longer reach this path at all — the two tests below moved with the code they
+# describe and were rewritten for the new shape rather than deleted.
 
-def test_score_candidates_chunks_its_metadata_lookup():
-    """Derived from the source: the crash site must go through the helper."""
-    import inspect
+def test_fetch_candidates_joins_metadata_instead_of_a_chunked_lookup():
+    """Derived from the source: no per-candidate IN (...) list survives.
 
-    from metatv.core import preference_engine
-
-    src = inspect.getsource(preference_engine.score_candidates)
-    assert "fetch_in_chunks" in src, (
-        "the metadata lookup binds every candidate id in one IN (...) again"
-    )
-
-
-def test_score_candidates_does_not_select_raw_data():
-    """raw_data is ~half the channels table and nothing here reads it.
-
-    The only mention of it in this module or content_dedup is a comment saying
-    a column-only query avoids loading it — every candidate was carrying and
-    JSON-decoding the blob for nothing.
+    ``fetch_in_chunks`` existed ONLY because the old second query bound one
+    placeholder per candidate metadata_id. Folding the join into the same
+    column-only statement removes that list outright, so this asserts the
+    NEW shape (a JOIN) rather than re-asserting the old chunking mechanism,
+    which no longer has anything left to chunk.
     """
     import inspect
 
-    from metatv.core import preference_engine
+    from metatv.core import preference_candidates
 
-    src = inspect.getsource(preference_engine.score_candidates)
-    assert "defer(ChannelDB.raw_data)" in src, (
+    src = inspect.getsource(preference_candidates._build_candidates_query)
+    assert ".join(MetadataDB" in src, (
+        "the metadata fetch is not joined into the candidate statement — "
+        "a second per-candidate IN (...) query would reintroduce the "
+        "SQLite bound-parameter ceiling this file guards"
+    )
+    assert "fetch_in_chunks" not in src, (
+        "a chunked metadata IN (...) reappeared; the JOIN was supposed to "
+        "remove the reason it existed"
+    )
+
+
+def test_fetch_candidates_does_not_select_raw_data():
+    """raw_data is ~half the channels table and nothing here reads it.
+
+    Every candidate used to carry and JSON-decode that blob for nothing
+    (measured at -29% wall clock / -25% peak memory when it was fixed to a
+    ``defer()``); PERF-21a's column-only statement never names the column
+    at all, so this checks the explicit column list instead of a ``defer()``
+    call that no longer exists.
+    """
+    import inspect
+
+    from metatv.core import preference_candidates
+
+    src = inspect.getsource(preference_candidates._build_candidates_query)
+    assert "raw_data" not in src, (
         "candidates are loaded with raw_data, which the scoring path never reads"
     )

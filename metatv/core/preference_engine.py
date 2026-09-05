@@ -538,13 +538,13 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     Returns a ranked list, highest score first.
     """
     from datetime import datetime
-    from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB
-    from sqlalchemy.orm import defer
+    from metatv.core import channel_visibility
+    from metatv.core.database import ChannelDB, UserRatingDB, WatchQueueDB
+    from metatv.core.preference_candidates import fetch_candidates
 
     from metatv.core.content_dedup import (
         build_dedup_key, build_engaged_normalized, is_content_key_dedup,
     )
-    from metatv.core.sql_batching import fetch_in_chunks
 
     if weights.is_empty():
         return []
@@ -606,42 +606,19 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         (k[0], k[1]) for k in engaged_normalized if k[1] == "series" and k[2] is None
     }
 
-    from metatv.core import channel_visibility
-    candidates_q = (
-        session.query(ChannelDB)
-        .filter(
-            ChannelDB.media_type.in_(["movie", "series"]),
-            ChannelDB.is_rec_suppressed == False,  # noqa: E712
-            ChannelDB.metadata_id.isnot(None),
-        )
-    )
-    # Single visibility chokepoint (metatv.core.channel_visibility.apply) —
-    # owns is_hidden, provider scoping, and the prefix/keyword Global-Exclusion
-    # axes in one call.  The prefix axis is now the canonical, region-aware
-    # predicate (filter_utils.channel_exclusion_criterion, "language wins over
-    # region") instead of the old flat detected_prefix NOT IN check that used
-    # to live in discovery_engine._apply_prefix_filter — this is the fix for
-    # "Recommendations ignores global exclusions": a candidate with no
-    # detected_prefix but an excluded detected_region is now ALSO dropped here,
-    # matching the channel list / tag-facet counts / EPG On-Now (see PR
-    # description for the full rationale/impact).
-    # EVERY axis the scope carries, not the four this used to fill.
-    #
-    # ``VisibilityScope`` is the one definition of "which channels are visible",
-    # and the rule about it is that an axis is added to the SCOPE so every
-    # surface gets it at once — never to one caller. That held; what did not is
-    # that this caller then only populated part of it, which is the same bug
-    # wearing the chokepoint's clothes. A recommendation could therefore carry
-    # content the user had excluded everywhere else, and the worst of those was
-    # ADULT: ``adult_mode`` never reached this query, so the filter that governs
-    # the channel list, Discover and the tag counts did not govern
-    # Recommendations.
-    #
-    # The disabled/expired-source gate is absolute (see CLAUDE.md), and so is
-    # this: a Recommendations rail that surfaces excluded content is the
-    # product's own thesis leaking.
-    candidates_q = channel_visibility.apply(
-        candidates_q,
+    # Column-only candidate feed (PERF-21a — moved to preference_candidates.py):
+    # what used to be a full ChannelDB fetch (up to 786k rows on the owner's
+    # library, `candidates_q.options(defer(ChannelDB.raw_data)).all()`) plus a
+    # second chunked MetadataDB IN(...) query is now ONE column-only statement
+    # joined 1:1 to metadata, returning plain Candidate rows — no ORM instance
+    # crosses the session boundary, and there is no per-candidate IN (...) list
+    # left to bind past SQLite's bound-parameter ceiling (the "too many SQL
+    # variables" crash tests/test_recommendations_scale.py guards). Every
+    # filter/join/visibility-axis this used to apply — incl. the fix for
+    # "Recommendations ignores global exclusions" (adult_mode reaching this
+    # query) — moved verbatim; see that module for the full rationale.
+    candidates = fetch_candidates(
+        session,
         channel_visibility.VisibilityScope(
             excluded_provider_ids=list(excluded_provider_ids or []),
             excluded_prefixes=set(excluded_prefixes or []),
@@ -652,41 +629,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             adult_mode=adult_mode,
             force_adult_provider_ids=list(force_adult_provider_ids or []),
         ),
-        channel_cls=ChannelDB,
     )
-    # raw_data is deferred, not selected. It is roughly half the channels table
-    # (386 MB) and nothing on the scoring path reads it — the only mention of
-    # it anywhere in this module or content_dedup is a COMMENT saying a
-    # column-only query avoids loading it. Every candidate row was carrying and
-    # JSON-decoding that blob for nothing: measured at -29% wall clock and -25%
-    # peak memory on the owner's 106,918 candidates.
-    candidates = candidates_q.options(defer(ChannelDB.raw_data)).all()
-
-    # Batch-fetch the MetadataDB rows the candidates loop needs.
-    #
-    # CHUNKED, because this list is as long as the candidate set and SQLite
-    # compiles a bound-parameter ceiling into the library. On the owner's
-    # library with his 158 prefix exclusions the list is 106,918 and fits; with
-    # NO exclusions — a new install, which is also the "good on raw, messy
-    # data" case the product thesis names — it is 414,759 and the query does
-    # not degrade, it RAISES:
-    #
-    #     OperationalError: too many SQL variables
-    #
-    # which sidebar/recommended.py catches and renders as "Couldn't load
-    # recommendations". The ceiling is a compile-time constant of whatever
-    # SQLite the interpreter is linked against, so it differs between this
-    # machine, CI, and a packaged build — the reason it could ship unseen.
-    candidate_metadata_ids = [ch.metadata_id for ch in candidates if ch.metadata_id]
-    candidate_meta_map: dict[str, MetadataDB] = {
-        meta.id: meta
-        for meta in fetch_in_chunks(
-            lambda ids: session.query(MetadataDB)
-            .filter(MetadataDB.id.in_(ids))
-            .all(),
-            candidate_metadata_ids,
-        )
-    }
 
     # Implicit prefix preference: count how often the user has positively engaged with
     # each prefix (favorites, queued, liked, and watched).  Used as a tiebreaker when
@@ -729,9 +672,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             continue
         if channel.last_played:  # already watched — recommendation done
             continue
-        meta = candidate_meta_map.get(channel.metadata_id)
-        if not meta:
-            continue
+        # `channel` is a Candidate (PERF-21a): one column-only row already
+        # joined 1:1 to its MetadataDB fields, so `meta` is the same object —
+        # there is no per-row metadata dict lookup left to do.
+        meta = channel
 
         dedup_key = build_dedup_key(channel, meta)
         if channel.id not in _overrides and dedup_key in engaged_normalized:

@@ -6,6 +6,10 @@ Covers:
 - compute_weights: AttributeWeights unchanged after batched channel/metadata fetch + column-only plots.
 - build_engaged_normalized: engaged fingerprint set unchanged after batched N+1 removal.
 - build_status_sets: fav/watched id sets unchanged after column-only queries.
+- fetch_candidates/Candidate (PERF-21a): the candidate feed is column-only DTOs,
+  never ChannelDB/MetadataDB instances, and score_candidates' output is
+  byte-identical to the pre-PERF-21a implementation (exact scores captured
+  from the pre-fix code — see the PR body for the before/after comparison run).
 """
 
 from __future__ import annotations
@@ -446,6 +450,45 @@ class TestScoreCandidatesEquivalence:
         session.close()
         db.close()
 
+    def test_exact_scores_unchanged_after_perf21a(self, tmp_path):
+        """PERF-21a moved the candidate fetch to a column-only DTO feed
+        (metatv.core.preference_candidates.fetch_candidates), replacing the
+        full ChannelDB/MetadataDB materialisation `score_candidates` used to
+        do itself.
+
+        These values were captured from this EXACT `_build_fixture` scenario
+        run against the pre-PERF-21a implementation (a `git stash`
+        before/after comparison — see the PR body): exactly one result,
+        `cand_action`, with this score to 6dp. A regression in the DTO field
+        mapping (a swapped column in the SELECT list, a JSON column read
+        raw instead of decoded, ...) would move this number even though the
+        id-membership tests above would still pass.
+        """
+        from metatv.core.preference_engine import compute_weights, score_candidates
+
+        db = _make_db(tmp_path / "exact.db")
+        Session = sessionmaker(bind=db.engine)
+        session = Session()
+
+        cand_action, cand_drama, cand_comedy = self._build_fixture(session)
+
+        weights = compute_weights(session)
+        results = score_candidates(session, weights, limit=30)
+
+        assert len(results) == 1
+        r = results[0]
+        assert r.channel_id == cand_action.id
+        assert round(r.score, 6) == 2.646482
+        assert r.reason == "Action, Woo"
+        assert r.matching_genres == ["Action"]
+        assert r.director == "John Woo"
+        assert r.metadata_rating is None
+        assert r.already_liked is False
+        assert r.score_people == ("John Woo",)
+
+        session.close()
+        db.close()
+
 
 # ---------------------------------------------------------------------------
 # 4. build_engaged_normalized equivalence
@@ -621,6 +664,110 @@ class TestBuildStatusSetsEquivalence:
         assert ch_plain.id not in result.watched_ids
         assert ch_plain.id not in result.queue_ids
         assert ch_plain.id not in result.liked_ids
+
+        session.close()
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# 6. fetch_candidates / Candidate — PERF-21a
+# ---------------------------------------------------------------------------
+
+class TestFetchCandidatesDTO:
+    """The candidate feed must be column-only DTOs, never ORM instances.
+
+    Pre-PERF-21a, `score_candidates` fetched candidates via
+    `session.query(ChannelDB).options(defer(ChannelDB.raw_data)).all()` plus a
+    second chunked `session.query(MetadataDB).filter(MetadataDB.id.in_(...))`
+    — both fully materialised ORM rows. `metatv.core.preference_candidates`
+    did not exist before this change (confirmed via a `git stash`
+    before/after comparison — see the PR body), so this whole class raised
+    ImportError against the pre-fix tree; that IS the proof it fails there.
+    """
+
+    def test_the_candidate_feed_holds_no_orm_instances(self, tmp_path):
+        """Every element `fetch_candidates` returns is a `Candidate` — and the
+        REAL statement it executes (not a hand-reconstructed lookalike)
+        selects no mapped entity and never names `raw_data`.
+        """
+        from metatv.core import channel_visibility
+        from metatv.core.database import ChannelDB, MetadataDB
+        from metatv.core.preference_candidates import (
+            Candidate, _build_candidates_query, fetch_candidates,
+        )
+
+        db = _make_db(tmp_path / "dto.db")
+        Session = sessionmaker(bind=db.engine)
+        session = Session()
+
+        meta = _make_metadata(session, "Action Film", genres=["Action"], year=2020)
+        cand = _make_channel(session, "EN - Action Film", media_type="movie",
+                              metadata_id=meta.id)
+        session.commit()
+
+        scope = channel_visibility.VisibilityScope()
+        candidates = fetch_candidates(session, scope)
+
+        assert candidates, "fixture candidate was not returned"
+        assert all(type(c) is Candidate for c in candidates), (
+            "fetch_candidates returned something other than the Candidate DTO"
+        )
+        assert cand.id in {c.id for c in candidates}
+
+        # The REAL query object fetch_candidates executes internally — not a
+        # reconstruction, so this proves the production statement, not a
+        # lookalike of it.
+        query = _build_candidates_query(session, scope)
+        for desc in query.column_descriptions:
+            # A full-entity select (`session.query(ChannelDB)`) reports
+            # `type is ChannelDB`; a column-only select's `type` is the
+            # column's own SQL type (String(), ...). That is what
+            # distinguishes "one column of a mapped table" (fine — `entity`
+            # always names the owning table) from "an entire mapped row"
+            # (not fine — the thing PERF-21a removed).
+            assert desc["type"] not in (ChannelDB, MetadataDB), (
+                f"a mapped entity leaked into the candidate feed: {desc}"
+            )
+        compiled_sql = str(query.statement.compile(db.engine))
+        assert "raw_data" not in compiled_sql, (
+            "raw_data was selected by the candidate feed"
+        )
+
+        session.close()
+        db.close()
+
+    def test_build_dedup_key_matches_for_dto_and_orm_row(self, tmp_path):
+        """`build_dedup_key` must return an identical key whether given the
+        Candidate DTO or the (ChannelDB, MetadataDB) ORM pair it was built
+        from — the function keeps serving both kinds of caller
+        (`build_engaged_normalized`, the Similar-titles path in
+        `repositories/channel.py`) via plain attribute access, unmodified.
+        """
+        from metatv.core import channel_visibility
+        from metatv.core.content_dedup import build_dedup_key
+        from metatv.core.preference_candidates import fetch_candidates
+
+        db = _make_db(tmp_path / "parity.db")
+        Session = sessionmaker(bind=db.engine)
+        session = Session()
+
+        meta = _make_metadata(session, "Some Movie", genres=["Drama"],
+                               director="Jane Director", year=2015)
+        ch = _make_channel(session, "EN - Some Movie (2015)", media_type="movie",
+                           metadata_id=meta.id, detected_prefix="EN")
+        session.commit()
+
+        candidates = fetch_candidates(session, channel_visibility.VisibilityScope())
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.id == ch.id
+
+        orm_key = build_dedup_key(ch, meta)
+        dto_key = build_dedup_key(candidate, candidate)
+        assert orm_key == dto_key
+        # And it is the real (non-content_key) fingerprint, not two accidental
+        # channel.id fallbacks that happen to be equal.
+        assert orm_key[0] not in (ch.id, candidate.id)
 
         session.close()
         db.close()
