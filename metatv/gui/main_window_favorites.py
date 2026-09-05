@@ -34,48 +34,58 @@ class _FavoritesMixin:
             self.channel_model.update_favorite(channel_id, delta["is_favorite"])
 
     def _toggle_rating(self, channel_id: str, rating: int) -> None:
-        """Toggle a like (+1) or dislike (-1) rating; clicking the active rating clears it."""
-        from datetime import datetime
-        from metatv.core.database import UserRatingDB
-        cleared = False
-        with self.db.session_scope() as session:
-            current = session.get(UserRatingDB, channel_id)
-            if current and current.rating == rating:
-                session.delete(current)
-                cleared = True
-            else:
-                session.merge(UserRatingDB(channel_id=channel_id, rating=rating,
-                                           rated_at=datetime.utcnow()))
-                # A like/dislike is mutually exclusive with "not interested" —
-                # clear any suppression so the sentiment buttons stay consistent.
-                RepositoryFactory(session).channels.set_rec_suppressed(channel_id, False)
-        new_rating = 0 if cleared else rating
-        if self.view_mode == "preferences":
-            self.preferences_view.refresh()
-        self._refresh_recommended_section()
-        self.channel_state_bus.publish(channel_id, rating=new_rating)
+        """Toggle a like/dislike; clicking the active rating clears it.
+
+        DEBT-3: write runs off the UI thread via ``_run_query``; publish fires
+        only once it lands.
+        """
+        def _write(repos):
+            current = repos.ratings.get(channel_id)
+            if current == rating:
+                repos.ratings.clear(channel_id)
+                return 0
+            repos.ratings.set(channel_id, rating)
+            # A like/dislike is mutually exclusive with "not interested" —
+            # clear any suppression so the sentiment buttons stay consistent.
+            repos.channels.set_rec_suppressed(channel_id, False)
+            return rating
+        def _on_result(new_rating):
+            if self.view_mode == "preferences":
+                self.preferences_view.refresh()
+            self._refresh_recommended_section()
+            self.channel_state_bus.publish(channel_id, rating=new_rating)
+        self._run_query(_write, _on_result, commit=True)
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
+        """Set favorite status explicitly (context-menu path). DEBT-3: async write."""
+        def _write(repos):
+            channel = repos.channels.get_by_id(channel_id)
             if not channel:
-                return
+                return None
             channel.is_favorite = make_favorite
-        # Un-favoriting removes exactly one row; favoriting has to place it in
-        # the right group, which is the full render's job.
-        if make_favorite:
-            self.load_favorites()
-        else:
-            self._remove_sidebar_row("favorites", channel_id)
-        self.channel_state_bus.publish(channel_id, is_favorite=make_favorite)
+            return True
+        def _on_result(result):
+            if result is None:
+                return
+            # Un-favoriting removes one row; favoriting needs the full render.
+            if make_favorite:
+                self.load_favorites()
+            else:
+                self._remove_sidebar_row("favorites", channel_id)
+            self.channel_state_bus.publish(channel_id, is_favorite=make_favorite)
+        self._run_query(_write, _on_result, commit=True)
 
     def _hide_channel_from_alerts(self, channel_id: str) -> None:
-        with self.db.session_scope() as session:
-            RepositoryFactory(session).channels.set_hidden(channel_id, True)
-        self._refresh_watch_alerts()
-        self.load_history()
-        self.load_channels()
-        self.channel_state_bus.publish(channel_id, is_hidden=True)
+        """Hide a channel from Watch Alerts. DEBT-3: async write."""
+        def _write(repos):
+            repos.channels.set_hidden(channel_id, True)
+            return True
+        def _on_result(_result):
+            self._refresh_watch_alerts()
+            self.load_history()
+            self.load_channels()
+            self.channel_state_bus.publish(channel_id, is_hidden=True)
+        self._run_query(_write, _on_result, commit=True)
 
     def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
         """Suppress (or un-suppress) channel from recommendations only.
@@ -830,54 +840,43 @@ class _FavoritesMixin:
         else:
             self.play_media(channel)
 
-    def _apply_favorite_toggle(self, channel_id: str):
+    def _apply_favorite_toggle(self, channel_id: str) -> None:
         """Toggle favorite in DB, show status bar message, refresh sidebar.
 
-        Returns (channel, new_status) on success, or None if channel not found.
-
-        Uses legacy try/finally (not session_scope) because toggle_favorite() commits
-        internally, expiring all column attributes via expire_on_commit=True.
-        session.refresh() reloads them; session.close() then detaches the object with
-        its __dict__ intact. session_scope()'s auto-commit on exit would expire again
-        after the refresh, causing DetachedInstanceError when callers access
-        channel.name / channel.is_favorite.
+        DEBT-3: write runs off the UI thread via ``_run_query``, returning
+        plain data — the legacy get_session()/try-finally dance (working
+        around toggle_favorite()'s internal commit) is gone. ``toggle_favorite``'s
+        icon echo derives its value from what's on screen, not this return.
         """
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
+        def _write(repos):
             channel = repos.channels.get_by_id(channel_id)
             if not channel:
                 return None
             new_status = repos.channels.toggle_favorite(channel_id)
-            # toggle_favorite() commits, which expires every column on `channel`
-            # (expire_on_commit defaults True). Repopulate now so callers can read
-            # attributes (name, media_type, provider_id, ...) after the session is
-            # closed without triggering a DetachedInstanceError.
-            session.refresh(channel)
-        finally:
-            session.close()
-
-        status = "added to" if channel.is_favorite else "removed from"
-        self.status_bar.showMessage(f"{channel.name} {status} favorites")
-        logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
-        self.load_favorites()
-        self.channel_state_bus.publish(channel_id, is_favorite=channel.is_favorite)
-        return channel, new_status
+            return channel.name, new_status
+        def _on_result(result):
+            if result is None:
+                return
+            name, new_status = result
+            status = "added to" if new_status else "removed from"
+            self.status_bar.showMessage(f"{name} {status} favorites")
+            logger.info(f"Toggled favorite for {name}: {new_status}")
+            self.load_favorites()
+            self.channel_state_bus.publish(channel_id, is_favorite=new_status)
+        self._run_query(_write, _on_result, commit=True)
 
     def toggle_favorite(self, item):
-        """Toggle favorite status of a channel"""
+        """Toggle favorite status: an optimistic icon/cache echo, confirmed
+        once the async write (below) lands."""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
 
-        result = self._apply_favorite_toggle(channel_id)
-        if not result:
-            return
-        channel, _ = result
+        current_text = item.text()
+        new_is_favorite = self.favorite_icon not in current_text
 
         # Update the icon on the current item only (fast, no database query)
-        current_text = item.text()
-        if channel.is_favorite:
+        if new_is_favorite:
             updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
         else:
             updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
@@ -888,7 +887,7 @@ class _FavoritesMixin:
         # than mutating in place (a frozen dataclass would raise on assignment).
         for i, (_text, ch) in enumerate(self.all_channels):
             if ch.id == channel_id:
-                new_ch = replace(ch, is_favorite=channel.is_favorite)
+                new_ch = replace(ch, is_favorite=new_is_favorite)
                 media_icon = self.get_media_type_icon(new_ch.media_type)
                 fav_icon = self.favorite_icon if new_ch.is_favorite else self.unfavorite_icon
                 display_text = f"{media_icon}{fav_icon} {new_ch.name}"
@@ -898,6 +897,8 @@ class _FavoritesMixin:
                     display_text += f" ({new_ch.quality})"
                 self.all_channels[i] = (display_text, new_ch)
                 break
+
+        self._apply_favorite_toggle(channel_id)
 
     def play_channel_by_id(self, channel_id: str):
         """Play channel by ID (for details pane Play button)"""
@@ -1100,15 +1101,13 @@ class _FavoritesMixin:
         )
         dialog.exec()
 
-    def toggle_favorite_by_id(self, channel_id: str):
+    def toggle_favorite_by_id(self, channel_id: str) -> None:
         """Toggle favorite by ID (for details pane Favorite button).
 
         The channel-list row and the details pane's favorite star both refresh
         via ``ChannelStateBus`` — ``_apply_favorite_toggle`` publishes the new
         state, tier 1 echoes the channel-list row in place, and tier 2's
         authoritative re-read repaints the details pane's star even while the
-        lightbox has focus. No hand-rolled refresh here.
+        lightbox has focus (now async; DEBT-3 — nothing follows synchronously).
         """
-        result = self._apply_favorite_toggle(channel_id)
-        if not result:
-            return
+        self._apply_favorite_toggle(channel_id)
