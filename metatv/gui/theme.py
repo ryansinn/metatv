@@ -45,8 +45,10 @@ values (``setStyleSheet()`` bakes a string, it doesn't track the token live).
 from __future__ import annotations
 
 import re
+import time
 import weakref
 
+from loguru import logger
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -2063,7 +2065,7 @@ def _role_qss(role) -> str:
     return value
 
 
-def _repolish_all_widgets() -> int:
+def _repolish_all_widgets(skip_ids: frozenset[int] = frozenset()) -> int:
     """Force every existing widget to re-read the palette. Returns the count.
 
     The palette push in :func:`_sync_qt_application_palette` updates what
@@ -2080,12 +2082,19 @@ def _repolish_all_widgets() -> int:
     maintained list — the enumeration problem the style registry exists to
     avoid applies here too, and a theme switch is a rare, user-initiated action
     where walking every widget once is cheap.
+
+    Args:
+        skip_ids: ``id()`` of widgets a prior pass this switch already gave a
+            fresh ``setStyleSheet`` (that call already polishes) — avoids a
+            redundant second polish (THEME-1).
     """
     app = QApplication.instance()
     if app is None:
         return 0
     count = 0
     for widget in app.allWidgets():
+        if id(widget) in skip_ids:
+            continue
         try:
             widget.style().unpolish(widget)
             widget.style().polish(widget)
@@ -2097,10 +2106,11 @@ def _repolish_all_widgets() -> int:
     return count
 
 
-def _reapply_registered_styles() -> int:
-    """Re-apply every live registration; reap dead ones. Returns the count."""
+def _reapply_registered_styles() -> frozenset[int]:
+    """Re-apply every live registration; reap dead ones. Returns the ``id()``
+    of each restyled widget, so :func:`_repolish_all_widgets` can skip it."""
     survivors: list = []
-    applied = 0
+    applied: set[int] = set()
     for ref, role in _style_registry:
         widget = ref()
         if widget is None:
@@ -2113,9 +2123,9 @@ def _reapply_registered_styles() -> int:
             # than wedging the whole sweep on one stale entry.
             continue
         survivors.append((ref, role))
-        applied += 1
+        applied.add(id(widget))
     _style_registry[:] = survivors
-    return applied
+    return frozenset(applied)
 
 
 def registered_style_count() -> int:
@@ -2235,7 +2245,7 @@ _CONSTANT_REWRITE: dict[str, str] = {}
 _SEMANTIC_CONSTANT_NAMES: tuple[str, ...] = tuple(_build_semantic_constants())
 
 
-def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
+def _rewrite_stale_palette_values(mapping: dict[str, str]) -> frozenset[int]:
     """Swap old palette colours for new ones in every live widget's stylesheet.
 
     Registered widgets have already been re-rendered exactly by
@@ -2245,15 +2255,16 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
         mapping: ``{old_value: new_value}`` from :func:`_build_palette_rewrite_map`.
 
     Returns:
-        Number of widgets whose stylesheet actually changed.
+        ``id()`` of every widget actually changed — already polished, so
+        :func:`_repolish_all_widgets` can skip it.
     """
     app = QApplication.instance()
     if app is None:
-        return 0
+        return frozenset()
 
     # Longest first: a token whose value contains another's must win.
     ordered = sorted(mapping.items(), key=lambda kv: len(kv[0]), reverse=True)
-    changed = 0
+    changed: set[int] = set()
     for widget in app.allWidgets():
         try:
             sheet = widget.styleSheet()
@@ -2266,7 +2277,7 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
         exact = _CONSTANT_REWRITE.get(sheet)
         if exact is not None:
             widget.setStyleSheet(exact)
-            changed += 1
+            changed.add(id(widget))
             continue
         # Token-aware when we know what this widget's sheet was composed from:
         # build the substitution from ONLY those tokens. A colour shared by two
@@ -2294,8 +2305,8 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
             widget.setStyleSheet(updated)
         except RuntimeError:
             continue
-        changed += 1
-    return changed
+        changed.add(id(widget))
+    return frozenset(changed)
 
 
 def apply_theme(name: str) -> bool:
@@ -2321,10 +2332,9 @@ def apply_theme(name: str) -> bool:
     3. :func:`_repolish_all_widgets` tells everything to re-read the QPalette,
        which is what themes widgets carrying no stylesheet at all.
 
-    (This used to say the opposite — that a cached stylesheet keeps the old
-    style until something re-invokes ``setStyleSheet`` — and that was accurate
-    when only the hand-maintained ``refresh_theme()`` sweep existed. It is the
-    behaviour the owner reported repeatedly as "themes are still fucked up".)
+    (This used to say the opposite, back when only the hand-maintained
+    ``refresh_theme()`` sweep existed — the owner-reported "themes are still
+    fucked up" behaviour.)
 
     Args:
         name: One of :data:`theme_palettes.PALETTES`'s keys (e.g. "Midnight").
@@ -2346,8 +2356,22 @@ def apply_theme(name: str) -> bool:
         return _apply_theme_locked(name)
 
 
+def _visible_top_levels() -> list[QWidget]:
+    """Visible top-level widgets, for suspending repaints during a switch."""
+    app = QApplication.instance()
+    if app is None:
+        return []
+    return [w for w in app.topLevelWidgets() if w.isVisible()]
+
+
 def _apply_theme_locked(name: str) -> bool:
-    """The body of :func:`apply_theme`, with token-read recording suspended."""
+    """The body of :func:`apply_theme`, with token-read recording suspended.
+
+    THEME-1: painting is suspended (``setUpdatesEnabled``) on every visible
+    top-level for the four passes below — was 5-7s of synchronous per-widget
+    repaints; now one repaint at the end. See the passes' own docstrings for
+    why pass 4 skips widgets 2/3 already restyled.
+    """
     global _current_theme
     changed = name != _current_theme
     rewrite_map: dict[str, str] = {}
@@ -2380,20 +2404,37 @@ def _apply_theme_locked(name: str) -> bool:
             if isinstance(was, str) and isinstance(globals().get(n), str)
             and was != globals()[n]
         }
-    _sync_qt_application_palette()
-    # Restyle every widget registered through style()/style_fn(). Unconditional,
-    # like the palette push above: a cold launch whose saved theme already
-    # matches the resting default still needs one pass so nothing is left on a
-    # stale string. Cheap when the registry is empty (startup, tests).
-    _reapply_registered_styles()
-    # Everything that built its stylesheet by hand still holds the OLD palette's
-    # colour values verbatim. Swap them for the new ones (guarded — see
-    # _build_palette_rewrite_map) so a composed f-string sheet switches too,
-    # without needing ~370 call sites converted one at a time.
-    _rewrite_stale_palette_values(rewrite_map)
-    # Registered widgets got a fresh stylesheet above; everything else needs to
-    # be told to re-read the palette, or it keeps painting the old one.
-    _repolish_all_widgets()
+    # A dying top-level mid-sweep (RuntimeError) is skipped, never fatal.
+    tops = _visible_top_levels()
+    for w in tops:
+        try:
+            w.setUpdatesEnabled(False)  # one repaint at the end, not per-widget
+        except RuntimeError:
+            continue
+    t0 = time.perf_counter()
+    try:
+        _sync_qt_application_palette()
+        t1 = time.perf_counter()
+        registered_ids = _reapply_registered_styles()  # style()/style_fn() widgets
+        t2 = time.perf_counter()
+        rewritten_ids = _rewrite_stale_palette_values(rewrite_map)  # hand-composed
+        t3 = time.perf_counter()
+        repolished = _repolish_all_widgets(registered_ids | rewritten_ids)  # the rest
+        t4 = time.perf_counter()
+    finally:
+        for w in tops:
+            try:
+                w.setUpdatesEnabled(True)
+                w.update()
+            except RuntimeError:
+                continue
+    logger.debug(
+        "theme switch {}: palette {:.1f} ms · registered {:.1f} ms/{} widgets · "
+        "rewrite {:.1f} ms/{} sheets · repolish {:.1f} ms/{} widgets · total {:.1f} ms",
+        name, (t1 - t0) * 1000, (t2 - t1) * 1000, len(registered_ids),
+        (t3 - t2) * 1000, len(rewritten_ids), (t4 - t3) * 1000, repolished,
+        (t4 - t0) * 1000,
+    )
     return changed
 
 

@@ -180,5 +180,5 @@ class TestItDoesNotBreakTheSweep:
     def test_an_empty_map_is_a_no_op(self, qapp):
         w = QLabel()
         w.setStyleSheet("color: #abcdef;")
-        assert _theme._rewrite_stale_palette_values({}) == 0
+        assert _theme._rewrite_stale_palette_values({}) == frozenset()
         assert w.styleSheet() == "color: #abcdef;"
