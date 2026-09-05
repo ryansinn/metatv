@@ -30,7 +30,16 @@ from metatv.gui import deferred_config_save as _cfgsave
 # hatch #680's record relies on — a human re-click is seconds apart, the
 # measured accidental double was 185ms, so 300ms catches the double without
 # touching the escape hatch.
-_RERENDER_DEBOUNCE_S = 0.3
+#
+# UI-11 (owner's log 2026-09-05 06:39-06:41): the SAME channel id re-rendered
+# twelve times in 100s — the pairs landed 350-500ms apart (two surfaces
+# firing for one gesture), past the 300ms window. Raised to 2.0s. This is
+# now reachable only while metadata for the shown id is STILL LOADING: once
+# metadata lands, the _details_shown same-title no-op below short-circuits a
+# repeat outright with no timer involved, so widening this constant does not
+# reopen the click-again-to-refresh escape hatch on an already-settled title
+# — a human re-click is comfortably "seconds", not 2.
+_RERENDER_DEBOUNCE_S = 2.0
 
 
 class _MetadataMixin:
@@ -435,8 +444,16 @@ class _MetadataMixin:
         QTimer.singleShot(150, _after)
 
     def _on_rec_sidebar_selected(self, channel_id: str, reason: str) -> None:
-        self.show_channel_details_by_id(channel_id)
-        self.details_pane.set_recommendation_reason(reason)
+        # UI-11: show_channel_details_by_id is now async (the DTO read runs
+        # off the main thread) — set_recommendation_reason must land AFTER
+        # show_channel actually renders, since show_channel clears the same
+        # meta section the reason label lives in. on_shown fires in the
+        # main-thread result slot, right after the render, preserving the
+        # old synchronous ordering.
+        self.show_channel_details_by_id(
+            channel_id,
+            on_shown=lambda: self.details_pane.set_recommendation_reason(reason),
+        )
 
     def _refresh_recommended_section(self) -> None:
         section = self.sidebar_sections.get("recommended")
@@ -445,13 +462,36 @@ class _MetadataMixin:
 
     # ── Channel details pane ────────────────────────────────────────────────
 
-    def show_channel_details_by_id(self, channel_id: str):
-        """Show channel details in details pane (for sidebar selections)."""
-        channel = None
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+    def show_channel_details_by_id(self, channel_id: str, on_shown=None) -> None:
+        """Show channel details in details pane (for sidebar selections).
+
+        UI-11: the DTO read (previously a synchronous session_scope() +
+        get_playable_dto() on the main thread) now runs off-thread through
+        the ``_run_query`` seam — this call is fire-and-forget; the pane
+        updates whenever the result lands, not before this returns.
+
+        Args:
+            channel_id: Channel to display.
+            on_shown: Optional callback invoked on the main thread right
+                after ``update_details_pane_for_channel`` returns for this
+                id — for state that must land AFTER the render (e.g. the
+                recommendation-reason label, which ``show_channel`` would
+                otherwise clear if set beforehand). Not called when the
+                channel no longer exists.
+        """
+        self._run_query(
+            lambda repos: repos.channels.get_playable_dto(channel_id),
+            lambda channel: self._on_details_channel_loaded(channel, on_shown),
+            token_ref=self._details_channel_token,
+        )
+
+    def _on_details_channel_loaded(self, channel, on_shown=None) -> None:
+        """Main-thread slot: render the DTO loaded by show_channel_details_by_id
+        / on_channel_selection_changed, then fire any deferred on_shown callback."""
         if channel:
             self.update_details_pane_for_channel(channel)
+            if on_shown:
+                on_shown()
 
     def on_channel_selection_changed(self, current, previous):
         """Handle channel selection change — update details pane."""
@@ -463,69 +503,125 @@ class _MetadataMixin:
             return
         self._last_shown_channel_id = channel_id
 
-        channel = None
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
-        if channel:
-            self.update_details_pane_for_channel(channel)
-
-    def update_details_pane_for_channel(self, channel):
-        """Update details pane with channel metadata (async)."""
-        from metatv.core.models import MediaType
-
-        # Deliberate diagnostics (2026-09-02): names the caller that reached
-        # this chokepoint, so the owner's next "double render" log can name
-        # which pair of surfaces fired it — the original report could not
-        # tell which pair it was.
-        logger.debug(
-            "details pane: render request for {} via {}",
-            channel.id, sys._getframe(1).f_code.co_name,
+        # UI-11: DTO read moved off the main thread (see show_channel_details_by_id).
+        self._run_query(
+            lambda repos: repos.channels.get_playable_dto(channel_id),
+            self._on_details_channel_loaded,
+            token_ref=self._details_channel_token,
         )
 
-        # Debounce: this is the ONE chokepoint every path funnels through
-        # (show_channel_details_by_id, on_channel_selection_changed,
-        # version_selected, programmatic sidebar calls). Read prior state via
-        # self.__dict__.get, never getattr/hasattr — a skeleton test double
-        # built with QObject.__new__ raises RuntimeError, not AttributeError,
-        # on an attribute probe. See _RERENDER_DEBOUNCE_S above for why this
-        # is time-gated rather than id-gated.
-        now = time.monotonic()
-        last = self.__dict__.get("_details_last_render")
-        if (
-            last is not None
-            and last[0] == channel.id
-            and (now - last[1]) < _RERENDER_DEBOUNCE_S
-        ):
-            logger.debug(
-                "details pane: suppressed duplicate render of {id} ({ms:.0f}ms after the last)",
-                id=channel.id, ms=(now - last[1]) * 1000,
-            )
-            return
-        self._details_last_render = (channel.id, now)
+    def update_details_pane_for_channel(self, channel, force: bool = False) -> None:
+        """Update details pane with channel metadata (async).
+
+        Args:
+            channel: A PlayableChannelDTO (or channel-shaped test double).
+            force: Bypass the same-title no-op AND the time debounce below —
+                for a caller that explicitly wants a hard refresh of a title
+                already shown. Grepped for an existing "refresh metadata"/
+                force-refresh caller at UI-11 time: none exists, so nothing
+                currently passes this — the kwarg is here so one can be
+                wired later without touching this chokepoint again.
+        """
+        from metatv.core.models import MediaType
+
+        # Deliberate diagnostics (2026-09-02; extended UI-11 2026-09-05): names
+        # the caller AND the surface that reached IT, so the owner's next
+        # "double render" log can name which pair of surfaces fired it without
+        # another round of instrumentation.
+        caller = sys._getframe(1).f_code.co_name
+        try:
+            surface = sys._getframe(2).f_code.co_name
+        except ValueError:
+            surface = "<top>"
+        logger.debug(
+            "details pane: render request for {} via {} <- {}",
+            channel.id, caller, surface,
+        )
+
+        if not force:
+            # UI-11 same-title no-op: the pane already shows this exact id
+            # WITH its metadata applied — a repeat request (two surfaces
+            # firing for one gesture, 350-500ms apart per the owner's log)
+            # renders nothing and fetches nothing. Read via self.__dict__.get,
+            # never getattr/hasattr — a skeleton test double built with
+            # QObject.__new__ raises RuntimeError, not AttributeError, on an
+            # attribute probe.
+            shown = self.__dict__.get("_details_shown")
+            if shown is not None and shown[0] == channel.id and shown[1]:
+                logger.debug(
+                    "details pane: already showing {id} with metadata — skipped",
+                    id=channel.id,
+                )
+                return
+
+            # Debounce: this is the ONE chokepoint every path funnels through
+            # (show_channel_details_by_id, on_channel_selection_changed,
+            # version_selected, programmatic sidebar calls). Reachable here
+            # only while metadata for this id is STILL LOADING — the no-op
+            # above already caught the "metadata applied" case — so this stays
+            # time-gated rather than id-gated (see _RERENDER_DEBOUNCE_S above).
+            now = time.monotonic()
+            last = self.__dict__.get("_details_last_render")
+            if (
+                last is not None
+                and last[0] == channel.id
+                and (now - last[1]) < _RERENDER_DEBOUNCE_S
+            ):
+                logger.debug(
+                    "details pane: suppressed duplicate render of {id} ({ms:.0f}ms after the last)",
+                    id=channel.id, ms=(now - last[1]) * 1000,
+                )
+                return
+            self._details_last_render = (channel.id, now)
+        else:
+            self._details_last_render = (channel.id, time.monotonic())
 
         if getattr(channel, "media_type", None) == MediaType.LIVE:
             self.details_pane.set_provider_urls([])
             self.details_pane.show_channel(channel, metadata=None)
+            self._details_shown = (channel.id, False)
             return
 
-        provider_urls = []
-        try:
-            with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                provider_db = repos.providers.get_by_id(channel.provider_id)
-                if provider_db and provider_db.urls:
-                    urls_data = parse_provider_urls(provider_db.urls)
-                    provider_urls = [
-                        u.get('url') for u in urls_data
-                        if u.get('is_active', True) and u.get('url')
-                    ]
-            logger.debug(f"Provider URLs for failover: {provider_urls}")
-        except Exception as e:
-            logger.warning(f"Could not fetch provider URLs: {e}")
-
-        self.details_pane.set_provider_urls(provider_urls)
+        # UI-11: render basic info immediately; the provider-URL failover list
+        # — previously a synchronous session_scope() + get_by_id() on the MAIN
+        # thread here (2,259ms in the owner's 2026-09-03 sample) — now loads
+        # off the executor through the _run_query seam and lands whenever
+        # it's ready. The basic-info render never waits for it.
         self.details_pane.show_channel(channel, metadata=None)
+        self._details_shown = (channel.id, False)
         logger.debug(f"Showing basic info for: {channel.name}")
+
+        channel_id = channel.id
+        provider_id = channel.provider_id
+
+        def _fetch_provider_urls(repos):
+            provider_db = repos.providers.get_by_id(provider_id)
+            if not provider_db or not provider_db.urls:
+                return []
+            urls_data = parse_provider_urls(provider_db.urls)
+            return [
+                u.get('url') for u in urls_data
+                if u.get('is_active', True) and u.get('url')
+            ]
+
+        def _apply_provider_urls(urls) -> None:
+            cur = self.details_pane.current_channel
+            if cur and cur.id == channel_id:
+                self.details_pane.set_provider_urls(urls)
+            logger.debug(f"Provider URLs for failover: {urls}")
+
+        def _on_provider_urls_failed(exc: Exception) -> None:
+            logger.warning(f"Could not fetch provider URLs: {exc}")
+            cur = self.details_pane.current_channel
+            if cur and cur.id == channel_id:
+                self.details_pane.set_provider_urls([])
+
+        self._run_query(
+            _fetch_provider_urls,
+            _apply_provider_urls,
+            token_ref=self._details_urls_token,
+            on_error=_on_provider_urls_failed,
+        )
 
         # metadata_auto_fetch (Settings → Metadata & API Keys) gates ONLY this
         # automatic on-select fetch — basic info from the channel row above always
@@ -590,6 +686,10 @@ class _MetadataMixin:
                 return
             logger.debug(f"Metadata has plot: {bool(metadata.plot)}, cast: {len(metadata.cast) if metadata.cast else 0}")
             self.details_pane.show_channel(channel, metadata=metadata)
+            # UI-11: marks this id "fully shown" for the same-title no-op gate
+            # in update_details_pane_for_channel — a repeat request for this
+            # id now short-circuits instead of re-rendering + re-fetching.
+            self._details_shown = (channel.id, True)
             logger.debug(f"Details pane updated with metadata for {channel.name}")
         except Exception as e:
             logger.error(f"Error updating details pane: {e}", exc_info=True)

@@ -228,15 +228,30 @@ def test_play_handlers_use_session_scope():
 
 
 def test_metadata_handlers_use_session_scope():
-    """Metadata mixin handlers must use session_scope."""
+    """Metadata mixin handlers must use session_scope() — directly, or (UI-11)
+    via the _run_query async seam, which opens session_scope(commit=False)
+    itself one level down in main_window_async.py. Either form satisfies the
+    invariant this guard is for: no raw get_session(), and the session
+    always closes. show_channel_details_by_id, on_channel_selection_changed
+    and update_details_pane_for_channel moved their DB reads off the main
+    thread through _run_query — the literal "session_scope" substring no
+    longer lives in their own bodies, so they're checked for "_run_query"
+    instead.
+    """
+    off_main_thread = {
+        "show_channel_details_by_id",
+        "on_channel_selection_changed",
+        "update_details_pane_for_channel",
+    }
     for fn in (
         "_hide_channel_from_recommendations",
         "show_channel_details_by_id",
         "on_channel_selection_changed",
         "update_details_pane_for_channel",
     ):
-        assert _method_contains("main_window_metadata.py", fn, "session_scope"), (
-            f"{fn} must use session_scope()"
+        pattern = "_run_query" if fn in off_main_thread else "session_scope"
+        assert _method_contains("main_window_metadata.py", fn, pattern), (
+            f"{fn} must use {pattern}()"
         )
 
 
@@ -549,12 +564,32 @@ def test_play_channel_by_id_dto_is_readable_after_session(db):
 
 def test_show_channel_details_by_id_dto_is_readable_after_session(db):
     """show_channel_details_by_id must hand a still-readable PlayableChannelDTO to
-    update_details_pane_for_channel after the session closes (B10-1 metadata side)."""
+    update_details_pane_for_channel after the session closes (B10-1 metadata side).
+
+    UI-11: the DTO read now runs off the main thread through the _run_query
+    seam — driven synchronously here (real ThreadPoolExecutor +
+    executor.shutdown(wait=True), then a manual dispatch of the queued
+    _query_result emission), the same way tests/test_async_query_seam.py
+    drives it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from metatv.gui.main_window_async import _AsyncMixin
     from metatv.gui.main_window_metadata import _MetadataMixin
 
-    class _MetaHost(_MetadataMixin):
+    class _FakeSignal:
+        def __init__(self):
+            self.emitted = []
+
+        def emit(self, value):
+            self.emitted.append(value)
+
+    class _MetaHost(_MetadataMixin, _AsyncMixin):
         def __init__(self, db):
             self.db = db
+            self.executor = ThreadPoolExecutor(max_workers=2)
+            self._query_result = _FakeSignal()
+            self._details_channel_token = [0]
             self.shown = []
 
         def update_details_pane_for_channel(self, ch):
@@ -563,6 +598,10 @@ def test_show_channel_details_by_id_dto_is_readable_after_session(db):
     cid = _seed_movie(db)
     host = _MetaHost(db)
     host.show_channel_details_by_id(cid)
+    host.executor.shutdown(wait=True)
+    for queued in host._query_result.emitted:
+        host._on_query_result(queued)
+
     assert host.shown == [(cid, "Blade Runner", "p1")]
 
 

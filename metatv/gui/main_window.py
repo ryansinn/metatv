@@ -588,6 +588,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._epg_count_token: list[int] = [0]
         self._filter_stats_token: list[int] = [0]
         self._channel_tags_token: list[int] = [0]
+        self._details_channel_token: list[int] = [0]
+        self._details_urls_token: list[int] = [0]
         self._hidden_mode: bool = False
         #: "all" | "downloaded" | "hidden"; _hidden_mode above stays in sync.
         self._list_scope: str = "all"
