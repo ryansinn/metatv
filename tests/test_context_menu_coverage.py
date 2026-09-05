@@ -1,6 +1,6 @@
 """Behavioral tests for the context-menu coverage fixes.
 
-Covers three reported gaps:
+Covers four reported gaps:
 
 1. Recipe "Now Plating" result cards must route a right-click through the same
    unified channel-menu seam Discover uses (flag 32663cdd).  We assert that a
@@ -16,6 +16,11 @@ Covers three reported gaps:
 
 3. Watch Queue items expose a Mark-as-Watched action — see the queue-surface
    tests in ``tests/test_channel_menu.py``.
+
+4. The two menu registries — ``ACTIONS`` (metatv/gui/channel_menu.py) and
+   ``SURFACE_LAYOUTS`` (metatv/gui/channel_menu_layouts.py) — must agree: every
+   id a layout lists must be a real action, and every action must be reachable
+   from at least one surface (else it can never appear in a built menu).
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from PyQt6.QtGui import QContextMenuEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu
 
 from metatv.core.discovery_engine import ContentCard
-from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
+from metatv.gui.channel_menu import ACTIONS, ChannelMenuContext, SURFACE_LAYOUTS, build_channel_menu
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
 from metatv.gui.recipe_bar_widgets import _MatchingShelf
 
@@ -174,3 +179,35 @@ def test_version_chip_menu_says_add_when_not_queued(qapp, monkeypatch):
     assert not any("Remove from Watch Later" in t for t in texts), (
         f"Unqueued variant must NOT show 'Remove from Watch Later', got: {texts}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 4. The two menu registries agree (ACTIONS <-> SURFACE_LAYOUTS)
+# ---------------------------------------------------------------------------
+
+def test_every_layout_id_is_a_real_action():
+    """Every non-'sep' id in every SURFACE_LAYOUTS list must exist in ACTIONS.
+
+    A typo'd or removed action id would otherwise be silently swallowed by
+    ``build_channel_menu``'s ``ACTIONS.get(token)`` lookup (it just skips
+    unknown tokens) instead of failing loudly.
+    """
+    unknown: dict[str, list[str]] = {}
+    for surface, layout in SURFACE_LAYOUTS.items():
+        missing = [tok for tok in layout if tok != "sep" and tok not in ACTIONS]
+        if missing:
+            unknown[surface] = missing
+    assert not unknown, f"SURFACE_LAYOUTS reference unknown action ids: {unknown}"
+
+
+def test_every_action_is_reachable_from_some_layout():
+    """Every ACTIONS entry must appear in at least one SURFACE_LAYOUTS list.
+
+    An action with no layout listing it can never be built into a real menu —
+    that is dead registry weight (or a surface wiring that was forgotten).
+    """
+    referenced: set[str] = set()
+    for layout in SURFACE_LAYOUTS.values():
+        referenced.update(tok for tok in layout if tok != "sep")
+    unreachable = set(ACTIONS) - referenced
+    assert not unreachable, f"ACTIONS entries not listed on any surface: {unreachable}"
