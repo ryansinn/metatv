@@ -51,17 +51,18 @@ _KNOWN_PRIVATE_TEARDOWNS = {
 }
 
 #: Scripts that invoke pytest without going through ``pytest_verdict.sh``.
-#: Shrink-only, and it is on the way out:
-#:
-#: ``ship_batch.sh``  — the pre-rolling-release chore; retired by
-#:                      ``.github/workflows/release.yml`` but still on disk.
+#: Shrink-only, and now EMPTY (GUARD-2): ``ship_batch.sh`` — the
+#: pre-rolling-release chore, retired by ``.github/workflows/release.yml``
+#: but still on disk — was the last one; it now runs the full suite through
+#: ``pytest_verdict.sh`` with ``METATV_FULL_SUITE_REASON`` set, so its verdict
+#: is decided by the same exit-code path as every other gate.
 #:
 #: ``verify_pr.sh`` used to be here too: it predated the verdict script and
 #: carried its own strict summary parse. The auto-detected Python/pytest path
 #: now delegates to ``scripts/pytest_verdict.sh`` and decides on ITS exit
 #: code; only a custom, non-auto-detected ``TEST_CMD`` (any language) keeps a
 #: parse of its own, which is not a pytest invocation this scanner can see.
-_KNOWN_BARE_PYTEST_SCRIPTS = {"ship_batch.sh"}
+_KNOWN_BARE_PYTEST_SCRIPTS: set[str] = set()
 
 #: Scripts that resolve ``venv/bin/python`` on their own instead of sourcing
 #: ``scripts/repo_python.sh`` (``resolve_py`` / ``_main_repo``). Shrink-only.

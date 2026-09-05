@@ -249,15 +249,20 @@ py="$(resolve_py "$wt")" || {
 log="$(mktemp "${TMPDIR:-/tmp}/ship_batch.test.XXXXXX.log")"
 trap 'rm -f "$log"' EXIT
 
-echo "Running: $py -m pytest tests/ -q"
-if ( cd "$wt" && "$py" -m pytest tests/ -q >"$log" 2>&1 ); then
+# One place decides whether a test run passed (GUARD-2): the verdict script
+# decides on pytest's EXIT CODE and prints the summary line for humans. A
+# release chore is exactly the one-gate-per-batch case its full-suite refusal
+# exists to allow, so the reason is given up front.
+echo "Running: scripts/pytest_verdict.sh (full suite, release gate)"
+if ( cd "$wt" && METATV_FULL_SUITE_REASON="ship_batch.sh release gate" \
+        scripts/pytest_verdict.sh >"$log" 2>&1 ); then
     verdict="GREEN"
     reason="$(grep -iE ' in [0-9][0-9.]*s' "$log" \
         | grep -iE '(passed|failed|error|no tests ran|skipped|xfailed|xpassed)' \
         | tail -n1)"
 else
     verdict="RED"
-    reason="pytest exited non-zero"
+    reason="pytest_verdict.sh exited non-zero"
 fi
 
 echo "── test output (last 15 lines) ──"
