@@ -205,7 +205,7 @@ def test_a_queued_rows_meta_is_the_connection_reason(qapp, config):
 
 def test_a_completed_row_sits_under_a_today_heading(qapp, config, tmp_path):
     """A finished download joins HISTORY's own Today/Yesterday/… segments."""
-    from metatv.core.epg_utils import from_local_naive
+    from metatv.core.epg_utils import to_utc_naive
 
     dest = tmp_path / "gb.mkv"
     dest.write_bytes(b"already finished")
@@ -215,7 +215,7 @@ def test_a_completed_row_sits_under_a_today_heading(qapp, config, tmp_path):
     s = _downloads(config)
     s.refresh_progress(
         [_dl(state="completed", dest_path=str(dest),
-             updated_at=from_local_naive(finished_local))],
+             updated_at=to_utc_naive(finished_local))],
         now=pinned_now,
     )
 
