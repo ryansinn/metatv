@@ -18,12 +18,11 @@ from __future__ import annotations
 import random
 import re
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QSizePolicy,
     QPushButton,
     QVBoxLayout,
@@ -32,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui.weighted_tag_cloud import (
     _CloudBody,
     _TagButton,
@@ -204,7 +204,9 @@ class _TagSearchBar(QWidget):
 
     Emits ``search_changed(text)`` — empty immediately (so clearing restores the
     grid without an idle wait), non-empty debounced so fast typing coalesces into
-    one DB round-trip.
+    one DB round-trip. Both are ``ScopedFilterBox``'s own behaviour now (SEARCH-10);
+    this class keeps its debounce interval as its own per-surface policy and just
+    forwards the box's ``filterChanged``.
     """
 
     search_changed = pyqtSignal(str)   # debounced search text (stripped)
@@ -213,20 +215,15 @@ class _TagSearchBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._debounce = QTimer(self)
-        self._debounce.setSingleShot(True)
-        self._debounce.setInterval(self._SEARCH_DEBOUNCE_MS)
-        self._debounce.timeout.connect(self._emit)
-
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
-        self._box = QLineEdit()
-        self._box.setPlaceholderText("Search tags across all facets…")
+        self._box = ScopedFilterBox(
+            "Search tags across all facets…", debounce_ms=self._SEARCH_DEBOUNCE_MS
+        )
         self._box.setToolTip("Search tag values across every facet at once")
-        self._box.setClearButtonEnabled(True)
         self._box.setFixedWidth(300)
-        self._box.textChanged.connect(self._on_text)
+        self._box.filterChanged.connect(self.search_changed)
         row.addWidget(self._box)
 
     # ── public ────────────────────────────────────────────────────────────
@@ -237,18 +234,6 @@ class _TagSearchBar(QWidget):
     def clear(self) -> None:
         """Clear the search box (restores the cluster grid)."""
         self._box.clear()
-
-    # ── private ───────────────────────────────────────────────────────────
-
-    def _on_text(self, text: str) -> None:
-        if not text.strip():
-            self._debounce.stop()
-            self.search_changed.emit("")
-        else:
-            self._debounce.start()
-
-    def _emit(self) -> None:
-        self.search_changed.emit(self._box.text().strip())
 
 
 class _ClusterTile(QFrame):

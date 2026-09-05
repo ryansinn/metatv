@@ -28,6 +28,7 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
 
@@ -812,10 +813,8 @@ class GlobalFilterDialog(QDialog):
         vl.addWidget(hint)
 
         # ── Realtime search — narrows every section below by prefix/name ───────
-        self._search_box = QLineEdit()
-        self._search_box.setClearButtonEnabled(True)
-        self._search_box.setPlaceholderText("Search exclusions — prefix, language, region…")
-        self._search_box.textChanged.connect(self._apply_search_filter)
+        self._search_box = ScopedFilterBox("Search exclusions — prefix, language, region…", debounce_ms=0)
+        self._search_box.filterChanged.connect(self._apply_search_filter)
         vl.addWidget(self._search_box)
 
         # ── Scrollable group list ──────────────────────────────────────────────

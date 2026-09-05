@@ -46,7 +46,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSlider,
     QTreeWidget,
@@ -78,6 +77,7 @@ from metatv.gui.epg_widgets import (
     apply_watchlist_highlight as _apply_watchlist_highlight,
     rec_cell_click,
 )
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 from metatv.core.epg_utils import (
     browse_anchors as _browse_anchors,
@@ -155,10 +155,8 @@ class _EpgBrowseMixin(_EpgBrowseScrubberMixin):
         # Search row with clear button
         search_row = QHBoxLayout()
         search_row.setSpacing(4)
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search programmes…")
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self._on_search_changed)
+        self.search_input = ScopedFilterBox("Search programmes…", debounce_ms=0)
+        self.search_input.filterChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
         layout.addLayout(search_row)
 

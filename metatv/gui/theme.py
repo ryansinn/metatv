@@ -324,6 +324,18 @@ def _build_semantic_constants() -> dict[str, object]:
         " font-size: " + FONT_MD + "; padding: 4px 8px; text-align: left; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
+    # SEARCH-10: the ONE QLineEdit look for gui/scoped_filter_box.py's
+    # ScopedFilterBox — before it, a dozen hand-rolled search/filter boxes
+    # ranged from unstyled (queue.py, epg_browse_mixin.py, discover_browse.py,
+    # global_filter_dialog.py, …) to a bespoke OVERLAY_05-tinted compact box
+    # (weighted_tag_cloud.py). One role now, composed once, applied by the
+    # widget itself so every adopter converges without a per-site sheet.
+    SCOPED_FILTER_BOX = (
+        "QLineEdit { background: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"
+        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
+        " padding: 3px " + SPACE_SM + "; font-size: " + FONT_MD + "; }"
+        "QLineEdit:focus { border-color: " + COLOR_ACCENT + "; }"
+    )
     # Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
     FLAT_NAV_BTN = (
         "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
