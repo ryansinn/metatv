@@ -54,7 +54,10 @@ win = mw.MainWindow(config)
 # _connect_trail_map_signals(<explore view>.trail_map) ->
 # self._poster_lightbox.show_pixmap, before _poster_lightbox existed.
 assert win._poster_lightbox is not None
-assert win._trail_map is not None
+# PERF-16: the Similar-titles lightbox and the Explore trail-map are no longer
+# built in setup_ui — they build on first open (main_window_overlays.py).
+assert "_lightbox" not in win.__dict__, "Similar lightbox must not build at launch"
+assert "_trail_map" not in win.__dict__, "Explore trail-map must not build at launch"
 # Explore views are built lazily, so the same init-order hazard now lives in
 # _ensure_explore_view — build one for real to keep it covered.
 assert win.explore_views == {}, "Explore views start unbuilt (lazy)"
@@ -62,6 +65,16 @@ for _key in ("history", "favorites", "queue", "recommended"):
     _view = win._ensure_explore_view(_key)
     assert _view.trail_map is not None
     assert win._ensure_explore_view(_key) is _view, "cached, not rebuilt"
+
+# Build the two overlays for real, post-launch — this is the same
+# _poster_lightbox init-order hazard this file exists to catch, now guarded at
+# first-open time instead of at setup_ui time.
+_lightbox = win._ensure_similar_lightbox()
+assert _lightbox is not None
+assert win._ensure_similar_lightbox() is _lightbox, "cached, not rebuilt"
+_trail_map = win._ensure_trail_map()
+assert _trail_map is not None
+assert win._ensure_trail_map() is _trail_map, "cached, not rebuilt"
 
 # CLOSE IT. The window was built and walked away from, so closeEvent — every
 # registered cleanup, the view deactivation sweep, db.close() — ran in no test

@@ -24,6 +24,7 @@ from metatv.core.runtime_env import is_frozen
 from metatv.core import profile_store
 from metatv.gui.watchlist_write_notifier import install_watchlist_writes
 from metatv.gui.main_window_streaming import _StreamingMixin
+from metatv.gui.main_window_overlays import _OverlaysMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
 from metatv.gui.main_window_downloads import _DownloadsMixin
@@ -143,7 +144,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -804,11 +805,13 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.main_splitter.addWidget(sidebar)
 
         # Poster lightbox — full-res image overlay, hidden by default. Created HERE,
-        # BEFORE create_content_area(), because the Full-History view built inside it
-        # wires its trail-map's poster_expand_requested to _poster_lightbox.show_pixmap
-        # (via _connect_trail_map_signals). Its feeder .connect() calls live later,
-        # once details_pane / _lightbox exist. PosterLightbox(self) needs only the
-        # window as parent, so early construction is safe.
+        # BEFORE create_content_area(), because an Explore view's embedded
+        # trail-map (built lazily on first open) wires its poster_expand_requested
+        # to _poster_lightbox.show_pixmap via _connect_trail_map_signals, and the
+        # Similar-titles lightbox does the same from _ensure_similar_lightbox
+        # (main_window_overlays.py) — both need _poster_lightbox to already exist
+        # whenever they are built. PosterLightbox(self) needs only the window as
+        # parent, so early construction here is safe.
         from metatv.gui.poster_lightbox import PosterLightbox
         self._poster_lightbox = PosterLightbox(self)
 
@@ -873,45 +876,13 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
 
         self.main_splitter.addWidget(self.details_pane)
 
-        # Similar titles lightbox — overlay child widget, hidden by default
-        from metatv.gui.similar_lightbox import SimilarTitleLightbox
-        self._lightbox = SimilarTitleLightbox(
-            self, self.config, self.image_cache, self.db, self.metadata_manager
-        )
-        self._lightbox.play_requested.connect(self.play_channel_by_id)
-        self._lightbox.queue_toggled.connect(self._on_details_queue_toggle)
-        self._lightbox.favorite_toggled.connect(self.toggle_favorite_by_id)
-        self._lightbox.hide_requested.connect(self._on_hide_from_details_pane)
-        self._lightbox.rating_requested.connect(self._toggle_rating)
-        self._lightbox.suppression_requested.connect(self._on_suppression_requested)
-        self._lightbox.explore_requested.connect(self._show_trail_map)
-        # Registered here, beside construction, exactly as the trail map below
-        # is. It owns a ThreadPoolExecutor and was the one widget that owned a
-        # pool with nothing stopping it.
-        self._register_cleanable("lightbox", self._lightbox.shutdown)
-        # The lens strip's "See all in Search" — the only way a metadata click
-        # inside the overlay reaches the channel list, and it goes through the
-        # same strict context-filter chokepoint a details-pane click uses.
-        self._lightbox.lens_search_requested.connect(self._on_lightbox_lens_search)
-
-        # Poster lightbox is constructed earlier (before create_content_area, so the
-        # Full-History view can wire to it); connect its feeders now that details_pane
-        # and _lightbox exist.
+        # Similar-titles lightbox and Explore trail-map are overlay child
+        # widgets, hidden by default, and are now built LAZILY (PERF-16) — see
+        # main_window_overlays.py's _ensure_similar_lightbox/_ensure_trail_map.
+        # Poster lightbox is constructed earlier (before create_content_area);
+        # connect its one feeder that needs neither overlay, now that
+        # details_pane exists.
         self.details_pane.poster_enlarged.connect(self._poster_lightbox.show_pixmap)
-        # A click on the Similar-Titles lightbox poster enlarges it via the SAME
-        # overlay the details pane (poster_enlarged) and trail-map feed.
-        self._lightbox.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
-
-        # Explore trail-map — cascading-columns adjacency browser (opened from the
-        # lightbox's Explore button; seeded with the walked nav trail).  Relays the
-        # same per-title intents to the existing host handlers the lightbox/details
-        # pane use (single chokepoint per action).
-        from metatv.gui.trail_map_view import TrailMapView
-        self._trail_map = TrailMapView(
-            self, self.config, self.image_cache, self.db, self.metadata_manager
-        )
-        self._connect_trail_map_signals(self._trail_map)
-        self._register_cleanable("trail_map", self._trail_map.shutdown)
 
         # Center panel gets all extra space when window is resized
         self.main_splitter.setStretchFactor(0, 0)  # sidebar: fixed
@@ -2381,39 +2352,17 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             self.notification_widget.reposition()
         if hasattr(self, 'migration_progress_widget') and self.migration_progress_widget.isVisible():
             self.migration_progress_widget.reposition()
-        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
-            self._lightbox.resize(self.size())
+        # __dict__.get, not hasattr: both overlays are built lazily on first
+        # open (PERF-16), so neither key exists in self.__dict__ until then —
+        # the resize handler must no-op rather than build them just to resize.
+        lightbox = self.__dict__.get('_lightbox')
+        if lightbox is not None and lightbox.isVisible():
+            lightbox.resize(self.size())
         if hasattr(self, '_poster_lightbox') and self._poster_lightbox.isVisible():
             self._poster_lightbox.resize(self.size())
-        if hasattr(self, '_trail_map') and self._trail_map.isVisible():
-            self._trail_map.resize(self.size())
-
-    def _show_similar_lightbox(
-        self,
-        channel_ids: list,
-        index: int,
-        origin_title: str,
-    ) -> None:
-        self._lightbox.resize(self.size())
-        self._lightbox.show_preview(channel_ids, index, origin_title)
-
-    def _connect_trail_map_signals(self, tm) -> None:
-        """Wire a TrailMapView's per-title intents to the shared host handlers.
-
-        One seam for BOTH trail-map instances (the lightbox Explore overlay and the
-        embedded Full Watch-History view) so every action routes through the same
-        canonical play/queue/favorite/rating handlers (single chokepoint).
-        """
-        tm.play_requested.connect(self.play_channel_by_id)
-        tm.resume_requested.connect(self.play_channel_resume_by_id)
-        tm.queue_toggled.connect(self._on_details_queue_toggle)
-        tm.favorite_toggled.connect(self.toggle_favorite_by_id)
-        tm.rating_requested.connect(self._toggle_rating)
-        tm.suppression_requested.connect(self._on_suppression_requested)
-        tm.watched_toggled.connect(self._on_details_watched_toggled)
-        tm.open_details_requested.connect(self._on_trail_open_details)
-        tm.recipe_requested.connect(self._on_trail_recipe_requested)
-        tm.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
+        trail_map = self.__dict__.get('_trail_map')
+        if trail_map is not None and trail_map.isVisible():
+            trail_map.resize(self.size())
 
     def _ensure_explore_view(self, key: str):
         """Return the Explore view for *key*, building + wiring it on first use.
@@ -2449,21 +2398,15 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.explore_views[key] = view
         return view
 
-    def _show_trail_map(self, seed_ids: list) -> None:
-        """Open the Explore trail-map seeded with the lightbox's walked trail.
-
-        The lightbox is dismissed so the trail-map is the single active surface;
-        both are overlays over the same window.
-        """
-        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
-            self._lightbox.hide()
-        self._trail_map.resize(self.size())
-        self._trail_map.open(list(seed_ids))
-
     def _on_trail_open_details(self, channel_id: str) -> None:
         """"Open in details" from the trail-map — dismiss the overlays, jump the pane."""
-        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
-            self._lightbox.hide()
+        # __dict__.get, not hasattr: the lightbox may never have been built —
+        # this handler is also reached from an Explore view's OWN embedded
+        # trail-map (_ensure_explore_view), which does not require the
+        # lightbox to exist at all.
+        lightbox = self.__dict__.get('_lightbox')
+        if lightbox is not None and lightbox.isVisible():
+            lightbox.hide()
         self.show_channel_details_by_id(channel_id)
 
     def show_test_notification(self):
