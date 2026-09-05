@@ -93,6 +93,10 @@ def to_utc_naive(local_dt: datetime, tz=None) -> datetime:
     closure needed only the reverse direction and takes an already-aware
     datetime, which this does not have).
 
+    Also the conversion a local-time BOUNDARY needs before it can filter a
+    UTC-stamped column — e.g. one of ``history_buckets.bucket_range``'s
+    bounds, applied against ``DownloadDB.updated_at``.
+
     Args:
         local_dt: A naive datetime in local wall-clock time (no tzinfo).
         tz: Local tzinfo; defaults to the machine's local timezone. Pass
@@ -102,6 +106,25 @@ def to_utc_naive(local_dt: datetime, tz=None) -> datetime:
     """
     _tz = tz if tz is not None else _local_tz()
     return local_dt.replace(tzinfo=_tz).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def to_local_naive(dt: datetime) -> datetime:
+    """Convert a UTC-naive stored datetime to a NAIVE local datetime.
+
+    Inverse of :func:`to_utc_naive`. For call sites that hand a timestamp to
+    code with no timezone awareness of its own — ``history_buckets.bucket_for``
+    buckets ``datetime.now()``-style naive local timestamps, so a UTC-naive
+    column (``DownloadDB.updated_at``, written with ``datetime.utcnow``) has to
+    be converted before it can be bucketed alongside them. Never open-code
+    ``to_local(dt).replace(tzinfo=None)`` at the call site — this is the one
+    place that strips it.
+
+    Args:
+        dt: UTC-naive datetime.
+    Returns:
+        The same instant as a naive local datetime (tzinfo stripped).
+    """
+    return to_local(dt).replace(tzinfo=None)
 
 
 def local_date(dt: datetime) -> date:

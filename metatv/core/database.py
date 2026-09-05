@@ -639,6 +639,7 @@ class DownloadDB(Base):
     position   = Column(Integer, nullable=False, default=0)   # queue order
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    history_cleared = Column(Boolean, nullable=False, default=False)  # forget hides, never deletes
 
 
 class RecordingDB(Base):
@@ -1020,10 +1021,8 @@ class Database:
             # bookkeeping, see ChannelDB.metadata_enrich_state(_attempts) above.
             ("channels",     "metadata_enrich_state",         "TEXT"),
             ("channels",     "metadata_enrich_attempts",      "INTEGER DEFAULT 0"),
-            # Signal checking (#617) and vanished-row pruning (#648). BOTH
-            # shipped without their entries here, and the second was written
-            # after reviewing the first — see the guard below for why that was
-            # possible twice.
+            # Signal checking (#617) and vanished-row pruning (#648) — BOTH
+            # shipped without an entry here; see the guard below for why twice.
             ("channels",     "signal_verdict",                "TEXT"),
             ("channels",     "signal_dead_streak",            "INTEGER DEFAULT 0"),
             ("channels",     "signal_checked_at",             "DATETIME"),
@@ -1042,6 +1041,7 @@ class Database:
             ("alert_patterns", "action",                       "TEXT DEFAULT 'notify'"),
             ("providers",     "last_catalog_refresh_at",         "DATETIME"),  # SPORT-7
             ("providers",     "last_live_refresh_at",            "DATETIME"),  # LIVE-1
+            ("downloads",     "history_cleared",                 "INTEGER NOT NULL DEFAULT 0"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

@@ -344,6 +344,218 @@ def test_an_unknown_total_reports_no_fraction_rather_than_zero(env):
     assert row.fraction is None
 
 
+# ── reason: why a row is not moving right now ──────────────────────────────
+
+def test_queued_reason_names_the_connection_gate(env, server):
+    """The queue explains itself: which source, how many slots, all in use."""
+    manager, _db, _config, accountant = env
+    accountant.acquire("p1", "playback", "someone-watching")  # the only slot
+    manager.enqueue("ch1", "p1", "Film", server.url)
+
+    row = manager.progress()[0]
+    assert row.state == "queued"
+    assert row.reason == (
+        "Queued — this source allows 1 connection and it is in use."), row.reason
+
+
+def test_global_pause_reason_explains_a_queued_row(env, server):
+    """'Pause all downloads' sets the flag; every queued row's reason says so."""
+    manager, _db, config, _accountant = env
+    config.downloads_paused = True
+    manager.enqueue("ch1", "p1", "Film", server.url)
+
+    row = manager.progress()[0]
+    assert row.state == "queued"
+    assert row.reason == "Paused — downloads are paused"
+
+
+def test_playback_pause_reason_is_the_long_explanation(env, server):
+    manager, *_ = env
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    manager.on_preempted("p1", download_id, "download")
+
+    row = manager.progress()[0]
+    assert row.state == "paused"
+    assert "Resumes when playback stops" in row.reason
+
+
+def test_user_pause_reason_is_plain(env, server):
+    """A user pause with nothing else going on just says "Paused"."""
+    manager, *_ = env
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    manager.pause(download_id)
+
+    row = manager.progress()[0]
+    assert row.reason == "Paused"
+
+
+def test_failed_reason_is_the_error(env):
+    manager, *_ = env
+    manager.enqueue("ch1", "p1", "Film", "http://127.0.0.1:1/nope.mp4")
+
+    rows = _run_until_done(manager, timeout=20.0)
+
+    assert rows[0].state == "failed"
+    assert rows[0].reason == rows[0].error
+
+
+def test_running_and_completed_rows_carry_no_reason(env, server):
+    """A moving/finished row needs no explanation — only a stuck one does."""
+    manager, *_ = env
+    manager.enqueue("ch1", "p1", "Film", server.url)
+
+    rows = _run_until_done(manager)
+
+    assert rows[0].state == "completed"
+    assert rows[0].reason is None
+
+
+# ── speed and ETA: derived from a RECENT ring, never the whole lifetime ────
+
+def test_rate_and_eta_are_derived_from_the_injected_clock(env, server):
+    """Never sleep for this: the clock is injected precisely so a test need not."""
+    manager, db, _config, _accountant = env
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    fake_now = [1_000.0]
+    manager._clock = lambda: fake_now[0]
+
+    manager._record_rate_sample(download_id, 200_000)
+    fake_now[0] += 2.0
+    manager._record_rate_sample(download_id, 400_000)  # +200,000 B / 2s
+
+    with db.session_scope() as session:
+        row = session.query(DownloadDB).filter_by(id=download_id).one()
+        row.state = "running"
+        row.total_bytes = 1_000_000
+        row.downloaded_bytes = 400_000
+
+    row = manager.progress()[0]
+    assert row.bytes_per_second == pytest.approx(100_000, rel=0.01)
+    assert row.eta_seconds == 6, "600,000 bytes left at 100,000 B/s"
+
+
+def test_a_single_sample_reports_no_rate_yet(env, server):
+    """One point has no slope — None, not a divide-by-zero or a guess."""
+    manager, db, _config, _accountant = env
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    manager._clock = lambda: 1_000.0
+    manager._record_rate_sample(download_id, 200_000)
+
+    with db.session_scope() as session:
+        row = session.query(DownloadDB).filter_by(id=download_id).one()
+        row.state = "running"
+        row.total_bytes = 1_000_000
+
+    row = manager.progress()[0]
+    assert row.bytes_per_second is None
+    assert row.eta_seconds is None
+
+
+def test_the_rate_ring_forgets_samples_older_than_its_window(env, server):
+    """A sample from ten seconds ago says nothing about the speed right now."""
+    manager, db, _config, _accountant = env
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    fake_now = [1_000.0]
+    manager._clock = lambda: fake_now[0]
+    manager._record_rate_sample(download_id, 0)
+    fake_now[0] += 10.0   # older than the ring's ~5s window
+    manager._record_rate_sample(download_id, 500_000)
+
+    with db.session_scope() as session:
+        row = session.query(DownloadDB).filter_by(id=download_id).one()
+        row.state = "running"
+        row.total_bytes = 1_000_000
+
+    row = manager.progress()[0]
+    assert row.bytes_per_second is None, "only one sample remains inside the window"
+
+
+# ── history (terminal rows) — hiding the LEDGER, never the file, never the row ─
+
+def test_clear_history_group_hides_only_rows_inside_the_window(env, server):
+    manager, db, _config, _accountant = env
+    from datetime import datetime, timedelta
+
+    manager.enqueue("recent", "p1", "Recent Film", server.url)
+    manager.enqueue("old", "p1", "Old Film", server.url)
+    now = datetime.utcnow()
+    with db.session_scope() as session:
+        for row in session.query(DownloadDB).all():
+            row.state = "completed"
+            row.updated_at = now if row.channel_id == "recent" else now - timedelta(days=40)
+
+    count, snapshot = manager.clear_history_group(now - timedelta(hours=1), None)
+
+    assert count == 1
+    by_channel = {r.channel_id: r for r in manager.progress()}
+    assert set(by_channel) == {"recent", "old"}, "clearing history must never remove the row"
+    assert by_channel["recent"].history_cleared is True
+    assert by_channel["old"].history_cleared is False, "a row outside the window must stay visible"
+    assert snapshot[0]["channel_id"] == "recent"
+
+
+def test_restore_history_snapshot_undoes_a_clear_without_touching_the_file(env, server):
+    """Undo un-hides the ledger row; the file was never touched either way."""
+    manager, db, _config, _accountant = env
+    from datetime import datetime
+
+    download_id = manager.enqueue("ch1", "p1", "Film", server.url)
+    with db.session_scope() as session:
+        row = session.query(DownloadDB).filter_by(id=download_id).one()
+        row.state = "completed"
+        row.updated_at = datetime.utcnow()
+        dest = pathlib.Path(row.dest_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"a finished film")
+
+    count, snapshot = manager.clear_history_group(None, None)
+    assert count == 1
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].history_cleared is True, "hidden, never deleted"
+    assert dest.exists(), "clearing HISTORY must never touch the file"
+
+    restored = manager.restore_history_snapshot(snapshot)
+    assert restored == 1
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].id == download_id and rows[0].state == "completed"
+    assert rows[0].history_cleared is False
+    assert dest.exists()
+
+
+def test_clear_history_group_leaves_active_rows_alone(env, server):
+    """Only completed/failed rows are history — a running download is not it."""
+    manager, db, _config, _accountant = env
+    manager.enqueue("ch1", "p1", "Film", server.url)  # stays "queued"
+
+    count, _snapshot = manager.clear_history_group(None, None)
+
+    assert count == 0
+    assert manager.progress()[0].state == "queued"
+    assert manager.progress()[0].history_cleared is False
+
+
+# ── the connection-gate summary (section header) ───────────────────────────
+
+def test_connection_gate_lines_names_the_blocked_provider(env, server):
+    from metatv.core.database import ProviderDB
+
+    manager, db, _config, accountant = env
+    with db.session_scope() as session:
+        session.add(ProviderDB(id="p1", name="My IPTV", type="xtream", url="http://x"))
+    accountant.acquire("p1", "playback", "someone-watching")
+    manager.enqueue("ch1", "p1", "Film", server.url)
+
+    assert manager.connection_gate_lines() == [
+        "My IPTV · 1 of 1 connections in use"]
+
+
+def test_connection_gate_lines_is_empty_when_nothing_is_waiting(env, server):
+    manager, *_ = env
+    manager.enqueue("ch1", "p1", "Film", server.url)  # no one else holds p1
+
+    assert manager.connection_gate_lines() == []
+
+
 # ── the menu action that starts it ──────────────────────────────────────────
 
 def test_the_download_action_is_registered_and_vod_only():

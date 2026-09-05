@@ -1591,7 +1591,9 @@ def make_channel_state_bus_host(db_obj):
     return host
 
 
-def make_downloads_mixin_host(db_obj, config, recording_manager=None):
+def make_downloads_mixin_host(
+    db_obj, config, recording_manager=None, download_manager=None, player_manager=None
+):
     """A MainWindow-shaped double carrying ``_DownloadsMixin``'s REAL methods.
 
     Same pattern as :func:`make_channel_state_bus_host`: the real unbound
@@ -1610,27 +1612,57 @@ def make_downloads_mixin_host(db_obj, config, recording_manager=None):
         recording_manager: An existing ``RecordingManager`` to reuse, or
             ``None`` to build one against *db_obj*/*config* with a
             single-slot ``ConnectionAccountant``.
+        download_manager: An existing ``DownloadManager`` for the
+            download-history/playback methods to call, or ``None`` to leave
+            ``host.download_manager`` unset (callers that only exercise the
+            recording methods never need one).
+        player_manager: Same, for ``play_downloaded`` — a real ``PlayerManager``
+            double (``PlayerManager.__new__`` + ``wire_player_manager_key_maps``
+            is the sanctioned shape; see ``test_split_streams_engine.py``), or
+            ``None``.
 
     Returns:
-        A host with ``db``, ``config``, ``recording_manager``, a
+        A host with ``db``, ``config``, ``recording_manager``,
+        ``download_manager``, ``player_manager``, a ``status_bar`` recording
+        double (``.messages`` list), an inline ``executor`` (submitted work
+        runs synchronously — no cross-thread indeterminism in a test), a
         ``notification_manager`` MagicMock (assert ``.show.call_args`` on it),
-        and every ``_DownloadsMixin`` recording method bound.
+        and every ``_DownloadsMixin`` recording/download method bound, plus
+        ``_bg_mark_played`` (``_StreamingMixin``'s real History-write seam,
+        which ``play_downloaded`` submits to ``executor``).
     """
     from unittest.mock import MagicMock
 
     from metatv.core.connection_accountant import ConnectionAccountant
     from metatv.core.recording_manager import RecordingManager
     from metatv.gui.main_window_downloads import _DownloadsMixin
+    from metatv.gui.main_window_streaming import _StreamingMixin
 
     if recording_manager is None:
         accountant = ConnectionAccountant(capacity_resolver=lambda _pid: 1)
         recording_manager = RecordingManager(db_obj, config, accountant)
 
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return None
+
+    class _StatusBarDouble:
+        def __init__(self):
+            self.messages: list[str] = []
+
+        def showMessage(self, text, *args, **kwargs):
+            self.messages.append(text)
+
     host = SimpleNamespace(
         db=db_obj,
         config=config,
         recording_manager=recording_manager,
+        download_manager=download_manager,
+        player_manager=player_manager,
         notification_manager=MagicMock(),
+        status_bar=_StatusBarDouble(),
+        executor=_InlineExecutor(),
     )
     for _name in (
         "record_channel_by_id",
@@ -1643,8 +1675,16 @@ def make_downloads_mixin_host(db_obj, config, recording_manager=None):
         "_ask_quit_with_recordings",
         "_on_epg_refreshed_resync_recordings",
         "_on_recordings_resynced",
+        "play_downloaded",
+        "_delete_download_file",
+        "_clear_download_history_group",
+        "_undo_download_history_group_clear",
+        "_clear_download_history",
+        "show_downloads_context_menu",
+        "_refresh_transfer_sections",
     ):
         setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
+    host._bg_mark_played = _StreamingMixin._bg_mark_played.__get__(host)
     return host
 
 

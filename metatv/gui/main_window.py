@@ -1287,6 +1287,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section.pauseRequested.connect(self._pause_download)
             section.resumeRequested.connect(self._resume_download)
             section.cancelRequested.connect(self._cancel_download)
+            section.playRequested.connect(self.play_downloaded)
+            section.clearHistoryGroupClicked.connect(self._clear_download_history_group)
+            section.clearDownloadHistoryClicked.connect(self._clear_download_history)
+            section.downloads_list.customContextMenuRequested.connect(
+                self.show_downloads_context_menu)
             return section
 
         elif section_id == "recordings":

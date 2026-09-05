@@ -106,10 +106,12 @@ def _row_bar(section, lst_name: str, i: int = 0):
 def test_a_running_download_shows_its_title_state_and_bar(qapp, config):
     s = _downloads(config)
     s.refresh_progress([_dl()])
-    text = _row_text(s, "downloads_list")
+    # Row 0 is now the "In progress" heading (active rows render under one) —
+    # row 1 is the download itself.
+    text = _row_text(s, "downloads_list", i=1)
     assert "Ghostbusters" in text
     assert "Downloading" in text, f"no state word rendered: {text!r}"
-    assert _row_bar(s, "downloads_list") is not None, "a known size must draw a bar"
+    assert _row_bar(s, "downloads_list", i=1) is not None, "a known size must draw a bar"
 
 
 def test_a_download_paused_by_playback_says_which_kind_of_paused(qapp, config):
@@ -122,12 +124,12 @@ def test_a_download_paused_by_playback_says_which_kind_of_paused(qapp, config):
     """
     s = _downloads(config)
     s.refresh_progress([_dl(state="paused", paused_by_playback=True)])
-    text = _row_text(s, "downloads_list")
+    text = _row_text(s, "downloads_list", i=1)
     assert "playing" in text.lower(), (
         f"a self-pause is indistinguishable from a user pause: {text!r}")
 
     s.refresh_progress([_dl(state="paused", paused_by_playback=False)])
-    user_text = _row_text(s, "downloads_list")
+    user_text = _row_text(s, "downloads_list", i=1)
     assert "Paused" in user_text and "playing" not in user_text.lower(), (
         f"a user pause claims playback caused it: {user_text!r}")
 
@@ -136,10 +138,10 @@ def test_an_unknown_size_draws_no_bar_rather_than_an_empty_one(qapp, config):
     """None, not 0.0 — DownloadProgress.fraction makes that distinction on purpose."""
     s = _downloads(config)
     s.refresh_progress([_dl(total_bytes=None)])
-    assert _row_bar(s, "downloads_list") is None, (
+    assert _row_bar(s, "downloads_list", i=1) is None, (
         "drew a bar at zero for a download whose size the server never gave — "
         "that reads as stalled, not as unknown")
-    assert "Downloading" in _row_text(s, "downloads_list")
+    assert "Downloading" in _row_text(s, "downloads_list", i=1)
 
 
 def test_every_download_state_renders_a_distinct_word(qapp, config):
@@ -157,6 +159,97 @@ def test_an_empty_download_list_is_empty_not_a_stale_row(qapp, config):
     s.refresh_progress([_dl()])
     s.refresh_progress([])
     assert s.downloads_list.count() == 0
+
+
+# ── Downloads: queue-with-reasons, speed/ETA, history + playback (DL-4) ─────
+
+
+def test_active_rows_render_under_an_in_progress_heading_first(qapp, config):
+    """Active work always leads; a history heading (if any) always follows it."""
+    from metatv.gui.sidebar.base import GroupHeading
+    from metatv.gui.sidebar.transfer_rows import ROLE_ITEM_ID
+
+    s = _downloads(config)
+    s.refresh_progress([_dl(id="d1"), _dl(id="d2", channel_name="Alien")])
+
+    lst = s.downloads_list
+    heading = lst.itemWidget(lst.item(0))
+    assert isinstance(heading, GroupHeading)
+    assert heading.label.text() == "In progress"
+    assert heading.count_label.text().strip() == "2"
+    assert lst.item(1).data(ROLE_ITEM_ID) == "d1", "the rows follow their heading"
+    assert lst.item(2).data(ROLE_ITEM_ID) == "d2"
+
+
+def test_a_running_rows_meta_carries_size_rate_and_eta(qapp, config):
+    """The mock's own line: "... of ... · ... MB/s · ~... min left"."""
+    s = _downloads(config)
+    s.refresh_progress([_dl(
+        downloaded_bytes=4_100_000_000, total_bytes=6_600_000_000,
+        bytes_per_second=11_200_000, eta_seconds=180,
+    )])
+    text = _row_text(s, "downloads_list", i=1)
+    assert "4.1 GB" in text and "6.6 GB" in text, f"no size in {text!r}"
+    assert "MB/s" in text, f"no rate in {text!r}"
+    assert "min left" in text, f"no ETA in {text!r}"
+
+
+def test_a_queued_rows_meta_is_the_connection_reason(qapp, config):
+    """Not "Queued" alone — the row explains WHY, the way the mock shows."""
+    s = _downloads(config)
+    reason = "Queued — this source allows 1 connection and it is in use."
+    s.refresh_progress([_dl(state="queued", downloaded_bytes=0, reason=reason)])
+    text = _row_text(s, "downloads_list", i=1)
+    assert reason in text, f"the connection reason never reached the row: {text!r}"
+
+
+def test_a_completed_row_sits_under_a_today_heading(qapp, config, tmp_path):
+    """A finished download joins HISTORY's own Today/Yesterday/… segments."""
+    from metatv.core.epg_utils import to_utc_naive
+
+    dest = tmp_path / "gb.mkv"
+    dest.write_bytes(b"already finished")
+    pinned_now = datetime(2026, 9, 5, 20, 0, 0)
+    finished_local = pinned_now - timedelta(hours=3)   # same day, outside "hour"
+
+    s = _downloads(config)
+    s.refresh_progress(
+        [_dl(state="completed", dest_path=str(dest),
+             updated_at=to_utc_naive(finished_local))],
+        now=pinned_now,
+    )
+
+    lst = s.downloads_list
+    heading = lst.itemWidget(lst.item(0))
+    assert heading.label.text() == "Today"
+    text = _row_text(s, "downloads_list", i=1)
+    assert "Ghostbusters" in text
+    assert "file removed" not in text.lower()
+
+
+def test_a_completed_row_whose_file_is_gone_reads_file_removed(qapp, config):
+    """DL-2: the ledger says 'completed', the DISK is what actually decides."""
+    s = _downloads(config)
+    s.refresh_progress([_dl(
+        state="completed", dest_path="/no/such/file/anywhere.mkv",
+        updated_at=datetime.utcnow(),
+    )])
+    text = _row_text(s, "downloads_list", i=1)
+    assert "file removed" in text.lower(), f"a deleted file must say so: {text!r}"
+
+
+def test_pause_all_toggles_the_config_flag_and_relabels_itself(qapp, config):
+    """The ⋯ menu's Pause/Resume all — a config flip, nothing more to wire."""
+    s = _downloads(config)
+    assert config.downloads_paused is False
+    labels = [a.label for a in s.overflow_actions()]
+    assert any("Pause all downloads" in label for label in labels)
+
+    s._toggle_downloads_paused()
+
+    assert config.downloads_paused is True
+    labels = [a.label for a in s.overflow_actions()]
+    assert any("Resume all downloads" in label for label in labels)
 
 
 # ── Recordings ─────────────────────────────────────────────────────────────
