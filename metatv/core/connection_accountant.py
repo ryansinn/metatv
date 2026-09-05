@@ -100,6 +100,19 @@ class ConnectionAccountant:
     #: five-connection account for a minute after every play would starve
     #: enrichment for nothing. Unlimited (0) never cools.
 
+    #: Seconds a freshly-registered holder is immune to a dead-holder sweep.
+    #:
+    #: A play registers its holder BEFORE its mpv process exists
+    #: (``PlayerManager.play()`` acquires, then launches the process), so a
+    #: liveness probe taken in that window would report the holder as not
+    #: yet alive — and a sweep with no grace could evict a play that is a
+    #: hundred milliseconds old. Ten seconds is comfortably longer than mpv's
+    #: own startup. This applies to EVERY :meth:`reconcile` caller, including
+    #: the explicit play()/stop() sweeps (``PlayerManager._reconcile_connections``)
+    #: — a genuinely crashed mpv is now swept up to ten seconds later than
+    #: before, which is fine: nothing depended on sub-second reconciliation.
+    RECONCILE_GRACE_S: float = 10.0
+
     def __init__(self, capacity_resolver: Callable[[str], int],
                  on_preempt: "Optional[Callable[[str, str, str], None]]" = None,
                  clock: "Optional[Callable[[], float]]" = None) -> None:
@@ -142,6 +155,19 @@ class ConnectionAccountant:
         if on_preempt is not None:
             self._preempt_listeners.append(on_preempt)
         self._holders: dict[str, dict[str, str]] = {}  # provider_id -> {holder_id: kind}
+        #: provider_id -> {holder_id: clock time at first registration}. Read
+        #: by reconcile() to apply RECONCILE_GRACE_S; never touched by an
+        #: idempotent re-acquire (only the FIRST registration counts).
+        self._acquired_at: dict[str, dict[str, float]] = {}
+        #: Callable returning the holder ids still alive right now, injected
+        #: via set_liveness_probe(). None (the default) disables the acquire()
+        #: self-heal path below entirely.
+        self._liveness_probe: "Optional[Callable[[], Iterable[str]]]" = None
+        #: (provider_id, holder_id) pairs currently refused and waiting —
+        #: drives "say why, once": a refusal logs only the first time a pair
+        #: enters this set, and the eventual grant logs once when it leaves.
+        #: Cleared on grant or release.
+        self._held_back: set[tuple[str, str]] = set()
         self._lock = threading.Lock()
 
     def add_preempt_listener(self, callback: "Callable[[str, str, str], None]") -> None:
@@ -158,6 +184,25 @@ class ConnectionAccountant:
         with self._lock:
             if callback not in self._preempt_listeners:
                 self._preempt_listeners.append(callback)
+
+    def set_liveness_probe(self, probe: "Optional[Callable[[], Iterable[str]]]") -> None:
+        """Register the callable :meth:`acquire` may poll when refused for capacity.
+
+        *probe* returns the holder ids that are still alive right now — e.g.
+        ``PlayerManager.active_keys``. A holder that is not among them AND is
+        older than ``RECONCILE_GRACE_S`` is a dead playback holder still
+        occupying the one slot a download/monitor/probe request needs; this
+        lets ``acquire()`` sweep it and grant the request in the same call,
+        instead of the request sitting refused until someone else calls
+        :meth:`reconcile` (the next play/stop). Passing ``None`` (the default,
+        set implicitly by never calling this) disables the self-heal path —
+        a caller with nothing to probe must never be asked to guess.
+
+        Pure plumbing, same as ``capacity_resolver``/``on_preempt``: this
+        class never calls anything but what is injected here.
+        """
+        with self._lock:
+            self._liveness_probe = probe
 
     # ── Read-only queries ───────────────────────────────────────────────────
 
@@ -236,13 +281,44 @@ class ConnectionAccountant:
             ``preempted`` naming anyone evicted — or
             ``AcquireResult(granted=False, ...)`` (capacity full of holders
             this caller may not evict, state unchanged).
+
+        **Self-heal on capacity refusal.** When the slot is full even after
+        preemption AND a liveness probe is registered (:meth:`set_liveness_probe`),
+        this sweeps dead holders (:meth:`reconcile`) and re-tries exactly once
+        before giving up — so a caller need not wait for someone else's
+        play()/stop() to notice the same dead holder. A refusal from the
+        cooldown branch is never retried this way: a dead holder cannot change
+        the provider's own reaper lag. See ``RECONCILE_GRACE_S`` for why this
+        can never evict a holder that only just registered.
+        """
+        result, capacity_refused = self._try_acquire(provider_id, kind, holder_id, preempt_kinds)
+        if capacity_refused and self._liveness_probe is not None:
+            try:
+                alive = self._liveness_probe()
+            except Exception:
+                logger.exception("liveness probe failed while acquiring {} on {}",
+                                  holder_id, provider_id)
+                alive = None
+            if alive is not None:
+                self.reconcile(alive)
+                result, _ = self._try_acquire(provider_id, kind, holder_id, preempt_kinds)
+        return result
+
+    def _try_acquire(self, provider_id: str, kind: str, holder_id: str,
+                      preempt_kinds: "Sequence[str]") -> "tuple[AcquireResult, bool]":
+        """One arbitration pass — the body ``acquire()`` used to run inline.
+
+        Returns ``(result, capacity_refused)``. ``capacity_refused`` is True
+        ONLY for "full even after preemption" — the one refusal a liveness
+        probe sweep can change the answer to.
         """
         evicted: list[tuple[str, str]] = []
         with self._lock:
             current = self._holders.setdefault(provider_id, {})
             cap = self.capacity(provider_id)
             if holder_id in current:
-                return AcquireResult(True, provider_id, cap, tuple(current.keys()))
+                self._note_granted_locked(provider_id, holder_id, kind)
+                return AcquireResult(True, provider_id, cap, tuple(current.keys())), False
             if kind in self.FOREGROUND_KINDS:
                 # The user is waiting. Arm the cooldown now, not on release, so
                 # a play that FAILS still keeps background work off the source
@@ -253,11 +329,12 @@ class ConnectionAccountant:
                 # Free by our books, still counted by theirs. Backing off here
                 # is the whole point: catch-up work has no deadline, and the
                 # person staring at a black window does.
-                logger.debug(
+                self._note_refused_locked(
+                    provider_id, holder_id, logger.debug,
                     "Connection cooldown on {}: {} ({}) held back for {:.0f}s more",
                     provider_id, holder_id, kind,
                     self._cooldown_until[provider_id] - self._clock())
-                return AcquireResult(False, provider_id, cap, tuple(current.keys()))
+                return AcquireResult(False, provider_id, cap, tuple(current.keys())), False
             if cap > 0 and len(current) >= cap:
                 # Evict the LEAST recently registered preemptible holder first,
                 # and only as many as are needed — a second download on the same
@@ -275,8 +352,14 @@ class ConnectionAccountant:
                     # still cannot grant would kill a download for nothing.
                     for hid, held_kind in evicted:
                         current[hid] = held_kind
-                    return AcquireResult(False, provider_id, cap, tuple(current.keys()))
+                    self._note_refused_locked(
+                        provider_id, holder_id, logger.info,
+                        "Connection busy on {}: {} ({}) waiting — slot held by {}",
+                        provider_id, holder_id, kind, tuple(current.keys()))
+                    return AcquireResult(False, provider_id, cap, tuple(current.keys())), True
             current[holder_id] = kind
+            self._acquired_at.setdefault(provider_id, {})[holder_id] = self._clock()
+            self._note_granted_locked(provider_id, holder_id, kind)
             result = AcquireResult(
                 True, provider_id, cap, tuple(current.keys()),
                 preempted=tuple(hid for hid, _ in evicted),
@@ -296,7 +379,34 @@ class ConnectionAccountant:
                     # a consumer left believing it still holds the slot is
                     # exactly the bug this fan-out exists to prevent.
                     logger.exception("on_preempt listener failed for {}", hid)
-        return result
+        return result, False
+
+    def _note_refused_locked(self, provider_id: str, holder_id: str, log_fn,
+                              template: str, *args) -> None:
+        """Log *template* the first time (provider_id, holder_id) is refused.
+
+        Must be called with ``self._lock`` already held — mutates
+        ``_held_back`` directly instead of re-entering the (non-reentrant)
+        lock. Repeated refusals of the same pair (a poller retrying every
+        few seconds against a still-busy source) log nothing further.
+        """
+        key = (provider_id, holder_id)
+        if key in self._held_back:
+            return
+        self._held_back.add(key)
+        log_fn(template, *args)
+
+    def _note_granted_locked(self, provider_id: str, holder_id: str, kind: str) -> None:
+        """Log the "granted after waiting" line once, iff this pair was held back.
+
+        Must be called with ``self._lock`` already held, same as
+        :meth:`_note_refused_locked`.
+        """
+        key = (provider_id, holder_id)
+        if key in self._held_back:
+            self._held_back.discard(key)
+            logger.info("Connection free on {}: {} ({}) granted after waiting",
+                        provider_id, holder_id, kind)
 
     def note_foreground_use(self, provider_id: str) -> None:
         """Arm *provider_id*'s background cooldown without taking a slot.
@@ -323,19 +433,31 @@ class ConnectionAccountant:
                 current.pop(holder_id, None)
                 if not current:
                     self._holders.pop(provider_id, None)
+            acquired = self._acquired_at.get(provider_id)
+            if acquired is not None:
+                acquired.pop(holder_id, None)
+                if not acquired:
+                    self._acquired_at.pop(provider_id, None)
+            self._held_back.discard((provider_id, holder_id))
 
     def reconcile(self, alive_holder_ids: Iterable[str]) -> list[tuple[str, str]]:
         """Release every registered holder whose id is not in *alive_holder_ids*.
 
         **Reconcile strategy — on-query, not periodic.** ``PlayerManager``
         calls this at the top of ``play()`` and ``stop()`` with the live mpv
-        instance-key set (``active_keys()``), so a crashed/killed mpv process
-        never leaks its slot forever — nothing else observes process death.
-        A periodic QTimer was considered and rejected: this object has no Qt
-        event loop of its own (by design, to stay pure-Python/unit-testable),
-        and accounting only matters at the moment of a new play/stop decision
-        — a lazy sweep right before that decision is sufficient and simpler
-        than wiring a background timer through a non-Qt class.
+        instance-key set (``active_keys()``), and ``acquire()`` calls it too
+        via the registered liveness probe when refused for capacity — so a
+        crashed/killed mpv process never leaks its slot forever no matter
+        which of those runs first. A periodic QTimer was considered and
+        rejected: this object has no Qt event loop of its own (by design, to
+        stay pure-Python/unit-testable), and accounting only matters at the
+        moment of a new play/stop/acquire decision — a lazy sweep right
+        before that decision is sufficient and simpler than wiring a
+        background timer through a non-Qt class.
+
+        A holder registered less than ``RECONCILE_GRACE_S`` ago is kept even
+        if it is not in *alive_holder_ids* — see that constant's docstring for
+        why a newborn holder must never be swept.
 
         Args:
             alive_holder_ids: The current set of holder ids that are still
@@ -347,12 +469,22 @@ class ConnectionAccountant:
         alive = set(alive_holder_ids)
         released: list[tuple[str, str]] = []
         with self._lock:
+            now = self._clock()
             for provider_id in list(self._holders.keys()):
                 current = self._holders[provider_id]
+                acquired = self._acquired_at.get(provider_id, {})
                 for holder_id in list(current.keys()):
-                    if holder_id not in alive:
-                        current.pop(holder_id, None)
-                        released.append((provider_id, holder_id))
+                    if holder_id in alive:
+                        continue
+                    age = now - acquired.get(holder_id, 0.0)
+                    if age < self.RECONCILE_GRACE_S:
+                        continue
+                    current.pop(holder_id, None)
+                    acquired.pop(holder_id, None)
+                    self._held_back.discard((provider_id, holder_id))
+                    released.append((provider_id, holder_id))
                 if not current:
                     self._holders.pop(provider_id, None)
+                if not acquired and provider_id in self._acquired_at:
+                    self._acquired_at.pop(provider_id, None)
         return released

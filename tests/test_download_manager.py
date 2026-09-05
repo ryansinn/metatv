@@ -286,6 +286,41 @@ def test_a_busy_provider_does_not_block_another_source(env, server):
     assert rows["chA"].state != "completed", "A's slot is taken by playback"
 
 
+def test_a_queued_download_self_heals_a_dead_playback_holder(tmp_path):
+    """The owner's bug, end to end (DL-7).
+
+    A playback holder is registered and never released — the player was
+    closed without a ``stop()`` call, so nothing ever told the accountant it
+    died. With the accountant's probe reporting it dead and the clock past
+    both the 60s provider cooldown a real ``acquire("playback", ...)`` arms
+    and ``RECONCILE_GRACE_S``, ``_step()`` must not need anyone else (a
+    ``play()``/``stop()`` elsewhere) to reconcile first — the queued row
+    starts on its own, which is the whole fix.
+    """
+    now = [0.0]
+    config = Config(config_dir=tmp_path)
+    config.download_dir = str(tmp_path / "library")
+    db = Database(f"sqlite:///{tmp_path / 'dl.db'}")
+    db.create_tables()
+    accountant = ConnectionAccountant(lambda _p: 1, clock=lambda: now[0])
+    accountant.acquire("p1", "playback", "__shared__")
+    accountant.set_liveness_probe(lambda: [])  # the window closed; mpv is gone
+
+    manager = DownloadManager(db, config, accountant)
+    manager.enqueue("ch1", "p1", "Film", "http://example.invalid/movie.mp4")
+
+    now[0] += ConnectionAccountant.PROVIDER_COOLDOWN_S + ConnectionAccountant.RECONCILE_GRACE_S + 1
+    calls: list[dict] = []
+    manager._transfer = lambda row: (calls.append(row), True)[1]
+
+    started = manager._step()
+
+    assert started is True
+    assert calls, "the queued download never ran"
+    assert accountant.in_use("p1") == 1, "the download itself now holds the slot"
+    assert accountant.holders("p1")[0].kind == "download"
+
+
 def test_the_global_pause_stops_everything(env, server):
     manager, _db, config, _accountant = env
     config.downloads_paused = True
