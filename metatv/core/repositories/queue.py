@@ -12,6 +12,20 @@ from sqlalchemy.orm import Session
 from metatv.core.database import WatchQueueDB, ChannelDB, EpisodeDB
 
 
+def provider_id_of(channel_id: str) -> str:
+    """Return the provider id embedded in a composite ``ChannelDB.id``.
+
+    ``ChannelDB.id`` is built as ``f"{provider_id}_{stream_id}"``
+    (``providers/xtream.py``'s ``convert_to_channel``) — the provider id is
+    everything before the final ``_``. Used to scope an orphan-recovery
+    ``source_id`` lookup to the SAME provider: ``source_id`` is the
+    provider's native stream id, which every provider reuses (small
+    integers), so matching on it alone can bind to a different source's
+    channel that happens to reuse the same native id.
+    """
+    return channel_id.rsplit("_", 1)[0]
+
+
 @dataclass
 class QueueEntry:
     """A single item in the watch queue, independent of ChannelDB join success.
@@ -62,6 +76,26 @@ class WatchQueueRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def _relocate_orphan(self, row: WatchQueueDB) -> ChannelDB | None:
+        """Try to relocate an orphaned queue row by provider-native stream id.
+
+        Scoped to the SAME provider (recovered from the row's own, possibly
+        stale, ``channel_id`` via :func:`provider_id_of`) — a bare
+        ``source_id`` match would happily bind to a different source's
+        channel that happens to reuse the same small native id. Returns
+        ``None`` (stays orphaned) when there's nothing to relocate to.
+        """
+        if not row.source_id:
+            return None
+        return (
+            self.session.query(ChannelDB)
+            .filter_by(
+                source_id=row.source_id,
+                provider_id=provider_id_of(row.channel_id),
+            )
+            .first()
+        )
+
     def get_all(
         self,
         hidden_provider_ids: set[str] | None = None,
@@ -104,12 +138,8 @@ class WatchQueueRepository:
             ch = self.session.get(ChannelDB, row.channel_id)
             if not ch and row.source_id:
                 # Fallback: channel was refreshed with a new primary key but same
-                # provider-native stream ID — try to relocate it.
-                ch = (
-                    self.session.query(ChannelDB)
-                    .filter_by(source_id=row.source_id)
-                    .first()
-                )
+                # provider-native stream ID — try to relocate it (same provider only).
+                ch = self._relocate_orphan(row)
             if not ch:
                 logger.warning(
                     f"Watch queue entry orphaned: channel_id={row.channel_id!r} "
@@ -128,7 +158,21 @@ class WatchQueueRepository:
             available = (
                 ch is not None and (not hidden or pid not in hidden)
             )
-            search_title = (ch.detected_title if ch else "") or display_name
+            # A recycled provider-native stream id can rebind row.channel_id to a
+            # DIFFERENT title after a refresh (reconnect-mangle). Only trust the
+            # live channel's title when its raw name still matches what the user
+            # queued; otherwise keep the stored name so display AND the recovery
+            # search (sidebar/queue.py) show what was actually queued, not a
+            # stranger's title.
+            if ch and row.channel_name and ch.name != row.channel_name:
+                logger.warning(
+                    "STREAM-ID REUSE: watch queue entry channel_id={!r} kept its "
+                    "queued title after this refresh: queued={!r} -> live={!r}",
+                    row.channel_id, row.channel_name, ch.name,
+                )
+                search_title = row.channel_name
+            else:
+                search_title = (ch.detected_title if ch else "") or display_name
             # Episode-grain rows (Slice 2B): sort by the EPISODE's own last_played,
             # not the series' — the series may have been engaged via a different
             # episode. season_num/episode_num/episode_title are denormalized on the
@@ -179,11 +223,7 @@ class WatchQueueRepository:
         for row in rows:
             ch = self.session.get(ChannelDB, row.channel_id)
             if not ch and row.source_id:
-                ch = (
-                    self.session.query(ChannelDB)
-                    .filter_by(source_id=row.source_id)
-                    .first()
-                )
+                ch = self._relocate_orphan(row)
             # Remove orphaned entries or entries on a hidden provider.
             if ch is None or ch.provider_id in hidden_provider_ids:
                 self.session.delete(row)
