@@ -381,9 +381,134 @@ class TestRepolishOnSwitch:
         """Wiring check — the helper is useless if apply_theme doesn't call it."""
         calls = []
         monkeypatch.setattr(
-            _theme, "_repolish_all_widgets", lambda: calls.append(1) or 0
+            _theme, "_repolish_all_widgets", lambda *a, **k: calls.append(1) or 0
         )
         _theme.apply_theme("Midnight")
         _theme.apply_theme("Daylight")
 
         assert calls, "apply_theme did not repolish — a live switch stays stale"
+
+
+class TestSuspendedRepaint:
+    """THEME-1: a live switch ran four whole-tree passes with painting left
+    on, so every setStyleSheet/polish inside them triggered its own
+    synchronous repaint (5-7s measured on the owner's window). Painting is
+    now suspended on every visible top-level for the sweep and restored
+    afterward — one repaint at the end instead of one per widget touched —
+    even when a pass raises.
+    """
+
+    def test_top_level_updates_are_disabled_mid_sweep_and_restored(
+        self, qapp, monkeypatch
+    ):
+        from PyQt6.QtWidgets import QMainWindow
+
+        from tests.conftest import destroy_widget
+
+        _theme.apply_theme("Midnight")
+        win = QMainWindow()
+        win.show()
+        assert win.updatesEnabled() is True
+
+        seen: list[bool] = []
+        orig = _theme._repolish_all_widgets
+
+        def _probe(*args, **kwargs):
+            seen.append(win.updatesEnabled())
+            return orig(*args, **kwargs)
+
+        monkeypatch.setattr(_theme, "_repolish_all_widgets", _probe)
+
+        _theme.apply_theme("Daylight")
+
+        assert seen == [False], (
+            "the top-level was still repaintable mid-sweep — every "
+            "setStyleSheet/polish inside the sweep triggers its own repaint"
+        )
+        assert win.updatesEnabled() is True, "updates were not restored after the sweep"
+        # Undo before destroying: the autouse _restore_theme fixture below
+        # calls apply_theme() again at teardown, and the probe closes over
+        # `win` — leaving it patched would touch a deleted C++ object.
+        monkeypatch.undo()
+        destroy_widget(win)
+
+    def test_updates_are_restored_even_when_a_pass_raises(self, qapp, monkeypatch):
+        from PyQt6.QtWidgets import QMainWindow
+
+        from tests.conftest import destroy_widget
+
+        _theme.apply_theme("Midnight")
+        win = QMainWindow()
+        win.show()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("injected failure")
+
+        monkeypatch.setattr(_theme, "_repolish_all_widgets", _boom)
+
+        with pytest.raises(RuntimeError):
+            _theme.apply_theme("Daylight")
+
+        assert win.updatesEnabled() is True, (
+            "a pass raising left the top-level's repaints suspended forever"
+        )
+        # Undo before destroying: the autouse _restore_theme fixture below
+        # calls apply_theme() again at teardown, and it must not hit _boom.
+        monkeypatch.undo()
+        destroy_widget(win)
+
+
+class TestNoDoublePolish:
+    """THEME-1: a widget already given a fresh stylesheet by
+    ``_reapply_registered_styles``/``_rewrite_stale_palette_values`` must not
+    also be visited by ``_repolish_all_widgets`` — that pass's explicit
+    ``unpolish``/``polish`` is a second, redundant recompute of the exact
+    same widget in the same switch.
+
+    ``setStyleSheet`` doesn't route through the Python-visible
+    ``QStyle.polish()`` hook in the offscreen platform (verified: a
+    ``QProxyStyle`` counts 0 for it), so the observable signal combines two
+    counters — a ``QLabel`` subclass counting its own ``setStyleSheet`` calls,
+    and a ``QProxyStyle`` counting explicit ``style().polish()`` calls made
+    on it — into one "restyle actions this switch" total.
+    """
+
+    def test_a_registered_widget_is_touched_exactly_once_per_switch(self, qapp):
+        from PyQt6.QtWidgets import QLabel, QProxyStyle, QWidget
+
+        class _CountingLabel(QLabel):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                self.set_calls = 0
+
+            def setStyleSheet(self, sheet):
+                self.set_calls += 1
+                super().setStyleSheet(sheet)
+
+        class _PolishCounter(QProxyStyle):
+            def __init__(self):
+                super().__init__()
+                self.n = 0
+
+            def polish(self, target):
+                if isinstance(target, QWidget):
+                    self.n += 1
+                super().polish(target)
+
+        _theme.apply_theme("Midnight")
+        widget = _CountingLabel("hi")
+        _theme.style(widget, "SECTION_HINT")
+        counter = _PolishCounter()
+        widget.setStyle(counter)
+        widget.set_calls = 0  # discard the registration call above
+        counter.n = 0
+
+        _theme.apply_theme("Daylight")
+
+        total = widget.set_calls + counter.n
+        assert total == 1, (
+            f"{total} restyle actions in one switch (setStyleSheet="
+            f"{widget.set_calls}, explicit polish={counter.n}) — a widget "
+            f"_reapply_registered_styles already restyled must not also be "
+            f"visited by _repolish_all_widgets"
+        )
