@@ -210,6 +210,26 @@ class _DownloadsMixin:
         self.player_manager.play(str(path), rows[0].programme_title
                                  or rows[0].channel_name)
 
+    def _resolve_playable_channel(
+            self, channel_id: str) -> "PlayableChannelDTO | None":
+        """Open a session, resolve the playable DTO, close it. Nothing else.
+
+        The one-session-one-query body ``download_channel_by_id`` and
+        ``schedule_recording_from_programme`` both opened verbatim before this
+        was pulled out — same two lines, two copies. A caller that needs more
+        than the DTO in the SAME session (``record_channel_by_id``'s EPG
+        peek, ``record_channel_window``'s provider-name lookup) opens its own
+        block instead, since there is nothing generic to share there.
+
+        Args:
+            channel_id: The channel's unique ID string.
+
+        Returns:
+            The DTO, or ``None`` if the channel no longer exists.
+        """
+        with self.db.session_scope() as session:
+            return RepositoryFactory(session).channels.get_playable_dto(channel_id)
+
     def download_channel_by_id(self, channel_id: str) -> None:
         """Queue a VOD for download to the local library.
 
@@ -225,8 +245,7 @@ class _DownloadsMixin:
         Args:
             channel_id: The channel's unique ID string.
         """
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        channel = self._resolve_playable_channel(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
@@ -298,6 +317,43 @@ class _DownloadsMixin:
 
         self._schedule_and_announce(channel, starts_at, ends_at, title, pad=pad)
 
+    def record_channel_window(self, channel_id: str) -> None:
+        """Record a live channel for a user-picked start/end window.
+
+        *Catch, Keep, Record* Feature 3 Option B: needs no guide data at
+        all, unlike ``record_channel_by_id`` (falls back to a guessed
+        duration when there is no EPG entry) — this is what makes recording
+        work at all on a source with no EPG, the owner's own live source
+        among them. ``RecordWindowDialog`` owns the default window, the
+        validity rule, and its own explicit padding; this method only
+        resolves the channel + provider name it needs and hands the
+        dialog's answer to the shared ``_schedule_and_announce`` chokepoint.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from PyQt6.QtWidgets import QDialog
+
+        from metatv.gui.record_window_dialog import RecordWindowDialog
+
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_playable_dto(channel_id)
+            provider_db = (repos.providers.get_by_id(channel.provider_id)
+                          if channel else None)
+            provider_name = provider_db.name if provider_db else "This source"
+        if not channel or channel.media_type != MediaType.LIVE:
+            return
+
+        dlg = RecordWindowDialog(channel.name, provider_name, self.config, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        starts_at, ends_at, pad_start_seconds, pad_end_seconds = dlg.result_window()
+        self._schedule_and_announce(
+            channel, starts_at, ends_at, title=channel.name, pad=True,
+            pad_start_seconds=pad_start_seconds, pad_end_seconds=pad_end_seconds)
+
     def schedule_recording_from_programme(
             self, channel_id: str, starts_at: datetime, ends_at: datetime,
             title: str) -> None:
@@ -314,8 +370,7 @@ class _DownloadsMixin:
             ends_at: The programme's end, UTC-naive, unpadded.
             title: The programme title.
         """
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        channel = self._resolve_playable_channel(channel_id)
         if not channel:
             return
         self._schedule_and_announce(channel, starts_at, ends_at, title, pad=True)
@@ -336,13 +391,16 @@ class _DownloadsMixin:
 
     def _schedule_and_announce(
             self, channel: "PlayableChannelDTO", starts_at: datetime,
-            ends_at: datetime, title: str, *, pad: bool) -> None:
+            ends_at: datetime, title: str, *, pad: bool,
+            pad_start_seconds: "int | None" = None,
+            pad_end_seconds: "int | None" = None) -> None:
         """Schedule a recording and tell the user what happened.
 
-        The one chokepoint both ``record_channel_by_id`` (a live channel's
-        "now") and ``schedule_recording_from_programme`` (REC-3, a specific
-        guide row) end in, so the notification copy — and the conflict
-        handling — exists once rather than twice.
+        The one chokepoint ``record_channel_by_id`` (a live channel's "now"),
+        ``schedule_recording_from_programme`` (REC-3, a specific guide row)
+        and ``record_channel_window`` (Option B, a picked window) all end in,
+        so the notification copy — and the conflict handling — exists once
+        rather than three times.
 
         Args:
             channel: The playable DTO already resolved by the caller.
@@ -353,12 +411,26 @@ class _DownloadsMixin:
                 channel name).
             pad: Whether the configured default padding applies — False only
                 for the no-EPG fallback, which has no real guide window to pad.
+                Ignored when either padding override below is given.
+            pad_start_seconds: Explicit start padding, overriding both `pad`
+                and the config default — ``RecordWindowDialog``'s own spin
+                value. ``None`` (the default) falls back to `pad`'s behaviour.
+            pad_end_seconds: Same, for the end offset.
         """
+        if pad_start_seconds is None and pad_end_seconds is None:
+            pad_kwargs = {} if pad else {"pad_start_seconds": 0, "pad_end_seconds": 0}
+        else:
+            pad_kwargs = {}
+            if pad_start_seconds is not None:
+                pad_kwargs["pad_start_seconds"] = pad_start_seconds
+            if pad_end_seconds is not None:
+                pad_kwargs["pad_end_seconds"] = pad_end_seconds
+
         outcome = self.recording_manager.schedule(
             channel_id=channel.id, provider_id=channel.provider_id,
             channel_name=channel.name, source_url=channel.stream_url,
             starts_at=starts_at, ends_at=ends_at, programme_title=title,
-            **({} if pad else {"pad_start_seconds": 0, "pad_end_seconds": 0}))
+            **pad_kwargs)
 
         if not outcome.scheduled:
             self.notification_manager.show(

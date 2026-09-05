@@ -1634,6 +1634,8 @@ def make_downloads_mixin_host(db_obj, config, recording_manager=None):
     )
     for _name in (
         "record_channel_by_id",
+        "record_channel_window",
+        "_resolve_playable_channel",
         "schedule_recording_from_programme",
         "_schedule_and_announce",
         "_resolve_recording_conflict",
