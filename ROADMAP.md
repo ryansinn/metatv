@@ -917,13 +917,13 @@ and the lowest priority of all four, by design.
   - [x] **Detection (#313)** — `_snapshot_engaged_names` / `_report_recycled_ids` log a greppable
     `STREAM-ID REUSE` warning naming the old and new title whenever a refresh re-points a row the
     user favorited/queued/rated/played. Bounded by engaged count, not catalog size. Diagnostic only.
-  - [ ] **Skip expired sources in Refresh All (bulk only).** `refresh_all_providers`
+  - [x] **SHIPPED 0.99.0 (#759, entry 604) — Skip expired sources in Refresh All (bulk only).** `refresh_all_providers`
     (`main_window_providers.py:915-923`) filters on `is_active` alone; expiry is never consulted,
     and expired ≠ inactive. **Do NOT block per-source refresh on expiry** — the refresh is what
     fetches account info and rewrites `account_exp_date` (`provider_loader.py:788-805`), so
     "expired blocks refresh" is self-locking: renew, and nothing can ever clear the flag. Mirrors
     the existing `is_active` split (bulk skips; a deliberate per-source refresh always runs).
-  - [ ] **Detach-on-recycle + a "lost its source" review surface (the actual fix).** When a refresh
+  - [ ] **Detach-on-recycle + a "lost its source" review surface (the actual fix).** DESIGN PROPOSED 2026-09-05 as worklog row RECYCLE-1 (a `RecycledEngagementDB` record per recycled engaged row, flags cleared on the new occupant, a review list with Find again / Keep the new one / Forget; Q1-Q4 await the owner). When a refresh
     changes the name of a row carrying user state, the **new occupant must not inherit** the
     favorite/queue/rating, and the old engagement is preserved as a record of the old title +
     identity rather than deleted (user data is sacrosanct). Do **not** "freeze" the stored name —
@@ -932,15 +932,16 @@ and the lowest priority of all four, by design.
     is a guess, and silently re-pointing a favorite at a guess repeats this bug's error class.
     Surface the list, let the user confirm. Folds into "re-map engaged content" / the Hidden
     Management view.
-  - [ ] **Sibling defects found alongside:** `repositories/queue.py:105-112` relocates an orphaned
+  - [x] **SHIPPED 0.99.0 (#757, entry 605) — Sibling defects found alongside:** `repositories/queue.py:105-112` relocated an orphaned
     queue row by `source_id` **unscoped by `provider_id`**, so it can bind to a different source's
     channel; and `sidebar/queue.py:521` prefers the live `search_title` over the deliberately
     orphan-safe stored `channel_name`, defeating that denormalization.
 - [ ] **Which reload changes a title under you?** Unconfirmed leftover from the scroll report:
   whether the TMDb-match / title-update refresh the owner saw comes from a third path (not the
   sidebar sections, which are now covered). Needs a reproduction before it is worth chasing.
-- [ ] **Platform rollup for Discover shelves** needs its own Q-tag review (carried over; never
-  had a design pass).
+- [ ] **Platform rollup for Discover shelves** — DESIGN PROPOSED 2026-09-05 as worklog row PLAT-1 with the
+  Q-tag review it was owed (measured on the live library: 57,223 rows / 16,980 titles carry a platform tag;
+  seven platforms clear 100 titles; `SC`/`EAR` are subtitle libraries, not platforms). Q1-Q5 await the owner.
 
 **Owner-owed, not buildable by the coding agent:** TMDb/OMDb have never made a real network call
 (#395 was mocked-aiohttp only). The Settings **Test** button already exists at
