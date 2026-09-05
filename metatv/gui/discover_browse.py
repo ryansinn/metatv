@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -16,6 +16,7 @@ from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import UniformCardGrid, card_metrics, _ContentCard
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -97,11 +98,9 @@ class _BrowseView(QWidget):
         top.addWidget(self._title_lbl)
         top.addStretch()
 
-        self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText("Filter…")
+        self._search_box = ScopedFilterBox("Filter…", debounce_ms=0)
         self._search_box.setFixedWidth(200)
-        self._search_box.setClearButtonEnabled(True)
-        self._search_box.textChanged.connect(self._apply_filter)
+        self._search_box.filterChanged.connect(self._apply_filter)
         top.addWidget(self._search_box)
 
         self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")

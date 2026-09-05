@@ -45,7 +45,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -86,6 +85,7 @@ from metatv.gui.epg_widgets import (
     apply_watchlist_highlight as _apply_watchlist_highlight,
     rec_cell_click,
 )
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 # Bump this when the On Now header's column layout changes (count/order/roles). A
 # persisted ``on_now_header_state`` saved under an older version is discarded instead
@@ -184,11 +184,9 @@ class _EpgOnNowMixin:
         filter_row = QHBoxLayout()
         filter_row.setSpacing(6)
 
-        self.on_now_search = QLineEdit()
-        self.on_now_search.setPlaceholderText("Search On Now…")
+        self.on_now_search = ScopedFilterBox("Search On Now…", debounce_ms=0)
         self.on_now_search.setFixedWidth(180)
-        self.on_now_search.setClearButtonEnabled(True)
-        self.on_now_search.textChanged.connect(self._apply_on_now_filters)
+        self.on_now_search.filterChanged.connect(self._apply_on_now_filters)
         filter_row.addWidget(self.on_now_search)
 
         self.on_now_prefix_dropdown = FilterDropdown("Category", {}, all_selected=True)

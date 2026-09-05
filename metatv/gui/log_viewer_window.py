@@ -41,12 +41,13 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -125,11 +126,9 @@ class LogViewerWindow(QWidget):
         self.level_combo.currentTextChanged.connect(self._rerender)
         controls.addWidget(self.level_combo)
 
-        self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filter…")
-        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit = ScopedFilterBox("Filter…", debounce_ms=0)
         self.filter_edit.setToolTip("Show only lines containing this text")
-        self.filter_edit.textChanged.connect(self._rerender)
+        self.filter_edit.filterChanged.connect(self._rerender)
         controls.addWidget(self.filter_edit, 1)
 
         self.follow_check = QCheckBox("Follow")

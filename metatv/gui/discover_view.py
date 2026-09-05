@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider,
+    QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider,
     QStackedWidget,
     QVBoxLayout, QWidget,
 )
@@ -50,6 +50,7 @@ from metatv.gui.discover_workers import (
     _ZoneSnapshot, determine_zone, normalize_shelf_config,
 )
 from metatv.gui import icons as _icons
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -145,14 +146,12 @@ class DiscoverView(QWidget):
         # restored at launch would present an almost-empty Discover with no
         # obvious cause, which reads as a broken app rather than a saved
         # preference.
-        self._shelf_filter = QLineEdit()
-        self._shelf_filter.setPlaceholderText("Filter shelves…")
-        self._shelf_filter.setClearButtonEnabled(True)
+        self._shelf_filter = ScopedFilterBox("Filter shelves…", debounce_ms=0)
         self._shelf_filter.setFixedWidth(180)
         self._shelf_filter.setToolTip(
             "Show only shelves whose name matches. Clear to show all again."
         )
-        self._shelf_filter.textChanged.connect(self._on_shelf_filter_changed)
+        self._shelf_filter.filterChanged.connect(self._on_shelf_filter_changed)
         hbl.addWidget(self._shelf_filter)
 
         self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")

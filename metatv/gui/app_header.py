@@ -23,12 +23,13 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal as _pyqtSignal
 from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_bar import FilterChip, ToggleChip
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 
 # ── Header styling ──────────────────────────────────────────────────────────
@@ -189,9 +190,16 @@ class _AppHeaderMixin:
         # existing behaviour (it filters the channel list) and its existing
         # signal; only its home and its placeholder change. Visibility still
         # follows the Search view — see ``_sync_header_search_visibility``.
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search titles — name, category…")
-        self.search_input.setClearButtonEnabled(True)
+        #
+        # SEARCH-10: adopts ScopedFilterBox for its input shape (clear button,
+        # Escape-to-clear) — debounce_ms=0 because main_window_channels.py
+        # already runs its OWN debounce/save ladder off ``textChanged``, which
+        # stays wired exactly as it was. The header keeps its own distinctive
+        # "surface" look (_search_sheet) rather than the shared
+        # SCOPED_FILTER_BOX role every other adopter takes.
+        self.search_input = ScopedFilterBox(
+            "Search titles — name, category…", debounce_ms=0
+        )
         self.search_input.setMinimumWidth(240)
         self.search_input.setMaximumWidth(460)
         _theme.style_fn(self.search_input, _search_sheet)

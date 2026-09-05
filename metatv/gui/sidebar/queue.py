@@ -4,10 +4,9 @@ from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
-    QGraphicsOpacityEffect, QLineEdit,
+    QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
 from loguru import logger
 
 from metatv.gui.row_activation import connect_row_activation
@@ -21,6 +20,7 @@ from metatv.gui.chip_row import (
     media_icon_role, quality_word, sidebar_meta_line,
 )
 from metatv.gui.chunked_construction import ChunkHandle, build_chunked
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
 from metatv.gui import deferred_config_save as _cfgsave
@@ -210,17 +210,13 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         # filled faster than it is drained, where every entry was added
         # deliberately. Hiding 71% of it to make it navigable would be censorial;
         # letting the user find one title in it is not.
-        self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Find in queue…")
+        self._filter = ScopedFilterBox("Find in queue…", debounce_ms=0)
         self._filter.setToolTip("Show only queued titles matching this text")
-        self._filter.setClearButtonEnabled(True)
-        self._filter.textChanged.connect(self._on_filter_changed)
+        self._filter.filterChanged.connect(self._on_filter_changed)
         # Escape puts the sidebar back the way it was — the same one action as
         # clicking the header button off, so it also clears (never leaves an
         # invisible filter behind).
-        escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self._filter)
-        escape.setContext(Qt.ShortcutContext.WidgetShortcut)
-        escape.activated.connect(self._hide_filter_box)
+        self._filter.escaped.connect(self._hide_filter_box)
         self.content_layout.addWidget(self._filter)
         self._set_filter_visible(bool(self.config.queue_filter_visible), save=False)
 

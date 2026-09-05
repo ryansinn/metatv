@@ -28,7 +28,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -38,6 +37,7 @@ from PyQt6.QtWidgets import (
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowContainer
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 # Maximum number of tags shown before the "+N more" cap button appears.
 _CAP: int = 40
@@ -347,17 +347,15 @@ class WeightedTagCloud(QWidget):
 
     def refresh_theme(self) -> None:
         """Re-apply the active palette to this cloud's own persistent chrome —
-        the header label, sort toggle, filter box, and "+N more" cap button —
-        all styled once at construction. Individual ``_TagButton`` instances
-        are rebuilt fresh from current tokens on every ``set_tags()``/
-        ``set_multi_facet_tags()`` call, so they need no sweep entry here.
-        Called from ``RecipeView.refresh_theme()``.
+        the header label, sort toggle, and "+N more" cap button — all styled
+        once at construction. The filter box (``ScopedFilterBox``) registers
+        and re-styles itself; it needs no entry here. Individual
+        ``_TagButton`` instances are rebuilt fresh from current tokens on
+        every ``set_tags()``/``set_multi_facet_tags()`` call, so they need no
+        sweep entry here either. Called from ``RecipeView.refresh_theme()``.
         """
         _theme.style(self._header_lbl, "CLOUD_HEADER_LABEL")
         _theme.style(self._sort_btn, "CLOUD_CTRL_BTN")
-        _theme.style_fn(self._filter_edit, lambda: f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
-            f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
-            f" border-radius: 3px; padding: 1px 6px; }}")
         _theme.style(self._more_btn, "CLOUD_MORE_BTN")
 
     # ── private: UI construction ──────────────────────────────────────────────
@@ -391,15 +389,10 @@ class WeightedTagCloud(QWidget):
         hl.addWidget(self._sort_btn)
 
         # Filter search box
-        self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter…")
+        self._filter_edit = ScopedFilterBox("Filter…", debounce_ms=0)
         self._filter_edit.setFixedWidth(120)
-        self._filter_edit.setClearButtonEnabled(True)
-        _theme.style_fn(self._filter_edit, lambda: f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
-            f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
-            f" border-radius: 3px; padding: 1px 6px; }}")
         self._filter_edit.setToolTip("Filter tags by name — live substring match")
-        self._filter_edit.textChanged.connect(self._on_filter_changed)
+        self._filter_edit.filterChanged.connect(self._on_filter_changed)
         hl.addWidget(self._filter_edit)
 
         outer.addWidget(header)

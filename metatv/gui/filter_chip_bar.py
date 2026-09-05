@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QLineEdit,
     QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QWidget,
 )
 
@@ -28,6 +27,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_chips import FilterChip
+from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 #: Bar height. Fixed so that adding or clearing a filter never moves the list.
 BAR_HEIGHT = 32
@@ -167,16 +167,14 @@ class FilterChipBar(QWidget):
         # case: "a filter restored at launch would present an almost-empty
         # view with no obvious cause, which reads as a broken app rather than
         # a saved preference."
-        self._results_filter = QLineEdit()
-        self._results_filter.setPlaceholderText("Filter these results…")
-        self._results_filter.setClearButtonEnabled(True)   # the standard
+        self._results_filter = ScopedFilterBox("Filter these results…", debounce_ms=0)
         self._results_filter.setFixedWidth(RESULTS_FILTER_W)
         self._results_filter.setFixedHeight(CHIP_HEIGHT)
         self._results_filter.setToolTip(
             "Narrow the results already listed — matches the title, a person, "
             "the year, genre or category. Clear it to show them all again."
         )
-        self._results_filter.textChanged.connect(self.results_filter_changed)
+        self._results_filter.filterChanged.connect(self.results_filter_changed)
         self._row.addWidget(self._results_filter)
 
         self._clear = QPushButton("Clear all")
