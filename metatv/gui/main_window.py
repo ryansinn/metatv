@@ -495,6 +495,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # new task here.
         from metatv.core.migrations.raw_field_backfill import RawFieldBackfillTask
         self.migration_manager.register(RawFieldBackfillTask(self.db))
+        from metatv.core.migrations.orphan_sweep import OrphanSweepTask
+        self.migration_manager.register(OrphanSweepTask(self.db))
         # The classifier only runs on rows it has never seen (ProviderLoader
         # filters special_view IS NULL), so a fix to special_content.py reaches
         # new rows only. This is the pass that re-labels the existing ones.

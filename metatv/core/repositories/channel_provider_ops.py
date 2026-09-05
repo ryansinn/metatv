@@ -55,7 +55,8 @@ class ChannelProviderOpsMixin:
 
         A channel is engaged — and therefore preserved even when its provider is
         removed — when it is favorited, has been played (``last_played`` set or
-        ``play_count > 0``), or is currently queued.  This is the single
+        ``play_count > 0``), is currently queued, or has been rated
+        (``UserRatingDB``, 1:1 keyed by ``channel_id``).  This is the single
         "flag engaged-unavailable, don't delete" gate reused by every doomed-set
         delete below so the exclusion can never drift between statements.
         """
@@ -64,6 +65,7 @@ class ChannelProviderOpsMixin:
             ChannelDB.last_played.isnot(None),
             ChannelDB.play_count > 0,
             ChannelDB.id.in_(self.session.query(WatchQueueDB.channel_id)),
+            ChannelDB.id.in_(self.session.query(UserRatingDB.channel_id)),
         )
 
     def get_reconnect_candidates(

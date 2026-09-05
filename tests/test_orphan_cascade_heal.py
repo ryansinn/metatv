@@ -1,15 +1,18 @@
-"""Behavioral tests for provider-delete cascade and orphan-heal migration.
+"""Behavioral tests for provider-delete cascade.
 
 Covers:
 1. Cascade deletes non-engaged channels and their dependents when a provider is
    deleted via ProviderRepository.delete().
 2. Engaged channels (favorited / played / queued) survive the cascade.
-3. The one-time orphan-prune migration in create_tables() heals existing orphans
-   while preserving engaged content.
-4. Prune works correctly across more than one batch (> _PRUNE_BATCH_SIZE channels).
+3. Prune works correctly across more than one batch (> _PRUNE_BATCH_SIZE channels).
+
+Healing orphans left behind by something OTHER than ``ProviderRepository.delete()``
+(a crash mid-delete, a direct row removal) is ``OrphanSweepTask`` — see
+tests/test_orphan_sweep_task.py (DB-5; formerly a one-time ``create_tables()``
+migration, gated on ``PRAGMA user_version``, that only ever ran once).
 
 All tests use file-backed DBs (tmp_path) per project policy — pooled :memory:
-connections each start with an empty schema and don't share user_version state.
+connections each start with an empty schema and don't share PRAGMA state.
 """
 
 from __future__ import annotations
@@ -192,8 +195,8 @@ def test_cascade_deletes_nonengaged_and_dependents(db_path):
         # Season + episode on this series channel
         season = _season(session, ch.id, pid)
         _episode(session, ch.id, season.id, pid)
-        # Rating and alert match
-        _rating(session, ch.id)
+        # Alert match (a rating would make this channel ENGAGED — see
+        # test_engaged_channels_preserved_after_provider_delete for that case)
         _alert_match(session, ch.id)
 
     # Delete via ProviderRepository
@@ -218,8 +221,6 @@ def test_cascade_deletes_nonengaged_and_dependents(db_path):
             "seasons for deleted provider must be removed"
         assert session.query(EpisodeDB).filter_by(provider_id="pid-1").count() == 0, \
             "episodes for deleted provider must be removed"
-        assert session.query(UserRatingDB).filter_by(channel_id="ch-ne-1").count() == 0, \
-            "user rating for deleted channel must be removed"
         assert session.query(AlertMatchDB).filter_by(channel_id="ch-ne-1").count() == 0, \
             "alert match for deleted channel must be removed"
 
@@ -228,10 +229,10 @@ def test_cascade_deletes_nonengaged_and_dependents(db_path):
 
 
 def test_engaged_channels_preserved_after_provider_delete(db_path):
-    """The three engagement signals each independently preserve a channel.
+    """The four engagement signals each independently preserve a channel.
 
-    Favorited, last_played-set, and queued channels survive provider deletion.
-    Non-engaged channels on the same provider are removed.
+    Favorited, last_played-set, queued, and rated channels survive provider
+    deletion. Non-engaged channels on the same provider are removed.
     The engaged orphans are then hidden by get_hidden_provider_ids() but still
     appear in get_favorites_dto() and the watch queue.
     """
@@ -239,6 +240,7 @@ def test_engaged_channels_preserved_after_provider_delete(db_path):
     ch_fav_id = str(uuid.uuid4())
     ch_watched_id = str(uuid.uuid4())
     ch_queued_id = str(uuid.uuid4())
+    ch_rated_id = str(uuid.uuid4())
     ch_ne_id = str(uuid.uuid4())
 
     with db.session_scope() as session:
@@ -251,6 +253,9 @@ def test_engaged_channels_preserved_after_provider_delete(db_path):
         # Engaged: queued (play_count=0, not favorited, last_played=None)
         ch_q = _channel(session, "pid-eng", cid=ch_queued_id)
         _queue_entry(session, ch_q.id)
+        # Engaged: rated (play_count=0, not favorited, last_played=None, not queued)
+        ch_r = _channel(session, "pid-eng", cid=ch_rated_id)
+        _rating(session, ch_r.id)
         # Non-engaged
         _channel(session, "pid-eng", cid=ch_ne_id)
 
@@ -266,6 +271,10 @@ def test_engaged_channels_preserved_after_provider_delete(db_path):
             "played channel must survive provider deletion"
         assert session.query(ChannelDB).filter_by(id=ch_queued_id).first() is not None, \
             "queued channel must survive provider deletion"
+        assert session.query(ChannelDB).filter_by(id=ch_rated_id).first() is not None, \
+            "rated channel must survive provider deletion"
+        assert session.query(UserRatingDB).filter_by(channel_id=ch_rated_id).count() == 1, \
+            "the rating itself must survive alongside its rated channel"
         assert session.query(ChannelDB).filter_by(id=ch_ne_id).first() is None, \
             "non-engaged channel must be deleted"
 
@@ -294,67 +303,6 @@ def test_engaged_channels_preserved_after_provider_delete(db_path):
         queued_entry = next(e for e in queue_entries if e.channel_id == ch_queued_id)
         assert queued_entry.available is False, \
             "queued channel on deleted provider must be annotated unavailable"
-
-
-# ── Test 3: one-time migration heals existing orphans ────────────────────────
-
-
-def test_one_time_migration_heals_existing_orphans(tmp_path):
-    """create_tables() prunes existing orphans on first run; idempotent on second run."""
-    db_file = tmp_path / "heal_test.db"
-
-    # --- Build a raw DB with orphaned channels (no providers row) ---
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from metatv.core.database import Base
-
-    raw_engine = create_engine(f"sqlite:///{db_file}", echo=False,
-                                connect_args={"check_same_thread": False})
-    Base.metadata.create_all(raw_engine)
-    RawSession = sessionmaker(bind=raw_engine)
-
-    orphaned_ne_id = str(uuid.uuid4())
-    orphaned_engaged_id = str(uuid.uuid4())
-
-    with RawSession() as s:
-        # Orphaned non-engaged channel (provider_id "p-gone" has no providers row)
-        s.add(ChannelDB(
-            id=orphaned_ne_id, source_id=orphaned_ne_id,
-            provider_id="p-gone", name="Orphan NE", media_type="live",
-        ))
-        # Orphaned engaged channel (favorited)
-        s.add(ChannelDB(
-            id=orphaned_engaged_id, source_id=orphaned_engaged_id,
-            provider_id="p-gone", name="Orphan Engaged", media_type="movie",
-            is_favorite=True,
-        ))
-        s.commit()
-
-    raw_engine.dispose()
-
-    # --- Run create_tables() — triggers orphan prune migration ---
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-
-    # Non-engaged orphan is gone; engaged orphan survives
-    with db.session_scope(commit=False) as session:
-        assert session.query(ChannelDB).filter_by(id=orphaned_ne_id).first() is None, \
-            "non-engaged orphan must be pruned by the one-time migration"
-        assert session.query(ChannelDB).filter_by(id=orphaned_engaged_id).first() is not None, \
-            "engaged (favorited) orphan must be preserved by the migration"
-
-    db.close()
-
-    # --- Second create_tables() call: idempotent — no error, no double-delete ---
-    db2 = Database(f"sqlite:///{db_file}")
-    db2.create_tables()  # must not raise; user_version=2 gates the migration
-
-    with db2.session_scope(commit=False) as session:
-        # Engaged orphan still present after second run
-        assert session.query(ChannelDB).filter_by(id=orphaned_engaged_id).first() is not None, \
-            "engaged orphan must still exist after second create_tables() call"
-
-    db2.close()
 
 
 # ── Test 4: large prune (> one batch) ────────────────────────────────────────
