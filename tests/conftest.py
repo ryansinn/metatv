@@ -1048,6 +1048,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_collapse_variants_setting",
     "_apply_adult_mode_setting",
     "_sync_split_toggle",
+    "_apply_dead_signal_setting",
     "_apply_menu_bar_setting",
     "_refresh_vod_alerts_section",
     "_restart_series_monitor_scheduler",
