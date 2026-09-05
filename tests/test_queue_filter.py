@@ -29,6 +29,7 @@ from metatv.core.config import Config
 from metatv.core.repositories.queue import QueueEntry
 from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
+from tests.conftest import destroy_widget
 
 
 @pytest.fixture(scope="module")
@@ -348,6 +349,58 @@ def test_reapply_row_budget_does_not_resurrect_filtered_rows(section):
         f"header count drifted after reapply_row_budget: "
         f"{header_before!r} -> {header_after!r}"
     )
+
+
+def test_fit_to_rows_measures_only_visible_rows_on_a_flat_list(qapp):
+    """HIDE-1b: ``viewportSizeHint()`` excludes hidden rows on a
+    ``QTreeWidget`` (verified live: a six-row tree fell 119px -> 85px once
+    two rows were hidden) but NOT on a ``QListWidget`` — it keeps reporting
+    every row's height regardless of ``isHidden()``. That is why a partially
+    filtered Watch Queue (a flat list, like ``section._list`` above) kept the
+    blank space of the rows the filter had hidden.
+
+    ``fit_to_rows`` must measure a list's VISIBLE rows directly, so this
+    drives the helper on a bare ``QListWidget`` rather than through the
+    section — the flat-list sibling of
+    ``test_fixed_height_tracks_only_the_visible_rows`` in
+    ``test_tree_row_budget_runs.py``.
+    """
+    from PyQt6.QtCore import QSize
+    from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+
+    from metatv.gui.sidebar.row_budget import RowBudgetMixin
+
+    row_px = 41
+    lst = QListWidget()
+    for i in range(6):
+        item = QListWidgetItem(f"Row {i}")
+        item.setSizeHint(QSize(200, row_px))
+        lst.addItem(item)
+
+    RowBudgetMixin.fit_to_rows(lst)
+    six_rows_height = lst.height()
+    assert six_rows_height >= 6 * row_px
+
+    lst.item(1).setHidden(True)
+    lst.item(4).setHidden(True)
+    RowBudgetMixin.fit_to_rows(lst)
+    four_rows_height = lst.height()
+
+    assert four_rows_height < six_rows_height, (
+        f"hiding two of six rows left the list at {four_rows_height}px, same "
+        f"as the full {six_rows_height}px — the flat-list budget is not "
+        "measuring what is actually visible"
+    )
+    assert four_rows_height >= 4 * row_px, (
+        f"the four remaining rows do not fit into {four_rows_height}px"
+    )
+
+    for i in range(6):
+        lst.item(i).setHidden(True)
+    RowBudgetMixin.fit_to_rows(lst)
+    assert lst.height() == 0
+
+    destroy_widget(lst)
 
 
 def _item_for(section, title: str):
