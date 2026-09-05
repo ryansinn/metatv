@@ -20,6 +20,13 @@ PLAYBACK_PREEMPTS: tuple[str, ...] = ("download", "monitor", "probe")
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv import MPVPlayer
 
+#: The instance key a finished download plays into when Split Streams wants it
+#: in its own window. Not a provider_id — a downloaded FILE has none of the
+#: contention a live stream does, so it gets one dedicated window rather than
+#: being keyed per-provider (which would make two downloads from the same
+#: source fight over the window a live stream from that source also uses).
+DOWNLOADS_INSTANCE_KEY = "__downloads__"
+
 
 class PlayerManager:
     """Facade for managing media player operations with instance limit enforcement"""
@@ -300,6 +307,39 @@ class PlayerManager:
                 self.connection_accountant.release(provider_id, key)
 
         return result
+
+    def play_local_file(self, path: str, title: str, *, own_window: bool) -> bool:
+        """Play a file already on disk — a finished download, not a stream.
+
+        Deliberately NOT ``play()``: a local file has neither of the concerns
+        that method exists to manage. It claims no slot in the
+        ``ConnectionAccountant`` (there is no ``provider_id`` — a downloaded
+        file has no connection to contend for) and runs no URL probe (the
+        provider-URL-cycling machinery is for *stream* URLs).
+
+        Keyed through the same ``_resolve_instance_key`` machinery play() uses
+        rather than a hand-built key, so the "one shared window vs. one window
+        per source" rule stays defined in exactly one place. *own_window*
+        picks between two fixed keys: :data:`DOWNLOADS_INSTANCE_KEY` (its own
+        window — pass ``config.split_streams_by_source``, so a live stream
+        elsewhere keeps playing) or the shared window (replaces whatever is in
+        it, matching split-off behaviour).
+
+        Args:
+            path: Absolute path to the file on disk.
+            title: Display title for the player window.
+            own_window: When True, play in a dedicated window instead of the
+                shared one. Callers pass ``config.split_streams_by_source``.
+
+        Returns:
+            True if the file was handed off to mpv, False on failure.
+        """
+        if not self.player:
+            logger.error("No player available")
+            return False
+        key = self._resolve_instance_key(
+            DOWNLOADS_INSTANCE_KEY if own_window else None, force_split=own_window)
+        return self.player.play(path, title, instance_key=key)
 
     def queue(
         self,

@@ -500,8 +500,11 @@ def build_chip_row(
             It never elides: it is what tells two identical titles apart, so it
             is the last thing that should be dropped.
         tail_widget: A caller-owned widget in the right-hand cluster, after the
-            chips and ``tail``. For a fact that cannot be a string — Watch
-            Alerts puts a programme's progress bar here.
+            chips and ``tail`` (compact), or closing the title line beside
+            ``trailing_button`` (comfortable — there is no separate tail to
+            join). For a fact that cannot be a string — Watch Alerts puts a
+            programme's progress bar here, and a transfer row's bar needs it
+            to survive alongside a ``meta`` line.
         indent: Left inset, for a child row nested under a parent. Supplied by
             the caller rather than a tree's ``setIndentation``, which also
             indents TOP-level rows and so gives a section two left edges.
@@ -600,6 +603,11 @@ def build_chip_row(
     if comfortable and trailing_button is not None:
         trailing_button.setObjectName(TRAILING_OBJECT_NAME)
         layout.addWidget(trailing_button)
+    # Same for a caller-owned tail widget (a transfer row's progress bar) —
+    # additive only: no comfortable-density call site passed one before this,
+    # so this cannot move anything that already rendered.
+    if comfortable and tail_widget is not None:
+        layout.addWidget(tail_widget)
 
     if comfortable:
         meta_lbl = MiddleElideLabel(meta, color_token="COLOR_TEXT")

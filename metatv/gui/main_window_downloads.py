@@ -17,11 +17,17 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QMenu, QMessageBox
 
 from metatv.core.download_manager import DownloadManager, library_dir
 from metatv.core.recording_manager import RecordingManager, recordings_dir
+from metatv.core.repositories.channel_downloads import _file_exists
 from metatv.core.signal_check_manager import SignalCheckManager
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 from metatv.gui.file_reveal import open_folder, reveal_file
+from metatv.gui.sidebar.transfer_rows import ROLE_ITEM_ID
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.recording_manager import ScheduleOutcome
@@ -31,7 +37,8 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #: matches the download scheduler's own POLL_SECONDS, so a row never lags the
 #: thing it describes by more than one of its ticks.
 _TRANSFER_TICK_MS = 2000
-from metatv.core.epg_utils import to_local
+from metatv.core.epg_utils import to_local, to_utc_naive
+from metatv.core.history_buckets import BUCKETS_BY_KEY, bucket_range
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
 
@@ -126,7 +133,10 @@ class _DownloadsMixin:
         downloads = sections.get("downloads")
         if downloads is not None:
             try:
-                downloads.refresh_progress(self.download_manager.progress())
+                downloads.refresh_progress(
+                    self.download_manager.progress(),
+                    gate_lines=self.download_manager.connection_gate_lines(),
+                )
             except Exception:
                 logger.exception("could not refresh the Downloads section")
         recordings = sections.get("recordings")
@@ -170,6 +180,205 @@ class _DownloadsMixin:
     def _cancel_download(self, download_id: str) -> None:
         self.download_manager.cancel(download_id)
         self._refresh_transfer_sections()
+
+    # ── playback of a finished download (DL-4) ─────────────────────────────
+
+    def play_downloaded(self, download_id: str) -> None:
+        """Play a finished download's file.
+
+        Claims no accountant slot and runs no URL probe:
+        ``PlayerManager.play_local_file`` is the local-file counterpart to
+        ``play()`` and neither concern applies to a file already on disk. Own
+        window vs. shared follows Split Streams, so a live stream elsewhere
+        keeps playing when it is on. Records the play into History through the
+        same seam ``_bg_mark_played`` gives every other play path, with
+        ``key=None`` — deliberately skipping watch-progress-capture
+        registration, which is out of scope for local playback this slice.
+        """
+        rows = [r for r in self.download_manager.progress() if r.id == download_id]
+        if not rows or rows[0].state != "completed":
+            return
+        row = rows[0]
+        if not _file_exists(row.dest_path):
+            self.status_bar.showMessage("That file is no longer on disk.", 4000)
+            return
+
+        own_window = bool(getattr(self.config, "split_streams_by_source", False))
+        if not self.player_manager.play_local_file(
+                row.dest_path, row.channel_name, own_window=own_window):
+            self.status_bar.showMessage(f"Could not play {row.channel_name}.", 4000)
+            return
+
+        self.executor.submit(self._bg_mark_played, row.channel_id, None)
+
+    def _delete_download_file(self, download_id: str) -> None:
+        """Delete a finished download's FILE only — the ledger row stays.
+
+        Confirmed and named, per the deletion grammar (destructive + confirm,
+        never the ghost-row Undo a history CLEAR gets): this cannot be undone
+        the way a history-group clear can, because the bytes are gone, not
+        just the row. The row's meta flips to "file removed" on the next
+        render — ``channel_downloads._file_exists`` is read fresh every time,
+        never cached.
+        """
+        rows = [r for r in self.download_manager.progress() if r.id == download_id]
+        if not rows:
+            return
+        path = Path(rows[0].dest_path)
+        reply = QMessageBox.question(
+            self, "Delete File",
+            f'Delete "{path.name}" from disk?\n\n'
+            "This only removes the file — it stays in your download history.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(f"Could not delete download file {path}: {exc}")
+            self.status_bar.showMessage(f"Could not delete {path.name}: {exc}", 5000)
+            return
+        self.status_bar.showMessage(f"Deleted {path.name}", 4000)
+        self._refresh_transfer_sections()
+
+    # ── download history (terminal rows) ───────────────────────────────────
+
+    def _clear_download_history_group(self, bucket_key: str) -> None:
+        """Forget one Downloads time group at once, offering Undo instead of
+        asking first — mirrors ``_HistoryMixin.clear_history_group`` exactly,
+        except a download IS its row: Undo re-inserts the deleted
+        ``DownloadDB`` rows rather than un-nulling a field. Files are never
+        touched either way.
+        """
+        bucket = BUCKETS_BY_KEY.get(bucket_key)
+        if bucket is None:
+            logger.warning(f"Unknown history bucket: {bucket_key!r}")
+            return
+        # bucket_range works in LOCAL time (it shares History's boundaries);
+        # DownloadDB.updated_at is stored UTC-naive, so the window is
+        # converted before it is used to filter that column.
+        not_before_local, not_after_local = bucket_range(bucket_key)
+        not_before = to_utc_naive(not_before_local) if not_before_local else None
+        not_after = to_utc_naive(not_after_local) if not_after_local else None
+
+        try:
+            count, snapshot = self.download_manager.clear_history_group(
+                not_before, not_after)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to clear download history group {bucket.label!r}: {e}")
+            self.status_bar.showMessage(f"Error clearing download history: {e}")
+            return
+
+        self._refresh_transfer_sections()
+        if not count:
+            self.status_bar.showMessage(f"Nothing to forget under {bucket.label}")
+            return
+
+        self.status_bar.showMessage(f"Cleared {count} download(s) from {bucket.label}")
+        self.notification_manager.show(
+            title="Download history cleared",
+            message=(f"Forgot {count} download(s) under {bucket.label}. "
+                     "Files were not deleted."),
+            type="info",
+            auto_dismiss_ms=8000,
+            actions=[("Undo", lambda: self._undo_download_history_group_clear(snapshot))],
+        )
+
+    def _undo_download_history_group_clear(self, snapshot) -> None:
+        """Restore a per-group clear's snapshot — the Undo toast's callback."""
+        try:
+            restored = self.download_manager.restore_history_snapshot(snapshot)
+            self._refresh_transfer_sections()
+            self.status_bar.showMessage(f"Restored {restored} download(s)")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to undo download history clear: {e}")
+            self.status_bar.showMessage(f"Error restoring download history: {e}")
+
+    def _clear_download_history(self) -> None:
+        """The ⋯ menu's "Clear download history" — every group at once.
+
+        Broad enough to confirm rather than offer Undo for, the same way
+        History's own "Clear all history" does; the per-GROUP clear above is
+        cheap enough to skip the dialog and offer Undo instead. Files are
+        never touched — only the ``DownloadDB`` ledger.
+        """
+        reply = QMessageBox.question(
+            self, "Clear Download History",
+            "Forget every finished or failed download?\n\n"
+            "This only clears your history list — files already saved to "
+            "disk are never deleted, and anything still queued, "
+            "downloading or paused is untouched.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        count, _snapshot = self.download_manager.clear_history_group(None, None)
+        self._refresh_transfer_sections()
+        self.status_bar.showMessage(
+            f"Cleared {count} item(s) from your download history" if count
+            else "Nothing to clear", 4000)
+
+    # ── row context menu ────────────────────────────────────────────────────
+
+    def show_downloads_context_menu(self, position) -> None:
+        """The Downloads row menu — Play / Pause / Resume / Cancel / Reveal /
+        Delete file.
+
+        Built here rather than through ``channel_menu.py``'s registry: these
+        are TRANSFER verbs (pause/resume/cancel/delete-file) keyed on
+        ``download_id`` and file-on-disk state, not the ``ChannelDB``-keyed
+        actions that registry composes.
+        """
+        sections = self.__dict__.get("sidebar_sections") or {}
+        section = sections.get("downloads")
+        if section is None:
+            return
+        lst = section.downloads_list
+        item = lst.itemAt(position)
+        if item is None or not item.data(ROLE_ITEM_ID):
+            return
+        lst.setCurrentItem(item)
+        selected = section.selected_download()
+        if selected is None:
+            return
+        download_id, state, dest_path = selected
+        file_exists = _file_exists(dest_path)
+
+        menu = QMenu(self)
+
+        if state == "completed" and file_exists:
+            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Play")
+            act.triggered.connect(lambda: self.play_downloaded(download_id))
+
+        if state in ("queued", "running"):
+            act = menu.addAction(_icons.glyph_icon(_icons.enrich_pause_icon), "Pause")
+            act.triggered.connect(lambda: self._pause_download(download_id))
+        elif state == "paused":
+            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Resume")
+            act.triggered.connect(lambda: self._resume_download(download_id))
+
+        if state in ("queued", "running", "paused"):
+            act = menu.addAction(
+                _icons.glyph_icon(_icons.enrich_cancel_icon), "Cancel download")
+            act.triggered.connect(lambda: self._cancel_download(download_id))
+
+        if dest_path:
+            if menu.actions():
+                menu.addSeparator()
+            act = menu.addAction(
+                _icon_utils.resolve_icon(
+                    _icons.vector_key("folder_open"), _theme.COLOR_MUTED),
+                "Reveal in file manager")
+            act.triggered.connect(lambda: self._reveal_in_file_manager(dest_path))
+
+        if state == "completed" and file_exists:
+            act = menu.addAction(_icons.glyph_icon(_icons.delete_icon), "Delete file…")
+            act.triggered.connect(lambda: self._delete_download_file(download_id))
+
+        if not menu.actions():
+            return
+        menu.exec(lst.mapToGlobal(position))
 
     def _cancel_recording(self, recording_id: str) -> None:
         self.recording_manager.cancel(recording_id)

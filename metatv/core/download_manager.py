@@ -31,7 +31,9 @@ import shutil
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -66,6 +68,12 @@ _SPACE_CHECK_BYTES = 64 * 1024 * 1024
 #: Terminal states — a row in one of these is never picked up again.
 TERMINAL_STATES = ("completed", "failed")
 
+#: How far back the transfer-rate ring looks. Long enough to smooth out a
+#: single slow/fast chunk, short enough that the reading reflects NOW rather
+#: than an average since the download started (which would recover slowly
+#: after a network stall).
+_RATE_WINDOW_SECONDS = 5.0
+
 
 @dataclass(frozen=True)
 class DownloadProgress:
@@ -81,6 +89,22 @@ class DownloadProgress:
     dest_path: str
     error: Optional[str]
     paused_by_playback: bool
+    #: Why this row is not transferring right now, or None when it needs no
+    #: explanation (running, or a terminal row). See ``DownloadManager._reason_for``.
+    reason: Optional[str] = None
+    #: Recent throughput, or None when there are not yet enough samples (or the
+    #: row is not running). Derived from an in-memory ring, never stored.
+    bytes_per_second: Optional[float] = None
+    #: Seconds remaining at the current rate, or None when the total is
+    #: unknown or the rate cannot yet be measured.
+    eta_seconds: Optional[int] = None
+    #: When the row last changed state/progress (UTC-naive) — the completion
+    #: time a history heading buckets a finished row by.
+    updated_at: Optional[datetime] = None
+    #: The provider's configured name, denormalized here the same way
+    #: ``channel_name`` is, so a caller never needs a second DB round trip to
+    #: label a connection-gate line.
+    provider_name: str = ""
 
     @property
     def fraction(self) -> Optional[float]:
@@ -154,7 +178,8 @@ class DownloadManager:
 
     def __init__(self, db: "Database", config,
                  accountant: "ConnectionAccountant",
-                 on_change: Optional[Callable[[], None]] = None) -> None:
+                 on_change: Optional[Callable[[], None]] = None, *,
+                 clock: "Optional[Callable[[], float]]" = None) -> None:
         """
         Args:
             db: Where the queue is persisted, so it survives a restart.
@@ -163,11 +188,15 @@ class DownloadManager:
             on_change: Called (from the worker thread) whenever a row's state or
                 progress moves, so a view can refresh. Qt callers must marshal
                 to the main thread themselves — this module knows no Qt.
+            clock: Injected so a test can drive the transfer-rate ring without
+                sleeping — never read the real clock underneath a caller-
+                supplied one (this bug has shipped from this codebase before).
         """
         self._db = db
         self._config = config
         self._accountant = accountant
         self._on_change = on_change
+        self._clock = clock or time.monotonic
 
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -177,6 +206,11 @@ class DownloadManager:
         self._active_id: Optional[str] = None
         #: Set when the accountant evicts us mid-transfer.
         self._preempted = threading.Event()
+        #: download_id -> recent (monotonic_ts, bytes_written) samples, for the
+        #: UI's speed/ETA readout. Guarded by ``_lock`` — written by the worker
+        #: thread inside ``_transfer``, read by ``progress()`` from whichever
+        #: thread the caller (the UI's refresh tick) runs on.
+        self._rate_samples: dict[str, "deque[tuple[float, int]]"] = {}
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -262,20 +296,223 @@ class DownloadManager:
         partial.unlink(missing_ok=True)
         self._notify()
 
+    # ── history (terminal rows) ─────────────────────────────────────────────
+    #
+    # A download's ROW *is* its history — there is no separate "downloaded at"
+    # flag the way ``ChannelDB.last_played`` is for playback history, so
+    # clearing a group means deleting the ``DownloadDB`` rows themselves,
+    # never just nulling a field. Mirrors
+    # ``channel_history.clear_history_in_range``/``restore_history_snapshot``
+    # (same half-open ``[not_before, not_after)`` window, same snapshot-then-
+    # Undo shape) with a delete/re-insert instead of a null-out/restore, since
+    # that is what "the row is the history" implies. The FILE on disk is never
+    # touched by either method — only the ledger.
+
+    #: Columns snapshotted (and restored) by a group clear/Undo — everything
+    #: needed to reconstruct an equivalent row, in ``DownloadDB.__init__`` order.
+    _SNAPSHOT_COLUMNS: tuple[str, ...] = (
+        "id", "channel_id", "provider_id", "channel_name", "source_url",
+        "dest_path", "state", "paused_by_playback", "total_bytes",
+        "downloaded_bytes", "error", "position", "created_at", "updated_at",
+    )
+
+    def clear_history_group(
+        self, not_before: Optional[datetime], not_after: Optional[datetime]
+    ) -> "tuple[int, list[dict]]":
+        """Delete terminal (completed/failed) rows whose ``updated_at`` falls
+        inside a half-open UTC-naive window — one history heading's purge.
+
+        Args:
+            not_before: Inclusive lower bound (UTC-naive), or None for
+                unbounded. Callers convert a LOCAL bucket boundary via
+                ``epg_utils.to_utc_naive`` before calling this — the same
+                UTC-naive frame ``updated_at`` is stored in.
+            not_after: Exclusive upper bound (UTC-naive), or None for
+                unbounded. Passing ``(None, None)`` clears every terminal row —
+                the overflow's "Clear download history" bulk action.
+
+        Returns:
+            ``(count, snapshot)``: how many rows were removed, and a plain-dict
+            snapshot of each — never ORM rows — so the caller can offer Undo
+            via :meth:`restore_history_snapshot`.
+        """
+        from metatv.core.database import DownloadDB
+
+        with self._db.session_scope() as session:
+            query = session.query(DownloadDB).filter(
+                DownloadDB.state.in_(TERMINAL_STATES))
+            if not_before is not None:
+                query = query.filter(DownloadDB.updated_at >= not_before)
+            if not_after is not None:
+                query = query.filter(DownloadDB.updated_at < not_after)
+            rows = query.all()
+            snapshot = [
+                {col: getattr(row, col) for col in self._SNAPSHOT_COLUMNS}
+                for row in rows
+            ]
+            count = len(rows)
+            for row in rows:
+                session.delete(row)
+        self._notify()
+        return count, snapshot
+
+    def restore_history_snapshot(self, snapshot: "list[dict]") -> int:
+        """Undo a group clear — re-insert rows nobody has re-queued since.
+
+        Skips any id already present (the same download was re-queued, or
+        somehow restored twice) rather than raising on the primary-key clash —
+        Undo restores everything else it safely can.
+
+        Args:
+            snapshot: As returned by :meth:`clear_history_group`.
+
+        Returns:
+            How many rows were actually restored.
+        """
+        from metatv.core.database import DownloadDB
+
+        restored = 0
+        with self._db.session_scope() as session:
+            for data in snapshot:
+                if session.query(DownloadDB).filter_by(id=data["id"]).first() is not None:
+                    continue
+                session.add(DownloadDB(**data))
+                restored += 1
+        self._notify()
+        logger.info("Restored {} download(s) from a history-clear snapshot", restored)
+        return restored
+
+    def connection_gate_lines(self) -> list[str]:
+        """One line per provider currently gating a queued/running download.
+
+        The section-header counterpart to a row's own ``reason``: "<provider>
+        · 1 of 1 connections in use" for every provider with a non-unlimited
+        capacity that is actually full right now. Empty when nothing is
+        waiting on a connection.
+        """
+        from metatv.core.database import DownloadDB, ProviderDB
+
+        with self._db.session_scope(commit=False) as session:
+            provider_ids = {
+                r[0] for r in session.query(DownloadDB.provider_id)
+                .filter(DownloadDB.state.in_(("queued", "running"))).all()
+            }
+            if not provider_ids:
+                return []
+            names = {
+                p.id: p.name for p in
+                session.query(ProviderDB.id, ProviderDB.name)
+                .filter(ProviderDB.id.in_(provider_ids)).all()
+            }
+
+        lines = []
+        for provider_id in sorted(provider_ids):
+            cap = self._accountant.capacity(provider_id)
+            if not cap:
+                continue  # unlimited never gates
+            in_use = self._accountant.in_use(provider_id)
+            if in_use <= 0:
+                continue  # nothing is actually holding this source right now
+            name = names.get(provider_id, provider_id)
+            lines.append(f"{name} · {in_use} of {cap} connections in use")
+        return lines
+
     def progress(self) -> list[DownloadProgress]:
         """Every download, queue order. DTOs — never ORM rows across the seam."""
-        from metatv.core.database import DownloadDB
+        from metatv.core.database import DownloadDB, ProviderDB
 
         with self._db.session_scope(commit=False) as session:
             rows = (session.query(DownloadDB)
                     .order_by(DownloadDB.position, DownloadDB.created_at).all())
-            return [DownloadProgress(
-                id=r.id, channel_id=r.channel_id, channel_name=r.channel_name,
-                provider_id=r.provider_id, state=r.state,
-                downloaded_bytes=r.downloaded_bytes or 0, total_bytes=r.total_bytes,
-                dest_path=r.dest_path, error=r.error,
-                paused_by_playback=bool(r.paused_by_playback),
-            ) for r in rows]
+            provider_ids = {r.provider_id for r in rows}
+            names = ({} if not provider_ids else {
+                p.id: p.name for p in
+                session.query(ProviderDB.id, ProviderDB.name)
+                .filter(ProviderDB.id.in_(provider_ids)).all()
+            })
+            out = []
+            for r in rows:
+                rate = eta = None
+                if r.state == "running":
+                    rate, eta = self._rate_and_eta(
+                        r.id, r.total_bytes, r.downloaded_bytes or 0)
+                out.append(DownloadProgress(
+                    id=r.id, channel_id=r.channel_id, channel_name=r.channel_name,
+                    provider_id=r.provider_id, state=r.state,
+                    downloaded_bytes=r.downloaded_bytes or 0, total_bytes=r.total_bytes,
+                    dest_path=r.dest_path, error=r.error,
+                    paused_by_playback=bool(r.paused_by_playback),
+                    reason=self._reason_for(r),
+                    bytes_per_second=rate, eta_seconds=eta,
+                    updated_at=r.updated_at,
+                    provider_name=names.get(r.provider_id, ""),
+                ))
+            return out
+
+    def _reason_for(self, r) -> Optional[str]:
+        """Why *r* is not transferring right now, or None (running, terminal).
+
+        One reader for every non-running state, so "why is this row not
+        moving" is answered the same way whether the row is queued, paused, or
+        failed — never re-derived per call site.
+        """
+        if r.state == "failed":
+            return r.error
+        if r.state == "paused":
+            if r.paused_by_playback:
+                return ("Paused automatically — you started watching "
+                        "something. Resumes when playback stops.")
+            if getattr(self._config, "downloads_paused", False):
+                return "Paused — downloads are paused"
+            return "Paused"
+        if r.state == "queued":
+            if getattr(self._config, "downloads_paused", False):
+                return "Paused — downloads are paused"
+            cap = self._accountant.capacity(r.provider_id)
+            in_use = self._accountant.in_use(r.provider_id)
+            if cap and in_use >= cap:
+                conn = "connection" if cap == 1 else "connections"
+                return f"Queued — this source allows {cap} {conn} and it is in use."
+        return None
+
+    def _rate_and_eta(
+        self, download_id: str, total_bytes: Optional[int], downloaded_bytes: int
+    ) -> "tuple[Optional[float], Optional[int]]":
+        """Recent bytes/second and, when the total is known, seconds remaining.
+
+        Derived from the in-memory sample ring rather than from the download's
+        whole lifetime average, which recovers slowly after a stall and reports
+        a speed that has nothing to do with what is happening right now.
+        """
+        with self._lock:
+            samples = list(self._rate_samples.get(download_id, ()))
+        if len(samples) < 2:
+            return None, None
+        (t0, b0), (t1, b1) = samples[0], samples[-1]
+        elapsed = t1 - t0
+        if elapsed <= 0:
+            return None, None
+        rate = (b1 - b0) / elapsed
+        if rate <= 0:
+            return None, None
+        eta = None
+        if total_bytes:
+            remaining = max(0, total_bytes - downloaded_bytes)
+            eta = int(remaining / rate)
+        return rate, eta
+
+    def _record_rate_sample(self, download_id: str, written: int) -> None:
+        """Append one (now, bytes) sample and drop anything older than the window."""
+        now = self._clock()
+        with self._lock:
+            dq = self._rate_samples.setdefault(download_id, deque())
+            dq.append((now, written))
+            while dq and now - dq[0][0] > _RATE_WINDOW_SECONDS:
+                dq.popleft()
+
+    def _clear_rate_samples(self, download_id: str) -> None:
+        with self._lock:
+            self._rate_samples.pop(download_id, None)
 
     # ── preemption ──────────────────────────────────────────────────────────
 
@@ -418,6 +655,7 @@ class DownloadManager:
         partial = Path(str(dest) + ".part")
         self._active_id = download_id
         self._preempted.clear()
+        self._clear_rate_samples(download_id)
         self._set_state(download_id, "running", paused_by_playback=False)
 
         try:
@@ -460,6 +698,7 @@ class DownloadManager:
                             continue
                         handle.write(chunk)
                         written += len(chunk)
+                        self._record_rate_sample(download_id, written)
                         self._flush_progress(download_id, written)
 
                         # Free space is checked against the DISK, not against
@@ -493,6 +732,7 @@ class DownloadManager:
         finally:
             self._accountant.release(row["provider_id"], download_id)
             self._active_id = None
+            self._clear_rate_samples(download_id)
 
     @staticmethod
     def _content_total(response, already_have: int) -> Optional[int]:

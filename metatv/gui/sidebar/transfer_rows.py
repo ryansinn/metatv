@@ -54,6 +54,37 @@ def human_bytes(n: "int | None") -> str:
     return f"{value:.1f} TB"
 
 
+def human_rate(bytes_per_second: "float | None") -> str:
+    """``1_200_000.0`` -> ``"1.2 MB/s"``. Empty string for None/non-positive.
+
+    Same decimal units and the same rounding rule as :func:`human_bytes` — a
+    rate is a size per second, and the two must read as the same family of
+    number on one row (``"4.1 GB of 6.6 GB · 11.2 MB/s"``).
+    """
+    if not bytes_per_second or bytes_per_second <= 0:
+        return ""
+    return f"{human_bytes(bytes_per_second)}/s"
+
+
+def human_eta(seconds: "int | None") -> str:
+    """``187`` -> ``"~3 min left"``. Empty string for None.
+
+    Rounded to the nearest minute past the first one (a "~11 min left" that is
+    actually 11:59 away reads as more precise than the estimate deserves), and
+    to whole seconds under a minute — a bytes/second reading over a 5-second
+    window is not stable enough to promise seconds once the total climbs.
+    """
+    if seconds is None or seconds < 0:
+        return ""
+    if seconds < 60:
+        return f"~{seconds}s left"
+    minutes = max(1, round(seconds / 60))
+    if minutes < 60:
+        return f"~{minutes} min left"
+    hours = minutes / 60.0
+    return f"~{hours:.1f}h left"
+
+
 def add_transfer_row(
     lst,
     *,
