@@ -1477,6 +1477,44 @@ def attach_channel_state_bus(host, reread=None):
     return host
 
 
+def wire_inline_run_query(host) -> None:
+    """Give a test-double host a synchronous ``_AsyncMixin._run_query`` seam.
+
+    DEBT-3 moved ``_toggle_rating`` / ``_toggle_favorite_by_id`` /
+    ``_apply_favorite_toggle`` / ``_hide_channel_from_alerts``'s DB write off
+    the calling thread and behind ``self._run_query(...)``, so ANY test double
+    that drives one of those real methods now needs ``executor``, ``_run_query``,
+    ``_on_query_result`` and ``_query_result`` or dies with ``AttributeError``
+    — the same trap ``attach_channel_state_bus`` documents for the bus itself.
+    Both the submitted work and the result delivery run inline, in the calling
+    thread, so a test asserting the outcome right after calling the handler
+    sees it without draining a real executor or spinning a Qt event loop. A
+    test that specifically needs to prove the write leaves the main thread
+    wires a real ``ThreadPoolExecutor`` instead.
+
+    Args:
+        host: The test double to wire (any plain object).
+    """
+    from metatv.gui.main_window_async import _AsyncMixin
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return None
+
+    class _InlineQueryResultSignal:
+        def __init__(self, slot):
+            self._slot = slot
+
+        def emit(self, value):
+            self._slot(value)
+
+    host.executor = _InlineExecutor()
+    host._run_query = _AsyncMixin._run_query.__get__(host)
+    host._on_query_result = _AsyncMixin._on_query_result.__get__(host)
+    host._query_result = _InlineQueryResultSignal(host._on_query_result)
+
+
 def make_channel_state_bus_host(db_obj):
     """Build a MainWindow stand-in wired for ChannelStateBus tests.
 
@@ -1527,11 +1565,6 @@ def make_channel_state_bus_host(db_obj):
     from metatv.gui.main_window_favorites import _FavoritesMixin
     from metatv.gui.main_window_metadata import _MetadataMixin
 
-    class _InlineExecutor:
-        def submit(self, fn, *args, **kwargs):
-            fn(*args, **kwargs)
-            return None
-
     class _DetailsPaneDouble:
         def __init__(self):
             self.applied_states = []
@@ -1544,7 +1577,7 @@ def make_channel_state_bus_host(db_obj):
 
     host = _Host()
     host.db = db_obj
-    host.executor = _InlineExecutor()
+    wire_inline_run_query(host)   # host.executor + the _run_query seam (DEBT-3)
     host.view_mode = "channels"
     host.config = SimpleNamespace(epg_link_blocklist=[])
     host.preferences_view = SimpleNamespace(refresh=lambda: None)

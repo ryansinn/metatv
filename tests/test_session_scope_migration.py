@@ -351,11 +351,20 @@ def test_no_expunge_in_metadata_mixin():
 # 5. _apply_favorite_toggle documents its legacy exception
 # ---------------------------------------------------------------------------
 
-def test_apply_favorite_toggle_documents_legacy_reason():
-    """_apply_favorite_toggle must have a docstring explaining why it keeps legacy pattern."""
+def test_apply_favorite_toggle_retired_legacy_get_session():
+    """DEBT-3: _apply_favorite_toggle's write moved onto the async _run_query
+    seam, retiring the get_session()/try-finally pattern this test used to
+    require a docstring justification for. The DetachedInstanceError concern
+    that pattern worked around can no longer arise — the ORM object never
+    leaves the session; only plain data crosses the _run_query boundary.
+    """
     src = _func_source("main_window_favorites.py", "_apply_favorite_toggle")
-    assert "expire_on_commit" in src or "legacy" in src.lower(), (
-        "_apply_favorite_toggle must document why it keeps the legacy try/finally pattern"
+    assert "self.db.get_session()" not in src, (
+        "_apply_favorite_toggle must not open a raw get_session() anymore — "
+        "route the write through _run_query like every other mutation handler"
+    )
+    assert _uses_session_scope("_apply_favorite_toggle"), (
+        "_apply_favorite_toggle must use session_scope() (now via _run_query)"
     )
 
 

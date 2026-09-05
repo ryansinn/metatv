@@ -3,9 +3,16 @@
 T1-2 from REFACTOR_PLAN. Pins that both toggle_favorite() and
 toggle_favorite_by_id() flip is_favorite, persist it, and post the
 right status message. Guards the _apply_favorite_toggle() extraction.
+
+DEBT-3: _apply_favorite_toggle's write now runs through the async
+_run_query seam, so _build_mock_window wires an inline (synchronous)
+executor via tests/conftest.py's wire_inline_run_query — the handlers
+below still resolve before returning, just not on the calling thread
+in production anymore.
 """
 
 import uuid
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -80,11 +87,11 @@ def _build_mock_window(engine):
     """Thin MainWindow shell with a real DB backed by the test engine."""
     from metatv.core.database import Database
     from metatv.gui import main_window as mw_module
-    from tests.conftest import attach_channel_state_bus
+    from tests.conftest import attach_channel_state_bus, wire_inline_run_query
 
     db = MagicMock(spec=Database)
 
-    # Let get_session() return a real session from the test engine
+    # Let get_session()/session_scope() return real sessions from the test engine.
     Session = sessionmaker(bind=engine)
 
     def _get_session():
@@ -92,10 +99,25 @@ def _build_mock_window(engine):
 
     db.get_session = _get_session
 
+    @contextmanager
+    def _session_scope(commit=True):
+        session = Session()
+        try:
+            yield session
+            session.commit() if commit else session.rollback()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    db.session_scope = _session_scope
+
     with patch.object(mw_module.MainWindow, "__init__", lambda self: None):
         win = mw_module.MainWindow.__new__(mw_module.MainWindow)
 
     win.db = db
+    wire_inline_run_query(win)   # _apply_favorite_toggle's write now goes through _run_query
     win.status_bar = MagicMock()
     win.channels_list = MagicMock()
     win.channel_model = MagicMock()   # virtualized model — update_favorite called by toggle

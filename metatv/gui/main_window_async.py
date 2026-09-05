@@ -1,4 +1,4 @@
-"""_AsyncMixin — reusable async-read seam for MainWindow.
+"""_AsyncMixin — reusable async-read (and, since DEBT-3, async-write) seam for MainWindow.
 
 Usage (see CLAUDE.md → "_run_query — async-read seam"):
 
@@ -13,6 +13,12 @@ Usage (see CLAUDE.md → "_run_query — async-read seam"):
 
     def _on_favorites_loaded(self, rows):   # called on main thread
         self._populate_list(rows)
+
+A query_fn that WRITES (a favourite/rating/hide-from-alerts toggle) passes
+``commit=True`` and returns plain data (never an ORM object) for on_result to
+act on — see ``_toggle_rating`` / ``_toggle_favorite_by_id`` /
+``_apply_favorite_toggle`` / ``_hide_channel_from_alerts`` in
+``main_window_favorites.py``.
 
 Requires the host class to provide:
   - self.db          (Database with session_scope())
@@ -56,6 +62,7 @@ class _AsyncMixin:
         *,
         token_ref: list[int] | None = None,
         on_error: Callable[[Exception], None] | None = None,
+        commit: bool = False,
     ) -> None:
         """Submit query_fn to the background executor; deliver result to on_result on the main thread.
 
@@ -71,6 +78,12 @@ class _AsyncMixin:
                       logged only — but callers that show a loading/placeholder
                       state SHOULD pass on_error to clear it, otherwise the
                       placeholder will never be replaced.
+            commit: False (default) is the historical read-only contract —
+                    query_fn must not write, and the scope rolls back at exit.
+                    Pass True when query_fn IS a write (DEBT-3: favourite/
+                    rating/hide-from-alerts toggles) — the scope commits on
+                    success, exactly like Database.session_scope()'s own
+                    default, moving the write off the UI thread.
         """
         if token_ref is not None:
             token_ref[0] += 1
@@ -79,9 +92,10 @@ class _AsyncMixin:
         def _worker() -> None:
             try:
                 from metatv.core.repositories import RepositoryFactory
-                # Read-only scope: query_fn returns plain data and must not write,
-                # so we never COMMIT (commit=False rolls back at exit instead).
-                with self.db.session_scope(commit=False) as session:
+                # commit=False (the default) is a read-only scope: query_fn
+                # returns plain data and must not write, so we never COMMIT.
+                # commit=True is for a query_fn that is itself the write.
+                with self.db.session_scope(commit=commit) as session:
                     repos = RepositoryFactory(session)
                     data = query_fn(repos)
             except Exception as exc:

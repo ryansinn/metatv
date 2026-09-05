@@ -237,9 +237,13 @@ def _toggle_host(db):
     host.db = db
     host.view_mode = "list"
     host._refresh_recommended_section = lambda: None
+    # DEBT-3: _toggle_rating's write now goes through _run_query — wire an
+    # inline (synchronous) seam so the assertions below still see it land
+    # before the call returns.
+    from tests.conftest import attach_channel_state_bus, wire_inline_run_query
+    wire_inline_run_query(host)
     host._toggle_rating = lambda cid, r: _FavoritesMixin._toggle_rating(host, cid, r)
     # _toggle_rating publishes to the bus; wire one from the shared factory.
-    from tests.conftest import attach_channel_state_bus
     attach_channel_state_bus(host)
     return host
 
