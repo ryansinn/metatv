@@ -30,6 +30,7 @@ import pytest
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,
+    OPENING_AFTER_TICKS,
     STALLED_AFTER_TICKS,
     STOP_POLLING_AFTER_TICKS,
     PlayAttempt,
@@ -371,15 +372,6 @@ def test_progress_disarms_the_stall_watch():
     host.stream_retry_manager.add_failure.assert_not_called()
 
 
-def test_none_time_pos_counts_as_stalled():
-    """A stream stuck with no position forever is a stall."""
-    host = _host()
-    watch.arm(host, ATTEMPT)
-    for _ in range(STALLED_AFTER_TICKS):
-        watch.on_loaded_tick(host, None, False)
-    host.notification_manager.show.assert_called_once()
-
-
 def test_first_frozen_reading_is_not_progress():
     """A single 0.0 reading (decoded garbage frame) is not progress."""
     host = _host()
@@ -436,6 +428,74 @@ def test_stalled_then_player_gone_reports_once_total():
     # Total notifications should be 1
     assert host.notification_manager.show.call_count == 1
     assert host.stream_retry_manager.add_failure.call_count == 1
+
+
+# ── the fifth shape: loaded but still OPENING (PLAY-10) ─────────────────────
+#
+# A same-provider switch on a one-connection source retries the open for up
+# to ~23s (RECONNECT_FLAG's reconnect_delay_max=8) while mpv reports a loaded
+# ``path`` but NO demuxer data at all — no time-pos, no cache-duration. Before
+# this shape existed that read exactly like FROZEN and reported at 16s, mid
+# retry. OPENING gets its own, longer counter.
+
+def test_opening_reports_nothing_at_the_frozen_threshold():
+    """No demuxer data at all for 8 ticks (~16s) must stay silent — that's
+    comfortably inside the retry schedule this slice widened."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    host.notification_manager.show.assert_not_called()
+
+
+def test_opening_reports_at_its_own_longer_threshold():
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(OPENING_AFTER_TICKS):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    host.notification_manager.show.assert_called_once()
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "busy or the stream dead" in msg
+
+
+def test_opening_report_names_the_same_provider_switch_cause():
+    """When the watchdog knows this play was a same-provider switch
+    (``stream_switch.switch_context``, set on the host by ``play_media``),
+    the OPENING report names the actual cause instead of the generic guess."""
+    host = _host()
+    host._switch_same_provider = True
+    watch.arm(host, ATTEMPT)
+    for _ in range(OPENING_AFTER_TICKS):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "still counting the previous stream" in msg
+    assert "busy or the stream dead" not in msg
+
+
+def test_data_arriving_mid_opening_then_advancing_never_reports():
+    """cache_duration arriving (but no time-pos yet) is neither OPENING nor
+    FROZEN; once time-pos then advances, nothing is ever reported."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(10):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    for _ in range(15):
+        watch.on_loaded_tick(host, None, False, cache_duration=3.5)
+    watch.on_loaded_tick(host, 1.0, False)
+    watch.on_loaded_tick(host, 3.0, False)
+    for _ in range(30):
+        watch.on_loaded_tick(host, 3.0, False)
+    host.notification_manager.show.assert_not_called()
+
+
+def test_frozen_numeric_time_pos_still_reports_at_the_old_threshold():
+    """FROZEN (a numeric time-pos that never advances) is unchanged by the
+    OPENING split — same counter, same 8-tick threshold as before."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(STALLED_AFTER_TICKS):
+        watch.on_loaded_tick(host, 0.0, False, cache_duration=None)
+    host.notification_manager.show.assert_called_once()
 
 
 # ── the fourth shape: a fixture played before it started (SPORT-6) ──────────

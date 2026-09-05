@@ -18,8 +18,15 @@ So the rule here is one bit of memory — *has this play ever had a loaded file?
 
 * never loaded, and the probe has said so for :data:`FAILED_AFTER_TICKS` ticks
   → the play FAILED, and the user is told.
-* loaded but frozen (time-pos never advances) for :data:`STALLED_AFTER_TICKS`
-  ticks → the play FAILED; user pause holds the counter.
+* loaded but genuinely OPENING (no ``time-pos``, no ``demuxer-cache-duration``
+  at all yet — mpv is mid ``reconnect_delay_max`` backoff against a source
+  still counting the previous stream, PLAY-10) for :data:`OPENING_AFTER_TICKS`
+  ticks → the play FAILED. Counted separately from FROZEN below so a same-
+  provider switch's retry schedule (~+1,+3,+7,+15,+23s) has room to land
+  before this reports.
+* loaded, has a numeric ``time-pos``, and it never advances for
+  :data:`STALLED_AFTER_TICKS` ticks → the play FAILED; user pause holds the
+  counter. Unchanged from before OPENING was split out.
 * loaded once and now idle → the player was closed, which is the existing
   behaviour and stays untouched.
 
@@ -75,6 +82,16 @@ STOP_POLLING_AFTER_TICKS = 8
 #: three seconds under these flags, so 16s of zero progress is not "slow".
 STALLED_AFTER_TICKS = 8
 
+#: Consecutive loaded-but-still-OPENING probes (no ``time-pos``, no
+#: ``demuxer-cache-duration`` — no demuxer data has arrived at all) before a
+#: play is declared failed. ~40s at POLL_MS: a same-provider switch on a
+#: one-connection source (PLAY-10) retries the open at roughly +1, +3, +7,
+#: +15, +23s while the provider's reaper frees the old connection (#635
+#: measured 14-26s), so this must clear that whole window rather than the 8
+#: ticks (~16s) that used to be shared with FROZEN below — the exact
+#: conflation that made a busy-but-recovering source read as a dead one.
+OPENING_AFTER_TICKS = 20
+
 #: Minimum time-pos increase (seconds) that counts as real progress — guards
 #: against float jitter between two probes of a genuinely frozen position.
 _PROGRESS_EPSILON = 0.25
@@ -111,6 +128,7 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     host._health_attempt = attempt
     host._health_last_time_pos = None
     host._health_stalled_ticks = 0
+    host._health_opening_ticks = 0
     host._health_ever_progressed = False
 
 
@@ -127,25 +145,45 @@ def on_playing(host: Any) -> bool:
     return first
 
 
-def on_loaded_tick(host: Any, time_pos: Any, paused: bool) -> None:
-    """Judge whether a LOADED file is actually progressing.
+def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any = None) -> None:
+    """Judge whether a LOADED file is actually OPENING, progressing, or frozen.
 
     Called on every probe tick that carries a loaded ``path`` (the same ticks
-    that feed :func:`on_playing`). The third shape of "it never played":
-    mpv accepted the file, ``path`` is set, video output may even have painted
-    a garbage frame — but ``time-pos`` never advances. ``on_playing``'s bare
-    path check reads that as success, so without this the user gets a black
-    window and silence (owner, 2026-09-02: black with a green bar, no message).
+    that feed :func:`on_playing`). Two shapes of "it never played" hide behind
+    that one ``path`` check, and PLAY-10 is the conflation between them:
+
+    * OPENING — no ``time-pos`` AND no ``cache_duration``: no demuxer data has
+      arrived at all, e.g. mpv mid ``reconnect_delay_max`` backoff against a
+      source still counting the previous stream. Counted in
+      ``_health_opening_ticks``, reported at :data:`OPENING_AFTER_TICKS`.
+    * FROZEN — a numeric ``time-pos`` that never increases: mpv accepted the
+      file, video output may even have painted a garbage frame, but playback
+      never actually advances (owner, 2026-09-02: black with a green bar, no
+      message). Counted in ``_health_stalled_ticks``, reported at
+      :data:`STALLED_AFTER_TICKS` — unchanged from before OPENING existed.
+
+    A ``time-pos`` of None with a *present* ``cache_duration`` means data IS
+    arriving even though no position has landed yet — neither shape, so it
+    counts toward neither counter; it is not "no data at all" and it is not a
+    frozen numeric reading.
 
     Progress means an INCREASE between two numeric readings — a single frozen
     reading (e.g. 0.0 from one decoded garbage frame) is not progress. A
-    user-paused player holds the counter: a frozen position proves nothing
-    while they hold it. Once real progress is seen the watch disarms for the
-    rest of the play.
+    user-paused player holds BOTH counters: a frozen or absent position proves
+    nothing while they hold it. Once real progress is seen the watch disarms
+    for the rest of the play.
 
     Deliberately NOT consulted by :func:`on_player_gone` or the idle path:
     closing a just-loaded stream within its first seconds must stay silent —
     the negative case the whole module is built around.
+
+    Args:
+        host: The MainWindow-family object holding the probe state.
+        time_pos: mpv's ``time-pos`` property (float, or None/absent).
+        paused: mpv's ``pause`` property.
+        cache_duration: mpv's ``demuxer-cache-duration`` property from the
+            same probe tick — the signal that distinguishes OPENING (None)
+            from "data is arriving, position just isn't set yet" (present).
     """
     if host.__dict__.get("_health_ever_progressed"):
         return
@@ -157,6 +195,16 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool) -> None:
         host._health_last_time_pos = float(time_pos)
     if paused:
         return
+
+    if time_pos is None:
+        if cache_duration:
+            return   # data is arriving; neither OPENING nor FROZEN applies
+        ticks = host.__dict__.get("_health_opening_ticks", 0) + 1
+        host._health_opening_ticks = ticks
+        if ticks == OPENING_AFTER_TICKS:
+            _report_never_started(host, opening=True)
+        return
+
     ticks = host.__dict__.get("_health_stalled_ticks", 0) + 1
     host._health_stalled_ticks = ticks
     if ticks == STALLED_AFTER_TICKS:
@@ -228,7 +276,8 @@ def prestart_detail(event_start: "datetime | None", now: "datetime") -> "str | N
     return f"This event hasn't started — scheduled for {start_local:%H:%M}."
 
 
-def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False) -> bool:
+def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False,
+                           opening: bool = False) -> bool:
     """Tell the user, and put it in the retry ledger. Returns whether it did.
 
     Reports at most once per play: both callers can fire for the same failure,
@@ -249,6 +298,9 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     elif stalled:
         logger.warning("playback never started for {!r} — a file loaded but playback "
                        "never advanced within {}s (resume={}s)", name, STALLED_AFTER_TICKS * 2, resume)
+    elif opening:
+        logger.warning("playback never started for {!r} — mpv never received any "
+                       "demuxer data within {}s (resume={}s)", name, OPENING_AFTER_TICKS * 2, resume)
     else:
         logger.warning(
             "playback never started for {!r} — mpv accepted the file and loaded "
@@ -263,15 +315,22 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         # precedence over the resume-position detail below when both apply.
         event_start = getattr(attempt, "event_start_time", None)
         prestart = prestart_detail(event_start, epg_utils.now_utc())
+        # A same-provider switch that timed out mid-OPENING names the actual
+        # cause (the source counting the previous stream) rather than the
+        # generic "busy or dead" guess — see gui/stream_switch.py (PLAY-10).
+        same_provider_switch = opening and host.__dict__.get("_switch_same_provider")
         # A resume is named explicitly when there was one: a saved position
         # past the real end of the file ends it instantly, which is the one
         # cause of this the USER can do something about (play from the start).
-        detail = (prestart if prestart is not None else
-                  "The source may be busy or the stream dead."
-                  if not resume else
-                  f"It was resuming at {resume // 60}m{resume % 60:02d}s — if "
-                  "that is past the end of this file, playing from the start "
-                  "will work.")
+        detail = (
+            "The source was still counting the previous stream; it did not "
+            "free the connection in time." if same_provider_switch else
+            prestart if prestart is not None else
+            "The source may be busy or the stream dead."
+            if not resume else
+            f"It was resuming at {resume // 60}m{resume % 60:02d}s — if "
+            "that is past the end of this file, playing from the start "
+            "will work.")
         message = (f"{name} loaded but never began playing. {detail}"
                    if stalled else
                    f"{name} was accepted by the source but no video arrived. {detail}")

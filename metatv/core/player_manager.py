@@ -1,6 +1,7 @@
 """Player manager facade for simple player operations"""
 
 from typing import Optional
+from urllib.parse import urlsplit
 from loguru import logger
 
 from metatv.core.config import Config
@@ -36,6 +37,11 @@ class PlayerManager:
         # the provider_id when split is on, but "__shared__" when off — this map
         # resolves the shared window too).
         self._key_provider: dict[str, str] = {}
+        # Instance key → the exact URL last handed to mpv for it. Lets
+        # same-provider stream switching (gui/stream_switch.py, PLAY-10) route
+        # the next play onto the host that is CURRENTLY streaming — proven
+        # live right now — rather than re-resolving from provider order.
+        self._key_url: dict[str, str] = {}
         self._init_connection_accounting()
         self._initialize_player()
 
@@ -288,6 +294,7 @@ class PlayerManager:
             if result:
                 # Remember which source is playing in this window (for the health readout).
                 self._key_provider[key] = provider_id
+                self._key_url[key] = url
             else:
                 # Launch failed after the slot was acquired — don't leak it.
                 self.connection_accountant.release(provider_id, key)
@@ -407,6 +414,31 @@ class PlayerManager:
         if key is None:
             return None
         return self._key_provider.get(key)
+
+    def live_base_url(self, key: str | None) -> str | None:
+        """Return ``scheme://netloc`` of the URL last played into instance *key*.
+
+        Mirrors ``provider_for_key``'s shape, gated on ``is_running`` so a
+        window that has since stopped (mpv exited, or ``stop()`` was called)
+        answers None rather than naming a host nothing is streaming from —
+        same-provider switching (``gui/stream_switch.py``) must never route
+        onto a stale host.
+
+        Args:
+            key: Instance key (provider_id when split is on, ``"__shared__"``
+                when off). None, or a key that isn't currently running,
+                returns None.
+
+        Returns:
+            ``"scheme://netloc"`` of the last URL played into *key*, or None.
+        """
+        if key is None or not self.is_running(key=key):
+            return None
+        url = self._key_url.get(key)
+        if not url:
+            return None
+        parts = urlsplit(url)
+        return f"{parts.scheme}://{parts.netloc}"
 
     def resolve_key(self, provider_id: str | None, force_new_window: bool = False) -> str:
         """Public: the instance key a ``play()`` with these args would target.

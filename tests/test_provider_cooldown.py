@@ -253,5 +253,21 @@ def test_mpv_retries_a_5xx_on_the_initial_open():
     assert "4xx" not in RECONNECT_FLAG, (
         "retrying a 401/403/404 for half a minute hides a real answer")
     # The originals must survive — they cover mid-stream drops, a different case.
-    for opt in ("reconnect=1", "reconnect_streamed=1", "reconnect_delay_max=30"):
+    for opt in ("reconnect=1", "reconnect_streamed=1", "reconnect_delay_max=8"):
         assert opt in RECONNECT_FLAG, f"dropped {opt}"
+
+
+def test_reconnect_delay_max_lowered_for_same_provider_switching():
+    """PLAY-10: the per-attempt cap dropped 30 -> 8, so retries land inside the
+    provider's own reaper window (#635 measured 14-26s) instead of past it.
+
+    ffmpeg's backoff is uncapped 1,2,4,8,16s — with max=8 the schedule is
+    +1,+3,+7,+15,+23s; the old max=30 let it reach +1,+3,+7,+15,+31s, one long
+    wait past the reaper window instead of three extra tries inside it.
+    """
+    from metatv.core.players.mpv import RECONNECT_FLAG
+
+    assert "reconnect_delay_max=30" not in RECONNECT_FLAG, (
+        "reconnect_delay_max is back to 30 — same-provider switches will "
+        "wait past the provider's reaper window again")
+    assert "reconnect_delay_max=8" in RECONNECT_FLAG

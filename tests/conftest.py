@@ -1334,6 +1334,26 @@ def wire_shutdown_flag(host):
     return host
 
 
+def wire_player_manager_key_maps(mgr) -> None:
+    """Set the per-instance-key maps ``PlayerManager.__init__`` builds, on a skeleton.
+
+    Four test files build a ``PlayerManager`` via ``PlayerManager.__new__(PlayerManager)``
+    and hand-set ``_key_provider = {}`` before calling ``_init_connection_accounting()``
+    — the exact "copies __init__, drifts when the class grows state" trap this rule
+    warns about. PLAY-10 added ``_key_url`` (the URL last played into each key, read by
+    ``live_base_url``) right beside ``_key_provider`` in ``__init__``, and every one of
+    those hand-built doubles started raising ``AttributeError`` from ``play()``. Call
+    this once, in place of the old ``mgr._key_provider = {}`` line.
+
+    Args:
+        mgr: A ``PlayerManager.__new__(PlayerManager)`` double, with ``mgr.config``
+            already set (required by the ``_init_connection_accounting()`` call that
+            normally follows this one).
+    """
+    mgr._key_provider = {}
+    mgr._key_url = {}
+
+
 def wire_watch_queue_section(sec, rendered: list) -> None:
     """Attach what ``WatchQueueSection._populate_rows`` touches to a skeleton section.
 
