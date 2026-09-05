@@ -361,7 +361,7 @@ def test_the_matching_surfaces_route_through_the_shared_matcher():
         "metatv/gui/epg_on_now_mixin.py",
         "metatv/gui/epg_browse_mixin.py",
         "metatv/core/epg_manager.py",
-        "metatv/core/repositories/epg.py",
+        "metatv/core/repositories/epg_watchlist.py",
         "metatv/core/alerts.py",
     ]
     for rel in surfaces:
