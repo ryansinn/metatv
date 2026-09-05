@@ -69,14 +69,14 @@ _KNOWN_BARE_PYTEST_SCRIPTS = {"ship_batch.sh"}
 #: pre-push`` and ``scripts/pytest_verdict.sh``, both resolving relative to
 #: CWD, exit 127 from a worktree with no venv symlink — plus the three-way
 #: ``_main_repo`` duplicate (``verify_pr.sh`` / ``merge_pr.sh`` /
-#: ``open_batch.sh``). These two carry the same CWD-relative pattern but were
-#: out of that slice's scope (docs/REFACTOR_PLAN.md ledger D37):
-#:
-#: ``ci_shards_local.sh`` — ``PY="${PYTHON:-venv/bin/python}"`` after its own
-#:                          ``cd "$(git rev-parse --show-toplevel)"``.
-#: ``ship_batch.sh``       — the retired pre-rolling-release chore, already a
-#:                          known exception above.
-_KNOWN_VENV_PYTHON_SCRIPTS = {"ci_shards_local.sh", "ship_batch.sh"}
+#: ``open_batch.sh``). Two more carried the same CWD-relative pattern but were
+#: out of that slice's scope (docs/REFACTOR_PLAN.md ledger D37/D38):
+#: ``ci_shards_local.sh`` (``PY="${PYTHON:-venv/bin/python}"``) and
+#: ``ship_batch.sh`` (its own ``_main_repo`` plus a hand-rolled venv choice).
+#: GATE-7b (also ``run.sh``'s byte-identical pair, outside this test's
+#: ``scripts/*.sh`` + ``.githooks/pre-push`` scan) closed both, so this set
+#: is empty until a new one shows up.
+_KNOWN_VENV_PYTHON_SCRIPTS: set[str] = set()
 
 _DRAIN = re.compile(r"sendPostedEvents\(\s*None\s*,\s*(?:QEvent\.Type\.)?DeferredDelete\s*\)")
 _BARE_PYTEST = re.compile(r"(?<!scripts/)\bpytest\b[^\n]*", re.M)

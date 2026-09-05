@@ -99,8 +99,9 @@ command -v gh >/dev/null 2>&1 || { echo "ship_batch.sh: the gh CLI is required."
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Absolute path of the main worktree (mirrors verify_pr.sh).
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
+# _main_repo / resolve_py: the single sourced copy (GATE-7) — see
+# scripts/repo_python.sh.
+source "$SCRIPT_DIR/repo_python.sh"
 main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "ship_batch.sh: not inside a git repo." >&2; exit 1; }
 
@@ -237,17 +238,13 @@ echo "Release chore committed"
 echo
 echo "── step 4: run test gate ──"
 
-# Check for venv
-py=""
-if [ -x "$wt/venv/bin/python" ]; then
-    py="$wt/venv/bin/python"
-elif [ -x "$main/venv/bin/python" ]; then
-    py="$main/venv/bin/python"
-else
+# Interpreter resolution: the worktree's own venv, else the main repo's
+# (GATE-7 / GATE-7b) — via scripts/repo_python.sh, not a hand-rolled check.
+py="$(resolve_py "$wt")" || {
     echo "ship_batch.sh: no venv found" >&2
     git worktree remove --force "$wt" 2>/dev/null || true
     exit 1
-fi
+}
 
 log="$(mktemp "${TMPDIR:-/tmp}/ship_batch.test.XXXXXX.log")"
 trap 'rm -f "$log"' EXIT

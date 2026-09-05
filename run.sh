@@ -65,17 +65,9 @@ case "${1:-}" in
     -h|--help|help) usage; exit 0 ;;
 esac
 
-# Absolute path of the main worktree for any checkout dir.
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
-
-# Echo a usable python: the checkout's own venv, else the main worktree's venv.
-resolve_py() {
-    local base="$1" main
-    if [ -x "$base/venv/bin/python" ]; then printf '%s\n' "$base/venv/bin/python"; return 0; fi
-    main="$(_main_repo "$base")"
-    if [ -n "$main" ] && [ -x "$main/venv/bin/python" ]; then printf '%s\n' "$main/venv/bin/python"; return 0; fi
-    return 1
-}
+# _main_repo / resolve_py: the single sourced copy (GATE-7) — see
+# scripts/repo_python.sh.
+source "$SCRIPT_DIR/scripts/repo_python.sh"
 
 # Say so when this checkout is behind its remote, then run anyway.
 #
