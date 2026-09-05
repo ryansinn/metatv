@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from tests.conftest import drain_chunked_build
+from tests.conftest import _widget_addr, destroy_widget, drain_chunked_build
 
 
 # ---------------------------------------------------------------------------
@@ -115,19 +115,20 @@ def _delete_panels_this_module_creates(qapp):
     enough leaked ones segfaults (see the teardown-guard notes in
     ``tests/conftest.py``; it has cost this project a CI shard before).
 
-    ``deleteLater()`` alone is not enough: it only QUEUES the delete, and
-    ``processEvents()`` does not drain ``DeferredDelete``.
+    Delegates to the shared ``destroy_widget()`` rather than a private
+    close()+deleteLater() loop keyed by ``id()``: ``topLevelWidgets()`` can
+    hand back a fresh Python wrapper for any widget nothing else references,
+    and those transient wrappers' ``id()``s get recycled — QT-1's audit found
+    exactly one test in this module still leaking past this fixture, which is
+    that hazard (a stale/aliased ``id()`` in ``before`` masked its panel as
+    "already existed"). ``_widget_addr`` (the C++ address) does not alias.
     """
-    from PyQt6.QtCore import QEvent
     from PyQt6.QtWidgets import QApplication
 
-    before = {id(w) for w in QApplication.topLevelWidgets()}
+    before = {a for a in (_widget_addr(w) for w in QApplication.topLevelWidgets()) if a is not None}
     yield
-    for w in QApplication.topLevelWidgets():
-        if id(w) not in before:
-            w.close()
-            w.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    new = [w for w in QApplication.topLevelWidgets() if _widget_addr(w) not in before]
+    destroy_widget(*new)
 
 
 # ---------------------------------------------------------------------------

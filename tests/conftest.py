@@ -1,5 +1,6 @@
 """Shared fixtures for MetaTV tests."""
 
+import json
 import os
 
 # Headless by default: without this, every pytest-qt widget/dialog renders on the
@@ -418,6 +419,198 @@ def destroy_widget(*widgets) -> None:
     app = QApplication.instance()
     if app is not None:
         app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# QT-1: a hard gate on new top-level widget leaks (shrink-only allowlist)
+# ---------------------------------------------------------------------------
+#
+# ``_qt_teardown_guard`` above only quiesces Qt state and REPORTS leaks for the
+# terminal summary — it never fails a test, because force-deleting a widget
+# whose owned QThread is still running is exactly what segfaults the suite, so
+# it deliberately leaves leaked widgets alive. This guard is the one that turns
+# "a new top-level widget is still alive after teardown" into an actual test
+# failure. An audit found ~64 pre-existing leakers, so
+# ``tests/top_level_widget_leak_allowlist.json`` grandfathers them in
+# (shrink-only, same pattern as ``tests/unwired_stored_fields_allowlist.json``):
+# a NEW leak fails immediately; an allowlisted one is only recorded, and
+# ``_leak_allowlist_freshness_check`` below fails at session end if a listed
+# nodeid ran and did NOT leak (stale entry — remove it).
+
+
+def _load_top_level_widget_leak_allowlist() -> frozenset[str]:
+    path = Path(__file__).parent / "top_level_widget_leak_allowlist.json"
+    if not path.exists():
+        return frozenset()
+    return frozenset(json.loads(path.read_text()))
+
+
+_TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = _load_top_level_widget_leak_allowlist()
+
+# Every allowlisted nodeid this session actually ran, and the subset that
+# actually leaked — the freshness check below fails on any nodeid that ran
+# but did NOT leak, so the allowlist can only shrink.
+_LEAK_ALLOWLIST_RAN: set[str] = set()
+_LEAK_ALLOWLIST_STILL_LEAKING: set[str] = set()
+
+# Populated only under METATV_LEAK_GUARD_COLLECT=1 (allowlist seeding mode):
+# every nodeid this run found leaking, regardless of allowlist membership.
+_LEAK_GUARD_COLLECTED: set[str] = set()
+
+# Widgets registered via qtbot.addWidget(), mirrored here by stable address
+# because pytest-qt's own bookkeeping (``item.qt_widgets``) is gone by the time
+# this guard's post-yield code runs: pytest-qt's ``pytest_runtest_teardown`` is
+# a hookWRAPPER whose pre-yield code (``_close_widgets``, which reads and then
+# deletes ``item.qt_widgets``) always runs before ANY fixture's finalizer,
+# this guard's included — that is how hookwrapper/fixture-finalizer ordering
+# works, not a race. Confirmed directly: a probe fixture printed
+# ``getattr(request.node, "qt_widgets", "MISSING")`` after its own ``yield``
+# and it was always "MISSING" for a widget added via ``qtbot.addWidget()``.
+# Worse, pytest-qt's own teardown does not even finish the job at that point:
+# it calls ``widget.close(); widget.deleteLater()`` then only
+# ``app.processEvents()`` — and ``processEvents()`` alone does NOT pump a
+# posted ``DeferredDelete`` (measured directly, see ``destroy_widget()``
+# above: only ``QCoreApplication.sendPostedEvents(None,
+# QEvent.Type.DeferredDelete)`` does). So a widget correctly handed to
+# ``qtbot.addWidget()`` is still sitting in ``topLevelWidgets()`` when this
+# guard looks — without this mirror it would misreport the CORRECT pattern as
+# a leak.
+_QTBOT_OWNED_ADDRS: dict[str, set[int]] = {}
+
+
+def _install_qtbot_widget_tracking() -> None:
+    """Wrap ``pytestqt.qtbot._add_widget`` once to mirror its registrations.
+
+    Idempotent (checked via a marker attribute) so importing this module twice
+    — or pytest re-collecting conftest.py under ``-p`` — never double-wraps.
+    """
+    try:
+        from pytestqt import qtbot as _pytestqt_qtbot
+    except ImportError:
+        return
+    if getattr(_pytestqt_qtbot._add_widget, "_metatv_tracked", False):
+        return
+    _orig_add_widget = _pytestqt_qtbot._add_widget
+
+    def _tracking_add_widget(item, widget, *, before_close_func=None):
+        addr = _widget_addr(widget)
+        if addr is not None:
+            _QTBOT_OWNED_ADDRS.setdefault(item.nodeid, set()).add(addr)
+        return _orig_add_widget(item, widget, before_close_func=before_close_func)
+
+    _tracking_add_widget._metatv_tracked = True
+    _pytestqt_qtbot._add_widget = _tracking_add_widget
+
+
+_install_qtbot_widget_tracking()
+
+
+@pytest.fixture(autouse=True)
+def _top_level_widget_guard(request):
+    """Fail a test that leaves a NEW top-level widget alive after teardown.
+
+    Snapshots ``QApplication.topLevelWidgets()`` (by stable address, never
+    ``id()`` — see ``_widget_addr``'s docstring) before the test, then after:
+    pumps the event loop once, excludes anything pre-existing or owned by
+    qtbot (see ``_QTBOT_OWNED_ADDRS`` above), and fails on any remaining
+    widget that ``isWindow()`` and has no parent — a genuine new top-level.
+
+    A nodeid in ``_TOP_LEVEL_WIDGET_LEAK_ALLOWLIST`` is recorded instead of
+    failed (see module note above); ``METATV_LEAK_GUARD_COLLECT=1`` records
+    every leak (allowlisted or not) instead of failing, for seeding/refreshing
+    the allowlist file.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        yield
+        return
+
+    pre_ids = {
+        addr
+        for addr in (_widget_addr(w) for w in app.topLevelWidgets())
+        if addr is not None
+    }
+    yield
+
+    app.processEvents()
+
+    from PyQt6 import sip
+
+    nodeid = request.node.nodeid
+    qtbot_owned = _QTBOT_OWNED_ADDRS.pop(nodeid, set())
+
+    leaked: list[str] = []
+    for w in app.topLevelWidgets():
+        if sip.isdeleted(w):
+            continue
+        addr = _widget_addr(w)
+        if addr is None or addr in pre_ids or addr in qtbot_owned:
+            continue
+        if not w.isWindow() or w.parent() is not None:
+            continue
+        leaked.append(type(w).__name__)
+
+    if not leaked:
+        if nodeid in _TOP_LEVEL_WIDGET_LEAK_ALLOWLIST:
+            _LEAK_ALLOWLIST_RAN.add(nodeid)
+        return
+
+    if nodeid in _TOP_LEVEL_WIDGET_LEAK_ALLOWLIST:
+        _LEAK_ALLOWLIST_RAN.add(nodeid)
+        _LEAK_ALLOWLIST_STILL_LEAKING.add(nodeid)
+
+    if os.environ.get("METATV_LEAK_GUARD_COLLECT"):
+        _LEAK_GUARD_COLLECTED.add(nodeid)
+        return
+
+    if nodeid in _TOP_LEVEL_WIDGET_LEAK_ALLOWLIST:
+        return  # recorded above; a known, allowlisted leak — not new
+
+    pytest.fail(
+        f"New top-level widget(s) leaked past teardown in {nodeid}: {leaked}. "
+        "Fix: destroy_widget(w) in the test or its fixture; or parent it to a "
+        "widget qtbot owns (qtbot.addWidget)."
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _leak_allowlist_freshness_check():
+    """Session-end companion: a listed nodeid that ran but did not leak is stale.
+
+    ``tests/top_level_widget_leak_allowlist.json`` may only SHRINK (same
+    pattern as ``tests/unwired_stored_fields_allowlist.json``): if a fix lands
+    for one of its entries and nobody removes the entry, the list silently
+    accumulates dead weight. Only checks nodeids that actually RAN this
+    session — a partial/filtered run (``-k``) says nothing about the rest.
+    """
+    yield
+    stale = sorted(_LEAK_ALLOWLIST_RAN - _LEAK_ALLOWLIST_STILL_LEAKING)
+    if stale:
+        pytest.fail(
+            "tests/top_level_widget_leak_allowlist.json has stale entries — "
+            f"they ran this session but did NOT leak. Remove them from the "
+            f"allowlist: {stale}"
+        )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Under ``METATV_LEAK_GUARD_COLLECT=1``, dump every leak found this run.
+
+    Seeding/refreshing ``tests/top_level_widget_leak_allowlist.json`` is a
+    two-step process: run the whole suite once with this env var set (writes
+    every offending nodeid to a scratch file instead of failing), then a human
+    reviews and writes the allowlist file from that list.
+    """
+    if not os.environ.get("METATV_LEAK_GUARD_COLLECT"):
+        return
+    out_path = Path(
+        os.environ.get(
+            "METATV_LEAK_GUARD_COLLECT_PATH", "/tmp/metatv_leak_guard_collect.json"
+        )
+    )
+    out_path.write_text(json.dumps(sorted(_LEAK_GUARD_COLLECTED), indent=2) + "\n")
 
 
 def drain_chunked_build(handle) -> None:
