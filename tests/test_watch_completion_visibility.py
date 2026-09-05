@@ -469,6 +469,8 @@ def test_to_card_sets_progress_fraction_when_partial(tmp_path):
     from metatv.core.discovery_engine import _to_card
 
     ch = MagicMock()
+    ch.detected_rating = None   # DB-4: a real row carries a float or None, never a Mock
+    ch.detected_added = None
     ch.id = "cid1"
     ch.name = "Test Movie"
     ch.media_type = "movie"
@@ -489,6 +491,8 @@ def test_to_card_progress_fraction_zero_for_completed(tmp_path):
     from metatv.core.discovery_engine import _to_card
 
     ch = MagicMock()
+    ch.detected_rating = None   # DB-4: a real row carries a float or None, never a Mock
+    ch.detected_added = None
     ch.id = "cid2"
     ch.name = "Done Movie"
     ch.media_type = "movie"
@@ -509,6 +513,8 @@ def test_to_card_progress_fraction_zero_when_no_map():
     from metatv.core.discovery_engine import _to_card
 
     ch = MagicMock()
+    ch.detected_rating = None   # DB-4: a real row carries a float or None, never a Mock
+    ch.detected_added = None
     ch.id = "cid3"
     ch.name = "Fresh Movie"
     ch.media_type = "movie"

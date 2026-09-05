@@ -313,28 +313,103 @@ def test_an_existing_trailer_is_left_alone(db):
         assert session.query(MetadataDB).first().trailer_url == "https://kept/"
 
 
-def test_every_field_names_a_real_metadata_column():
-    """A typo in FIELDS would raise on getattr at migration time, on a worker
-    thread, on the owner's launch. Catch it here instead."""
-    from metatv.core.database import MetadataDB
+# --------------------------------------------------------------------------
+# ChannelDB targets (DB-4) — no join; the row being mutated IS the channel.
+# --------------------------------------------------------------------------
 
-    for column in FIELDS:
-        assert hasattr(MetadataDB, column), f"{column} is not a MetadataDB column"
+def _channel_col(db, column):
+    with db.session_scope() as s:
+        return {r[0]: r[1] for r in
+                s.execute(text(f"SELECT id, {column} FROM channels")).all()}
+
+
+def test_detected_rating_and_added_are_filled_from_raw_data(db):
+    """The Discover shelf perf fix (DB-4): a channel column, not a MetadataDB
+    join, and rating/added-date are read straight off the channel's own
+    raw_data — no join is needed to fill them."""
+    _seed(db, [
+        {"rating": "7.4", "added": "1725500000"},   # c00000
+        {"rating": "", "added": "not-a-number"},      # c00001 — unparsable -> None
+        {"name": "no rating/added at all"},           # c00002
+    ])
+    _run(db)
+    assert _channel_col(db, "detected_rating") == {
+        "c00000": 7.4, "c00001": None, "c00002": None,
+    }
+    assert _channel_col(db, "detected_added") == {
+        "c00000": 1725500000, "c00001": None, "c00002": None,
+    }
+
+
+def test_detected_rating_and_added_leave_an_existing_value_alone(db):
+    """Enrichment/ingestion may already have a value; the filter is IS NULL
+    per column, exactly like the MetadataDB fields above."""
+    _seed(db, [{"rating": "7.4", "added": "1725500000"}])
+    with db.session_scope() as session:
+        channel = session.query(ChannelDB).filter_by(id="c00000").one()
+        channel.detected_rating = 9.9
+        channel.detected_added = 42
+    _run(db)
+    assert _channel_col(db, "detected_rating")["c00000"] == 9.9
+    assert _channel_col(db, "detected_added")["c00000"] == 42
+
+
+def test_channel_and_metadata_targets_are_filled_in_the_same_pass(db):
+    """One seed, all four columns — the branch-by-target loop must not stop
+    at the first target table."""
+    _seed(db, [{
+        "episode_run_time": "45", "trailer": "AklEaZVdm3c",
+        "rating": "8.1", "added": "1700000000",
+    }])
+    _run(db)
+    assert _runtimes(db)["m00000"] == 45
+    assert _channel_col(db, "detected_rating")["c00000"] == 8.1
+    assert _channel_col(db, "detected_added")["c00000"] == 1700000000
+
+
+def test_every_field_names_a_real_column_on_its_declared_target():
+    """A typo in FIELDS (column OR target name) would raise on getattr at
+    migration time, on a worker thread, on the owner's launch. Catch it here."""
+    from metatv.core.database import ChannelDB, MetadataDB
+
+    models_by_target = {"MetadataDB": MetadataDB, "ChannelDB": ChannelDB}
+    for column, (target, _resolve) in FIELDS.items():
+        assert target in models_by_target, f"{column} names unknown target {target!r}"
+        model = models_by_target[target]
+        assert hasattr(model, column), f"{column} is not a {target} column"
 
 
 def test_every_resolver_is_the_one_ingestion_uses():
     """The table's whole purpose: a field cannot drift between the ingestion
-    path and the backfill, because they are the same function object."""
+    path and the backfill.
+
+    The MetadataDB fields' resolvers are the literal function objects ingestion
+    calls. The ChannelDB fields' resolvers wrap a SCALAR resolver (ingestion
+    calls ``rating_from_raw(raw_data.get("rating"))`` directly — see
+    ``providers/xtream.py``) in a blob-shaped adapter to match this loop's
+    calling convention, so identity can't be asserted for those two; behavior
+    equivalence is asserted instead.
+    """
+    from metatv.core.content_identity import added_from_raw, rating_from_raw
     from metatv.metadata_providers.provider_metadata import (
         runtime_from_raw, trailer_from_raw,
     )
-    assert FIELDS["runtime"] is runtime_from_raw
-    assert FIELDS["trailer_url"] is trailer_from_raw
+    assert FIELDS["runtime"] == ("MetadataDB", runtime_from_raw)
+    assert FIELDS["trailer_url"] == ("MetadataDB", trailer_from_raw)
+
+    _, rating_resolver = FIELDS["detected_rating"]
+    _, added_resolver = FIELDS["detected_added"]
+    assert rating_resolver({"rating": "6.6"}) == rating_from_raw("6.6")
+    assert added_resolver({"added": "42"}) == added_from_raw("42")
+    assert rating_resolver(None) is None
+    assert rating_resolver("not a dict") is None
 
 
 def test_the_version_is_ahead_of_the_field_count():
-    """CURRENT_VERSION must be bumped when a field is added, or libraries that
-    already ran the earlier version never get the new column filled."""
-    assert CURRENT_VERSION >= len(FIELDS), (
-        f"{len(FIELDS)} fields but CURRENT_VERSION is {CURRENT_VERSION} — a "
-        "field was added without bumping it, so existing installs skip it")
+    """CURRENT_VERSION must be bumped whenever FIELDS grows to cover a column
+    no earlier version filled. Two rows can ship under the SAME bump when they
+    land together — ``detected_rating``/``detected_added`` are both new in
+    version 3 — so the invariant is "every column has some version that covers
+    it", not one version number per field."""
+    assert CURRENT_VERSION == 3
+    assert set(FIELDS) == {"runtime", "trailer_url", "detected_rating", "detected_added"}

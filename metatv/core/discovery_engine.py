@@ -4,8 +4,9 @@ Builds ContentCard lists for horizontal shelves (Recently Added, Top Rated,
 Genre, Decade, Featured Actor) using data already in the source's raw_data
 field — no TMDb API key required.
 
-All DB-side sorting uses SQLite's json_extract() via SQLAlchemy text() to
-avoid pulling 300K+ rows into Python for sorting.
+Rating/added-date sorting reads the indexed ``ChannelDB.detected_rating``/
+``detected_added`` columns (DB-4); genre/cast/releaseDate still json_extract()
+raw_data directly via SQLAlchemy text() to avoid pulling 300K+ rows into Python.
 """
 
 from __future__ import annotations
@@ -69,14 +70,6 @@ def display_title(channel) -> str:
     # Fall through to regex-based prefix stripping (handles formats that
     # detected_prefix misses, or where the prefix itself contains the separator)
     return _PREFIX_NOISE_RE.sub("", name).strip()
-
-
-def _raw_rating(channel) -> float:
-    """Parse provider rating from raw_data, returning 0.0 on failure."""
-    try:
-        return float((channel.raw_data or {}).get("rating") or 0)
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def _raw_year(channel) -> int | None:
@@ -164,7 +157,8 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
     # (e.g. "2013" — an edge case where the channel name is just a year).
     if meta and meta.title and not any(c.isalpha() for c in title):
         title = meta.title
-    _r = _raw_rating(channel)
+    # Ingestion-computed stored field (DB-4) — never re-parse raw_data here.
+    _r = getattr(channel, "detected_rating", None)
     already_watched = channel.id in (watched_ids or set())
     # progress_fraction: non-zero only when partially watched (not completed).
     # Completed items show the ✓ badge instead; a completed channel has watch_progress=0
@@ -175,7 +169,7 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
         title=title,
         media_type=channel.media_type,
         thumbnail_url=channel_thumbnail(channel),
-        rating=_r if 0 < _r < 10 else None,
+        rating=_r if _r is not None and 0 < _r < 10 else None,
         year=_raw_year(channel),
         # Ingestion-computed stored field — never re-parse raw_data at render
         # time (CLAUDE.md "compute once at ingestion, read everywhere else").
@@ -485,6 +479,10 @@ def build_status_sets(session) -> StatusSets:
 
 # ---------------------------------------------------------------------------
 # Shelf queries
+#
+# Rating/added-date predicates below are plain ORM comparisons against the
+# indexed ChannelDB.detected_rating/detected_added columns (DB-4) — computed
+# once at ingestion (providers/xtream.py) — not json_extract() over raw_data.
 # ---------------------------------------------------------------------------
 
 def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
@@ -510,7 +508,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(
-        text("CAST(json_extract(channels.raw_data, '$.added') AS REAL) DESC")
+        ChannelDB.detected_added.desc()
     ).limit(limit * 5).all()
     cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
@@ -535,15 +533,15 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
             ChannelDB.media_type == media_type,
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text(f"CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= {min_rating}"),
-            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
+            ChannelDB.detected_rating >= min_rating,
+            ChannelDB.detected_rating < 10,
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(
-        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+        ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
     cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
@@ -597,7 +595,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(
-        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+        ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
     cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
@@ -622,8 +620,8 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= 5"),
-            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
+            ChannelDB.detected_rating >= 5,
+            ChannelDB.detected_rating < 10,
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
@@ -668,7 +666,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                 ChannelDB.media_type == "series",
                 ChannelDB.is_hidden == False,  # noqa: E712
                 ChannelDB.raw_data.isnot(None),
-                text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= 7.5"),
+                ChannelDB.detected_rating >= 7.5,
                 text("json_extract(channels.raw_data, '$.cast') IS NOT NULL"),
                 text("json_extract(channels.raw_data, '$.cast') != ''"),
             )
@@ -727,7 +725,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(
-        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+        ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
     cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
@@ -1008,7 +1006,7 @@ def get_by_collection(session, collection: str, limit: int = 30, fav_ids=None,
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(
-        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+        ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
     cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]

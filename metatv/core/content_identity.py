@@ -252,6 +252,69 @@ def valid_tmdb_id(value) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Rating / added-date parsing — same shape as valid_tmdb_id (DB-4)
+# ---------------------------------------------------------------------------
+
+
+def rating_from_raw(value) -> float | None:
+    """Parse a provider rating scalar (``raw_data["rating"]``) into a float.
+
+    Sibling of :func:`valid_tmdb_id`: same shape (validate/parse a single
+    ``raw_data`` scalar, called at ingestion and stored — never re-parsed at
+    read time), called the same way (``rating_from_raw(raw_data.get("rating"))``
+    in ``providers/xtream.py::convert_to_channel``, storing the result in
+    ``ChannelDB.detected_rating``).
+
+    Deliberately does NOT clamp to 0-10 the way ``provider_metadata._parse_rating``
+    does for ``MetadataDB.rating`` — that column feeds a details-pane display;
+    this one feeds the Discover shelf queries, which already carry their own
+    ``< 10`` / ``>= min_rating`` predicates (the Xtream sentinel for "no rating"
+    is a bare ``10``), so the stored value stays exactly what the provider sent.
+
+    Args:
+        value: The raw ``raw_data["rating"]`` value (``str`` / ``float`` / ``int``
+            / ``None``).
+
+    Returns:
+        The rating as a float, or ``None`` when *value* is empty or unparsable.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def added_from_raw(value) -> int | None:
+    """Parse a provider "added" timestamp scalar (``raw_data["added"]``) into an int.
+
+    Sibling of :func:`rating_from_raw` / :func:`valid_tmdb_id`. Xtream sends this
+    as a Unix-epoch-seconds string (e.g. ``"1662142840"``); called at ingestion as
+    ``added_from_raw(raw_data.get("added"))``, storing the result in
+    ``ChannelDB.detected_added``.
+
+    Args:
+        value: The raw ``raw_data["added"]`` value (``str`` / ``int`` / ``None``).
+
+    Returns:
+        Epoch seconds as an int, or ``None`` when *value* is empty or unparsable.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Strategy interface
 # ---------------------------------------------------------------------------
 

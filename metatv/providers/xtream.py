@@ -9,7 +9,7 @@ from loguru import logger
 
 from metatv.core.models import Channel, Provider, MediaType, StreamQuality, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
-from metatv.core.content_identity import valid_tmdb_id
+from metatv.core.content_identity import added_from_raw, rating_from_raw, valid_tmdb_id
 from metatv.core.discovery_engine import poster_url_from_raw
 from metatv.core.url_cycle import UrlCycler
 from metatv.providers.base import ProviderPlugin
@@ -363,6 +363,11 @@ class XtreamAPI:
             # sentinels ("", "0", "null") become None. Drives the tmdb-first
             # content_key downstream; never re-read from raw_data at render time.
             detected_tmdb_id=valid_tmdb_id(raw_data.get("tmdb")),
+            # Same compute-once principle (DB-4): stored so the Discover shelf
+            # queries sort/filter on an indexed column instead of json_extract()
+            # over 785k+ rows every time a shelf opens.
+            detected_rating=rating_from_raw(raw_data.get("rating")),
+            detected_added=added_from_raw(raw_data.get("added")),
         )
 
 
