@@ -51,6 +51,7 @@ class PlayerManager:
         self._key_url: dict[str, str] = {}
         self._init_connection_accounting()
         self._initialize_player()
+        self._wire_liveness_probe()
 
     def _init_connection_accounting(self) -> None:
         """Construct the connection accountant + its provider-capacity cache.
@@ -78,6 +79,22 @@ class PlayerManager:
         else:
             logger.error("No media player available! Please install mpv.")
             self.player = None
+
+    def _wire_liveness_probe(self) -> None:
+        """Give the accountant a way to tell a dead playback holder from a live one.
+
+        Called after both ``_init_connection_accounting`` (which needs no
+        player yet) and ``_initialize_player`` (which may leave ``self.player``
+        None if mpv is missing) — so this can't run any earlier without
+        reaching for a player that doesn't exist. Registering
+        ``self.player.active_keys`` here is what lets a queued download's
+        ``acquire()`` self-heal a slot this window's mpv process quietly
+        crashed (or was closed) out of, instead of sitting refused until the
+        next play()/stop() happens to reconcile it (DL-7). No player, no
+        probe — there is nothing to ask.
+        """
+        if self.player is not None:
+            self.connection_accountant.set_liveness_probe(self.player.active_keys)
 
     # ── Instance-key resolution ─────────────────────────────────────────────
 

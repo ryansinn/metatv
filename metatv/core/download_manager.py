@@ -638,6 +638,11 @@ class DownloadManager:
             return None
 
         for row in candidates:
+            # DL-7: acquire() self-heals a dead playback holder on its own via
+            # the accountant's registered liveness probe (see
+            # ConnectionAccountant.set_liveness_probe / RECONCILE_GRACE_S) —
+            # this loop stays a plain poll; never add a timer here to chase
+            # the same problem a second way.
             granted = self._accountant.acquire(
                 row["provider_id"], "download", row["id"],
                 preempt_kinds=DOWNLOAD_PREEMPTS)

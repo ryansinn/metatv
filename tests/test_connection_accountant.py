@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
 import pytest
+from loguru import logger
 
 from metatv.core.connection_accountant import AcquireResult, ConnectionAccountant, Holder
 
@@ -132,16 +133,37 @@ def test_preview_grants_for_an_already_registered_holder():
 # ---------------------------------------------------------------------------
 
 def test_reconcile_releases_holders_not_in_alive_set():
-    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(5))
+    """Past RECONCILE_GRACE_S, reconcile() sweeps whatever isn't in the alive set."""
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(5), clock=lambda: now[0])
     acc.acquire("prov-a", "playback", "key1")
     acc.acquire("prov-a", "playback", "key2")
     acc.acquire("prov-b", "playback", "key3")
+    now[0] += ConnectionAccountant.RECONCILE_GRACE_S + 1
 
     released = acc.reconcile(alive_holder_ids=["key1"])
 
     assert set(released) == {("prov-a", "key2"), ("prov-b", "key3")}
     assert acc.in_use("prov-a") == 1
     assert acc.in_use("prov-b") == 0
+
+
+def test_reconcile_keeps_a_holder_younger_than_the_grace_period():
+    """A holder registered moments ago must survive even if it's not 'alive' yet.
+
+    This is the newborn-holder case RECONCILE_GRACE_S exists for: a play
+    registers its holder before mpv's process exists, so a probe/alive-set
+    taken in that window would wrongly call it dead.
+    """
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(5), clock=lambda: now[0])
+    acc.acquire("prov-a", "playback", "key1")
+
+    now[0] += ConnectionAccountant.RECONCILE_GRACE_S - 1
+    released = acc.reconcile(alive_holder_ids=[])
+
+    assert released == []
+    assert acc.in_use("prov-a") == 1
 
 
 def test_reconcile_keeps_all_alive_holders():
@@ -154,10 +176,12 @@ def test_reconcile_keeps_all_alive_holders():
 
 def test_reconcile_freed_slot_allows_new_acquire():
     """A dead holder's slot becomes available to a NEW acquire after reconcile."""
-    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1))
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1), clock=lambda: now[0])
     acc.acquire("prov-a", "playback", "key1")
     assert acc.acquire("prov-a", "playback", "key2").granted is False
 
+    now[0] += ConnectionAccountant.RECONCILE_GRACE_S + 1
     acc.reconcile(alive_holder_ids=[])  # key1's mpv process died
 
     assert acc.acquire("prov-a", "playback", "key2").granted is True
@@ -311,8 +335,14 @@ def test_stop_releases_the_accountant_holder():
 
 
 def test_crashed_instance_is_swept_by_next_plays_reconcile():
-    """A process that dies WITHOUT stop() being called leaks no slot forever."""
+    """A process that dies WITHOUT stop() being called leaks no slot forever.
+
+    Past RECONCILE_GRACE_S — the clock is injected so this test proves the
+    sweep without sleeping for it.
+    """
+    now = [0.0]
     pm = _make_player_manager(_Cfg(split_streams_by_source=False, max_player_instances=0))
+    pm.connection_accountant._clock = lambda: now[0]
     pm.play("http://a", "A", provider_id="prov-a", provider_max_connections=1)
     pm.play(
         "http://b", "B", provider_id="prov-b", provider_max_connections=1,
@@ -322,6 +352,7 @@ def test_crashed_instance_is_swept_by_next_plays_reconcile():
 
     # Simulate the second window's mpv process crashing (no stop() call).
     pm.player.kill("prov-b")
+    now[0] += ConnectionAccountant.RECONCILE_GRACE_S + 1
 
     # Any subsequent play() reconciles dead holders at its top before acting.
     pm.play("http://c", "C", provider_id="prov-c", provider_max_connections=1, force_new_window=True)
@@ -459,3 +490,141 @@ def test_play_checked_replace_oldest_action_stops_then_replays(db):
     _, play_kwargs = host.player_manager.play.call_args
     assert play_kwargs["provider_id"] == "prov-a"
     assert play_kwargs["provider_max_connections"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 6. Liveness probe self-heal (DL-7) — acquire() sweeps a dead holder itself
+#
+# The reported bug: the user closes the player, the playback holder stays
+# registered (nothing ever told the accountant mpv died), and every download
+# acquire on that provider hits the capacity-full branch forever — silently,
+# because that branch logged nothing. set_liveness_probe() lets acquire()
+# check for itself instead of waiting for the next play()/stop() to reconcile.
+# ---------------------------------------------------------------------------
+
+def test_acquire_self_heals_a_dead_holder_past_the_grace_period():
+    """The self-heal mechanism, isolated from the (separately-tested) cooldown.
+
+    A holder is registered at t=0 and the probe says it's dead from the start
+    (its process is already gone). A download acquire at t=5 is still refused
+    — the grace period protects a holder that might just be newborn. At t=11
+    (past RECONCILE_GRACE_S) the same acquire sweeps it and is granted.
+
+    Registered as ``"monitor"`` rather than ``"playback"`` deliberately: a
+    playback acquire also arms the 60s provider cooldown
+    (``test_provider_cooldown.py`` covers that mechanism on its own), which
+    would otherwise refuse every download here for a DIFFERENT reason and
+    hide what this test exists to prove. ``test_player_manager_wires_the_
+    liveness_probe_for_self_heal`` below reproduces the real playback+download
+    scenario including that cooldown window.
+
+    Pre-fix (no self-heal in acquire(), no probe param at all) the t=11 case
+    stays refused forever — nothing but a play()/stop() call ever reconciles.
+    """
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1), clock=lambda: now[0])
+    acc.acquire("p1", "monitor", "stale-monitor")
+    acc.set_liveness_probe(lambda: [])  # its process is gone; nothing is alive
+
+    now[0] = 5.0
+    still_refused = acc.acquire("p1", "download", "dl-1")
+    assert still_refused.granted is False, "grace must protect a holder this young"
+    assert acc.in_use("p1") == 1
+
+    now[0] = 11.0
+    granted = acc.acquire("p1", "download", "dl-1")
+    assert granted.granted is True
+    assert acc.holders("p1") == [Holder(holder_id="dl-1", kind="download")]
+
+
+def test_acquire_never_sweeps_a_holder_the_probe_reports_alive():
+    """Downloads must never evict a playback holder that is genuinely alive."""
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1), clock=lambda: now[0])
+    acc.acquire("p1", "playback", "__shared__")
+    acc.set_liveness_probe(lambda: ["__shared__"])  # mpv is still running
+
+    now[0] = 100.0  # well past the grace period
+    result = acc.acquire("p1", "download", "dl-1")
+
+    assert result.granted is False
+    assert acc.holders("p1") == [Holder(holder_id="__shared__", kind="playback")]
+
+
+def test_refusal_logs_once_and_grant_after_waiting_logs_once():
+    """'Say why, once' — a poller retrying every couple seconds doesn't spam.
+
+    "monitor" as the blocker, not "playback", for the same reason as the test
+    above: isolates the capacity-refusal log path from the cooldown's own
+    (separately-tested) debug log.
+    """
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1), clock=lambda: now[0])
+    acc.acquire("p1", "monitor", "stale-monitor")
+    acc.set_liveness_probe(lambda: [])
+
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="DEBUG", format="{message}")
+    try:
+        now[0] = 2.0
+        acc.acquire("p1", "download", "dl-1")
+        now[0] = 4.0
+        acc.acquire("p1", "download", "dl-1")
+        now[0] = 6.0
+        acc.acquire("p1", "download", "dl-1")
+        now[0] = 11.0
+        result = acc.acquire("p1", "download", "dl-1")
+    finally:
+        logger.remove(sink_id)
+
+    assert result.granted is True
+    busy_lines = [line for line in lines if "Connection busy on p1: dl-1" in line]
+    free_lines = [line for line in lines if "Connection free on p1: dl-1" in line]
+    assert len(busy_lines) == 1, f"refusal logged more than once: {busy_lines}"
+    assert len(free_lines) == 1, f"grant-after-wait logged more than once: {free_lines}"
+
+
+def test_cooldown_refusal_is_never_retried_by_the_probe():
+    """A dead holder cannot change the provider's own reaper lag — no self-heal here."""
+    now = [0.0]
+    acc = ConnectionAccountant(capacity_resolver=_fixed_capacity(1), clock=lambda: now[0])
+    acc.set_liveness_probe(lambda: [])  # would report EVERYTHING dead if consulted
+    acc.note_foreground_use("p1")
+
+    result = acc.acquire("p1", "monitor", "poller-1")
+
+    assert result.granted is False, "the cooldown branch must not be swept by the probe"
+
+
+# ---------------------------------------------------------------------------
+# 7. PlayerManager wires the probe (DL-7)
+# ---------------------------------------------------------------------------
+
+def test_player_manager_wires_the_liveness_probe_for_self_heal():
+    """End to end through the real object graph DownloadManager shares.
+
+    A window's mpv process is killed without stop() ever being called (the
+    reported bug: the user closes the player). A download's acquire() on the
+    SAME accountant — with no explicit reconcile from PlayerManager in
+    between — still self-heals once the grace period has passed, because
+    ``_wire_liveness_probe`` registered ``pm.player.active_keys``.
+
+    Advances past the 60s provider cooldown too (a real ``play()`` arms it) —
+    the owner's own log shows the cooldown countdown finishing and the
+    refusal persisting silently after that, which is the state this fix
+    targets.
+    """
+    now = [0.0]
+    pm = _make_player_manager(_Cfg(split_streams_by_source=False, max_player_instances=0))
+    pm.connection_accountant._clock = lambda: now[0]
+    pm._wire_liveness_probe()
+
+    assert pm.play("http://a", "A", provider_id="prov-a", provider_max_connections=1) is True
+    pm.player.kill("__shared__")  # the user closed the player; no stop() call
+    now[0] += ConnectionAccountant.PROVIDER_COOLDOWN_S + ConnectionAccountant.RECONCILE_GRACE_S + 1
+
+    result = pm.connection_accountant.acquire("prov-a", "download", "dl-1")
+
+    assert result.granted is True, "a queued download must start once the player is closed"
+    assert pm.connection_accountant.holders("prov-a") == [
+        Holder(holder_id="dl-1", kind="download")]
