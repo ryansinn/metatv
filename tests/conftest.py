@@ -588,9 +588,11 @@ def _leak_allowlist_freshness_check(request):
     Judged on FULL runs only (no file or node id on the command line). Some
     leaks are order-dependent — the reseed of 2026-09-05 collected two
     ``test_alerts_matched_queue`` nodeids that leak after the whole suite has
-    run before them and not in a five-file run — so a shard (CI runs four,
-    each a file list) or a hand-picked run would flap between "unallowlisted
-    leak" and "stale entry". The full-suite gate is where the list is judged.
+    run before them and not in a five-file run, and five others that leak in
+    CI's shard order but not in the local full-run order — so the allowlist
+    is the UNION of every order a leak has been seen in, and a shard (CI runs
+    four, each a file list) or a hand-picked run never judges staleness. The
+    full-suite gate is where the list is judged.
     """
     yield
     partial = any(
