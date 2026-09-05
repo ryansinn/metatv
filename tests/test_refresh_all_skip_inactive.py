@@ -1,6 +1,6 @@
 """Behavioral tests for "Refresh All skips inactive sources" feature.
 
-Four concrete regressions guarded here:
+Six concrete regressions guarded here:
 
 1. With ``refresh_all_includes_inactive=False`` (default),
    ``refresh_all_providers()`` enqueues ONLY active providers — an inactive one
@@ -9,10 +9,17 @@ Four concrete regressions guarded here:
    regardless of is_active.
 3. ``refresh_all_includes_inactive`` round-trips through Config save/load.
 4. The settings checkbox reads and writes the config field correctly.
+5. An active-but-EXPIRED source (``account_exp_date`` in the past) is skipped
+   too, via the real ``get_hidden_provider_ids()`` predicate against a real
+   ``Database`` — not just ``is_active``. Inactive and expired skips are
+   logged as separate lines.
+6. With ``refresh_all_includes_inactive=True``, the expired source is
+   enqueued too (matching historical behaviour).
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,6 +64,13 @@ class _FakeRefreshAllWindow:
         session = MagicMock()
         repos = MagicMock()
         repos.providers.get_all.side_effect = self._get_all
+        # These two providers all lack real expiry — mirror the historical
+        # "hidden == inactive" shape here; the expired case gets its own
+        # real-Database coverage below (get_hidden_provider_ids() is the
+        # union, so this stub must not leave it un-wired and silently
+        # iterable-as-empty via MagicMock's default __iter__).
+        repos.providers.get_hidden_provider_ids.side_effect = self._get_hidden_ids
+        repos.providers.get_expired_provider_ids.side_effect = self._get_expired_ids
         factory = MagicMock(return_value=repos)
 
         db = MagicMock()
@@ -73,6 +87,12 @@ class _FakeRefreshAllWindow:
         if active_only:
             return [p for p in self._providers if p.is_active]
         return list(self._providers)
+
+    def _get_hidden_ids(self):
+        return [p.id for p in self._providers if not p.is_active]
+
+    def _get_expired_ids(self):
+        return []
 
     def refresh_all_providers(self):
         # Import and call the real method — bound to this stub instance
@@ -129,6 +149,122 @@ def test_refresh_all_default_behaviour_skips_inactive():
     assert "p-active" in enqueued_ids, "Active provider must still be enqueued"
     assert "p-inactive" not in enqueued_ids, (
         "Absent attribute must default to False (skip inactive) — the new default"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests 5 & 6: refresh_all_providers() also skips EXPIRED sources, against a
+# REAL Database — this is what exercises get_hidden_provider_ids() (and its
+# session_scope() path) rather than a mocked repos.providers.
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def _captured_logs(level: str = "INFO"):
+    """Collect loguru messages emitted inside the block.
+
+    pytest's ``caplog`` cannot see these: loguru does not route through
+    stdlib ``logging``, so a caplog assertion here would be vacuously true.
+    """
+    from loguru import logger as _loguru_logger
+
+    records: list[str] = []
+    sink = _loguru_logger.add(lambda m: records.append(str(m)), level=level)
+    try:
+        yield records
+    finally:
+        _loguru_logger.remove(sink)
+
+
+class _RealRefreshAllWindow:
+    """Minimal stub wiring the mixin method under test to a REAL Database."""
+
+    def __init__(self, config, db):
+        self.config = config
+        self.db = db
+        self._enqueued: list[tuple[str, str]] = []
+        rqm = MagicMock()
+        rqm.enqueue.side_effect = lambda pid, name: self._enqueued.append((pid, name))
+        self.refresh_queue_manager = rqm
+
+    def refresh_all_providers(self):
+        from metatv.gui.main_window_providers import _ProviderMixin
+        _ProviderMixin.refresh_all_providers(self)
+
+
+@pytest.fixture
+def real_db(tmp_path):
+    """File-backed SQLite Database with all tables created (not :memory:)."""
+    from metatv.core.database import Database
+
+    db_file = tmp_path / "refresh_all.db"
+    db = Database(f"sqlite:///{db_file}")
+    db.create_tables()
+    yield db
+    db.close()
+
+
+def _seed_three_providers(db) -> None:
+    """Active, inactive, and active-but-EXPIRED (account_exp_date in the past)."""
+    from datetime import datetime, timedelta
+
+    from metatv.core.database import ProviderDB
+
+    with db.session_scope() as session:
+        session.add(ProviderDB(
+            id="p-active", name="Active Source", type="xtream",
+            url="http://example.invalid", is_active=True,
+        ))
+        session.add(ProviderDB(
+            id="p-inactive", name="Inactive Source", type="xtream",
+            url="http://example.invalid", is_active=False,
+        ))
+        session.add(ProviderDB(
+            id="p-expired", name="Expired Source", type="xtream",
+            url="http://example.invalid", is_active=True,
+            account_exp_date=datetime.now() - timedelta(days=1),
+        ))
+
+
+def test_refresh_all_skips_expired_source_when_setting_is_false(real_db):
+    """An active-but-EXPIRED source must be skipped like an inactive one, and
+    logged under its OWN "expired" line — not lumped into "inactive"."""
+    _seed_three_providers(real_db)
+    cfg = MagicMock()
+    cfg.refresh_all_includes_inactive = False
+
+    win = _RealRefreshAllWindow(cfg, real_db)
+    with _captured_logs() as records:
+        win.refresh_all_providers()
+
+    enqueued_ids = [pid for pid, _ in win._enqueued]
+    assert enqueued_ids == ["p-active"], (
+        "Only the active, non-expired provider should be enqueued"
+    )
+    assert any("skipped 1 inactive source(s): Inactive Source" in r for r in records), (
+        f"Inactive skip must be logged; got: {records}"
+    )
+    assert any("skipped 1 expired source(s): Expired Source" in r for r in records), (
+        f"Expired skip must be logged as its own line; got: {records}"
+    )
+
+
+def test_refresh_all_includes_expired_when_setting_is_true(real_db):
+    """With refresh_all_includes_inactive=True, the expired source is enqueued
+    too (matching historical behaviour), and no skip is logged."""
+    _seed_three_providers(real_db)
+    cfg = MagicMock()
+    cfg.refresh_all_includes_inactive = True
+
+    win = _RealRefreshAllWindow(cfg, real_db)
+    with _captured_logs() as records:
+        win.refresh_all_providers()
+
+    enqueued_ids = {pid for pid, _ in win._enqueued}
+    assert enqueued_ids == {"p-active", "p-inactive", "p-expired"}, (
+        "All three providers (active, inactive, expired) must be enqueued"
+    )
+    assert not any("Refresh All: skipped" in r for r in records), (
+        "Nothing should be reported skipped when includes_inactive is True"
     )
 
 
