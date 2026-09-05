@@ -330,7 +330,7 @@ def test_fetch_worker_persists_timestamps_and_engages_throttle(db, monkeypatch):
     every focus. This drives the real worker with a stubbed parser and asserts BOTH
     halves: the timestamps land, and the 3-day throttle then reports no refresh needed.
     """
-    import metatv.core.epg_manager as epgmod
+    import metatv.core.epg_fetch as epgmod
     from metatv.core.xmltv_parser import XmltvProgramme
 
     with db.session_scope() as session:

@@ -154,7 +154,7 @@ def test_a_smaller_partial_leaves_the_larger_stored_guide_untouched(db, monkeypa
     _seed_stored_programmes(db, "p1", 10)
 
     monkeypatch.setattr(
-        "metatv.core.epg_manager.parse_xmltv_url",
+        "metatv.core.epg_fetch.parse_xmltv_url",
         lambda url, timeout=180, on_progress=None: (_ for _ in ()).throw(
             XmltvEvicted([], _programmes(3))),
     )
@@ -184,7 +184,7 @@ def test_a_larger_partial_replaces_the_smaller_stored_guide(db, monkeypatch):
     _seed_stored_programmes(db, "p1", 2)
 
     monkeypatch.setattr(
-        "metatv.core.epg_manager.parse_xmltv_url",
+        "metatv.core.epg_fetch.parse_xmltv_url",
         lambda url, timeout=180, on_progress=None: (_ for _ in ()).throw(
             XmltvEvicted([], _programmes(5))),
     )
@@ -227,7 +227,7 @@ def test_an_accountant_eviction_ends_the_fetch_partial_instead_of_raising_out(db
         reached_past_eviction.append(True)  # pragma: no cover — must not run
         return [], _programmes(1)
 
-    monkeypatch.setattr("metatv.core.epg_manager.parse_xmltv_url", fake_parse)
+    monkeypatch.setattr("metatv.core.epg_fetch.parse_xmltv_url", fake_parse)
 
     done_messages: list[str] = []
     manager._progress_done.connect(lambda notif_id, msg: done_messages.append(msg))
