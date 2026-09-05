@@ -332,7 +332,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
                 include_dead: bool = False,
-                excluded_keywords: Optional[List[str]] = None,
+                excluded_keywords: Optional[List[str]] = None, dead_signal_streak_floor: Optional[int] = None,
                 collapse_variants: bool = False,
                 excluded_prefixes: Optional[Set[str]] = None,
                 excluded_user_categories: Optional[Set[str]] = None,
@@ -386,6 +386,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 against ``detected_title``/``name`` (build with
                 ``filter_utils.keyword_exclusion_list``). None/empty → no
                 keyword filtering.
+            dead_signal_streak_floor: VE-1 — exclude rows whose ``signal_dead_streak`` reached it.
             include_dead: When True, lift the dead-stream gate (channels whose
                 ``StreamRetryDB.reliability_state == "dead"``) so those rows are
                 returned alongside the rest — used both to reveal them on demand
@@ -472,6 +473,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             exclude_watched=exclude_watched,
             include_dead=include_dead,
             excluded_keywords=excluded_keywords,
+            dead_signal_streak_floor=dead_signal_streak_floor,
         )
 
         if collapse_variants:
@@ -728,7 +730,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
         include_dead: bool = False,
-        excluded_keywords: Optional[List[str]] = None,
+        excluded_keywords: Optional[List[str]] = None, dead_signal_streak_floor: Optional[int] = None,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
 
@@ -750,17 +752,13 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         elif media_type:
             query = query.filter_by(media_type=media_type)
 
-        # ── Channel visibility (provider / hidden / keyword / adult axes) ──────
-        # Single chokepoint: metatv.core.channel_visibility.apply() — the
-        # extracted, single definition of "which channels are visible" (see that
-        # module's docstring). ``hidden_only`` (show ONLY hidden channels) has no
-        # VisibilityScope field — it is the opposite direction from
-        # ``include_hidden`` (show hidden ones TOO), so it stays a separate
-        # predicate below. When ``hidden_only`` is set the scope's own
-        # ``is_hidden == False`` gate must NOT also apply (it would contradict
-        # ``hidden_only``'s own ``is_hidden == True`` filter below), hence
-        # ``include_hidden=(include_hidden or hidden_only)``. ``downloaded_only``
-        # forces provider/keyword exclusion empty — see channel_downloads.py.
+        # ── Channel visibility (provider / hidden / keyword / adult / dead-signal) ─
+        # One chokepoint: channel_visibility.apply() (see its docstring). ``hidden_only``
+        # (show ONLY hidden) is the opposite of ``include_hidden`` (show hidden TOO), so it
+        # stays a separate predicate below and the scope's ``is_hidden == False`` gate must
+        # not apply then — hence ``include_hidden=(include_hidden or hidden_only)``.
+        # ``downloaded_only`` empties provider/keyword exclusion (channel_downloads.py)
+        # and, by the same DR-0007 record-view exemption, the VE-1 dead-signal axis.
         query = channel_visibility.apply(
             query,
             channel_visibility.VisibilityScope(
@@ -769,6 +767,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 adult_mode=adult_mode,
                 force_adult_provider_ids=list(force_adult_provider_ids or []),
                 include_hidden=bool(include_hidden or hidden_only),
+                dead_signal_streak_floor=None if downloaded_only else dead_signal_streak_floor,
             ),
             channel_cls=ChannelDB,
         )

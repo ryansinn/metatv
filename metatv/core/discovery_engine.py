@@ -279,11 +279,13 @@ def _apply_prefix_filter(query, excluded_prefixes, include_uncategorized,
     return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
-def _apply_provider_exclusion(query, excluded_provider_ids: list[str] | None):
-    """Exclude channels whose provider_id is in the expired/excluded list."""
+def _apply_provider_exclusion(query, excluded_provider_ids: list[str] | None,
+                              dead_signal_streak_floor: int | None = None):
+    """Exclude expired/excluded providers and (VE-1) dead-signal channels."""
     from metatv.core.database import ChannelDB
     scope = channel_visibility.VisibilityScope(
         excluded_provider_ids=list(excluded_provider_ids or []),
+        dead_signal_streak_floor=dead_signal_streak_floor,
         include_hidden=True,  # owned by the base query, see _apply_prefix_filter
     )
     return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
@@ -491,7 +493,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
                        excluded_content_types=None,
                        excluded_keywords=None,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                       excluded_provider_ids: list[str] | None = None,
+                       excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                        ) -> list[ContentCard]:
     """Movies and series sorted by provider-added timestamp, newest first."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -506,7 +508,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(
         ChannelDB.detected_added.desc()
     ).limit(limit * 5).all()
@@ -522,7 +524,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
                        excluded_content_types=None,
                        excluded_keywords=None,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                  excluded_provider_ids: list[str] | None = None,
+                  excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                   ) -> list[ContentCard]:
     """Top-rated content of the given media_type by provider rating."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -539,7 +541,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(
         ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
@@ -554,7 +556,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                        excluded_content_types=None,
                        excluded_keywords=None,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                 excluded_provider_ids: list[str] | None = None,
+                 excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                  ) -> list[ContentCard]:
     """Content matching a genre, sorted by rating.
 
@@ -593,7 +595,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(
         ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
@@ -608,7 +610,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
                        excluded_content_types=None,
                        excluded_keywords=None,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                  excluded_provider_ids: list[str] | None = None,
+                  excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                   ) -> list[ContentCard]:
     """Movies and series from a decade (e.g. decade=1990 → 1990–1999)."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -626,7 +628,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     results: list[ContentCard] = []
     for ch, meta in q.all():
         yr = _raw_year(ch)
@@ -643,7 +645,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                        excluded_content_types=None,
                        excluded_keywords=None,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                       excluded_provider_ids: list[str] | None = None,
+                       excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                        ) -> tuple[str, list[ContentCard]]:
     """Return (actor_name, cards) for a Featured Actor shelf."""
     from metatv.core.database import ChannelDB
@@ -673,7 +675,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
         )
         q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
         q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-        q = _apply_provider_exclusion(q, excluded_provider_ids)
+        q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
         counter: Counter = Counter()
         for (cast_str,) in q.yield_per(5000):
             for name in [n.strip() for n in (cast_str or "").split(",") if n.strip()]:
@@ -705,7 +707,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
                        excluded_content_types=None,
                        excluded_keywords=None,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                 excluded_provider_ids: list[str] | None = None,
+                 excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                  ) -> list[ContentCard]:
     """Series featuring a named actor (partial match on cast string)."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -723,7 +725,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(
         ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()
@@ -737,7 +739,7 @@ def get_all_genres(session, min_count: int = 10,
                        excluded_content_types=None,
                        excluded_keywords=None,
                    adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                   excluded_provider_ids: list[str] | None = None,
+                   excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                    ) -> list[str]:
     """Return individual genre names that have ≥ min_count entries.
 
@@ -762,7 +764,7 @@ def get_all_genres(session, min_count: int = 10,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     counter: Counter = Counter()
     for (genres,) in q.yield_per(5000):
         for g in (genres or ()):
@@ -775,7 +777,7 @@ def get_all_decades(session,
                        excluded_content_types=None,
                        excluded_keywords=None,
                     adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                    excluded_provider_ids: list[str] | None = None,
+                    excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                     ) -> list[int]:
     """Return decades (as start year) that have ≥ 5 entries with a known year.
 
@@ -798,7 +800,7 @@ def get_all_decades(session,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     decade_counts: Counter = Counter()
     for (rd, rd2, name) in q.yield_per(5000):
         yr: int | None = None
@@ -892,7 +894,7 @@ def get_by_user_category(session, category: str, limit: int = 30,
                        excluded_keywords=None,
                           adult_mode: str = "all",
                           force_adult_provider_ids: list[str] | None = None,
-                          excluded_provider_ids: list[str] | None = None,
+                          excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                           ) -> list[ContentCard]:
     """Return ContentCards for all channels in a user-defined category."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -906,7 +908,7 @@ def get_by_user_category(session, category: str, limit: int = 30,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(ChannelDB.name).limit(limit).all()
     return [
         _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
@@ -929,7 +931,7 @@ def get_all_collections(session, min_count: int = MIN_COLLECTION_SHELF_MEMBERS,
                         excluded_content_types=None,
                         excluded_keywords=None,
                         adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                        excluded_provider_ids: list[str] | None = None,
+                        excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                         ) -> list[str]:
     """Return ``detected_collection`` names with >= min_count member channels.
 
@@ -961,7 +963,7 @@ def get_all_collections(session, min_count: int = MIN_COLLECTION_SHELF_MEMBERS,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     counter: Counter = Counter()
     for (collection,) in q.yield_per(5000):
         counter[collection] += 1
@@ -976,7 +978,7 @@ def get_by_collection(session, collection: str, limit: int = 30, fav_ids=None,
                       excluded_content_types=None,
                       excluded_keywords=None,
                       adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
-                      excluded_provider_ids: list[str] | None = None,
+                      excluded_provider_ids: list[str] | None = None, dead_signal_streak_floor: int | None = None,
                       ) -> list[ContentCard]:
     """Content whose ingestion-computed collection label matches *collection*.
 
@@ -1004,7 +1006,7 @@ def get_by_collection(session, collection: str, limit: int = 30, fav_ids=None,
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
-    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
     rows = q.order_by(
         ChannelDB.detected_rating.desc()
     ).limit(limit * 5).all()

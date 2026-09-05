@@ -381,12 +381,12 @@ class _ChannelListMixin:
         from metatv.core.filter_utils import (
             global_exclusion_set, excluded_tag_content_types, keyword_exclusion_list,
         )
+        from metatv.core.visibility_resolver import dead_signal_streak_floor as _resolve_dead_signal_streak_floor
         _filter_paused = self.config.global_filter_paused
-        # Canonical builder (paused-aware): union of the category blacklist
-        # (group→leaf-expanded) and the explicit "Block [PREFIX]" set.
+        # Canonical paused-aware builder: category blacklist (group→leaf) ∪ "Block [PREFIX]".
         _global_excluded_prefixes = global_exclusion_set(self.config)
-        # Content-provenance layer (paused-aware slugs): the worker resolves these
-        # to an excluded channel-id set so the Python exclusion pass drops channels
+        # Content-provenance layer (paused-aware slugs) → the worker resolves an excluded
+        # channel-id set so the Python exclusion pass drops channels
         # carrying an excluded content_type tag (e.g. AI Generated / AI Voiceover).
         _excluded_ct_slugs = excluded_tag_content_types(self.config)
         # Keyword axis (paused-aware): applied entirely in SQL inside get_all()/
@@ -430,15 +430,14 @@ class _ChannelListMixin:
             # View-scoped reveal: lift the dead-stream gate for this one load so the
             # user can see channels held back by repeated play failures (mirror-not-
             # cage). Never mutates stored settings; reset on next search/filter change.
-            # __dict__.get: bare-host tests build MainWindow via __new__, where
-            # PyQt turns plain attribute access into RuntimeError (#351/#375 trap).
+            # __dict__.get: a __new__-built bare host raises RuntimeError on attribute access.
             'bypass_dead_gate': self.__dict__.get('_bypass_dead_gate', False),
-            # Keyword axis: paused-aware list (empty when paused/unset — a no-op).
-            'excluded_keywords': _excluded_keywords,
-            # View-scoped reveal: skip the keyword axis for this one load so the
-            # user can see exactly what their keyword list hides (mirror-not-cage).
-            # Never mutates stored settings; reset on next search/filter change.
+            'excluded_keywords': _excluded_keywords,  # paused-aware list; empty = no-op
+            # View-scoped reveal (mirror-not-cage): skip the keyword axis for this one
+            # load so the user sees what the list hides; never stored, reset on next change.
             'bypass_keyword_exclusions': self.__dict__.get('_bypass_keyword_exclusions', False),
+            # VE-1 floor: read once here (config is main-thread only), paged like collapse_variants.
+            'dead_signal_streak_floor': _resolve_dead_signal_streak_floor(self.config),
             'search_query': _search_text or None,
             'strict_genre_filter': self._details_genre_filter,
             'person_filter': self._details_person_filter,
@@ -653,6 +652,7 @@ class _ChannelListMixin:
             exclude_watched=params.get('hide_watched', False),
             collapse_variants=params.get('collapse_variants', False),
             excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
+            dead_signal_streak_floor=params.get('dead_signal_streak_floor'),
             limit=_page_size,
             **_rank_excl,
         )
@@ -2108,9 +2108,8 @@ class _ChannelListMixin:
                 include_uncategorized_content_types=True,
                 hidden_only=False,
                 include_hidden=False,
-                # Keep page N consistent with page 1: if the user revealed the
-                # dead-stream gate for this view (_show_dead_hidden), every
-                # subsequent page must keep returning those rows too.
+                # Keep page N consistent with page 1: a revealed dead-stream gate
+                # (_show_dead_hidden) and the VE-1 floor must hold on every page.
                 include_dead=bool(query_params.get('bypass_dead_gate')),
                 search_query=query_params.get('search_query'),
                 strict_genre_filter=query_params.get('strict_genre_filter'),
@@ -2121,6 +2120,7 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=query_params.get('tag_includes'),
                 collapse_variants=query_params.get('collapse_variants', False),
+                dead_signal_streak_floor=query_params.get('dead_signal_streak_floor'),
                 limit=page_size,
                 offset=offset,
             )

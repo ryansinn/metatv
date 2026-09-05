@@ -471,6 +471,9 @@ def recommendation_scope(session, config) -> dict:
         get_excluded_prefixes, keyword_exclusion_list,
     )
     from metatv.core.repositories import RepositoryFactory
+    from metatv.core.visibility_resolver import (
+        dead_signal_streak_floor as _dead_signal_streak_floor,
+    )
 
     adult_mode, force_adult_ids = build_adult_filter(session, config)
     # The category axis and the per-prefix axis are UNIONED into the prefix
@@ -490,6 +493,7 @@ def recommendation_scope(session, config) -> dict:
         "excluded_content_types": excluded_tag_content_types(config) or None,
         "adult_mode": adult_mode,
         "force_adult_provider_ids": force_adult_ids or None,
+        "dead_signal_streak_floor": _dead_signal_streak_floor(config),  # VE-1
     }
 
 
@@ -504,6 +508,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      excluded_content_types: list[str] | None = None,
                      adult_mode: str = "all",
                      force_adult_provider_ids: list[str] | None = None,
+                     dead_signal_streak_floor: int | None = None,
                      version_scorer=None,
                      balance_media_types: bool = False,
                      diversify_people: bool = False,
@@ -628,6 +633,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             excluded_keywords=set(excluded_keywords or []),
             adult_mode=adult_mode,
             force_adult_provider_ids=list(force_adult_provider_ids or []),
+            dead_signal_streak_floor=dead_signal_streak_floor,
         ),
     )
 

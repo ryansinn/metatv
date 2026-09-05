@@ -57,6 +57,10 @@ HANDLERS: tuple[str, ...] = (
     # surfaces cannot disagree after an OK.
     "_apply_menu_bar_setting",
     "_sync_split_toggle",
+    # hide_dead_events / signal_dead_streak_to_hide (VE-1) change which rows
+    # every scoped view shows; run() reloads the LIST once itself, Discover
+    # needs its own reload.
+    "_apply_dead_signal_setting",
 )
 
 _ACTIVE = "_settings_apply_active"
