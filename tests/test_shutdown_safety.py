@@ -379,7 +379,23 @@ class _FakeChannel:
         self.media_type = media_type
 
 
+class _ImmediateQueryResultSignal:
+    """Synchronous stand-in for the pyqtSignal(_QueryResult) that _run_query
+    emits to. _ImmediateExecutor already runs the worker on the calling
+    thread, so dispatching straight to _on_query_result on emit keeps the
+    whole _run_query round trip (UI-11's provider-url lookup) synchronous —
+    matching what these tests need: everything settled before the call
+    returns, no Qt event loop involved."""
+
+    def __init__(self, host):
+        self._host = host
+
+    def emit(self, value):
+        self._host._on_query_result(value)
+
+
 def _make_metadata_host(shutting_down: bool, db, metadata_result):
+    from metatv.gui.main_window_async import _AsyncMixin
     from metatv.gui.main_window_metadata import _MetadataMixin
     obj = _MetadataMixin.__new__(_MetadataMixin)
     obj._shutting_down = shutting_down
@@ -388,6 +404,13 @@ def _make_metadata_host(shutting_down: bool, db, metadata_result):
     obj.details_pane = MagicMock()
     obj.executor = _ImmediateExecutor()
     obj.metadata_loaded = MagicMock()
+    # UI-11: update_details_pane_for_channel now routes the provider-url
+    # lookup through the _run_query seam — wire it the same way
+    # test_details_pane_debounce.py does.
+    obj._details_urls_token = [0]
+    obj._query_result = _ImmediateQueryResultSignal(obj)
+    obj._run_query = _AsyncMixin._run_query.__get__(obj)
+    obj._on_query_result = _AsyncMixin._on_query_result.__get__(obj)
 
     async def _get_metadata(_channel_id):
         return metadata_result
