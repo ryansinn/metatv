@@ -134,6 +134,26 @@ def test_two_line_row_is_taller_than_one_line(qtbot):
     assert two > one + 8, f"second line added no height: {one} -> {two}"
 
 
+def test_a_comfortable_row_still_places_its_tail_widget(qtbot):
+    """A transfer row needs a bar AND a meta line at once (DL-1/DL-4).
+
+    Before this fix, ONLY the compact branch ever added ``tail_widget`` to the
+    layout at all — a comfortable row (density + a non-empty ``meta``) silently
+    dropped it, which is why the Downloads section could never show both a
+    progress bar and its size/rate/ETA line together.
+    """
+    bar = QLabel("BAR")
+    row = _row(tail_widget=bar)
+    qtbot.addWidget(row)
+
+    assert bar.parentWidget() is not None, "tail_widget was never added to the row"
+    title = row_title_label(row)
+    assert bar.parentWidget() is title.parentWidget(), (
+        "the bar must close the TITLE line, beside the title — not be detached "
+        "from it or dropped onto the meta line below"
+    )
+
+
 # ── The visual hierarchy ─────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("palette", ["Midnight", "Graphite", "Daylight",

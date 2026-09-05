@@ -486,3 +486,57 @@ def test_player_plugin_base_default_send_command_returns_false():
 
     plugin = _NoOpPlugin(None)
     assert plugin.send_command(["cycle", "pause"]) is False
+
+
+# ---------------------------------------------------------------------------
+# 7. play_local_file (DL-4) — a finished download, not a stream
+# ---------------------------------------------------------------------------
+
+
+def test_play_local_file_own_window_uses_the_dedicated_key(_patched_manager):
+    """own_window=True keys to DOWNLOADS_INSTANCE_KEY, never a provider_id —
+    a downloaded file has no source to key by."""
+    from metatv.core.player_manager import DOWNLOADS_INSTANCE_KEY
+
+    mgr, procs = _patched_manager
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=True)
+    assert list(mgr.player._instances.keys()) == [DOWNLOADS_INSTANCE_KEY]
+    assert len(procs) == 1
+
+
+def test_play_local_file_shared_window_replaces_whatever_is_playing(_patched_manager):
+    """own_window=False lands on the same shared key a non-split play uses."""
+    mgr, procs = _patched_manager
+    mgr.play("http://a", "A", provider_id="p1")   # split OFF in this fixture
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=False)
+    # Still one instance — the shared window was reused, not a second one opened.
+    assert list(mgr.player._instances.keys()) == ["__shared__"]
+    assert len(procs) == 1
+
+
+def test_play_local_file_own_window_does_not_disturb_a_live_shared_stream(_patched_manager):
+    """The whole point of Split Streams for downloads: a live stream elsewhere
+    keeps playing while the download opens its own window."""
+    mgr, procs = _patched_manager
+    mgr.play("http://live", "Live Channel", provider_id="p1")
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=True)
+    assert len(procs) == 2
+    assert "__shared__" in mgr.player._instances
+    from metatv.core.player_manager import DOWNLOADS_INSTANCE_KEY
+    assert DOWNLOADS_INSTANCE_KEY in mgr.player._instances
+
+
+def test_play_local_file_claims_no_connection_slot(_patched_manager):
+    """A local file has no provider to contend a connection with — never
+    touch the accountant at all."""
+    mgr, _procs = _patched_manager
+    mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=True)
+    assert mgr.connection_accountant.in_use("p1") == 0
+    assert mgr.provider_for_key("__downloads__") is None, (
+        "play_local_file must never register a provider for its key")
+
+
+def test_play_local_file_with_no_player_returns_false():
+    mgr = _make_manager()
+    mgr.player = None
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=True) is False
