@@ -18,6 +18,26 @@ itself and get a subset.
 
 from __future__ import annotations
 
+
+def dead_signal_streak_floor(config) -> "int | None":
+    """The ``dead_signal_streak_floor`` axis value, resolved from *config*.
+
+    Pure config read, no session needed — unlike the other five axes this
+    module resolves, ``score_candidates``/``discovery_engine``'s shelf
+    functions/``get_all`` each have their OWN config-resolution point rather
+    than routing through :func:`resolve_scope` (they were already threading
+    ``excluded_provider_ids``/``adult_mode``/etc. as plain, pre-resolved
+    parameters before this axis existed — DR-0007's engine/control split).
+    This tiny function is the ONE place the formula itself lives, so every one
+    of those resolution points calls it rather than re-deriving it.
+
+    Returns:
+        ``None`` (axis off) when ``hide_dead_events`` is unset, else
+        ``config.signal_dead_streak_to_hide``.
+    """
+    return config.signal_dead_streak_to_hide if config.hide_dead_events else None
+
+
 def resolve_scope(session, config, *, excluded_provider_ids=(),
                   include_hidden: bool = False):
     """EVERY exclusion axis, resolved from Config in ONE place.
@@ -66,4 +86,5 @@ def resolve_scope(session, config, *, excluded_provider_ids=(),
         excluded_keywords=set(keywords or []),
         adult_mode=adult_mode,
         force_adult_provider_ids=force_adult_ids or [],
+        dead_signal_streak_floor=dead_signal_streak_floor(config),
     )

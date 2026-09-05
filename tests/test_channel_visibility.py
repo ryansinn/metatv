@@ -458,3 +458,61 @@ def test_apply_accepts_channel_cls_override(seeded):
         result_ids = _ids(apply_visibility(query, scope, channel_cls=aliased_ch).all())
     assert ids["other_provider"] not in result_ids
     assert ids["visible"] in result_ids
+
+
+# ---------------------------------------------------------------------------
+# VE-1 — the dead-signal-streak axis (the "hide dead events" setting)
+# ---------------------------------------------------------------------------
+
+def _add_streak_channels(session) -> dict[str, str]:
+    """Three live channels: streak 0, 2 and 5 (the column is NOT NULL, default 0)."""
+    ids = {}
+    for key, streak in (("s0", 0), ("s2", 2), ("s5", 5)):
+        cid = _add_channel(session, f"EN - Event {key}", media_type="live")
+        ch = session.get(ChannelDB, cid)
+        ch.signal_dead_streak = streak
+        ids[key] = cid
+    session.flush()
+    return ids
+
+
+def test_dead_signal_axis_excludes_only_rows_at_or_past_the_floor(file_db):
+    """VE-1: floor 3 hides the streak-5 channel and nothing else; floor None
+    = the axis is off."""
+    with file_db.session_scope() as session:
+        ids = _add_streak_channels(session)
+        base = session.query(ChannelDB)
+
+        on = apply_visibility(base, VisibilityScope(dead_signal_streak_floor=3),
+                              channel_cls=ChannelDB)
+        visible = {r.id for r in on.all()}
+        assert ids["s5"] not in visible, "streak 5 must be hidden at floor 3"
+        assert {ids["s0"], ids["s2"]} <= visible
+
+        off = apply_visibility(base, VisibilityScope(dead_signal_streak_floor=None),
+                               channel_cls=ChannelDB)
+        assert set(ids.values()) <= {r.id for r in off.all()}
+
+
+def test_get_all_threads_the_dead_signal_floor(file_db):
+    """The channel-list path (``get_all``) carries the axis end to end."""
+    with file_db.session_scope() as session:
+        ids = _add_streak_channels(session)
+        repo = ChannelRepository(session)
+        names_hidden = {c.id for c in repo.get_all(dead_signal_streak_floor=3)}
+        names_all = {c.id for c in repo.get_all()}
+        assert ids["s5"] not in names_hidden
+        assert ids["s5"] in names_all
+        assert names_all - names_hidden == {ids["s5"]}
+
+
+def test_dead_signal_floor_resolves_from_the_two_settings():
+    """``hide_dead_events`` is the switch; ``signal_dead_streak_to_hide`` the N."""
+    from types import SimpleNamespace
+
+    from metatv.core.visibility_resolver import dead_signal_streak_floor
+
+    assert dead_signal_streak_floor(
+        SimpleNamespace(hide_dead_events=False, signal_dead_streak_to_hide=3)) is None
+    assert dead_signal_streak_floor(
+        SimpleNamespace(hide_dead_events=True, signal_dead_streak_to_hide=3)) == 3

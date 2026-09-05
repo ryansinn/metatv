@@ -47,6 +47,15 @@ call sites move):
   ``excluded_prefixes``/``excluded_categories``/``excluded_tag_content_types``
   parameters it was missing (What's New #260), closing the gap where the
   filter panel's counts disagreed with its list on those three axes.
+- ``dead_signal_streak_floor`` (VE-1) — the "hide dead events" setting. Wired
+  into ``ChannelRepository.get_all()`` (channel list + search),
+  ``discovery_engine.py``'s card-returning shelf functions (Discover), and
+  ``preference_engine.score_candidates`` (Recommendations); resolved from
+  config in ``visibility_resolver.resolve_scope`` (which also reaches
+  ``get_similar_channels`` and the person/genre lens for free) and at each of
+  those three surfaces' own control-layer entry points. NOT wired into
+  ``tag.py``'s facet-value-count / saved-recipe query family — a known gap,
+  logged in docs/REFACTOR_PLAN.md rather than silently left undocumented.
 """
 
 from __future__ import annotations
@@ -107,6 +116,13 @@ class VisibilityScope:
             being empty — ``False`` alone still drops untagged channels.
         include_hidden: ``False`` (default) applies the ``is_hidden == False``
             gate; ``True`` skips it (reveal hidden channels too).
+        dead_signal_streak_floor: ``None`` (default, axis off) or an int ``N``
+            — exclude channels whose ``signal_dead_streak`` has reached ``N``
+            (VE-1, the "hide dead events" setting). Resolved from config as
+            ``config.signal_dead_streak_to_hide if config.hide_dead_events
+            else None`` — see ``visibility_resolver.resolve_scope``. NULL-safe:
+            a channel with no streak recorded yet is never excluded by this
+            axis alone.
     """
 
     excluded_provider_ids: list[str] = field(default_factory=list)
@@ -118,6 +134,7 @@ class VisibilityScope:
     force_adult_provider_ids: list[str] = field(default_factory=list)
     include_uncategorized: bool = True
     include_hidden: bool = False
+    dead_signal_streak_floor: int | None = None
 
 
 def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) -> Any:
@@ -216,5 +233,10 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
             query = query.filter(~restricted_expr)
         elif scope.adult_mode == "only":
             query = query.filter(restricted_expr)
+
+    # ── Dead-signal-streak axis (VE-1) — the "hide dead events" setting; a
+    # new axis, not a migrated one. The column is NOT NULL (default 0). ──────
+    if scope.dead_signal_streak_floor is not None:
+        query = query.filter(channel_cls.signal_dead_streak < scope.dead_signal_streak_floor)
 
     return query

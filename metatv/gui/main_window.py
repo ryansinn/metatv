@@ -2479,6 +2479,17 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # _set_density_from_menu and did nothing, which reads as a dead menu.
         self._sync_style_menu_state()
 
+    def _apply_dead_signal_setting(self) -> None:
+        """Settings OK: the VE-1 dead-signal axis changed — reload Discover.
+
+        The channel list is reloaded once by ``settings_apply.run`` itself;
+        Discover's shelves resolve the floor on their next build, so ask for
+        one. ``__dict__`` probe, never ``hasattr`` (a skeleton host raises).
+        """
+        view = self.__dict__.get("discover_view")
+        if view is not None:
+            view.reload()
+
     def _apply_adult_mode_setting(self) -> None:
         """Push a Settings → Content adult-mode change into the filter bar, then reload.
 

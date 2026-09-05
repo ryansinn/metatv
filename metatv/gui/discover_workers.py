@@ -22,6 +22,9 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
+from metatv.core.visibility_resolver import (
+    dead_signal_streak_floor as _dead_signal_streak_floor,
+)
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.discovery_engine import ContentCard
@@ -350,7 +353,8 @@ class _SeeAllWorker(QObject):
             af = {"adult_mode": adult_mode, "force_adult_provider_ids": force_adult_ids or None}
             # Canonical provider scoping: hide inactive + expired sources.
             _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
-            ek = {"excluded_provider_ids": _excl_ids or None}
+            ek = {"excluded_provider_ids": _excl_ids or None,
+                  "dead_signal_streak_floor": _dead_signal_streak_floor(self._config)}
 
             cards = fetch_cards_for_key(
                 session, self._config, self._shelf_key, _SEE_ALL_LIMIT,
@@ -417,7 +421,8 @@ class _ShelfCardsWorker(QObject):
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = {"adult_mode": adult_mode, "force_adult_provider_ids": force_adult_ids or None}
             _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
-            ek = {"excluded_provider_ids": _excl_ids or None}
+            ek = {"excluded_provider_ids": _excl_ids or None,
+                  "dead_signal_streak_floor": _dead_signal_streak_floor(self._config)}
 
             cards = fetch_cards_for_key(
                 session, self._config, self._shelf_key, self._limit,
@@ -490,7 +495,8 @@ class _LoaderWorker(QObject):
             af = {"adult_mode": adult_mode, "force_adult_provider_ids": force_adult_ids or None}
             # Canonical provider scoping: hide inactive + expired sources.
             _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
-            ek = {"excluded_provider_ids": _excl_ids or None}
+            ek = {"excluded_provider_ids": _excl_ids or None,
+                  "dead_signal_streak_floor": _dead_signal_streak_floor(self._config)}
 
             excluded_user_cats = list(getattr(
                 self._config, "global_filter_excluded_user_categories", []
