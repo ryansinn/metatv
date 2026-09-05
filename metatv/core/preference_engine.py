@@ -493,6 +493,7 @@ def recommendation_scope(session, config) -> dict:
         "excluded_content_types": excluded_tag_content_types(config) or None,
         "adult_mode": adult_mode,
         "force_adult_provider_ids": force_adult_ids or None,
+        "dead_signal_streak_floor": _dead_signal_streak_floor(config),  # VE-1
     }
 
 
