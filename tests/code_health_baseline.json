@@ -18,7 +18,6 @@
     "metatv/gui/channel_menu.py": 1008,
     "metatv/gui/details_sections.py": 1811,
     "metatv/gui/discover_view.py": 1026,
-    "metatv/gui/epg_browse_mixin.py": 1010,
     "metatv/gui/epg_watchlist_mixin.py": 1136,
     "metatv/gui/filter_panel.py": 1083,
     "metatv/gui/global_filter_dialog.py": 1745,

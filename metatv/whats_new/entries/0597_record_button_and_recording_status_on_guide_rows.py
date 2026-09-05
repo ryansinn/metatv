@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=596,
+    id=597,
     version="0.97.0",
     date="2026-09-05",
     title="Guide rows get a Record control, recording indicators, and one persistent recording notice",
