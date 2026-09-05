@@ -37,6 +37,16 @@ from metatv.gui.sidebar.alerts_common import (
     _ROLE_GROUP_KEY,
 )
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui.recording_indicators import indicator_for
+
+#: A group-header row (``_add_parent``) has no single channel by the shared
+#: ``Qt.ItemDataRole.UserRole`` convention — that role means "this row's own
+#: channel" to ``set_playing``/the context menu, and a bundled programme has
+#: several. REC-2's indicator refresh still needs SOME channel to check (the
+#: lead airing's, the same one ``record_clicked`` schedules), so it gets its
+#: own role rather than overloading ``UserRole`` and quietly changing what
+#: ``set_playing`` lights up on a grouped row.
+_ROLE_REC_CHANNEL = Qt.ItemDataRole.UserRole + 10
 
 
 class EpgGroupMixin:
@@ -465,7 +475,8 @@ class EpgGroupMixin:
                 self._show_tree_notice(self.alerts_tree, icon, text, tip)
             return
 
-        def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
+        def _wire_row(row: _AlertRow, channel_db_id: str, *,
+                      prog_start=None, prog_stop=None, title: str = "") -> None:
             """Connect an _AlertRow's signals to the section's public signals."""
             row.play_clicked.connect(
                 lambda _=False, cid=channel_db_id: self.alertClicked.emit(cid)
@@ -473,10 +484,18 @@ class EpgGroupMixin:
             row.row_clicked.connect(
                 lambda cid=channel_db_id: self.channel_selected.emit(cid)
             )
+            # REC-2: fires whatever the row's live/upcoming state — recording,
+            # unlike play, works on a programme that has not started yet.
+            row.record_clicked.connect(
+                lambda cid=channel_db_id, s=prog_start, e=prog_stop, t=title:
+                    self.programmeRecordRequested.emit(cid, s, e, t)
+            )
 
         def _add_parent(title, time_str, _extra=0, when=None, live=False,
                         started_at=None, first_source=None,
-                        first_source_name="", region="") -> "QTreeWidgetItem":
+                        first_source_name="", region="",
+                        prog_start=None, prog_stop=None,
+                        channel_db_id=None) -> "QTreeWidgetItem":
             """The programme row that expands to its airings.
 
             A real row widget, not a text item reading
@@ -501,6 +520,14 @@ class EpgGroupMixin:
                             expandable=True, expanded=hdr.isExpanded())
 
             hdr.setData(0, _ROLE_GROUP_KEY, title)
+            # REC-2: the lead airing's channel + window, so the poll-tick
+            # indicator refresh (which reads these same roles off every
+            # top-level row) can tell whether THIS group is recording/
+            # scheduled — the same channel record_clicked above schedules.
+            # _ROLE_REC_CHANNEL, not UserRole: see its own docstring.
+            hdr.setData(0, _ROLE_REC_CHANNEL, channel_db_id)
+            hdr.setData(0, _PROG_START_ROLE, prog_start)
+            hdr.setData(0, _PROG_STOP_ROLE, prog_stop)
 
             def _toggle(_=False, i=hdr, r=row, k=title):
                 i.setExpanded(not i.isExpanded())
@@ -527,6 +554,16 @@ class EpgGroupMixin:
                 )
             else:
                 row.play_clicked.connect(_toggle)
+            # REC-2: the LEAD airing's own window and channel — separate from
+            # first_source (which is only set for a live group; an all-
+            # upcoming group still has a channel to record, just nothing to
+            # play yet).
+            if channel_db_id:
+                row.record_clicked.connect(
+                    lambda _=False, cid=channel_db_id, s=prog_start,
+                    e=prog_stop, t=title: self.programmeRecordRequested.emit(
+                        cid, s, e, t)
+                )
             hdr.setSizeHint(0, QSize(0, row.sizeHint().height()))
             self.alerts_tree.setItemWidget(hdr, 0, row)
             return hdr
@@ -549,12 +586,14 @@ class EpgGroupMixin:
             row = _AlertRow(ch_name, time_str, self.config, when=when, live=live,
                             started_at=started_at, quality=quality,
                             region=region, indent=_CHILD_INDENT)
-            _wire_row(row, channel_db_id)
+            _wire_row(row, channel_db_id, prog_start=prog_start,
+                      prog_stop=prog_stop, title=title)
             self.alerts_tree.setItemWidget(child, 0, row)
 
         def _add_direct(ch_name, time_str, channel_db_id, title,
                         when=None, live=False, started_at=None,
-                        quality="", region="") -> "QTreeWidgetItem":
+                        quality="", region="",
+                        prog_start=None, prog_stop=None) -> "QTreeWidgetItem":
             """Single-channel item: header IS the row — no expand arrow.
             Shows the show title; channel name is the tooltip.
 
@@ -563,6 +602,8 @@ class EpgGroupMixin:
             """
             item = QTreeWidgetItem()
             item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+            item.setData(0, _PROG_START_ROLE, prog_start)
+            item.setData(0, _PROG_STOP_ROLE, prog_stop)
             item.setToolTip(0, ch_name)
             self.alerts_tree.addTopLevelItem(item)
             # marker_column: a single-source programme has nothing to disclose,
@@ -571,7 +612,8 @@ class EpgGroupMixin:
             row = _AlertRow(title, time_str, self.config, when=when, live=live,
                             started_at=started_at, quality=quality, region=region,
                             bar_source=ch_name, marker_column=True)
-            _wire_row(row, channel_db_id)
+            _wire_row(row, channel_db_id, prog_start=prog_start,
+                      prog_stop=prog_stop, title=title)
             self.alerts_tree.setItemWidget(item, 0, row)
             return item
 
@@ -586,7 +628,8 @@ class EpgGroupMixin:
                     a = all_items[0]
                     _add_direct(a[2], a[1], a[3], title, _when(a),
                                 live=a in live_items, started_at=_started_at(a),
-                                quality=_quality(a), region=_region(a))
+                                quality=_quality(a), region=_region(a),
+                                prog_start=_prog_start(a), prog_stop=_prog_stop(a))
                 else:
                     lead = live_items[0]
                     hdr = _add_parent(
@@ -594,6 +637,8 @@ class EpgGroupMixin:
                         when=_when(lead), live=True, started_at=_started_at(lead),
                         first_source=lead[3], first_source_name=lead[2],
                         region=_region(lead),
+                        prog_start=_prog_start(lead), prog_stop=_prog_stop(lead),
+                        channel_db_id=lead[3],
                     )
                     for a in live_items[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title, _when(a), live=True,
@@ -622,13 +667,17 @@ class EpgGroupMixin:
                     a = airings[0]
                     self._upcoming_items.append(_add_direct(
                         a[2], a[1], a[3], title, _when(a), live=False,
-                        quality=_quality(a), region=_region(a)))
+                        quality=_quality(a), region=_region(a),
+                        prog_start=_prog_start(a), prog_stop=_prog_stop(a)))
                 else:
                     lead = airings[0]
                     # No first_source: every airing here is in the FUTURE, so
-                    # the row is not live and never offers a play button.
+                    # the row is not live and never offers a play button. It
+                    # still has a channel to RECORD, though — channel_db_id.
                     hdr = _add_parent(
                         title, lead[1], len(airings) - 1, when=_when(lead),
+                        prog_start=_prog_start(lead), prog_stop=_prog_stop(lead),
+                        channel_db_id=lead[3],
                     )
                     self._upcoming_items.append(hdr)
                     for a in airings[:10]:
@@ -793,6 +842,26 @@ class EpgGroupMixin:
                 w = tree.itemWidget(child, 0)
                 if isinstance(w, _AlertRow):
                     yield child, w
+
+    def refresh_recording_indicators(self, progress_rows: list) -> None:
+        """Update every visible row's Record control to reflect ``progress_rows``.
+
+        Pushed by ``MainWindow._refresh_transfer_sections`` with the SAME
+        ``RecordingManager.progress()`` snapshot it reads for the Recordings
+        section and the EPG trees (REC-2) — one query per tick, not one per
+        consumer.
+        """
+        if "alerts_tree" not in self.__dict__:
+            return
+        now = _now_utc()
+        for item, row in self._iter_rows():
+            cid = (item.data(0, Qt.ItemDataRole.UserRole)
+                   or item.data(0, _ROLE_REC_CHANNEL))
+            state, tooltip = indicator_for(
+                cid, item.data(0, _PROG_START_ROLE),
+                item.data(0, _PROG_STOP_ROLE), progress_rows, now,
+            )
+            row.set_recording_state(state, tooltip)
 
     def _tick(self) -> None:
         """Refresh every visible row's time text against the current instant.

@@ -20,6 +20,7 @@ Methods here:
     _render_browse
     _browse_placeholder_text
     _browse_double_click
+    _browse_item_clicked
     _on_browse_context_menu
     _browse_selection_changed
     _browse_time_ascending
@@ -72,7 +73,9 @@ from metatv.gui.epg_widgets import (
     _PROG_STOP_ROLE,
     _SORT_ROLE,
     add_record_programme_handler,
+    apply_rec_cell,
     apply_watchlist_highlight as _apply_watchlist_highlight,
+    rec_cell_click,
 )
 
 from metatv.core.epg_utils import (
@@ -234,9 +237,9 @@ class _EpgBrowseMixin:
         self.browse_list.setRootIsDecorated(False)
         self.browse_list.setUniformRowHeights(True)
         self.browse_list.setSortingEnabled(True)
-        self.browse_list.setColumnCount(6)
+        self.browse_list.setColumnCount(7)
         self.browse_list.setHeaderLabels(
-            ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+            ["Time", "Category", "Channel", "Quality", "Show", "Duration", "Rec"]
         )
         hdr = self.browse_list.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -245,7 +248,9 @@ class _EpgBrowseMixin:
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         self.browse_list.setColumnWidth(3, 44)
+        self.browse_list.setColumnWidth(6, 22)
         # Q6: header tooltips (verbatim from On Now) + movable sections.
         self.browse_list.headerItem().setToolTip(
             1, "Category / prefix extracted from channel name"
@@ -253,6 +258,7 @@ class _EpgBrowseMixin:
         self.browse_list.headerItem().setToolTip(3, "Stream quality (4K / FHD / HD / etc.)")
         hdr.setSectionsMovable(True)
         self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
+        self.browse_list.itemClicked.connect(self._browse_item_clicked)
         connect_row_activation(self.browse_list, self._browse_selection_changed)
         self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
@@ -784,6 +790,7 @@ class _EpgBrowseMixin:
         else:
             self._browse_programs = list(getattr(self, "_browse_programs", None) or []) + list(programs)
         rules = watchlist.rules(self.config)
+        progress_rows = self._recording_progress_rows()  # REC-2: once per render
 
         # Q3: day separators show ONLY in the default Time-ascending sort — every
         # other column/order stays flat (see _on_browse_sort_changed / _browse_time_ascending).
@@ -830,7 +837,7 @@ class _EpgBrowseMixin:
                     self._browse_last_day = day
 
             item = _EpgTreeItem(
-                [time_str, prefix, ch_name, quality_display(quality), title, dur]
+                [time_str, prefix, ch_name, quality_display(quality), title, dur, ""]
             )
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
@@ -839,6 +846,8 @@ class _EpgBrowseMixin:
             # REC-3: with the start above, this row's own guide window — so
             # "record_programme" schedules THIS (possibly future) airing.
             item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
+            apply_rec_cell(item, 6, prog.channel_db_id, prog.start_time,
+                            prog.stop_time, progress_rows, _now_utc())
             if prefix:
                 item.setToolTip(1, resolve_category_name(prefix, self.config) or prefix)
             item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
@@ -881,6 +890,10 @@ class _EpgBrowseMixin:
         if item.data(0, _SEPARATOR_ROLE):
             return  # Q3 day-separator row — non-interactive
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
+
+    def _browse_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        if column == 6:
+            rec_cell_click(self._host(), item, 4)
 
     def _on_browse_context_menu(self, pos) -> None:
         from metatv.core.repositories import RepositoryFactory

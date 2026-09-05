@@ -128,6 +128,18 @@ class RecordingProgress:
     dest_path: str
     error: Optional[str]
     waiting_for_slot: bool
+    #: The source this recording holds the connection on — the persistent
+    #: "recording" notice (Catch, Keep, Record, Feature 3) names it in
+    #: "playback on <source> is unavailable until it finishes". Defaulted so
+    #: every pre-existing hand-built ``RecordingProgress`` in the test suite
+    #: keeps constructing without naming it.
+    provider_id: str = ""
+    #: The RAW, unpadded guide stop — distinct from ``ends_at`` (the effective,
+    #: padded/extended one) — so a caller can report how much post-roll is
+    #: currently in effect (``ends_at - programme_end``) without re-deriving
+    #: padding from config. ``None`` for the no-EPG "record now" fallback,
+    #: which has no guide row to compare against.
+    programme_end: Optional[datetime] = None
 
     def elapsed_fraction(self, *, now: Optional[datetime] = None) -> float:
         """How far through its WINDOW this recording is, 0.0-1.0.
@@ -412,6 +424,8 @@ class RecordingManager:
                 error=r.error,
                 waiting_for_slot=r.id in self._conflict_announced
                 and r.state == "scheduled",
+                provider_id=r.provider_id,
+                programme_end=r.programme_end,
             ) for r in rows]
         out.sort(key=lambda p: p.starts_at, reverse=True)
         return out

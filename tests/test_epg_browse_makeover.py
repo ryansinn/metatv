@@ -87,15 +87,17 @@ def _make_render_host(qapp, *, name_map=None, title_map=None, prefix_map=None,
     host._browse_show_provider_glyph = show_glyph
     host._browse_provider_icon_map = dict(provider_icon_map or {})
     host.browse_list = QTreeWidget()
-    host.browse_list.setColumnCount(6)
+    host.browse_list.setColumnCount(7)
     host.browse_list.setHeaderLabels(
-        ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+        ["Time", "Category", "Channel", "Quality", "Show", "Duration", "Rec"]
     )
     host.browse_list.setSortingEnabled(True)
     host.browse_placeholder = QLabel()
     host.browse_stats = QLabel()
     host.status_message = SimpleNamespace(emit=MagicMock())
     host._browse_exhausted = True
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._recording_progress_rows = lambda: host.recording_manager.progress()
     return host
 
 
@@ -602,6 +604,7 @@ def _make_browse_tab_host(qapp, config=None):
     host._load_more_browse = lambda *_: None
     host._on_browse_scroll = lambda *_: None
     host._browse_double_click = lambda *_: None
+    host._browse_item_clicked = lambda *_: None
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None
     host._save_epg_sort = lambda *a: None
@@ -655,7 +658,7 @@ def test_restore_browse_header_state_round_trips(qapp):
     state2["browse_header_state"] = saved
     config2 = SimpleNamespace(epg_hide_filler=False, epg_filter_state=state2, save=MagicMock())
     host2 = _make_browse_tab_host(qapp, config=config2)  # must not raise
-    assert host2.browse_list.columnCount() == 6
+    assert host2.browse_list.columnCount() == 7
 
 
 def test_corrupt_browse_header_state_is_noop(qapp):
@@ -666,7 +669,7 @@ def test_corrupt_browse_header_state_is_noop(qapp):
         save=MagicMock(),
     )
     host = _make_browse_tab_host(qapp, config=config)  # must not raise
-    assert host.browse_list.columnCount() == 6
+    assert host.browse_list.columnCount() == 7
 
 
 def test_sort_col_migration_old_show_maps_to_new_show(qapp):
@@ -747,8 +750,8 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
         hide_icon="🚫",
     )
     tree = QTreeWidget()
-    tree.setColumnCount(6)
-    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide"])
+    tree.setColumnCount(7)
+    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide", "Rec"])
     tree.setItemDelegateForColumn(4, _ProgressBarDelegate(tree))
     host.on_now_list = tree
     host.on_now_stats = QLabel("")
@@ -764,6 +767,8 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
     host._on_now_excluded_ct_ids = set()
     host._apply_on_now_filters = lambda: None
     host._update_filler_btn_label = lambda: None
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._recording_progress_rows = lambda: host.recording_manager.progress()
 
     @with_programme_render_fields
     class _P:

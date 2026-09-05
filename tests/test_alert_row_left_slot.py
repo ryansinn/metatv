@@ -15,6 +15,7 @@ from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QEnterEvent, QMouseEvent
 
 from metatv.core.config import Config
+from metatv.gui.recording_indicators import RECORD_TOOLTIP
 from metatv.gui.relative_time import humanize_remaining
 from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.alerts_rows import SLOT_W, _AlertRow
@@ -173,3 +174,61 @@ def test_clicking_the_slot_of_an_upcoming_row_selects_rather_than_plays(qapp, tm
     row.row_clicked.connect(lambda: selected.append(1))
     _press(row, row._slot.geometry().center().x())
     assert not played and selected
+
+
+# ── the Record control (REC-2, Catch Keep Record Feature 3) ─────────────
+
+def _rec_pixmap_bytes(row) -> bytes:
+    img = row._rec_slot.pixmap().toImage()
+    return bytes(img.constBits().asstring(img.sizeInBytes())) if not img.isNull() else b""
+
+
+def test_rec_slot_is_visible_with_the_plain_tooltip_by_default(qapp, tmp_path):
+    """Every row — live or upcoming — carries a Record control from the start,
+    unlike the play triangle which only ever appears on a live row."""
+    for row in (_live(tmp_path), _upcoming(tmp_path)):
+        row.show()
+        qapp.processEvents()
+        assert row._rec_slot.toolTip() == RECORD_TOOLTIP
+        assert _rec_pixmap_bytes(row), "the record slot painted nothing"
+
+
+def test_recording_state_repaints_a_visibly_different_glyph(qapp, tmp_path):
+    """set_recording_state must change what is actually PAINTED, not just a
+    Python attribute — a tooltip-only change would pass while the glyph stayed
+    the plain "you could record this" dot forever."""
+    row = _live(tmp_path)
+    row.show()
+    qapp.processEvents()
+    idle_bytes = _rec_pixmap_bytes(row)
+
+    row.set_recording_state("recording", "Recording — ends 21:00")
+    qapp.processEvents()
+    assert row._rec_slot.toolTip() == "Recording — ends 21:00"
+    recording_bytes = _rec_pixmap_bytes(row)
+    assert recording_bytes != idle_bytes
+
+    row.set_recording_state("scheduled", "Scheduled — 18:00–21:00")
+    qapp.processEvents()
+    assert row._rec_slot.toolTip() == "Scheduled — 18:00–21:00"
+    scheduled_bytes = _rec_pixmap_bytes(row)
+    assert scheduled_bytes not in (idle_bytes, recording_bytes)
+
+
+def test_clicking_the_rec_slot_only_emits_record_clicked(qapp, tmp_path):
+    """The Record control is its own dedicated click target — pressing it must
+    not ALSO fire play/expand/row-click, on a live row where the slot beside
+    it doubles as the play button."""
+    row = _live(tmp_path)
+    row.setFixedWidth(280)
+    row.show()
+    qapp.processEvents()
+    _enter(row)
+
+    recorded, played, selected = [], [], []
+    row.record_clicked.connect(lambda: recorded.append(1))
+    row.play_clicked.connect(lambda: played.append(1))
+    row.row_clicked.connect(lambda: selected.append(1))
+
+    _press(row, row._rec_slot.geometry().center().x())
+    assert recorded and not played and not selected

@@ -203,9 +203,10 @@ def _make_render_host(qapp, *, provider_ids, search_text, name_map, title_map=No
     host._filtered_provider_ids = lambda: host._provider_ids
     host.search_input = SimpleNamespace(text=lambda: search_text)
     host.browse_list = QTreeWidget()
-    host.browse_list.setColumnCount(6)
+    # 7 columns (REC-2 added "Rec")
+    host.browse_list.setColumnCount(7)
     host.browse_list.setHeaderLabels(
-        ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+        ["Time", "Category", "Channel", "Quality", "Show", "Duration", "Rec"]
     )
     # Qt's raw default header sort indicator is (col 0, Descending) — leave it as-is
     # so these behavior-pinning tests stay separator-free (Q3 coverage lives in its
@@ -213,6 +214,13 @@ def _make_render_host(qapp, *, provider_ids, search_text, name_map, title_map=No
     host.browse_placeholder = QLabel()
     host.browse_stats = QLabel()
     host.status_message = SimpleNamespace(emit=MagicMock())
+    # REC-2: no recording by default; a test overrides for the Rec column.
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._recording_progress_rows = (
+        lambda: host.recording_manager.progress())
+    host._host = MagicMock(
+        return_value=SimpleNamespace(schedule_recording_from_programme=MagicMock())
+    )
     return host
 
 
@@ -239,6 +247,79 @@ def test_render_browse_renders_schedule_rows(qapp, seeded_db):
     assert item.text(2) == "ESPN HD"
     assert "Premier League" in item.text(4)
     assert host.browse_stats.text() == "1 programmes · times shown in your local time"
+
+
+def test_render_browse_rec_column_plain_glyph_by_default(qapp, seeded_db):
+    """REC-2: column 6 exists and carries the plain record glyph when nothing
+    is recording — the failing case pre-fix is either an IndexError (no
+    column 6) or stale data, never this glyph."""
+    from metatv.gui import icons
+
+    db, _, query_date = seeded_db
+    session = db.get_session()
+    progs = EpgRepository(session).get_schedule(
+        target_date=query_date, provider_ids=["p1"])
+    session.close()
+    host = _make_render_host(
+        qapp, provider_ids=["p1"], search_text="", name_map={"c1": "ESPN HD"})
+
+    _EpgBrowseMixin._render_browse(host, progs)
+
+    item = host.browse_list.topLevelItem(0)
+    assert item.text(6) == icons.record_icon
+    assert item.toolTip(6) == (
+        "Record this programme — schedules its guide window with your padding"
+    )
+
+
+def test_render_browse_rec_column_shows_recording_when_overlapping(qapp, seeded_db):
+    """A fake progress() row overlapping this programme's window must flip
+    the Rec cell to the recording glyph, proven against a real populate."""
+    from metatv.core.recording_manager import RecordingProgress
+    from metatv.gui import icons
+
+    db, _, query_date = seeded_db
+    session = db.get_session()
+    progs = EpgRepository(session).get_schedule(
+        target_date=query_date, provider_ids=["p1"])
+    session.close()
+    prog = progs[0]
+
+    host = _make_render_host(
+        qapp, provider_ids=["p1"], search_text="", name_map={"c1": "ESPN HD"})
+    host.recording_manager = SimpleNamespace(progress=lambda: [RecordingProgress(
+        recording_id="r1", channel_id="c1", channel_name="ESPN HD",
+        programme_title=prog.title, state="recording",
+        starts_at=prog.start_time, ends_at=prog.stop_time,
+        recorded_bytes=0, dest_path="", error=None, waiting_for_slot=False,
+    )])
+
+    _EpgBrowseMixin._render_browse(host, progs)
+
+    item = host.browse_list.topLevelItem(0)
+    assert item.text(6) == icons.recording_active_icon
+    assert "Recording" in item.toolTip(6)
+
+
+def test_clicking_the_browse_rec_cell_schedules_this_rows_exact_window(qapp, seeded_db):
+    db, _, query_date = seeded_db
+    session = db.get_session()
+    progs = EpgRepository(session).get_schedule(
+        target_date=query_date, provider_ids=["p1"])
+    session.close()
+    prog = progs[0]
+
+    host = _make_render_host(
+        qapp, provider_ids=["p1"], search_text="", name_map={"c1": "ESPN HD"})
+    _EpgBrowseMixin._render_browse(host, progs)
+
+    item = host.browse_list.topLevelItem(0)
+    _EpgBrowseMixin._browse_item_clicked(host, item, 6)
+
+    fake_host = host._host.return_value
+    fake_host.schedule_recording_from_programme.assert_called_once_with(
+        "c1", prog.start_time, prog.stop_time, prog.title
+    )
 
 
 def test_render_browse_empty_schedule_shows_placeholder(qapp):

@@ -118,10 +118,11 @@ def _make_render_host(config=None) -> SimpleNamespace:
     host = SimpleNamespace()
     host.config = cfg
 
-    # Real QTreeWidget with the same 6-column setup _build_on_now_tab creates
+    # Real QTreeWidget with the same 7-column setup _build_on_now_tab creates
+    # (REC-2 added column 6, "Rec").
     tree = QTreeWidget()
-    tree.setColumnCount(6)
-    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide"])
+    tree.setColumnCount(7)
+    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide", "Rec"])
     delegate = _ProgressBarDelegate(tree)
     tree.setItemDelegateForColumn(4, delegate)
     # Establish a sort indicator up front, mirroring _build_on_now_tab's one-time
@@ -145,8 +146,17 @@ def _make_render_host(config=None) -> SimpleNamespace:
     host._channel_region_map = {}   # read by the render loop's global-exclusion fallback
     host._on_now_excluded_ct_ids = set()  # content-provenance drop set (resolved in _fetch_on_now)
 
+    # REC-2: no recording by default — a test seeds a fake progress() list to
+    # exercise the recording/scheduled indicator, and _host() to exercise the
+    # Rec column's click (schedule_recording_from_programme).
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._host = MagicMock(
+        return_value=SimpleNamespace(schedule_recording_from_programme=MagicMock())
+    )
+
     # Bind the real methods under test
     host._render_on_now = lambda progs: EpgView._render_on_now(host, progs)
+    host._recording_progress_rows = lambda: EpgView._recording_progress_rows(host)
     # _on_now_hidden_prefixes is a @staticmethod — expose it on the namespace
     host._on_now_hidden_prefixes = EpgView._on_now_hidden_prefixes
     host._apply_on_now_filters = lambda: EpgView._apply_on_now_filters(host)
@@ -430,8 +440,8 @@ def test_corrupt_header_state_with_matching_version_falls_back_gracefully(qapp):
         on_now_header_state_version=_ON_NOW_HEADER_STATE_VERSION,
     )
     host = _make_on_now_tab_host(qapp, config=config)
-    # Widget must still be usable with 6 columns
-    assert host.on_now_list.columnCount() == 6
+    # Widget must still be usable with 7 columns (REC-2 added "Rec")
+    assert host.on_now_list.columnCount() == 7
     assert not host.on_now_list.header().stretchLastSection()
 
 
@@ -440,7 +450,7 @@ def test_stale_header_state_missing_version_falls_back_safely(qapp):
     # Simulates a config saved by a version of the app that predates the version key.
     config = _minimal_config(on_now_header_state="c29tZSBvbGQgc3RhdGU=")
     host = _make_on_now_tab_host(qapp, config=config)
-    assert host.on_now_list.columnCount() == 6
+    assert host.on_now_list.columnCount() == 7
     assert not host.on_now_list.header().stretchLastSection()
     # Falls back to the default column order rather than attempting to restore.
     hdr = host.on_now_list.header()
@@ -451,7 +461,7 @@ def test_stale_header_state_wrong_version_falls_back_safely(qapp):
     """A state saved under a future/different version is discarded."""
     config = _minimal_config(on_now_header_state="c29tZSBvbGQgc3RhdGU=", on_now_header_state_version=999)
     host = _make_on_now_tab_host(qapp, config=config)
-    assert host.on_now_list.columnCount() == 6
+    assert host.on_now_list.columnCount() == 7
     assert not host.on_now_list.header().stretchLastSection()
 
 
@@ -747,3 +757,74 @@ def test_context_menu_selected_items_excludes_group_rows(qapp):
     child.setSelected(True)
     items = [i for i in host.on_now_list.selectedItems() if i.parent() is not None]
     assert items == [child]
+
+
+# ---------------------------------------------------------------------------
+# REC-2 (Catch, Keep, Record Feature 3) — the "Rec" column
+# ---------------------------------------------------------------------------
+
+def _rec_program(channel_db_id="ch1"):
+    from datetime import timedelta
+    from metatv.core.epg_utils import now_utc
+    now = now_utc()
+    return _FakeProgram(
+        channel_db_id=channel_db_id, channel_epg_id="e1", title="The Match",
+        start_time=now - timedelta(minutes=10), stop_time=now + timedelta(minutes=50),
+    )
+
+
+def test_rec_column_shows_the_plain_glyph_with_nothing_recording(qapp):
+    """The failing case pre-fix: there is no column 6 at all, so this either
+    IndexErrors or reads stale data — never the plain record glyph."""
+    from metatv.gui import icons
+
+    host = _make_render_host()
+    host._render_on_now([_rec_program()])
+
+    item = host.on_now_list.topLevelItem(0).child(0)
+    assert item.text(6) == icons.record_icon
+    assert item.toolTip(6) == (
+        "Record this programme — schedules its guide window with your padding"
+    )
+
+
+def test_rec_column_shows_the_recording_glyph_when_the_channel_is_recording(qapp):
+    """A fake progress() row overlapping this programme's window must flip the
+    Rec cell to the recording glyph — proven against a real populate pass, not
+    a hand-built item."""
+    from datetime import timedelta
+    from metatv.core.recording_manager import RecordingProgress
+    from metatv.core.epg_utils import now_utc
+    from metatv.gui import icons
+
+    now = now_utc()
+    host = _make_render_host()
+    host.recording_manager = SimpleNamespace(progress=lambda: [RecordingProgress(
+        recording_id="r1", channel_id="ch1", channel_name="ch1",
+        programme_title="The Match", state="recording",
+        starts_at=now - timedelta(minutes=10), ends_at=now + timedelta(minutes=50),
+        recorded_bytes=0, dest_path="", error=None, waiting_for_slot=False,
+    )])
+    host._render_on_now([_rec_program()])
+
+    item = host.on_now_list.topLevelItem(0).child(0)
+    assert item.text(6) == icons.recording_active_icon
+    assert "Recording" in item.toolTip(6)
+
+
+def test_clicking_the_rec_cell_schedules_this_rows_exact_window(qapp):
+    """Column 6, one row selected, calls schedule_recording_from_programme with
+    THIS row's own start/stop and a title stripped of the LIVE/NEW glyphs."""
+    host = _make_render_host()
+    prog = _rec_program()
+    prog.is_live = True  # _render_on_now appends " ᴸᶦᵛᵉ" to the Show column
+    host._render_on_now([prog])
+
+    item = host.on_now_list.topLevelItem(0).child(0)
+    item.setSelected(True)
+    host._on_now_item_clicked(item, 6)
+
+    fake_host = host._host.return_value
+    fake_host.schedule_recording_from_programme.assert_called_once_with(
+        "ch1", prog.start_time, prog.stop_time, "The Match"
+    )

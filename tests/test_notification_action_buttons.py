@@ -9,6 +9,7 @@ way to tell which button did what.
 """
 
 import tempfile
+from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtWidgets import QPushButton
@@ -75,3 +76,59 @@ def test_the_actions_wrap_rather_than_shrink(card):
 def test_the_labels_survive_intact(card):
     """'py Er' is what the user saw. The text must be the text."""
     assert [b.text() for b in _action_buttons(card)] == list(_LABELS)
+
+
+# ---------------------------------------------------------------------------
+# REC-2 (Catch, Keep, Record Feature 3): the persistent recording notice
+# reuses this SAME chokepoint — a rendered check that its message and BOTH
+# actions actually show, and that "Watch" (keep_open) does not close the card
+# a "Stop" click does.
+# ---------------------------------------------------------------------------
+
+def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp):
+    note = Notification(
+        id="n1", title="⏺ RECORDING The Match",
+        message="1:12:04 / ~2:03 · 8.4 GB used, 120.0 GB free · ends 21:15 "
+                "(+15 min post-roll) · playback on Shark is unavailable "
+                "until it finishes",
+        type=NotificationType.WARNING,
+        dismissible=False,
+        actions=[("Watch", lambda: None, True), ("Stop", lambda: None)],
+    )
+    card = NotificationCard(note, Config(config_dir=tempfile.mkdtemp()))
+    card.show()
+    qapp.processEvents()
+
+    assert "1:12:04" in card.message_label.text()
+    assert "8.4 GB used" in card.message_label.text()
+    assert [b.text() for b in _action_buttons(card)] == ["Watch", "Stop"]
+    # dismissible=False → no × close button, but the actions still render —
+    # the ONLY way to end a persistent card is Stop (or the recording itself
+    # finishing), never an accidental close.
+    assert not any(b.text() == "×" for b in card.findChildren(QPushButton))
+
+
+def test_keep_open_action_survives_its_own_click_the_default_does_not(qapp):
+    """The generic action-button mechanism's opt-in third element (REC-2):
+    "Watch" (keep_open=True) must not dismiss the card; "Stop" (the plain
+    2-tuple every pre-existing caller uses) still does, unchanged."""
+    calls = []
+    note = Notification(
+        id="n1", title="Recording", message="", type=NotificationType.WARNING,
+        dismissible=False,
+        actions=[("Watch", lambda: calls.append("watch"), True),
+                 ("Stop", lambda: calls.append("stop"))],
+    )
+    card = NotificationCard(note, Config(config_dir=tempfile.mkdtemp()))
+    card.dismiss = MagicMock()
+    card.show()
+    qapp.processEvents()
+
+    watch_btn, stop_btn = _action_buttons(card)
+    watch_btn.click()
+    assert calls == ["watch"]
+    card.dismiss.assert_not_called()
+
+    stop_btn.click()
+    assert calls == ["watch", "stop"]
+    card.dismiss.assert_called_once()

@@ -38,6 +38,7 @@ from metatv.gui.epg_events_mixin import (
 
 from metatv.core.epg_utils import (
     epg_is_stale as _epg_is_stale,
+    now_utc as _now_utc,
     to_local as _to_local,
 )
 from metatv.gui import icons as _icons
@@ -718,6 +719,42 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
     def _host(self):
         """Return the MainWindow host (Qt top-level parent) for delegating core actions."""
         return self.window()
+
+    def _recording_progress_rows(self) -> list:
+        """``RecordingManager.progress()``, read for a populate pass (REC-2).
+
+        ``EpgView`` holds no ``RecordingManager`` itself — ``MainWindow`` does
+        — so this checks ``self.recording_manager`` first (a test double can
+        set that directly, the same way it seeds ``self._channel_quality_map``
+        and friends) and falls back to ``self._host().recording_manager``,
+        mirroring how ``add_record_programme_handler`` already delegates
+        scheduling through the resolved host. Empty on any lookup failure: a
+        host running ``EpgView`` standalone renders the plain record glyph
+        rather than raising — the same tolerance
+        ``_refresh_transfer_sections`` already gives ``sidebar_sections``,
+        which may not exist yet either.
+        """
+        manager = getattr(self, "recording_manager", None)
+        if manager is None:
+            host_fn = getattr(self, "_host", None)
+            host = host_fn() if host_fn else None
+            manager = getattr(host, "recording_manager", None)
+        return manager.progress() if manager is not None else []
+
+    def refresh_recording_indicators(self, progress_rows: list) -> None:
+        """Re-walk On Now + Browse's visible rows, refreshing the Rec column.
+
+        Pushed by ``MainWindow._refresh_transfer_sections`` with the SAME
+        ``RecordingManager.progress()`` snapshot it reads for the Recordings
+        sidebar section — one query per tick, not one per consumer.
+        """
+        from metatv.gui.epg_browse_mixin import _SEPARATOR_ROLE
+        from metatv.gui.epg_widgets import refresh_rec_column
+
+        now = _now_utc()
+        refresh_rec_column(self.on_now_list, 6, progress_rows, now, grouped=True)
+        refresh_rec_column(self.browse_list, 6, progress_rows, now,
+                            separator_role=_SEPARATOR_ROLE)
 
     def _show_hide_dialog(self, title: str, ch_id: str | None, ch_name: str, category: str) -> None:
         dlg = QDialog(self)

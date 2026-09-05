@@ -11,6 +11,7 @@ no Qt at all — this module is the wiring and the two sentences the user reads.
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,17 +21,20 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMenu, QMessageBox
 
 from metatv.core.download_manager import DownloadManager, library_dir
+from metatv.core.epg_utils import now_utc, to_local
+from metatv.core.models import MediaType
 from metatv.core.recording_manager import RecordingManager, recordings_dir
 from metatv.core.repositories.channel_downloads import _file_exists
 from metatv.core.signal_check_manager import SignalCheckManager
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.core.repositories import RepositoryFactory
 from metatv.gui.file_reveal import open_folder, reveal_file
 from metatv.gui.sidebar.transfer_rows import ROLE_ITEM_ID
 
 if TYPE_CHECKING:                                    # pragma: no cover
-    from metatv.core.recording_manager import ScheduleOutcome
+    from metatv.core.recording_manager import RecordingProgress, ScheduleOutcome
     from metatv.core.repositories.dtos import PlayableChannelDTO
 
 #: How often the two transfer sections re-read their manager. Two seconds
@@ -41,6 +45,25 @@ from metatv.core.epg_utils import to_local, to_utc_naive
 from metatv.core.history_buckets import BUCKETS_BY_KEY, bucket_range
 from metatv.core.models import MediaType
 from metatv.core.repositories import RepositoryFactory
+
+
+def _hms(total_seconds: float) -> str:
+    """Elapsed as ``H:MM:SS`` — always shows the hour, even ``0``, unlike the
+    playback-position formatters elsewhere that hide it under an hour: a
+    recording's persistent notice (Catch, Keep, Record Q1) reads that as
+    "still going", not "barely started"."""
+    total = max(0, int(total_seconds))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}"
+
+
+def _hm(total_seconds: float) -> str:
+    """Remaining as ``H:MM`` — the caller's leading "~" says it is approximate."""
+    total = max(0, int(total_seconds))
+    h, rem = divmod(total, 3600)
+    m = rem // 60
+    return f"{h}:{m:02d}"
 
 
 class _DownloadsMixin:
@@ -87,6 +110,10 @@ class _DownloadsMixin:
             on_countdown=self._on_recording_countdown)
         self.recording_manager.start()
         self._register_cleanable("recordings", self.recording_manager.shutdown)
+        #: recording_id -> the persistent "recording in progress" notification
+        #: id showing it, so each tick UPDATES the same card (Q1) instead of
+        #: stacking a fresh one — see _refresh_recording_notifications.
+        self._recording_notif_ids: dict[str, str] = {}
 
         # Both sections are PUSHED their rows on a tick — the managers are
         # plain classes with no Qt signals, and giving a widget a manager
@@ -139,12 +166,110 @@ class _DownloadsMixin:
                 )
             except Exception:
                 logger.exception("could not refresh the Downloads section")
+
+        # One read for every recording-derived consumer this tick (REC-2):
+        # the Recordings sidebar section, the Watch Alerts row indicators, the
+        # On Now/Browse Rec columns, and the persistent recording notice.
+        recording_rows = self.recording_manager.progress()
         recordings = sections.get("recordings")
         if recordings is not None:
             try:
-                recordings.refresh_progress(self.recording_manager.progress())
+                recordings.refresh_progress(recording_rows)
             except Exception:
                 logger.exception("could not refresh the Recordings section")
+        alerts = sections.get("alerts")
+        if alerts is not None:
+            try:
+                alerts.refresh_recording_indicators(recording_rows)
+            except Exception:
+                logger.exception("could not refresh Watch Alerts recording indicators")
+        epg_view = self.__dict__.get("epg_view")
+        if epg_view is not None:
+            try:
+                epg_view.refresh_recording_indicators(recording_rows)
+            except Exception:
+                logger.exception("could not refresh EPG recording indicators")
+        try:
+            self._refresh_recording_notifications(recording_rows)
+        except Exception:
+            logger.exception("could not refresh the persistent recording notice")
+
+    def _refresh_recording_notifications(
+            self, rows: "list[RecordingProgress]",
+            *, now: "datetime | None" = None) -> None:
+        """One persistent notice per ACTIVELY recording row (Q1, settled 2026-08-30).
+
+        "One persistent notification carries elapsed, remaining, disk used
+        and free, the programme, and a Watch button" — updated in PLACE each
+        tick via ``notification_manager.update`` (never re-``show``n), so the
+        same card survives from the first tick it starts recording to the one
+        where it stops. Dismissed the moment its row leaves the recording
+        state (finishes, is cancelled, or fails).
+
+        Args:
+            rows: A ``RecordingManager.progress()`` snapshot.
+            now: The instant to measure elapsed/remaining against; defaults to
+                ``now_utc()``. Takes it rather than reaching for the real
+                clock underneath, so a test can pin one.
+        """
+        now = now or now_utc()
+        active_ids = set()
+        for r in rows:
+            if r.state != "recording":
+                continue
+            active_ids.add(r.recording_id)
+            elapsed = _hms((now - r.starts_at).total_seconds())
+            remaining = _hm(max(0.0, (r.ends_at - now).total_seconds()))
+            used_gb = r.recorded_bytes / (1024 ** 3)
+            try:
+                free_gb = shutil.disk_usage(
+                    recordings_dir(self.config)).free / (1024 ** 3)
+            except OSError:
+                free_gb = 0.0
+            post_roll = 0
+            if r.programme_end is not None:
+                post_roll = max(0, round(
+                    (r.ends_at - r.programme_end).total_seconds() / 60))
+            name = r.programme_title or r.channel_name
+            source = self._recording_source_name(r.provider_id)
+            title = f"{_icons.recording_active_icon} RECORDING {name}"
+            message = (
+                f"{elapsed} / ~{remaining} · {used_gb:.1f} GB used, "
+                f"{free_gb:.1f} GB free · ends {to_local(r.ends_at):%H:%M} "
+                f"(+{post_roll} min post-roll) · playback on {source} is "
+                f"unavailable until it finishes"
+            )
+            notif_id = self._recording_notif_ids.get(r.recording_id)
+            if notif_id is None:
+                notif_id = self.notification_manager.show(
+                    title=title, message=message, type="warning",
+                    dismissible=False,
+                    actions=[
+                        # Watch does NOT close the card — the recording keeps
+                        # running — so it carries the keep_open flag the
+                        # generic action-button chokepoint reads
+                        # (notification_widget.NotificationCard).
+                        ("Watch", lambda rid=r.recording_id:
+                            self._watch_recording(rid), True),
+                        ("Stop", lambda rid=r.recording_id:
+                            self._cancel_recording(rid)),
+                    ],
+                )
+                self._recording_notif_ids[r.recording_id] = notif_id
+            else:
+                self.notification_manager.update(
+                    notif_id, title=title, message=message)
+
+        for rid in list(self._recording_notif_ids):
+            if rid not in active_ids:
+                self.notification_manager.dismiss(
+                    self._recording_notif_ids.pop(rid))
+
+    def _recording_source_name(self, provider_id: str) -> str:
+        """The provider's display name, for "playback on <source> is unavailable"."""
+        with self.db.session_scope(commit=False) as session:
+            provider = RepositoryFactory(session).providers.get_by_id(provider_id)
+            return provider.name if provider is not None else "this source"
 
     # ── folder actions ─────────────────────────────────────────────────────
 

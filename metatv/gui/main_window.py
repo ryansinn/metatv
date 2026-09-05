@@ -1196,6 +1196,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section.channelContextMenuRequested.connect(self._on_alert_channel_context_menu)
             section.programmeContextMenuRequested.connect(
                 self._on_alert_programme_context_menu)
+            section.programmeRecordRequested.connect(self.schedule_recording_from_programme)
             section.retryRemoveRequested.connect(self.stream_retry_manager.remove)
             section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
             section.retryPlayRequested.connect(self._on_retry_play_requested)
