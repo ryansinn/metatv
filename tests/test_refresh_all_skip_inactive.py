@@ -64,6 +64,13 @@ class _FakeRefreshAllWindow:
         session = MagicMock()
         repos = MagicMock()
         repos.providers.get_all.side_effect = self._get_all
+        # These two providers all lack real expiry — mirror the historical
+        # "hidden == inactive" shape here; the expired case gets its own
+        # real-Database coverage below (get_hidden_provider_ids() is the
+        # union, so this stub must not leave it un-wired and silently
+        # iterable-as-empty via MagicMock's default __iter__).
+        repos.providers.get_hidden_provider_ids.side_effect = self._get_hidden_ids
+        repos.providers.get_expired_provider_ids.side_effect = self._get_expired_ids
         factory = MagicMock(return_value=repos)
 
         db = MagicMock()
@@ -80,6 +87,12 @@ class _FakeRefreshAllWindow:
         if active_only:
             return [p for p in self._providers if p.is_active]
         return list(self._providers)
+
+    def _get_hidden_ids(self):
+        return [p.id for p in self._providers if not p.is_active]
+
+    def _get_expired_ids(self):
+        return []
 
     def refresh_all_providers(self):
         # Import and call the real method — bound to this stub instance
