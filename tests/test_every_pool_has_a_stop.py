@@ -202,10 +202,17 @@ def test_the_stop_actually_shuts_the_pool_down(path, cls):
 def test_the_lightbox_stop_is_reachable_from_the_cleanup_registry():
     """Defining a stop is half of it — somebody has to call it.
 
-    The trail map is registered right beside the lightbox in the same
-    constructor. That is precisely why the omission was invisible.
+    The trail map is registered right beside the lightbox — both, as of
+    PERF-16, inside ``main_window_overlays.py``'s ``_ensure_similar_lightbox``/
+    ``_ensure_trail_map`` (split out of ``main_window.py`` so each overlay
+    builds lazily, on first open, instead of at every launch). Scanning every
+    ``main_window*.py`` mixin file rather than just ``main_window.py`` is what
+    keeps this guard live across that split — that is precisely why the
+    original omission was invisible in the first place.
     """
-    src = (GUI / "main_window.py").read_text(encoding="utf-8")
+    src = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(GUI.glob("main_window*.py"))
+    )
     assert '_register_cleanable("lightbox"' in src, (
         "the lightbox owns a pool but nothing in the cleanup registry stops it"
     )
@@ -213,16 +220,16 @@ def test_the_lightbox_stop_is_reachable_from_the_cleanup_registry():
 
 def test_the_registry_stops_every_pool_owner_the_window_holds_directly():
     """Derived over the window's own attributes, not a list of names."""
-    src = (GUI / "main_window.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-
-    registered = {
-        n.args[0].value
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and getattr(n.func, "attr", None) == "_register_cleanable"
-        and n.args and isinstance(n.args[0], ast.Constant)
-    }
+    registered: set = set()
+    for path in sorted(GUI.glob("main_window*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        registered |= {
+            n.args[0].value
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and getattr(n.func, "attr", None) == "_register_cleanable"
+            and n.args and isinstance(n.args[0], ast.Constant)
+        }
     # Both pool-owning widgets the window builds itself, by the key each is
     # registered under.
     for key in ("trail_map", "lightbox"):
