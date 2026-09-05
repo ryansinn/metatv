@@ -246,9 +246,11 @@ class _DownloadsMixin:
 
     def _clear_download_history_group(self, bucket_key: str) -> None:
         """Forget one Downloads time group at once, offering Undo instead of
-        asking first — mirrors ``_HistoryMixin.clear_history_group`` exactly,
-        except a download IS its row: Undo re-inserts the deleted
-        ``DownloadDB`` rows rather than un-nulling a field. Files are never
+        asking first — mirrors ``_HistoryMixin.clear_history_group`` in shape,
+        except a cleared download's row is only HIDDEN (``history_cleared``),
+        never deleted: the Downloaded scope reads the same rows' ``state``, so
+        deleting would drop a still-present file out of that scope. Undo
+        clears the flag rather than re-inserting a row. Files are never
         touched either way.
         """
         bucket = BUCKETS_BY_KEY.get(bucket_key)

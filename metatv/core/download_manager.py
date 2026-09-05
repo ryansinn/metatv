@@ -105,6 +105,12 @@ class DownloadProgress:
     #: ``channel_name`` is, so a caller never needs a second DB round trip to
     #: label a connection-gate line.
     provider_name: str = ""
+    #: A history-group "forget" set this instead of deleting the row (see
+    #: ``clear_history_group``) — the Downloaded scope keeps reading
+    #: ``state``, so a cleared row still counts while its file exists. The
+    #: section's History groups skip a row with this set; the queue/"In
+    #: progress" list never contains one (only terminal rows are ever hidden).
+    history_cleared: bool = False
 
     @property
     def fraction(self) -> Optional[float]:
@@ -298,15 +304,17 @@ class DownloadManager:
 
     # ── history (terminal rows) ─────────────────────────────────────────────
     #
-    # A download's ROW *is* its history — there is no separate "downloaded at"
-    # flag the way ``ChannelDB.last_played`` is for playback history, so
-    # clearing a group means deleting the ``DownloadDB`` rows themselves,
-    # never just nulling a field. Mirrors
+    # A download's ROW is what the Downloaded scope (channel_downloads.
+    # predicate) reads too — it derives "downloaded" from state=="completed"
+    # plus the file existing on disk, on this same table. So clearing a
+    # group must HIDE rows from the section's history, never delete them:
+    # deleting would make a still-present file vanish from the Downloaded
+    # scope, which is exactly the bug this shape exists to avoid. Mirrors
     # ``channel_history.clear_history_in_range``/``restore_history_snapshot``
     # (same half-open ``[not_before, not_after)`` window, same snapshot-then-
-    # Undo shape) with a delete/re-insert instead of a null-out/restore, since
-    # that is what "the row is the history" implies. The FILE on disk is never
-    # touched by either method — only the ledger.
+    # Undo shape) with a flag flip instead of a delete/re-insert. The FILE on
+    # disk, the row itself, and the Downloaded scope are never touched by
+    # either method — only ``history_cleared``.
 
     #: Columns snapshotted (and restored) by a group clear/Undo — everything
     #: needed to reconstruct an equivalent row, in ``DownloadDB.__init__`` order.
@@ -319,8 +327,8 @@ class DownloadManager:
     def clear_history_group(
         self, not_before: Optional[datetime], not_after: Optional[datetime]
     ) -> "tuple[int, list[dict]]":
-        """Delete terminal (completed/failed) rows whose ``updated_at`` falls
-        inside a half-open UTC-naive window — one history heading's purge.
+        """Hide terminal (completed/failed) rows whose ``updated_at`` falls
+        inside a half-open UTC-naive window — one history heading's "forget".
 
         Args:
             not_before: Inclusive lower bound (UTC-naive), or None for
@@ -328,19 +336,21 @@ class DownloadManager:
                 ``epg_utils.to_utc_naive`` before calling this — the same
                 UTC-naive frame ``updated_at`` is stored in.
             not_after: Exclusive upper bound (UTC-naive), or None for
-                unbounded. Passing ``(None, None)`` clears every terminal row —
+                unbounded. Passing ``(None, None)`` hides every terminal row —
                 the overflow's "Clear download history" bulk action.
 
         Returns:
-            ``(count, snapshot)``: how many rows were removed, and a plain-dict
+            ``(count, snapshot)``: how many rows were hidden, and a plain-dict
             snapshot of each — never ORM rows — so the caller can offer Undo
-            via :meth:`restore_history_snapshot`.
+            via :meth:`restore_history_snapshot`. Already-hidden rows are
+            skipped, so re-clearing an emptied group reports 0.
         """
         from metatv.core.database import DownloadDB
 
         with self._db.session_scope() as session:
             query = session.query(DownloadDB).filter(
-                DownloadDB.state.in_(TERMINAL_STATES))
+                DownloadDB.state.in_(TERMINAL_STATES),
+                DownloadDB.history_cleared.is_(False))
             if not_before is not None:
                 query = query.filter(DownloadDB.updated_at >= not_before)
             if not_after is not None:
@@ -352,16 +362,16 @@ class DownloadManager:
             ]
             count = len(rows)
             for row in rows:
-                session.delete(row)
+                row.history_cleared = True
         self._notify()
         return count, snapshot
 
     def restore_history_snapshot(self, snapshot: "list[dict]") -> int:
-        """Undo a group clear — re-insert rows nobody has re-queued since.
+        """Undo a group clear — un-hide rows nobody has re-queued since.
 
-        Skips any id already present (the same download was re-queued, or
-        somehow restored twice) rather than raising on the primary-key clash —
-        Undo restores everything else it safely can.
+        Skips any id no longer present (the same download was cancelled out
+        from under the snapshot) rather than raising — Undo restores
+        everything else it safely can.
 
         Args:
             snapshot: As returned by :meth:`clear_history_group`.
@@ -374,9 +384,10 @@ class DownloadManager:
         restored = 0
         with self._db.session_scope() as session:
             for data in snapshot:
-                if session.query(DownloadDB).filter_by(id=data["id"]).first() is not None:
+                row = session.query(DownloadDB).filter_by(id=data["id"]).first()
+                if row is None:
                     continue
-                session.add(DownloadDB(**data))
+                row.history_cleared = False
                 restored += 1
         self._notify()
         logger.info("Restored {} download(s) from a history-clear snapshot", restored)
@@ -446,6 +457,7 @@ class DownloadManager:
                     bytes_per_second=rate, eta_seconds=eta,
                     updated_at=r.updated_at,
                     provider_name=names.get(r.provider_id, ""),
+                    history_cleared=bool(r.history_cleared),
                 ))
             return out
 

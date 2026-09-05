@@ -13,7 +13,8 @@ ENTRY = WhatsNewEntry(
         "Finished downloads move into their own history, grouped into the "
         "same Today/Yesterday/… segments as History. Clear one segment at a "
         "time (with Undo) or every finished download at once from the ⋯ "
-        "menu — either way, the files on disk are never touched.",
+        "menu — either way, it's only forgotten from the list: the files on "
+        "disk and the Downloaded scope on the channel list are untouched.",
         "Double-click a finished download to play it. With Split Streams "
         "on, it opens in its own window so a live stream elsewhere keeps "
         "playing; with it off, it replaces the shared window.",

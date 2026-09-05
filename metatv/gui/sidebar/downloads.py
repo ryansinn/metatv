@@ -13,10 +13,11 @@ it is what stops this becoming a second browse surface:
 
 So this section is deliberately small. It shows transfers in flight under an
 "In progress" heading, and what finished under History's own Today/Yesterday/…
-segments (bucketed by ``DownloadDB.updated_at`` — a download's row IS its
-history, so a group's "forget" purges those rows rather than nulling a flag;
-see ``DownloadManager.clear_history_group``). Anything about *browsing* what
-you already have belongs to the Downloaded scope on the channel list, not here.
+segments (bucketed by ``DownloadDB.updated_at`` — a group's "forget" HIDES
+those rows via ``history_cleared`` rather than deleting them, because the
+Downloaded scope on the channel list reads the same rows' ``state``; see
+``DownloadManager.clear_history_group``). Anything about *browsing* what you
+already have belongs to the Downloaded scope on the channel list, not here.
 
 The rows come from ``DownloadManager.progress()`` — plain DTOs, pushed in by
 the host, never an ORM row across a thread and never a manager reference held
@@ -220,7 +221,8 @@ class DownloadsSection(CollapsibleSection):
             self._add_gate_line(lst, line)
 
         active = [r for r in rows if r.state not in TERMINAL_STATES]
-        history = [r for r in rows if r.state in TERMINAL_STATES]
+        history = [r for r in rows
+                   if r.state in TERMINAL_STATES and not r.history_cleared]
 
         if active:
             self._add_active_heading(lst, len(active))
@@ -268,9 +270,10 @@ class DownloadsSection(CollapsibleSection):
 
         Mirrors ``HistorySection._add_group_heading`` — same button, same
         role, same theme sheet, because it is the same idea: a group's own
-        destructive control, distinct from the section-wide "Clear download
-        history" in the ⋯ menu. Deletes ``DownloadDB`` rows (never files) —
-        see ``DownloadManager.clear_history_group``.
+        destructive-reading control, distinct from the section-wide "Clear
+        download history" in the ⋯ menu. Hides ``DownloadDB`` rows (never
+        deletes them, never touches files) — see
+        ``DownloadManager.clear_history_group``.
         """
         item = QListWidgetItem(lst)
         item.setData(_ROLE_BUCKET, bucket.key)

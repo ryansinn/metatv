@@ -2,11 +2,14 @@
 
 *Catch, Keep, Record* settled the row grammar (``test_transfer_sections.py``);
 this file covers what got built ON it in the next slice — the per-group
-"forget" (immediate purge + Undo toast, mirroring
-``_HistoryMixin.clear_history_group`` exactly, because a download IS its row
-rather than a nullable field — Undo re-inserts it) and DL-4 (double-click
-plays a finished download through ``PlayerManager.play_local_file``: no
-accountant slot, no URL probe, own window under Split Streams).
+"forget" (immediate hide + Undo toast, mirroring
+``_HistoryMixin.clear_history_group`` in shape, but flipping
+``DownloadDB.history_cleared`` rather than deleting the row — the Downloaded
+scope reads the same rows' ``state``, so a cleared row must keep making its
+channel "downloaded" while the file exists; Undo clears the flag) and DL-4
+(double-click plays a finished download through
+``PlayerManager.play_local_file``: no accountant slot, no URL probe, own
+window under Split Streams).
 """
 from __future__ import annotations
 
@@ -138,7 +141,7 @@ def test_play_downloaded_ignores_a_row_that_is_not_yet_finished(env, tmp_path):
 # ── history group clear + Undo ──────────────────────────────────────────────
 
 
-def test_clear_history_group_removes_rows_then_undo_restores_them(env, tmp_path):
+def test_clear_history_group_hides_rows_then_undo_restores_them(env, tmp_path):
     manager, db, config, _accountant = env
     dest = tmp_path / "gb.mkv"
     dest.write_bytes(b"a finished film")
@@ -151,7 +154,9 @@ def test_clear_history_group_removes_rows_then_undo_restores_them(env, tmp_path)
     bucket_key = bucket_for(datetime.now())
     host._clear_download_history_group(bucket_key)
 
-    assert manager.progress() == [], "the group clear must remove the row"
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].history_cleared is True, (
+        "the group clear must hide the row from history, never delete it")
     assert dest.exists(), "clearing HISTORY must never touch the file"
 
     title, kwargs = host.notification_manager.show.call_args
@@ -160,8 +165,41 @@ def test_clear_history_group_removes_rows_then_undo_restores_them(env, tmp_path)
     undo()
 
     rows = manager.progress()
-    assert len(rows) == 1 and rows[0].id == download_id, "Undo must bring the row back"
+    assert len(rows) == 1 and rows[0].id == download_id and rows[0].history_cleared is False, (
+        "Undo must bring the row back to history")
     assert dest.exists()
+
+
+def test_clear_history_group_does_not_remove_the_channel_from_the_downloaded_scope(
+        env, tmp_path):
+    """DL-2/DL-5: a history-cleared row must still make its channel
+    "Downloaded" while the file exists — clearing HISTORY must never look
+    like deleting the download to the Downloaded scope
+    (``channel_downloads.predicate``), which reads the same rows' ``state``
+    and never ``history_cleared``.
+    """
+    manager, db, config, _accountant = env
+    dest = tmp_path / "gb.mkv"
+    dest.write_bytes(b"a finished film")
+    _download_id, channel_id = _seed_completed_download(db, dest=dest)
+
+    host = make_downloads_mixin_host(db, config, download_manager=manager)
+    bucket_key = bucket_for(datetime.now())
+    host._clear_download_history_group(bucket_key)
+
+    with db.session_scope(commit=False) as session:
+        ids = {c.id for c in
+               RepositoryFactory(session).channels.get_all(downloaded_only=True)}
+    assert channel_id in ids, "a cleared history row must still count as downloaded"
+    assert dest.exists()
+
+    _title, kwargs = host.notification_manager.show.call_args
+    undo = dict(kwargs["actions"])["Undo"]
+    undo()
+
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].history_cleared is False, (
+        "Undo must restore the row to the section's history")
 
 
 def test_clear_history_group_on_an_empty_group_reports_nothing_to_forget(env):
@@ -174,7 +212,7 @@ def test_clear_history_group_on_an_empty_group_reports_nothing_to_forget(env):
     host.notification_manager.show.assert_not_called()
 
 
-def test_clear_download_history_bulk_action_deletes_every_terminal_row(env, tmp_path, monkeypatch):
+def test_clear_download_history_bulk_action_hides_every_terminal_row(env, tmp_path, monkeypatch):
     """The overflow's "Clear download history" — confirmed, not offered Undo."""
     from PyQt6.QtWidgets import QMessageBox
 
@@ -188,5 +226,6 @@ def test_clear_download_history_bulk_action_deletes_every_terminal_row(env, tmp_
     host = make_downloads_mixin_host(db, config, download_manager=manager)
     host._clear_download_history()
 
-    assert manager.progress() == []
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].history_cleared is True, "hidden, never deleted"
     assert dest.exists(), "the bulk clear must never touch the file either"

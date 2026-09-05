@@ -470,9 +470,9 @@ def test_the_rate_ring_forgets_samples_older_than_its_window(env, server):
     assert row.bytes_per_second is None, "only one sample remains inside the window"
 
 
-# ── history (terminal rows) — deleting the LEDGER, never the file ─────────
+# ── history (terminal rows) — hiding the LEDGER, never the file, never the row ─
 
-def test_clear_history_group_deletes_only_rows_inside_the_window(env, server):
+def test_clear_history_group_hides_only_rows_inside_the_window(env, server):
     manager, db, _config, _accountant = env
     from datetime import datetime, timedelta
 
@@ -487,13 +487,15 @@ def test_clear_history_group_deletes_only_rows_inside_the_window(env, server):
     count, snapshot = manager.clear_history_group(now - timedelta(hours=1), None)
 
     assert count == 1
-    remaining = {r.channel_id for r in manager.progress()}
-    assert remaining == {"old"}, "a row outside the window must survive"
+    by_channel = {r.channel_id: r for r in manager.progress()}
+    assert set(by_channel) == {"recent", "old"}, "clearing history must never remove the row"
+    assert by_channel["recent"].history_cleared is True
+    assert by_channel["old"].history_cleared is False, "a row outside the window must stay visible"
     assert snapshot[0]["channel_id"] == "recent"
 
 
 def test_restore_history_snapshot_undoes_a_clear_without_touching_the_file(env, server):
-    """Undo brings the ledger row back; the file was never touched either way."""
+    """Undo un-hides the ledger row; the file was never touched either way."""
     manager, db, _config, _accountant = env
     from datetime import datetime
 
@@ -508,13 +510,15 @@ def test_restore_history_snapshot_undoes_a_clear_without_touching_the_file(env, 
 
     count, snapshot = manager.clear_history_group(None, None)
     assert count == 1
-    assert manager.progress() == []
+    rows = manager.progress()
+    assert len(rows) == 1 and rows[0].history_cleared is True, "hidden, never deleted"
     assert dest.exists(), "clearing HISTORY must never touch the file"
 
     restored = manager.restore_history_snapshot(snapshot)
     assert restored == 1
     rows = manager.progress()
     assert len(rows) == 1 and rows[0].id == download_id and rows[0].state == "completed"
+    assert rows[0].history_cleared is False
     assert dest.exists()
 
 
@@ -527,6 +531,7 @@ def test_clear_history_group_leaves_active_rows_alone(env, server):
 
     assert count == 0
     assert manager.progress()[0].state == "queued"
+    assert manager.progress()[0].history_cleared is False
 
 
 # ── the connection-gate summary (section header) ───────────────────────────
