@@ -35,7 +35,13 @@ def dead_signal_streak_floor(config) -> "int | None":
         ``None`` (axis off) when ``hide_dead_events`` is unset, else
         ``config.signal_dead_streak_to_hide``.
     """
-    return config.signal_dead_streak_to_hide if config.hide_dead_events else None
+    # getattr, not attribute access: ``resolve_scope`` accepts ``config=None``
+    # ("applies nothing") and partial config doubles, exactly as
+    # ``build_adult_filter``'s ``getattr(config, "filter_adult_mode", ...)`` does.
+    if not getattr(config, "hide_dead_events", False):
+        return None
+    floor = int(getattr(config, "signal_dead_streak_to_hide", 0) or 0)
+    return floor if floor > 0 else None
 
 
 def resolve_scope(session, config, *, excluded_provider_ids=(),
