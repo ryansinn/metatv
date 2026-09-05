@@ -71,6 +71,8 @@ def _make_channel(
     quality: str = "hd",
     raw_data: dict | None = None,
     detected_tmdb_id: str | None = None,
+    detected_rating: float | None = None,
+    detected_added: int | None = None,
 ) -> MagicMock:
     """Return a fake Channel-like object (duck-typing; no import of Channel dataclass)."""
     return make_channel_double(
@@ -86,6 +88,8 @@ def _make_channel(
         quality=quality,
         raw_data=raw_data if raw_data is not None else {},
         detected_tmdb_id=detected_tmdb_id,
+        detected_rating=detected_rating,
+        detected_added=detected_added,
     )
 
 
@@ -477,4 +481,45 @@ def test_renamed_slot_reclassified_from_new_name(store_thread, tmp_db):
     row = _read_channel(tmp_db, "slot2")
     assert row["sport_type"] == "boxing", (
         f"Reclassified row must be boxing (got {row['sport_type']})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — DB-4: detected_rating/detected_added are catalog columns
+# ---------------------------------------------------------------------------
+
+def _read_rating_added(db: Database, ch_id: str) -> tuple:
+    session = db.get_session()
+    try:
+        row = session.query(ChannelDB).filter_by(id=ch_id).one()
+        return row.detected_rating, row.detected_added
+    finally:
+        session.close()
+
+
+def test_insert_writes_detected_rating_and_added(store_thread, tmp_db):
+    """The columns ingestion computed on the Channel double land in the row."""
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", detected_rating=7.4, detected_added=1725500000),
+    ])
+    assert _read_rating_added(tmp_db, "ch1") == (7.4, 1725500000)
+
+
+def test_refresh_overwrites_rating_and_added_not_preserves(store_thread, tmp_db):
+    """Unlike a name-derived detected_* field, a refresh must UPDATE these —
+    a provider rating changes over time, same reasoning as detected_tmdb_id
+    (which the surrounding _CATALOG_COLS comment documents), but with a plain
+    overwrite rather than detected_tmdb_id's COALESCE (there is no separate
+    enrichment writer here to protect)."""
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", detected_rating=5.0, detected_added=1000000000),
+    ])
+    assert _read_rating_added(tmp_db, "ch1") == (5.0, 1000000000)
+
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", detected_rating=8.2, detected_added=2000000000),
+    ])
+    assert _read_rating_added(tmp_db, "ch1") == (8.2, 2000000000), (
+        "a refresh must update rating/added — they are provider facts, not "
+        "preserved user/derived state"
     )

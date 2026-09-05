@@ -164,6 +164,8 @@ class ChannelDB(Base):
     # rather than blindly overwriting to NULL each refresh.
     detected_tmdb_id = Column(String, nullable=True)
 
+    detected_rating = Column(Float, nullable=True, index=True)    # DB-4: rating_from_raw()
+    detected_added  = Column(Integer, nullable=True, index=True)  # DB-4: added_from_raw()
     # tmdb enrichment provenance marker (Phase 2 — see tmdb_enrichment_manager.py).
     # Encodes HOW/whether a row's tmdb id was resolved, driving the fetch-once guard and
     # the "Missing TMDb data" analytics funnel:
@@ -1042,6 +1044,7 @@ class Database:
             ("providers",     "last_catalog_refresh_at",         "DATETIME"),  # SPORT-7
             ("providers",     "last_live_refresh_at",            "DATETIME"),  # LIVE-1
             ("downloads",     "history_cleared",                 "INTEGER NOT NULL DEFAULT 0"),
+            ("channels", "detected_rating", "FLOAT"), ("channels", "detected_added", "INTEGER"),  # DB-4
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

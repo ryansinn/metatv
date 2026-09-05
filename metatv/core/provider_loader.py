@@ -23,11 +23,12 @@ from metatv.providers.factory import get_provider
 # (detected_*, is_favorite, is_hidden, play_count, user_category, etc.) are
 # left untouched so user data is preserved across provider refreshes.
 #
-# ``detected_tmdb_id`` is the deliberate exception among the ``detected_*`` names:
-# it is not name-derived, it is a provider fact captured from ``raw_data["tmdb"]``
-# at ingestion, so it belongs with the catalog columns and refreshes alongside
-# ``raw_data`` on every upsert (rather than being preserved like the name-derived
-# detected_* fields).
+# ``detected_tmdb_id``/``detected_rating``/``detected_added`` are the deliberate
+# exceptions among the ``detected_*`` names: none is name-derived — they are
+# provider facts captured from ``raw_data`` at ingestion (DB-4: rating/added can
+# change over time, same as the tmdb id) — so they belong with the catalog
+# columns and refresh alongside ``raw_data`` on every upsert, rather than being
+# preserved like the name-derived detected_* fields.
 _CATALOG_COLS: tuple[str, ...] = (
     "id",
     "source_id",
@@ -50,6 +51,8 @@ _CATALOG_COLS: tuple[str, ...] = (
     "is_adult",
     "raw_data",
     "detected_tmdb_id",
+    "detected_rating",
+    "detected_added",
     "source_num",
     "source_category",
     "source_quality_flags",
@@ -385,6 +388,8 @@ class ProviderLoadThread(QThread):
                     "is_adult": is_adult,
                     "raw_data": channel.raw_data,
                     "detected_tmdb_id": channel.detected_tmdb_id,
+                    "detected_rating": channel.detected_rating,
+                    "detected_added": channel.detected_added,
                     # Provenance marker for the enrichment funnel: 'list' means the id
                     # came straight from the provider's list row (Phase-1 harvest).  Set
                     # on INSERT only — it is NOT in _CATALOG_UPDATE_COLS, so a later

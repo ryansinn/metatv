@@ -69,6 +69,14 @@ class Channel:
     # provider ships no id (or a sentinel).
     detected_tmdb_id: Optional[str] = None
 
+    # Provider rating/added-date extracted from raw_data at ingestion (DB-4;
+    # content_identity.rating_from_raw/added_from_raw). Persisted to
+    # ChannelDB.detected_rating/detected_added by the catalog upsert so the
+    # Discover shelf queries can sort/filter on an indexed column instead of
+    # json_extract()'ing raw_data per row.
+    detected_rating: Optional[float] = None
+    detected_added: Optional[int] = None
+
     # Timestamps
     added_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
