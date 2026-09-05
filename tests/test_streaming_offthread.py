@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from metatv.core.models import ProviderURL
 from metatv.gui.main_window_streaming import _StreamingMixin
+from metatv.gui.stream_switch import SwitchContext
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -280,3 +281,109 @@ def test_bg_validate_failure_emits_not_ok():
     payload = obj._stream_ready.emit.call_args[0][0]
     assert payload["ok"] is False
     assert payload["stream_err"] == "not available"
+
+
+# ── PLAY-10: Phase 0, same-provider switch skips the probe entirely ─────────
+
+def test_same_provider_switch_skips_validation_and_failover():
+    """A same-provider switch_context must not call validate_and_failover_stream_url
+    (Phase 1) or validate_stream_url (Phase 2's sibling probe) at all — the
+    running stream already proves the source. Emits ok=True with probe_skipped.
+    """
+    obj = _make_mixin()
+
+    provider_db = MagicMock()
+    provider_model = MagicMock()
+    provider_model.ordered_urls.return_value = ["http://primary.example.com"]
+    repos = MagicMock()
+    repos.providers.get_by_id.return_value = provider_db
+    repos.providers.to_model.return_value = provider_model
+    session = MagicMock()
+    obj.db.session_scope = _make_session_scope(session)
+
+    ctx = SwitchContext(same_provider=True, live_base_url=None, one_connection=True)
+
+    with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
+         patch.object(obj, "validate_and_failover_stream_url") as mock_validate, \
+         patch.object(obj, "validate_stream_url") as mock_probe:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+
+    mock_validate.assert_not_called()
+    mock_probe.assert_not_called()
+    obj._stream_ready.emit.assert_called_once()
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert payload["ok"] is True
+    assert payload["probe_skipped"] is True
+    assert payload["final_url"] == "http://primary.example.com/stream.ts"
+
+
+def test_same_provider_switch_rewrites_onto_the_live_host():
+    """When the live host differs and is one of the provider's own candidates,
+    the URL is rewritten onto it (gui.stream_switch.prefer_live_host)."""
+    obj = _make_mixin()
+
+    provider_db = MagicMock()
+    provider_model = MagicMock()
+    provider_model.ordered_urls.return_value = [
+        "http://primary.example.com", "http://alt.example.com",
+    ]
+    repos = MagicMock()
+    repos.providers.get_by_id.return_value = provider_db
+    repos.providers.to_model.return_value = provider_model
+    session = MagicMock()
+    obj.db.session_scope = _make_session_scope(session)
+
+    ctx = SwitchContext(same_provider=True, live_base_url="http://alt.example.com",
+                         one_connection=False)
+
+    with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos):
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert payload["final_url"] == "http://alt.example.com/stream.ts"
+    assert payload["probe_skipped"] is True
+
+
+def test_a_different_provider_switch_context_takes_the_existing_path():
+    """switch_context.same_provider=False must fall through to Phase 1
+    unchanged — same-provider skipping is the only new branch."""
+    obj = _make_mixin()
+    ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=False)
+
+    with patch.object(
+        obj, "validate_and_failover_stream_url",
+        return_value=("http://final.example.com/stream.ts", None),
+    ) as mock_validate:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+
+    mock_validate.assert_called_once()
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert payload["ok"] is True
+    assert "probe_skipped" not in payload
+
+
+def test_no_switch_context_takes_the_existing_path():
+    """The default (None) preserves every pre-PLAY-10 caller unchanged."""
+    obj = _make_mixin()
+
+    with patch.object(
+        obj, "validate_and_failover_stream_url",
+        return_value=("http://final.example.com/stream.ts", None),
+    ) as mock_validate:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1",
+        )
+
+    mock_validate.assert_called_once()
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert "probe_skipped" not in payload

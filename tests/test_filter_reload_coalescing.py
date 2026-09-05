@@ -13,7 +13,6 @@ owner's startup log, five reloads inside seven seconds, each a query over
     15:01:32.223  set_channels gen=6
 """
 
-from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QWidget
 
 from metatv.gui.main_window_channels import _ChannelListMixin
@@ -39,11 +38,19 @@ class _Host(_ChannelListMixin, QWidget):
         pass
 
 
-def _settle(qapp, ms: int = 400) -> None:
-    """Run the event loop long enough for the debounce to fire."""
-    done = []
-    QTimer.singleShot(ms, lambda: (done.append(True), qapp.quit()))
-    qapp.exec()
+def _settle(qtbot, host, expect: int) -> None:
+    """Let the debounce fire, then give any EXTRA reload time to show itself.
+
+    Waits on the reload itself rather than a fixed ``qapp.exec()``/``quit()``
+    window: the fixed 400 ms form failed twice on CI's Linux shard (the 120 ms
+    timer had not fired when the loop quit — that runner takes twice as long
+    on this shard as a dev box) while passing everywhere else. ``expect`` is
+    how many reloads this gesture should produce; ``0`` is the negative case
+    (a cancelled or closing window), which only needs the fixed wait.
+    """
+    if expect:
+        qtbot.waitUntil(lambda: len(host.reloads) >= expect, timeout=3000)
+    qtbot.wait(_ChannelListMixin._FILTER_RELOAD_DEBOUNCE_MS * 3)
 
 
 def test_five_changes_in_a_burst_cause_one_reload(qtbot, qapp) -> None:
@@ -55,7 +62,7 @@ def test_five_changes_in_a_burst_cause_one_reload(qtbot, qapp) -> None:
         host.on_filter_changed()
 
     assert host.reloads == [], "a reload ran before the burst had settled"
-    _settle(qapp)
+    _settle(qtbot, host, 1)
     assert host.reloads == [None], f"expected one reload, got {len(host.reloads)}"
 
 
@@ -65,7 +72,7 @@ def test_a_single_change_still_reloads(qtbot, qapp) -> None:
     qtbot.addWidget(host)
 
     host.on_filter_changed()
-    _settle(qapp)
+    _settle(qtbot, host, 1)
 
     assert host.reloads == [None]
 
@@ -95,9 +102,9 @@ def test_changes_further_apart_than_the_window_each_reload(qtbot, qapp) -> None:
     qtbot.addWidget(host)
 
     host.on_filter_changed()
-    _settle(qapp)
+    _settle(qtbot, host, 1)
     host.on_filter_changed()
-    _settle(qapp)
+    _settle(qtbot, host, 2)
 
     assert host.reloads == [None, None], (
         f"two deliberate gestures collapsed into {len(host.reloads)} reload(s)"
@@ -120,7 +127,7 @@ def test_a_pending_reload_does_not_fire_into_a_closing_window(qtbot, qapp) -> No
 
     host.on_filter_changed()
     host._shutting_down = True      # closeEvent sets this first, before teardown
-    _settle(qapp)
+    _settle(qtbot, host, 0)
 
     assert host.reloads == [], "a deferred reload ran while the window was closing"
 
@@ -132,7 +139,7 @@ def test_the_pending_reload_can_be_cancelled(qtbot, qapp) -> None:
 
     host.on_filter_changed()
     host.stop_filter_reload_timer()
-    _settle(qapp)
+    _settle(qtbot, host, 0)
 
     assert host.reloads == [], "stop_filter_reload_timer did not cancel the reload"
 

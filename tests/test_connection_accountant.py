@@ -246,10 +246,11 @@ class _StubPlayer:
 
 def _make_player_manager(config: _Cfg | None = None):
     from metatv.core.player_manager import PlayerManager
+    from tests.conftest import wire_player_manager_key_maps
 
     pm = PlayerManager.__new__(PlayerManager)
     pm.config = config or _Cfg()
-    pm._key_provider = {}
+    wire_player_manager_key_maps(pm)
     pm._init_connection_accounting()
     pm.player = _StubPlayer()
     return pm

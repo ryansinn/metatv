@@ -64,10 +64,12 @@ def _make_player(config: _FakeConfig | None = None) -> MPVPlayer:
 
 
 def _make_manager(config: _FakeConfig | None = None) -> PlayerManager:
+    from tests.conftest import wire_player_manager_key_maps
+
     cfg = config or _FakeConfig()
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
-    mgr._key_provider = {}
+    wire_player_manager_key_maps(mgr)
     mgr._init_connection_accounting()
     mgr.player = _make_player(cfg)
     return mgr

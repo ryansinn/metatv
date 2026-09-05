@@ -44,10 +44,12 @@ class _FakeConfig:
 
 def _make_manager(split: bool = False) -> PlayerManager:
     """Build a PlayerManager via __new__ with a fake player; no real mpv."""
+    from tests.conftest import wire_player_manager_key_maps
+
     cfg = _FakeConfig(split_streams_by_source=split)
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
-    mgr._key_provider = {}
+    wire_player_manager_key_maps(mgr)
     mgr._init_connection_accounting()
     mgr.player = None  # overridden per-test as needed
     return mgr

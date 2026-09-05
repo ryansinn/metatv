@@ -231,3 +231,27 @@ class UrlCycler:
         nothing changed (e.g. every candidate had no matching ``ProviderURL``).
         """
         return self._dirty
+
+
+def rebase_stream_url(original_url: str, old_base: str, new_base: str) -> str:
+    """Rewrite *original_url* onto a different host by prefix replacement.
+
+    The one definition of "reconstruct a stream URL on another base" — shared
+    by ``main_window_streaming.reconstruct_stream_url`` (same-source failover,
+    a thin wrapper over this) and ``gui.stream_switch.prefer_live_host``
+    (same-provider switching, PLAY-10), so a switch that reroutes onto the
+    live host uses the identical rewrite the failover path already trusts
+    instead of a second hand-rolled string replace.
+
+    Args:
+        original_url: Full stream URL to rewrite.
+        old_base: Base URL (``scheme://netloc``) to replace.
+        new_base: Base URL to replace it with.
+
+    Returns:
+        The rewritten URL, or *original_url* unchanged if it does not start
+        with *old_base*.
+    """
+    if original_url.startswith(old_base):
+        return original_url.replace(old_base, new_base, 1)
+    return original_url

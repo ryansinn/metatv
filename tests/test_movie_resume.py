@@ -356,13 +356,14 @@ def test_on_stream_ready_defaults_start_seconds_to_zero():
 def test_player_manager_play_threads_start_seconds():
     """PlayerManager.play() forwards start_seconds to the underlying player."""
     from metatv.core.player_manager import PlayerManager
+    from tests.conftest import wire_player_manager_key_maps
     pm = PlayerManager.__new__(PlayerManager)
     pm.config = MagicMock(
         split_streams_by_source=False,
         max_player_instances=-1,
         player_mode="single-instance",
     )
-    pm._key_provider = {}
+    wire_player_manager_key_maps(pm)
     pm._init_connection_accounting()
     pm.player = MagicMock()
     pm.player.play.return_value = True

@@ -21,9 +21,10 @@ from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.stream_diagnostics import _redact
-from metatv.core.url_cycle import UrlCycler
+from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import playback_start_watch as _startwatch
 from metatv.gui import icons as _icons
+from metatv.gui import stream_switch as _stream_switch
 from metatv.gui.watch_capture import _WatchCaptureMixin
 from metatv.providers.xtream import _DEFAULT_HEADERS
 
@@ -283,20 +284,8 @@ class _StreamingMixin(_WatchCaptureMixin):
         return "", last_advisory_err
 
     def reconstruct_stream_url(self, original_url: str, old_base: str, new_base: str) -> str:
-        """Reconstruct stream URL with new base domain
-
-        Args:
-            original_url: Original full stream URL
-            old_base: Old base URL to replace
-            new_base: New base URL
-
-        Returns:
-            Reconstructed URL
-        """
-        # Simple string replacement
-        if original_url.startswith(old_base):
-            return original_url.replace(old_base, new_base, 1)
-        return original_url
+        """Reconstruct stream URL with new base domain — see url_cycle.rebase_stream_url."""
+        return rebase_stream_url(original_url, old_base, new_base)
 
     def play_media(
         self,
@@ -315,23 +304,17 @@ class _StreamingMixin(_WatchCaptureMixin):
         Args:
             channel: Channel DTO / ORM object with ``stream_url``, ``name``,
                 ``provider_id``, etc.
-            force_new_window: When True, the stream is keyed by provider_id
-                regardless of the ``split_streams_by_source`` toggle — used by
-                "Play in New Window" to open/replace a separate per-source window.
-            open_ended_buffer: When True, the player uses a large disk-backed
-                cache (up to 2 GiB, 3600 s readahead) instead of the configured
-                bounded buffer profile.  Use this to build a big buffer lead to
-                ride out an unstable stream.
-            deep_buffer: When True (VOD-only — the menu action gates this),
-                the player also records the raw stream to disk via
-                ``--stream-record`` ("Buffer without limit" / deep-cache mode)
-                on top of the open-ended cache. Mutually exclusive in practice
-                with ``open_ended_buffer`` (deep-cache wins if both are set —
-                see ``MPVPlayer.play``).
-            start_override: When set, forces the seek position regardless of
-                ``config.playback_resume_mode`` and the channel's saved progress.
-                ``0`` forces start from the beginning; a positive int forces resume
-                to that specific second.  ``None`` means "use the setting default".
+            force_new_window: Key by provider_id regardless of the
+                ``split_streams_by_source`` toggle — "Play in New Window".
+            open_ended_buffer: Large disk-backed cache (2 GiB / 3600s readahead)
+                instead of the configured buffer profile, to ride out an
+                unstable stream.
+            deep_buffer: VOD-only (menu-gated) — also records the raw stream
+                via ``--stream-record`` ("Buffer without limit"); wins over
+                ``open_ended_buffer`` if both set (see ``MPVPlayer.play``).
+            start_override: Forces the seek position regardless of
+                ``config.playback_resume_mode``/saved progress — ``0`` = from
+                the start, a positive int = that second, ``None`` = default.
         """
         channel_id = channel.id
 
@@ -343,8 +326,7 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         self.loading_channels.add(channel_id)
 
-        # Guard: stream URL and player availability are known from the channel
-        # object already in memory — no DB or network needed here.
+        # Guard: stream URL / player availability are known from the in-memory channel.
         if not channel.stream_url:
             logger.error(f"Channel {channel.name} has no stream URL")
             self.status_bar.showMessage(f"Error: No stream URL for {channel.name}")
@@ -359,11 +341,8 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         # Show loading notification (must be main thread — creates QTimer)
         notif_id = self.notification_manager.show(
-            title="Loading Stream",
-            message=f"Buffering {channel.name}...",
-            type="info",
-            auto_dismiss_ms=5000
-        )
+            title="Loading Stream", message=f"Buffering {channel.name}...",
+            type="info", auto_dismiss_ms=5000)
 
         logger.info("=== Playing Channel ===")
         logger.info(f"Name: {channel.name}")
@@ -371,13 +350,10 @@ class _StreamingMixin(_WatchCaptureMixin):
         logger.info(f"Stream URL: {channel.stream_url}")
         logger.info(f"Player: {self.player_manager.get_player_name()}")
 
-        # Determine resume position.
-        # Priority: start_override (explicit per-play) > config.playback_resume_mode > no-resume.
-        # Live channels and VOD with no saved progress always start at 0.
-        # The write-side invariant (record_watch_progress) guarantees watch_progress > 0
-        # implies watch_completed is False, so the watch_completed check is redundant and
-        # is omitted here — this also heals any legacy rows stuck with progress > 0 and
-        # watch_completed = True from before the fix landed.
+        # Resume position: start_override > config.playback_resume_mode > 0. Live/no-
+        # progress VOD always starts at 0. watch_completed is deliberately not checked —
+        # the write-side invariant (record_watch_progress) guarantees progress > 0 implies
+        # not completed, which also heals legacy rows stuck from before that fix.
         from metatv.core.models import MediaType
         is_live = (channel.media_type == MediaType.LIVE)
         watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
@@ -393,9 +369,24 @@ class _StreamingMixin(_WatchCaptureMixin):
             start_seconds = 0
 
         # Claim the source BEFORE the probe below — validate_stream_url opens a
-        # provider connection the accountant cannot see. Why that matters, with
-        # the measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
+        # provider connection the accountant cannot see (ConnectionAccountant.
+        # PROVIDER_COOLDOWN_S has the measurements).
         self.player_manager.claim_for_playback(channel.provider_id)
+
+        # PLAY-10: a window already running THIS provider is standing proof the
+        # source is reachable right now — see gui/stream_switch.py. Recorded on
+        # self for the watchdog (playback_start_watch) to name the real cause
+        # if a one-connection source still takes a moment to free its slot.
+        switch_key = self.player_manager.resolve_key(channel.provider_id, force_new_window)
+        switch_ctx = _stream_switch.switch_context(
+            self.player_manager, self.player_manager.connection_accountant,
+            channel.provider_id, switch_key)
+        self._switch_same_provider = switch_ctx.same_provider
+        if switch_ctx.same_provider and switch_ctx.one_connection:
+            pname = self._provider_display_name(channel.provider_id)
+            self.status_bar.showMessage(
+                f"Switching on {pname} — the source may count the previous "
+                "stream for a few seconds…")
 
         # Off-load network validation + failover to the shared executor.
         # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.
@@ -410,6 +401,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             start_seconds,
             open_ended_buffer,
             deep_buffer, getattr(channel, "event_start_time", None),
+            switch_ctx,
         )
 
     # ── Auth/gating HTTP codes that are treated as uncertain (advisory, not hard) ──
@@ -450,20 +442,26 @@ class _StreamingMixin(_WatchCaptureMixin):
         open_ended_buffer: bool = False,
         deep_buffer: bool = False,
         event_start_time=None,   # the channel's event_start_time, or None
+        switch_context: "_stream_switch.SwitchContext | None" = None,
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
-        Phase 1 — same-source failover (existing path):
-            Try the channel's primary URL; if that fails, cycle through the
-            provider's alternate base URLs via ``validate_and_failover_stream_url``.
+        Phase 0 — same-provider switch (PLAY-10), only when *switch_context*
+        says the running window is already on this provider: the currently
+        playing stream is standing proof the source is reachable, so both
+        phases below are skipped entirely — no re-probe, no failover — and the
+        URL is rewritten onto the live host when that's safer (see
+        ``gui.stream_switch.prefer_live_host``) before emitting success.
 
-        Phase 2 — cross-source sibling failover (new):
-            If every same-source URL fails and the channel has a ``content_key``,
-            look up sibling channels on OTHER providers that share the same
-            ``content_key`` (``ChannelRepository.get_content_key_siblings``).
-            Try each active sibling in ranked order (active providers first, then
-            by quality tier).  First one that validates wins; emit success silently
-            (no failure toast).
+        Phase 1 — same-source failover (existing path): try the channel's
+        primary URL; if that fails, cycle the provider's alternate base URLs
+        via ``validate_and_failover_stream_url``.
+
+        Phase 2 — cross-source sibling failover: if every same-source URL
+        fails and the channel has a ``content_key``, look up sibling channels
+        on OTHER providers sharing it (``ChannelRepository.
+        get_content_key_siblings``) and try each active one in ranked order;
+        first validated sibling wins silently (no failure toast).
 
         On total failure the emit payload carries the original channel's URL and
         any sibling alternatives (so the failure toast can offer them).
@@ -471,6 +469,34 @@ class _StreamingMixin(_WatchCaptureMixin):
         Runs in ``self.executor``.  Must NOT touch Qt widgets — all UI work is
         done in ``_on_stream_ready``, which runs on the main thread via the signal.
         """
+        # ── Phase 0: same-provider switch — the running stream already proves
+        # the source, so the probe/failover below would only cost this play a
+        # connection the provider hasn't reaped yet ─────────────────────────
+        if switch_context is not None and switch_context.same_provider:
+            logger.info("same-provider switch: probe skipped (the source is "
+                        "proven by the current stream)")
+            final_url = stream_url
+            try:
+                with self.db.session_scope(commit=False) as session:
+                    repos = RepositoryFactory(session)
+                    provider_db = repos.providers.get_by_id(provider_id)
+                    if provider_db:
+                        provider_model = repos.providers.to_model(provider_db)
+                        final_url = _stream_switch.prefer_live_host(
+                            stream_url, switch_context.live_base_url, provider_model)
+            except Exception as e:
+                logger.warning(f"same-provider switch: host lookup failed: {e}")
+            self._stream_ready.emit({
+                "ok": True, "channel_id": channel_id, "channel_name": channel_name,
+                "original_url": stream_url, "final_url": final_url, "stream_err": "",
+                "notif_id": notif_id, "provider_id": provider_id,
+                "force_new_window": force_new_window, "start_seconds": start_seconds,
+                "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
+                "siblings": [], "event_start_time": event_start_time,
+                "probe_skipped": True,
+            })
+            return
+
         # ── Phase 1: same-source validate + failover ────────────────────────
         try:
             final_url, stream_err = self.validate_and_failover_stream_url(
@@ -481,40 +507,24 @@ class _StreamingMixin(_WatchCaptureMixin):
             final_url, stream_err = "", str(e)
 
         if final_url:
-            # A failover that switched hosts must stick to this item — otherwise
-            # every future play of this same channel re-starts from the dead
-            # host and re-pays the validation stall. Only the played item's own
-            # row is touched (never a provider-wide rewrite; see UrlCycler for
-            # the general "stop trying the bad host" ranking fix).
+            # A failover that switched hosts must stick to THIS item — otherwise every
+            # future play re-starts from the dead host and re-pays the validation stall.
+            # Only the played item's own row is touched (never provider-wide; see
+            # UrlCycler for the general "stop trying the bad host" ranking fix).
             if final_url != stream_url:
                 try:
                     with self.db.session_scope() as session:
-                        RepositoryFactory(session).channels.update_stream_url(
-                            channel_id, final_url
-                        )
-                    logger.info(
-                        f"Failover stuck for channel {channel_id}: "
-                        f"{_redact(final_url)}"
-                    )
+                        RepositoryFactory(session).channels.update_stream_url(channel_id, final_url)
+                    logger.info(f"Failover stuck for channel {channel_id}: {_redact(final_url)}")
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to persist failover URL for channel {channel_id}: {e}"
-                    )
+                    logger.warning(f"Failed to persist failover URL for channel {channel_id}: {e}")
             self._stream_ready.emit({
-                "ok": True,
-                "channel_id": channel_id,
-                "channel_name": channel_name,
-                "original_url": stream_url,
-                "final_url": final_url,
-                "stream_err": "",
-                "notif_id": notif_id,
-                "provider_id": provider_id,
-                "force_new_window": force_new_window,
-                "start_seconds": start_seconds,
-                "open_ended_buffer": open_ended_buffer,
-                "deep_buffer": deep_buffer,
-                "siblings": [],
-                "event_start_time": event_start_time,
+                "ok": True, "channel_id": channel_id, "channel_name": channel_name,
+                "original_url": stream_url, "final_url": final_url, "stream_err": "",
+                "notif_id": notif_id, "provider_id": provider_id,
+                "force_new_window": force_new_window, "start_seconds": start_seconds,
+                "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
+                "siblings": [], "event_start_time": event_start_time,
             })
             return
 
@@ -545,19 +555,15 @@ class _StreamingMixin(_WatchCaptureMixin):
                         if sib_ok:
                             # Sibling works — emit success using the sibling's provider_id
                             self._stream_ready.emit({
-                                "ok": True,
-                                "channel_id": sib["id"],
+                                "ok": True, "channel_id": sib["id"],
                                 "channel_name": channel_name,   # keep user-facing name
-                                "original_url": stream_url,
-                                "final_url": sib_url,
-                                "stream_err": "",
-                                "notif_id": notif_id,
+                                "original_url": stream_url, "final_url": sib_url,
+                                "stream_err": "", "notif_id": notif_id,
                                 "provider_id": sib["provider_id"],
                                 "force_new_window": force_new_window,
                                 "start_seconds": start_seconds,
                                 "open_ended_buffer": open_ended_buffer,
-                                "deep_buffer": deep_buffer,
-                                "siblings": [],
+                                "deep_buffer": deep_buffer, "siblings": [],
                                 "sibling_failover": True,   # for status-bar annotation
                                 "sibling_name": sib.get("name", ""),
                                 "event_start_time": event_start_time,
@@ -569,18 +575,11 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         # ── Total failure — emit for the failure toast ───────────────────────
         self._stream_ready.emit({
-            "ok": False,
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "original_url": stream_url,
-            "final_url": "",
-            "stream_err": stream_err or "",
-            "notif_id": notif_id,
-            "provider_id": provider_id,
-            "force_new_window": force_new_window,
-            "start_seconds": start_seconds,
-            "open_ended_buffer": open_ended_buffer,
-            "deep_buffer": deep_buffer,
+            "ok": False, "channel_id": channel_id, "channel_name": channel_name,
+            "original_url": stream_url, "final_url": "", "stream_err": stream_err or "",
+            "notif_id": notif_id, "provider_id": provider_id,
+            "force_new_window": force_new_window, "start_seconds": start_seconds,
+            "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
             "siblings": siblings,   # list of dicts for the failure toast
             "event_start_time": event_start_time,
         })
@@ -620,8 +619,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             # Build actions: always Copy Error; advisory → Play Anyway; siblings → extra
             actions = []
 
-            # Play Anyway — offered for advisory (auth/gating) errors AND as a
-            # general escape hatch so the user can override the pre-flight check.
+            # Play Anyway — for advisory (auth/gating) errors, and as a general
+            # escape hatch letting the user override the pre-flight check.
             _pid = data.get("provider_id")
             _fnw = data.get("force_new_window", False)
             _cid = channel_id
@@ -709,6 +708,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             self.status_bar.showMessage(
                 f"Switched to alternate source for {channel_name}…"
             )
+        elif data.get("probe_skipped"):
+            logger.info(f"Same-provider switch: skipped the probe for {channel_name}")
         elif final_url != original_url:
             logger.info(f"Using failover URL: {final_url}")
 
@@ -1356,16 +1357,13 @@ class _StreamingMixin(_WatchCaptureMixin):
         if not props or not props.get("path"):
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
-            # The player just went idle — the user closed it. If the details
-            # pane is still showing what was playing, re-read it so a part-
-            # watched title offers Resume straight away.
-            #
-            # The position is already stored by then (_bg_capture_watch writes
-            # it during playback), but the pane was rendered BEFORE the watch
-            # existed, so it still shows a bare Play. Owner, 2026-09-01: "I was
-            # half way through watching the movie, closed the movie, the details
-            # panel should show resume if the content I just closed was the
-            # content mpv was just playing."
+            # The player just went idle — the user closed it. Re-read the details
+            # pane (if it's still showing what was playing) so a part-watched title
+            # offers Resume straight away — the position is already stored
+            # (_bg_capture_watch), but the pane was rendered before the watch
+            # existed. Owner, 2026-09-01: "closed the movie, the details panel
+            # should show resume if the content I just closed was the content
+            # mpv was just playing."
             self._refresh_details_after_playback_stopped(key)
             if _startwatch.on_idle_tick(self):
                 self._playback_health_timer.stop()
@@ -1373,7 +1371,8 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         if _startwatch.on_playing(self) and (att := self.__dict__.get("_health_attempt")):
             self.status_bar.showMessage(f"Playing: {att.channel_name}")
-        _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")))
+        _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")),
+                                   cache_duration=props.get("demuxer-cache-duration"))
         text = format_playback_health(
             props.get("demuxer-cache-duration"),
             props.get("cache-speed"),

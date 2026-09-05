@@ -13,23 +13,25 @@ from typing import Optional
 from loguru import logger
 
 from metatv.core.players.base import PlayerPlugin, QueueMode
+from metatv.core.players.mpv_log_tap import start_log_tap
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
-# Always-on reconnect for transient live-stream drops. These options have been
-# stable across ffmpeg/libavformat for many years and are intentionally
-# conservative (no --hls-use-mpegts or newer opts that vary by build).
-#
-# reconnect_on_http_error=5xx covers what the other three do not: they retry a
-# stream that DROPS, not one that never opened. On a one-connection account a
-# 5xx on the initial GET is the common failure — the provider refuses while it
-# still counts a background call it has not reaped — and mpv exited instantly.
-# 4xx is excluded on purpose: being told no must still fail fast. Rationale and
-# measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
+# Always-on reconnect for transient live-stream drops (stable ffmpeg/libavformat
+# options; no --hls-use-mpegts or other build-varying opts). reconnect_on_http_error
+# =5xx covers what the other three do not: a stream that never opened, not one that
+# DROPPED. On a one-connection account a 5xx on the initial GET is the common
+# failure (the provider refuses while it still counts a call it hasn't reaped, and
+# mpv used to exit instantly) — 4xx stays excluded, being told no must still fail
+# fast. Rationale/measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
+# reconnect_delay_max=8 (PLAY-10, was 30) is the PER-ATTEMPT cap, not a total —
+# ffmpeg's uncapped backoff is 1,2,4,8,16s, so attempts now land at roughly
+# +1,+3,+7,+15,+23s (was +1,+3,+7,+15,+31s), landing three extra tries inside the
+# provider's own 14-26s reaper window (#635) instead of one arriving after it.
 RECONNECT_FLAG = (
     "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
-    "reconnect_delay_max=30,reconnect_on_http_error=5xx"
+    "reconnect_delay_max=8,reconnect_on_http_error=5xx"
 )
 
 # Constant instance key used when split_streams_by_source is False.
@@ -292,25 +294,23 @@ class MPVPlayer(PlayerPlugin):
     ) -> bool:
         """Start a fresh IPC-enabled mpv process under *key* and register it.
 
-        Shared implementation used by :meth:`_ensure_instance_running` (normal launch)
-        and :meth:`_relaunch_instance` (open-ended buffer / deep-cache relaunch).  The
-        caller is responsible for any pre-launch cleanup (socket removal, terminating
-        the old process) — this method assumes the slot is free.
+        Shared by :meth:`_ensure_instance_running` (normal launch) and
+        :meth:`_relaunch_instance` (open-ended/deep-cache relaunch) — the caller
+        does any pre-launch cleanup; this method assumes the slot is free.
+        stderr is piped and tapped (``mpv_log_tap.start_log_tap``) instead of
+        ``DEVNULL`` so mpv's own diagnostics reach our log (PLAY-10).
 
         Args:
-            key: Instance key; determines the IPC socket path via
-                :meth:`_socket_path_for`.
-            extra_args: Fully-composed mpv argument list (UA + reconnect + cache flags
-                + user args).  The IPC server flag, ``--force-window``, ``--keep-open``,
-                and ``--idle`` are added here automatically.
-            record_path: Deep-cache ``--stream-record`` file this instance was launched
-                with, if any ("" for a normal/open-ended launch) — stored on the
-                registered ``_Inst`` so teardown can find it.
+            key: Instance key — the socket path (:meth:`_socket_path_for`) and
+                this process's log tag.
+            extra_args: Fully-composed mpv argument list (UA + reconnect + cache
+                flags + user args); IPC/window/idle flags are added here.
+            record_path: Deep-cache ``--stream-record`` file this instance
+                launched with, if any — stored on the registered ``_Inst``.
 
         Returns:
-            True if the process started and its socket appeared within the timeout,
-            False on any failure (the instance is still registered so IPC can be
-            attempted if the socket appears later).
+            True if the process started and its socket appeared in time, False
+            on any failure (still registered so IPC can be retried later).
         """
         sock_path = self._socket_path_for(key)
 
@@ -329,6 +329,7 @@ class MPVPlayer(PlayerPlugin):
                 f"--input-ipc-server={sock_path}",
                 "--force-window=yes",
                 "--keep-open=no",
+                "--msg-level=all=warn",
             ]
 
             if self.config.close_player_when_finished:
@@ -340,11 +341,8 @@ class MPVPlayer(PlayerPlugin):
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            start_log_tap(process, key)
 
             logger.info(f"Started mpv instance [{key}] PID {process.pid}")
 
@@ -841,19 +839,19 @@ class MPVPlayer(PlayerPlugin):
     ) -> bool:
         """Launch a standalone (no-IPC) mpv process for *url*.
 
+        stderr is piped and tapped (``mpv_log_tap.start_log_tap``, tagged with
+        *title* — no instance key exists here) instead of ``DEVNULL`` (PLAY-10).
+
         Args:
             url: Stream URL.
-            title: Title to display.
-            start_seconds: When > 0, pass ``--start=<N>`` so mpv begins at
-                that offset.  Used when ``open_ended_buffer``/``deep_buffer``
-                and resume position must compose.
-            open_ended_buffer: When True, use open-ended disk-backed cache
-                args instead of the configured buffer profile.  The reconnect
-                flag and user's ``mpv_extra_args`` still apply (appended last).
-            deep_buffer: When True, use the deep-cache args (open-ended cache +
-                ``--stream-record=<record_path>`` + start-paused). Takes
-                priority over ``open_ended_buffer`` if both are set.
-            record_path: The ``--stream-record`` target path. Required (and
+            title: Title to display; also the log tap's tag.
+            start_seconds: When > 0, ``--start=<N>`` (resume + open-ended/deep
+                buffer composition).
+            open_ended_buffer: Open-ended disk-backed cache args instead of the
+                configured buffer profile (reconnect flag + user args still apply).
+            deep_buffer: Deep-cache args (open-ended cache + ``--stream-record``
+                + start-paused); wins over ``open_ended_buffer`` if both are set.
+            record_path: The ``--stream-record`` target path — required (and
                 only used) when ``deep_buffer`` is True.
 
         Returns:
@@ -867,18 +865,20 @@ class MPVPlayer(PlayerPlugin):
             else:
                 extra_args = self._compose_extra_args()
 
-            cmd = [_resolve_mpv_binary(), f"--force-media-title={title}"] + extra_args
+            cmd = ([_resolve_mpv_binary(), f"--force-media-title={title}",
+                    "--msg-level=all=warn"] + extra_args)
             if start_seconds > 0:
                 cmd.append(f"--start={start_seconds}")
             cmd.append(url)
 
             logger.info(f"Launching new mpv instance: {' '.join(cmd[:3])}...")
 
-            subprocess.Popen(
+            process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
+            start_log_tap(process, title)
 
             logger.info("mpv process started")
             return True
