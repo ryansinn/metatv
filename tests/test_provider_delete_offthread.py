@@ -11,11 +11,13 @@ Guards the confirmed bug + its two-part fix:
 
 * Part B — ``prune_provider_content`` now removes ``content_tags`` (no FK cascade,
   so they were leaked before) for the doomed channels, sparing engaged channels'
-  tags; and a one-time ``_prune_orphaned_content_tags`` migration heals the
-  pre-existing backlog.
+  tags. Healing a pre-existing backlog left by something else is
+  ``OrphanSweepTask`` — see tests/test_orphan_sweep_task.py (DB-5; formerly a
+  one-time ``_prune_orphaned_content_tags`` migration gated on ``PRAGMA
+  user_version`` that only ever ran once).
 
 Per CLAUDE.md every test uses a real ``Database`` on a ``tmp_path`` file — never
-``:memory:`` (pooled in-memory connections don't share schema / ``user_version``).
+``:memory:`` (pooled in-memory connections don't share schema).
 """
 
 from __future__ import annotations
@@ -230,54 +232,6 @@ def test_delete_requested_noop_on_empty_provider_id(db):
     _REQUEST(me, "")
     me.notification_manager.show_progress.assert_not_called()
 
-
-# ── Part B: one-time orphaned-content_tags cleanup migration ─────────────────
-
-
-def test_orphaned_content_tags_migration_heals_backlog(tmp_path):
-    """create_tables() removes content_tags whose channel no longer exists, keeps
-    valid ones, and is idempotent on a second run (user_version=3 gate)."""
-    db_file = tmp_path / "ct_heal.db"
-
-    # Build a raw DB (no migrations) with a valid channel + a valid tag link and an
-    # orphaned tag link (channel_id points at a channel that was never inserted).
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from metatv.core.database import Base
-
-    raw_engine = create_engine(f"sqlite:///{db_file}", echo=False,
-                               connect_args={"check_same_thread": False})
-    Base.metadata.create_all(raw_engine)
-    RawSession = sessionmaker(bind=raw_engine)
-
-    live_ch = str(uuid.uuid4())
-    with RawSession() as s:
-        s.add(ProviderDB(id="p1", name="P1", type="xtream",
-                         url="http://x", username="u", password="p"))
-        s.add(ChannelDB(id=live_ch, source_id=live_ch, provider_id="p1",
-                        name="Live", media_type="movie"))
-        s.add(TagDB(id=1, type="genre", value="Action"))
-        # Valid link (channel exists)
-        s.add(ContentTagDB(channel_id=live_ch, tag_id=1, source="generated"))
-        # Orphaned link (channel_id "ghost" has no channels row)
-        s.add(ContentTagDB(channel_id="ghost", tag_id=1, source="generated"))
-        s.commit()
-    raw_engine.dispose()
-
-    # create_tables() triggers the one-time content_tags cleanup migration.
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-
-    with db.session_scope(commit=False) as session:
-        assert session.query(ContentTagDB).filter_by(channel_id="ghost").count() == 0, \
-            "orphaned content_tags must be removed by the one-time migration"
-        assert session.query(ContentTagDB).filter_by(channel_id=live_ch).count() == 1, \
-            "content_tags for a live channel must be preserved"
-    db.close()
-
-    # Second run: idempotent (user_version=3 gates it) — must not raise or delete more.
-    db2 = Database(f"sqlite:///{db_file}")
-    db2.create_tables()
-    with db2.session_scope(commit=False) as session:
-        assert session.query(ContentTagDB).filter_by(channel_id=live_ch).count() == 1
-    db2.close()
+# Healing a pre-existing orphaned-content_tags backlog (a channel deleted by
+# something other than prune_provider_content) is OrphanSweepTask's job now —
+# see tests/test_orphan_sweep_task.py::test_run_removes_content_tags_for_missing_channels_only.
