@@ -96,12 +96,27 @@ def test_escape_on_non_empty_text_clears_and_emits_escaped(qapp, qtbot):
     assert escaped == [True], f"expected escaped() exactly once, got {escaped}"
 
 
-def test_escape_on_empty_text_propagates_rather_than_consuming(qapp, qtbot):
-    """Nothing to clear -> the widget must NOT claim the key as its own escape
-    gesture (a host that only hides on ``escaped`` must not hide here)."""
-    box = ScopedFilterBox("Search…", debounce_ms=0)
-    qtbot.addWidget(box)
-    box.show()
+def test_escape_on_empty_text_emits_escaped_and_propagates(qapp, qtbot):
+    """Nothing to clear -> ``escaped`` still fires (the Watch Queue hides its
+    find box on Escape whether or not there was text, as its pre-SEARCH-10
+    QShortcut did), but the key is NOT consumed: it reaches the parent, so a
+    dialog hosting the box still closes on Escape."""
+    from PyQt6.QtWidgets import QWidget
+
+    class _Host(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.escapes = 0
+
+        def keyPressEvent(self, event):  # noqa: N802 (Qt override)
+            if event.key() == Qt.Key.Key_Escape:
+                self.escapes += 1
+            super().keyPressEvent(event)
+
+    host = _Host()
+    qtbot.addWidget(host)
+    box = ScopedFilterBox("Search…", debounce_ms=0, parent=host)
+    host.show()
     assert box.text() == ""
 
     escaped = []
@@ -110,9 +125,15 @@ def test_escape_on_empty_text_propagates_rather_than_consuming(qapp, qtbot):
     box.setFocus()
     qtbot.keyClick(box, Qt.Key.Key_Escape)
 
-    assert escaped == [], (
-        "Escape on an already-empty box must propagate, not emit escaped()"
+    assert escaped == [True], "Escape on an empty box must still emit escaped()"
+    assert host.escapes == 1, (
+        "Escape on an already-empty box must propagate to the parent"
     )
+
+    box.setText("abc")
+    qtbot.keyClick(box, Qt.Key.Key_Escape)
+    assert box.text() == "" and escaped == [True, True]
+    assert host.escapes == 1, "a consumed clear must not also reach the parent"
 
 
 def test_the_role_sheet_is_applied_through_the_registry(qapp):

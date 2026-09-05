@@ -58,12 +58,13 @@ class ScopedFilterBox(QLineEdit):
             moment — a cheap no-arg hook for a site that only cares THAT it
             was cleared (e.g. to fold itself away), without also having to
             filter on an empty string.
-        escaped(): emitted when Escape is pressed while there is text to
-            clear (after that clear happens) — lets a host hide/collapse the
-            box itself, e.g. the Watch Queue's find-in-queue panel. Escape on
-            an already-empty box is NOT consumed here; it propagates to the
-            base implementation (and from there, up the widget tree) so nothing
-            forces a host to override *this* to keep its own Escape handling.
+        escaped(): emitted on every Escape press (after clearing any text) —
+            lets a host hide/collapse the box itself, e.g. the Watch Queue's
+            find-in-queue panel, which hides on Escape whether or not there
+            was text. The key event is consumed only when there WAS text to
+            clear; Escape on an already-empty box propagates to the base
+            implementation (and from there, up the widget tree) so a dialog
+            hosting the box still closes on it.
     """
 
     filterChanged = pyqtSignal(str)
@@ -102,11 +103,19 @@ class ScopedFilterBox(QLineEdit):
     # ── Qt overrides ─────────────────────────────────────────────────────
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
-        if event.key() == Qt.Key.Key_Escape and self.text():
-            self.clear()  # → _on_text_changed("") fires filterCleared + filterChanged("")
+        if event.key() == Qt.Key.Key_Escape:
+            had_text = bool(self.text())
+            if had_text:
+                self.clear()  # → _on_text_changed("") fires filterCleared + filterChanged("")
+            # ``escaped`` fires either way: the Watch Queue hides its find box
+            # on Escape whether or not there was text (the pre-SEARCH-10
+            # QShortcut did), and a host that only cares about the clear can
+            # ignore it. Only a consumed clear stops the key here — an
+            # already-empty box lets Escape propagate (a dialog still closes).
             self.escaped.emit()
-            event.accept()
-            return
+            if had_text:
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     # ── private ──────────────────────────────────────────────────────────
