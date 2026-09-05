@@ -326,12 +326,8 @@ def _build_semantic_constants() -> dict[str, object]:
         " font-size: " + FONT_MD + "; padding: 4px 8px; text-align: left; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
     )
-    # SEARCH-10: the ONE QLineEdit look for gui/scoped_filter_box.py's
-    # ScopedFilterBox — before it, a dozen hand-rolled search/filter boxes
-    # ranged from unstyled (queue.py, epg_browse_mixin.py, discover_browse.py,
-    # global_filter_dialog.py, …) to a bespoke OVERLAY_05-tinted compact box
-    # (weighted_tag_cloud.py). One role now, composed once, applied by the
-    # widget itself so every adopter converges without a per-site sheet.
+    # SEARCH-10: the ONE QLineEdit look, applied by gui/scoped_filter_box.py
+    # itself — a dozen hand-rolled search boxes ranged from unstyled to bespoke.
     SCOPED_FILTER_BOX = (
         "QLineEdit { background: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
@@ -2149,27 +2145,18 @@ def registered_style_count() -> int:
 #  Palette-difference rewrite — the floor under COMPOSED stylesheets           #
 # --------------------------------------------------------------------------- #
 #
-# style()/style_fn() cover widgets that opted in. ~370 call sites still build a
-# stylesheet by f-string and hand it straight to setStyleSheet(), and Qt caches
-# the RENDERED string, so those keep painting the previous palette after a
-# switch. Converting them one by one is ~300 edits across every screen, each an
-# opportunity for a late-binding closure bug — and it would fix only the sites
-# that existed the day it was done.
-#
-# Instead: after the tokens rebind, compute what each *colour value* became, and
-# rewrite those substrings wherever they still appear. A stylesheet built from
-# COLOR_BG literally contains COLOR_BG's old value, whatever expression produced
-# it — so this reaches every composed sheet, including ones not yet written.
-#
-# Two guards keep it from rewriting something it shouldn't:
-#
-#   * **Ambiguity** — if one old value maps to two different new values, there is
-#     no single right answer, so it is skipped rather than guessed at.
-#   * **Invariance** — some tokens are deliberately theme-INVARIANT (the mood
-#     chips, COLOR_QUALITY_*, the lightbox family, which sit over photographic
-#     posters). If an invariant token holds the same value some variable token
-#     used to hold, rewriting that value would silently re-theme the thing that
-#     was pinned on purpose. Those values are excluded outright.
+# style()/style_fn() cover widgets that opted in; ~370 sites still hand an
+# f-string sheet straight to setStyleSheet(), and Qt caches the RENDERED string,
+# so they keep painting the previous palette. Converting them is ~300 edits and
+# fixes only the sites that exist today. Instead: after the tokens rebind, map
+# each old colour VALUE to its new one and rewrite those substrings wherever they
+# still appear — a sheet built from COLOR_BG literally contains COLOR_BG's old
+# value, so this reaches every composed sheet, including ones not yet written.
+# Two guards: **ambiguity** (one old value → two new values is skipped, never
+# guessed) and **invariance** (a theme-INVARIANT token — mood chips,
+# COLOR_QUALITY_*, the lightbox family over posters — that happens to hold a
+# value some variable token used to hold is excluded, else the rewrite would
+# silently re-theme what was pinned on purpose).
 
 _COLOR_TOKEN_PREFIXES: tuple[str, ...] = ("COLOR_", "OVERLAY_")
 
