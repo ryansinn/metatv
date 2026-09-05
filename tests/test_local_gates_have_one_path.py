@@ -43,7 +43,6 @@ _SCRIPTS = _ROOT / "scripts"
 #:
 #: ``conftest.py`` is not in the count — it is where the shared one lives.
 _KNOWN_PRIVATE_TEARDOWNS = {
-    "test_filter_only_and_none.py",
     "test_lightbox_badges_and_watch_later.py",
     "test_lightbox_metadata_lens.py",
     "test_toggle_chip_paints_setchecked.py",

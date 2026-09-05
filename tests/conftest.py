@@ -576,7 +576,7 @@ def _top_level_widget_guard(request):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _leak_allowlist_freshness_check():
+def _leak_allowlist_freshness_check(request):
     """Session-end companion: a listed nodeid that ran but did not leak is stale.
 
     ``tests/top_level_widget_leak_allowlist.json`` may only SHRINK (same
@@ -584,8 +584,20 @@ def _leak_allowlist_freshness_check():
     for one of its entries and nobody removes the entry, the list silently
     accumulates dead weight. Only checks nodeids that actually RAN this
     session — a partial/filtered run (``-k``) says nothing about the rest.
+
+    Judged on FULL runs only (no file or node id on the command line). Some
+    leaks are order-dependent — the reseed of 2026-09-05 collected two
+    ``test_alerts_matched_queue`` nodeids that leak after the whole suite has
+    run before them and not in a five-file run — so a shard (CI runs four,
+    each a file list) or a hand-picked run would flap between "unallowlisted
+    leak" and "stale entry". The full-suite gate is where the list is judged.
     """
     yield
+    partial = any(
+        str(a).endswith(".py") or "::" in str(a) for a in request.config.args
+    )
+    if partial:
+        return
     stale = sorted(_LEAK_ALLOWLIST_RAN - _LEAK_ALLOWLIST_STILL_LEAKING)
     if stale:
         pytest.fail(
