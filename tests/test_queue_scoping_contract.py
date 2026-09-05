@@ -128,6 +128,118 @@ def test_the_trail_map_seed_matches_the_sidebars_id_set(seeded):
     assert seed_ids == sidebar_ids
 
 
+def test_orphan_relocation_never_crosses_providers(db):
+    """A recycled provider-native ``source_id`` must not bind an orphaned queue
+    row to a DIFFERENT source's channel just because it reused the same small
+    native id.
+
+    Provider A's channel ``A_7`` (source_id="7") is gone — simulating a
+    refresh that re-keyed it — while an UNRELATED provider B has its own
+    channel ``B_7`` also carrying ``source_id="7"``. The orphaned queue row
+    must stay orphaned rather than silently attaching to provider B's title.
+    Once a genuine successor for provider A shows up (new id, same provider,
+    same native source_id), relocation finds THAT one.
+    """
+    with db.session_scope() as session:
+        session.add_all([
+            ProviderDB(
+                id="A", name="Provider A", type="xtream", url="http://e.com",
+                username="u", password="p", is_active=True,
+            ),
+            ProviderDB(
+                id="B", name="Provider B", type="xtream", url="http://e.com",
+                username="u", password="p", is_active=True,
+            ),
+        ])
+        # Provider B's own channel that happens to reuse native id "7" — must
+        # never be mistaken for provider A's orphaned row.
+        session.add(ChannelDB(
+            id="B_7", name="Someone Else's Title", provider_id="B",
+            media_type="movie", source_id="7",
+        ))
+        # Queued while it was "A_7" — that channel id no longer exists.
+        session.add(WatchQueueDB(
+            channel_id="A_7", channel_name="My Queued Title",
+            media_type="movie", source_id="7", position=0,
+        ))
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        entries = repos.queue.get_all()
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.channel is None, (
+            "relocation bound the orphaned row to a DIFFERENT provider's "
+            "channel just because it reused the same native source_id"
+        )
+        assert entry.available is False
+        assert entry.channel_name == "My Queued Title"
+
+    # A genuine successor for provider A shows up: new synthetic id, same
+    # provider, same native source_id. Relocation must find THIS one.
+    with db.session_scope() as session:
+        session.add(ChannelDB(
+            id="A_7v2", name="My Queued Title", provider_id="A",
+            media_type="movie", source_id="7",
+        ))
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        entries = repos.queue.get_all()
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.channel is not None
+        assert entry.channel.id == "A_7v2"
+        assert entry.provider_id == "A"
+        assert entry.available is True
+
+
+def test_drifted_title_keeps_the_queued_name_not_the_live_one(db):
+    """A recycled stream id can leave ``row.channel_id`` pointing at a live
+    channel whose title has changed underneath the user (reconnect-mangle).
+    ``search_title`` (read by both the sidebar display and its recovery
+    search) must carry the STORED queued name when the live name has drifted,
+    and the live ``detected_title`` only when the names still agree.
+    """
+    with db.session_scope() as session:
+        session.add(ProviderDB(
+            id="P", name="Provider", type="xtream", url="http://e.com",
+            username="u", password="p", is_active=True,
+        ))
+        # Drifted: the channel this row points at now has a DIFFERENT raw name.
+        session.add(ChannelDB(
+            id="drifted", name="New Title", detected_title="New Title",
+            provider_id="P", media_type="movie", source_id="1",
+        ))
+        session.add(WatchQueueDB(
+            channel_id="drifted", channel_name="Old Title",
+            media_type="movie", source_id="1", position=0,
+        ))
+        # Undrifted: raw name still matches what was queued.
+        session.add(ChannelDB(
+            id="steady", name="Same Title", detected_title="Detected Version",
+            provider_id="P", media_type="movie", source_id="2",
+        ))
+        session.add(WatchQueueDB(
+            channel_id="steady", channel_name="Same Title",
+            media_type="movie", source_id="2", position=1,
+        ))
+
+    with db.session_scope() as session:
+        entries = {
+            e.channel_id: e for e in RepositoryFactory(session).queue.get_all()
+        }
+
+    assert entries["drifted"].search_title == "Old Title", (
+        "the sidebar and its recovery search must show the title the user "
+        "actually queued, not the recycled stream's new live title"
+    )
+    assert entries["steady"].search_title == "Detected Version", (
+        "when the live name still matches, search_title should read the "
+        "live detected_title as before"
+    )
+
+
 def test_a_disabled_source_does_not_delete_the_queue(seeded):
     """The record-view guarantee, stated as the user experiences it.
 
