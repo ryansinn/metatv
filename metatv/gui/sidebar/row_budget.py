@@ -39,6 +39,7 @@ separable concern: it takes a view and gives it the height its rows need.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QListWidget
 
 #: The role the "+N more" marker lives in — **not** ``UserRole``.
 #:
@@ -238,11 +239,21 @@ class RowBudgetMixin:
     def fit_to_rows(view) -> None:
         """Set a view's height to exactly what its contents need.
 
-        Qt's own ``viewportSizeHint()`` — the ideal viewport for the current
-        contents. Two hand-rolled versions got this wrong differently:
-        ``visualItemRect`` is (0,0,0,0) before layout, and
-        ``sizeHint().height()`` returns **-1** when unset, which poisons a sum.
-        Qt already knows the number.
+        For a **tree**, Qt's own ``viewportSizeHint()`` is the ideal viewport
+        for the current contents, and it already excludes hidden rows —
+        verified live: a six-row ``QTreeWidget`` measured 119px, then 85px
+        once two rows were hidden. Two hand-rolled versions got this wrong
+        differently: ``visualItemRect`` is (0,0,0,0) before layout, and
+        ``sizeHint().height()`` returns **-1** when unset, which poisons a
+        sum. Qt already knows the number, so trees use it as-is.
+
+        A **flat list** (``QListWidget``/``QListView``) does NOT get that for
+        free: ``viewportSizeHint()`` reports the height of every row
+        regardless of ``isHidden()``, so a partially filtered Watch Queue kept
+        the blank space of the rows the filter had hidden (HIDE-1b). For a
+        list, the content height is summed directly from the VISIBLE rows'
+        own ``sizeHintForRow()`` plus the spacing between them — the same
+        visibility a hidden row is excluded by everywhere else in this file.
 
         **Except when there is nothing to show.** ``viewportSizeHint()`` on an
         empty view does not return 0 — it falls back to a default viewport
@@ -262,6 +273,12 @@ class RowBudgetMixin:
         if not _has_visible_rows(view):
             view.setFixedHeight(0)
             return
-        hint = view.viewportSizeHint().height()
+        if isinstance(view, QListWidget):
+            visible_rows = [i for i in range(view.count())
+                             if not view.item(i).isHidden()]
+            hint = (sum(view.sizeHintForRow(i) for i in visible_rows)
+                    + view.spacing() * max(0, len(visible_rows) - 1))
+        else:
+            hint = view.viewportSizeHint().height()
         view.setFixedHeight(max(0, hint) + 2 * view.frameWidth())
 
