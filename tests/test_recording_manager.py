@@ -301,6 +301,22 @@ def test_progress_reads_the_database(manager):
     assert rows[0].ends_at == end + timedelta(minutes=15)
 
 
+def test_progress_carries_provider_id_and_raw_programme_end(manager):
+    """REC-2: the persistent recording notice needs the SOURCE (provider_id,
+    to name it) and the RAW guide stop (programme_end, to compute post-roll
+    as ``ends_at - programme_end``) — neither is derivable from the other
+    DTO fields, so both must come straight off the row."""
+    start, end = _window()
+    manager.schedule("c1", "p1", "BBC One", "http://x/live.ts", start, end,
+                     programme_title="The Match", pad_end_seconds=900)
+
+    row = manager.progress()[0]
+
+    assert row.provider_id == "p1"
+    assert row.programme_end == end
+    assert (row.ends_at - row.programme_end) == timedelta(minutes=15)
+
+
 def test_progress_orders_by_the_effective_window_not_the_guides(manager):
     """Newest window first means the EFFECTIVE window, which is what renders.
 

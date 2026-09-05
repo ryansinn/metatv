@@ -66,10 +66,11 @@ ROW_PAD_Y = 1
 
 
 #: How far a top-level row's TITLE sits from the row's left edge: the marker
-#: column, the reserved play slot, and the gap between them. Anything that must
-#: line up with the titles — the "Upcoming" heading — takes this rather than a
-#: number that happens to match today.
-TITLE_INDENT = _CHILD_INDENT + SLOT_W + ROW_SPACING
+#: column, the reserved play slot, the reserved Record slot (REC-2, Catch Keep
+#: Record Feature 3), and the gap before the title. Anything that must line up
+#: with the titles — the "Upcoming" heading — takes this rather than a number
+#: that happens to match today.
+TITLE_INDENT = _CHILD_INDENT + SLOT_W + SLOT_W + ROW_SPACING
 
 
 def _slot_label() -> QLabel:
@@ -195,6 +196,11 @@ class _AlertRow(_RowShell):
     #: the show title ... does not expand the row", and "the carot turns into a
     #: play icon ... but it shouldn't because it is expanding or collapsing".
     expand_clicked = pyqtSignal()
+    #: The Record slot was clicked (REC-2) — schedules a recording of THIS
+    #: row's programme window. Distinct from play_clicked: it fires whatever
+    #: the row's live/upcoming state, since recording (unlike play) works on a
+    #: programme that has not started yet.
+    record_clicked = pyqtSignal()
 
     def __init__(self, ch_name: str, time_str: str, config, parent=None, *,
                  when: datetime | None = None, live: bool = False,
@@ -256,15 +262,25 @@ class _AlertRow(_RowShell):
         self._hovered = False
         self._expandable = expandable
         self._expanded = expanded
+        # REC-2 (Catch, Keep, Record Feature 3): "recording" | "scheduled" | None.
+        self._record_state: str | None = None
+        self._record_tooltip = ""
         marker_column = expandable if marker_column is None else marker_column
 
-        # An expandable row carries TWO leading columns, and the widths are
-        # what make them line up: the marker takes exactly _CHILD_INDENT, so
-        # the play slot beside it starts at the same x as a CHILD row's slot.
-        # The play affordances then form one continuous column down the group,
-        # and the parent's title sits on the same left edge as its sources'.
+        # An expandable row carries up to THREE leading columns, and the
+        # widths are what make them line up: the marker takes exactly
+        # _CHILD_INDENT, so the play slot beside it starts at the same x as a
+        # CHILD row's slot. The play affordances then form one continuous
+        # column down the group, and the parent's title sits on the same left
+        # edge as its sources'. The Record slot always follows the play slot —
+        # every row carries a programme window, whether or not it is live.
         self._slot = _slot_label()
+        self._rec_slot = _slot_label()
         self._marker = None
+        leading = QWidget()
+        lay = QHBoxLayout(leading)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         if marker_column:
             # RESERVED, not conditional. A top-level EPG row keeps this column
             # whether or not it has sources to disclose, so a single-source
@@ -279,14 +295,9 @@ class _AlertRow(_RowShell):
             self._marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
             if expandable:
                 self._marker.setToolTip("Several sources — click to show them")
-            leading = QWidget()
-            lay = QHBoxLayout(leading)
-            lay.setContentsMargins(0, 0, 0, 0)
-            lay.setSpacing(0)
             lay.addWidget(self._marker)
-            lay.addWidget(self._slot)
-        else:
-            leading = self._slot
+        lay.addWidget(self._slot)
+        lay.addWidget(self._rec_slot)
 
         # A live row with a known duration shows the bar; everything else keeps
         # the words. An upcoming row has no elapsed share, and a live row whose
@@ -345,6 +356,7 @@ class _AlertRow(_RowShell):
         self.setMouseTracking(True)
         cursor_affordance.set_clickable(self)
         self._paint_slot()
+        self._paint_rec_slot()
 
     def _bar_tip(self, time_text: str) -> str:
         """The bar's hover text, naming the source it measures.
@@ -373,6 +385,18 @@ class _AlertRow(_RowShell):
         if is_new != self._is_new:
             self._is_new = is_new
             self._paint_slot()
+
+    def set_recording_state(self, state: "str | None", tooltip: str) -> None:
+        """Update the Record slot's glyph/tooltip (REC-2).
+
+        Pushed by ``WatchAlertsSection.refresh_recording_indicators`` each
+        poll tick — ``state`` is ``"recording"``, ``"scheduled"`` or ``None``,
+        from ``recording_indicators.indicator_for``.
+        """
+        if state != self._record_state or tooltip != self._record_tooltip:
+            self._record_state = state
+            self._record_tooltip = tooltip
+            self._paint_rec_slot()
 
     def _offers_play(self) -> bool:
         """Whether this row can be played at all.
@@ -431,6 +455,26 @@ class _AlertRow(_RowShell):
         )
         self._slot.setToolTip(tip)
 
+    def _paint_rec_slot(self) -> None:
+        """Draw the Record control for the current recording state (REC-2).
+
+        Always visible — unlike the play slot, this is not hover-gated: a
+        row's recording/scheduled state is exactly the fact this column
+        exists to show at a glance, and the plain state (nothing recorded or
+        scheduled) is still a real, clickable "record this" affordance.
+        """
+        from metatv.gui.recording_indicators import RECORD_TOOLTIP, vector_key_for
+
+        colour = (
+            _theme.COLOR_ERR if self._record_state == "recording"
+            else _theme.COLOR_TEXT
+        )
+        self._rec_slot.setPixmap(_icon_utils.vector_pixmap(
+            _icons.vector_key(vector_key_for(self._record_state)),
+            colour, SLOT_ICON_PX,
+        ))
+        self._rec_slot.setToolTip(self._record_tooltip or RECORD_TOOLTIP)
+
     def refresh_time(self, now: datetime) -> None:
         """Recompute this row's time text against ``now``.
 
@@ -472,13 +516,25 @@ class _AlertRow(_RowShell):
         top_left = self._slot.mapTo(self, QPoint(0, 0))
         return QRect(top_left, self._slot.size())
 
+    def _rec_slot_rect(self) -> QRect:
+        """The Record slot's geometry in THIS widget's coordinates — sibling
+        of :meth:`_slot_rect`, same reason (the slot lives inside the built
+        row now, not this widget directly)."""
+        top_left = self._rec_slot.mapTo(self, QPoint(0, 0))
+        return QRect(top_left, self._rec_slot.size())
+
     def mousePressEvent(self, event):
+        # The Record slot is its OWN dedicated control (REC-2) — checked
+        # first and unconditionally, so a click there never falls through to
+        # play/expand/row-click regardless of hover/live state.
+        if self._rec_slot_rect().contains(event.pos()):
+            self.record_clicked.emit()
         # The slot IS the play control while it is offering to play — clicking
         # the triangle starts it. Everything else on the row goes to the row's
         # own action, which for an expandable row is to open it: the title, the
         # time, the marker and the empty space all expand, so the gesture is
         # the whole row rather than one 18px strip of it.
-        if self._slot_rect().contains(event.pos()) and (
+        elif self._slot_rect().contains(event.pos()) and (
             self._playing or (self._hovered and self._offers_play())
         ):
             self.play_clicked.emit()

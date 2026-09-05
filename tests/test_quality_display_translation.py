@@ -280,8 +280,8 @@ def _on_now_host():
     host = SimpleNamespace()
     host.config = cfg
     tree = QTreeWidget()
-    tree.setColumnCount(6)
-    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide"])
+    tree.setColumnCount(7)
+    tree.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide", "Rec"])
     tree.setItemDelegateForColumn(4, _ProgressBarDelegate(tree))
     host.on_now_list = tree
     host.on_now_stats = QLabel("")
@@ -293,6 +293,8 @@ def _on_now_host():
     host._channel_title_map = {}
     host._channel_region_map = {}
     host._on_now_excluded_ct_ids = set()
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._recording_progress_rows = lambda: host.recording_manager.progress()
     host._render_on_now = lambda progs: EpgView._render_on_now(host, progs)
     host._on_now_hidden_prefixes = EpgView._on_now_hidden_prefixes
     host._apply_on_now_filters = lambda: None

@@ -82,16 +82,17 @@ from metatv.gui.epg_widgets import (
     _SORT_ROLE,
     _ProgressBarDelegate,
     add_record_programme_handler,
+    apply_rec_cell,
     apply_watchlist_highlight as _apply_watchlist_highlight,
+    rec_cell_click,
 )
 
 # Bump this when the On Now header's column layout changes (count/order/roles). A
 # persisted ``on_now_header_state`` saved under an older version is discarded instead
 # of being fed to QHeaderView.restoreState(), which can silently scramble columns on
-# a mismatch rather than raise. Slice 3C (prefix grouping) does not itself change the
-# 6-column layout, but the version key is added defensively alongside that change so
-# a future layout change has somewhere to invalidate old state safely.
-_ON_NOW_HEADER_STATE_VERSION = 1
+# a mismatch rather than raise. Bumped to 2 for REC-2's 7th "Rec" column — a state
+# saved under version 1 assumed 6.
+_ON_NOW_HEADER_STATE_VERSION = 2
 
 # Category value used for rows that classify_channel_content_type() couldn't place —
 # the catch-all bucket surfaced in the "All Types ▼" dropdown.
@@ -211,8 +212,9 @@ class _EpgOnNowMixin:
 
         layout.addLayout(filter_row)
 
-        # Programme tree: Category | Channel | Quality | Show | Progress | [hide]
-        # Logical columns: 0=Category(""), 1=Channel, 2=Quality, 3=Show, 4=Progress, 5=Hide
+        # Programme tree: Category | Channel | Quality | Show | Progress | [hide] | [rec]
+        # Logical columns: 0=Category(""), 1=Channel, 2=Quality, 3=Show, 4=Progress,
+        # 5=Hide, 6=Rec (REC-2: record/recording/scheduled control on every row).
         # Slice 3C: top-level rows are now prefix-GROUP headers (spanned, non-selectable);
         # programme rows are children one level down — setRootIsDecorated(True) shows the
         # expand/collapse arrow for groups (leaf/child rows show none, same as before).
@@ -221,8 +223,10 @@ class _EpgOnNowMixin:
         self.on_now_list.setRootIsDecorated(True)
         self.on_now_list.setUniformRowHeights(True)
         self.on_now_list.setSortingEnabled(True)
-        self.on_now_list.setColumnCount(6)
-        self.on_now_list.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide"])
+        self.on_now_list.setColumnCount(7)
+        self.on_now_list.setHeaderLabels(
+            ["", "Channel", "Quality", "Show", "Progress", "Hide", "Rec"]
+        )
         hdr = self.on_now_list.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -230,15 +234,18 @@ class _EpgOnNowMixin:
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         hdr.setStretchLastSection(False)
         hdr.setSectionsMovable(True)
         hdr.resizeSection(1, 220)
         self.on_now_list.setColumnWidth(2, 44)
         self.on_now_list.setColumnWidth(4, 64)
         self.on_now_list.setColumnWidth(5, 22)
+        self.on_now_list.setColumnWidth(6, 22)
         self.on_now_list.headerItem().setToolTip(0, "Category / prefix extracted from channel name")
         self.on_now_list.headerItem().setToolTip(2, "Stream quality (4K / FHD / HD / etc.)")
         self.on_now_list.headerItem().setToolTip(4, "Progress through current show (hover for time remaining)")
+        self.on_now_list.headerItem().setToolTip(6, "Record this programme")
         self._progress_delegate = _ProgressBarDelegate(self.on_now_list)
         self.on_now_list.setItemDelegateForColumn(4, self._progress_delegate)
         self.on_now_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -399,6 +406,8 @@ class _EpgOnNowMixin:
         rules = watchlist.rules(self.config)
         epg_hidden, global_excluded = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
+        # REC-2: read once per render, not once per row — see recording_indicators.
+        progress_rows = self._recording_progress_rows()
         prefix_counts: dict[str, int] = {}
         type_counts: dict[str, int] = {}
         groups: dict[str, list[_EpgTreeItem]] = {}
@@ -449,12 +458,14 @@ class _EpgOnNowMixin:
             # and explains codec tokens (HEVC) in its tooltip — the stored token is
             # untouched in _channel_quality_map, which the rest of the view keys on.
             item = _EpgTreeItem(
-                [category, bare_name, quality_display(quality), title, "", self.config.hide_icon]
+                [category, bare_name, quality_display(quality), title, "", self.config.hide_icon, ""]
             )
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
             item.setData(0, _PROG_START_ROLE, prog.start_time)
             item.setData(0, _PROG_STOP_ROLE, prog.stop_time)
+            apply_rec_cell(item, 6, prog.channel_db_id, prog.start_time,
+                            prog.stop_time, progress_rows, now)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
             if quality:
                 item.setToolTip(2, quality_tooltip(quality))
@@ -619,6 +630,8 @@ class _EpgOnNowMixin:
             category = item.data(0, Qt.ItemDataRole.UserRole + 1) or ""
             if title or ch_id:
                 self._show_hide_dialog(title, ch_id, ch_name, category)
+        elif column == 6 and len(self.on_now_list.selectedItems()) == 1:
+            rec_cell_click(self._host(), item, 3)
 
     def _on_now_context_menu(self, pos) -> None:
         """On Now's menu — the channel-id core plus this tree's own extras."""

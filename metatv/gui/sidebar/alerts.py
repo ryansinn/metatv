@@ -67,6 +67,10 @@ class WatchAlertsSection(
     # title, global_x, global_y) — so "record_programme" can schedule THIS
     # airing rather than "what's on now".
     programmeContextMenuRequested = pyqtSignal(str, object, object, str, int, int)
+    # REC-2: an EPG row's Record control was clicked — channel_db_id, start,
+    # stop, title. Same shape as programmeContextMenuRequested minus the
+    # click position, since this isn't a menu.
+    programmeRecordRequested = pyqtSignal(str, object, object, str)
     retryRemoveRequested = pyqtSignal(str)                  # entry_id
     retryClearAllRequested = pyqtSignal()
     retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name

@@ -138,9 +138,9 @@ def _make_render_host(qapp, *, name_map, title_map):
     host._filtered_provider_ids = lambda: ["p1"]
     host._provider_ids = ["p1"]
     host.browse_list = QTreeWidget()
-    host.browse_list.setColumnCount(6)
+    host.browse_list.setColumnCount(7)
     host.browse_list.setHeaderLabels(
-        ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+        ["Time", "Category", "Channel", "Quality", "Show", "Duration", "Rec"]
     )
     # Qt's raw default header sort indicator is (col 0, Descending) — leave it as-is
     # so these behavior-pinning tests stay separator-free (Q3 coverage lives in its
@@ -148,6 +148,8 @@ def _make_render_host(qapp, *, name_map, title_map):
     host.browse_placeholder = QLabel()
     host.browse_stats = QLabel()
     host.status_message = SimpleNamespace(emit=MagicMock())
+    host.recording_manager = SimpleNamespace(progress=lambda: [])
+    host._recording_progress_rows = lambda: host.recording_manager.progress()
     return host
 
 
@@ -306,6 +308,7 @@ def _make_browse_tab_host(qapp, config=None):
     host._update_hide_filler_btn_label = lambda: None
     host._on_browse_scroll = lambda *_: None
     host._browse_double_click = lambda *_: None
+    host._browse_item_clicked = lambda *_: None
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None
     host._save_epg_sort = lambda *a: None

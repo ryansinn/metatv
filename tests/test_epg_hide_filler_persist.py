@@ -51,6 +51,7 @@ def _make_browse_host(qapp, *, initial_hide_filler: bool):
     host._load_more_browse = lambda *_: None
     host._on_browse_scroll = lambda *_: None
     host._browse_double_click = lambda *_: None
+    host._browse_item_clicked = lambda *_: None
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None
     host._save_epg_sort = lambda *a: None

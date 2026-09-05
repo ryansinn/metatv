@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QStyledItemDelegate,
+    QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
 )
@@ -172,6 +173,84 @@ def add_record_programme_handler(handlers: dict, ctx, host, cid: str) -> None:
         host.schedule_recording_from_programme(c, s, e, t)
 
     handlers["record_programme"] = _record_h
+
+
+# ---------------------------------------------------------------------------
+# Rec column — shared by On Now + Browse (Catch, Keep, Record, Feature 3)
+# ---------------------------------------------------------------------------
+
+def rec_cell_click(host, item: QTreeWidgetItem, title_column: int) -> None:
+    """Handle a click on the shared Rec column: schedule from THIS row's window.
+
+    On Now and Browse differ only in which column carries the title (Show is
+    column 3 on On Now, column 4 on Browse), so the click behaviour otherwise
+    exists once rather than twice. A no-op on any row missing a channel id or
+    a programme window — a group header, a Q3 day separator — so callers need
+    not guard those cases themselves.
+
+    Args:
+        host: The resolved menu host (``self._host()``), carrying
+            ``schedule_recording_from_programme``.
+        item: The clicked row.
+        title_column: Which column holds the programme title.
+    """
+    cid = item.data(0, Qt.ItemDataRole.UserRole)
+    start = item.data(0, _PROG_START_ROLE)
+    stop = item.data(0, _PROG_STOP_ROLE)
+    if not cid or start is None or stop is None:
+        return
+    title = item.text(title_column).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
+    host.schedule_recording_from_programme(cid, start, stop, title)
+
+
+def apply_rec_cell(item: QTreeWidgetItem, column: int, channel_id, start, stop,
+                    progress_rows, now) -> None:
+    """Set column ``column``'s glyph/tooltip/colour for a programme row's Rec control.
+
+    One call from each tree's render loop (initial populate) AND from
+    :func:`refresh_rec_column` (the poll-tick re-walk) — the recording/
+    scheduled/plain decision is made ONCE, here, rather than reimplemented per
+    caller. ``recording_indicators.indicator_for`` does the actual overlap
+    test against ``progress_rows``.
+    """
+    from metatv.gui.recording_indicators import glyph_for, indicator_for
+
+    state, tooltip = indicator_for(channel_id, start, stop, progress_rows, now)
+    item.setText(column, glyph_for(state))
+    item.setToolTip(column, tooltip)
+    item.setTextAlignment(column, Qt.AlignmentFlag.AlignCenter)
+    item.setForeground(
+        column,
+        QColor(_theme.COLOR_ERR if state == "recording" else _theme.COLOR_TEXT),
+    )
+
+
+def refresh_rec_column(tree: QTreeWidget, column: int, progress_rows, now, *,
+                        grouped: bool = False, separator_role: "int | None" = None) -> None:
+    """Re-walk ``tree``'s programme rows, refreshing the Rec column in place.
+
+    Shared by On Now (``grouped=True`` — programme rows sit one level under a
+    prefix-group header) and Browse (flat top-level rows, some of which are Q3
+    day separators skipped via ``separator_role``), called each poll tick from
+    ``EpgView.refresh_recording_indicators`` — cheap, since it only touches
+    rows already on screen and ``progress_rows`` is one shared read.
+    """
+    def _apply(row_item: QTreeWidgetItem) -> None:
+        if separator_role is not None and row_item.data(0, separator_role):
+            return
+        apply_rec_cell(
+            row_item, column, row_item.data(0, Qt.ItemDataRole.UserRole),
+            row_item.data(0, _PROG_START_ROLE), row_item.data(0, _PROG_STOP_ROLE),
+            progress_rows, now,
+        )
+
+    for i in range(tree.topLevelItemCount()):
+        top = tree.topLevelItem(i)
+        if grouped:
+            for c in range(top.childCount()):
+                _apply(top.child(c))
+        else:
+            _apply(top)
 
 
 # ---------------------------------------------------------------------------

@@ -168,7 +168,16 @@ class NotificationCard(QFrame):
             action_layout = FlowLayout(action_container, spacing=6)
             action_layout.setContentsMargins(0, 4, 0, 0)
             enable_height_for_width(action_container)
-            for label, callback in self.notification.actions:
+            for action in self.notification.actions:
+                # A THIRD element is an opt-in "keep_open" flag — every
+                # existing caller passes a plain (label, callback) 2-tuple
+                # ("Undo", …) and keeps dismissing on click; a persistent
+                # notice that must survive one of its own actions (Watch,
+                # while the recording it names keeps running — Catch, Keep,
+                # Record Q1) passes True as the third element instead of
+                # growing a second action-button mechanism.
+                label, callback = action[0], action[1]
+                keep_open = action[2] if len(action) > 2 else False
                 btn = QPushButton(label)
                 _theme.style_fn(btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
                     " border-radius: 3px; padding: 2px 8px; }"
@@ -182,7 +191,10 @@ class NotificationCard(QFrame):
                 # so a future layout change cannot quietly reintroduce a
                 # button narrower than its own label.
                 btn.setMinimumWidth(btn.sizeHint().width())
-                btn.clicked.connect(lambda _, cb=callback: (cb(), self.dismiss()))
+                btn.clicked.connect(
+                    lambda _, cb=callback, keep=keep_open:
+                        (cb(), None if keep else self.dismiss())
+                )
                 action_layout.addWidget(btn)
             layout.addWidget(action_container)
 

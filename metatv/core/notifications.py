@@ -98,7 +98,12 @@ class Notification:
     show_progress_bar: bool = True
 
     # Actions
-    actions: list = field(default_factory=list)  # List of (label, callback)
+    # list[(label, callback)] or [(label, callback, keep_open)] — keep_open
+    # (default False) skips the automatic dismiss-on-click for an action that
+    # must not close a persistent card, e.g. "Watch" on the Catch, Keep,
+    # Record recording notice, where "Stop" (the default, dismissing) is the
+    # one that actually ends what the card is about.
+    actions: list = field(default_factory=list)
     dismissible: bool = True
     auto_dismiss_seconds: Optional[int] = None
 

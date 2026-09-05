@@ -1630,6 +1630,9 @@ def make_downloads_mixin_host(
         and every ``_DownloadsMixin`` recording/download method bound, plus
         ``_bg_mark_played`` (``_StreamingMixin``'s real History-write seam,
         which ``play_downloaded`` submits to ``executor``).
+        an empty ``_recording_notif_ids`` map (REC-2's persistent-notice
+        tracker — normally seeded by ``_setup_downloads``, which this double
+        bypasses), and every ``_DownloadsMixin`` recording method bound.
     """
     from unittest.mock import MagicMock
 
@@ -1663,6 +1666,7 @@ def make_downloads_mixin_host(
         notification_manager=MagicMock(),
         status_bar=_StatusBarDouble(),
         executor=_InlineExecutor(),
+        _recording_notif_ids={},
     )
     for _name in (
         "record_channel_by_id",
@@ -1682,6 +1686,11 @@ def make_downloads_mixin_host(
         "_clear_download_history",
         "show_downloads_context_menu",
         "_refresh_transfer_sections",
+        # REC-2: the persistent "recording in progress" notice + its actions.
+        "_refresh_recording_notifications",
+        "_recording_source_name",
+        "_watch_recording",
+        "_cancel_recording",
     ):
         setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
     host._bg_mark_played = _StreamingMixin._bg_mark_played.__get__(host)
