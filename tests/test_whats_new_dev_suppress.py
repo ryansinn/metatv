@@ -29,8 +29,8 @@ def _bare_window() -> MainWindow:
 
 def test_auto_dialog_suppressed_in_dev_mode(monkeypatch):
     win = _bare_window()
-    monkeypatch.setattr("metatv.gui.main_window._dev_mode_enabled", lambda: True)
-    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+    monkeypatch.setattr("metatv.gui.main_window_menu_actions._dev_mode_enabled", lambda: True)
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as Dlg:
         win.maybe_show_whats_new()
     Dlg.assert_not_called()  # dev harness must never replay the historical changelog
 
@@ -40,8 +40,8 @@ def test_auto_dialog_shows_for_real_users_when_unseen(monkeypatch):
     # A real user mid-upgrade: non-zero cursor with unseen entries above it.
     # (Cursor 0 is now the fresh-install fast-forward case — tested below.)
     win.config.last_seen_whats_new_id = 1
-    monkeypatch.setattr("metatv.gui.main_window._dev_mode_enabled", lambda: False)
-    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+    monkeypatch.setattr("metatv.gui.main_window_menu_actions._dev_mode_enabled", lambda: False)
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as Dlg:
         Dlg.return_value.exec = MagicMock()
         win.maybe_show_whats_new()
     Dlg.assert_called_once()  # a genuine unseen cursor still surfaces the dialog
@@ -51,7 +51,7 @@ def test_fresh_config_fast_forwards_without_dialog(monkeypatch):
     """Normal mode + cursor 0 (just-created config) → no replay; cursor jumps to latest."""
     monkeypatch.delenv("METATV_DEV", raising=False)
     win = _bare_window()
-    with patch("metatv.gui.main_window.WhatsNewDialog") as dlg, \
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as dlg, \
          patch("metatv.gui.main_window._whats_new.latest_id", return_value=213):
         win.maybe_show_whats_new()
     dlg.assert_not_called()
@@ -65,7 +65,7 @@ def test_upgrade_delta_still_shows(monkeypatch):
     win = _bare_window()
     win.config.last_seen_whats_new_id = 200
     win._whats_new_unseen = MagicMock(return_value=[MagicMock()])
-    with patch("metatv.gui.main_window.WhatsNewDialog") as dlg:
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as dlg:
         dlg.return_value.exec.return_value = None
         win.maybe_show_whats_new()
     dlg.assert_called_once()
@@ -87,7 +87,7 @@ def test_auto_dialog_caps_huge_backlog(monkeypatch):
     win.config.last_seen_whats_new_id = 1
     unseen = _entries(4, "0.18.1") + _entries(30, "0.15.0")  # newest-first
     win._whats_new_unseen = MagicMock(return_value=unseen)
-    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as Dlg:
         Dlg.return_value.exec = MagicMock()
         win.maybe_show_whats_new()
     args, kwargs = Dlg.call_args
@@ -101,7 +101,7 @@ def test_auto_dialog_small_backlog_uncapped(monkeypatch):
     win.config.last_seen_whats_new_id = 1
     unseen = _entries(3, "0.18.1") + _entries(2, "0.18.0")
     win._whats_new_unseen = MagicMock(return_value=unseen)
-    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+    with patch("metatv.gui.main_window_menu_actions.WhatsNewDialog") as Dlg:
         Dlg.return_value.exec = MagicMock()
         win.maybe_show_whats_new()
     args, kwargs = Dlg.call_args

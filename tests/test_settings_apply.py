@@ -157,8 +157,16 @@ def test_the_latch_is_cleared_even_if_a_handler_explodes():
 
 # ── the wiring ───────────────────────────────────────────────────────────────
 
-SRC = (pathlib.Path(__file__).resolve().parent.parent
-       / "metatv" / "gui" / "main_window.py").read_text()
+# Every ``main_window*.py`` mixin file, not just ``main_window.py`` itself:
+# DEBT-1a moved ``open_settings`` (and the single ``dialog.settings_applied``
+# connection it makes) to ``main_window_menu_actions.py``, and a check pinned
+# to the one file would have gone blind to that split the moment it happened.
+SRC = "\n".join(
+    p.read_text() for p in sorted(
+        (pathlib.Path(__file__).resolve().parent.parent / "metatv" / "gui")
+        .glob("main_window*.py")
+    )
+)
 
 
 def test_the_dialog_connects_one_slot_rather_than_eleven():

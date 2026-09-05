@@ -546,7 +546,7 @@ def test_whats_new_unseen_empty_when_seen_latest():
 def test_maybe_show_whats_new_advances_cursor_and_saves(qapp):
     """maybe_show_whats_new with unseen entries advances the cursor and saves config."""
     from metatv.gui.main_window import MainWindow
-    import metatv.gui.main_window as _mw_mod
+    import metatv.gui.main_window_menu_actions as _mw_mod  # defines maybe_show_whats_new (DEBT-1a)
 
     host = MainWindow.__new__(MainWindow)
     host.config = _FakeConfig(last_seen_whats_new_id=1)
@@ -575,7 +575,7 @@ def test_maybe_show_whats_new_advances_cursor_and_saves(qapp):
 def test_maybe_show_whats_new_does_not_show_twice(qapp):
     """maybe_show_whats_new is idempotent — second call does nothing."""
     from metatv.gui.main_window import MainWindow
-    import metatv.gui.main_window as _mw_mod
+    import metatv.gui.main_window_menu_actions as _mw_mod  # defines maybe_show_whats_new (DEBT-1a)
 
     host = MainWindow.__new__(MainWindow)
     host.config = _FakeConfig(last_seen_whats_new_id=1)
@@ -599,7 +599,7 @@ def test_maybe_show_whats_new_does_not_show_twice(qapp):
 def test_maybe_show_whats_new_skips_when_all_seen(qapp):
     """maybe_show_whats_new does not open dialog when nothing is unseen."""
     from metatv.gui.main_window import MainWindow
-    import metatv.gui.main_window as _mw_mod
+    import metatv.gui.main_window_menu_actions as _mw_mod  # defines maybe_show_whats_new (DEBT-1a)
 
     host = MainWindow.__new__(MainWindow)
     host.config = _FakeConfig(last_seen_whats_new_id=latest_id())

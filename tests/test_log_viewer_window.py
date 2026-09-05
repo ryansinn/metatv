@@ -256,7 +256,16 @@ def test_diagnostics_name_the_log_location_and_size(viewer):
 @pytest.mark.parametrize("handler", ["show_log_viewer", "clear_log_files"])
 def test_the_tools_menu_reaches_both_handlers(handler):
     """Both entries must be wired, and the header's Tools button shares the
-    same QMenu object — so one registration covers both surfaces."""
-    src = pathlib.Path("metatv/gui/main_window.py").read_text()
+    same QMenu object — so one registration covers both surfaces.
+
+    Scans every ``main_window*.py`` mixin file, not just ``main_window.py``
+    itself: DEBT-1a moved the menu bar and its handlers to
+    ``main_window_menu_actions.py``, and a check pinned to the one file would
+    have gone blind to that split the moment it happened.
+    """
+    src = "\n".join(
+        p.read_text() for p in
+        sorted(pathlib.Path("metatv/gui").glob("main_window*.py"))
+    )
     assert f"connect(self.{handler})" in src, f"no Tools entry calls {handler}"
     assert f"def {handler}" in src, f"{handler} is not defined"
