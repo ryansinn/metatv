@@ -31,10 +31,22 @@
 #         scripts/ci_shards_local.sh --keep-going   # run all four regardless
 set -u
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# _main_repo / resolve_py: the single sourced copy (GATE-7) — see
+# scripts/repo_python.sh. Resolving `venv/bin/python` relative to CWD used to
+# fail with exit 127 from a git worktree with no venv symlink; resolve_py
+# borrows the main worktree's venv instead.
+source "$SCRIPT_DIR/repo_python.sh"
+
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-PY="${PYTHON:-venv/bin/python}"
-[ -x "$PY" ] || { echo "no interpreter at $PY (set PYTHON=)" >&2; exit 1; }
+if [ -n "${PYTHON:-}" ]; then
+    PY="$PYTHON"
+elif ! PY="$(resolve_py "$(pwd)")"; then
+    _main="$(_main_repo "$(pwd)" 2>/dev/null || true)"
+    echo "no interpreter found — looked for $(pwd)/venv/bin/python and ${_main:-<no main repo found>}/venv/bin/python (set PYTHON=)" >&2
+    exit 1
+fi
 
 KEEP_GOING=0
 [ "${1:-}" = "--keep-going" ] && KEEP_GOING=1
