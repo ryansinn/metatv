@@ -261,3 +261,44 @@ def test_a_disabled_source_does_not_delete_the_queue(seeded):
         "clear_unavailable is the ONE path that deletes; it must take exactly "
         "the rows get_all annotates unavailable"
     )
+
+
+def test_a_re_listing_with_more_detail_is_not_reported_as_reuse(db):
+    """2026-09-06: five of the owner's eight 'STREAM-ID REUSE' warnings were
+    benign re-listings — a year, a region or a cast suffix added — and every
+    sidebar read repeated all eight. A rename keeps the live title and logs
+    nothing above DEBUG; a real reuse warns once per process, not per read."""
+    from loguru import logger as _loguru
+
+    from metatv.core.repositories.queue import is_rename
+
+    assert is_rename("EN - Community (2009)", "EN - Community (2009) (US)")
+    assert is_rename("EN - Two And A Half Men (MULTI FHD HEVC)",
+                     "EN - Two And A Half Men (2003) (US) (MULTI FHD HEVC)")
+    assert not is_rename("|EN| Silicon Valley", "|RO| FILMBOX")
+
+    with db.session_scope() as session:
+        session.add(ProviderDB(id="A", name="A", type="xtream", url="http://e.com",
+                               username="u", password="p", is_active=True))
+        session.add(ChannelDB(id="A_1", name="EN - Community (2009) (US)", provider_id="A",
+                              media_type="series", source_id="1",
+                              detected_title="Community"))
+        session.add(ChannelDB(id="A_2", name="|RO| FILMBOX", provider_id="A",
+                              media_type="live", source_id="2", detected_title="FILMBOX"))
+        session.add(WatchQueueDB(channel_id="A_1", channel_name="EN - Community (2009)",
+                                 media_type="series", source_id="1", position=0))
+        session.add(WatchQueueDB(channel_id="A_2", channel_name="|EN| Silicon Valley",
+                                 media_type="live", source_id="2", position=1))
+
+    warnings: list[str] = []
+    hid = _loguru.add(lambda m: warnings.append(str(m)), level="WARNING", format="{message}")
+    try:
+        for _ in range(2):   # two sidebar reads
+            with db.session_scope() as session:
+                by_id = {e.channel_id: e for e in RepositoryFactory(session).queue.get_all()}
+    finally:
+        _loguru.remove(hid)
+    assert by_id["A_1"].search_title == "Community", "a rename keeps the live title"
+    assert by_id["A_2"].search_title == "|EN| Silicon Valley", "a reuse keeps the queued one"
+    reuse = [w for w in warnings if "STREAM-ID REUSE" in w]
+    assert len(reuse) == 1 and "Silicon Valley" in reuse[0], reuse
