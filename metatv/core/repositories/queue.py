@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -10,6 +12,27 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from metatv.core.database import WatchQueueDB, ChannelDB, EpisodeDB
+
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+#: (channel_id, live name) pairs already reported this process — the queue is
+#: re-read on every sidebar refresh, and eight warnings per read for the same
+#: eight rows (owner log 2026-09-06 10:11) is noise, not evidence.
+_drift_reported: set[tuple[str, str]] = set()
+
+
+def is_rename(stored: str, live: str) -> bool:
+    """True when the live name is the SAME title re-listed with more detail.
+
+    A provider commonly re-lists a title with a year, a region or a cast
+    suffix — ``EN - Community (2009)`` → ``EN - Community (2009) (US)`` — which
+    is not a recycled stream id and must not be reported as one. Rule: every
+    word of the queued name survives in the live name. A true reuse
+    (``|EN| Silicon Valley`` → ``|RO| FILMBOX``) replaces the words.
+    """
+    queued = set(_WORD_RE.findall(stored.lower()))
+    return bool(queued) and queued <= set(_WORD_RE.findall(live.lower()))
 
 
 def provider_id_of(channel_id: str) -> str:
@@ -164,14 +187,21 @@ class WatchQueueRepository:
             # queued; otherwise keep the stored name so display AND the recovery
             # search (sidebar/queue.py) show what was actually queued, not a
             # stranger's title.
-            if ch and row.channel_name and ch.name != row.channel_name:
-                logger.warning(
-                    "STREAM-ID REUSE: watch queue entry channel_id={!r} kept its "
-                    "queued title after this refresh: queued={!r} -> live={!r}",
-                    row.channel_id, row.channel_name, ch.name,
-                )
+            drifted = bool(ch and row.channel_name and ch.name != row.channel_name)
+            if drifted and not is_rename(row.channel_name, ch.name):
+                if (row.channel_id, ch.name) not in _drift_reported:
+                    _drift_reported.add((row.channel_id, ch.name))
+                    logger.warning(
+                        "STREAM-ID REUSE: watch queue entry channel_id={!r} kept its "
+                        "queued title after this refresh: queued={!r} -> live={!r}",
+                        row.channel_id, row.channel_name, ch.name,
+                    )
                 search_title = row.channel_name
             else:
+                if drifted and (row.channel_id, ch.name) not in _drift_reported:
+                    _drift_reported.add((row.channel_id, ch.name))
+                    logger.debug("watch queue entry {!r} re-listed with more detail: "
+                                 "{!r} -> {!r}", row.channel_id, row.channel_name, ch.name)
                 search_title = (ch.detected_title if ch else "") or display_name
             # Episode-grain rows (Slice 2B): sort by the EPISODE's own last_played,
             # not the series' — the series may have been engaged via a different
