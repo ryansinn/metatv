@@ -233,6 +233,9 @@ class _FakePlayerManager:
     def is_running(self, key=None):
         return self._running
 
+    def last_exit_reason(self, key=None):
+        return None
+
     def active_keys(self):
         return list(self._keys)
 
@@ -492,3 +495,61 @@ def test_on_playback_health_ready_calls_on_loaded_tick():
         assert call_args[0][0] is host  # first arg is host
         assert call_args[0][1] == 42.0  # time-pos
         assert call_args[0][2] is False  # pause
+
+
+# ── 2026-09-06: an mpv that exited while opening is retried once ────────────
+
+from unittest.mock import MagicMock, patch  # noqa: E402 — local to this section
+
+class _FakePlayerManagerWithExit(_FakePlayerManager):
+    def __init__(self, reason, **kw):
+        super().__init__(**kw)
+        self._reason = reason
+
+    def last_exit_reason(self, key=None):
+        return self._reason
+
+
+def _gone_host(reason, *, retry_attempt=False):
+    from metatv.gui import playback_start_watch as watch
+    host = MainWindow.__new__(MainWindow)
+    host._playback_health_label = _FakeLabel()
+    host._playback_health_timer = _FakeTimer()
+    host.executor = _FakeExecutor()
+    host.player_manager = _FakePlayerManagerWithExit(reason, running=False, keys=[])
+    host._health_query_inflight = False
+    host._health_view_key = None
+    host.status_bar = MagicMock()
+    host.notification_manager = MagicMock()
+    host.stream_retry_manager = MagicMock()
+    watch.arm(host, watch.PlayAttempt("ch-1", "Title", "http://x/1.mkv", retry=retry_attempt))
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, None, False, cache_duration=None)   # loaded, OPENING
+    return host
+
+
+def test_tick_schedules_one_retry_when_the_stream_ended_the_player():
+    host = _gone_host("End of file")
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        MainWindow._playback_health_tick(host)
+    shot.assert_called_once()
+    delay, _cb = shot.call_args[0]
+    assert delay >= 10_000, "the retry must wait out the source's connection lag"
+    host.status_bar.showMessage.assert_called()
+    assert "retrying" in host.status_bar.showMessage.call_args[0][0]
+
+
+def test_tick_does_not_retry_a_retry():
+    host = _gone_host("End of file", retry_attempt=True)
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        MainWindow._playback_health_tick(host)
+    shot.assert_not_called()
+    host.notification_manager.show.assert_called_once()   # still reported
+
+
+def test_tick_does_not_retry_a_user_close():
+    host = _gone_host("Quit")
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        MainWindow._playback_health_tick(host)
+    shot.assert_not_called()
+    host.notification_manager.show.assert_not_called()

@@ -54,6 +54,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
+from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -111,6 +112,15 @@ class PlayAttempt(NamedTuple):
     #: isn't a dated sports/PPV event. A pre-start play of one is the OTHER
     #: likely cause of "it never started" — see :func:`prestart_detail`.
     event_start_time: "datetime | None" = None
+    #: True when this play IS the one automatic retry (see :func:`retry_candidate`)
+    #: — a retry that exits the same way is reported but never retried again.
+    retry: bool = False
+
+
+#: How long the retry waits after the player exited while opening. The
+#: one-connection panels measured in #635 keep counting a closed connection for
+#: 14-26 s; the owner's second click at +32 s played (2026-09-06 10:12).
+RETRY_AFTER_EXIT_MS = 20_000
 
 
 def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
@@ -122,6 +132,12 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
             that have no identity to hand (episode playback), which still get
             the counters reset — they simply report nothing if it fails.
     """
+    prev = host.__dict__.get("_health_attempt")
+    if (prev is not None and not host.__dict__.get("_health_ever_progressed")
+            and not host.__dict__.get("_health_reported")):
+        # Not a toast — switching titles mid-open is normal — but the log must
+        # say the previous play never got going (2026-09-06: it did not).
+        logger.info("previous play {!r} never progressed before this one", prev.channel_name)
     host._health_idle_ticks = 0
     host._health_ever_played = False
     host._health_reported = False
@@ -211,8 +227,18 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
         _report_never_started(host, stalled=True)
 
 
-def on_player_gone(host: Any) -> bool:
+def on_player_gone(host: Any, exit_reason: "str | None" = None) -> bool:
     """The last player window disappeared. Returns True if that was a failure.
+
+    *exit_reason* is mpv's own ``Exiting... (reason)`` line, captured by
+    ``core/players/mpv_log_tap.py``. It is what separates the two shapes that
+    used to be one: a LOADED file the user closed (``Quit``, silent — the
+    negative case this module is built around) from a loaded file whose
+    stream gave mpv nothing and ended the process (``End of file`` /
+    ``Errors when loading file`` while still OPENING — reported, and the one
+    shape :func:`retry_candidate` retries). 2026-09-06 10:11: a cold play on
+    a one-connection source did exactly that inside 30 s, and the old
+    "it loaded, so it played" rule kept it silent.
 
     The OTHER shape of "it never played", and the one the idle counter above
     cannot see: mpv runs with ``--idle=once`` when the user has asked it to
@@ -229,9 +255,49 @@ def on_player_gone(host: Any) -> bool:
     ``--cache-pause-initial=yes --cache-pause-wait=10`` a 20 KB/s stream starts
     inside three seconds.)
     """
-    if host.__dict__.get("_health_ever_played"):
+    if host.__dict__.get("_health_ever_progressed"):
         return False               # it played, then the user closed it
-    return _report_never_started(host, exited=True)
+    if (host.__dict__.get("_health_ever_played")
+            and exit_reason not in STREAM_EXIT_REASONS):
+        return False               # loaded, then closed (or reason unknown) — silent
+    return _report_never_started(host, exited=True, exit_reason=exit_reason)
+
+
+def schedule_retry(host: Any) -> bool:
+    """After a reported stream-ended exit: tell the user and replay ONCE later.
+
+    Waits :data:`RETRY_AFTER_EXIT_MS` (the source's connection lag) and then
+    replays through ``host.play_media(..., skip_probe=True)`` — the probe is the
+    extra connection a one-connection source would refuse again. Returns True
+    when a retry was scheduled.
+    """
+    att = retry_candidate(host)
+    if att is None:
+        return False
+    host.status_bar.showMessage(
+        f"{att.channel_name}: the stream closed before it started — retrying in "
+        f"{RETRY_AFTER_EXIT_MS // 1000}s")
+    QTimer.singleShot(RETRY_AFTER_EXIT_MS, lambda: replay(host, att))
+    return True
+
+
+def replay(host: Any, attempt: PlayAttempt) -> None:
+    """The scheduled retry: re-read the title off-thread, then play it probe-free."""
+    logger.info("retrying {!r} once after the player exited while opening", attempt.channel_name)
+    host._run_query(
+        lambda repos: repos.channels.get_playable_dto(attempt.channel_id),
+        lambda ch: ch is not None and host.play_media(
+            ch, start_override=attempt.resume_seconds or None, skip_probe=True),
+    )
+
+
+def retry_candidate(host: Any) -> "Optional[PlayAttempt]":
+    """The attempt to replay once, or None — only after :func:`on_player_gone`
+    reported a stream-ended exit, and never for a play that already IS the retry."""
+    att = host.__dict__.get("_health_attempt")
+    if att is None or att.retry or not host.__dict__.get("_health_stream_exit"):
+        return None
+    return att
 
 
 def on_idle_tick(host: Any) -> bool:
@@ -277,7 +343,7 @@ def prestart_detail(event_start: "datetime | None", now: "datetime") -> "str | N
 
 
 def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False,
-                           opening: bool = False) -> bool:
+                           opening: bool = False, exit_reason: "str | None" = None) -> bool:
     """Tell the user, and put it in the retry ledger. Returns whether it did.
 
     Reports at most once per play: both callers can fire for the same failure,
@@ -292,9 +358,12 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     attempt = host.__dict__.get("_health_attempt")
     name = attempt.channel_name if attempt else "that channel"
     resume = getattr(attempt, "resume_seconds", 0) or 0
+    stream_exit = exited and exit_reason in STREAM_EXIT_REASONS
+    host.__dict__["_health_stream_exit"] = stream_exit
     if exited:
         logger.warning("playback never started for {!r} — the player exited "
-                       "without playing anything (resume={}s)", name, resume)
+                       "without playing anything (reason={!r}, resume={}s)",
+                       name, exit_reason, resume)
     elif stalled:
         logger.warning("playback never started for {!r} — a file loaded but playback "
                        "never advanced within {}s (resume={}s)", name, STALLED_AFTER_TICKS * 2, resume)
@@ -323,6 +392,10 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         # past the real end of the file ends it instantly, which is the one
         # cause of this the USER can do something about (play from the start).
         detail = (
+            f"The player exited while still opening the stream ({exit_reason}); "
+            "the source most likely refused a second connection it was still "
+            f"counting. Retrying once in {RETRY_AFTER_EXIT_MS // 1000}s."
+            if stream_exit and attempt is not None and not attempt.retry else
             "The source was still counting the previous stream; it did not "
             "free the connection in time." if same_provider_switch else
             prestart if prestart is not None else

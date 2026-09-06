@@ -387,3 +387,32 @@ def test_no_switch_context_takes_the_existing_path():
     mock_validate.assert_called_once()
     payload = obj._stream_ready.emit.call_args[0][0]
     assert "probe_skipped" not in payload
+
+
+def test_the_retry_context_skips_the_probe_and_marks_the_payload():
+    """The one automatic retry after mpv exited while opening (2026-09-06)
+    must not spend the probe connection either — same Phase 0 as a
+    same-provider switch, and the payload says it is the retry so the
+    watchdog never retries a retry."""
+    obj = _make_mixin()
+    provider_model = MagicMock()
+    provider_model.ordered_urls.return_value = ["http://primary.example.com"]
+    repos = MagicMock()
+    repos.providers.get_by_id.return_value = MagicMock()
+    repos.providers.to_model.return_value = provider_model
+    obj.db.session_scope = _make_session_scope(MagicMock())
+
+    ctx = SwitchContext(same_provider=False, live_base_url=None, one_connection=True,
+                        retry=True)
+    with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
+         patch.object(obj, "validate_and_failover_stream_url") as mock_validate, \
+         patch.object(obj, "validate_stream_url") as mock_probe:
+        obj._bg_validate_and_play(
+            "ch-1", "Chan", "http://primary.example.com/stream.ts",
+            "prov-1", "notif-1", switch_context=ctx,
+        )
+    mock_validate.assert_not_called()
+    mock_probe.assert_not_called()
+    payload = obj._stream_ready.emit.call_args[0][0]
+    assert payload["ok"] is True and payload["probe_skipped"] is True
+    assert payload["retry"] is True

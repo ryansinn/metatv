@@ -15,10 +15,54 @@ stays small — see the option's exact choice in the PR body.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
+import time
+from typing import NamedTuple
 
 from loguru import logger
+
+
+class ExitRecord(NamedTuple):
+    """How an mpv process ended — the evidence the playback watchdog lacked.
+
+    An mpv that exits while still OPENING (loaded a path, never got demuxer
+    data) looks exactly like a user closing a just-loaded window unless the
+    reason is known: mpv prints ``Exiting... (Quit)`` for a user close and
+    ``Exiting... (End of file)`` / ``(Errors when loading file)`` for a stream
+    that gave it nothing — at ``cplayer=info``, which is why the launch sites
+    raise that one domain above ``all=warn``. Owner log 2026-09-06 10:11: a
+    cold play on a one-connection source died this way inside 30 s with no
+    warning line, no report, and no retry.
+    """
+    reason: str | None
+    returncode: int | None
+    elapsed_s: float
+
+
+#: ``Exiting... (End of file)`` → ``End of file``.
+_EXIT_RE = re.compile(r"Exiting\.\.\. \((?P<reason>[^)]*)\)")
+
+#: Reasons that mean the STREAM ended the process, not the user.
+STREAM_EXIT_REASONS: frozenset[str] = frozenset({
+    "End of file", "Errors when loading file", "Some errors happened",
+})
+
+_exits: dict[str, ExitRecord] = {}
+_exits_lock = threading.Lock()
+
+
+def last_exit(key: str) -> "ExitRecord | None":
+    """The recorded end of the last process launched under *key*, if any."""
+    with _exits_lock:
+        return _exits.get(key)
+
+
+def clear_exit(key: str) -> None:
+    """Forget *key*'s previous exit — called by the launch sites before Popen."""
+    with _exits_lock:
+        _exits.pop(key, None)
 
 #: Substrings (case-insensitive) that escalate a tapped line to WARNING —
 #: mpv/ffmpeg's own trouble signals, not routine playback chatter. Deliberately
@@ -52,7 +96,21 @@ def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
     Returns:
         The started daemon thread.
     """
+    started = time.monotonic()
+    reason: str | None = None
+
+    def _record_exit() -> None:
+        poll = getattr(proc, "poll", None)
+        rc = poll() if callable(poll) else None
+        rec = ExitRecord(reason, rc if isinstance(rc, int) else None,
+                         round(time.monotonic() - started, 1))
+        with _exits_lock:
+            _exits[key] = rec
+        logger.info("mpv[{}] exited rc={} after {}s ({})", key, rec.returncode,
+                    rec.elapsed_s, reason or "no exit reason seen")
+
     def _pump() -> None:
+        nonlocal reason
         try:
             stderr = proc.stderr
             if stderr is None:
@@ -63,10 +121,14 @@ def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
                 if not line:
                     continue
+                m = _EXIT_RE.search(line)
+                if m:
+                    reason = m.group("reason")
                 if any(marker in line.lower() for marker in _WARNING_MARKERS):
                     logger.warning("mpv[{}] {}", key, line)
                 else:
                     logger.debug("mpv[{}] {}", key, line)
+            _record_exit()
         except Exception:
             logger.exception("mpv log tap for [{}] crashed", key)
 

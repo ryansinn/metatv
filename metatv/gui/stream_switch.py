@@ -61,6 +61,11 @@ class SwitchContext:
     same_provider: bool
     live_base_url: str | None
     one_connection: bool
+    #: True for the ONE automatic retry of a play whose mpv exited while still
+    #: opening (``playback_start_watch.retry_candidate``): the probe is skipped
+    #: exactly as on a same-provider switch, because on a one-connection source
+    #: the probe IS the extra connection the retry is trying not to spend.
+    retry: bool = False
 
 
 def switch_context(player_manager, connection_accountant, provider_id: str | None,
