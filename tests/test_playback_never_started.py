@@ -316,10 +316,10 @@ def test_the_health_tick_calls_it_when_no_player_is_left():
            / "metatv" / "gui" / "main_window_streaming.py").read_text()
     body = src[src.index("def _playback_health_tick"):]
     body = body[:body.index("\n    def ", 1)]
-    assert "_startwatch.on_player_gone(self)" in body, (
+    assert "_startwatch.on_player_gone(self" in body, (
         "a player that exits without playing is silent again")
     # Before the poll stops, or it never runs.
-    assert (body.index("_startwatch.on_player_gone(self)")
+    assert (body.index("_startwatch.on_player_gone(self")
             < body.index("_playback_health_timer.stop()"))
 
 
@@ -544,3 +544,83 @@ def test_prestart_beats_resume_detail(monkeypatch):
     msg = host.notification_manager.show.call_args.kwargs["message"]
     assert "hasn't started" in msg
     assert "from the start" not in msg
+
+
+# ── 2026-09-06: the exit REASON decides whether a loaded-but-unplayed exit is silent ──
+#
+# Owner log 10:11: a cold play on a one-connection source loaded its path,
+# never received demuxer data, and mpv (``--idle=once``) exited inside 30 s
+# with no warning line. ``on_player_gone`` read "loaded" as "played" and said
+# nothing; a second click 32 s later played. mpv's own ``Exiting... (reason)``
+# line (captured by core/players/mpv_log_tap.py) is what tells a user close
+# ("Quit") from a stream that ended the process ("End of file").
+
+def _loaded_but_never_progressed():
+    host = _host()
+    watch.arm(host, watch.PlayAttempt("ch-1", "Some Title", "http://x/1.mkv"))
+    watch.on_playing(host)                      # a path loaded …
+    watch.on_loaded_tick(host, None, False, cache_duration=None)   # … but OPENING
+    return host
+
+
+def test_a_loaded_file_whose_stream_ended_the_process_is_reported():
+    host = _loaded_but_never_progressed()
+    assert watch.on_player_gone(host, exit_reason="End of file") is True
+    host.notification_manager.show.assert_called_once()
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "exited while still opening" in msg and "Retrying once" in msg
+    host.stream_retry_manager.add_failure.assert_called_once()
+
+
+def test_a_loaded_file_the_user_closed_stays_silent():
+    host = _loaded_but_never_progressed()
+    assert watch.on_player_gone(host, exit_reason="Quit") is False
+    host.notification_manager.show.assert_not_called()
+
+
+def test_a_loaded_file_with_no_known_reason_stays_silent_as_before():
+    host = _loaded_but_never_progressed()
+    assert watch.on_player_gone(host) is False
+    host.notification_manager.show.assert_not_called()
+
+
+def test_a_play_that_progressed_is_silent_whatever_the_reason():
+    host = _loaded_but_never_progressed()
+    watch.on_loaded_tick(host, 1.0, False, cache_duration=3.0)
+    watch.on_loaded_tick(host, 2.0, False, cache_duration=3.0)   # real progress
+    assert watch.on_player_gone(host, exit_reason="End of file") is False
+    host.notification_manager.show.assert_not_called()
+
+
+def test_the_retry_candidate_is_the_reported_attempt_exactly_once():
+    host = _loaded_but_never_progressed()
+    assert watch.retry_candidate(host) is None, "nothing reported yet"
+    watch.on_player_gone(host, exit_reason="End of file")
+    att = watch.retry_candidate(host)
+    assert att is not None and att.channel_id == "ch-1"
+    # The retry itself arms as retry=True and, exiting the same way, is
+    # reported but never retried again.
+    watch.arm(host, watch.PlayAttempt("ch-1", "Some Title", "http://x/1.mkv", retry=True))
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, None, False, cache_duration=None)
+    assert watch.on_player_gone(host, exit_reason="End of file") is True
+    assert watch.retry_candidate(host) is None
+
+
+def test_a_user_close_is_never_a_retry_candidate():
+    host = _loaded_but_never_progressed()
+    watch.on_player_gone(host, exit_reason="Quit")
+    assert watch.retry_candidate(host) is None
+
+
+def test_arming_over_an_unplayed_attempt_is_logged_not_toasted(caplog):
+    from loguru import logger as _loguru
+    host = _loaded_but_never_progressed()
+    lines: list[str] = []
+    hid = _loguru.add(lambda m: lines.append(str(m)), level="INFO", format="{message}")
+    try:
+        watch.arm(host, watch.PlayAttempt("ch-2", "Next Title", "http://x/2.mkv"))
+    finally:
+        _loguru.remove(hid)
+    assert any("previous play 'Some Title' never progressed" in ln for ln in lines)
+    host.notification_manager.show.assert_not_called()

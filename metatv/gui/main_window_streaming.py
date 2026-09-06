@@ -8,6 +8,8 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
+import dataclasses
+
 from time import monotonic
 from urllib.parse import urlparse
 
@@ -294,6 +296,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         open_ended_buffer: bool = False,
         deep_buffer: bool = False,
         start_override: int | None = None,
+        skip_probe: bool = False,
     ):
         """Play a media item (live stream or movie) in external player.
 
@@ -381,6 +384,8 @@ class _StreamingMixin(_WatchCaptureMixin):
         switch_ctx = _stream_switch.switch_context(
             self.player_manager, self.player_manager.connection_accountant,
             channel.provider_id, switch_key)
+        if skip_probe:   # the one automatic retry — playback_start_watch.schedule_retry
+            switch_ctx = dataclasses.replace(switch_ctx, retry=True)
         self._switch_same_provider = switch_ctx.same_provider
         if switch_ctx.same_provider and switch_ctx.one_connection:
             pname = self._provider_display_name(channel.provider_id)
@@ -446,34 +451,24 @@ class _StreamingMixin(_WatchCaptureMixin):
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
-        Phase 0 — same-provider switch (PLAY-10), only when *switch_context*
-        says the running window is already on this provider: the currently
-        playing stream is standing proof the source is reachable, so both
-        phases below are skipped entirely — no re-probe, no failover — and the
-        URL is rewritten onto the live host when that's safer (see
-        ``gui.stream_switch.prefer_live_host``) before emitting success.
-
-        Phase 1 — same-source failover (existing path): try the channel's
-        primary URL; if that fails, cycle the provider's alternate base URLs
-        via ``validate_and_failover_stream_url``.
-
-        Phase 2 — cross-source sibling failover: if every same-source URL
-        fails and the channel has a ``content_key``, look up sibling channels
-        on OTHER providers sharing it (``ChannelRepository.
-        get_content_key_siblings``) and try each active one in ranked order;
-        first validated sibling wins silently (no failure toast).
-
-        On total failure the emit payload carries the original channel's URL and
-        any sibling alternatives (so the failure toast can offer them).
-
-        Runs in ``self.executor``.  Must NOT touch Qt widgets — all UI work is
-        done in ``_on_stream_ready``, which runs on the main thread via the signal.
+        Phase 0 — a same-provider switch (PLAY-10) or the one automatic retry
+        (``switch_context.retry``): the probe/failover below would only cost a
+        connection the source has not reaped yet, so both phases are skipped and
+        the URL is rewritten onto the live host when that is safer
+        (``gui.stream_switch.prefer_live_host``).
+        Phase 1 — same-source: validate the primary URL, else cycle the
+        provider's alternates (``validate_and_failover_stream_url``).
+        Phase 2 — cross-source siblings sharing the ``content_key``
+        (``get_content_key_siblings``), tried in ranked order; the first that
+        validates wins silently. On total failure the payload carries the
+        original URL and the sibling alternatives for the failure toast.
+        Runs in ``self.executor``; touches no widget — ``_on_stream_ready`` does.
         """
-        # ── Phase 0: same-provider switch — the running stream already proves
-        # the source, so the probe/failover below would only cost this play a
-        # connection the provider hasn't reaped yet ─────────────────────────
-        if switch_context is not None and switch_context.same_provider:
-            logger.info("same-provider switch: probe skipped (the source is "
+        # ── Phase 0: same-provider switch or the one retry — no probe (docstring) ─
+        if switch_context is not None and (switch_context.same_provider or switch_context.retry):
+            logger.info("retry after the player exited while opening: probe skipped"
+                        if switch_context.retry else
+                        "same-provider switch: probe skipped (the source is "
                         "proven by the current stream)")
             final_url = stream_url
             try:
@@ -493,7 +488,7 @@ class _StreamingMixin(_WatchCaptureMixin):
                 "force_new_window": force_new_window, "start_seconds": start_seconds,
                 "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
                 "siblings": [], "event_start_time": event_start_time,
-                "probe_skipped": True,
+                "probe_skipped": True, "retry": switch_context.retry,
             })
             return
 
@@ -771,7 +766,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             # "Playing:" comes from that probe seeing a loaded file, not from
             # a 2s timer — see gui/playback_start_watch.py.
             self._start_playback_health(_startwatch.PlayAttempt(
-                channel_id, channel_name, final_url, start_seconds, data.get("event_start_time")))
+                channel_id, channel_name, final_url, start_seconds, data.get("event_start_time"),
+                retry=bool(data.get("retry"))))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")
@@ -1257,8 +1253,12 @@ class _StreamingMixin(_WatchCaptureMixin):
                 k: v for k, v in self._playing_channels.items() if k in keys
             }
         if not keys:
-            # Nothing left to probe; if nothing played, it EXITED unplayed.
-            _startwatch.on_player_gone(self)
+            # Nothing left to probe; if nothing played, it EXITED unplayed — mpv's
+            # own exit reason (log tap) says whether the STREAM ended it.
+            reason = self.player_manager.last_exit_reason(
+                self.__dict__.get("_health_querying_key"))
+            if _startwatch.on_player_gone(self, exit_reason=reason):
+                _startwatch.schedule_retry(self)
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
             self._playback_health_timer.stop()

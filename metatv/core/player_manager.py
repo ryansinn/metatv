@@ -458,6 +458,19 @@ class PlayerManager:
             return []
         return self.player.active_keys()
 
+    def last_exit_reason(self, key: str | None = None) -> str | None:
+        """Why the last mpv process under *key* exited (``"Quit"``, ``"End of file"``…).
+
+        None when unknown or when no player is available. Defaults to the
+        most-recently-used key. Reads ``mpv_log_tap.last_exit`` for the resolved key.
+        """
+        from metatv.core.players.mpv_log_tap import last_exit
+        if not self.player:
+            return None
+        resolved = self.player._resolve_key(key)
+        rec = last_exit(resolved) if resolved else None
+        return rec.reason if rec else None
+
     def provider_for_key(self, key: str | None) -> str | None:
         """Return the provider_id of the content last played into instance *key*.
 

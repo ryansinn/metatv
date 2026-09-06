@@ -58,9 +58,11 @@ def test_every_line_reaches_the_log_tagged_with_the_key():
     finally:
         logger.remove(handler_id)
 
-    assert len(sink.records) == 3
+    # Three tapped lines plus the exit record the tap now writes at EOF.
+    assert len(sink.records) == 4
     assert all("mpv[prov-1]" in r["text"] for r in sink.records)
     assert "opening stream" in sink.records[0]["text"]
+    assert "exited rc=" in sink.records[3]["text"] and sink.records[3]["level"] == "INFO"
     assert sink.records[0]["level"] == "DEBUG"
 
 
@@ -78,7 +80,7 @@ def test_the_http_error_line_is_escalated_to_warning():
     finally:
         logger.remove(handler_id)
 
-    levels = [r["level"] for r in sink.records]
+    levels = [r["level"] for r in sink.records if "exited rc=" not in r["text"]]
     assert levels == ["DEBUG", "WARNING", "WARNING"], (
         "the 500 line, and the reconnect line, must both escalate to WARNING")
 
@@ -121,5 +123,41 @@ def test_empty_lines_are_skipped():
     finally:
         logger.remove(handler_id)
 
-    assert len(sink.records) == 1
-    assert "real line" in sink.records[0]["text"]
+    lines = [r for r in sink.records if "exited rc=" not in r["text"]]
+    assert len(lines) == 1
+    assert "real line" in lines[0]["text"]
+
+
+# ── 2026-09-06: the exit reason is recorded, so the watchdog can tell a user
+# close from a stream that ended the process ─────────────────────────────────
+
+def test_the_exit_reason_and_return_code_are_recorded_per_key():
+    from metatv.core.players.mpv_log_tap import clear_exit, last_exit
+    clear_exit("prov-9")
+    assert last_exit("prov-9") is None
+    proc = _fake_process([b"Playing: http://x/1.mkv\n", b"Exiting... (End of file)\n"])
+    proc.poll.return_value = 0
+    sink = _ListSink()
+    handler_id = logger.add(sink, level="INFO", format="{message}")
+    try:
+        thread = start_log_tap(proc, "prov-9")
+        thread.join(timeout=5)
+    finally:
+        logger.remove(handler_id)
+    rec = last_exit("prov-9")
+    assert rec is not None
+    assert rec.reason == "End of file" and rec.returncode == 0
+    assert any("mpv[prov-9] exited rc=0" in r["text"] and "End of file" in r["text"]
+               for r in sink.records)
+    clear_exit("prov-9")
+    assert last_exit("prov-9") is None
+
+
+def test_a_process_that_printed_no_exit_line_records_no_reason():
+    from metatv.core.players.mpv_log_tap import last_exit
+    proc = _fake_process([b"HTTP error 500\n"])
+    proc.poll.return_value = 1
+    thread = start_log_tap(proc, "prov-10")
+    thread.join(timeout=5)
+    rec = last_exit("prov-10")
+    assert rec is not None and rec.reason is None and rec.returncode == 1

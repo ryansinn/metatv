@@ -13,7 +13,7 @@ from typing import Optional
 from loguru import logger
 
 from metatv.core.players.base import PlayerPlugin, QueueMode
-from metatv.core.players.mpv_log_tap import start_log_tap
+from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
@@ -297,8 +297,7 @@ class MPVPlayer(PlayerPlugin):
         Shared by :meth:`_ensure_instance_running` (normal launch) and
         :meth:`_relaunch_instance` (open-ended/deep-cache relaunch) — the caller
         does any pre-launch cleanup; this method assumes the slot is free.
-        stderr is piped and tapped (``mpv_log_tap.start_log_tap``) instead of
-        ``DEVNULL`` so mpv's own diagnostics reach our log (PLAY-10).
+        stderr is piped and tapped (``mpv_log_tap.start_log_tap``, PLAY-10).
 
         Args:
             key: Instance key — the socket path (:meth:`_socket_path_for`) and
@@ -329,7 +328,7 @@ class MPVPlayer(PlayerPlugin):
                 f"--input-ipc-server={sock_path}",
                 "--force-window=yes",
                 "--keep-open=no",
-                "--msg-level=all=warn",
+                "--msg-level=all=warn,cplayer=info",
             ]
 
             if self.config.close_player_when_finished:
@@ -340,7 +339,7 @@ class MPVPlayer(PlayerPlugin):
             cmd += extra_args
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
-
+            clear_exit(key)
             process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             start_log_tap(process, key)
 
@@ -866,7 +865,7 @@ class MPVPlayer(PlayerPlugin):
                 extra_args = self._compose_extra_args()
 
             cmd = ([_resolve_mpv_binary(), f"--force-media-title={title}",
-                    "--msg-level=all=warn"] + extra_args)
+                    "--msg-level=all=warn,cplayer=info"] + extra_args)
             if start_seconds > 0:
                 cmd.append(f"--start={start_seconds}")
             cmd.append(url)
