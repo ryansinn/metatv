@@ -68,19 +68,28 @@ def test_a_recording_row_shows_one_persistent_non_dismissible_notice(host):
     assert "Shark" in kwargs["message"], "names the SOURCE, not the channel"
 
 
-def test_the_two_actions_are_watch_keep_open_and_stop_dismissing(host):
+def test_the_three_actions_are_watch_stop_and_extend(host):
+    """Watch/Extend keep the persistent card open; Stop is the dismissing one.
+
+    Extend is the notice's own entry point to the same verb the Recordings
+    row context menu offers — the notice is the one surface a live recording
+    is guaranteed to have.
+    """
     host._refresh_recording_notifications([_recording()], now=NOW)
     actions = host.notification_manager.show.call_args.kwargs["actions"]
-    assert [a[0] for a in actions] == ["Watch", "Stop"]
+    assert [a[0] for a in actions] == ["Watch", "Stop", "Extend +15 min"]
 
     watch_label, watch_cb, watch_keep_open = actions[0]
     assert watch_keep_open is True, "Watch must not close the persistent card"
     assert len(actions[1]) == 2, "Stop is the DEFAULT (dismissing) 2-tuple shape"
     stop_cb = actions[1][1]
+    extend_label, extend_cb, extend_keep_open = actions[2]
+    assert extend_keep_open is True, "Extend must not close the persistent card"
 
     # The callbacks are closures over THIS recording_id and route to the real
-    # _watch_recording/_cancel_recording — patched here only to isolate the
-    # routing from those methods' own (separately covered) behaviour.
+    # _watch_recording/_cancel_recording/_extend_recording — patched here only
+    # to isolate the routing from those methods' own (separately covered)
+    # behaviour.
     host._watch_recording = MagicMock()
     watch_cb()
     host._watch_recording.assert_called_once_with("r1")
@@ -88,6 +97,10 @@ def test_the_two_actions_are_watch_keep_open_and_stop_dismissing(host):
     host._cancel_recording = MagicMock()
     stop_cb()
     host._cancel_recording.assert_called_once_with("r1")
+
+    host._extend_recording = MagicMock()
+    extend_cb()
+    host._extend_recording.assert_called_once_with("r1")
 
 
 def test_a_second_tick_updates_the_same_card_rather_than_showing_a_new_one(host):

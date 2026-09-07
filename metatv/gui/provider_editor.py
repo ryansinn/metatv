@@ -319,7 +319,6 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
 
     done = pyqtSignal()                     # user clicked "Done" — exit editor mode
     provider_saved = pyqtSignal(str)        # provider_id saved
-    provider_deleted = pyqtSignal(str)      # provider_id deleted (finished — kept for compatibility)
     provider_delete_requested = pyqtSignal(str)  # provider_id — user confirmed delete; MainWindow runs the purge off-thread
     refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh" clicked
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)

@@ -71,15 +71,11 @@ class WatchAlertsSection(
     # stop, title. Same shape as programmeContextMenuRequested minus the
     # click position, since this isn't a menu.
     programmeRecordRequested = pyqtSignal(str, object, object, str)
-    retryRemoveRequested = pyqtSignal(str)                  # entry_id
-    retryClearAllRequested = pyqtSignal()
     retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name
     retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
     # VOD watch-for signals
     addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
     manageWatchForClicked = pyqtSignal()     # header "Manage" → open shared manage dialog
-    vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
-    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → keyword search (dialog fallback)
     vodRuleShowMatchesRequested = pyqtSignal(str)  # rule_created → show the rule's STORED matched ids
     vodRuleRemoveRequested = pyqtSignal(str)  # rule_created → remove rule + refresh
     vodRuleClearAlertRequested = pyqtSignal(str)  # rule_created → ack just this rule's matches

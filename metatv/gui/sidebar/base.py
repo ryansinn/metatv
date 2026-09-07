@@ -569,8 +569,6 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
                          ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
-    # Signal when section wants to update its size
-    sizeChanged = pyqtSignal()
     # "Explore →" header link clicked — the host opens this section's Explore view
     # (cascading columns seeded with the section's contents).  Only sections that
     # set EXPLORE_KEY grow the link, so only they emit it.
@@ -1250,7 +1248,6 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
         # Notify parent to adjust layout
         self.updateGeometry()
-        self.sizeChanged.emit()
 
         # Save state (unless explicitly disabled, e.g. during restore)
         if save:

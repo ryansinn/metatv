@@ -1009,15 +1009,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section.programmeContextMenuRequested.connect(
                 self._on_alert_programme_context_menu)
             section.programmeRecordRequested.connect(self.schedule_recording_from_programme)
-            section.retryRemoveRequested.connect(self.stream_retry_manager.remove)
-            section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
             section.retryPlayRequested.connect(self._on_retry_play_requested)
             section.retryContextMenuRequested.connect(self._on_retry_context_menu_requested)
             # VOD watch-for wiring
             section.addWatchForClicked.connect(self._on_add_watch_for)
             section.manageWatchForClicked.connect(self._open_vod_alerts_dialog)
-            section.vodAlertClicked.connect(self.show_channel_details_by_id)
-            section.vodRuleViewMatchesRequested.connect(self._on_vod_rule_view_matches)
             section.vodRuleShowMatchesRequested.connect(self._on_vod_rule_show_matches)
             section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
             section.clearAllAlertsClicked.connect(self._clear_all_alerts)
@@ -1096,10 +1092,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section = DownloadsSection(self.config, self.db, self)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.openLibraryFolderClicked.connect(self._open_downloads_folder)
-            section.revealItemRequested.connect(self._reveal_in_file_manager)
-            section.pauseRequested.connect(self._pause_download)
-            section.resumeRequested.connect(self._resume_download)
-            section.cancelRequested.connect(self._cancel_download)
             section.playRequested.connect(self.play_downloaded)
             section.clearHistoryGroupClicked.connect(self._clear_download_history_group)
             section.clearDownloadHistoryClicked.connect(self._clear_download_history)
@@ -1111,9 +1103,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             section = RecordingsSection(self.config, self.db, self)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.openLibraryFolderClicked.connect(self._open_recordings_folder)
-            section.watchRequested.connect(self._watch_recording)
-            section.cancelRequested.connect(self._cancel_recording)
-            section.extendRequested.connect(self._extend_recording)
+            section.recordings_list.customContextMenuRequested.connect(
+                self.show_recordings_context_menu)
             return section
 
         elif section_id == "queue":
@@ -1431,7 +1422,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         from metatv.gui.filter_panel import FilterPanel
         self.filter_panel = FilterPanel(self.config)
         self.filter_panel.filter_changed.connect(self.on_filter_changed)
-        self.filter_panel.settings_requested.connect(self.open_settings)
         self._filter_unmapped_prefixes: list[str] = []
 
         # list_area: holds banner + all content views (right side of inner splitter)
@@ -1707,7 +1697,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
-        self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
         self.provider_editor.provider_delete_requested.connect(self._on_provider_delete_requested)
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
         self.provider_editor.account_info_updated.connect(self._on_account_info_updated)

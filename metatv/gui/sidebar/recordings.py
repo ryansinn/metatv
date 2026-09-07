@@ -60,9 +60,6 @@ class RecordingsSection(CollapsibleSection):
 
     itemSelected             = pyqtSignal(str)   # channel_id — open its details
     openLibraryFolderClicked = pyqtSignal()      # the section's folder button
-    watchRequested           = pyqtSignal(str)   # recording_id — watch the growing file
-    cancelRequested          = pyqtSignal(str)   # recording_id
-    extendRequested          = pyqtSignal(str)   # recording_id
 
     def __init__(self, config, db, parent=None):
         self.db = db
