@@ -115,3 +115,16 @@ def radius_px(token: str) -> int:
     ``zoomed_font`` makes for the type scale.
     """
     return int(token.replace("px", ""))
+
+
+# Progress-bar heights. Palette-invariant for the same reason a radius is: a
+# bar is a shape. Seven bars shipped at five heights — 6px set with
+# ``setFixedHeight``, 4px scaled by the card zoom, and four that took whatever
+# Qt's default was — because the height lived at the call site rather than in
+# the sheet that draws the bar.
+#
+# Two steps and no more. IN a form the bar is a control among controls and
+# reads at the same weight as one; drawn ON something (a poster's watch
+# progress) it is a hairline that must not become the thing you look at.
+PROGRESS_H = "8px"
+PROGRESS_H_THIN = "4px"

@@ -55,14 +55,11 @@ class _AttrRow(QWidget):
         bar.setRange(0, 100)
         bar.setValue(int(abs(value) / max_abs * 100) if max_abs > 0 else 0)
         bar.setTextVisible(False)
-        bar.setFixedHeight(8)
         bar.setMinimumWidth(40)
         bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Green above the line, red below — the chunk colour IS the reading here.
         color = _theme.COLOR_OK if value >= 0 else _theme.COLOR_ERR
-        bar.setStyleSheet(
-            f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; background: {_theme.COLOR_LINE_DARK}; }}"
-            f"QProgressBar::chunk {{ background: {color}; border-radius: 2px; }}"
-        )
+        _theme.style_fn(bar, lambda: _theme.progress_bar(color))
 
         sign_lbl = QLabel(f"{value:+.1f}")
         sign_lbl.setFixedWidth(46)
@@ -95,8 +92,7 @@ class _AttrRow(QWidget):
                 palette = w.palette()
                 palette.setColor(QPalette.ColorRole.WindowText, gray)
                 w.setPalette(palette)
-            _theme.style_fn(bar, lambda: f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: {_theme.COLOR_BG_BAR}; }}"
-                f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}")
+            _theme.style_fn(bar, lambda: _theme.progress_bar(_theme.COLOR_FAINT))
 
 
 class _AttrColumn(QWidget):

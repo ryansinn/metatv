@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.config import Config
+from metatv.gui import theme as _theme
 from metatv.gui.dialog_chrome import action_button, dialog_buttons
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider
@@ -117,6 +118,7 @@ class AddProviderDialog(QDialog):
         
         self.progress_bar = QProgressBar()
         self.progress_bar.hide()
+        _theme.style(self.progress_bar, "PROGRESS_BAR")
         layout.addWidget(self.progress_bar)
         
         # Status text

@@ -70,15 +70,12 @@ class _TaskRow(QWidget):
         self._bar.setMinimum(0)
         self._bar.setMaximum(0)  # indeterminate until first progress_cb fires
         self._bar.setValue(0)
-        self._bar.setFixedHeight(8)
         self._bar.setTextVisible(False)
         self._bar.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._bar.setToolTip("Migration progress")
-        _theme.style_fn(self._bar, lambda: f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px;"
-            f" background: {_theme.COLOR_LINE}; }}"
-            f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_BLUE}; border-radius: 2px; }}")
+        _theme.style(self._bar, "PROGRESS_BAR")
         bottom.addWidget(self._bar, 1)
 
         self._pct = QLabel("")

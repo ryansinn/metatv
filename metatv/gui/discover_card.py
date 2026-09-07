@@ -312,10 +312,10 @@ class _ContentCard(QWidget):
             progress_bar.setTextVisible(False)
             progress_bar.setGeometry(0, ph - bar_h, cw, bar_h)
             progress_bar.setToolTip(f"Resume at {round(card.progress_fraction * 100)}% watched")
-            _theme.style_fn(progress_bar, lambda: f"QProgressBar {{ background: {_theme.OVERLAY_BLACK_60}; border: none;"
-                f" border-radius: 0px; }}"
-                f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_ORANGE};"
-                f" border-radius: 0px; }}")
+            # Orange, and the same orange the details pane's Resume button and
+            # the channel list's ▶ indicator use — this bar means "resume here".
+            _theme.style_fn(progress_bar, lambda: _theme.progress_bar(
+                _theme.COLOR_ACCENT_ORANGE, thin=True))
             progress_bar.raise_()
 
         # Variant-count badge (bottom-left overlay) — shown only when variant_count > 1.

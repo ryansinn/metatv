@@ -214,6 +214,7 @@ class NotificationCard(QFrame):
             else:
                 # Indeterminate: busy/marquee animation — no fraction known yet
                 self.progress_bar.setRange(0, 0)
+            _theme.style(self.progress_bar, "PROGRESS_BAR")
             progress_layout.addWidget(self.progress_bar)
 
             layout.addLayout(progress_layout)

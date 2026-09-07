@@ -149,7 +149,6 @@ class _ProviderEditorTabsMixin:
         bar_row.addWidget(self._acct_remaining_lbl)
         self._acct_progress = QProgressBar()
         self._acct_progress.setTextVisible(False)
-        self._acct_progress.setFixedHeight(6)
         self._acct_progress.setRange(0, 100)
         self._acct_progress.setValue(0)
         self._acct_progress.hide()
@@ -267,10 +266,9 @@ class _ProviderEditorTabsMixin:
                 self._acct_remaining_lbl.setText(f"{days_left} days  ({pct}%){suffix}")
                 self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {col};")
                 self._acct_progress.setValue(pct)
-                self._acct_progress.setStyleSheet(
-                    f"QProgressBar::chunk {{ background: {col}; border-radius: 3px; }}"
-                    f"QProgressBar {{ border-radius: 3px; background: {_theme.OVERLAY_10}; }}"
-                )
+                # The subscription hue — green/amber/red by how long is left.
+                _theme.style_fn(self._acct_progress,
+                                lambda c=col: _theme.progress_bar(c))
                 self._acct_progress.show()
             else:
                 self._acct_remaining_lbl.setText("Expired")

@@ -136,7 +136,11 @@ def test_filtered_variants_is_the_shared_header_one_step_down(qapp):
     section = _VersionSection(_Cfg())
     header = section._filtered_header
     assert isinstance(header, CollapsibleHeader)
-    assert header._chevron.text() == _icons.expand_icon, "starts collapsed"
+    # The caret is a QIcon now (ICON-1), never button text, so "starts
+    # collapsed" is read off the tooltip and the repaint rather than a glyph.
+    assert header._chevron.text() == ""
+    assert not header._chevron.icon().isNull()
+    assert header._chevron.toolTip().startswith("Expand"), "starts collapsed"
     assert header._title.styleSheet() == _theme.DETAIL_SUBSECTION_TITLE, (
         "a sub-section header must not render at the parent header's size"
     )
