@@ -829,6 +829,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.details_pane.resume_episode_requested.connect(self._on_details_resume_episode)
         self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
+        self.details_pane.download_requested.connect(self.download_channel_by_id)
         self.details_pane.trailer_requested.connect(self.play_trailer)
         self.details_pane.trailer_youtube_requested.connect(
             self.open_trailer_in_browser)

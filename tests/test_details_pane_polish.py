@@ -56,37 +56,52 @@ def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypa
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QMenu
     from metatv.gui.details_versions import ChannelVersion, _VersionSection
+    from tests.conftest import destroy_widget
 
-    # QMenu subclass that immediately "selects" the queue action
-    class _FakeMenuPickQueue(QMenu):
-        def exec(self, pos=None):  # type: ignore[override]
-            for act in self.actions():
-                if "Watch Later" in act.text():
-                    return act
-            return None
+    # MENU-1: the menu is built by channel_menu.build_channel_menu now, not a
+    # QMenu constructed in this module — patch QMenu.exec on the class itself
+    # (every instance, whichever module constructed it) rather than the
+    # module-level import, which build_channel_menu no longer reads.
+    def _pick_queue_action(self, pos=None):  # type: ignore[override]
+        # MENU-1: the registry wires the handler via triggered.connect, not a
+        # chosen-action return-value dispatch (the old hand-rolled menu's
+        # shape) — .trigger() it, same as a real exec() firing the signal
+        # when the user picks it.
+        for act in self.actions():
+            if "Watch Later" in act.text():
+                act.trigger()
+                return act
+        return None
 
-    monkeypatch.setattr("metatv.gui.details_versions.QMenu", _FakeMenuPickQueue)
+    monkeypatch.setattr(QMenu, "exec", _pick_queue_action)
 
     section = _VersionSection(_make_config())
     emitted: list[str] = []
     section.queue_toggled.connect(lambda cid: emitted.append(cid))
 
-    # Case A: not yet queued — choosing the action should flip in_queue True
-    v_off = ChannelVersion(channel_id="c1", name="T", in_queue=False)
-    section._show_version_chip_menu(QPoint(0, 0), v_off)
-    assert v_off.in_queue is True, (
-        "After choosing the 'Add to Queue' action, v.in_queue must flip True"
-    )
-    assert "c1" in emitted, "queue_toggled must emit the channel_id"
+    try:
+        # Case A: not yet queued — choosing the action should flip in_queue True
+        v_off = ChannelVersion(channel_id="c1", name="T", in_queue=False)
+        section._show_version_chip_menu(QPoint(0, 0), v_off)
+        assert v_off.in_queue is True, (
+            "After choosing the 'Add to Queue' action, v.in_queue must flip True"
+        )
+        assert "c1" in emitted, "queue_toggled must emit the channel_id"
 
-    # Case B: already queued — choosing the action should flip in_queue False
-    emitted.clear()
-    v_on = ChannelVersion(channel_id="c2", name="T", in_queue=True)
-    section._show_version_chip_menu(QPoint(0, 0), v_on)
-    assert v_on.in_queue is False, (
-        "After choosing the 'Remove from Queue' action, v.in_queue must flip False"
-    )
-    assert "c2" in emitted, "queue_toggled must emit the channel_id"
+        # Case B: already queued — choosing the action should flip in_queue False
+        emitted.clear()
+        v_on = ChannelVersion(channel_id="c2", name="T", in_queue=True)
+        section._show_version_chip_menu(QPoint(0, 0), v_on)
+        assert v_on.in_queue is False, (
+            "After choosing the 'Remove from Queue' action, v.in_queue must flip False"
+        )
+        assert "c2" in emitted, "queue_toggled must emit the channel_id"
+    finally:
+        # MENU-1: build_channel_menu's actions connect closures that reference
+        # section back — a real Qt reference cycle the old hand-rolled menu
+        # (no .connect() at all, dispatched on menu.exec()'s return value)
+        # never created; section has no Qt parent, so nothing else destroys it.
+        destroy_widget(section)
 
 
 def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch):
@@ -94,27 +109,40 @@ def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch):
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QMenu, QPushButton
     from metatv.gui.details_versions import ChannelVersion, _VersionSection
+    from tests.conftest import destroy_widget
 
-    class _FakeMenuPickQueue(QMenu):
-        def exec(self, pos=None):  # type: ignore[override]
-            for act in self.actions():
-                if "Watch Later" in act.text():
-                    return act
-            return None
+    # See the sibling test above: patch QMenu.exec on the class, not the
+    # module-level import build_channel_menu no longer reads.
+    def _pick_queue_action(self, pos=None):  # type: ignore[override]
+        # MENU-1: the registry wires the handler via triggered.connect, not a
+        # chosen-action return-value dispatch (the old hand-rolled menu's
+        # shape) — .trigger() it, same as a real exec() firing the signal
+        # when the user picks it.
+        for act in self.actions():
+            if "Watch Later" in act.text():
+                act.trigger()
+                return act
+        return None
 
-    monkeypatch.setattr("metatv.gui.details_versions.QMenu", _FakeMenuPickQueue)
+    monkeypatch.setattr(QMenu, "exec", _pick_queue_action)
 
     cfg = _make_config()
     section = _VersionSection(cfg)
     v = ChannelVersion(channel_id="c1", name="T", in_queue=False, detected_prefix="EN")
     chip = QPushButton("EN")   # dummy chip for text-update check
 
-    section._show_version_chip_menu(QPoint(0, 0), v, chip)
+    try:
+        section._show_version_chip_menu(QPoint(0, 0), v, chip)
 
-    # After the flip, the chip text should include the queue icon
-    assert cfg.queue_icon in chip.text(), (
-        f"Chip text '{chip.text()}' should include queue_icon after optimistic flip"
-    )
+        # After the flip, the chip text should include the queue icon
+        assert cfg.queue_icon in chip.text(), (
+            f"Chip text '{chip.text()}' should include queue_icon after optimistic flip"
+        )
+    finally:
+        # Both are parentless top-levels the registry's action closures now
+        # reference (see the sibling test's comment) — neither is cleaned up
+        # by anything else.
+        destroy_widget(section, chip)
 
 
 # ── Fix #101: genre chips wrap in flow layout ─────────────────────────────

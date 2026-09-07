@@ -140,6 +140,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
 
     version_selected         = pyqtSignal(str)        # channel_id — show details
     play_version_requested   = pyqtSignal(str)        # channel_id — play that variant
+    download_requested       = pyqtSignal(str)        # channel_id — save that variant to the library
     favorite_toggled         = pyqtSignal(str)        # channel_id
     queue_toggled            = pyqtSignal(str)        # channel_id
     hide_requested           = pyqtSignal(str)        # channel_id
@@ -720,6 +721,14 @@ class _VersionSection(CollapsibleMixin, QWidget):
     def _show_version_chip_menu(
         self, global_pos, v: ChannelVersion, chip: QPushButton | None = None
     ) -> None:
+        """Right-click a version chip: play/details/favorite/queue via the
+        registry ("versions" surface), plus prefix/category-level admin rows
+        (hide this version, filter/hide the whole category, rename it) that
+        stay hand-appended — a normalization-code axis, not a single channel,
+        same rationale as ``_show_filtered_chip_menu`` below.
+        """
+        from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
+
         prefix = v.detected_prefix or "?"
         full = resolve_category_name(prefix, self.config)
         pm = getattr(self, "_provider_map", {})
@@ -729,42 +738,42 @@ class _VersionSection(CollapsibleMixin, QWidget):
             header_parts.append(f"({src_name})")
         header = " ".join(header_parts)
 
-        # Import here to keep the module-level import surface small and to avoid
-        # a circular import at load time (glyph_icon calls QPixmap which needs QApplication).
-        from metatv.gui.icons import glyph_icon as _glyph_icon
+        def _toggle_queue() -> None:
+            self.queue_toggled.emit(v.channel_id)
+            # Optimistic flip so the next right-click shows the correct "Add/Remove"
+            # label and the chip icon reflects the new queue state immediately.
+            v.in_queue = not v.in_queue
+            if chip is not None:
+                chip.setText(escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v)))
 
-        menu = QMenu(self)
-        title_act = menu.addAction(header)
-        title_act.setEnabled(False)
-        menu.addSeparator()
-
-        if v.is_inactive:
-            # Inactive source: offer reactivate & play prominently
-            reactivate_act = menu.addAction("Reactivate source & play")
-            reactivate_act.setToolTip(f"Re-enable {src_name or prefix} and play this variant")
-            reactivate_act.setIcon(_glyph_icon(_icons.play_icon))
-            show_act = menu.addAction(f"Show details for {prefix} version")
-            show_act.setToolTip(v.name)
-            show_act.setIcon(_glyph_icon(_icons.info_icon))
-        else:
-            play_act = menu.addAction(f"Play {prefix} version")
-            play_act.setToolTip(f"Play: {v.name}")
-            play_act.setIcon(_glyph_icon(_icons.play_icon))
-            show_act = menu.addAction(f"Show details for {prefix} version")
-            show_act.setToolTip(v.name)
-            show_act.setIcon(_glyph_icon(_icons.info_icon))
-        menu.addSeparator()
-
-        fav_act = menu.addAction("Remove from Favorites" if v.is_favorite else "Add to Favorites")
-        fav_act.setIcon(_glyph_icon(_icons.unfavorite_icon if v.is_favorite else _icons.favorite_icon))
-        queue_act = menu.addAction(
-            "Remove from Watch Later" if v.in_queue else "Add to Watch Later"
+        ctx = ChannelMenuContext(
+            channel_ids=[v.channel_id],
+            surface="versions",
+            header=header,
+            version_prefix=prefix,
+            source_inactive=v.is_inactive,
+            is_favorite=v.is_favorite,
+            in_queue=v.in_queue,
+            channel_name=v.name,
+            media_type=v.media_type,
+            channel_found=True,
         )
-        queue_act.setIcon(_glyph_icon(_icons.queue_icon))
+        handlers = {
+            "play": lambda: self.play_version_requested.emit(v.channel_id),
+            "download": lambda: self.download_requested.emit(v.channel_id),
+            "reactivate_play": lambda: self.play_version_requested.emit(v.channel_id),
+            "show_details": lambda: self.version_selected.emit(v.channel_id),
+            "favorite": lambda: self.favorite_toggled.emit(v.channel_id),
+            "queue": _toggle_queue,
+        }
+        menu = build_channel_menu(ctx, handlers, parent=self)
+
+        hide_act = None
         if not v.is_inactive:
+            menu.addSeparator()
             hide_act = menu.addAction(f"Hide this {prefix} version")
             hide_act.setToolTip(f"Hides only: {v.name}")
-            hide_act.setIcon(_glyph_icon(_icons.hide_icon))
+            hide_act.setIcon(_icons.glyph_icon(_icons.hide_icon))
         menu.addSeparator()
 
         # Admin/destructive rows — no icon (blank column signals a different tier)
@@ -777,28 +786,8 @@ class _VersionSection(CollapsibleMixin, QWidget):
         edit_act = menu.addAction("Edit Category Name…")
 
         chosen = menu.exec(global_pos)
-        if v.is_inactive:
-            if chosen == reactivate_act:
-                self.play_version_requested.emit(v.channel_id)
-            elif chosen == show_act:
-                self.version_selected.emit(v.channel_id)
-        else:
-            if chosen == play_act:
-                self.play_version_requested.emit(v.channel_id)
-            elif chosen == show_act:
-                self.version_selected.emit(v.channel_id)
-            elif chosen == hide_act:
-                self.hide_requested.emit(v.channel_id)
-
-        if chosen == fav_act:
-            self.favorite_toggled.emit(v.channel_id)
-        elif chosen == queue_act:
-            self.queue_toggled.emit(v.channel_id)
-            # Optimistic flip so the next right-click shows the correct "Add/Remove" label
-            # and the chip icon reflects the new queue state immediately.
-            v.in_queue = not v.in_queue
-            if chip is not None:
-                chip.setText(escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v)))
+        if chosen == hide_act:
+            self.hide_requested.emit(v.channel_id)
         elif chosen in (filter_act, hide_cat_act):
             self.prefix_block_requested.emit(prefix)
         elif chosen == edit_act:

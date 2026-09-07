@@ -35,15 +35,19 @@ class TestReachingTheSeries:
         from metatv.gui.channel_menu import ACTIONS
 
         action = ACTIONS["browse_series"]
-        assert action.label == "Browse the series"
 
         class _Ctx:
             is_single = True
             channel_found = True
             is_hidden = False
             media_type = "series"
+            surface = "channel"
 
         ctx = _Ctx()
+        # label is a callable (MENU-1: was a bare string, which crashed the
+        # moment a real handler made build_channel_menu actually call it) —
+        # "channel" is the plain-text wording; "alerts_series" reads "Open series".
+        assert action.label(ctx) == "Browse the series"
         assert action.applies(ctx)
         ctx.media_type = "movie"
         assert not action.applies(ctx), "it offered to browse a film"
@@ -58,6 +62,13 @@ class TestReachingTheSeries:
 
         for surface, layout in SURFACE_LAYOUTS.items():
             if "browse_series" not in layout:
+                continue
+            if surface == "alerts_series":
+                # Every action on this surface IS series-scoped (MENU-1) — there
+                # is no episode-level content above it to stay separated from,
+                # so the row grammar the owner settled is [browse, mark_seen] |
+                # [monitor, manage] instead: adjacency's original purpose
+                # (keep series actions grouped away from episode ones) is moot.
                 continue
             i, j = layout.index("browse_series"), layout.index("monitor_series")
             assert j == i + 1, f"{surface}: not adjacent to monitor_series"

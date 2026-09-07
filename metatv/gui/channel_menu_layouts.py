@@ -126,6 +126,10 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     # FULL standard movie menu, same block as "channel"; `applies=` hides
     # what doesn't fit (mark_watched/category/monitor_series on non-VOD, etc).
     "recommended": [
+        # Recommendation-engine dedup override — listed FIRST (the row's own
+        # right-click no longer opens a separate two-item mini-menu for it).
+        "show_separately",
+        "sep",
         "download",
         "sep",
         "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
@@ -159,9 +163,34 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_alert",
         "sep",
+        # view_matches: a keyword-rule row (config aggregate, no channel_id)
+        # reuses this same "alerts" surface for its two verbs — everything else
+        # above is skipped there (no handler at that site).
+        "view_matches",
+        "sep",
         "search_title", "copy_title",
         "sep",
         "hide",
+    ],
+    "alerts_series": [
+        # A monitored series' own right-click (Watch Alerts sidebar's Series
+        # group AND the Watch Queue's Alerts-Matched series row) — one surface,
+        # two call sites; a site without a handler for an id just skips it (the
+        # Queue copy has no "Manage…", matching its pre-registry behaviour).
+        "browse_series", "mark_seen",
+        "sep",
+        "monitor_series", "manage_alerts",
+    ],
+    "versions": [
+        # Details-pane "Also Available" per-version chip menu. play and
+        # reactivate_play are mutually exclusive (source_inactive), so listing
+        # reactivate_play before show_details keeps the inactive-source render
+        # order identical to the pre-registry menu (Reactivate, then Show details).
+        "play", "reactivate_play", "show_details",
+        "sep",
+        "download",
+        "sep",
+        "favorite", "queue",
     ],
     "retry": [
         "play", "play_new_window",

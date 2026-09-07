@@ -461,6 +461,21 @@ class _MetadataMixin:
         if section:
             section.refresh()
 
+    def _show_channel_separately(self, channel_id: str) -> None:
+        """Handler for the registry's ``show_separately`` menu action.
+
+        Both consuming views (Preferences dashboard, sidebar Recommended rail)
+        already own an idempotent ``show_separately(channel_id)`` — mutates the
+        shared ``config.rec_dedupe_overrides`` and refreshes with scroll
+        preserved — so this delegates to both rather than re-deriving a third
+        copy of the same config write (same shape as ``_not_interested``,
+        which also refreshes both regardless of which one triggered it).
+        """
+        self.preferences_view.show_separately(channel_id)
+        section = self.sidebar_sections.get("recommended")
+        if section:
+            section.show_separately(channel_id)
+
     # ── Channel details pane ────────────────────────────────────────────────
 
     def show_channel_details_by_id(self, channel_id: str, on_shown=None) -> None:

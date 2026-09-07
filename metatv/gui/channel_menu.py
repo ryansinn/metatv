@@ -63,7 +63,10 @@ class ChannelMenuContext:
     epg_link_blocked: bool = False    # channel_id in config.epg_link_blocklist (EPG "Clear link")
     is_vod_watched: bool = False      # channel.watch_completed (VOD manual-watched state)
     is_series_monitored: bool = False  # channel_id in config.monitored_series
-    has_unviewed_match: bool = False   # channel is an UNVIEWED VOD watch-for match
+    # UNVIEWED match — a VOD watch-for keyword match on most surfaces; on
+    # "alerts_series" the same flag carries a monitored series' own unseen-episode
+    # state (the two never render in the same menu, so one field serves both).
+    has_unviewed_match: bool = False
     has_unavailable: bool = False     # favorites/queue Clear-Unavailable enablement
     channel_name: str = ""
     user_category: str | None = None
@@ -89,6 +92,15 @@ class ChannelMenuContext:
     programme_start: "datetime | None" = None
     programme_end: "datetime | None" = None
     programme_title: str = ""
+    # "versions" surface (details-pane per-version chip menu): the variant's own
+    # region/prefix code, read by the play/show_details label hooks, and whether
+    # ITS source is inactive (gates reactivate_play / disables play).
+    version_prefix: str = ""
+    source_inactive: bool = False
+    # Disabled first action, rendered by build_channel_menu when non-empty — the
+    # ONE header mechanism (never a second): "versions" uses it for the picked
+    # variant's region/source name.
+    header: str = ""
 
     @property
     def is_single(self) -> bool:
@@ -177,8 +189,20 @@ def _clear_epg_link_tooltip(c: ChannelMenuContext) -> str:
     )
 
 
+def _browse_series_label(c: ChannelMenuContext) -> str:
+    # "alerts_series" (the monitored-series row itself) names the verb the row's
+    # OWN menu used pre-registry ("Open series"); every other surface keeps
+    # "Browse the series" (test_sidebar_followups.py calls this directly).
+    return "Open series" if c.surface == "alerts_series" else "Browse the series"
+
+
 def _monitor_label(c: ChannelMenuContext) -> str:
-    return "Stop new-episode alerts" if c.is_series_monitored else "Alert me to new episodes"
+    if not c.is_series_monitored:
+        return "Alert me to new episodes"
+    # "alerts_series" (the monitored-series row itself) names the verb the row's
+    # OWN menu used pre-registry ("Stop alerts"); every other surface keeps the
+    # fuller "Stop new-episode alerts" (test_series_monitor.py pins that text).
+    return "Stop alerts" if c.surface == "alerts_series" else "Stop new-episode alerts"
 
 
 def _mark_watched_label(c: ChannelMenuContext) -> str:
@@ -225,7 +249,14 @@ def _play_resumes_by_default(c: ChannelMenuContext) -> bool:
 
 
 def _play_label(c: ChannelMenuContext) -> str:
-    """Default Play label — 'Play from M:SS' when it would resume, else 'Play'."""
+    """Default Play label — 'Play from M:SS' when it would resume, else 'Play'.
+
+    "versions" (details-pane per-version chip menu) names the specific variant
+    instead — extended here rather than a sibling action, since resume semantics
+    are meaningless for a variant picker (watch_progress is never set there).
+    """
+    if c.surface == "versions":
+        return f"Play {c.version_prefix} version"
     if _play_resumes_by_default(c):
         return f"Play from {_fmt_seconds(c.watch_progress)}"
     return "Play"
@@ -255,7 +286,9 @@ ACTIONS: dict[str, ChannelAction] = {
         icon=_icons.play_icon,
         icon_color=_play_color,
         tooltip="Play this channel",
-        applies=lambda c: c.is_single and c.channel_found,
+        # source_inactive defaults False everywhere except "versions", so this
+        # is a no-op on every other surface.
+        applies=lambda c: c.is_single and c.channel_found and not c.source_inactive,
     ),
     "play_new_window": ChannelAction(
         id="play_new_window",
@@ -363,6 +396,23 @@ ACTIONS: dict[str, ChannelAction] = {
             and c.playback_resume_mode == "beginning"
         ),
     ),
+    # ── "versions" surface (details-pane per-version chip menu) ────────────
+    # reactivate_play mirrors play (mutually exclusive via source_inactive), so
+    # they never render together — order matters here for the inactive branch.
+    "reactivate_play": ChannelAction(
+        id="reactivate_play",
+        label=lambda c: "Reactivate source & play",
+        icon=_icons.play_icon,
+        tooltip=lambda c: f"Re-enable {c.version_prefix or 'this source'} and play this variant",
+        applies=lambda c: c.source_inactive,
+    ),
+    "show_details": ChannelAction(
+        id="show_details",
+        label=lambda c: f"Show details for {c.version_prefix} version",
+        icon=_icons.info_icon,
+        tooltip=lambda c: c.channel_name or "",
+        applies=lambda c: True,
+    ),
     "favorite": ChannelAction(
         id="favorite",
         label=_fav_label,
@@ -426,6 +476,20 @@ ACTIONS: dict[str, ChannelAction] = {
         tooltip="Pick a specific quality/language/source version of this title",
         applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
     ),
+    # A DIFFERENT grouping than show_versions above: this one governs whether the
+    # recommendation engine's own cross-source dedup (rec_dedupe_overrides,
+    # preference_engine.build_dedup_key — a temporary title-heuristic, distinct
+    # from the content_key siblings show_versions reads) folds this title into a
+    # sibling's row. Reuses ctx.variant_count (the content_key count) as the
+    # gate/label rather than threading a second count through the context —
+    # see docs/REFACTOR_PLAN.md's duplication ledger for the two counts' delta.
+    "show_separately": ChannelAction(
+        id="show_separately",
+        label=lambda c: f"Show {c.variant_count} versions separately",
+        icon=_icons.show_separately_icon,
+        tooltip="Show this title as its own row instead of grouped with its other versions",
+        applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
+    ),
     # ── The series itself ───────────────────────────────────────────────────
     # Beside monitor_series rather than up with the play actions: both are
     # about the SERIES, while everything above concerns this one episode. The
@@ -435,7 +499,12 @@ ACTIONS: dict[str, ChannelAction] = {
     # title-level (see CLAUDE.md, "Judgment applies to the title").
     "browse_series": ChannelAction(
         id="browse_series",
-        label="Browse the series",
+        # Was a bare string, not a callable — build_channel_menu's unconditional
+        # ``action_def.label(ctx)`` raised TypeError the moment a real handler
+        # was provided (every production surface via _build_handlers), so this
+        # action has never actually rendered where it applies. Found migrating
+        # "alerts_series" onto it (MENU-1); see docs/REFACTOR_PLAN.md.
+        label=_browse_series_label,
         icon=_icons.series_icon,
         tooltip="Open every season and episode of this series",
         applies=lambda c: (
@@ -464,6 +533,33 @@ ACTIONS: dict[str, ChannelAction] = {
         icon=_icons.new_match_icon,
         tooltip="Acknowledge this new match — clears the alert highlight everywhere",
         applies=lambda c: c.is_single and c.has_unviewed_match,
+    ),
+    # "alerts" surface only — a keyword-rule row (config aggregate, no channel_id)
+    # reuses this same surface for its own two verbs; sites without a handler
+    # simply never render it (registry skip-if-absent).
+    "view_matches": ChannelAction(
+        id="view_matches",
+        label=lambda c: "View matches",
+        icon=_icons.search_icon,
+        tooltip="Show this alert's matched content in the main list",
+        applies=lambda c: True,
+    ),
+    # "alerts_series" surface: a monitored series' own new-episode count — see
+    # has_unviewed_match's dual-meaning comment above.
+    "mark_seen": ChannelAction(
+        id="mark_seen",
+        label=lambda c: "Mark seen",
+        icon=_icons.watched_icon,
+        tooltip="Clear the new-episode count for this series",
+        applies=lambda c: c.has_unviewed_match,
+    ),
+    # "alerts_series" surface-level admin action ("Manage watch alerts…").
+    "manage_alerts": ChannelAction(
+        id="manage_alerts",
+        label=lambda c: "Manage…",
+        icon=_icons.manage_icon,
+        tooltip="Manage watch alerts — keyword rules and monitored series",
+        applies=lambda c: True,
     ),
     # ── VOD mark watched ────────────────────────────────────────────────────
     "mark_watched": ChannelAction(
@@ -759,9 +855,20 @@ def build_channel_menu(
           been added AND at least one more real action will follow.
         * This eliminates leading, trailing, and doubled separators regardless
           of which actions are skipped due to ``applies`` / handler absence.
+
+    Header:
+        ``ctx.header``, when non-empty, renders as a disabled first action
+        (identifies WHICH variant/rule this menu is for) followed by a
+        separator — the one header mechanism every surface shares.
     """
     layout = SURFACE_LAYOUTS.get(ctx.surface, [])
     menu = QMenu(parent)
+
+    if ctx.header:
+        header_act = QAction(ctx.header, menu)
+        header_act.setEnabled(False)
+        menu.addAction(header_act)
+        menu.addSeparator()
 
     pending_sep = False   # a "sep" token was seen but not yet emitted
     added_any = False     # at least one real QAction has been added

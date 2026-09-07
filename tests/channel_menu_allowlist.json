@@ -1,0 +1,53 @@
+{
+  "_comment": "MENU-1 seed allowlist (tests/test_channel_menus_come_from_registry.py) - every entry is a QMenu( construction site outside metatv/gui/channel_menu.py that is NOT channel-shaped (a section header, a config-only aggregate, a prefix/category axis, a filter dropdown, a picker for something other than a channel row) and so stays hand-rolled. Shrink-only: a site that migrates onto the channel_menu.py registry must be REMOVED here, never left (test_the_allowlist_only_shrinks fails the suite if it is). Format: file::qualified_function (Class.method inside a class, bare function name at module level).",
+  "sites": [
+    {
+      "entry": "metatv/gui/sidebar/queue.py::WatchQueueSection._on_context_menu",
+      "reason": "section-level 'Clear Unavailable' menu on empty-space/header right-click - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/details_similar.py::_SimilarSection._show_chip_menu",
+      "reason": "prefix-level 'Add to Global Exclusions' chip menu - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/details_versions.py::_VersionSection._show_filtered_chip_menu",
+      "reason": "prefix/category-level filtered-variant chip menu (unhide category / remove filter / manage exclusions) - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/main_window_downloads.py::_DownloadsMixin.show_downloads_context_menu",
+      "reason": "download-id-keyed row menu, not a ChannelDB row - own docstring: 'not the channel registry'."
+    },
+    {
+      "entry": "metatv/gui/main_window_downloads.py::_DownloadsMixin.show_recordings_context_menu",
+      "reason": "recording-id-keyed row menu, not a ChannelDB row - own docstring: 'not the channel registry'."
+    },
+    {
+      "entry": "metatv/gui/main_window_series.py::_SeriesMixin.show_series_context_menu",
+      "reason": "episode-grain series-tree menu - episodes are not ChannelDB rows; own comment: 'that registry is ChannelDB-only today'."
+    },
+    {
+      "entry": "metatv/gui/main_window_channels.py::_ChannelListMixin._show_variant_picker_menu",
+      "reason": "the show_versions action's own flat picker of (quality, language, source) content_key siblings - not a channel-verb menu itself."
+    },
+    {
+      "entry": "metatv/gui/chips.py::FilterDropdown.__init__",
+      "reason": "multi-select filter dropdown (language/region/etc. checkboxes) - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/filter_panel.py::FilterPanel._on_item_right_clicked",
+      "reason": "filter-chip solo/exclude-globally menu on a facet value - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/details_actions.py::_ActionBar._show_trailer_menu",
+      "reason": "trailer playback-source picker (inline vs YouTube) - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/sidebar/header_menu.py::show_header_menu",
+      "reason": "section-header 'Hide section / Sidebar settings…' menu, shared by every sidebar section - not channel-shaped."
+    },
+    {
+      "entry": "metatv/gui/sidebar/base.py::CollapsibleSection.build_overflow_button",
+      "reason": "section-level ⋯ overflow menu (refresh, clear history, etc.) - not channel-shaped."
+    }
+  ]
+}

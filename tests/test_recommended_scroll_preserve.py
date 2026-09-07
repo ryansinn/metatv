@@ -140,7 +140,7 @@ def test_show_versions_separately_keeps_your_place(section):
     _fill(section)
     where = _scroll_to_middle(section)
 
-    section._on_show_separately("ch-18")
+    section.show_separately("ch-18")
     _fill(section)
 
     assert section._list.verticalScrollBar().value() == where

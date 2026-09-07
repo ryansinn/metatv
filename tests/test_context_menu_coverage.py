@@ -37,6 +37,7 @@ from metatv.core.discovery_engine import ContentCard
 from metatv.gui.channel_menu import ACTIONS, ChannelMenuContext, SURFACE_LAYOUTS, build_channel_menu
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
 from metatv.gui.recipe_bar_widgets import _MatchingShelf
+from tests.conftest import destroy_widget
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,16 @@ def test_recipe_seam_surface_builds_populated_menu(qapp):
 # ---------------------------------------------------------------------------
 
 def _capture_version_chip_menu_labels(monkeypatch, section, version) -> list[str]:
-    """Build (but don't show) the version-chip menu and return its action labels."""
+    """Build (but don't show) the version-chip menu and return its action labels.
+
+    MENU-1: the menu is now built by ``build_channel_menu``, whose actions'
+    ``triggered.connect`` closures reference *section* — a real Qt reference
+    cycle (parent owns the QMenu; the QMenu's actions reference the parent
+    back) the OLD hand-rolled menu never created (it read ``menu.exec()``'s
+    return value and dispatched manually, no ``.connect()`` at all). ``section``
+    has no Qt parent of its own, so nothing destroys it once the test returns
+    — explicitly delete it here rather than in every caller.
+    """
     recorded: dict[str, list[str]] = {}
 
     def _fake_exec(self, *args, **kwargs):  # noqa: ANN001
@@ -148,7 +158,9 @@ def _capture_version_chip_menu_labels(monkeypatch, section, version) -> list[str
 
     monkeypatch.setattr(QMenu, "exec", _fake_exec)
     section._show_version_chip_menu(QPoint(0, 0), version)
-    return recorded.get("texts", [])
+    texts = recorded.get("texts", [])
+    destroy_widget(section)
+    return texts
 
 
 def test_version_chip_menu_says_remove_when_queued(qapp, monkeypatch):

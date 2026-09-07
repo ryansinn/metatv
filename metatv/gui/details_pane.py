@@ -39,6 +39,7 @@ class DetailsPaneWidget(QWidget):
     play_requested             = pyqtSignal(str)        # channel_id
     resume_requested           = pyqtSignal(str)        # channel_id — resume from saved position
     play_version_requested     = pyqtSignal(str)        # channel_id — play a specific source variant
+    download_requested         = pyqtSignal(str)        # channel_id — download a specific source variant
     favorite_toggled           = pyqtSignal(str)        # channel_id
     monitor_toggled            = pyqtSignal(str)        # channel_id (series monitor toggle)
     queue_toggled              = pyqtSignal(str)        # channel_id
@@ -549,6 +550,7 @@ class DetailsPaneWidget(QWidget):
         v = self._versions
         v.version_selected.connect(self.version_selected)
         v.play_version_requested.connect(self.play_version_requested)
+        v.download_requested.connect(self.download_requested)
         v.favorite_toggled.connect(self.favorite_toggled)
         v.queue_toggled.connect(self.queue_toggled)
         v.hide_requested.connect(self.hide_requested)

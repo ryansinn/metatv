@@ -239,7 +239,6 @@ class RecommendedSection(CollapsibleSection):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
-            item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
             rating_tip = f"  {self.config.rating_star_icon}{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
@@ -313,24 +312,19 @@ class RecommendedSection(CollapsibleSection):
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        variant_count = item.data(Qt.ItemDataRole.UserRole + 2) or 1
+        # Right-click opens the FULL registry "recommended" menu (show_separately
+        # leads it) — no more local two-item mini-menu.
         gp = self._list.viewport().mapToGlobal(pos)
-        if variant_count > 1:
-            from PyQt6.QtCore import QPoint
-            from PyQt6.QtWidgets import QMenu
-            menu = QMenu(self)
-            sep_action = menu.addAction(f"≠  Show {variant_count} versions separately")
-            menu.addSeparator()
-            more_action = menu.addAction("More options...")
-            chosen = menu.exec(QPoint(gp.x(), gp.y()))
-            if chosen == sep_action:
-                self._on_show_separately(channel_id)
-            elif chosen == more_action:
-                self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
-        else:
-            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+        self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
 
-    def _on_show_separately(self, channel_id: str) -> None:
+    def show_separately(self, channel_id: str) -> None:
+        """Handler for the registry's ``show_separately`` menu action.
+
+        Public: called from ``MainWindow._show_channel_separately`` (the
+        central handler wired into the "recommended" surface), not just from
+        this section's own row menu — a right-click on the Preferences
+        dashboard's copy of the same title ends up here too.
+        """
         overrides: list = list(getattr(self.config, 'rec_dedupe_overrides', []))
         if channel_id not in overrides:
             overrides.append(channel_id)

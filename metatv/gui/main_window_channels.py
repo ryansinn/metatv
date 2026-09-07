@@ -1820,6 +1820,7 @@ class _ChannelListMixin:
             "hide": hide_fn,
             "remove_history": lambda: self.remove_from_history(cid),
             "not_interested": lambda: self._not_interested(cid),
+            "show_separately": lambda: self._show_channel_separately(cid),
             "category": lambda: self._open_category_picker([cid]),
             "remove_retry": lambda: self.stream_retry_manager.remove(ctx.entry_id),
             "clear_retry": self.stream_retry_manager.clear_all,
@@ -1843,12 +1844,9 @@ class _ChannelListMixin:
             "bulk_hide": lambda: self._bulk_hide_channels(ids),
         }
 
-        if fav_section is not None:
-            handlers["clear_unavailable"] = fav_section.clearUnavailableClicked.emit
-        elif queue_section is not None:
-            handlers["clear_unavailable"] = queue_section.clearUnavailableClicked.emit
-
-        # For queue surface, override clear_unavailable to queue section's signal
+        # clear_unavailable's handler is surface-specific (favorites vs queue own
+        # separate lists) — never derived from which section happens to exist; a
+        # dead prior pass here always got overwritten by this one anyway.
         if surface == "queue" and queue_section is not None:
             handlers["clear_unavailable"] = queue_section.clearUnavailableClicked.emit
         elif surface == "favorites" and fav_section is not None:
