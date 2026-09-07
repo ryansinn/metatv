@@ -14,6 +14,7 @@ import weakref
 
 from loguru import logger
 
+from PyQt6 import sip
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QPushButton
@@ -238,7 +239,18 @@ def set_button_icon(btn: QPushButton, role: str, *, color: str | None = None) ->
             )
         icon = _icons.glyph_icon(glyph, resolved_color)
     btn.setIcon(icon)
+    if btn not in _registered_icon_buttons:
+        # Evict on C++ destruction: a parent-owned button can die without its
+        # Python wrapper going away, and touching it later is a segfault, not
+        # a RuntimeError (macOS CI, 2026-09-07).
+        btn.destroyed.connect(lambda _=None, ref=weakref.ref(btn): _forget_button(ref))
     _registered_icon_buttons[btn] = (role, color)
+
+
+def _forget_button(ref: "weakref.ref[QPushButton]") -> None:
+    btn = ref()
+    if btn is not None:
+        _registered_icon_buttons.pop(btn, None)
 
 
 def icon_button(
@@ -300,6 +312,9 @@ def refresh_icon_buttons() -> None:
     like everything else.
     """
     for btn, (role, color) in list(_registered_icon_buttons.items()):
+        if sip.isdeleted(btn):
+            _registered_icon_buttons.pop(btn, None)
+            continue
         try:
             set_button_icon(btn, role, color=color)
         except Exception:
