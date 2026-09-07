@@ -36,6 +36,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +138,7 @@ def _make_streaming_mixin():
     obj.notification_manager = MagicMock()
     obj.notification_manager.show.return_value = "notif-xyz"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
     obj._stream_ready = MagicMock()
     obj._provider_icons = {}
     return obj

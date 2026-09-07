@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.gui import icons as _icons
+from tests.conftest import wire_status_method
 
 
 @pytest.fixture(scope="module")
@@ -59,6 +60,7 @@ def test_toggle_reentrancy_guard_blocks_while_busy():
         status_bar=MagicMock(),
         db=MagicMock(),
     )
+    wire_status_method(me)
 
     MainWindow.toggle_provider_active(me, "p1")
 
@@ -83,6 +85,7 @@ def test_toggle_marks_busy_then_refreshes_when_idle():
         _refresh_provider_dependent_views=MagicMock(),
         _clear_provider_busy=MagicMock(),
     )
+    wire_status_method(me)
 
     # Patch the module QTimer so the safety-net singleShot is a no-op.
     import metatv.gui.main_window as mw

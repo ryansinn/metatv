@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import OperationalError
+from tests.conftest import wire_status_method
 
 
 @dataclass
@@ -85,6 +86,7 @@ def _host(failure: Exception | None = None):
     obj.player_manager = MagicMock()
     obj.player_manager.resolve_key.return_value = "prov1"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
     obj.notification_manager = MagicMock()
     obj.load_history = MagicMock()
     obj.load_favorites = MagicMock()

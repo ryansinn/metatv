@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,7 @@ def _make_mixin(autoplay: bool, episodes_in_season: list[_FakeEpisodeDTO] | None
 
     # Status bar stub
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
 
     # notification_manager, load_history, load_favorites, etc.
     obj.notification_manager = MagicMock()
