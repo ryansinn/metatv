@@ -11,7 +11,7 @@ instead of being silently overwritten by the next refresh.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -305,4 +305,61 @@ def test_store_channels_wiring_reports_reuse_for_favorited_channel(tmp_db, captu
     assert _warned_about(captured_warnings, "p1_5544", "Old Movie", "New Movie"), (
         f"expected a STREAM-ID REUSE warning to surface through the real "
         f"_store_channels wiring; got {captured_warnings!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Chunking: the >999-id lookup routes through the shared sql_batching
+#    chokepoint, not a private loop (ledger F16, docs/REFACTOR_PLAN.md)
+# ---------------------------------------------------------------------------
+
+
+def test_recycled_id_lookup_routes_through_sql_batching(tmp_db, captured_warnings):
+    """``_report_recycled_ids`` chunks its ID lookup through
+    ``sql_batching.fetch_in_chunks`` rather than its own private ``_CHUNK = 500``
+    loop. Proven with 1,200 engaged ids (> 999, so a single un-chunked
+    ``IN (...)`` would be the wrong shape entirely) and a spy on the real
+    ``fetch_in_chunks`` so this fails if the loader ever regrows its own loop.
+    """
+    import metatv.core.provider_loader as provider_loader_module
+
+    thread = _make_thread(tmp_db)
+    n = 1200  # > 999 and > 2 * CHUNK_SIZE (500): forces at least 3 chunks.
+    with tmp_db.session_scope() as session:
+        for i in range(n):
+            session.add(ChannelDB(
+                id=f"p1_{i}", source_id=str(i), provider_id="p1",
+                name=f"Old {i}", media_type="movie", is_favorite=True,
+            ))
+
+    session = tmp_db.get_session()
+    try:
+        before = thread._snapshot_engaged_names(session)
+        assert len(before) == n
+
+        # Rename one channel deep past the first chunk boundary.
+        target_id = "p1_999"
+        row = session.query(ChannelDB).filter_by(id=target_id).one()
+        row.name = "New 999"
+        session.commit()
+
+        with patch.object(
+            provider_loader_module, "fetch_in_chunks",
+            wraps=provider_loader_module.fetch_in_chunks,
+        ) as spy:
+            thread._report_recycled_ids(session, before)
+            assert spy.call_count == 1, (
+                "must call the shared chunker exactly once for the whole lookup"
+            )
+            called_ids = spy.call_args.args[1]
+            assert len(called_ids) == n, (
+                "the chokepoint, not the caller, is responsible for splitting "
+                "the id list into chunks"
+            )
+    finally:
+        session.close()
+
+    assert _warned_about(captured_warnings, target_id, "Old 999", "New 999"), (
+        "a title change past the first 500-id chunk must still be detected — "
+        "proves the chunker's results are concatenated across all chunks"
     )
