@@ -43,6 +43,7 @@
     "Config.global_filter_included_categories",
     "Config.global_filter_included_content_types",
     "Config.image_cache_enabled",
+    "Config.live_refresh_mode_version",
     "Config.metadata_cache_ttl_days",
     "Config.metadata_enabled_providers_version",
     "Config.metadata_rescan_version",
