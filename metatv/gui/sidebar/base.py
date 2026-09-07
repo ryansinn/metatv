@@ -16,7 +16,6 @@ from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT, ROW_SPACING
-from metatv.gui.token_color import to_qcolor
 
 class GroupHeading(QWidget):
     """One sub-group heading inside a section — "EPG", "Series", "Watching for".
@@ -53,7 +52,9 @@ class GroupHeading(QWidget):
                 so the string itself stays sentence-case for anything reading it.
             count: How many items the group holds; ``None`` renders no count.
                 Shown even when the group is collapsed — with the rows hidden it
-                is the only thing describing what is in there.
+                is the only thing describing what is in there. A string is
+                allowed for a count that is not one number — the queue's
+                find-in-queue headings read "12 of 597" while filtering.
             news: How many of those are NEW. Drawn as a filled ``+N`` pill, the
                 same one the section header uses, and only when the group is
                 collapsed — see :meth:`set_news`.
@@ -146,8 +147,13 @@ class GroupHeading(QWidget):
         elif tooltip:
             self.setToolTip(tooltip)
 
-    def set_count(self, count: int | None) -> None:
-        """Show ``count`` beside the label, or nothing when it is ``None``."""
+    def set_count(self, count: "int | str | None") -> None:
+        """Show ``count`` beside the label, or nothing when it is ``None``.
+
+        A ``str`` is a count that is not one number — the queue's headings say
+        "12 of 597" while a find-in-queue filter is on, and the emphasis still
+        belongs on that phrase rather than on the constant label.
+        """
         self.count_label.setText("" if count is None else f"  {count}")
         self.count_label.setVisible(count is not None)
 
@@ -186,38 +192,6 @@ class GroupHeading(QWidget):
         if self._interactive:
             self.clicked.emit()
         super().mousePressEvent(event)
-
-
-def style_group_heading(item, column: int | None = None) -> None:
-    """Style a sub-group heading INSIDE a section — "NEVER WATCHED", "EPG".
-
-    Small-caps and muted rather than bold body text, per the V3 render. A group
-    heading is a divider: rendered at the same weight and colour as the titles
-    beneath it, it competed with the content it was there to separate, and three
-    sections had each grown their own copy of that same wrong three lines.
-
-    The capitals come from ``QFont.Capitalization``, which renders uppercase
-    WITHOUT touching ``item.text()`` — the heading's text stays the sentence-case
-    string the section computed ("Never Watched (2 of 3)"), so filter counts and
-    the tests that read them are unaffected by a purely visual choice.
-
-    Args:
-        item: A ``QListWidgetItem`` or ``QTreeWidgetItem``.
-        column: The column, for a ``QTreeWidgetItem``; ``None`` for a list item,
-            whose font/foreground setters take no column.
-    """
-    font = item.font(column) if column is not None else item.font()
-    font.setBold(True)
-    font.setCapitalization(QFont.Capitalization.AllUppercase)
-    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
-    font.setPixelSize(int(_theme.FONT_SM.replace("px", "")))
-    colour = to_qcolor(_theme.COLOR_MUTED)
-    if column is not None:
-        item.setFont(column, font)
-        item.setForeground(column, colour)
-    else:
-        item.setFont(font)
-        item.setForeground(colour)
 
 
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
@@ -561,6 +535,13 @@ class InPlaceRowMixin:
                 continue
             following = list_widget.item(index + 1) if index + 1 < list_widget.count() else None
             if following is None or following.flags() == Qt.ItemFlag.NoItemFlags:
+                # A heading is a ``GroupHeading`` WIDGET on its item; taking the
+                # item alone would strand it, exactly as ``InPlaceRowMixin``
+                # already has to do for content rows.
+                widget = list_widget.itemWidget(item)
+                if widget is not None:
+                    list_widget.removeItemWidget(item)
+                    widget.deleteLater()
                 list_widget.takeItem(index)
 
 

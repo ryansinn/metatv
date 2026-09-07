@@ -22,7 +22,7 @@ from metatv.gui.chip_row import (
 from metatv.gui.chunked_construction import ChunkHandle, build_chunked
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, style_group_heading, make_seamless
+from metatv.gui.sidebar.base import SectionAction, CollapsibleSection, GroupHeading, make_seamless
 from metatv.gui import deferred_config_save as _cfgsave
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
@@ -51,29 +51,32 @@ class _FilterGroup:
     The header is built LAZILY, on the group's first row (PERF-17 chunked
     build — see ``_build_queue_row``): a group whose rows haven't started
     arriving yet has nothing on screen to head, so it carries no header item
-    until it does. ``header_text`` is precomputed from the group's full,
-    already-known entry count, so the header reads correctly ("Never Watched
-    (597)") from the moment it appears — never an incrementally-growing count.
+    until it does. ``header_count`` is precomputed from the group's full,
+    already-known entry count, so the header reads correctly ("NEVER WATCHED
+    597") from the moment it appears — never an incrementally-growing count.
+
+    TWO handles, not one: the ``GroupHeading`` widget carries the text, the
+    ``QListWidgetItem`` under it carries ``setHidden`` — the filter needs both
+    and only the item can be hidden.
     """
 
-    __slots__ = ("header", "header_text", "bare_label", "show_count", "rows")
+    __slots__ = ("header", "heading", "header_count", "bare_label", "show_count", "rows")
 
-    def __init__(self, header_text: str, bare_label: str, show_count: bool):
+    def __init__(self, header_count: int | None, bare_label: str, show_count: bool):
         self.header = None                # QListWidgetItem — set on the first row built
-        self.header_text = header_text
+        self.heading = None               # GroupHeading widget on that item
+        self.header_count = header_count
         self.bare_label = bare_label      # "Never Watched"
-        self.show_count = show_count      # does the unfiltered header carry (N)?
+        self.show_count = show_count      # does the unfiltered header carry a count?
         self.rows: list[tuple[object, str]] = []   # (item, lowercased haystack)
 
-    def unfiltered_text(self) -> str:
-        """Header text with no filter applied.
+    def unfiltered_count(self) -> int | None:
+        """The heading's count with no filter applied.
 
         Derived from the CURRENT row count rather than frozen at render time, so
         an in-place removal leaves the header honest without a full repopulate.
         """
-        if not self.show_count:
-            return self.bare_label
-        return f"{self.bare_label} ({len(self.rows)})"
+        return len(self.rows) if self.show_count else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,8 +453,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def _plan_group(self, bare_label: str, show_count: bool, entries: list) -> list[_QueueWorkItem]:
         """Register one group (header built lazily on its first row) and return
         its rows as chunked work — see ``_build_queue_row``."""
-        header_text = f"{bare_label} ({len(entries)})" if show_count else bare_label
-        group = _FilterGroup(header_text, bare_label, show_count)
+        header_count = len(entries) if show_count else None
+        group = _FilterGroup(header_count, bare_label, show_count)
         self._groups.append(group)
         return [_QueueWorkItem(group, "entry", e) for e in entries]
 
@@ -463,7 +466,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         like one already on screen."""
         group = work_item.group
         if group.header is None:
-            group.header = self._add_header(group.header_text)
+            group.header, group.heading = self._add_header(
+                group.bare_label, group.header_count)
         if work_item.kind == "matched_channel":
             m = work_item.data
             item = self._add_matched_channel_item(m)
@@ -538,8 +542,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         widgets would stutter, and hiding keeps every row's widget, tooltip and
         selection intact so clearing the box is instant.
 
-        Headers become "Never Watched (12 of 597)" while filtering and revert to
-        their exact unfiltered text when the box is cleared — a header still
+        Headers become "NEVER WATCHED  12 of 597" while filtering and revert to
+        their exact unfiltered count when the box is cleared — a header still
         claiming 597 above 12 visible rows is a lie about what is on screen.
         """
         needle = (text or "").strip().lower()
@@ -555,10 +559,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             visible += shown
             if needle:
                 group.header.setHidden(shown == 0)
-                group.header.setText(f"{group.bare_label} ({shown} of {len(group.rows)})")
+                group.heading.set_count(f"{shown} of {len(group.rows)}")
             else:
                 group.header.setHidden(False)
-                group.header.setText(group.unfiltered_text())
+                group.heading.set_count(group.unfiltered_count())
         self._update_no_match_row(needle, visible)
 
     # --- In-place removal (InPlaceRowMixin) -----------------------------------
@@ -594,11 +598,15 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 (item, hay) for item, hay in group.rows if list_widget.row(item) >= 0
             ]
             if group.rows:
-                group.header.setText(group.unfiltered_text())
+                group.heading.set_count(group.unfiltered_count())
                 continue
             # Group emptied — its header would otherwise stand over nothing.
             index = list_widget.row(group.header)
             if index >= 0:
+                widget = list_widget.itemWidget(group.header)
+                if widget is not None:
+                    list_widget.removeItemWidget(group.header)
+                    widget.deleteLater()
                 list_widget.takeItem(index)
             self._groups.remove(group)
         self._has_unavailable = any(g.bare_label == "Unavailable" for g in self._groups)
@@ -812,21 +820,26 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """True when at least one entry in the current list is unavailable."""
         return self._has_unavailable
 
-    def _add_header(self, text: str, count: int | None = None) -> QListWidgetItem:
-        """A sub-group heading inside a section — "ALERTS MATCHED · 3".
+    def _add_header(self, text: str,
+                    count: "int | str | None" = None) -> "tuple[QListWidgetItem, GroupHeading]":
+        """A sub-group heading inside a section — "ALERTS MATCHED  3".
 
-        Small-caps and muted rather than bold body text, per the V3 render: a
-        group heading is a divider, and rendering it at the same weight as the
-        titles beneath it made it compete with the content it was separating.
-        The count rides on the heading because a group's size is context for
-        the rows under it, not news about them.
+        The one shared ``GroupHeading`` widget, exactly as History, Downloads
+        and Watch Alerts draw theirs: a muted small-caps label with the count
+        carrying the emphasis, because the label is the constant and the count
+        is the variable. The count rides on the heading because a group's size
+        is context for the rows under it, not news about them.
+
+        Returns:
+            The ``QListWidgetItem`` (what the filter hides) and the
+            ``GroupHeading`` on it (what the filter retitles).
         """
-        label = f"{text}  ·  {count}" if count else text
-        item = QListWidgetItem(label)
+        item = QListWidgetItem(self._list)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
-        style_group_heading(item)
-        self._list.addItem(item)
-        return item
+        heading = GroupHeading(text, count)
+        item.setSizeHint(QSize(0, heading.sizeHint().height()))
+        self._list.setItemWidget(item, heading)
+        return item, heading
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
         """Route a DOUBLE click. Series (layered) items navigate; leaf items play.

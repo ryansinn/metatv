@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import QApplication
 
 from metatv.core.config import Config
 from metatv.core.repositories.queue import QueueEntry
-from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
 from tests.conftest import destroy_widget
 
@@ -78,12 +77,10 @@ def section(qapp):
 
 
 def _row_title(section, item) -> str:
-    """The title a row renders — the chip row's label, or a header's own text."""
-    widget = section._list.itemWidget(item)
-    if widget is None:
-        return item.text()
-    label = row_title_label(widget)
-    return label.text() if label is not None else ""
+    """The title a row renders — chip row, ``GroupHeading`` or plain item."""
+    from tests.conftest import sidebar_item_text
+
+    return sidebar_item_text(section._list, item)
 
 
 def _painted_titles(section) -> list[str]:

@@ -28,7 +28,6 @@ from PyQt6.QtWidgets import QApplication
 
 from metatv.core.config import Config
 from metatv.core.repositories.queue import QueueEntry
-from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
 
 
@@ -68,23 +67,24 @@ def queue(qapp):
 
 
 def _titles(section, lst=None):
+    from tests.conftest import sidebar_item_text
+
     lst = lst if lst is not None else section._list
-    out = []
-    for i in range(lst.count()):
-        item = lst.item(i)
-        widget = lst.itemWidget(item)
-        if widget is None:
-            out.append(item.text())
-        else:
-            label = row_title_label(widget)
-            out.append(label.text() if label else "")
-    return out
+    return [sidebar_item_text(lst, lst.item(i)) for i in range(lst.count())]
 
 
 def _widgets(section):
+    """The CONTENT-row widgets — group headings are widgets too now, and they
+    are not rows: counting them would make "the list was rebuilt, not edited"
+    pass on a list that grew a heading."""
+    from metatv.gui.sidebar.base import GroupHeading
+
     return [
-        section._list.itemWidget(section._list.item(i))
-        for i in range(section._list.count())
+        w for w in (
+            section._list.itemWidget(section._list.item(i))
+            for i in range(section._list.count())
+        )
+        if not isinstance(w, GroupHeading)
     ]
 
 
@@ -161,7 +161,7 @@ class TestTheQueue:
         episode.channel_id = series.channel_id       # same parent, as in production
         queue._populate_rows([series, episode])
         QApplication.processEvents()
-        assert len(_widgets(queue)) - _titles(queue).count("Never Watched (2)") == 2
+        assert len(_widgets(queue)) == 2
 
         queue.remove_row(series.channel_id)          # unqueue the series root
         QApplication.processEvents()
@@ -236,12 +236,15 @@ class TestTheOtherSections:
             [self._fav_dto(1, played=_BASE), self._fav_dto(2)], [],
         ))
         QApplication.processEvents()
-        assert "Continue Watching" in _titles(sec, sec.favorites_list)
+        # The count leads on a Favorites heading now, exactly as it does on
+        # every other section's — one grammar, one widget.
+        assert "Continue Watching (1)" in _titles(sec, sec.favorites_list)
 
         sec.remove_row("f1")
         QApplication.processEvents()
 
-        assert "Continue Watching" not in _titles(sec, sec.favorites_list)
+        titles = _titles(sec, sec.favorites_list)
+        assert not any(t.startswith("Continue Watching") for t in titles), titles
         sec.hide()
 
     def test_recommended_removes_in_place(self, qapp):

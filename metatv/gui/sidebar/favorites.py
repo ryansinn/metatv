@@ -14,7 +14,7 @@ from metatv.gui.chip_row import (
     quality_word, sidebar_meta_line,
 )
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, style_group_heading, make_seamless
+from metatv.gui.sidebar.base import CollapsibleSection, GroupHeading, make_seamless
 
 _ROLE_AVAILABLE    = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -130,15 +130,15 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         )
 
         if continue_watching:
-            self._add_header("Continue Watching")
+            self._add_header("Continue Watching", len(continue_watching))
             for dto in continue_watching:
                 self._add_item(dto)
         if never_watched:
-            self._add_header("Never Watched")
+            self._add_header("Never Watched", len(never_watched))
             for dto in never_watched:
                 self._add_item(dto)
         if episode_dtos:
-            self._add_header("Favorited Episodes")
+            self._add_header("Favorited Episodes", len(episode_dtos))
             for dto in episode_dtos:
                 self._add_episode_item(dto)
 
@@ -150,12 +150,18 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         if list_widget.count() == 0:
             self.set_empty(True)
 
-    def _add_header(self, text: str) -> None:
-        """A sub-group heading — styled by the one shared styler, never here."""
-        item = QListWidgetItem(text)
+    def _add_header(self, text: str, count: int | None = None) -> None:
+        """A sub-group heading — the one shared ``GroupHeading`` widget.
+
+        The item behind it stays ``NoItemFlags`` so ``_prune_empty_headers``
+        still recognises it as a heading and the click belongs to the widget,
+        not the row.
+        """
+        item = QListWidgetItem(self.favorites_list)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
-        style_group_heading(item)
-        self.favorites_list.addItem(item)
+        heading = GroupHeading(text, count)
+        item.setSizeHint(QSize(0, heading.sizeHint().height()))
+        self.favorites_list.setItemWidget(item, heading)
 
     def _add_item(self, dto) -> None:
         """Add a single favorite as the shared chip row, dimming unavailable ones."""

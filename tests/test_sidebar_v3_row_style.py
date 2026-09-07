@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
@@ -133,55 +133,41 @@ def test_cards_are_separated_by_a_gap(qapp, tmp_path):
 
 # ── Group headings ───────────────────────────────────────────────────────────
 
-def test_the_group_heading_styler_renders_caps_without_changing_the_text(qapp):
+def test_the_group_heading_renders_caps_without_changing_the_text(qapp):
     """Capitalisation is a FONT property here, deliberately.
 
-    Uppercasing the string would change ``item.text()``, and the Watch Queue's
-    headings carry live filter counts ("Never Watched (2 of 3)") that the
-    section and its tests read back. A purely visual choice must stay purely
-    visual.
+    Uppercasing the string would change ``label.text()``, and the Watch Queue's
+    headings carry live filter counts ("12 of 597") that the section and its
+    tests read back. A purely visual choice must stay purely visual.
     """
-    from metatv.gui.sidebar.base import style_group_heading
+    from metatv.gui.sidebar.base import GroupHeading
 
-    item = QListWidgetItem("Never Watched (2 of 3)")
-    style_group_heading(item)
+    heading = GroupHeading("Never Watched", "2 of 3")
 
-    assert item.text() == "Never Watched (2 of 3)", "the styler rewrote the text"
-    assert item.font().capitalization() == QFont.Capitalization.AllUppercase
-    assert item.foreground().color() == QColor(_theme.COLOR_MUTED)
-    assert item.font().pixelSize() == int(_theme.FONT_SM.replace("px", "")), (
-        "a group heading must be smaller than the titles it separates"
+    assert heading.label.text() == "Never Watched", "the heading rewrote its text"
+    assert heading.count_label.text().strip() == "2 of 3", (
+        "the filter count must survive on the heading — it is what says how "
+        "much of the group is on screen"
     )
-
-
-def test_the_styler_handles_a_tree_item_too(qapp):
-    """Watch Alerts is a QTreeWidget; its setters take a column."""
-    from metatv.gui.sidebar.base import style_group_heading
-
-    tree = QTreeWidget()
-    item = QTreeWidgetItem(["EPG"])
-    tree.addTopLevelItem(item)
-    style_group_heading(item, column=0)
-
-    assert item.font(0).capitalization() == QFont.Capitalization.AllUppercase
-    assert item.foreground(0).color() == QColor(_theme.COLOR_MUTED)
+    assert heading.label.font().capitalization() == QFont.Capitalization.AllUppercase
 
 
 @pytest.mark.parametrize("module", ["queue", "favorites", "alerts"])
-def test_every_section_with_group_headings_uses_the_one_styler(module):
+def test_every_section_with_group_headings_uses_the_one_widget(module):
     """Three sections had each grown their own copy of the same wrong lines.
 
     Asserted on the source because the alternative — constructing all three
     sections against a DB — tests the sections, not the thing that drifted.
+    ``style_group_heading()`` painted an ITEM and is gone: an item has one font
+    and one foreground, so it could never render a muted label beside a bright
+    count. ``GroupHeading`` is the one heading now.
     """
     import pathlib
 
     src = pathlib.Path(f"metatv/gui/sidebar/{module}.py").read_text()
-    # Either shared styler: style_group_heading() paints an ITEM, GroupHeading
-    # is the WIDGET that replaced it where a heading needs two tones (a muted
-    # label beside a bright count), which an item cannot express.
-    assert ("style_group_heading(" in src) or ("GroupHeading(" in src), (
-        f"{module}.py styles a group heading by hand"
+    assert "GroupHeading(" in src, f"{module}.py styles a group heading by hand"
+    assert "style_group_heading" not in src, (
+        f"{module}.py is styling heading ITEMS again — that mechanism is gone"
     )
     assert "setBold(True)" not in src, (
         f"{module}.py still hand-rolls a heading font — that is the drift"
