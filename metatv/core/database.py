@@ -247,18 +247,16 @@ class ChannelDB(Base):
     # Computed once at ingestion via channel_name_utils.parse_category_marker() in
     # the same update_detected_prefixes() pass that computes the other detected_*
     # fields; the raw ``category`` column is NEVER modified (keeps provenance).
-    #   detected_collection: the CLEAN category with the marker stripped and
-    #     whitespace collapsed (e.g. "ANIME", "AMAZON PRIME"). NULL when the
-    #     channel has no category.
-    #   detected_collection_language: a plain-code marker (e.g. "EN") that
-    #     DISAGREES with the channel's own detected_prefix — kept as its own
-    #     "other language" chip value rather than silently dropped. NULL when
-    #     the marker was adopted as/matches the channel's prefix, or there
-    #     was no plain marker.
+    #   detected_collection: the CLEAN category, marker stripped and whitespace
+    #     collapsed ("ANIME"). NULL when the channel has no category.
+    #   detected_collection_language: a plain-code marker ("EN") that DISAGREES
+    #     with the channel's own detected_prefix — kept as its own "other
+    #     language" chip value rather than silently dropped. NULL when the marker
+    #     was adopted as/matches the prefix, or there was no plain marker.
     #   detected_collection_subdub: a compound "CODE-SUB"/"CODE-DUB" marker's
-    #     chip-ready display text (e.g. "AR-SUB") — the same marker also feeds
-    #     the existing detected_audio sub/dub facet (queryable data); this
-    #     field is purely the pre-formatted display value for its own chip.
+    #     chip-ready display text ("AR-SUB"). The same marker also feeds the
+    #     detected_audio sub/dub facet (the queryable data); this field is purely
+    #     the pre-formatted display value for its own chip.
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never
     # overwrites these. Backfilled for pre-existing rows by
     # CategoryMarkerBackfillTask (metatv/core/migrations/category_marker_backfill.py).
@@ -1048,6 +1046,21 @@ class Database:
             ("providers",     "last_live_refresh_at",            "DATETIME"),  # LIVE-1
             ("downloads",     "history_cleared",                 "INTEGER NOT NULL DEFAULT 0"),
             ("channels", "detected_rating", "FLOAT"), ("channels", "detected_added", "INTEGER"),  # DB-4
+            # SCHEMA-1: twelve columns that predate this list but postdate their own
+            # table's CREATE — the #617/#648 defect, found by widening the guard in
+            # tests/test_schema_upgrade_adds_every_column.py to every table.
+            ("providers",    "max_connections",               "INTEGER DEFAULT 1"),
+            ("channels",     "special_view",                  "TEXT"),
+            ("channels",     "event_start_time",              "DATETIME"),
+            ("channels",     "sport_type",                    "TEXT"),
+            ("channels",     "league_name",                   "TEXT"),
+            ("channels",     "team_name",                     "TEXT"),
+            ("channels",     "event_metadata",                "TEXT"),  # JSONEncoded -> Text
+            ("metadata",     "cast",                          "TEXT"),  # JSONEncoded -> Text
+            ("metadata",     "crew",                          "TEXT"),  # JSONEncoded -> Text
+            ("metadata",     "trailer_url",                   "TEXT"),
+            ("metadata",     "content_rating",                "TEXT"),
+            ("metadata",     "release_date",                  "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
