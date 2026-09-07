@@ -39,13 +39,7 @@ launch from scratch (already-committed batches are durable).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
-
-from loguru import logger
-
-if TYPE_CHECKING:
-    from metatv.core.config import Config
-    from metatv.core.database import Database
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 # Bump to re-run the full detected_title re-parse for all users on next launch.
 # History:
@@ -157,85 +151,17 @@ if TYPE_CHECKING:
 CURRENT_VERSION: int = 13
 
 
-class DetectedTitleReparseTask:
+class DetectedTitleReparseTask(DetectedFieldsReparseBase):
     """Re-parse detected_title to strip trailing qualifiers and recompute content_key.
 
     ``needs_run`` checks ``config.detected_reparse_version`` against
     ``CURRENT_VERSION``.  On full completion the version is bumped and config is
     saved; on cancellation the version is left unbumped so the next launch
-    re-runs from scratch.
+    re-runs from scratch. ``__init__``/``needs_run``/``on_completed``/``run``
+    all come from ``DetectedFieldsReparseBase``/``VersionGatedTask``.
     """
 
     id: str = "detected_title_reparse"
     label: str = "Cleaning channel title qualifiers"
-
-    def __init__(self, db: "Database") -> None:
-        """
-        Args:
-            db: Database instance.
-        """
-        self._db = db
-
-    def needs_run(self, config: "Config") -> bool:
-        """Return True when the re-parse has not yet completed for this version.
-
-        Args:
-            config: The application Config instance.
-
-        Returns:
-            True when ``config.detected_reparse_version`` is behind
-            ``CURRENT_VERSION``.
-        """
-        stored = getattr(config, "detected_reparse_version", 0)
-        return stored < CURRENT_VERSION
-
-    def run(
-        self,
-        progress_cb: Callable[[int, int], None],
-        is_cancelled: Callable[[], bool],
-        config: "Config | None" = None,
-    ) -> None:
-        """Execute the full detected_title re-parse.
-
-        Runs on a **worker thread** (called by MigrationManager).  Delegates
-        to ``ChannelRepository.update_detected_prefixes(provider_id=None)`` which
-        processes all rows in 2000-row batches with commit + expunge between
-        batches.  Cancellation is supported: the loop exits early, already-
-        committed batches are durable, and the version is not bumped so the task
-        restarts on the next launch.
-
-        Args:
-            progress_cb: ``(done, total)`` called after each batch commit.
-            is_cancelled: Returns True when the manager has been asked to stop.
-            config: Unused; accepted for forward-compat with MigrationManager
-                callers that pass config as a keyword arg.
-        """
-        logger.info(
-            "DetectedTitleReparseTask: starting full re-parse (version={})",
-            CURRENT_VERSION,
-        )
-
-        from metatv.core.repositories import RepositoryFactory
-
-        with self._db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            repos.channels.update_detected_prefixes(
-                provider_id=None,
-                progress_cb=progress_cb,
-                is_cancelled=is_cancelled,
-            )
-
-        logger.info("DetectedTitleReparseTask: completed")
-
-    def on_completed(self, config: "Config") -> None:
-        """Bump the version field so the task won't re-run on next launch.
-
-        Args:
-            config: The application Config instance.
-        """
-        config.detected_reparse_version = CURRENT_VERSION
-        config.save()
-        logger.debug(
-            "DetectedTitleReparseTask: bumped detected_reparse_version={}",
-            CURRENT_VERSION,
-        )
+    VERSION_FIELD: str = "detected_reparse_version"
+    CURRENT_VERSION: int = CURRENT_VERSION

@@ -52,11 +52,11 @@ it.
 
 from __future__ import annotations
 
-import threading
-from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
+
+from metatv.core.queued_writer import SingleWriter
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.database import Database
@@ -82,9 +82,13 @@ _owned: set[str] = set()
 #: that misses the window is logged.
 _FLUSH_TIMEOUT = 5.0
 
-_writer: "Optional[ThreadPoolExecutor]" = None
-_pending: list[Future] = []
-_lock = threading.Lock()
+#: The pool/queue/flush/shutdown mechanics — shared shape with
+#: ``core/watchlist.py``, composed rather than duplicated (see
+#: ``core/queued_writer.py``). This store is write-only after startup (see
+#: the module docstring), so unlike watchlist it needs no replay-on-read
+#: bookkeeping on top.
+_writer = SingleWriter(thread_name_prefix="profile-store", label="profile",
+                        default_timeout=_FLUSH_TIMEOUT)
 
 
 def bind(db: "Optional[Database]") -> None:
@@ -124,15 +128,7 @@ def flush(timeout: float = _FLUSH_TIMEOUT) -> bool:
     Returns:
         True when the queue drained inside *timeout*.
     """
-    with _lock:
-        futures = [f for f in _pending if f is not None]
-    if not futures:
-        return True
-    _done, not_done = wait(futures, timeout=timeout)
-    if not_done:
-        logger.warning("profile: {} write(s) still queued after {}s",
-                       len(not_done), timeout)
-    return not not_done
+    return _writer.flush(timeout)
 
 
 def shutdown(timeout: float = _FLUSH_TIMEOUT) -> None:
@@ -140,32 +136,8 @@ def shutdown(timeout: float = _FLUSH_TIMEOUT) -> None:
 
     Registered on ``MainWindow``'s cleanup registry so it runs before
     ``closeEvent`` closes the database underneath a queued write.
-
-    Whether the pool is waited on is decided by whether the flush succeeded —
-    an unconditional ``shutdown(wait=True)`` would hold the app open for however
-    long a stuck write takes. Once the queue is empty, waiting costs nothing and
-    leaves no stray thread.
     """
-    global _writer
-    drained = flush(timeout)
-    pool, _writer = _writer, None
-    if pool is not None:
-        pool.shutdown(wait=drained)
-
-
-def _ensure_writer() -> ThreadPoolExecutor:
-    """The single writer thread, created on first use.
-
-    ``max_workers=1`` is not a resource decision. It serialises this store's
-    writes against each other, so two saves of the same key cannot land in the
-    wrong order, and it keeps the subsystem from contending with itself for
-    SQLite's one write lock — the same rule ``EpgManager`` follows for fetches.
-    """
-    global _writer
-    if _writer is None:
-        _writer = ThreadPoolExecutor(max_workers=1,
-                                     thread_name_prefix="profile-store")
-    return _writer
+    _writer.shutdown(timeout)
 
 
 def read_all() -> dict[str, Any]:
@@ -222,18 +194,7 @@ def record(values: dict[str, Any]) -> None:
             # will be retried by the next save that touches the key.
             logger.exception("profile: could not persist {}", sorted(payload))
 
-    future = _ensure_writer().submit(_task)
-    with _lock:
-        _pending.append(future)
-    future.add_done_callback(_forget)
-
-
-def _forget(future: Future) -> None:
-    with _lock:
-        try:
-            _pending.remove(future)
-        except ValueError:                    # already drained by flush()
-            pass
+    _writer.submit(_task)
 
 
 def attach(config, field_names) -> frozenset[str]:

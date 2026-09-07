@@ -188,7 +188,7 @@ class OMDbProvider(MetadataProviderPlugin):
             if not channel:
                 return None
             title = channel.detected_title or channel.name
-            year = _parse_stored_year(channel.detected_year)
+            year = self._parse_stored_year(channel.detected_year)
             imdb_id = None
             if channel.metadata_id:
                 meta = session.query(MetadataDB).filter_by(id=channel.metadata_id).first()
@@ -356,14 +356,4 @@ def _parse_omdb_release_date(released_str: Optional[str]) -> Optional[str]:
     try:
         return datetime.strptime(cleaned, "%d %b %Y").date().isoformat()
     except ValueError:
-        return None
-
-
-def _parse_stored_year(detected_year: Optional[str]) -> Optional[int]:
-    """Parse the first year out of ``ChannelDB.detected_year`` (e.g. ``'1993-2002'``)."""
-    if not detected_year:
-        return None
-    try:
-        return int(str(detected_year)[:4])
-    except (ValueError, TypeError):
         return None

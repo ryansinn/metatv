@@ -28,13 +28,7 @@ scratch; already-committed batches are durable (#364 crash-retry semantics).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
-
-from loguru import logger
-
-if TYPE_CHECKING:
-    from metatv.core.config import Config
-    from metatv.core.database import Database
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 # Bump to re-run the full detected_restricted backfill for all users on next launch.
 # History:
@@ -48,87 +42,18 @@ if TYPE_CHECKING:
 CURRENT_VERSION: int = 2
 
 
-class RestrictedBackfillTask:
+class RestrictedBackfillTask(DetectedFieldsReparseBase):
     """Populate ``detected_restricted`` for every channel row.
 
     ``needs_run`` checks ``config.restricted_backfill_version`` against
     ``CURRENT_VERSION``.  On full completion the version is bumped and config
     is saved; on cancellation (or a crash — see ``MigrationManager._run_all``)
     the version is left unbumped so the next launch retries from scratch.
+    ``__init__``/``needs_run``/``on_completed``/``run`` all come from
+    ``DetectedFieldsReparseBase``/``VersionGatedTask``.
     """
 
     id: str = "restricted_backfill"
     label: str = "Indexing restricted-content flags"
-
-    def __init__(self, db: "Database") -> None:
-        """
-        Args:
-            db: Database instance.
-        """
-        self._db = db
-
-    def needs_run(self, config: "Config") -> bool:
-        """Return True when the backfill has not yet completed for this version.
-
-        Args:
-            config: The application Config instance.
-
-        Returns:
-            True when ``config.restricted_backfill_version`` is behind
-            ``CURRENT_VERSION``.
-        """
-        stored = getattr(config, "restricted_backfill_version", 0)
-        return stored < CURRENT_VERSION
-
-    def run(
-        self,
-        progress_cb: Callable[[int, int], None],
-        is_cancelled: Callable[[], bool],
-        config: "Config | None" = None,
-    ) -> None:
-        """Execute the full detected_restricted backfill.
-
-        Runs on a **worker thread** (called by ``MigrationManager``).
-        Delegates to ``ChannelRepository.update_detected_prefixes(provider_id=None)``
-        — the single ingestion chokepoint that computes detected_restricted
-        alongside the other detected_* fields — which processes all rows in
-        2000-row batches with commit + expunge between batches.  Any exception
-        propagates to the caller (``MigrationManager``), which is what keeps the
-        version unbumped on a crash — this task deliberately does NOT catch and
-        swallow errors itself (#364).
-
-        Args:
-            progress_cb: ``(done, total)`` called after each batch commit.
-            is_cancelled: Returns True when the manager has been asked to stop.
-            config: Unused; accepted for forward-compat with MigrationManager
-                callers that pass config as a keyword arg.
-        """
-        logger.info(
-            "RestrictedBackfillTask: starting full detected_restricted backfill (version={})",
-            CURRENT_VERSION,
-        )
-
-        from metatv.core.repositories import RepositoryFactory
-
-        with self._db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            repos.channels.update_detected_prefixes(
-                provider_id=None,
-                progress_cb=progress_cb,
-                is_cancelled=is_cancelled,
-            )
-
-        logger.info("RestrictedBackfillTask: completed")
-
-    def on_completed(self, config: "Config") -> None:
-        """Bump the version field so the task won't re-run on next launch.
-
-        Args:
-            config: The application Config instance.
-        """
-        config.restricted_backfill_version = CURRENT_VERSION
-        config.save()
-        logger.debug(
-            "RestrictedBackfillTask: bumped restricted_backfill_version={}",
-            CURRENT_VERSION,
-        )
+    VERSION_FIELD: str = "restricted_backfill_version"
+    CURRENT_VERSION: int = CURRENT_VERSION

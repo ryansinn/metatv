@@ -61,6 +61,8 @@ from typing import TYPE_CHECKING, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
+from metatv.core.migration_gate import wait_until_idle
+
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
@@ -308,20 +310,14 @@ class MetadataEnrichmentQueue(QObject):
         plain polled ``is_running`` check, not a scheduler, bounded so a
         stuck/misreporting ``MigrationManager`` can't wedge enrichment forever.
         """
-        if self._migration_manager is None:
-            return
-        waited = 0.0
-        while (
-            not self._shutdown
-            and self._migration_manager.is_running
-            and waited < _MIGRATION_DEFER_MAX_WAIT_S
-        ):
-            time.sleep(_MIGRATION_DEFER_POLL_S)
-            waited += _MIGRATION_DEFER_POLL_S
-        if waited > 0:
-            logger.debug(
-                "metadata_enrich: deferred {:.0f}s for a running migration pass", waited
-            )
+        deferred = wait_until_idle(
+            self._migration_manager,
+            max_wait_s=_MIGRATION_DEFER_MAX_WAIT_S,
+            poll_s=_MIGRATION_DEFER_POLL_S,
+            should_stop=lambda: self._shutdown,
+        )
+        if deferred:
+            logger.debug("metadata_enrich: deferred for a running migration pass")
 
     def _fetch_batch(self) -> list[dict]:
         """Read-only: one drain batch, plus (first call of a run only) the work-set total.

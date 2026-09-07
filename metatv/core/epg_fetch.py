@@ -43,6 +43,7 @@ from typing import Callable
 
 from loguru import logger
 
+from metatv.core.connection_accountant import acquire_or_proceed, release_quietly
 from metatv.core.database import EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import EPG_FILLER_THRESHOLD, now_utc
 from metatv.core.repositories import RepositoryFactory
@@ -116,24 +117,13 @@ class _EpgFetchMixin:
 
         No accountant (tests/headless) means nothing to arbitrate.
         """
-        if self._accountant is None:
-            return True
-        try:
-            return self._accountant.acquire(
-                provider_id, EPG_KIND, holder_id,
-                preempt_kinds=EPG_PREEMPTS).granted
-        except Exception:
-            logger.exception("epg: connection acquire failed")
-            return True
+        return acquire_or_proceed(
+            self._accountant, provider_id, EPG_KIND, holder_id,
+            preempt_kinds=EPG_PREEMPTS, label="epg")
 
     def _release_slot(self, provider_id: str, holder_id: str) -> None:
         """Release the slot :meth:`_acquire_slot` took."""
-        if self._accountant is None:
-            return
-        try:
-            self._accountant.release(provider_id, holder_id)
-        except Exception:
-            logger.exception("epg: connection release failed")
+        release_quietly(self._accountant, provider_id, holder_id, label="epg")
 
     @staticmethod
     def _fetch_holder_id(provider_id: str) -> str:

@@ -62,7 +62,9 @@ from typing import TYPE_CHECKING, Any
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
+from metatv.core.connection_accountant import acquire_or_proceed, release_quietly
 from metatv.core.content_identity import valid_tmdb_id
+from metatv.core.migration_gate import wait_until_idle
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -505,20 +507,14 @@ class TmdbEnrichmentManager(QObject):
         migrator-crowded batch never wastes a network round trip only to then
         wait to persist it.
         """
-        if self._migration_manager is None:
-            return
-        waited = 0.0
-        while (
-            not self._shutdown
-            and self._migration_manager.is_running
-            and waited < _MIGRATION_DEFER_MAX_WAIT_S
-        ):
-            time.sleep(_MIGRATION_DEFER_POLL_S)
-            waited += _MIGRATION_DEFER_POLL_S
-        if waited > 0:
-            logger.debug(
-                "tmdb_enrich: deferred {:.0f}s for a running migration pass", waited
-            )
+        deferred = wait_until_idle(
+            self._migration_manager,
+            max_wait_s=_MIGRATION_DEFER_MAX_WAIT_S,
+            poll_s=_MIGRATION_DEFER_POLL_S,
+            should_stop=lambda: self._shutdown,
+        )
+        if deferred:
+            logger.debug("tmdb_enrich: deferred for a running migration pass")
 
     def _process_batch(self, batch_ids: list[str]) -> None:
         """Resolve → fetch → persist one drain batch; signal progress + collapses."""
@@ -765,15 +761,9 @@ class TmdbEnrichmentManager(QObject):
         No accountant (headless/tests) means nothing to arbitrate, so the batch
         proceeds — enrolment must not turn an un-wired manager into a dead one.
         """
-        if self._accountant is None:
-            return True
-        try:
-            return self._accountant.acquire(
-                provider_id, ENRICH_KIND, holder_id,
-                preempt_kinds=ENRICH_PREEMPTS).granted
-        except Exception:  # bookkeeping must never break enrichment outright
-            logger.exception("tmdb_enrich: connection acquire failed")
-            return True
+        return acquire_or_proceed(
+            self._accountant, provider_id, ENRICH_KIND, holder_id,
+            preempt_kinds=ENRICH_PREEMPTS, label="tmdb_enrich")
 
     def on_preempted(self, provider_id: str, holder_id: str, kind: str) -> None:
         """Called BY the accountant when playback (or a download/recording) takes our slot.
@@ -812,12 +802,8 @@ class TmdbEnrichmentManager(QObject):
 
     def _release_slot(self, provider_id: str, holder_id: str) -> None:
         """Release the slot :meth:`_acquire_slot` took."""
-        if self._accountant is None:
-            return
-        try:
-            self._accountant.release(provider_id, holder_id)
-        except Exception:
-            logger.exception("tmdb_enrich: connection release failed")
+        release_quietly(self._accountant, provider_id, holder_id,
+                        label="tmdb_enrich")
 
     def _clear_all_inflight(self) -> None:
         """Emit a zero count for every source with an open toast (drain finished)."""

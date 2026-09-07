@@ -757,10 +757,13 @@ class _FakeMigrationManager:
 
 
 def test_defer_for_migration_polls_until_not_running(db, config_obj, monkeypatch, qapp):
-    from metatv.core import tmdb_enrichment_manager as tem_mod
+    # The poll loop itself now lives in core.migration_gate.wait_until_idle
+    # (R4, docs/REFACTOR_PLAN.md) — TmdbEnrichmentManager._defer_for_migration
+    # is a thin caller, so the sleep to patch out is migration_gate's.
+    from metatv.core import migration_gate, tmdb_enrichment_manager as tem_mod
 
     sleeps: list[float] = []
-    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(migration_gate.time, "sleep", lambda s: sleeps.append(s))
 
     fake_mm = _FakeMigrationManager(running_for_n_checks=3)
     mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=fake_mm)
@@ -775,10 +778,10 @@ def test_defer_for_migration_polls_until_not_running(db, config_obj, monkeypatch
 
 
 def test_defer_for_migration_no_wait_when_not_running(db, config_obj, monkeypatch, qapp):
-    from metatv.core import tmdb_enrichment_manager as tem_mod
+    from metatv.core import migration_gate
 
     sleeps: list[float] = []
-    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(migration_gate.time, "sleep", lambda s: sleeps.append(s))
 
     fake_mm = _FakeMigrationManager(running_for_n_checks=0)
     mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=fake_mm)
@@ -793,10 +796,10 @@ def test_defer_for_migration_no_wait_when_not_running(db, config_obj, monkeypatc
 def test_defer_for_migration_noop_without_migration_manager(db, config_obj, monkeypatch, qapp):
     """Default construction (migration_manager=None) — zero behavior change
     for every existing call site that doesn't wire one in."""
-    from metatv.core import tmdb_enrichment_manager as tem_mod
+    from metatv.core import migration_gate
 
     sleeps: list[float] = []
-    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(migration_gate.time, "sleep", lambda s: sleeps.append(s))
 
     mgr = TmdbEnrichmentManager(db, config_obj)  # no migration_manager
     try:
@@ -810,10 +813,11 @@ def test_defer_for_migration_noop_without_migration_manager(db, config_obj, monk
 def test_defer_for_migration_bounded_by_max_wait(db, config_obj, monkeypatch, qapp):
     """A stuck/misreporting MigrationManager can't wedge enrichment forever —
     the courtesy wait is bounded."""
+    from metatv.core import migration_gate
     from metatv.core import tmdb_enrichment_manager as tem_mod
 
     sleeps: list[float] = []
-    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(migration_gate.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(tem_mod, "_MIGRATION_DEFER_MAX_WAIT_S", 3.0)
 
     class _AlwaysRunning:

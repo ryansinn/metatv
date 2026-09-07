@@ -488,3 +488,80 @@ class ConnectionAccountant:
                 if not acquired and provider_id in self._acquired_at:
                     self._acquired_at.pop(provider_id, None)
         return released
+
+
+# ── Background-poller convenience wrappers ─────────────────────────────────
+#
+# ``epg_fetch.py``, ``series_monitor.py`` and ``tmdb_enrichment_manager.py``
+# each grew their own ``_acquire_slot``/``_release_slot`` pair around a
+# ``ConnectionAccountant`` — identical in shape (a None accountant means
+# proceed; any exception is logged and swallowed, never allowed to break the
+# poll) and differing only in the accountant kind, the preempt kinds, and the
+# log-line prefix. All three are background-contention callers — see
+# docs/CRITICAL_RULES.md's "background poll must yield" rule — so the
+# never-fail-open-on-error-but-never-block-on-no-accountant contract below
+# must hold exactly as each of them wrote it.
+
+def acquire_or_proceed(
+    accountant: "Optional[ConnectionAccountant]",
+    provider_id: str,
+    kind: str,
+    holder_id: str,
+    preempt_kinds: "Sequence[str]" = (),
+    *,
+    label: str,
+) -> bool:
+    """Take a connection slot for one background-poll fetch; True if it may proceed.
+
+    No accountant (headless/tests) means nothing to arbitrate, so the caller
+    proceeds — enrolment must not turn an un-wired poller into a dead one.
+    Any exception from the accountant is logged (as ``"{label}: connection
+    acquire failed"``) and swallowed for the same reason: bookkeeping must
+    never break the poll outright.
+
+    Args:
+        accountant: The ``ConnectionAccountant`` to arbitrate through, or
+            ``None``.
+        provider_id: Provider whose connection capacity is consumed.
+        kind: Consumer kind registered with the accountant.
+        holder_id: Caller-defined identity for this connection.
+        preempt_kinds: Kinds this caller may evict when capacity is full.
+        label: Prefixes the failure log line, e.g. ``"epg"``,
+            ``"series_monitor"``, ``"tmdb_enrich"``.
+
+    Returns:
+        True if the fetch may proceed.
+    """
+    if accountant is None:
+        return True
+    try:
+        return accountant.acquire(
+            provider_id, kind, holder_id, preempt_kinds=preempt_kinds).granted
+    except Exception:
+        logger.exception("{}: connection acquire failed", label)
+        return True
+
+
+def release_quietly(
+    accountant: "Optional[ConnectionAccountant]",
+    provider_id: str,
+    holder_id: str,
+    *,
+    label: str,
+) -> None:
+    """Release the slot :func:`acquire_or_proceed` took. Never raises.
+
+    Args:
+        accountant: The ``ConnectionAccountant`` to release through, or
+            ``None`` (a no-op).
+        provider_id: Provider the slot was taken against.
+        holder_id: The same identity passed to :func:`acquire_or_proceed`.
+        label: Prefixes the failure log line, matching the caller's own
+            :func:`acquire_or_proceed` call.
+    """
+    if accountant is None:
+        return
+    try:
+        accountant.release(provider_id, holder_id)
+    except Exception:
+        logger.exception("{}: connection release failed", label)
