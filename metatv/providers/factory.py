@@ -39,24 +39,6 @@ class ProviderRegistry:
         else:
             logger.warning(f"Unknown provider type: {provider_type}")
             return None
-    
-    @classmethod
-    def list_providers(cls) -> Dict[str, str]:
-        """List all registered providers
-        
-        Returns:
-            Dictionary mapping provider_type to provider name
-        """
-        return {
-            ptype: pcls().name 
-            for ptype, pcls in cls._providers.items()
-        }
-    
-    @classmethod
-    def is_registered(cls, provider_type: str) -> bool:
-        """Check if a provider type is registered"""
-        return provider_type in cls._providers
-
 
 # Register built-in providers
 ProviderRegistry.register('xtream', XtreamProvider)

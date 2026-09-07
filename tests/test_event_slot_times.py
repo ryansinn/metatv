@@ -58,7 +58,7 @@ from datetime import date, datetime
 
 import pytest
 
-from metatv.core.event_datetime import parse_event_datetime, parse_event_window
+from metatv.core.event_datetime import parse_event_window
 
 
 class TestEventSlotForm:
@@ -72,24 +72,24 @@ class TestEventSlotForm:
          datetime(2026, 8, 31, 23, 5)),
     ])
     def test_the_start_field_is_read(self, name, expected):
-        assert parse_event_datetime(name) == expected, (
+        assert parse_event_window(name).start == expected, (
             "this is the form that left On Now permanently empty")
 
     def test_the_stop_field_is_not_mistaken_for_the_start(self):
         """Both are ISO datetimes; taking the wrong one shifts a game by hours."""
-        got = parse_event_datetime(
-            "MLB 04 | X x Y start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20")
+        got = parse_event_window(
+            "MLB 04 | X x Y start:2026-08-31 23:45:00 stop:2026-09-01 06:58:20").start
         assert got == datetime(2026, 8, 31, 23, 45)
         assert got != datetime(2026, 9, 1, 6, 58)
 
     def test_a_T_separator_is_accepted(self):
-        assert parse_event_datetime("A | B start:2026-08-31T23:45:00") == \
+        assert parse_event_window("A | B start:2026-08-31T23:45:00").start == \
             datetime(2026, 8, 31, 23, 45)
 
     def test_a_name_with_no_schedule_still_returns_none(self):
         """29k+ rows are 24/7 channels; None is correct for them, not a failure."""
-        assert parse_event_datetime("MLB NETWORK") is None
-        assert parse_event_datetime("DE| MLB NETWORK HD") is None
+        assert parse_event_window("MLB NETWORK").start is None
+        assert parse_event_window("DE| MLB NETWORK HD").start is None
 
 
 class TestTheOtherFormsStillWork:
@@ -100,7 +100,7 @@ class TestTheOtherFormsStillWork:
         ("Match | 2026-07-04 | 09:00 (GMT) |", datetime(2026, 7, 4, 9, 0)),
     ])
     def test_existing_forms_are_unaffected(self, name, expected):
-        assert parse_event_datetime(name) == expected
+        assert parse_event_window(name).start == expected
 
 
 class TestTheWholeClassifierChain:
@@ -196,9 +196,9 @@ class TestSlotTimesAreUtc:
             "Tue 01 Sep 03:30 CEST (DK) | …")
 
         def _parse_both():
-            slot_start = parse_event_datetime(slot_name)
-            dayname_start = parse_event_datetime(
-                dayname_name, reference=date(2026, 9, 1))
+            slot_start = parse_event_window(slot_name).start
+            dayname_start = parse_event_window(
+                dayname_name, reference=date(2026, 9, 1)).start
             return slot_start, dayname_start
 
         slot_start, dayname_start = self._with_denver_tz(_parse_both)
@@ -253,7 +253,7 @@ class TestFlspIdiomIsEastern:
         """
         name = ("(FLSP 246) | live: Ireland vs England _ Women's Cricket "
                 "(2026-09-03 08:00:00)")
-        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        got = self._with_denver_tz(lambda: parse_event_window(name).start)
         assert got == datetime(2026, 9, 3, 12, 0), (
             "under the old UTC reading this stays 08:00, which is what "
             "wrongly listed a not-yet-started game as On Now")
@@ -265,7 +265,7 @@ class TestFlspIdiomIsEastern:
         above and still be wrong here by an hour.
         """
         name = "(FLSP 999) | live: A vs B (2026-01-15 18:00:00)"
-        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        got = self._with_denver_tz(lambda: parse_event_window(name).start)
         assert got == datetime(2026, 1, 15, 23, 0)
 
     def test_a_non_flsp_platform_sharing_the_same_grammar_is_unaffected(self):
@@ -275,7 +275,7 @@ class TestFlspIdiomIsEastern:
         must come back UNCHANGED (byte-for-byte UTC), not shifted.
         """
         name = "US (Paramount 001) | Chelsea vs. Luton Town (2026-09-03 08:00:00)"
-        got = self._with_denver_tz(lambda: parse_event_datetime(name))
+        got = self._with_denver_tz(lambda: parse_event_window(name).start)
         assert got == datetime(2026, 9, 3, 8, 0), (
             "a non-FLSP platform must not be pulled into the Eastern "
             "conversion — only the FLSP idiom is in scope")

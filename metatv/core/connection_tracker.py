@@ -124,20 +124,3 @@ class ConnectionTracker:
         )
         
         return sorted_urls[0] if sorted_urls else None
-    
-    @staticmethod
-    def should_retry_failed_url(provider_url: ProviderURL, retry_after_minutes: int = 30) -> bool:
-        """Determine if a failed URL should be retried
-        
-        Args:
-            provider_url: The URL to check
-            retry_after_minutes: Minutes to wait before retrying
-        
-        Returns:
-            True if enough time has passed since last failure
-        """
-        if not provider_url.last_failure:
-            return True
-        
-        minutes_since_failure = (datetime.now() - provider_url.last_failure).total_seconds() / 60
-        return minutes_since_failure >= retry_after_minutes

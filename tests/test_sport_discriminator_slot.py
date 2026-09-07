@@ -25,8 +25,7 @@ from PyQt6.QtCore import QRect
 from metatv.gui import channel_row_layout as layout
 from metatv.gui.channel_list_delegate import ChannelRowDelegate
 from metatv.gui.channel_row_lead import (DISCRIMINATOR_REGION,
-                                         DISCRIMINATOR_SPORT,
-                                         discriminator_for)
+                                         DISCRIMINATOR_SPORT)
 from tests.conftest import paint_channel_row, row_model
 
 ROW = QRect(0, 0, 620, 68)
@@ -45,35 +44,6 @@ def _index(**overrides):
     index = model.index(0)
     index._model_keepalive = model  # noqa: SLF001
     return index
-
-
-# ── the rule ────────────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize("rows,expected", [
-    ([("soccer", "US"), ("tennis", "GB")], DISCRIMINATOR_SPORT),
-    ([("soccer", "US"), ("soccer", "GB")], DISCRIMINATOR_REGION),
-    ([("soccer", "US"), ("soccer", "US")], ""),
-    ([], ""),
-    ([("soccer", ""), ("soccer", "")], ""),
-])
-def test_the_rule_is_whatever_still_discriminates(rows, expected):
-    """The design's three filter states, plus the two it did not enumerate.
-
-    An empty result set and a set where no row carries a region both collapse:
-    a facet nothing carries cannot tell anything apart. The second case is the
-    reason this is written as a criterion rather than as a case analysis of the
-    filter — a library holding one sport shows a constant glyph on every row
-    with no filter active at all, and a filter-shaped implementation would
-    happily paint it.
-    """
-    assert discriminator_for(rows) == expected
-
-
-def test_a_row_missing_its_value_does_not_veto_the_facet():
-    """An absent region among varied ones must not collapse the slot."""
-    assert discriminator_for(
-        [("soccer", "US"), ("soccer", ""), ("soccer", "GB")]
-    ) == DISCRIMINATOR_REGION
 
 
 # ── geometry: three states, three shapes ────────────────────────────────────

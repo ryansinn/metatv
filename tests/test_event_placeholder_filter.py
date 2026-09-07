@@ -1,59 +1,22 @@
-"""Tests for PPV/event placeholder row detection and exclusion.
+"""Tests for PPV/event placeholder row exclusion.
 
 Placeholder rows are injected by providers to fill PPV slot bundles when no event
 is scheduled (e.g. ``- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 ...``).
 They are NOT playable streams and must be excluded from every content surface.
 
 Coverage:
-- ``is_event_placeholder()`` — True for placeholder patterns, False for real channels.
 - ``ChannelRepository.get_all()`` — placeholder rows seeded in DB are excluded; normal
-  channels alongside them still appear.
+  channels alongside them still appear, via the SQL ``NOT LIKE '%NO EVENT STREAMING%'``
+  clause in ``get_all()`` (``core/repositories/channel.py``).
+
+(The Python-side ``is_event_placeholder()`` helper this file used to also cover was
+Sports/Events view residue — the view that would have called it was retired in #731,
+and ``get_all()`` never called it — so it was deleted in dead-code sweep B along with
+its dedicated unit tests. See docs/REFACTOR_PLAN.md row D43.)
 """
 import pytest
 
-from metatv.core.channel_name_utils import is_event_placeholder
 from tests.conftest import make_channel
-
-
-# ── is_event_placeholder unit tests ──────────────────────────────────────────
-
-@pytest.mark.parametrize("name", [
-    # Exact real-world examples from the bug report
-    "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 [DE| DYN PPV EXCLUSIVE]",
-    "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: SPORT DEUTSCHLAND PPV 1",
-    "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DISNEY+ PPV 21",
-    # Minimal marker — just the substring
-    "NO EVENT STREAMING",
-    # Case variants the .upper() guard must handle
-    "- no event streaming - | foo",
-    "- No Event Streaming - | bar",
-    # ARG provider variant
-    "- NO EVENT STREAMING - | 8K EXCLUSIVE | ARG: FANATIZ PPV 10",
-])
-def test_is_event_placeholder_true(name: str) -> None:
-    """Names containing 'NO EVENT STREAMING' (any case) are placeholders."""
-    assert is_event_placeholder(name) is True
-
-
-@pytest.mark.parametrize("name", [
-    # Real channels that contain the word EVENT but are not placeholders
-    "EN | UEFA Champions League EVENT",
-    "SPORT EVENT CHANNEL HD",
-    "- DE: DYN PPV 13 -",          # real PPV slot with no placeholder marker
-    "D+ Disney+",
-    "BEIN SPORTS HD",
-    "",                             # empty string
-    "STREAMING LIVE NOW",           # contains STREAMING but not the full marker
-    "NO EVENT TODAY",               # contains NO and EVENT but not the full marker
-])
-def test_is_event_placeholder_false(name: str) -> None:
-    """Real channels and non-placeholder names are not flagged."""
-    assert is_event_placeholder(name) is False
-
-
-def test_is_event_placeholder_empty_string() -> None:
-    """Empty string returns False without raising."""
-    assert is_event_placeholder("") is False
 
 
 # ── get_all SQL exclusion tests ───────────────────────────────────────────────

@@ -18,6 +18,11 @@ The read/write split matters here and is easy to lose: the ``select_*`` /
 return DTOs; ``apply_*`` are the only writers. Nothing returns an ORM object —
 every one of these crosses a session boundary into
 ``metadata_manager`` / ``tmdb_enrichment_manager``.
+
+``select_tmdb_enrichment_candidates`` and ``provider_ids_with_tmdb_candidates``
+were an earlier, unwired candidate selector — ``TmdbEnrichmentManager`` never
+called them, using ``select_tmdb_candidates_by_ids`` (below) instead. Deleted
+in dead-code sweep B; see docs/REFACTOR_PLAN.md.
 """
 
 from __future__ import annotations
@@ -120,73 +125,6 @@ class ChannelEnrichmentMixin:
         if provider_id is not None:
             query = query.filter(ChannelDB.provider_id == provider_id)
         return query
-
-    def provider_ids_with_tmdb_candidates(
-        self,
-        excluded_provider_ids: Optional[Set[str]] = None,
-    ) -> List[str]:
-        """Return the distinct providers that still have idless VOD rows to attempt.
-
-        Lets the caller split its per-session cap fairly across sources rather than
-        exhausting the largest provider first (which would starve the others for
-        hundreds of launches).
-
-        Args:
-            excluded_provider_ids: Hidden providers — never enriched.
-
-        Returns:
-            Distinct ``provider_id`` values with at least one candidate.
-        """
-        q = self._tmdb_candidate_filter(
-            self.session.query(ChannelDB.provider_id).distinct(),
-            excluded_provider_ids,
-            provider_id=None,
-        )
-        return [row[0] for row in q.all()]
-
-    def select_tmdb_enrichment_candidates(
-        self,
-        limit: int,
-        excluded_provider_ids: Optional[Set[str]] = None,
-        provider_id: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
-        """Return idless VOD rows that still need a provider-detail tmdb lookup.
-
-        See :meth:`_tmdb_candidate_filter` for the candidate predicate.  Returns
-        plain dicts (safe to cross the worker → write-session boundary — no ORM
-        objects escape).
-
-        Args:
-            limit: Hard cap on rows returned.
-            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
-                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
-            provider_id: When given, restrict to this one provider (used to draw a
-                fair per-provider slice of the session cap).
-
-        Returns:
-            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts.
-        """
-        q = self._tmdb_candidate_filter(
-            self.session.query(
-                ChannelDB.id,
-                ChannelDB.provider_id,
-                ChannelDB.source_id,
-                ChannelDB.media_type,
-            ),
-            excluded_provider_ids,
-            provider_id,
-        )
-        q = q.order_by(ChannelDB.provider_id).limit(limit)
-
-        return [
-            {
-                "id": cid,
-                "provider_id": pid,
-                "source_id": sid,
-                "media_type": mt,
-            }
-            for (cid, pid, sid, mt) in q.all()
-        ]
 
     def select_tmdb_candidates_by_ids(
         self,

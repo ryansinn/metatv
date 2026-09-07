@@ -1,11 +1,11 @@
 """The leading discriminator slot: what still tells a list of rows apart.
 
-One job, three parts that only make sense together — the RULE that picks a
-discriminator, the RESOLUTION of one row's value for it, and the PAINT. They
-live here rather than in ``channel_list_delegate`` because that file crossed
-1,000 lines when they were added, and the ratchet's answer to that is cohesion
-rather than arithmetic: this is a self-contained question with its own
-vocabulary, not a fragment of "how a channel row is painted".
+Two parts that only make sense together — the RESOLUTION of one row's value
+for the active discriminator, and the PAINT. They live here rather than in
+``channel_list_delegate`` because that file crossed 1,000 lines when they were
+added, and the ratchet's answer to that is cohesion rather than arithmetic:
+this is a self-contained question with its own vocabulary, not a fragment of
+"how a channel row is painted".
 
 The settled rule, from *Sport Rundown*:
 
@@ -25,17 +25,27 @@ audit found sports rows clip long fixture names, so reserving the column and
 painting nothing in it is the implementation that passes every order-based
 check while being exactly wrong — it takes the width and gives nothing back.
 
-Nothing here imports the delegate, and none of it needs a model index: the rule
-takes value pairs and the resolver takes two strings, so both are testable
-without constructing a row. The paint helper takes the delegate's own text
-chokepoint as a callable rather than reaching for a painter method, so a
-region code gets the same colour and font handling as every other string in the
-row and is recorded by the same paint-capture harness.
+Nothing here imports the delegate, and none of it needs a model index: the
+resolver takes two strings, so it is testable without constructing a row. The
+paint helper takes the delegate's own text chokepoint as a callable rather
+than reaching for a painter method, so a region code gets the same colour and
+font handling as every other string in the row and is recorded by the same
+paint-capture harness.
+
+The RULE that picked a discriminator from a set of rows (``discriminator_for``,
+the criterion in the table above) had no caller — ``ChannelRowDelegate`` never
+calls ``set_row_discriminator`` in production, so ``self._row_discriminator``
+is always ``""`` and the slot never shows anything today. It was deleted in
+dead-code sweep B (docs/REFACTOR_PLAN.md row D43); the delegate's
+``set_row_discriminator``/``row_discriminator`` plumbing and this module's
+``lead_slot``/``paint_lead_slot`` were deliberately left — they are SPORT-3
+backlog infrastructure (project_sports_events_views_scope.md), not residue
+from the retired view, and wiring a caller to them is the remaining work.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from typing import Callable
 
 from PyQt6.QtCore import QRect
 
@@ -50,45 +60,6 @@ from metatv.gui import theme as _theme
 DISCRIMINATOR_SPORT = "sport"
 DISCRIMINATOR_REGION = "region"
 VALID_DISCRIMINATORS = (DISCRIMINATOR_SPORT, DISCRIMINATOR_REGION)
-
-
-def discriminator_for(rows: Iterable[tuple[str, str]]) -> str:
-    """Which discriminator still tells *rows* apart: sport, region, or none.
-
-    The design states the rule as three filter states. This is that rule written
-    as its actual CRITERION rather than as a case analysis of the filter, and it
-    returns the same answer for all three.
-
-    Writing it this way matters twice over. The third state is not reachable
-    from ``SportsFilterBar`` today — it has sport, league and search, and no
-    region facet — so a filter-shaped implementation would carry a branch
-    nothing could execute. And the criterion catches cases the enumeration does
-    not: a library that happens to hold one sport shows a constant glyph on
-    every row while no filter is active at all.
-
-    A value discriminates when the rows do not agree on it. Rows that have no
-    value are ignored for that judgement — an absent region among varied ones
-    does not make region useless — but a facet NO row carries cannot
-    discriminate anything.
-
-    Args:
-        rows: ``(sport, region)`` pairs, in any order.
-
-    Returns:
-        :data:`DISCRIMINATOR_SPORT`, :data:`DISCRIMINATOR_REGION`, or ``""``.
-    """
-    sports: set[str] = set()
-    regions: set[str] = set()
-    for sport, region in rows:
-        if sport:
-            sports.add(sport)
-        if region:
-            regions.add(region)
-    if len(sports) > 1:
-        return DISCRIMINATOR_SPORT
-    if len(regions) > 1:
-        return DISCRIMINATOR_REGION
-    return ""
 
 
 def lead_slot(discriminator: str, sport: str, region: str) -> tuple[str, str]:

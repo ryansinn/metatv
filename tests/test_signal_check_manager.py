@@ -263,38 +263,3 @@ def test_a_dispatched_preempt_reaches_each_listener_and_survives_a_raise():
 
     assert calls == [("first", "download:7"), ("third", "download:7")], (
         "a raising listener stopped the ones after it")
-
-
-# ── hide_dead_events reaches the query ─────────────────────────────────────
-
-def test_hiding_dead_events_never_hides_an_unchecked_one(db):
-    """NULL is "never looked at", not "known dead".
-
-    An event nobody has probed must stay visible, or turning the setting on
-    would hide most of the catalogue on day one — before a single check ran.
-    """
-    from metatv.core.channel_visibility import VisibilityScope
-    from metatv.core.repositories import RepositoryFactory
-
-    with db.session_scope() as session:
-        for cid, streak in (("p1_never", None), ("p1_ok", 0),
-                            ("p1_one", 1), ("p1_dead", 3)):
-            session.add(ChannelDB(
-                id=cid, source_id=cid, provider_id="p1", name=f"Event {cid}",
-                stream_url="http://x/e.ts", special_view="live_event",
-                signal_dead_streak=streak))
-
-    with db.session_scope() as session:
-        repos = RepositoryFactory(session)
-        scope = VisibilityScope()
-
-        shown_off = {r.id for r in repos.channels.get_events_channels(
-            scope, "live_event")}
-        shown_on = {r.id for r in repos.channels.get_events_channels(
-            scope, "live_event", hide_dead_streak=2)}
-
-    assert shown_off == {"p1_never", "p1_ok", "p1_one", "p1_dead"}, (
-        "the default must hide nothing")
-    assert "p1_never" in shown_on, "an unchecked event was hidden"
-    assert "p1_one" in shown_on, "one bad check is a bad moment, not a fact"
-    assert "p1_dead" not in shown_on, "a 3-check dead streak was not hidden"

@@ -500,32 +500,3 @@ class EpisodeRepository:
         self.session.commit()
         return completed
 
-    def bulk_create_or_update(self, episodes: List[EpisodeDB]):
-        """Bulk create or update episodes"""
-        for episode in episodes:
-            existing = self.get_by_id(episode.id)
-            if existing:
-                # Update existing, preserve playback tracking
-                existing.title = episode.title
-                existing.duration = episode.duration
-                existing.container_extension = episode.container_extension
-                existing.stream_url = episode.stream_url
-                existing.cover_url = episode.cover_url
-                existing.raw_data = episode.raw_data
-                existing.updated_at = datetime.now()
-            else:
-                # Create new
-                self.session.add(episode)
-        
-        self.session.commit()
-        logger.info(f"Bulk created/updated {len(episodes)} episodes")
-    
-    def delete_by_series(self, series_id: str, provider_id: str) -> int:
-        """Delete all episodes for a series"""
-        count = self.session.query(EpisodeDB).filter_by(
-            series_id=series_id,
-            provider_id=provider_id
-        ).delete()
-        self.session.commit()
-        logger.info(f"Deleted {count} episodes for series {series_id}")
-        return count

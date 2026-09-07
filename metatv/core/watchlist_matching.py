@@ -176,20 +176,6 @@ def matches_any(
     """True if *text* satisfies at least one rule. The highlight/notify test."""
     return any(matches(text, r, description, is_live) for r in rules)
 
-
-def matching_rule(
-    text: str,
-    rules: Iterable[WatchRule],
-    description: str | None = None,
-    is_live: bool | None = None,
-) -> WatchRule | None:
-    """The first rule *text* satisfies, or None — for "why is this here?" UI."""
-    for rule in rules:
-        if matches(text, rule, description, is_live):
-            return rule
-    return None
-
-
 def refine(
     rows: Sequence[T],
     rule: WatchRule,
@@ -259,12 +245,6 @@ def rule_for(term: str) -> WatchRule:
     whole-word matching rather than silently keeping the old behaviour.
     """
     return WatchRule(term=term)
-
-
-def rules_for(terms: Iterable[str]) -> tuple[WatchRule, ...]:
-    """:func:`rule_for` over a list of patterns, skipping blanks."""
-    return tuple(rule_for(t) for t in terms if (t or "").strip())
-
 
 def as_rules(items: Iterable[str | WatchRule]) -> tuple[WatchRule, ...]:
     """Normalise a mixed list of terms and rules into rules.

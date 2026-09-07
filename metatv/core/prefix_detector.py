@@ -1,7 +1,7 @@
 """Robust prefix detection for IPTV channel names"""
 
 import re
-from typing import List, Set, Dict, Optional
+from typing import List, Set, Optional
 from dataclasses import dataclass
 
 
@@ -162,21 +162,6 @@ class PrefixDetector:
     def get_all_prefixes(self, title: str) -> Set[str]:
         """Get all detected prefixes as a set (for multi-filter)"""
         return {p.text for p in self.extract_prefixes(title)}
-    
-    def build_prefix_index(self, channels: List) -> Dict[str, Set[str]]:
-        """Build an inverted index: prefix -> set of channel IDs
-        
-        This enables O(1) filtering by prefix.
-        """
-        index = {}
-        for channel in channels:
-            prefixes = self.get_all_prefixes(channel.name)
-            for prefix in prefixes:
-                if prefix not in index:
-                    index[prefix] = set()
-                index[prefix].add(channel.id)
-        return index
-
 
 # Example usage
 if __name__ == "__main__":
