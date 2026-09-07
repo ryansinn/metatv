@@ -27,11 +27,10 @@ and ``_maybe_live_refresh_on_view_open`` on open/refresh-click were retired
 (owner direction: live sports channels stay in search/browse, wearing the
 live flag, rather than a dedicated surface). Both hooks were deleted in
 dead-code sweep B (docs/REFACTOR_PLAN.md row D43): neither ever gained another
-caller, so ``config.live_refresh_mode == "on_view_open"`` is now unreachable —
-the Settings combo still offers "Whenever Sports or Events opens" as a choice
-(``settings_dialog_tabs.py``), and picking it is a silent no-op. That stale,
-user-visible option was found but left for a separate decision; it is not
-this module's to remove.
+caller. The Settings option that drove them went too, with a one-time config
+migration for anyone who had chosen it (``catalog_refresh.
+RETIRED_LIVE_REFRESH_MODES``, docs/REFACTOR_PLAN.md row D47) — so the only
+live-refresh trigger left is the interval tick below.
 
 Every due-ness decision is a pure function in ``core/catalog_refresh.py`` —
 this module is orchestration only (offloading the DB read, resolving
@@ -175,7 +174,8 @@ class _CatalogRefreshTickMixin:
         """LIVE-1's 5-minute lane: enqueue a live-only refresh for every
         ACTIVE provider when ``config.live_refresh_mode`` is an interval
         ("15m"/"30m"/"1h"/"3h") and that provider's ``last_live_refresh_at``
-        is older than it. "manual" and "on_view_open" never fire from here.
+        is older than it. "manual" never fires from here, nor does any value
+        that is not one of the four intervals.
         """
         mode = getattr(self.config, "live_refresh_mode", "manual")
         if mode not in LIVE_REFRESH_INTERVALS:

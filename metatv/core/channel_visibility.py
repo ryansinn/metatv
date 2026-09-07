@@ -244,8 +244,21 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
             query = query.filter(restricted_expr)
 
     # ── Dead-signal-streak axis (VE-1) — the "hide dead events" setting; a
-    # new axis, not a migrated one. The column is NOT NULL (default 0). ──────
+    # new axis, not a migrated one.
+    #
+    # The NULL guard is load-bearing, not belt-and-braces: `NULL < 2` is NULL
+    # in SQL, so a bare `<` DROPS an unchecked channel — the exact opposite of
+    # what this axis means ("hide what we have PROVEN dead"). The ORM column is
+    # `nullable=False, default=0`, which is why this was latent, but that
+    # applies only to a table `create_all` built: an EXISTING library gets the
+    # column from `Database._migrate()`'s `INTEGER DEFAULT 0` ALTER TABLE,
+    # which carries no NOT NULL, so NULL is storable on every upgraded
+    # database. The deleted `get_events_channels(hide_dead_streak=N)` guarded
+    # it and was the only reader that did (docs/REFACTOR_PLAN.md row D45).
     if scope.dead_signal_streak_floor is not None:
-        query = query.filter(channel_cls.signal_dead_streak < scope.dead_signal_streak_floor)
+        query = query.filter(or_(
+            channel_cls.signal_dead_streak.is_(None),
+            channel_cls.signal_dead_streak < scope.dead_signal_streak_floor,
+        ))
 
     return query

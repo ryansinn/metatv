@@ -265,13 +265,19 @@ def test_success_stamp_feeds_the_next_ticks_effective_refresh(tmp_path):
 # LIVE-1 — the pure due-ness functions
 # ---------------------------------------------------------------------------
 
-def test_live_refresh_due_manual_and_on_view_open_never_fire_from_the_tick():
-    """Those two modes are driven by the banner button and the view-open hook
-    respectively — the 5-minute interval tick must never fire for them."""
+def test_live_refresh_due_never_fires_for_manual_or_an_unknown_mode():
+    """"manual" is the deliberate never-fire mode; anything the interval table
+    does not name is treated the same way rather than guessed at.
+
+    That second half is what keeps a RETIRED mode safe: "on_view_open" is
+    rewritten to "manual" on load (``Config._migrate_live_refresh_mode``), but a
+    hand-edited config.yaml can still present it, and it must not suddenly start
+    refreshing on a timer."""
     now = datetime.now()
     stale = now - timedelta(hours=5)
     assert live_refresh_due("manual", stale, now) is False
     assert live_refresh_due("on_view_open", stale, now) is False
+    assert live_refresh_due("every_other_tuesday", stale, now) is False
     assert live_refresh_due("manual", None, now) is False
 
 
@@ -387,7 +393,7 @@ def test_live_refresh_tick_does_not_fire_within_the_interval(tmp_path):
     assert host.refresh_queue_manager.enqueued == []
 
 
-def test_live_refresh_tick_fires_nothing_in_manual_or_on_view_open_mode(tmp_path):
+def test_live_refresh_tick_fires_nothing_in_manual_or_an_unknown_mode(tmp_path):
     db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
@@ -397,7 +403,7 @@ def test_live_refresh_tick_fires_nothing_in_manual_or_on_view_open_mode(tmp_path
             last_live_refresh_at=now - timedelta(hours=5),  # very stale
         )
 
-    for mode in ("manual", "on_view_open"):
+    for mode in ("manual", "on_view_open", "every_other_tuesday"):
         host = _Host(db, live_refresh_mode=mode)
         host._maybe_live_refresh_tick()
         assert host.refresh_queue_manager.enqueued == [], mode

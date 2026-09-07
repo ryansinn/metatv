@@ -310,9 +310,7 @@ class SettingsTabsMixin:
         layout.addWidget(adult_group)
 
         # LIVE-1: how often the LIVE catalog (get_live_streams only — never
-        # VOD/series) auto-refreshes for every active source. The Sports
-        # view's staleness banner always offers a manual "Refresh sources"
-        # button regardless of this setting.
+        # VOD/series) auto-refreshes for every active source.
         live_group = QGroupBox("Live catalog")
         live_form = QFormLayout(live_group)
         live_form.setSpacing(8)
@@ -320,8 +318,6 @@ class SettingsTabsMixin:
         self._live_refresh_mode_combo = QComboBox()
         self._live_refresh_mode_combo.addItem(
             "Manual — banner and refresh button only", userData="manual")
-        self._live_refresh_mode_combo.addItem(
-            "Whenever Sports or Events opens", userData="on_view_open")
         self._live_refresh_mode_combo.addItem("Every 15 minutes", userData="15m")
         self._live_refresh_mode_combo.addItem("Every 30 minutes", userData="30m")
         self._live_refresh_mode_combo.addItem("Every hour", userData="1h")
@@ -330,8 +326,6 @@ class SettingsTabsMixin:
             "How often live channels and fixtures re-sync in the background —\n"
             "a single get_live_streams call per source, usually a few seconds.\n"
             "\n"
-            "\"Whenever Sports or Events opens\" has a 5-minute cooldown so\n"
-            "rapid tab-switching between the two doesn't hammer the source.\n"
             "A source currently streaming is always skipped and retried later."
         )
         live_form.addRow("Live catalog refresh:", self._live_refresh_mode_combo)

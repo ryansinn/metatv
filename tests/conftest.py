@@ -1491,8 +1491,6 @@ def wire_settings_content_widgets(dlg) -> None:
     dlg._live_refresh_mode_combo = QComboBox()
     dlg._live_refresh_mode_combo.addItem(
         "Manual — banner and refresh button only", userData="manual")
-    dlg._live_refresh_mode_combo.addItem(
-        "Whenever Sports or Events opens", userData="on_view_open")
     dlg._live_refresh_mode_combo.addItem("Every 15 minutes", userData="15m")
     dlg._live_refresh_mode_combo.addItem("Every 30 minutes", userData="30m")
     dlg._live_refresh_mode_combo.addItem("Every hour", userData="1h")
