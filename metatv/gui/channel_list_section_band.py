@@ -43,7 +43,7 @@ from metatv.gui.channel_list_roles import (
     ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE, SECTION_COUNT_ROLE,
     SECTION_LABEL_ROLE, SECTION_WORD_ONLY_ROLE,
 )
-from metatv.gui.filter_bar import ToggleChip
+from metatv.gui.chips import ToggleChip
 from metatv.gui.token_color import to_qcolor
 
 #: Horizontal inset, and the gap between the band's parts. From the mockup's

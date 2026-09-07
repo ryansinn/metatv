@@ -26,7 +26,6 @@ care which class in the MRO defines the name.
 from __future__ import annotations
 
 from loguru import logger
-from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 
 from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
@@ -202,29 +201,6 @@ class _MenuActionsMixin:
 
         help_menu.addSeparator()
         help_menu.addAction("&About", self.show_about)
-
-    def show_test_notification(self):
-        """Show a test notification (for development)"""
-        notif_id = self.notification_manager.show_progress(
-            title="Loading Example TV",
-            total=150000
-        )
-        
-        # Simulate progress
-        progress = 0
-        def update_progress():
-            nonlocal progress
-            progress += 5000
-            self.notification_manager.update_progress(notif_id, progress, 150000)
-            if progress >= 150000:
-                self.notification_manager.complete_progress(
-                    notif_id, 
-                    "150,000 channels loaded"
-                )
-        
-        timer = QTimer(self)
-        timer.timeout.connect(update_progress)
-        timer.start(500)
 
     def show_operations(self):
         """Show operations panel"""

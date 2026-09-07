@@ -297,12 +297,12 @@ def _build_semantic_constants() -> dict[str, object]:
         " border-radius: " + RADIUS_SM + "; padding:0 7px; font-size:" + FONT_MD + "; }"
         "QPushButton:hover { background:" + COLOR_SURFACE_LIGHT_2 + "; color:" + COLOR_TEXT_HI + "; }"
     )
-    # Filter-bar controls — the multi-select dropdowns ("Genres ▼") in
-    # filter_bar.py, and filter_bar's "Clear" button. One role rather than
-    # copies of the same sheet. Used to hardcode ``background-color: white``
-    # with ``COLOR_LINE`` as the text: a hard-white slab in the dark themes,
-    # lettered in a hairline-separator colour. Same shape as the #298
-    # view-chip bug documented in filter_bar.py — a literal cannot track a
+    # Filter-control dropdowns — the multi-select dropdowns ("Genres ▼") in
+    # chips.py's ``FilterDropdown``, and its "Clear" button. One role rather
+    # than copies of the same sheet. Used to hardcode ``background-color:
+    # white`` with ``COLOR_LINE`` as the text: a hard-white slab in the dark
+    # themes, lettered in a hairline-separator colour. Same shape as the #298
+    # view-chip bug documented in chips.py — a literal cannot track a
     # palette.
     FILTER_CONTROL_BTN = (
         "QPushButton { background-color: " + COLOR_BG_CARD + "; color: " + COLOR_TEXT + ";"

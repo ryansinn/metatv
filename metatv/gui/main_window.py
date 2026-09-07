@@ -1135,11 +1135,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
 
         return None
     
-    def refresh_sidebar(self):
-        """Refresh all sidebar sections"""
-        for section in self.sidebar_sections.values():
-            section.refresh()
-
     def _watch_channel_from_list(self, channel_id: str) -> None:
         if channel_id not in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.append(channel_id)
@@ -1710,7 +1705,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.sources_manager_view = SourcesManagerView(
             self.config, self.db, self.provider_editor, self
         )
-        self.sources_manager_view.providerRefreshClicked.connect(self.refresh_provider)
         self.sources_manager_view.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
         self.sources_manager_view.providerToggleClicked.connect(self.toggle_provider_active)
         self.sources_manager_view.providerEpgRefreshClicked.connect(self._on_provider_epg_refresh)
@@ -1897,9 +1891,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # Listen for notification changes
         self.notification_manager.add_listener(self.update_notifications)
 
-        # Test notification (remove later)
-        # self.show_test_notification()
-    
     def update_notifications(self, notifications):
         """Update notification widget"""
         self.notification_widget.update_notifications(notifications)
@@ -2213,28 +2204,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             view.reload()
 
     def _apply_adult_mode_setting(self) -> None:
-        """Push a Settings → Content adult-mode change into the filter bar, then reload.
+        """Reload the channel list after a Settings → Content adult-mode change.
 
-        ``config`` owns ``filter_adult_mode`` but ``FilterBar`` CACHES it in
-        ``adult_mode_combo``, and ``save_filter_state()`` writes that cache back
-        — so the setting must be written INTO the combo or the user's next
-        filter click overwrites what they just chose. Then ``load_channels()``,
-        the same reload chokepoint ``_apply_collapse_variants_setting`` uses:
-        this changes the row SET, not row painting.
+        ``load_channels()``, the same reload chokepoint
+        ``_apply_collapse_variants_setting`` uses: this changes the row SET,
+        not row painting.
         """
-        bar = getattr(self, "filter_bar", None)
-        combo = getattr(bar, "adult_mode_combo", None) if bar is not None else None
-        if combo is not None:
-            mode = getattr(self.config, "filter_adult_mode", "hide")
-            index = {"all": 0, "hide": 1, "only": 2}.get(mode, 1)
-            # blockSignals: setCurrentIndex fires currentIndexChanged →
-            # on_filter_changed → a reload we are about to do ourselves anyway.
-            # Programmatic state restoration blocks signals first (CLAUDE.md).
-            previous = combo.blockSignals(True)
-            try:
-                combo.setCurrentIndex(index)
-            finally:
-                combo.blockSignals(previous)
         _settings_apply.request_channel_reload(self)
 
     def _apply_collapse_variants_setting(self) -> None:

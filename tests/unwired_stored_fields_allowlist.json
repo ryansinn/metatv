@@ -22,6 +22,7 @@
     "Config.episode_metadata_backfill_version",
     "Config.filter_config_version",
     "Config.filter_default_mode",
+    "Config.filter_include_untagged",
     "Config.filter_known_categories",
     "Config.filter_known_dubs",
     "Config.filter_known_formats",

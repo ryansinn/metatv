@@ -1020,8 +1020,8 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         # the icons at all?"
         #
         # ``icon``/``vector_role`` stay as constructor metadata — sections still
-        # declare them and ``filter_bar`` uses the same vocabulary — but nothing
-        # in a section header reads them now.
+        # declare them and ``chips.ToggleChip`` uses the same vocabulary — but
+        # nothing in a section header reads them now.
         #
         # Watch Alerts kept a state DOT here (grey quiet, green when something
         # was new) until the header grew the filled "+N" pill, which says the

@@ -150,7 +150,7 @@ def test_every_palette_declares_a_kind():
 #       for a light palette would make that badge text illegible.
 #
 #   COLOR_SURFACE_LIGHT, COLOR_SURFACE_LIGHT_2, COLOR_SURFACE_LIGHT_3
-#       A fixed-light "highlight chip" surface family (filter_bar.py) —
+#       A fixed-light "highlight chip" surface family (chips.py) —
 #       always light, in every palette, by design; the inverse case of the
 #       lightbox family above.
 #

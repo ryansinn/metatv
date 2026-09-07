@@ -139,7 +139,7 @@ Resolve the fetch URL only via `EpgManager.effective_epg_url(provider)` — neve
 
 Clicking a details-pane metadata value (genre/cast/director) activates a temporary context filter using a **strict** SQL filter — not `filter_panel`'s inclusive genre logic (which has a no-data passthrough). Full pattern: [CONTEXT_FILTER_CHIPS.md](CONTEXT_FILTER_CHIPS.md).
 
-- Never route details-pane clicks through `filter_panel.select_only_genre()` or similar.
+- Never route details-pane clicks through `filter_panel`'s inclusive genre logic.
 - At most one context filter is active; activating one clears the others.
 - Text search coexists — typing narrows *within* the chip; it does not dismiss it.
 - Chip styles from `theme.CONTEXT_FILTER_CHIP*`. State in `_details_*_filter` on `MainWindow`, passed through `load_channels()` → `get_all()`.

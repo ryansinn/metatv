@@ -446,16 +446,6 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._render_hidden()
         self._update_filler_btn_label()
 
-    # ------------------------------------------------------------------
-    # ContentView interface
-    # ------------------------------------------------------------------
-
-    def get_view_name(self) -> str:
-        return "EPG"
-
-    def get_selected_channel(self) -> Optional[ChannelDB]:
-        return None  # EPG doesn't track a single selected channel
-
     def _refresh_stale_epg_notice(self) -> None:
         """Show/hide the banner listing active sources whose EPG guide data is stale."""
         from metatv.core.repositories import RepositoryFactory

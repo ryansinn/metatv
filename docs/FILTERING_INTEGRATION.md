@@ -1,5 +1,11 @@
 """Integration guide for the filtering system
 
+**Stale.** `FilterBar` (and `filter_bar.py`) described below was never instantiated in
+production and was deleted as dead code (audit slice 4, 2026-09-07); `ToggleChip`,
+`FilterChip`, `FilterDropdown` live on in `metatv/gui/chips.py`. This guide documents an
+integration that never shipped — see `docs/FILTERING_DESIGN.md` for the philosophy that
+did.
+
 This document explains how to integrate the new filtering system into MainWindow.
 
 ## Quick Start

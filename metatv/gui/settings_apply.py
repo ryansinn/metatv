@@ -35,8 +35,7 @@ from typing import Any
 from loguru import logger
 
 #: Every ``settings_applied`` handler, IN ORDER. Order is behaviour: the theme
-#: is re-applied before the split toggle re-reads it, and the adult-mode change
-#: writes into the filter bar before anything reloads from it.
+#: is re-applied before the split toggle re-reads it.
 HANDLERS: tuple[str, ...] = (
     "_apply_sidebar_visibility",
     "_refresh_recommendation_views",
@@ -44,8 +43,8 @@ HANDLERS: tuple[str, ...] = (
     "_apply_sidebar_row_density",
     "refresh_theme",
     "_apply_collapse_variants_setting",
-    # Settings → Content is the ONLY reachable adult-mode control, so its change
-    # has to reach both the filter bar's (hidden) combo and the list.
+    # Settings → Content is the ONLY reachable adult-mode control, so its
+    # change just needs the list reloaded.
     "_apply_adult_mode_setting",
     # alerts_show_idle_items changes WHICH rows the section lists, so it has to
     # re-render; the existing alert-visibility chokepoint already does it.

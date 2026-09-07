@@ -752,8 +752,9 @@ and the What's New entries; only what is still open is listed here.
   (every other search box in the app uses 300 ms). `EpgRepository.search_upcoming_by_patterns`
   has zero callers. `EpgManager.watchlist_notification` is emitted and never
   connected — decide whether it is the hook for the parked "Alerts Matched"
-  queue or dead. `SourcesSection` (`gui/sidebar/sources.py`) is never
-  instantiated — Sources moved out of the sidebar stack in Wave 6.
+  queue or dead. `SourcesSection` (`gui/sidebar/sources.py`) — never
+  instantiated since Sources moved out of the sidebar stack in Wave 6 — was
+  deleted as dead code (audit slice 4, 2026-09-07).
 
 ## Code Health / Refactor
 

@@ -11,8 +11,8 @@ then this sweep's haul:
 ===================================  ========  ==============================
 site                                 measured  what it was
 ===================================  ========  ==============================
-``filter_bar`` "Clear"               1.00:1    a separator-hairline colour as
-                                               text on a fixed-light surface —
+``FilterBar`` "Clear" (site since   1.00:1    a separator-hairline colour as
+deleted with the dead class)                  text on a fixed-light surface —
                                                identical values, in ALL themes
 ``vod_watch_alert_dialog`` Watch     1.25:1    body text on a solid accent fill
 ``discover_card`` category label     1.20:1    a palette-tuned accent on a
@@ -75,10 +75,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
         "COLOR_MUTED-family secondary text; see module docstring",
     ("main_window.py", "QPushButton", "@COLOR_DISABLED@", "@COLOR_LINE_DARK@"):
         "COLOR_MUTED-family secondary text; see module docstring",
-    ("sources.py", "QPushButton", "@COLOR_TEXT@", "@OVERLAY_15@"):
-        "COLOR_MUTED-family secondary text; see module docstring — same pair "
-        "as discover_view.py's QPushButton:hover above, newly visible here "
-        "because it is now reachable through a .format() template",
     ("main_window.py", "QPushButton",
      "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
         "4.02:1 in Daylight — the owner's chosen banner pair, retuning it is "

@@ -91,7 +91,6 @@ PLUMBING_FILES = {
     "metatv/core/profile_store.py",
     "metatv/core/repositories/dtos.py",
     "metatv/gui/provider_editor.py",
-    "metatv/gui/provider_settings_dialog.py",
     "metatv/gui/global_filter_dialog.py",
     "metatv/gui/qa_checklist_window.py",
 }

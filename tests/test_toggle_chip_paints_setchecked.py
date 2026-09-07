@@ -49,7 +49,7 @@ def _delete_chips(qapp):
 
 
 def _chip(label, enabled):
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
     return ToggleChip(label, enabled=enabled, segment="middle")
 
 

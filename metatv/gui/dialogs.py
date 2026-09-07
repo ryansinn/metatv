@@ -45,7 +45,7 @@ class AddProviderDialog(QDialog):
         form.addRow("Name:", self.name_input)
         
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["Xtream", "M3U (coming soon)"])
+        self.type_combo.addItems(["Xtream"])
         form.addRow("Type:", self.type_combo)
         
         # Multiple URL entries

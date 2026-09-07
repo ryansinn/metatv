@@ -13,7 +13,7 @@ runtime, so the split is behaviour-preserving.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 from loguru import logger
 
@@ -238,15 +238,6 @@ class _ProviderMixin:
         _theme.style_fn(self._no_sources_banner, lambda: f"background: {_theme.OVERLAY_BLUE_10}; border-radius: 4px;")
         self._no_sources_banner.hide()
         self._list_layout.addWidget(self._no_sources_banner)
-
-    def enter_provider_edit_mode(self, provider_id: str):
-        """Switch center panel to provider editor for the given provider."""
-        self._hide_all_content_views()
-        self.provider_editor.setVisible(True)
-        self.provider_editor.load_provider(provider_id)
-        self.stats_label.setText("Editing source — click another to switch")
-        self._in_provider_edit_mode = True
-        self._deactivate_view_chips()
 
     def exit_provider_edit_mode(self):
         """Return to the normal channel list view."""
@@ -572,9 +563,6 @@ class _ProviderMixin:
         if epg_view is not None and epg_view.isVisible():
             epg_view._load_provider_ids()
             epg_view._reload_all()
-
-    def edit_provider(self):
-        """Legacy hook — no longer used (edit triggers from sidebar widget)."""
 
     def load_providers(self):
         """Refresh the Sources status strip + manager view from the database.
@@ -936,64 +924,6 @@ class _ProviderMixin:
             else:
                 # Fallback (shouldn't happen in normal usage)
                 self.refresh_provider(pid)
-
-    def on_provider_selected(self, item, column):
-        """Handle provider selection in tree"""
-        provider_id = item.data(0, Qt.ItemDataRole.UserRole)
-        if provider_id:
-            self.selected_provider_id = provider_id
-            logger.info(f"Selected provider: {provider_id}")
-            self.load_channels(provider_id)
-
-    def on_provider_selected_new(self, provider_id: str):
-        """Handle provider selection from modular sidebar.
-
-        In provider edit mode, clicking a source switches the editor instead of
-        filtering the channel list.  Otherwise clicking the already-active source
-        toggles the per-source filter OFF; clicking a different source switches to it.
-        """
-        if self._in_provider_edit_mode:
-            self.provider_editor.load_provider(provider_id)
-            return
-        if provider_id and provider_id == self.selected_provider_id:
-            # Toggle OFF — clicking the active source again clears the filter.
-            self.selected_provider_id = None
-            self._save_search_state()
-            self.load_channels(None)
-            src = self._sources_status_target()
-            if src is not None and hasattr(src, "clear_selection"):
-                src.clear_selection()
-            logger.info("Cleared source filter (toggled off)")
-        else:
-            self.selected_provider_id = provider_id
-            self._save_search_state()
-            logger.info(f"Selected provider: {provider_id}")
-            self.load_channels(provider_id)
-
-    def toggle_provider_visibility(self, provider_id: str):
-        """Toggle provider visibility (active/disabled)"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            provider = repos.providers.get_by_id(provider_id)
-            if provider:
-                # Toggle active state
-                provider.is_active = not provider.is_active
-                session.commit()
-
-                logger.info(f"Provider {provider.name} is now {'active' if provider.is_active else 'disabled'}")
-
-                # Update status button
-                self.update_provider_status(provider_id, "testing" if provider.is_active else "disabled")
-
-                # Refresh every view derived from provider/channel data (canonical)
-                self._refresh_provider_dependent_views()
-
-                # Test connection if enabled
-                if provider.is_active:
-                    self.test_provider_connection(provider_id)
-        finally:
-            session.close()
 
     def update_provider_status(self, provider_id: str, status: str):
         """Update provider status indicator in the Sources UI.

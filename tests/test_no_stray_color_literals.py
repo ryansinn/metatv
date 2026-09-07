@@ -182,8 +182,8 @@ def _relative(p: Path) -> str:
 #                      semantic-constant builder and cannot be called from it.
 #   (was ppv_view)     quality / sport / play: white on mint and orange fills,
 #                      1.88-2.51:1 in Midnight
-#   filter_bar         the "Genres v" dropdown: a hard-WHITE slab in the dark
-#   sports_filter_bar  themes, lettered in a hairline-separator colour
+#   chips.FilterDropdown  the "Genres v" dropdown: a hard-WHITE slab in the
+#   sports_filter_bar     dark themes, lettered in a hairline-separator colour
 #
 # The set below is the subset that plausibly appears in a stylesheet. Matching
 # is deliberately narrow — a CSS property, a colon, then the word — so prose
@@ -271,6 +271,7 @@ _MODULES_TO_SMOKE = [
     "metatv.gui.badge_utils",
     "metatv.gui.categories_dialog",
     "metatv.gui.category_picker_dialog",
+    "metatv.gui.chips",
     "metatv.gui.details_sections",
     "metatv.gui.details_versions",
     "metatv.gui.details_actions",
@@ -280,7 +281,6 @@ _MODULES_TO_SMOKE = [
     "metatv.gui.discover_shelf",
     "metatv.gui.discover_view",
     "metatv.gui.epg_agenda_widget",
-    "metatv.gui.filter_bar",
     "metatv.gui.filter_panel",
     "metatv.gui.global_filter_dialog",
     "metatv.gui.icon_utils",

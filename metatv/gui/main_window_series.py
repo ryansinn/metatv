@@ -687,23 +687,6 @@ class _SeriesMixin:
         self.status_bar.showMessage(f"{episode.title} {status} favorites")
         self.load_favorites()
 
-    def toggle_episode_watched(self, episode: "EpisodeDTO") -> None:
-        """Toggle a single episode's watched status.
-
-        Kept for backwards compatibility; delegates to _toggle_episodes_watched.
-        """
-        item_pair = next(
-            ((si, ei) for si, ei in self._find_episode_items()
-             if (ei.data(0, Qt.ItemDataRole.UserRole) or {}).get("data", None) is episode),
-            None,
-        )
-        if item_pair:
-            self._toggle_episodes_watched([item_pair[1]], not episode.is_watched)
-        else:
-            # Fallback: no tree item found — just write to DB (should not happen).
-            with self.db.session_scope() as session:
-                RepositoryFactory(session).episodes.mark_watched(episode.id, not episode.is_watched)
-
     def _toggle_episodes_watched(
         self,
         episode_items: "list[QTreeWidgetItem]",
