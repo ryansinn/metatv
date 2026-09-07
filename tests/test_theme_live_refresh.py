@@ -488,8 +488,15 @@ class TestTheSwitchIsVisibleInPaintedPixels:
 
             assert theme.apply_theme("Daylight")
 
-            assert _icon_bytes(group._expand_btn) != before, (
-                "the group expander glyph kept the previous palette's colour"
+            from metatv.gui import icon_utils as _icon_utils
+
+            after = _icon_bytes(group._expand_btn)
+            assert after != before, (
+                "the group expander glyph kept the previous palette's colour "
+                f"(registered={group._expand_btn in _icon_utils._registered_icon_buttons}, "
+                f"entry={_icon_utils._registered_icon_buttons.get(group._expand_btn)!r}, "
+                f"theme={theme.current_theme()!r}, icon_size={group._expand_btn.iconSize()}, "
+                f"bytes={len(after)})"
             )
         finally:
             destroy_widget(group)

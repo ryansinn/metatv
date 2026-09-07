@@ -5,30 +5,31 @@ the fixture under test is itself autouse in THIS session — if we leaked a
 widget directly in one of this file's own tests, our own copy of
 ``_top_level_widget_guard`` would fail that test for real, not hand us
 anything to assert on. So this proves the mechanism with a REAL nested pytest
-run (in-process, never a second ``pytest`` process on the suite — pytester's
-``runpytest_inprocess``, the same tool pytest itself uses to test its own
-plugins) against a throwaway test module that deliberately leaks a widget.
+run against a throwaway test module that deliberately leaks a widget.
 
-The nested run reuses the REAL fixture rather than a copy of it: this
-session has already imported ``tests/conftest.py`` as the module
-``tests.conftest`` (this project's pytest resolves module names by the
-dotted path from rootdir, not a bare ``conftest`` — there is no
-``tests/__init__.py``, but ``tests`` still works as a PEP 420 namespace
-package since the repo root is on ``sys.path`` via ``python -m pytest``), so
-the nested module below just does ``import tests.conftest as _rc`` and
-rebinds ``_rc._top_level_widget_guard`` under its own name, which is enough
-for pytest to treat it as an autouse fixture for that module (the same
-mechanism any plugin uses to share a fixture).
+The nested run is a SUBPROCESS (``pytester.runpytest_subprocess``), not the
+in-process runner it used until 2026-09-07. In-process, the nested session
+shared this session's ``QApplication``: its leaked widgets and deferred
+deletes landed in OUR event queue, and pytest-qt's teardown ``_process_events``
+then segfaulted — intermittently, depending on which Qt test ran just before
+this file (three CI shards on three PRs, one local reproduction). A guard that
+shares a process with the thing it guards is order-dependent; a subprocess is
+not, at the cost of a second interpreter start per case.
+
+The nested module reuses the REAL fixture rather than a copy of it: the repo
+root goes on the subprocess's ``PYTHONPATH`` so ``import tests.conftest`` works
+there exactly as it does here (``tests`` is a PEP 420 namespace package), and
+the module rebinds ``_rc._top_level_widget_guard`` under its own name, which
+is enough for pytest to treat it as an autouse fixture for that module. The
+allowlist is set INSIDE the nested module (module-level assignment on the
+imported conftest), since a subprocess cannot see this process's monkeypatch.
 """
-
 import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-import tests.conftest as _rc
+import pathlib
 
 pytest_plugins = ["pytester"]
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # A real, deliberately-uncleaned top-level widget. ``qtbot.addWidget()`` is
 # NOT called, and nothing calls ``destroy_widget()`` — exactly the shape the
@@ -42,84 +43,59 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import tests.conftest as _rc
 from PyQt6.QtWidgets import QWidget
 
+_rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = frozenset({allowlist!r})
 _top_level_widget_guard = _rc._top_level_widget_guard
-
 _KEEP_ALIVE = []
 
 
 def test_{name}(qtbot):
-    w = QWidget()
-    w.show()
-    _KEEP_ALIVE.append(w)
+    _KEEP_ALIVE.append(QWidget())
+
+
+def test_zz_after_the_leak():
+    # Runs AFTER the leaking test's teardown, in the same process, so it can
+    # see what the guard recorded there.
+    recorded = "test_case.py::test_{name}" in _rc._LEAK_ALLOWLIST_STILL_LEAKING
+    assert recorded == {expect_recorded!r}, (
+        f"recorded={{recorded}} still_leaking={{sorted(_rc._LEAK_ALLOWLIST_STILL_LEAKING)}}"
+    )
 """
 
 
-def _widget_addr(w):
-    return _rc._widget_addr(w)
+def _run_nested(pytester, monkeypatch, source: str):
+    monkeypatch.setenv("PYTHONPATH", str(_REPO_ROOT))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytester.makepyfile(test_case=source)
+    return pytester.runpytest_subprocess("-p", "no:cacheprovider")
 
 
-def _new_top_level_widgets(app, pre_ids):
-    """Every top-level widget not present in ``pre_ids`` (see ``_widget_addr``)."""
-    return [
-        w
-        for w in app.topLevelWidgets()
-        if _widget_addr(w) not in pre_ids and _widget_addr(w) is not None
-    ]
-
-
-def test_an_unallowlisted_leak_fails(pytester, qapp):
+def test_an_unallowlisted_leak_fails(pytester, monkeypatch):
     """A widget leaked by a test NOT in the allowlist fails that test."""
-    pre_ids = {a for a in (_widget_addr(w) for w in qapp.topLevelWidgets()) if a is not None}
-    old_allowlist = _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST
-    _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = frozenset()
-    try:
-        pytester.makepyfile(test_case=_LEAK_BODY.format(name="leaks_unallowlisted"))
-        result = pytester.runpytest_inprocess()
-    finally:
-        _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = old_allowlist
-        destroy_widget = _rc.destroy_widget
-        destroy_widget(*_new_top_level_widgets(qapp, pre_ids))
-
+    result = _run_nested(pytester, monkeypatch, _LEAK_BODY.format(
+        name="leaks_unallowlisted", allowlist=[], expect_recorded=False,
+    ))
     # pytest.fail() raised from a fixture's post-yield code is a TEARDOWN
     # failure, which pytest reports as an "error" against the test, not a
     # "failed" — the test's own body passed; its teardown did not.
-    result.assert_outcomes(passed=1, errors=1)
+    result.assert_outcomes(passed=2, errors=1)
     result.stdout.fnmatch_lines(
         ["*New top-level widget(s) leaked past teardown*QWidget*"]
     )
 
 
-def test_an_allowlisted_leak_is_recorded_not_failed(pytester, qapp):
+def test_an_allowlisted_leak_is_recorded_not_failed(pytester, monkeypatch):
     """A widget leaked by an ALLOWLISTED nodeid is recorded, never failed."""
-    pre_ids = {a for a in (_widget_addr(w) for w in qapp.topLevelWidgets()) if a is not None}
     nodeid = "test_case.py::test_leaks_allowlisted"
-    old_allowlist = _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST
-    old_ran = set(_rc._LEAK_ALLOWLIST_RAN)
-    old_leaking = set(_rc._LEAK_ALLOWLIST_STILL_LEAKING)
-    _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = frozenset({nodeid})
-    try:
-        pytester.makepyfile(test_case=_LEAK_BODY.format(name="leaks_allowlisted"))
-        result = pytester.runpytest_inprocess()
-        assert nodeid in _rc._LEAK_ALLOWLIST_STILL_LEAKING, (
-            "the allowlisted nodeid should have been recorded as still leaking"
-        )
-    finally:
-        _rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = old_allowlist
-        _rc._LEAK_ALLOWLIST_RAN = old_ran
-        _rc._LEAK_ALLOWLIST_STILL_LEAKING = old_leaking
-        destroy_widget = _rc.destroy_widget
-        destroy_widget(*_new_top_level_widgets(qapp, pre_ids))
-
-    result.assert_outcomes(passed=1, errors=0)
+    result = _run_nested(pytester, monkeypatch, _LEAK_BODY.format(
+        name="leaks_allowlisted", allowlist=[nodeid], expect_recorded=True,
+    ))
+    result.assert_outcomes(passed=2, errors=0)
 
 
-def test_no_leak_passes_cleanly(pytester, qapp):
+def test_no_leak_passes_cleanly(pytester, monkeypatch):
     """A test that never creates a stray top-level widget is unaffected."""
-    pytester.makepyfile(
-        test_case="""
+    result = _run_nested(pytester, monkeypatch, """
         def test_clean():
             assert True
-        """
-    )
-    result = pytester.runpytest_inprocess()
+    """)
     result.assert_outcomes(passed=1, errors=0, failed=0)
