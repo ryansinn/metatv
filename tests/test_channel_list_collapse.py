@@ -29,25 +29,14 @@ per CLAUDE.md's Tests rule).
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
-import pytest
-
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    """File-backed Database with all tables created."""
-    d = Database(f"sqlite:///{tmp_path / 'channel_list_collapse_test.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _provider(session, pid: str = "p1", is_active: bool = True) -> str:

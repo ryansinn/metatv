@@ -22,11 +22,10 @@ wrong.  Coverage:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.tag import _clear_tag_cache
 
@@ -42,16 +41,6 @@ def _clear_cache():
     _clear_tag_cache()
     yield
     _clear_tag_cache()
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    """File-backed SQLite Database (required — :memory: is connection-scoped)."""
-    db_file = tmp_path / "test_anchor.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 # ---------------------------------------------------------------------------

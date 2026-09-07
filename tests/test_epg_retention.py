@@ -19,21 +19,10 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import MagicMock
 
-import pytest
 
-from metatv.core.database import Database, EpgProgramDB, ProviderDB
+from metatv.core.database import EpgProgramDB, ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
-
-
-@pytest.fixture()
-def db(tmp_path):
-    """File-backed Database with tables created (avoids :memory: pool isolation)."""
-    path = tmp_path / "retention.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 def _add_provider(session, pid: str) -> None:

@@ -119,22 +119,10 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
         QCheckBox, QComboBox, QSpinBox, QLineEdit, QListWidget,
     )
     from metatv.gui.settings_dialog import SettingsDialog
-    from tests.conftest import (
-        wire_settings_density_widget,
-        wire_settings_epg_widgets,
-        wire_settings_playback_widgets,
-        wire_settings_recommendation_widgets,
-        wire_settings_recording_widgets,
-        wire_settings_signal_widgets,
-        wire_settings_signal_widgets,
-        wire_settings_theme_widget,
-    )
+    from tests.conftest import wire_settings_widgets
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets
-    wire_settings_content_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
+    wire_settings_widgets(dlg)
     dlg.config = _FakeThresholdConfig(threshold=threshold)
 
     dlg._player_combo = QComboBox()
@@ -177,7 +165,6 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._timeout_spin.setRange(1, 60)
     dlg._reconnect_spin = QSpinBox()
     dlg._reconnect_spin.setRange(0, 10)
-    wire_settings_epg_widgets(dlg)
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()
     dlg._cache_ttl_spin = QSpinBox()
@@ -188,23 +175,6 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
     dlg._sidebar_list = QListWidget()
-
-    # Playback Network group widgets
-    wire_settings_playback_widgets(dlg)
-
-    # Recommendations tab dials
-    wire_settings_recommendation_widgets(dlg)
-
-    # Interface density widget
-    wire_settings_density_widget(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_theme_widget(dlg)
-    wire_settings_recording_widgets(dlg)
-
-    # Downloads tab (needed by _load_values / _save_values)
-    from tests.conftest import wire_settings_downloads_widgets
-    wire_settings_downloads_widgets(dlg)
 
     return dlg
 

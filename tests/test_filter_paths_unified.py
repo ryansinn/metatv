@@ -38,11 +38,10 @@ for DB-session work).
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, MetadataDB, ProviderDB, UserRatingDB
+from metatv.core.database import ChannelDB, MetadataDB, ProviderDB, UserRatingDB
 from metatv.core.discovery_engine import get_by_genre, get_recently_added, get_top_rated
 from metatv.core.preference_engine import compute_weights, score_candidates
 from metatv.core.repositories import RepositoryFactory
@@ -51,14 +50,6 @@ from metatv.core.repositories import RepositoryFactory
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db = Database(f"sqlite:///{tmp_path / 'filter_paths_unified.db'}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 def _add_channel(

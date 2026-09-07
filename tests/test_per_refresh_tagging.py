@@ -40,16 +40,6 @@ from metatv.core.repositories import RepositoryFactory
 
 
 @pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_file = tmp_path / "per_refresh_tags.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
-@pytest.fixture
 def cfg(tmp_path):
     """Isolated Config instance with config_dir under tmp_path."""
     return Config(config_dir=tmp_path / "cfg")

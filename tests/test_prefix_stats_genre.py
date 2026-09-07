@@ -10,8 +10,6 @@ engine masks.
 """
 import uuid
 
-import pytest
-
 from metatv.core.database import ChannelDB, Database
 from metatv.core.repositories import RepositoryFactory
 
@@ -19,14 +17,6 @@ from metatv.core.repositories import RepositoryFactory
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def db(tmp_path):
-    path = tmp_path / "genre_stats_test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 def _ch(session, name: str, media_type: str, genre: str | None, provider_id: str = "p1") -> None:

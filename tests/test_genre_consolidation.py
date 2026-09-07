@@ -111,13 +111,6 @@ def test_new_canonicals_are_idempotent():
 # 4. Real-Database backfill re-tag (version bump forces re-derive)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def file_db(tmp_path):
-    db = Database(f"sqlite:///{tmp_path / 'genre_consolidation.db'}")
-    db.create_tables()
-    yield db
-    db.close()
-
 
 @pytest.fixture
 def cfg(tmp_path):

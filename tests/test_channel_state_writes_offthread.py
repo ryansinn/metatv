@@ -25,7 +25,6 @@ from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
 
@@ -33,14 +32,6 @@ from metatv.core.database import ChannelDB, Database
 from metatv.gui.channel_state_bus import ChannelStateBus
 from metatv.gui.main_window_async import _AsyncMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'offthread.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _make_channel(db_obj, channel_id: str, **kw) -> None:

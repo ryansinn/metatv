@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import TagCountDTO
 
@@ -29,14 +29,6 @@ from metatv.core.repositories.dtos import TagCountDTO
 # ---------------------------------------------------------------------------
 # Engine fixtures / helpers
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def file_db(tmp_path):
-    db_file = tmp_path / "test_clusters.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture

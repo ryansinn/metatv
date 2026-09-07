@@ -21,23 +21,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from pathlib import Path
 
-import pytest
 
 from metatv.core.database import (
-    ChannelDB, ContentTagDB, Database, MetadataDB, TagDB, UserRatingDB,
+    ChannelDB, ContentTagDB, MetadataDB, TagDB, UserRatingDB,
 )
 from metatv.core.preference_engine import compute_weights, score_candidates
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    """File-backed, not ``:memory:`` — pooled connections must share tables."""
-    db = Database(f"sqlite:///{tmp_path / 'rec_excl.db'}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 def _seed(session, **channel_kwargs) -> str:

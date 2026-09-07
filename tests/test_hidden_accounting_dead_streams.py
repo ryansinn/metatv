@@ -21,14 +21,14 @@ against a file-backed DB, per CLAUDE.md) and the gold-bar breakdown renderer.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB, StreamRetryDB
+from metatv.core.database import ChannelDB, ProviderDB, StreamRetryDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.main_window_channels import _ChannelListMixin
+from tests.conftest import channel_query_params
 
 
 # ---------------------------------------------------------------------------
@@ -39,15 +39,6 @@ from metatv.gui.main_window_channels import _ChannelListMixin
 def qapp():
     from PyQt6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db_file = tmp_path / "hidden_accounting_dead_streams.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture
@@ -92,46 +83,6 @@ def _mark_dead(session, channel_id: str) -> None:
     ))
 
 
-def _params(**overrides) -> dict:
-    """A full params dict shaped like ``load_channels`` builds for a normal load."""
-    base = {
-        "provider_id": None,
-        "media_types": ["live", "movie", "series"],
-        "language_prefixes": None,
-        "region_prefixes": None,
-        "quality_prefixes": None,
-        "platform_prefixes": None,
-        "genre_filters": None,
-        "invert_prefix_filters": False,
-        "include_untagged": True,
-        "include_untagged_quality": True,
-        "adult_mode": "all",
-        "force_adult_ids": [],
-        "tag_includes": None,
-        "source_categories": None,
-        "excluded_prefixes": set(),
-        "excluded_user_categories": set(),
-        "bypass_global_exclusions": False,
-        "bypass_dead_gate": False,
-        "search_query": None,
-        "strict_genre_filter": None,
-        "person_filter": None,
-        "context_tag_filter": None,
-        "context_category_filter": None,
-        "context_id_filter": None,
-        "id_filter_show_all": False,
-        "page_size": 1000,
-        "show_provider_icon": False,
-        "provider_icon_map": {},
-        "given_provider_id": None,
-        "hidden_only": False,
-        "bypassing_tier1": False,
-        "hide_watched": False,
-    }
-    base.update(overrides)
-    return base
-
-
 # ---------------------------------------------------------------------------
 # Layer 3 — dead-stream gate: hidden_by_dead
 # ---------------------------------------------------------------------------
@@ -148,7 +99,7 @@ class TestHiddenByDead:
         _ch(session, "##### BEIN SPORTS #####")  # provider category-header junk
         session.commit()
 
-        params = _params()
+        params = channel_query_params()
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert [d.id for d in dtos] == [normal_id], \
@@ -167,7 +118,7 @@ class TestHiddenByDead:
         session.commit()
 
         for bypass in (False, True):
-            params = _params(bypass_dead_gate=bypass)
+            params = channel_query_params(bypass_dead_gate=bypass)
             dtos, out = _ChannelListMixin._query_channels(repos, params)
             ids = [d.id for d in dtos]
             assert junk_id not in ids, f"junk row must never appear (bypass_dead_gate={bypass})"
@@ -185,7 +136,7 @@ class TestHiddenByDead:
         _mark_dead(session, dead_id)
         session.commit()
 
-        params = _params(bypass_dead_gate=True)
+        params = channel_query_params(bypass_dead_gate=True)
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert {d.id for d in dtos} == {normal_id, dead_id}, \

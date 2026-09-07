@@ -15,13 +15,13 @@ reserves ``None`` for real exceptions.  Valid-empty returns
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB, ChannelDB, EpgProgramDB
+from metatv.core.database import ProviderDB, ChannelDB, EpgProgramDB
 from metatv.core.epg_utils import now_utc
+from tests.conftest import make_file_db
 
 
 # ---------------------------------------------------------------------------
@@ -72,14 +72,6 @@ def _fake_config(**overrides):
     }
     defaults.update(overrides)
     return _FallthroughConfig(**defaults)
-
-
-def _make_db(tmp_path: Path) -> Database:
-    """Create a file-backed SQLite Database with tables created."""
-    db_path = tmp_path / "test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    return db
 
 
 def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php", exp=None):
@@ -141,7 +133,7 @@ def test_load_rows_returns_empty_dict_when_no_patterns(tmp_path):
     """No watchlist patterns → non-None empty dict (not a failure, not None)."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     obj = WatchAlertsSection.__new__(WatchAlertsSection)
     obj.db = db
     obj.config = _fake_config(epg_watchlist_patterns=[])
@@ -158,7 +150,7 @@ def test_load_rows_returns_empty_dict_when_no_active_providers(tmp_path):
     """Active-provider list is empty → non-None empty dict."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     # Add an inactive provider (no active EPG providers)
     with db.session_scope() as session:
         _add_provider(session, "inactive", is_active=False, epg_url="http://e/xmltv.php")
@@ -179,7 +171,7 @@ def test_load_rows_live_programme_lands_in_live_groups(tmp_path):
     """A currently-airing programme matching the watchlist pattern appears in live_groups."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     with db.session_scope() as session:
         _add_provider(session, "p1", is_active=True, epg_url="http://e/xmltv.php")
         _add_channel(session, "ch1", "BBC One HD", "p1")
@@ -217,7 +209,7 @@ def test_load_rows_upcoming_programme_lands_in_upcoming_only(tmp_path):
     """An upcoming programme matching the watchlist pattern appears in upcoming_only."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     with db.session_scope() as session:
         _add_provider(session, "p1", is_active=True, epg_url="http://e/xmltv.php")
         _add_channel(session, "ch1", "CNN HD", "p1")
@@ -254,7 +246,7 @@ def test_load_rows_batched_lookup_resolves_channel_names(tmp_path):
     """Multiple channels across multiple patterns are all resolved in one query batch."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     with db.session_scope() as session:
         _add_provider(session, "p1", is_active=True, epg_url="http://e/xmltv.php")
         _add_channel(session, "ch1", "Channel Alpha", "p1")
@@ -284,7 +276,7 @@ def test_load_rows_excludes_inactive_provider_programme(tmp_path):
     """PR-1 scoping: programmes from inactive providers are excluded."""
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     with db.session_scope() as session:
         _add_provider(session, "active-p",   is_active=True,  epg_url="http://e/xmltv.php")
         _add_provider(session, "inactive-p", is_active=False, epg_url="http://e/xmltv.php")
@@ -315,7 +307,7 @@ def test_load_rows_excludes_expired_provider_programme(tmp_path):
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     past = datetime.now() - timedelta(days=1)
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "test.db")
     with db.session_scope() as session:
         _add_provider(session, "good-p",    is_active=True, epg_url="http://e/xmltv.php")
         _add_provider(session, "expired-p", is_active=True, epg_url="http://e/xmltv.php", exp=past)

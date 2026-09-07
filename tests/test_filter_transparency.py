@@ -15,14 +15,14 @@ the view-scoped bypass flags. They also cover the gold-bar breakdown renderer.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.main_window_channels import _ChannelListMixin
+from tests.conftest import channel_query_params
 
 
 # ---------------------------------------------------------------------------
@@ -33,15 +33,6 @@ from metatv.gui.main_window_channels import _ChannelListMixin
 def qapp():
     from PyQt6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db_file = tmp_path / "filter_transparency.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture
@@ -94,45 +85,6 @@ def _tag(repos, channel_id: str, *pairs: tuple[str, str]) -> None:
     )
 
 
-def _params(**overrides) -> dict:
-    """A full params dict shaped like ``load_channels`` builds for a normal search."""
-    base = {
-        "provider_id": None,
-        "media_types": ["live", "movie", "series"],
-        "language_prefixes": None,
-        "region_prefixes": None,
-        "quality_prefixes": None,
-        "platform_prefixes": None,
-        "genre_filters": None,
-        "invert_prefix_filters": False,
-        "include_untagged": True,
-        "include_untagged_quality": True,
-        "adult_mode": "all",
-        "force_adult_ids": [],
-        "tag_includes": None,
-        "source_categories": None,
-        "excluded_prefixes": set(),
-        "excluded_user_categories": set(),
-        "bypass_global_exclusions": False,
-        "search_query": None,
-        "strict_genre_filter": None,
-        "person_filter": None,
-        "context_tag_filter": None,
-        "context_category_filter": None,
-        "context_id_filter": None,
-        "id_filter_show_all": False,
-        "page_size": 1000,
-        "show_provider_icon": False,
-        "provider_icon_map": {},
-        "given_provider_id": None,
-        "hidden_only": False,
-        "bypassing_tier1": False,
-        "hide_watched": False,
-    }
-    base.update(overrides)
-    return base
-
-
 # ---------------------------------------------------------------------------
 # Layer 1 — Global Exclusions: hidden_by_exclusions
 # ---------------------------------------------------------------------------
@@ -147,7 +99,7 @@ class TestHiddenByExclusions:
             _ch(session, f"Odyssey AR {i}", detected_region="AR")
         session.commit()
 
-        params = _params(search_query="Odyssey", excluded_prefixes={"AR"})
+        params = channel_query_params(search_query="Odyssey", excluded_prefixes={"AR"})
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert len(dtos) == 3, "only the 3 non-excluded (EN) matches are visible"
@@ -172,7 +124,7 @@ class TestHiddenByExclusions:
             detected_prefix="AR", detected_region="AR")
         session.commit()
 
-        params = _params(search_query="Neighborhood Watch",
+        params = channel_query_params(search_query="Neighborhood Watch",
                          excluded_prefixes={"IN", "AR"})
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
@@ -190,7 +142,7 @@ class TestHiddenByExclusions:
             _ch(session, f"Widget Trash {i}", user_category="Trash")
         session.commit()
 
-        params = _params(search_query="Widget", excluded_user_categories={"Trash"})
+        params = channel_query_params(search_query="Widget", excluded_user_categories={"Trash"})
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert len(dtos) == 2
@@ -205,7 +157,7 @@ class TestHiddenByExclusions:
             _ch(session, f"Odyssey AR {i}", detected_region="AR")
         session.commit()
 
-        params = _params(
+        params = channel_query_params(
             search_query="Odyssey",
             excluded_prefixes={"AR"},
             bypass_global_exclusions=True,
@@ -239,7 +191,7 @@ class TestHiddenBySearch:
             _tag(repos, cid, ("platform", "Netflix"))
         session.commit()
 
-        params = _params(
+        params = channel_query_params(
             search_query="Widget",
             tag_includes={"platform": {"Disney+"}},
         )
@@ -278,7 +230,7 @@ class TestHiddenBySearch:
             _tag(repos, cid, ("platform", "Netflix"))
         session.commit()
 
-        params = _params(
+        params = channel_query_params(
             search_query="Widget",
             language_prefixes=["EN"],
             tag_includes={"platform": {"Disney+"}},
@@ -309,7 +261,7 @@ class TestHiddenBySearch:
             _tag(repos, cid, ("language", "English"))   # no PLATFORM tag
         session.commit()
 
-        params = _params(
+        params = channel_query_params(
             search_query="Widget",
             tag_includes={"platform": {"Disney+"}},
         )
@@ -329,7 +281,7 @@ class TestHiddenBySearch:
 
         # _show_filtered_results sets _bypass_tier1_filters → load_channels passes
         # tag_includes=None, so the search-filter layer imposes nothing.
-        params = _params(search_query="Widget", tag_includes=None, bypassing_tier1=True)
+        params = channel_query_params(search_query="Widget", tag_includes=None, bypassing_tier1=True)
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert len(dtos) == 5, "all matches visible when the Tier-1 filter is bypassed"
@@ -357,7 +309,7 @@ class TestHiddenBySearch:
             _tag(repos, cid, ("platform", "Netflix"))
         session.commit()
 
-        params = _params(
+        params = channel_query_params(
             search_query="Widget",
             tag_includes={"platform": {"Disney+"}},
             excluded_prefixes={"AR"},

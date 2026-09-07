@@ -12,7 +12,7 @@ from datetime import timedelta
 
 import pytest
 
-from metatv.core.database import Database, ChannelDB, EpgProgramDB, ProviderDB
+from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import now_utc
 from metatv.core.repositories.epg import EpgRepository
 
@@ -25,16 +25,6 @@ from metatv.core.repositories.epg import EpgRepository
 def qapp():
     from PyQt6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed Database so pooled connections share one schema."""
-    db_path = tmp_path / "test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 # ---------------------------------------------------------------------------

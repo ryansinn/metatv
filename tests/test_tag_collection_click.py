@@ -20,15 +20,15 @@ Covers the three layers the feature touches:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from metatv.core.database import Database, ChannelDB
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import ChannelTagDTO
 from metatv.gui import icons as _icons
+from tests.conftest import make_file_db
 
 
 # ---------------------------------------------------------------------------
@@ -42,12 +42,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication(sys.argv[:1])
     yield app
-
-
-def _make_db(tmp_path: Path) -> Database:
-    db = Database(f"sqlite:///{tmp_path / 'tagclick.db'}")
-    db.create_tables()
-    return db
 
 
 def _add_channel(session, *, name: str, category: str = "") -> str:
@@ -173,7 +167,7 @@ class TestContextFilterSQL:
     """get_all(context_tag_filter=...) / context_category_filter=... are strict."""
 
     def test_exact_tag_filter_returns_only_matching(self, tmp_path):
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
             drama = _add_channel(session, name="Drama Movie")
@@ -189,7 +183,7 @@ class TestContextFilterSQL:
 
     def test_exact_tag_filter_no_hierarchy_rollup(self, tmp_path):
         """Exact match only — a near value (different string) does not pass."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
             ch = _add_channel(session, name="Sci-Fi Movie")
@@ -200,7 +194,7 @@ class TestContextFilterSQL:
         assert rows == [], "no fuzzy/hierarchy match — only the exact stored value passes"
 
     def test_category_filter_returns_curated_set(self, tmp_path):
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
             a = _add_channel(session, name="Action One", category="Action HD")
@@ -228,7 +222,7 @@ class TestCollectionResolution:
         filtering on category returns only the one curated set — which is why the
         collection click must resolve to category, not the residual.
         """
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             repos = RepositoryFactory(session)
             a = _add_channel(session, name="Action One", category="Action HD")
@@ -250,7 +244,7 @@ class TestCollectionResolution:
     def test_handler_resolves_collection_to_channel_category(self, tmp_path):
         """_on_tag_filter_requested('collection', …) filters on the channel's category."""
 
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             cid = _add_channel(session, name="Action One", category="Action HD")
 
@@ -266,7 +260,7 @@ class TestCollectionResolution:
 
     def test_handler_routes_non_collection_to_exact_tag(self, tmp_path):
 
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         with db.session_scope() as session:
             cid = _add_channel(session, name="Drama Movie", category="Drama HD")
 
@@ -278,7 +272,7 @@ class TestCollectionResolution:
         assert host._context_filter_label.text == "Genre: Drama"
 
     def test_resolve_returns_none_without_current_channel(self, tmp_path):
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tagclick.db")
         host = self._fake_host(db, current_channel_id=None)
         assert host._resolve_current_channel_category() is None
 

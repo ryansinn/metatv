@@ -25,26 +25,16 @@ Additional coverage:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 
 
 # ---------------------------------------------------------------------------
 # Fixtures — file-backed DB (CLAUDE.md: never :memory:)
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    """File-backed SQLite DB with all tables created."""
-    db_file = tmp_path / "slice_b.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture

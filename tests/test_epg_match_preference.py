@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.xmltv_parser import XmltvChannel
 from unittest.mock import MagicMock
@@ -28,15 +28,6 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed Database (NOT :memory:) with all tables created."""
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 @pytest.fixture

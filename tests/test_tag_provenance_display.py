@@ -13,16 +13,16 @@ Pins two invariants:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from metatv.core.database import Database, ChannelDB
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import ChannelTagDTO, _SOURCE_GIVEN_FEEDERS
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from tests.conftest import make_file_db
 
 
 # ---------------------------------------------------------------------------
@@ -36,13 +36,6 @@ def qapp():
     import sys
     app = QApplication.instance() or QApplication(sys.argv[:1])
     yield app
-
-
-def _make_db(tmp_path: Path) -> Database:
-    db_path = tmp_path / "tags_test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    return db
 
 
 def _make_channel(session, name: str = "Test Channel") -> ChannelDB:
@@ -77,7 +70,7 @@ class TestGetChannelTagsDto:
 
     def test_source_given_true_for_provider_category_feeder(self, tmp_path):
         """A tag whose only feeder is 'provider_category' must be source_given=True."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "EN | Action Movie")
             repos = RepositoryFactory(session)
@@ -100,7 +93,7 @@ class TestGetChannelTagsDto:
 
     def test_source_given_false_for_name_parse_feeder(self, tmp_path):
         """A tag whose only feeder is 'name_parse' must be source_given=False."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "EN - Drama Show")
             repos = RepositoryFactory(session)
@@ -120,7 +113,7 @@ class TestGetChannelTagsDto:
 
     def test_source_given_true_when_any_feeder_is_provider(self, tmp_path):
         """Mixed feeders: source_given=True when ANY feeder is a provider-field reader."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "US | Drama")
             repos = RepositoryFactory(session)
@@ -145,7 +138,7 @@ class TestGetChannelTagsDto:
 
     def test_confidence_increases_with_feeder_count(self, tmp_path):
         """Confidence grows as more distinct feeders assert the same tag."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "FR | Cinema")
             repos = RepositoryFactory(session)
@@ -173,7 +166,7 @@ class TestGetChannelTagsDto:
 
     def test_empty_result_for_channel_with_no_tags(self, tmp_path):
         """Channel with zero tags returns an empty list, not an error."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "Untagged Channel")
             repos = RepositoryFactory(session)
@@ -183,7 +176,7 @@ class TestGetChannelTagsDto:
 
     def test_genre_feeder_is_source_given(self, tmp_path):
         """The 'genre' feeder (provider raw_data field) must be source_given=True."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "Movie (2020)")
             repos = RepositoryFactory(session)
@@ -200,7 +193,7 @@ class TestGetChannelTagsDto:
 
     def test_epg_feeder_is_inferred(self, tmp_path):
         """The 'epg' feeder (derived from EPG category) must be source_given=False."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "tags_test.db")
         with db.session_scope() as session:
             ch = _make_channel(session, "Sports Channel")
             repos = RepositoryFactory(session)

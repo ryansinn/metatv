@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB, EpgProgramDB
+from metatv.core.database import ProviderDB, EpgProgramDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
 from metatv.core.repositories.provider import ProviderRepository
@@ -21,15 +21,6 @@ from metatv.core.repositories.provider import ProviderRepository
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed Database with tables created (avoids :memory: pool isolation)."""
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 @pytest.fixture

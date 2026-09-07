@@ -30,6 +30,7 @@ import pytest
 from metatv.core.database import ChannelDB, Database, ProviderDB, StreamRetryDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.main_window_channels import _ChannelListMixin
+from tests.conftest import channel_query_params
 
 
 @pytest.fixture()
@@ -66,28 +67,6 @@ def _mark_dead(session, channel_id: str) -> None:
                               play_fail_count=6))
 
 
-def _params(**overrides) -> dict:
-    base = {
-        "provider_id": None, "media_types": ["live", "movie", "series"],
-        "language_prefixes": None, "region_prefixes": None,
-        "quality_prefixes": None, "platform_prefixes": None,
-        "genre_filters": None, "invert_prefix_filters": False,
-        "include_untagged": True, "include_untagged_quality": True,
-        "adult_mode": "all", "force_adult_ids": [], "tag_includes": None,
-        "source_categories": None, "excluded_prefixes": set(),
-        "excluded_user_categories": set(), "bypass_global_exclusions": False,
-        "bypass_dead_gate": False, "search_query": None,
-        "strict_genre_filter": None, "person_filter": None,
-        "context_tag_filter": None, "context_category_filter": None,
-        "context_id_filter": None, "id_filter_show_all": False,
-        "page_size": 1000, "show_provider_icon": False,
-        "provider_icon_map": {}, "given_provider_id": None,
-        "hidden_only": False, "bypassing_tier1": False, "hide_watched": False,
-    }
-    base.update(overrides)
-    return base
-
-
 class _CountingRepos:
     """RepositoryFactory wrapper that records every ``channels.get_all`` call."""
 
@@ -121,7 +100,7 @@ def test_no_dead_row_means_no_comparison_query(session):
     session.commit()
 
     repos = _CountingRepos(session)
-    _dtos, out = _ChannelListMixin._query_channels(repos, _params())
+    _dtos, out = _ChannelListMixin._query_channels(repos, channel_query_params())
 
     assert repos.dead_comparisons == 0, (
         "the dead-stream comparison ran with an empty stream_retry table — it "
@@ -138,7 +117,7 @@ def test_a_dead_row_still_gets_counted(session):
     session.commit()
 
     repos = _CountingRepos(session)
-    dtos, out = _ChannelListMixin._query_channels(repos, _params())
+    dtos, out = _ChannelListMixin._query_channels(repos, channel_query_params())
 
     assert repos.dead_comparisons == 1, "the comparison must run when a row is dead"
     assert [d.id for d in dtos] == [normal_id]
@@ -157,7 +136,7 @@ def test_the_count_is_exact_not_a_floor_when_nothing_is_dead(session):
     session.commit()
 
     repos = _CountingRepos(session)
-    _dtos, out = _ChannelListMixin._query_channels(repos, _params())
+    _dtos, out = _ChannelListMixin._query_channels(repos, channel_query_params())
 
     assert out["hidden_by_dead"] == 0
     assert not out.get("hidden_by_dead_is_floor"), (

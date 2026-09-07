@@ -19,7 +19,6 @@ This turns that "should" into evidence.
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -29,7 +28,6 @@ import metatv.core.database as db_mod
 from metatv.core.database import (
     SLOW_MAIN_THREAD_COMMIT_MS,
     ChannelDB,
-    Database,
 )
 
 
@@ -40,14 +38,6 @@ def logged():
     sink = logger.add(lambda m: seen.append(m.record["message"]), level="WARNING")
     yield seen
     logger.remove(sink)
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'wait.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _row(n: str) -> ChannelDB:

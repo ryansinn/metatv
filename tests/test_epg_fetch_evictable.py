@@ -25,7 +25,7 @@ import pytest
 from loguru import logger as _loguru_logger
 
 from metatv.core.connection_accountant import AcquireResult
-from metatv.core.database import Database, EpgProgramDB, ProviderDB
+from metatv.core.database import EpgProgramDB, ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
 from metatv.core.xmltv_parser import XmltvEvicted
@@ -45,15 +45,6 @@ _XML_BODY = """<?xml version="1.0" encoding="UTF-8"?>
 <programme channel="ch1" start="20260101170000 +0000" stop="20260101180000 +0000"><title>Show 6</title></programme>
 </tv>
 """
-
-
-@pytest.fixture()
-def db(tmp_path):
-    """File-backed, per the DB-session testing rule (never :memory:)."""
-    database = Database(f"sqlite:///{tmp_path / 'epg.db'}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 def _config():

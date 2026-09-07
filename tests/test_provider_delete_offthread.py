@@ -23,14 +23,12 @@ Per CLAUDE.md every test uses a real ``Database`` on a ``tmp_path`` file — nev
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
 
 from metatv.core.database import (
-    Database, ProviderDB, ChannelDB, TagDB, ContentTagDB,
+    ProviderDB, ChannelDB, TagDB, ContentTagDB,
 )
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.provider import ProviderRepository
@@ -44,14 +42,6 @@ _FINISHED = MainWindow._on_provider_delete_finished
 
 
 # ── Fixtures & helpers ───────────────────────────────────────────────────────
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'delete_offthread.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 class _SyncExecutor:

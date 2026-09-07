@@ -56,15 +56,6 @@ def qapp():
 
 
 @pytest.fixture()
-def file_db(tmp_path):
-    """File-backed SQLite Database (not :memory: — see CLAUDE.md tests rule)."""
-    db = Database(f"sqlite:///{tmp_path / 'episode_metadata.db'}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
-@pytest.fixture()
 def cfg(tmp_path):
     """Isolated Config instance — never touches the real ~/.config/metatv."""
     from metatv.core.config import Config

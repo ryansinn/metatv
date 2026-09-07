@@ -31,13 +31,6 @@ from metatv.core.repositories import RepositoryFactory
 # Fixtures — file-backed DB (CLAUDE.md: never :memory:)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture()
-def db(tmp_path: Path):
-    database = Database(f"sqlite:///{tmp_path / 'downloaded_scope.db'}")
-    database.create_tables()
-    yield database
-    database.close()
-
 
 def _seed(db: Database, tmp_path: Path) -> Path:
     """3 channels: one completed download (on an INACTIVE provider, with a

@@ -31,15 +31,13 @@ parsed data or mocked internals.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
-import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.gui.main_window_channels import _ChannelListMixin
-from tests.conftest import capture_sql_statements
+from tests.conftest import capture_sql_statements, channel_query_params
 
 
 def _sizeable_raw_data(i: int) -> dict:
@@ -55,14 +53,6 @@ def _sizeable_raw_data(i: int) -> dict:
     }
 
 
-@pytest.fixture()
-def file_db(tmp_path: Path):
-    db = Database(f"sqlite:///{tmp_path / 'get_all_include_raw.db'}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
 def _seed_channels(session, n: int, *, provider_id: str = "p1", start: int = 0) -> None:
     for i in range(start, start + n):
         session.add(ChannelDB(
@@ -70,46 +60,6 @@ def _seed_channels(session, n: int, *, provider_id: str = "p1", start: int = 0) 
             name=f"Channel {i}", media_type="movie",
             raw_data=_sizeable_raw_data(i),
         ))
-
-
-def _params(**overrides) -> dict:
-    """A full params dict shaped like ``load_channels`` builds for a normal load
-    (mirrors ``test_filter_transparency.py``'s ``_params`` — same real caller)."""
-    base = {
-        "provider_id": None,
-        "media_types": ["live", "movie", "series"],
-        "language_prefixes": None,
-        "region_prefixes": None,
-        "quality_prefixes": None,
-        "platform_prefixes": None,
-        "genre_filters": None,
-        "invert_prefix_filters": False,
-        "include_untagged": True,
-        "include_untagged_quality": True,
-        "adult_mode": "all",
-        "force_adult_ids": [],
-        "tag_includes": None,
-        "source_categories": None,
-        "excluded_prefixes": set(),
-        "excluded_user_categories": set(),
-        "bypass_global_exclusions": False,
-        "search_query": None,
-        "strict_genre_filter": None,
-        "person_filter": None,
-        "context_tag_filter": None,
-        "context_category_filter": None,
-        "context_id_filter": None,
-        "id_filter_show_all": False,
-        "page_size": 1000,
-        "show_provider_icon": False,
-        "provider_icon_map": {},
-        "given_provider_id": None,
-        "hidden_only": False,
-        "bypassing_tier1": False,
-        "hide_watched": False,
-    }
-    base.update(overrides)
-    return base
 
 
 def test_real_channel_list_load_defers_raw_data_without_n_plus_1(file_db):
@@ -126,14 +76,14 @@ def test_real_channel_list_load_defers_raw_data_without_n_plus_1(file_db):
 
     repos = RepositoryFactory(session)
     with capture_sql_statements(file_db.engine) as small_stmts:
-        small_dtos, _ = _ChannelListMixin._query_channels(repos, _params())
+        small_dtos, _ = _ChannelListMixin._query_channels(repos, channel_query_params())
     assert len(small_dtos) == 5
 
     _seed_channels(session, 495, start=5)  # corpus is now 500 rows
     session.commit()
 
     with capture_sql_statements(file_db.engine) as big_stmts:
-        big_dtos, _ = _ChannelListMixin._query_channels(repos, _params())
+        big_dtos, _ = _ChannelListMixin._query_channels(repos, channel_query_params())
     assert len(big_dtos) == 500
 
     # get_all()'s OWN list SELECT must never mention raw_data. Excludes the

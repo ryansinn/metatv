@@ -21,13 +21,12 @@ Real ``Database`` on a ``tmp_path`` file (never ``:memory:``), per CLAUDE.md.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.filter_utils import (
     channel_exclusion_criterion,
     global_exclusion_set,
@@ -61,15 +60,6 @@ MATRIX: list[tuple[str | None, str | None, bool]] = [
 def qapp():
     from PyQt6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db_file = tmp_path / "unified_exclusion.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture
