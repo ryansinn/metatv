@@ -25,10 +25,13 @@ Two ticks live here:
 The Sports and Events views that used to trigger ``_on_sports_refresh_stale_requested``
 and ``_maybe_live_refresh_on_view_open`` on open/refresh-click were retired
 (owner direction: live sports channels stay in search/browse, wearing the
-live flag, rather than a dedicated surface). Both hooks are kept — they are
-general live-refresh infrastructure, not view-specific — but neither has a
-live caller today; ``config.live_refresh_mode == "on_view_open"`` is
-consequently dormant until something else wires a trigger to them.
+live flag, rather than a dedicated surface). Both hooks were deleted in
+dead-code sweep B (docs/REFACTOR_PLAN.md row D43): neither ever gained another
+caller, so ``config.live_refresh_mode == "on_view_open"`` is now unreachable —
+the Settings combo still offers "Whenever Sports or Events opens" as a choice
+(``settings_dialog_tabs.py``), and picking it is a silent no-op. That stale,
+user-visible option was found but left for a separate decision; it is not
+this module's to remove.
 
 Every due-ness decision is a pure function in ``core/catalog_refresh.py`` —
 this module is orchestration only (offloading the DB read, resolving
@@ -44,11 +47,9 @@ from PyQt6.QtCore import QTimer
 from loguru import logger
 
 from metatv.core.catalog_refresh import (
-    BANNER_STALE_THRESHOLD,
     LIVE_REFRESH_INTERVALS,
     catalog_refresh_due,
     live_refresh_due,
-    live_refresh_on_view_open_due,
 )
 from metatv.core.repositories import RepositoryFactory
 
@@ -170,30 +171,6 @@ class _CatalogRefreshTickMixin:
 
         self._run_query(query, on_result, on_error=lambda exc: None)
 
-    def _on_sports_refresh_stale_requested(self) -> None:
-        """Enqueue a LIVE-ONLY refresh (LIVE-1) for every active, stale source
-        — not the full multi-minute catalog refresh. Measured on the owner's
-        two sources: ``get_live_streams`` alone returns the complete live
-        catalog in ~1.6-3.9s, so a "refresh stale sources" button only pays
-        for that single call.
-
-        Formerly wired to ``SportsView.refreshSourcesRequested`` (a banner
-        button on the now-retired Sports view). Kept as general live-refresh
-        infrastructure — it never reached into ``refresh_queue_manager``
-        itself (engine <- control <- view, DR-0007), it resolves "stale" via
-        the same live-first COALESCE rule the (also retired) banner's age
-        display used (``ProviderRepository._effective_live_refresh``) — but it
-        currently has no caller.
-        """
-        with self.db.session_scope(commit=False) as session:
-            stale = RepositoryFactory(session).providers.get_stale_active_providers(
-                BANNER_STALE_THRESHOLD
-            )
-        if not hasattr(self, "refresh_queue_manager"):
-            return
-        for provider_id, name in stale:
-            self.refresh_queue_manager.enqueue(provider_id, name, kind="live_only")
-
     def _maybe_live_refresh_tick(self) -> None:
         """LIVE-1's 5-minute lane: enqueue a live-only refresh for every
         ACTIVE provider when ``config.live_refresh_mode`` is an interval
@@ -215,45 +192,17 @@ class _CatalogRefreshTickMixin:
 
         self._run_query(query, on_result, on_error=lambda exc: None)
 
-    def _maybe_live_refresh_on_view_open(self) -> None:
-        """LIVE-1: enqueue a live-only refresh for every ACTIVE, due provider
-        when ``config.live_refresh_mode == "on_view_open"``.
-
-        Formerly wired to ``SportsView.on_activate`` / ``EventsView.on_activate``
-        (they covered overlapping content, so either opening could trigger it
-        — owner) via a shared 5-minute cooldown against ``last_live_refresh_at``
-        so rapid tab-switching between the two views would not hammer the API.
-        Both views were retired; this method is kept as general live-refresh
-        infrastructure (not view-specific) but currently has no caller, so
-        ``"on_view_open"`` mode is dormant until something else wires a
-        trigger to it.
-        """
-        if getattr(self.config, "live_refresh_mode", "manual") != "on_view_open":
-            return
-        now = datetime.now()
-
-        def query(repos):
-            return repos.providers.get_active_providers_live_refresh()
-
-        def on_result(rows) -> None:
-            self._enqueue_due_live_sources(
-                rows, lambda last: live_refresh_on_view_open_due(last, now)
-            )
-
-        self._run_query(query, on_result, on_error=lambda exc: None)
-
     def _enqueue_due_live_sources(self, rows, is_due) -> None:
-        """Shared enqueue loop for the live-refresh lane and the on-view-open
-        hook: skip currently-streaming and already-queued/running sources,
-        enqueue ``kind="live_only"`` for the rest.
+        """Shared enqueue loop for the live-refresh lane: skip
+        currently-streaming and already-queued/running sources, enqueue
+        ``kind="live_only"`` for the rest.
 
         Args:
             rows: ``(provider_id, name, last_live_refresh_at)`` tuples from
                 ``get_active_providers_live_refresh``.
             is_due: Callable taking ``last_live_refresh_at`` and returning
-                whether that provider is due right now — the two callers
-                supply ``live_refresh_due``/``live_refresh_on_view_open_due``
-                pre-bound to their own mode/cooldown.
+                whether that provider is due right now — the caller supplies
+                ``live_refresh_due`` pre-bound to its own mode.
         """
         if not rows or not hasattr(self, "refresh_queue_manager"):
             return

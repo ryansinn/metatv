@@ -214,10 +214,13 @@ def event_is_on_now(start: "Optional[datetime]", stop: "Optional[datetime]",
                     now: "datetime") -> bool:
     """Whether an event is under way at *now* — the ONE definition.
 
-    Every "is this on" surface routes through here: the Sports view's live
-    lane (as the SQL in ``channel_stats._sports_lane_rank``, which must stay
-    equivalent to this), the Events view's elapsed readout, and anything added
-    later. Three separate copies of a 4h window is what this replaces.
+    Every "is this on" surface routes through here: the row-lead's on-now
+    check (``channel_row_cells.py``), and anything added later. Three
+    separate copies of a 4h window is what this replaces. (The Sports view's
+    live lane used to carry its own equivalent SQL CASE,
+    ``channel_stats._sports_lane_rank`` — removed with the rest of the
+    Sports/Events view residue in dead-code sweep B, since the view it served
+    was retired in #731.)
 
     Args:
         start: The event's parsed start, or None for a 24/7 rack.
@@ -283,24 +286,6 @@ def _nearest_year(month: int, day: int, reference: "date") -> Optional[int]:
     if not candidates:
         return None
     return min(candidates, key=lambda c: abs((c - reference).days)).year
-
-
-def parse_event_datetime(name: str, *, reference: "Optional[date]" = None
-                         ) -> Optional[datetime]:
-    """A pipe-form event's scheduled START, or None. See :func:`parse_event_window`.
-
-    Kept as the name almost every caller uses, and as a thin read of the one
-    parser rather than a second copy of it: a start-only shortcut that walked
-    the regexes itself is how the two ends would drift apart.
-
-    Args:
-        name: The raw channel name.
-        reference: "Today", for the year-less forms.
-
-    Returns:
-        The UTC-naive start, or None when no date is present.
-    """
-    return parse_event_window(name, reference=reference).start
 
 
 def parse_event_window(name: str, *, reference: "Optional[date]" = None

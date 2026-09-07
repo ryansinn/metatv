@@ -32,7 +32,6 @@ import pytest
 
 from metatv.core.event_datetime import (DEFAULT_EVENT_DURATION,
                                         event_is_on_now,
-                                        parse_event_datetime,
                                         parse_event_window)
 from metatv.core.database import ChannelDB
 from metatv.core.migrations.sports_reclassify import CURRENT_VERSION, DERIVED_FIELDS
@@ -58,7 +57,7 @@ REF = datetime.date(2026, 8, 31)
      datetime.datetime(2026, 8, 29, 12, 0)),
 ])
 def test_every_provider_date_form_parses(name, expected):
-    assert parse_event_datetime(name, reference=REF) == expected
+    assert parse_event_window(name, reference=REF).start == expected
 
 
 @pytest.mark.parametrize("name,expected", [
@@ -83,7 +82,7 @@ def test_every_provider_date_form_parses(name, expected):
      datetime.datetime(2026, 8, 27, 18, 0)),
 ])
 def test_the_two_later_date_forms_parse(name, expected):
-    assert parse_event_datetime(name, reference=REF) == expected
+    assert parse_event_window(name, reference=REF).start == expected
 
 
 @pytest.mark.parametrize("clock,hour24", [
@@ -94,7 +93,7 @@ def test_the_two_later_date_forms_parse(name, expected):
 ])
 def test_the_twelve_hour_clock_converts_at_both_ends(clock, hour24):
     name = f"MLB 13 | Baltimore vs Tampa Bay @ Aug 14 {clock}"
-    got = parse_event_datetime(name, reference=REF)
+    got = parse_event_window(name, reference=REF).start
     assert got is not None and got.hour == hour24
 
 
@@ -104,13 +103,13 @@ def test_the_always_available_sentinel_is_not_a_schedule():
     Rendered as a start it would put every always-on feed at the bottom of
     Upcoming, seventy years out.
     """
-    assert parse_event_datetime("Some 24/7 feed (2098-12-31 00:00:00)", reference=REF) is None
+    assert parse_event_window("Some 24/7 feed (2098-12-31 00:00:00)", reference=REF).start is None
 
 
 def test_a_name_with_no_date_yields_none_rather_than_a_guess():
     """29,493 of 30,851 rows are 24/7 channels. None is the correct answer."""
     for name in ("4K| SKY SPORTS MAIN EVENTS UHD", "US| FOX SPORTS 1 HD", "", "   "):
-        assert parse_event_datetime(name, reference=REF) is None
+        assert parse_event_window(name, reference=REF).start is None
 
 
 # ── the timezone trap ────────────────────────────────────────────────────────
@@ -131,15 +130,15 @@ def test_the_named_zone_is_converted_not_ignored(zone, offset_hours):
     494 of 555 day-name rows would land 1-4 hours wrong while looking fine.
     """
     name = f"LIVE | Some Fixture | Sat 29 Aug 14:00 {zone} (XX) | 8K"
-    got = parse_event_datetime(name, reference=REF)
+    got = parse_event_window(name, reference=REF).start
     expected = datetime.datetime(2026, 8, 29, 14, 0) - datetime.timedelta(hours=offset_hours)
     assert got == expected, f"{zone} should be UTC{offset_hours:+g}"
 
 
 def test_zones_differing_only_by_dst_are_not_collapsed():
     """CET/CEST and EST/EDT differ by an hour. Treating them as one loses it."""
-    winter = parse_event_datetime("LIVE | X | Sat 29 Aug 14:00 CET (DE) | 8K", reference=REF)
-    summer = parse_event_datetime("LIVE | X | Sat 29 Aug 14:00 CEST (DE) | 8K", reference=REF)
+    winter = parse_event_window("LIVE | X | Sat 29 Aug 14:00 CET (DE) | 8K", reference=REF).start
+    summer = parse_event_window("LIVE | X | Sat 29 Aug 14:00 CEST (DE) | 8K", reference=REF).start
     assert winter is not None and summer is not None
     assert winter - summer == datetime.timedelta(hours=1)
 
@@ -151,7 +150,7 @@ def test_an_ambiguous_zone_is_not_guessed():
     back to UTC rather than inventing an hour. Pinned so nobody "helpfully" adds
     CST to the table without deciding which one it means.
     """
-    got = parse_event_datetime("LIVE | X | Sat 29 Aug 14:00 CST (XX) | 8K", reference=REF)
+    got = parse_event_window("LIVE | X | Sat 29 Aug 14:00 CST (XX) | 8K", reference=REF).start
     assert got == datetime.datetime(2026, 8, 29, 14, 0)
 
 
@@ -159,10 +158,10 @@ def test_an_ambiguous_zone_is_not_guessed():
 
 def test_the_weekday_name_recovers_the_missing_year():
     """29 Aug is a Saturday in 2026 and a Friday in 2025 — the name disambiguates."""
-    got = parse_event_datetime("LIVE | X | Sat 29 Aug 14:00 UTC (XX) | 8K", reference=REF)
+    got = parse_event_window("LIVE | X | Sat 29 Aug 14:00 UTC (XX) | 8K", reference=REF).start
     assert got == datetime.datetime(2026, 8, 29, 14, 0)
     # Same date, wrong weekday for 2026: 2025 is the year where 29 Aug is a Friday.
-    got = parse_event_datetime("LIVE | X | Fri 29 Aug 14:00 UTC (XX) | 8K", reference=REF)
+    got = parse_event_window("LIVE | X | Fri 29 Aug 14:00 UTC (XX) | 8K", reference=REF).start
     assert got == datetime.datetime(2025, 8, 29, 14, 0)
 
 
@@ -173,14 +172,14 @@ def test_the_year_is_taken_from_the_reference_not_the_real_clock():
     silently deleted 29.75 days instead of 30.
     """
     name = "LIVE | X | Sat 29 Aug 14:00 UTC (XX) | 8K"
-    in_2020 = parse_event_datetime(name, reference=datetime.date(2020, 8, 31))
+    in_2020 = parse_event_window(name, reference=datetime.date(2020, 8, 31)).start
     assert in_2020 is not None
     assert in_2020.year == 2020, "resolved against the real clock, not the reference"
 
 
 def test_a_date_that_cannot_exist_yields_none():
     """31 February is malformed, not a fixture."""
-    assert parse_event_datetime("End | X | all | 31-02-2026 | 09:00 (GMT)", reference=REF) is None
+    assert parse_event_window("End | X | all | 31-02-2026 | 09:00 (GMT)", reference=REF).start is None
 
 
 def test_a_time_inside_the_title_is_not_mistaken_for_the_start():
@@ -190,7 +189,7 @@ def test_a_time_inside_the_title_is_not_mistaken_for_the_start():
     patterns read the time from the date field, so the title cannot poison it.
     """
     name = "End | Match 12:34 Special | all | 11-05-2026 | 09:37 (GMT) | 8K"
-    assert parse_event_datetime(name, reference=REF) == datetime.datetime(2026, 5, 11, 9, 37)
+    assert parse_event_window(name, reference=REF).start == datetime.datetime(2026, 5, 11, 9, 37)
 
 
 # ── the reach: it has to land on the rows that were empty ────────────────────
@@ -297,14 +296,6 @@ def test_a_stop_at_or_before_its_start_is_discarded():
     window = parse_event_window(name, reference=REF)
     assert window.start is not None
     assert window.stop is None
-
-
-def test_parse_event_datetime_still_answers_the_start():
-    """The old name is the one nearly every caller uses; it must keep working
-    and must agree with the parser rather than walking the regexes again."""
-    for name in (_MLB04, "US| FOX SPORTS 1 HD", ""):
-        assert (parse_event_datetime(name, reference=REF)
-                == parse_event_window(name, reference=REF).start)
 
 
 # ── what the end time is FOR ─────────────────────────────────────────────────

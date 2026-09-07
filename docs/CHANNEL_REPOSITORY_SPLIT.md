@@ -6,6 +6,14 @@ written and 3028 at the start of that session. Kept as the record of WHY the
 file is shaped this way, and because the three lessons at the bottom apply to
 the next extraction anyone attempts.
 
+**Amended 2026-09-07 (dead-code sweep B):** the slice lists below name the
+methods as they stood when the plan was written. Two of them no longer exist —
+`provider_ids_with_tmdb_candidates` (slice 2) and
+`select_tmdb_enrichment_candidates` (slice 3) were an earlier, never-wired TMDb
+candidate selector; `TmdbEnrichmentManager` always used
+`select_tmdb_candidates_by_ids`, so both were deleted. The lists are left as
+written — they are the record of the plan, not an index of the current file.
+
 **Status when written:** planned, not started. Written 2026-08-22 for a future
 session.
 **Subject:** `metatv/core/repositories/channel.py` — 4044 lines, one class

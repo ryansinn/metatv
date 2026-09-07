@@ -1090,18 +1090,6 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
 
         return db_query.order_by(ChannelDB.name).all()
     
-    def get_by_category(self, category: str, provider_id: Optional[str] = None) -> List[ChannelDB]:
-        """Get channels by category"""
-        query = self.session.query(ChannelDB).filter_by(
-            category=category,
-            is_hidden=False
-        )
-        
-        if provider_id:
-            query = query.filter_by(provider_id=provider_id)
-        
-        return query.order_by(ChannelDB.name).all()
-    
     def get_categories(self, provider_id: Optional[str] = None) -> List[str]:
         """Get list of unique categories"""
         query = self.session.query(ChannelDB.category).distinct()
@@ -1110,34 +1098,6 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             query = query.filter_by(provider_id=provider_id)
         
         return [cat[0] for cat in query.all() if cat[0]]
-    
-    def bulk_create_or_update(self, channels: List[ChannelDB]):
-        """Bulk create or update channels.
-
-        On update, only provider-catalog columns are copied from the incoming row —
-        user/derived fields (is_favorite, last_played, play_count, watch_progress,
-        watch_completed, detected_*, content_key, tag_fingerprint, is_hidden,
-        user_category, …) are preserved, exactly like the primary provider-refresh
-        upsert path.
-        """
-        # Reuse the single catalog-column allowlist that the provider-refresh upsert
-        # uses (imported lazily so this core repo keeps no load-time UI dependency).
-        # Copying only these guards user/derived fields from being clobbered.
-        from metatv.core.provider_loader import _CATALOG_UPDATE_COLS
-
-        for channel in channels:
-            existing = self.get_by_id(channel.id)
-            if existing:
-                # Update existing — catalog columns only, never user/derived fields.
-                for key in _CATALOG_UPDATE_COLS:
-                    setattr(existing, key, getattr(channel, key))
-                existing.updated_at = datetime.now()
-            else:
-                # Create new
-                self.session.add(channel)
-
-        self.session.commit()
-        logger.info(f"Bulk created/updated {len(channels)} channels")
     
     def count(self, provider_id: Optional[str] = None,
               media_type: Optional[str] = None) -> int:
@@ -1668,19 +1628,6 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 always_available=always_available,
             ))
         return rows
-
-    def update_category_mood(self, category: str, mood: str | None) -> int:
-        """Update the mood for all channels in a user category."""
-        updated = (
-            self.session.query(ChannelDB)
-            .filter(ChannelDB.user_category == category)
-            .update(
-                {"category_mood": mood, "updated_at": datetime.now()},
-                synchronize_session="fetch",
-            )
-        )
-        self.session.commit()
-        return updated
 
     # ── Cascade prune ──────────────────────────────────────────────────────────
 

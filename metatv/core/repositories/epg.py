@@ -6,7 +6,6 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from loguru import logger
 
 from metatv.core.database import EpgProgramDB, ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc, local_day_window as _local_day_window
@@ -692,23 +691,6 @@ class EpgRepository(EpgWatchlistMixin):
     # Meta / maintenance
     # ------------------------------------------------------------------
 
-    def get_data_end(self, provider_id: str) -> datetime | None:
-        """Return the latest stop_time stored for this provider."""
-        row = (
-            self.session.query(func.max(EpgProgramDB.stop_time))
-            .filter_by(provider_id=provider_id)
-            .scalar()
-        )
-        return row
-
-    def count_programs(self, provider_id: str) -> int:
-        """Total programme rows for a provider."""
-        return (
-            self.session.query(EpgProgramDB)
-            .filter_by(provider_id=provider_id)
-            .count()
-        )
-
     def count_by_providers(self, provider_ids: list[str]) -> int:
         """Total programme rows across multiple providers."""
         if not provider_ids:
@@ -718,14 +700,6 @@ class EpgRepository(EpgWatchlistMixin):
             .filter(EpgProgramDB.provider_id.in_(provider_ids))
             .count()
         )
-
-    def clear_provider_data(self, provider_id: str) -> int:
-        """Delete all EPG rows for a provider. Returns deleted count."""
-        count = delete_programmes_chunked(
-            self.session, EpgProgramDB.provider_id == provider_id
-        )
-        logger.info(f"EPG: cleared {count} rows for provider {provider_id}")
-        return count
 
     def has_future_programmes(
         self,
@@ -819,16 +793,3 @@ class EpgRepository(EpgWatchlistMixin):
             .first()
         )
         return row is not None
-
-    def get_channel_name_for_epg_id(self, channel_epg_id: str) -> str | None:
-        """Resolve an epg_channel_id to a human-readable channel name."""
-        prog = (
-            self.session.query(EpgProgramDB)
-            .filter_by(channel_epg_id=channel_epg_id)
-            .first()
-        )
-        if prog and prog.channel_db_id:
-            ch = self.session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-            if ch:
-                return ch.name
-        return None

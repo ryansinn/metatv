@@ -585,24 +585,7 @@ class ImageCache(QObject):
             "cache_dir": str(self.cache_dir),
             "max_size_mb": self.max_size_mb
         }
-    
-    def clear_cache(self):
-        """Clear all cached images"""
-        if not self.cache_dir.exists():
-            return
-        
-        count = 0
-        for file_path in self.cache_dir.glob("*"):
-            if file_path.is_file():
-                try:
-                    file_path.unlink()
-                    count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete {file_path}: {e}")
-        
-        self.cache_index.clear()
-        logger.info(f"Cleared {count} cached images")
-    
+
     def shutdown(self):
         """Shutdown the executor"""
         self.executor.shutdown(wait=False)

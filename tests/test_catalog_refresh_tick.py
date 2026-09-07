@@ -6,11 +6,16 @@ ever read. This is what finally reads it: ``_maybe_auto_refresh_catalogs``
 fires the existing serial refresh queue for every ACTIVE provider whose
 schedule says it is due, skipping any provider that is currently streaming.
 
-LIVE-1 adds a second, GLOBAL lane on top: the Sports banner's "Refresh
-sources" action, a global auto-rate (Settings -> Content), and opening
-Sports/Events all drive a LIVE-ONLY refresh (``kind="live_only"``) — never
-the full multi-minute one — through ``_maybe_live_refresh_tick`` /
-``_maybe_live_refresh_on_view_open`` / ``_on_sports_refresh_stale_requested``.
+LIVE-1 adds a second, GLOBAL lane on top: a global auto-rate (Settings ->
+Content) drives a LIVE-ONLY refresh (``kind="live_only"``) — never the full
+multi-minute one — through ``_maybe_live_refresh_tick``.
+
+(LIVE-1 also had a Sports-banner "Refresh sources" action and an
+opening-Sports/Events hook — ``_on_sports_refresh_stale_requested`` and
+``_maybe_live_refresh_on_view_open`` — but the Sports and Events views that
+called them were retired in #731 and neither ever gained another caller.
+Both were deleted, with their tests, in dead-code sweep B — see
+docs/REFACTOR_PLAN.md row D43.)
 
 Uses a real, file-backed ``Database`` (tmp_path) per CLAUDE.md — no
 ``:memory:`` — and a minimal host combining the real
@@ -26,10 +31,8 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from metatv.core.catalog_refresh import (
-    BANNER_STALE_THRESHOLD,
     catalog_refresh_due,
     live_refresh_due,
-    live_refresh_on_view_open_due,
 )
 from metatv.core.database import Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
@@ -281,13 +284,6 @@ def test_live_refresh_due_interval_modes_fire_past_their_interval():
     )
 
 
-def test_live_refresh_on_view_open_due_is_a_five_minute_cooldown():
-    now = datetime.now()
-    assert live_refresh_on_view_open_due(now - timedelta(minutes=4), now) is False
-    assert live_refresh_on_view_open_due(now - timedelta(minutes=6), now) is True
-    assert live_refresh_on_view_open_due(None, now) is True
-
-
 # ---------------------------------------------------------------------------
 # LIVE-1 — _mark_catalog_refreshed stamps the right column(s) per kind
 # ---------------------------------------------------------------------------
@@ -353,51 +349,6 @@ def test_mark_catalog_refreshed_noops_on_a_falsy_provider_id(tmp_path):
     db = make_file_db(tmp_path / "catalog_refresh.db")
     host = _Host(db)
     host._mark_catalog_refreshed(None, kind="live_only")  # must not raise
-
-
-# ---------------------------------------------------------------------------
-# LIVE-1 — the Sports banner's "Refresh sources" action enqueues live-only
-# ---------------------------------------------------------------------------
-
-def test_banner_refresh_action_enqueues_live_only_for_stale_sources_only(tmp_path):
-    """A source whose LIVE refresh is recent must not be re-queued even when
-    its FULL refresh is old — the banner's own staleness rule is live-first
-    (COALESCE(last_live_refresh_at, last_catalog_refresh_at, ...))."""
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    now = datetime.now()
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "stale", name="Stale Source", refresh_schedule="manual",
-            last_catalog_refresh_at=now - timedelta(hours=27),
-        )
-        _insert_provider(
-            session, "fresh", name="Fresh Live Source", refresh_schedule="manual",
-            last_catalog_refresh_at=now - timedelta(hours=27),
-            last_live_refresh_at=now - timedelta(minutes=5),
-        )
-
-    host = _Host(db)
-    host._on_sports_refresh_stale_requested()
-
-    assert host.refresh_queue_manager.enqueued_kinds == [
-        ("stale", "Stale Source", "live_only")
-    ], host.refresh_queue_manager.enqueued_kinds
-
-
-def test_banner_refresh_action_ignores_a_fresh_active_corpus(tmp_path):
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    now = datetime.now()
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "p1", name="P1", refresh_schedule="manual",
-            last_catalog_refresh_at=None,
-            last_live_refresh_at=now - timedelta(hours=1),
-        )
-    assert timedelta(hours=1) < BANNER_STALE_THRESHOLD
-
-    host = _Host(db)
-    host._on_sports_refresh_stale_requested()
-    assert host.refresh_queue_manager.enqueued == []
 
 
 # ---------------------------------------------------------------------------
@@ -505,90 +456,3 @@ def test_live_refresh_tick_already_queued_is_not_re_enqueued(tmp_path):
     )
 
 
-# ---------------------------------------------------------------------------
-# LIVE-1 — opening Sports or Events, shared cooldown
-# ---------------------------------------------------------------------------
-
-def test_on_view_open_sports_then_events_share_one_cooldown(tmp_path):
-    """The owner's own scenario: opening Sports fires (never live-refreshed);
-    opening Events 1 minute later does NOT (shared 5-minute cooldown);
-    opening Events 6 minutes later fires again. Both views call the SAME
-    host method — there is nothing per-view to keep in sync."""
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    now = datetime.now()
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "p1", name="P1", refresh_schedule="manual",
-            last_catalog_refresh_at=None,
-        )
-
-    host = _Host(db, live_refresh_mode="on_view_open")
-
-    # "Sports opens."
-    host._maybe_live_refresh_on_view_open()
-    assert host.refresh_queue_manager.enqueued_kinds == [("p1", "P1", "live_only")]
-
-    # The refresh's own success stamp (what _mark_catalog_refreshed would do),
-    # plus resetting the queue bookkeeping so the NEXT call is judged on the
-    # cooldown rather than the ordinary already-queued dedupe.
-    host.refresh_queue_manager.enqueued.clear()
-    host.refresh_queue_manager.enqueued_kinds.clear()
-    host.refresh_queue_manager._queued.clear()
-
-    # "Events opens" 1 minute later.
-    with db.session_scope() as session:
-        p = session.query(ProviderDB).filter_by(id="p1").first()
-        p.last_live_refresh_at = now - timedelta(minutes=1)
-    host._maybe_live_refresh_on_view_open()
-    assert host.refresh_queue_manager.enqueued == [], (
-        "Events opening inside the shared cooldown window must not re-fire"
-    )
-
-    # "Events opens" 6 minutes later.
-    with db.session_scope() as session:
-        p = session.query(ProviderDB).filter_by(id="p1").first()
-        p.last_live_refresh_at = now - timedelta(minutes=6)
-    host._maybe_live_refresh_on_view_open()
-    assert host.refresh_queue_manager.enqueued_kinds == [("p1", "P1", "live_only")]
-
-
-def test_on_view_open_does_nothing_outside_on_view_open_mode(tmp_path):
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "p1", name="P1", refresh_schedule="manual",
-            last_catalog_refresh_at=None,
-        )
-
-    for mode in ("manual", "15m", "30m", "1h", "3h"):
-        host = _Host(db, live_refresh_mode=mode)
-        host._maybe_live_refresh_on_view_open()
-        assert host.refresh_queue_manager.enqueued == [], mode
-
-
-def test_on_view_open_skips_a_currently_streaming_source(tmp_path):
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "p1", name="P1", refresh_schedule="manual",
-            last_catalog_refresh_at=None,
-        )
-
-    host = _Host(db, streaming_provider_ids={"p1"}, live_refresh_mode="on_view_open")
-    host._maybe_live_refresh_on_view_open()
-
-    assert host.refresh_queue_manager.enqueued == []
-
-
-def test_on_view_open_ignores_inactive_providers(tmp_path):
-    db = make_file_db(tmp_path / "catalog_refresh.db")
-    with db.session_scope() as session:
-        _insert_provider(
-            session, "off", name="Disabled", refresh_schedule="manual",
-            last_catalog_refresh_at=None, is_active=False,
-        )
-
-    host = _Host(db, live_refresh_mode="on_view_open")
-    host._maybe_live_refresh_on_view_open()
-
-    assert host.refresh_queue_manager.enqueued == []

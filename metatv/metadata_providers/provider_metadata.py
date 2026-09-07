@@ -366,19 +366,3 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
 
 
     _parse_runtime = staticmethod(_parse_runtime)
-
-
-    def _get_first_or_none(self, value) -> Optional[str]:
-        """Get first element of list or return None
-        
-        Args:
-            value: Could be list, string, or None
-        
-        Returns:
-            First element if list, value if string, None otherwise
-        """
-        if isinstance(value, list) and value:
-            return value[0]
-        elif isinstance(value, str):
-            return value
-        return None

@@ -2026,26 +2026,6 @@ def _has_unambiguous_subdub(inner: str) -> bool:
     return any(leaf.upper() in _UNAMBIGUOUS_SUBDUB_MARKERS for leaf in leaves)
 
 
-def is_event_placeholder(name: str) -> bool:
-    """Return True when *name* is a PPV/event placeholder row (no actual stream).
-
-    Providers pad their PPV slot bundles with placeholder entries when no event is
-    scheduled for a slot.  These rows are NOT playable streams and must be excluded
-    from all content surfaces.
-
-    Detection rule: the name contains the literal substring ``NO EVENT STREAMING``
-    (case-insensitive).  This substring is the canonical "empty slot" marker used by
-    every provider that injects these rows (e.g.
-    ``- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 [DE| DYN PPV EXCLUSIVE]``).
-    The substring is specific enough to avoid false positives on real channels — a
-    legitimate channel named "… NO EVENT STREAMING …" does not exist in practice, and
-    even if it did, the provider should rename it.
-    """
-    if not name:
-        return False
-    return "NO EVENT STREAMING" in name.upper()
-
-
 def is_category_header(name: str) -> bool:
     """Return True when *name* is a provider category-header/separator row.
 
@@ -2644,17 +2624,6 @@ def _extract_scene_release(bare: str) -> "tuple[str, _Attributes] | None":
     title = _SCENE_TRAILING_YEAR_RE.sub(r" (\1)", title)
 
     return title, _Attributes(_collapse_same_rank(quality), "", encoding, audio_codec)
-
-
-def _strip_quality(bare: str) -> tuple[str, list[str]]:
-    """Strip trailing quality tokens, returning (bare, tokens).
-
-    Kept as the narrow two-value form because two call sites want exactly that.
-    :func:`_strip_attributes` is the richer sweep underneath it.
-    """
-    bare, attrs = _strip_attributes(bare)
-    return bare, attrs.quality
-
 
 def _strip_attributes(bare: str) -> tuple[str, _Attributes]:
     """Pull every trailing decoration off a name, each into its own class.
