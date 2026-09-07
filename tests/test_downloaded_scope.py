@@ -25,6 +25,7 @@ import pytest
 
 from metatv.core.database import ChannelDB, Database, DownloadDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +180,7 @@ def _make_scope_host():
     win.all_channels = []
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.config = MagicMock()
     win.config.global_filter_paused = True
     win.config.remember_search = True

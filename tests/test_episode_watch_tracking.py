@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 import pytest
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +387,7 @@ def _make_series_mixin_host(db):
     host.player_manager = MagicMock()
     host.player_manager.resolve_key.return_value = "__shared__"
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif_1"
     host.executor = MagicMock()

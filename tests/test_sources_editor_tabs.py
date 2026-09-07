@@ -28,7 +28,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from metatv.gui import icons as _icons
-from tests.conftest import wire_nav_host
+from tests.conftest import wire_nav_host, wire_status_method
 
 
 @pytest.fixture(scope="module")
@@ -451,6 +451,7 @@ def test_sources_strip_toggle_closes_and_deactivates_when_already_active():
     me.discover_chip = MagicMock()
     me.search_input = MagicMock()
     me.status_bar = MagicMock()
+    wire_status_method(me)
     me.current_series = None
     me.series_data = None
     me.sources_manager_view.isVisible.return_value = True

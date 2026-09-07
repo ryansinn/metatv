@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from tests.conftest import wire_sidebar_membership
+from tests.conftest import wire_sidebar_membership, wire_status_method
 
 import pytest
 
@@ -112,6 +112,7 @@ def _make_streaming_host():
     host = _StreamingMixin.__new__(_StreamingMixin)
     host.loading_channels = set()
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif-1"
     host.player_manager = MagicMock()
@@ -270,6 +271,7 @@ def _make_host_for_stream_ready():
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.loading_channels = set()
     host.notification_manager = MagicMock()
     host.player_manager = MagicMock()

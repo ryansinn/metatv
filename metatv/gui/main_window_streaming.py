@@ -324,7 +324,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         # Prevent double-clicks while loading
         if channel_id in self.loading_channels:
             logger.info(f"Channel {channel_id} is already loading, ignoring double-click")
-            self.status_bar.showMessage("Already loading this channel...")
+            self.status("Already loading this channel...", ms=0)
             return
 
         self.loading_channels.add(channel_id)
@@ -332,13 +332,13 @@ class _StreamingMixin(_WatchCaptureMixin):
         # Guard: stream URL / player availability are known from the in-memory channel.
         if not channel.stream_url:
             logger.error(f"Channel {channel.name} has no stream URL")
-            self.status_bar.showMessage(f"Error: No stream URL for {channel.name}")
+            self.status(f"Error: No stream URL for {channel.name}", ms=0, level="error")
             self.loading_channels.discard(channel_id)
             return
 
         if not self.player_manager.is_available():
             logger.error("No media player available")
-            self.status_bar.showMessage("Error: No media player found. Please install mpv.")
+            self.status("Error: No media player found. Please install mpv.", ms=0, level="error")
             self.loading_channels.discard(channel_id)
             return
 
@@ -389,9 +389,9 @@ class _StreamingMixin(_WatchCaptureMixin):
         self._switch_same_provider = switch_ctx.same_provider
         if switch_ctx.same_provider and switch_ctx.one_connection:
             pname = self._provider_display_name(channel.provider_id)
-            self.status_bar.showMessage(
+            self.status(
                 f"Switching on {pname} — the source may count the previous "
-                "stream for a few seconds…")
+                "stream for a few seconds…", ms=0, level="warn")
 
         # Off-load network validation + failover to the shared executor.
         # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.
@@ -599,7 +599,7 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         if not data.get("ok"):
             logger.error(f"All stream URLs failed validation for {channel_name}")
-            self.status_bar.showMessage(f"Error: Stream unavailable for {channel_name}")
+            self.status(f"Error: Stream unavailable for {channel_name}", ms=0, level="error")
             prestart = _startwatch.prestart_detail(data.get("event_start_time"), _epg.now_utc())
             detail = prestart or stream_err or "All URLs failed (possibly geo-blocked)"
             self.notification_manager.dismiss(notif_id)
@@ -700,15 +700,13 @@ class _StreamingMixin(_WatchCaptureMixin):
         if data.get("sibling_failover"):
             sib_label = data.get("sibling_name", "")
             logger.info(f"Cross-source failover: using sibling {sib_label!r}")
-            self.status_bar.showMessage(
-                f"Switched to alternate source for {channel_name}…"
-            )
+            self.status(f"Switched to alternate source for {channel_name}…", ms=0)
         elif data.get("probe_skipped"):
             logger.info(f"Same-provider switch: skipped the probe for {channel_name}")
         elif final_url != original_url:
             logger.info(f"Using failover URL: {final_url}")
 
-        self.status_bar.showMessage(f"Loading: {channel_name}...")
+        self.status(f"Loading: {channel_name}...", ms=0)
 
         force_new_window = data.get("force_new_window", False)
         open_ended_buffer = bool(data.get("open_ended_buffer", False))
@@ -770,7 +768,7 @@ class _StreamingMixin(_WatchCaptureMixin):
                 retry=bool(data.get("retry")), provider_id=data.get("provider_id")))
         else:
             logger.error(f"Failed to play: {channel_name}")
-            self.status_bar.showMessage(f"Error playing: {channel_name}")
+            self.status(f"Error playing: {channel_name}", ms=0, level="error")
             # Deep-cache can refuse the launch outright (cap/disk preflight) rather
             # than falling back silently — surface that specific reason as a toast
             # when one was set, instead of the generic "Error playing" status text.
@@ -1370,7 +1368,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             return
 
         if _startwatch.on_playing(self) and (att := self.__dict__.get("_health_attempt")):
-            self.status_bar.showMessage(f"Playing: {att.channel_name}")
+            self.status(f"Playing: {att.channel_name}", ms=0)
         _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")),
                                    cache_duration=props.get("demuxer-cache-duration"))
         text = format_playback_health(

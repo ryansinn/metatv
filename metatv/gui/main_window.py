@@ -42,6 +42,7 @@ from metatv.gui.menu_bar_reveal import _MenuBarRevealMixin
 from metatv.gui.main_window_menu_actions import _MenuActionsMixin
 from metatv.gui.main_window_alerts import _AlertsMixin
 from metatv.gui.main_window_style_menu import _StyleMenuMixin
+from metatv.gui.main_window_status import _StatusMixin
 from metatv.core.database import Database
 from metatv.core.notifications import NotificationManager
 from metatv.core.player_manager import PlayerManager
@@ -139,7 +140,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -908,7 +909,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # Create status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        self.status("Ready", ms=0)
     
     def create_sidebar(self) -> QWidget:
         """Create modular sidebar with resizable sections"""
@@ -1293,7 +1294,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             if checked
             else "Split streams: off — shared window"
         )
-        self.status_bar.showMessage(msg, 4000)
+        self.status(msg, ms=4000)
 
     def create_content_area(self) -> QWidget:
         """Create main content area"""
@@ -1610,7 +1611,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # old play_special_event was a stripped-down duplicate that silently
         # dropped all of the above (most visibly the live stats readout).
         self.epg_view.play_channel_requested.connect(self.play_media)
-        self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.epg_view.status_message.connect(lambda msg: self.status(msg, ms=0))
         self.epg_view.channel_selected.connect(self._on_view_channel_selected)
         self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
         # EPG source-freshness status is rendered on the stats line (epg_status_label),
@@ -1962,7 +1963,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     # Action handlers
     def refresh_channels(self):
         """Refresh channel list"""
-        self.status_bar.showMessage("Refreshing channels...")
+        self.status("Refreshing channels...", ms=0)
         logger.info("Refreshing channels")
         # Route through the canonical refresh so the main channel list is actually
         # reloaded (load_providers() alone only refreshes the sidebar sources +

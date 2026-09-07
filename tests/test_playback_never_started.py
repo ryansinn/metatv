@@ -50,12 +50,19 @@ def _host():
     waiting line; unused (and un-asserted) by every test whose PlayAttempt
     carries no ``provider_id``.
     """
-    return SimpleNamespace(
+    from tests.conftest import wire_status_method
+
+    host = SimpleNamespace(
         status_bar=MagicMock(),
         notification_manager=MagicMock(),
         stream_retry_manager=MagicMock(),
         _provider_display_name=MagicMock(return_value="Test Source"),
     )
+    # STATUS-1: the module's showMessage calls now go through host.status(...);
+    # bound here rather than widening the docstring's "small attribute surface"
+    # claim into something host.status_bar.showMessage-only tests would miss.
+    wire_status_method(host)
+    return host
 
 
 # ── the bit of memory ────────────────────────────────────────────────────────

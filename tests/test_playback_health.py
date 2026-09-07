@@ -500,6 +500,7 @@ def test_on_playback_health_ready_calls_on_loaded_tick():
 # ── 2026-09-06: an mpv that exited while opening is retried once ────────────
 
 from unittest.mock import MagicMock, patch  # noqa: E402 — local to this section
+from tests.conftest import wire_status_method
 
 class _FakePlayerManagerWithExit(_FakePlayerManager):
     def __init__(self, reason, **kw):
@@ -520,6 +521,7 @@ def _gone_host(reason, *, retry_attempt=False):
     host._health_query_inflight = False
     host._health_view_key = None
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.notification_manager = MagicMock()
     host.stream_retry_manager = MagicMock()
     watch.arm(host, watch.PlayAttempt("ch-1", "Title", "http://x/1.mkv", retry=retry_attempt))

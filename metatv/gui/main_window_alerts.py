@@ -121,8 +121,9 @@ class _AlertsMixin:
         cleared = self.config.mark_all_vod_alerts_viewed()
         if cleared:
             self._refresh_alert_visibility()
-            self.status_bar.showMessage(
-                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}"
+            self.status(
+                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}",
+                ms=0,
             )
 
     def _clear_vod_rule_alert(self, rule_created: str) -> None:
@@ -130,8 +131,9 @@ class _AlertsMixin:
         cleared = self.config.mark_vod_rule_viewed(rule_created)
         if cleared:
             self._refresh_alert_visibility()
-            self.status_bar.showMessage(
-                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}"
+            self.status(
+                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}",
+                ms=0,
             )
 
     def _on_queue_new_matches_clicked(self) -> None:

@@ -178,11 +178,13 @@ def _history_mixin_host(db_obj):
     ``publish()`` calls), so no weak-reference requirement applies.
     """
     from metatv.gui.main_window_history import _HistoryMixin
+    from tests.conftest import wire_status_method
 
     class _Host(_HistoryMixin):
         def __init__(self, db_obj):
             self.db = db_obj
             self.status_bar = MagicMock()
+            wire_status_method(self)   # STATUS-1: the clear/undo methods call self.status(...)
             self.notification_manager = MagicMock()
             self.sidebar_sections = {}
             self.load_history = MagicMock()

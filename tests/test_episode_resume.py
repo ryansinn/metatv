@@ -26,6 +26,7 @@ import pytest
 from metatv.core.database import Database, ChannelDB, EpisodeDB, SeasonDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import EpisodeDTO
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +243,7 @@ def _build_launch_host():
     host.player_manager = MagicMock()
     host.player_manager.is_available.return_value = True
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif-1"
     host.validate_stream_url = MagicMock(return_value=(True, None))
@@ -255,6 +257,7 @@ def _build_do_launch_host():
     host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     host.notification_manager = MagicMock()
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host._start_playback_health = MagicMock()
     host._play_checked = MagicMock(return_value=True)
     return host
@@ -316,6 +319,7 @@ class TestStartSecondsThreadedThroughLaunchPath:
         host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)
         host.config = _make_config()
         host.player_manager = MagicMock()
         host.load_history = MagicMock()
@@ -345,6 +349,7 @@ class TestStartSecondsThreadedThroughLaunchPath:
         host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)
         host.config = _make_config()
         host.player_manager = MagicMock()
         host.load_history = MagicMock()

@@ -36,7 +36,7 @@ class _FavoritesMixin:
     def _write_failed(self, what: str) -> None:
         """DEBT-3 async write raised: say so instead of leaving stale state."""
         logger.warning(f"Async write failed: {what}")
-        self.status_bar.showMessage(f"Could not save {what} — nothing changed")
+        self.status(f"Could not save {what} — nothing changed", ms=0, level="error")
 
     def _toggle_rating(self, channel_id: str, rating: int) -> None:
         """Toggle a like/dislike; clicking the active rating clears it.
@@ -434,8 +434,8 @@ class _FavoritesMixin:
             repos.queue.clear_unavailable(hidden)
 
         section.refresh()
-        self.status_bar.showMessage(
-            f"Removed {count} unavailable item{'s' if count != 1 else ''} from watch queue"
+        self.status(
+            f"Removed {count} unavailable item{'s' if count != 1 else ''} from watch queue", ms=0
         )
 
     def _clear_unavailable_favorites(self, section) -> None:
@@ -468,8 +468,8 @@ class _FavoritesMixin:
             repos.channels.clear_unavailable_favorites(hidden)
 
         section.refresh()
-        self.status_bar.showMessage(
-            f"Removed {count} unavailable item{'s' if count != 1 else ''} from favorites"
+        self.status(
+            f"Removed {count} unavailable item{'s' if count != 1 else ''} from favorites", ms=0
         )
 
     def _clear_queue(self) -> None:
@@ -507,7 +507,7 @@ class _FavoritesMixin:
             count = RepositoryFactory(session).queue.clear_watched()
         self._refresh_queue_section()
         if count:
-            self.status_bar.showMessage(f"Removed {count} watched item(s) from queue")
+            self.status(f"Removed {count} watched item(s) from queue", ms=0)
 
     def play_queue_item_id(self, channel_id: str) -> None:
         """Play a queue item — series opens the season view, others play directly."""
@@ -603,7 +603,7 @@ class _FavoritesMixin:
             new_status = ep.is_favorite
             title = ep.title or "Episode"
         status = "added to" if new_status else "removed from"
-        self.status_bar.showMessage(f"{title} {status} favorites")
+        self.status(f"{title} {status} favorites", ms=0)
         self.load_favorites()
 
     def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
@@ -712,7 +712,7 @@ class _FavoritesMixin:
                 channel_name = channel.name
                 repos.channels.remove_from_history(channel_id)
         if channel_name:
-            self.status_bar.showMessage(f"Removed {channel_name} from history")
+            self.status(f"Removed {channel_name} from history", ms=0)
             logger.info(f"Removed {channel_name} from history")
             self.load_history()
 
@@ -788,8 +788,8 @@ class _FavoritesMixin:
 
         n = len(channel_ids)
         excl_note = " (added to Global Exclusions)" if exclude else ""
-        self.status_bar.showMessage(
-            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}"
+        self.status(
+            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}", ms=0
         )
 
         if hasattr(self, "discover_view"):
@@ -861,7 +861,7 @@ class _FavoritesMixin:
                 return
             name, new_status = result
             status = "added to" if new_status else "removed from"
-            self.status_bar.showMessage(f"{name} {status} favorites")
+            self.status(f"{name} {status} favorites", ms=0)
             logger.info(f"Toggled favorite for {name}: {new_status}")
             self.load_favorites()
             self.channel_state_bus.publish(channel_id, is_favorite=new_status)

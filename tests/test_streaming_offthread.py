@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 from metatv.core.models import ProviderURL
 from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.stream_switch import SwitchContext
+from tests.conftest import wire_status_method
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ def _make_mixin() -> _StreamingMixin:
     obj.notification_manager = MagicMock()
     obj.notification_manager.show.return_value = "notif-123"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
     obj._stream_ready = MagicMock()
     return obj
 

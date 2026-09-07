@@ -217,7 +217,7 @@ class _NavMixin:
         self.search_input.setEnabled(False)
         self.search_input.setPlaceholderText("Search not available in series view")
         self.populate_series_tree()
-        self.status_bar.showMessage(f"Viewing series: {self.current_series.name}")
+        self.status(f"Viewing series: {self.current_series.name}", ms=0)
 
     def switch_to_list_view(self):
         """Switch content area back to channel list view."""
@@ -257,7 +257,7 @@ class _NavMixin:
 
         self.current_series = None
         self.series_data = None
-        self.status_bar.showMessage("Returned to channel list")
+        self.status("Returned to channel list", ms=0)
 
     def switch_to_epg_view(self):
         """Switch content area to EPG view."""

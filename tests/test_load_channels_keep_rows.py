@@ -31,6 +31,7 @@ def _make_load_channels_host(qapp):
     win.all_channels = ["stale_channel_1", "stale_channel_2", "stale_channel_3"]
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.config = MagicMock()
     win.config.global_filter_paused = True
     win.current_filter_state = {"_language_prefixes": [], "_region_prefixes": [],
@@ -94,8 +95,9 @@ def test_keep_rows_leaves_the_model_populated_until_data_lands(qapp, monkeypatch
     assert len(host.all_channels) == 3
     # No loading banner.
     assert not host._channel_banner.isVisible()
-    # Status bar shows "Refreshing…".
-    host.status_bar.showMessage.assert_called_with("Refreshing…")
+    # Status bar shows "Refreshing…" (STATUS-1: routed through self.status(), which
+    # always passes ms explicitly — ms=0 here, parity with the pre-fix persistent call).
+    host.status_bar.showMessage.assert_called_with("Refreshing…", 0)
     # Stats label was not set to "Loading…".
     for call in host.stats_label.setText.call_args_list:
         assert "Loading" not in call.args[0]
@@ -141,8 +143,8 @@ def test_default_load_still_clears_first(qapp, monkeypatch):
     # Stats label set to "Loading channels…".
     stats_texts = [c.args[0] for c in host.stats_label.setText.call_args_list]
     assert any("Loading" in t for t in stats_texts)
-    # Status bar shows "Loading channels…".
-    host.status_bar.showMessage.assert_called_with("Loading channels…")
+    # Status bar shows "Loading channels…" (STATUS-1: self.status(..., ms=0)).
+    host.status_bar.showMessage.assert_called_with("Loading channels…", 0)
 
 
 def test_provider_dependent_refresh_passes_keep_rows(monkeypatch):
@@ -171,6 +173,7 @@ def test_provider_dependent_refresh_passes_keep_rows(monkeypatch):
 # ---------------------------------------------------------------------------
 
 import metatv.gui.main_window_channels as mw_channels_module
+from tests.conftest import wire_status_method
 
 
 def test_reload_after_filter_change_keeps_rows_when_flagged():

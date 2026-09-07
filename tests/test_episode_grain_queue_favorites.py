@@ -478,10 +478,12 @@ class TestDetailsPaneEpisodeQueueFavorite:
 
 def _build_favorites_host(db):
     from metatv.gui.main_window_favorites import _FavoritesMixin
+    from tests.conftest import wire_status_method
 
     host = _FavoritesMixin.__new__(_FavoritesMixin)
     host.db = db
     host.status_bar = MagicMock()
+    wire_status_method(host)   # STATUS-1: the toggle handlers call self.status(...)
     host.sidebar_sections = {}
     host.load_favorites = MagicMock()
     return host
@@ -539,9 +541,12 @@ class TestPlayEpisodeById:
         _seed_series(db)
         ep_id = _seed_episode(db, season_num=1, episode_num=1, title="Pilot")
 
+        from tests.conftest import wire_status_method
+
         host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)   # STATUS-1: play_episode_by_id calls self.status(...)
         played = []
         host.play_episode = lambda episode: played.append(episode)
 
@@ -554,9 +559,12 @@ class TestPlayEpisodeById:
     def test_missing_episode_shows_status_message_and_does_not_play(self, db):
         from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
+        from tests.conftest import wire_status_method
+
         host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)   # STATUS-1: the missing-episode branch calls self.status(...)
         host.play_episode = MagicMock()
 
         host.play_episode_by_id("does-not-exist")
@@ -578,9 +586,12 @@ class TestSeriesTreeFavoriteEpisodeAction:
         ep_id = _seed_episode(db, title="Face Off")
         ep = _episode_dto("Face Off", episode_id=ep_id, is_favorite=False)
 
+        from tests.conftest import wire_status_method
+
         host = _SeriesMixin.__new__(_SeriesMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)   # STATUS-1: _toggle_episode_favorite calls self.status(...)
         host.load_favorites = MagicMock()
 
         tree = QTreeWidget()

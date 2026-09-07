@@ -246,7 +246,7 @@ class _MenuActionsMixin:
 
         files = all_log_files(self.config)
         if not files:
-            self.status_bar.showMessage("No log files to clear", 4000)
+            self.status("No log files to clear", ms=4000)
             return
         total = 0
         for path in files:
@@ -267,9 +267,9 @@ class _MenuActionsMixin:
         if answer != QMessageBox.StandardButton.Yes:
             return
         removed, freed = clear_log_files(self.config)
-        self.status_bar.showMessage(
+        self.status(
             f"Cleared {removed} log file(s), freeing {freed / 1_048_576:.1f} MB",
-            6000,
+            ms=6000,
         )
 
     def open_config_folder(self) -> None:
@@ -488,8 +488,8 @@ class _MenuActionsMixin:
             return
         self.config.buffer_profile = value
         _cfgsave.save_soon(self)
-        self.status_bar.showMessage(
-            "Buffer setting saved — applies to the next stream you start", 4000
+        self.status(
+            "Buffer setting saved — applies to the next stream you start", ms=4000
         )
 
     def _toggle_filters_from_menu(self) -> None:

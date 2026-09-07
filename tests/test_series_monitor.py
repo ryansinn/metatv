@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -1071,6 +1072,7 @@ class TestDrillInClearsUnseen:
         host.notification_manager = MagicMock()
         host.active_threads = []
         host.status_bar = MagicMock()
+        wire_status_method(host)
         host.sender = lambda: SimpleNamespace()  # no notification_id -> skip dismiss branch
         host.switch_to_series_view = MagicMock()
         # Composite chokepoint (Wave 3): a drill-in clears the badge everywhere

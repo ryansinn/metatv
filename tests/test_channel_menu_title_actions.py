@@ -169,10 +169,13 @@ def _handler_host():
     """Minimal host exposing the real _build_handlers + _copy_title_to_clipboard."""
     from metatv.gui.main_window_channels import _ChannelListMixin
 
+    from tests.conftest import wire_status_method
+
     host = SimpleNamespace()
     host.searched: list[str] = []
     host.search_for_title = lambda t: host.searched.append(t)
     host.status_bar = MagicMock()
+    wire_status_method(host)   # STATUS-1: _copy_title_to_clipboard calls self.status(...)
     host.sidebar_sections = {}
     host.stream_retry_manager = MagicMock()
     host.config = MagicMock()
