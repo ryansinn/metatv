@@ -1621,9 +1621,20 @@ def wire_status_method(host) -> None:
         host: Any skeleton test double standing in for ``MainWindow`` or one
             of its mixins.
     """
+    import weakref
     from metatv.gui.main_window_status import _StatusMixin
 
-    host.status = _StatusMixin.status.__get__(host)
+    if getattr(type(host), "status", None) is not None:
+        return  # a MainWindow.__new__ skeleton already has it via the class bases
+    try:
+        ref = weakref.ref(host)
+    except TypeError:            # SimpleNamespace and friends: no widgets, no leak
+        host.status = _StatusMixin.status.__get__(host)
+        return
+
+    def status(text, **kw):      # weakly bound: no host→method→host cycle, so a
+        return _StatusMixin.status(ref(), text, **kw)   # widget skeleton still dies at teardown
+    host.status = status
 
 
 def wire_header_search_sync(host) -> None:

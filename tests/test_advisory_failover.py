@@ -32,6 +32,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from metatv.core.url_cycle import UrlCycler
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ def _make_mixin(db):
     obj.notification_manager = MagicMock()
     obj.notification_manager.show.return_value = "notif-123"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
     obj._stream_ready = MagicMock()
     return obj
 
@@ -451,6 +453,7 @@ def _make_episode_host():
     obj.notification_manager = MagicMock()
     obj.notification_manager.show.return_value = "fail-notif-1"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)
     obj.stream_retry_manager = MagicMock()
     obj._do_launch_episode = MagicMock()
     return obj

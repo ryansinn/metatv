@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.core.repositories.dtos import ChannelListDTO
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +505,7 @@ def _make_banner_host(qapp):
     win.all_channels = []
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win._search_page_size = 1000
     win._currently_bypassing = False
     win._currently_bypassing_exclusions = False

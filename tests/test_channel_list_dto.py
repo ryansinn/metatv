@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.core.repositories.dtos import ChannelListDTO
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +140,7 @@ def _make_render_host(qapp):
     wire_channel_banner_widgets(win)
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win._search_page_size = 1000
     win._currently_bypassing = False
     win._currently_bypassing_exclusions = False
@@ -237,6 +239,7 @@ def test_favorite_toggle_replaces_frozen_dto(qapp):
     win.unfavorite_icon = "☆"
     win.get_media_type_icon = MagicMock(return_value="M")
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.load_favorites = MagicMock()
 
     cid = "chan-1"

@@ -21,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import Base, ChannelDB
 from metatv.core.repositories.channel import ChannelRepository
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,7 @@ def _build_mock_window(engine):
     win.db = db
     wire_inline_run_query(win)   # _apply_favorite_toggle's write now goes through _run_query
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.channels_list = MagicMock()
     win.channel_model = MagicMock()   # virtualized model — update_favorite called by toggle
     win.all_channels = []

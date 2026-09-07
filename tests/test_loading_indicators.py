@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.gui import icons as _icons
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +258,7 @@ def _make_load_channels_host(qapp):
     win.all_channels = ["stale"]
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.config = MagicMock()
     # global_filter_paused=True takes the short branch that skips category-filter
     # resolution, keeping this test focused on the placeholder.
@@ -329,6 +331,7 @@ def test_channels_load_error_clears_loading_placeholder(qapp):
     wire_channel_banner_widgets(win)
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win._clear_provider_busy = MagicMock()
 
     # Seed the loading banner like load_channels would.

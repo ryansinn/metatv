@@ -31,6 +31,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +245,7 @@ def _make_streaming_host():
     host = _StreamingMixin.__new__(_StreamingMixin)
     host.loading_channels = set()
     host.status_bar = MagicMock()
+    wire_status_method(host)
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif-1"
     host.player_manager = MagicMock()

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from metatv.gui.main_window import MainWindow
+from tests.conftest import wire_status_method
 
 
 _DEPENDENT_REFRESHERS = [
@@ -73,6 +74,7 @@ def test_provider_saved_funnels_through_canonical():
     w = _bare_window()
     w._refresh_provider_dependent_views = MagicMock()
     w.status_bar = MagicMock()
+    wire_status_method(w)
 
     w._on_provider_saved("prov-1")
 
@@ -84,6 +86,7 @@ def test_provider_deleted_funnels_through_canonical():
     w._refresh_provider_dependent_views = MagicMock()
     w.exit_provider_edit_mode = MagicMock()
     w.status_bar = MagicMock()
+    wire_status_method(w)
 
     w._on_provider_deleted("prov-1")
 

@@ -36,7 +36,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import HistoryDTO, build_history_dtos
 from metatv.gui.chip_row import build_chip_row, row_trailing_button
 from metatv.gui.sidebar.history import HistorySection
-from tests.conftest import sidebar_config
+from tests.conftest import sidebar_config, wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +407,7 @@ class TestPlayNextRoutesThroughPlayEpisodeById:
         host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
+        wire_status_method(host)
         played = []
         host.play_episode = lambda episode: played.append(episode)
 

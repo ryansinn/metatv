@@ -31,6 +31,7 @@ def _make_load_channels_host(qapp):
     win.all_channels = ["stale_channel_1", "stale_channel_2", "stale_channel_3"]
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.config = MagicMock()
     win.config.global_filter_paused = True
     win.current_filter_state = {"_language_prefixes": [], "_region_prefixes": [],
@@ -172,6 +173,7 @@ def test_provider_dependent_refresh_passes_keep_rows(monkeypatch):
 # ---------------------------------------------------------------------------
 
 import metatv.gui.main_window_channels as mw_channels_module
+from tests.conftest import wire_status_method
 
 
 def test_reload_after_filter_change_keeps_rows_when_flagged():

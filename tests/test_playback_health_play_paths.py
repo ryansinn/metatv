@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tests.conftest import wire_sidebar_membership
+from tests.conftest import wire_sidebar_membership, wire_status_method
 
 import pytest
 
@@ -38,6 +38,7 @@ def _bare_window(qapp):
     win.player_manager.play.return_value = True          # play succeeds
     win.executor = MagicMock()                           # _bg_mark_played submit → no-op
     win.status_bar = MagicMock()
+    wire_status_method(win)
     win.notification_manager = MagicMock()
     win.loading_channels = set()
     win._provider_icons = {}                             # source-glyph cache for the readout
