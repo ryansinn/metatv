@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import weakref
 
+from loguru import logger
+
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QPushButton
@@ -307,7 +309,7 @@ def refresh_icon_buttons() -> None:
             # F18). Losing one button's repaint is a cosmetic bug; taking the
             # process down over it is not. The usual cause is RuntimeError —
             # the C++ object is gone while the Python wrapper lingers.
-            continue
+            logger.debug("icon button {!r} not refreshed (wrapper outlived its widget?)", role)
 
 
 # theme.py must not import this module (would cycle: icon_utils already imports
