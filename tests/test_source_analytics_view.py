@@ -127,3 +127,49 @@ def test_panel_tokens_are_independent(qapp):
     refs = [view._providers_token, view._fingerprint_token, view._overlap_token,
             view._unique_token, view._prefixes_token]
     assert len({id(r) for r in refs}) == 5
+
+
+def test_provider_ids_load_failure_paints_all_four_panels(qapp, qtbot, tmp_path):
+    """The provider-id load feeds all four panels below it — if IT raises, none
+    of them ever gets its own _run_query call, so nothing else can paint an
+    error for them. Drives the REAL _run_query seam (wire_inline_run_query)
+    against a REAL Database whose session_scope is made to raise, and asserts
+    every panel shows the couldn't-load row instead of being stuck on
+    "Loading…" forever (CLAUDE.md: async-background-DB-reads must surface
+    failure, never leave a stale placeholder)."""
+    from contextlib import contextmanager
+
+    from metatv.core.database import Database
+    from tests.conftest import wire_inline_run_query
+
+    db = Database(f"sqlite:///{tmp_path / 'source_analytics_error.db'}")
+    db.create_tables()
+
+    class _Host:
+        pass
+
+    host = _Host()
+    host.db = db
+    wire_inline_run_query(host)
+
+    @contextmanager
+    def _raising_scope(commit=False):
+        raise RuntimeError("database is locked")
+        yield  # pragma: no cover — unreachable; required to make this a generator
+
+    db.session_scope = _raising_scope
+
+    view = _make_view(qapp)
+    qtbot.addWidget(view)
+    view.main_window = host
+    view.on_activate("A")
+
+    for panel_layout in (view._fingerprint_layout, view._overlap_layout,
+                          view._unique_layout, view._prefixes_layout):
+        assert panel_layout.count() == 1
+        label = panel_layout.itemAt(0).widget()
+        assert "Loading" not in label.text()
+        assert "Couldn't load" in label.text()
+        assert "database is locked" in label.text()
+
+    db.close()

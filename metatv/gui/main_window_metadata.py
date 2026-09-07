@@ -53,6 +53,7 @@ class _MetadataMixin:
             lambda repos: repos.tags.get_channel_tags_dto(channel_id),
             lambda tags: self._on_channel_tags_loaded(channel_id, tags),
             token_ref=self._channel_tags_token,
+            on_error=lambda e: logger.warning(f"Tag load failed for {channel_id}: {e}"),
         )
 
     def _on_channel_tags_loaded(self, channel_id: str, tags: list) -> None:
@@ -483,6 +484,7 @@ class _MetadataMixin:
             lambda repos: repos.channels.get_playable_dto(channel_id),
             lambda channel: self._on_details_channel_loaded(channel, on_shown),
             token_ref=self._details_channel_token,
+            on_error=self._on_details_load_failed,
         )
 
     def _on_details_channel_loaded(self, channel, on_shown=None) -> None:
@@ -492,6 +494,12 @@ class _MetadataMixin:
             self.update_details_pane_for_channel(channel)
             if on_shown:
                 on_shown()
+
+    def _on_details_load_failed(self, exc: Exception) -> None:
+        """A raised details-pane read must say so, not silently leave whatever
+        channel was shown before the click on screen."""
+        logger.warning(f"Channel details load failed: {exc}")
+        self.status_bar.showMessage("Couldn't load channel details — try again")
 
     def on_channel_selection_changed(self, current, previous):
         """Handle channel selection change — update details pane."""
@@ -508,6 +516,7 @@ class _MetadataMixin:
             lambda repos: repos.channels.get_playable_dto(channel_id),
             self._on_details_channel_loaded,
             token_ref=self._details_channel_token,
+            on_error=self._on_details_load_failed,
         )
 
     def update_details_pane_for_channel(self, channel, force: bool = False) -> None:

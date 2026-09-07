@@ -18,18 +18,18 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
 )
-from PyQt6.QtCore import pyqtSignal
 from loguru import logger
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.tool_view import ToolView, clear_layout
 
 # Recent-failures rows shown (the queue itself keeps a slightly larger ring —
 # see metadata_enrichment_queue._MAX_FAILURE_LOG).
 _VISIBLE_FAILURES = 10
 
 
-class MetadataEnrichmentView(QWidget):
+class MetadataEnrichmentView(ToolView):
     """Tools view: start/pause/resume/cancel the background enrichment queue.
 
     ``on_activate`` connects the queue's signals and renders its current
@@ -38,11 +38,8 @@ class MetadataEnrichmentView(QWidget):
     keeps draining in the background either way).
     """
 
-    done = pyqtSignal()
-
     def __init__(self, main_window) -> None:
-        super().__init__()
-        self.main_window = main_window
+        super().__init__(main_window)
         self._connected = False
         self._build_ui()
 
@@ -52,22 +49,14 @@ class MetadataEnrichmentView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.prev_icon + " Back")
-        back_btn.setToolTip("Return to channel list")
-        back_btn.clicked.connect(self.done.emit)
-        title = QLabel(f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment")
-        _theme.style(title, "DETAIL_TITLE")
-        top_bar.addWidget(back_btn)
-        top_bar.addWidget(title)
-        top_bar.addStretch()
+        top_bar = self.build_top_bar(f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment")
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
         content_layout = QVBoxLayout(content)
 
-        content_layout.addWidget(self._section_header("Status"))
+        content_layout.addWidget(self.section_header("Status"))
         hint = QLabel(
             f"{_icons.info_icon}  Fills in missing/stale posters, plot, cast and "
             "ratings across your library — favorited, queued, and recently played "
@@ -121,7 +110,7 @@ class MetadataEnrichmentView(QWidget):
         content_layout.addLayout(controls)
 
         content_layout.addSpacing(16)
-        content_layout.addWidget(self._section_header("Recent Failures"))
+        content_layout.addWidget(self.section_header("Recent Failures"))
         self._failures_panel = QWidget()
         self._failures_layout = QVBoxLayout(self._failures_panel)
         self._failures_layout.setContentsMargins(0, 0, 0, 0)
@@ -131,11 +120,6 @@ class MetadataEnrichmentView(QWidget):
         scroll.setWidget(content)
         layout.addLayout(top_bar)
         layout.addWidget(scroll)
-
-    def _section_header(self, text: str) -> QLabel:
-        label = QLabel(text)
-        _theme.style(label, "SECTION_HDR_LG")
-        return label
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -227,7 +211,7 @@ class MetadataEnrichmentView(QWidget):
             f"{_icons.notification_warning_icon}  {failed_count:,} failed this pass"
             if failed_count else ""
         )
-        self._clear_layout(self._failures_layout)
+        clear_layout(self._failures_layout)
         if not recent_failures:
             empty = QLabel(f"{_icons.notification_success_icon}  No failures yet.")
             _theme.style(empty, "SECTION_HINT")
@@ -238,9 +222,3 @@ class MetadataEnrichmentView(QWidget):
             _theme.style(row, "SECTION_HINT")
             row.setWordWrap(True)
             self._failures_layout.addWidget(row)
-
-    def _clear_layout(self, layout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()

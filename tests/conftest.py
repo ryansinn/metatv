@@ -1789,9 +1789,12 @@ def make_channel_state_bus_host(db_obj):
 
     Returns:
         A host object with a real ``channel_state_bus``, the real mutation
-        handlers bound, and ``details_pane`` as a recording double exposing
+        handlers bound (incl. ``_write_failed``, the shared on_error target
+        for a raised write), ``details_pane`` as a recording double exposing
         ``applied_states`` (the ``ChannelActionState`` objects
-        ``apply_action_state`` received, in call order).
+        ``apply_action_state`` received, in call order), and ``status_bar``
+        as a recording double exposing ``messages`` (the strings passed to
+        ``showMessage``, in call order).
     """
     from metatv.gui.channel_state_bus import ChannelStateBus
     from metatv.gui.main_window_favorites import _FavoritesMixin
@@ -1803,6 +1806,16 @@ def make_channel_state_bus_host(db_obj):
 
         def apply_action_state(self, state):
             self.applied_states.append(state)
+
+    class _StatusBarDouble:
+        """Records ``showMessage`` calls so a failed-write test (``_write_failed``)
+        can assert the "Could not save ..." message actually landed."""
+
+        def __init__(self):
+            self.messages: list[str] = []
+
+        def showMessage(self, text, *args, **kwargs):
+            self.messages.append(text)
 
     class _Host:
         """Plain class (not SimpleNamespace) so it supports weakref.WeakMethod."""
@@ -1825,8 +1838,9 @@ def make_channel_state_bus_host(db_obj):
     host._refresh_watch_alerts = lambda: None
     host._refresh_queue_section = lambda: None
     host._remove_sidebar_row = lambda section_key, key: None
-    host.status_bar = SimpleNamespace(showMessage=lambda *a, **k: None)
+    host.status_bar = _StatusBarDouble()
 
+    host._write_failed = _FavoritesMixin._write_failed.__get__(host)
     host._toggle_rating = _FavoritesMixin._toggle_rating.__get__(host)
     host._toggle_favorite_by_id = _FavoritesMixin._toggle_favorite_by_id.__get__(host)
     host._not_interested = _FavoritesMixin._not_interested.__get__(host)

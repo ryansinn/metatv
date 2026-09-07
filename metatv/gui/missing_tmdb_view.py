@@ -21,17 +21,16 @@ text (never colour alone).
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QPushButton, QFrame,
+    QWidget, QVBoxLayout, QScrollArea, QLabel, QFrame,
 )
-from PyQt6.QtCore import pyqtSignal
-from loguru import logger
 
 from metatv.core.repositories.dtos import TmdbFunnelDTO, MissingTmdbSourceDTO
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.tool_view import ToolView, clear_layout
 
 
-class MissingTmdbView(QWidget):
+class MissingTmdbView(ToolView):
     """Diagnostic view: idless VOD rows by source + the enrichment funnel.
 
     Opening it (``on_activate``) loads the funnel + per-source groups and enqueues
@@ -39,11 +38,8 @@ class MissingTmdbView(QWidget):
     by the host after an enrichment batch collapses rows) so counts settle down.
     """
 
-    done = pyqtSignal()
-
     def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
+        super().__init__(main_window)
         # One token per logical query (seam contract) so the two concurrent loads
         # don't drop each other as stale; a deactivate bumps both.
         self._funnel_token = [0]
@@ -56,15 +52,7 @@ class MissingTmdbView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.prev_icon + " Back")
-        back_btn.setToolTip("Return to channel list")
-        back_btn.clicked.connect(self.done.emit)
-        title = QLabel(f"{_icons.missing_data_icon}  Missing TMDb Data")
-        _theme.style(title, "DETAIL_TITLE")
-        top_bar.addWidget(back_btn)
-        top_bar.addWidget(title)
-        top_bar.addStretch()
+        top_bar = self.build_top_bar(f"{_icons.missing_data_icon}  Missing TMDb Data")
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -77,10 +65,10 @@ class MissingTmdbView(QWidget):
         self._sources_panel = QWidget()
         self._sources_layout = QVBoxLayout(self._sources_panel)
 
-        content_layout.addWidget(self._section_header("Enrichment Coverage"))
+        content_layout.addWidget(self.section_header("Enrichment Coverage"))
         content_layout.addWidget(self._funnel_panel)
         content_layout.addSpacing(16)
-        content_layout.addWidget(self._section_header("Idless Titles by Source"))
+        content_layout.addWidget(self.section_header("Idless Titles by Source"))
         hint = QLabel(
             f"{_icons.info_icon}  Opening this view asks your providers for the "
             "TMDb ids of the sampled titles — the counts shrink as ids arrive."
@@ -95,20 +83,12 @@ class MissingTmdbView(QWidget):
         layout.addLayout(top_bar)
         layout.addWidget(scroll)
 
-    def _section_header(self, text: str) -> QLabel:
-        label = QLabel(text)
-        _theme.style(label, "SECTION_HDR_LG")
-        return label
-
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def on_activate(self) -> None:
         """Show a loading state, then kick the async loads."""
         for lay in (self._funnel_layout, self._sources_layout):
-            self._clear_layout(lay)
-            loading = QLabel("Loading…")
-            _theme.style(loading, "SECTION_HINT")
-            lay.addWidget(loading)
+            self.show_loading(lay)
         self._load()
 
     def on_deactivate(self) -> None:
@@ -128,13 +108,13 @@ class MissingTmdbView(QWidget):
             self._query_funnel,
             self._on_funnel_loaded,
             token_ref=self._funnel_token,
-            on_error=lambda e: self._on_panel_error(self._funnel_layout, e),
+            on_error=lambda e: self.show_panel_error(self._funnel_layout, e),
         )
         self.main_window._run_query(
             self._query_sources,
             self._on_sources_loaded,
             token_ref=self._sources_token,
-            on_error=lambda e: self._on_panel_error(self._sources_layout, e),
+            on_error=lambda e: self.show_panel_error(self._sources_layout, e),
         )
 
     @staticmethod
@@ -150,7 +130,7 @@ class MissingTmdbView(QWidget):
     # ── Render: funnel / analytics (Part 6) ─────────────────────────────────
 
     def _on_funnel_loaded(self, dto: TmdbFunnelDTO) -> None:
-        self._clear_layout(self._funnel_layout)
+        clear_layout(self._funnel_layout)
 
         if dto.total_vod == 0:
             self._funnel_layout.addWidget(QLabel("No movie/series content to analyse yet."))
@@ -195,7 +175,7 @@ class MissingTmdbView(QWidget):
     # ── Render: idless rows by source (Part 5) ──────────────────────────────
 
     def _on_sources_loaded(self, groups: list[MissingTmdbSourceDTO]) -> None:
-        self._clear_layout(self._sources_layout)
+        clear_layout(self._sources_layout)
 
         if not groups:
             done = QLabel(
@@ -242,17 +222,3 @@ class MissingTmdbView(QWidget):
 
         return block
 
-    # ── Error / cleanup ─────────────────────────────────────────────────────
-
-    def _on_panel_error(self, layout, exc: Exception) -> None:
-        logger.error("Missing-TMDb panel load failed: {}", exc)
-        self._clear_layout(layout)
-        err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this panel")
-        _theme.style(err, "SECTION_HINT")
-        layout.addWidget(err)
-
-    def _clear_layout(self, layout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()

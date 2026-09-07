@@ -228,3 +228,38 @@ def test_bg_fetch_action_state_not_favorite(db):
     _MetadataMixin._bg_fetch_action_state(host, channel_id)
 
     assert captured[0].is_favorite is False
+
+
+def test_failed_rating_write_tells_the_status_bar_and_never_publishes(db):
+    """DEBT-3 write raised: the status bar must say so, and NOTHING must be
+    published as if the write had landed — no optimistic echo, no stale-state
+    silence (CLAUDE.md async-writes rule: a failed write must surface, never
+    leave the UI showing the old state with no explanation).
+
+    Drives the REAL _toggle_rating with the REAL db.session_scope made to
+    raise (rather than a bad channel_id, which could just as easily be
+    swallowed somewhere else) — the same "raising context manager" shape
+    test_source_analytics_view.py's failure test uses.
+    """
+    from contextlib import contextmanager
+
+    from tests.conftest import make_channel_state_bus_host
+
+    channel_id = "ch-write-fails"
+    _make_channel(db, channel_id)
+
+    host = make_channel_state_bus_host(db)
+
+    @contextmanager
+    def _raising_scope(commit=True):
+        raise RuntimeError("database is locked")
+        yield  # pragma: no cover — unreachable; required to make this a generator
+
+    db.session_scope = _raising_scope
+
+    host._toggle_rating(channel_id, 1)
+
+    assert host.status_bar.messages, "no failure message reached the status bar"
+    assert "Could not save" in host.status_bar.messages[-1]
+    # Nothing landed: no optimistic echo, no authoritative reread.
+    assert host.details_pane.applied_states == []

@@ -510,6 +510,7 @@ class _NavMixin:
         self._run_query(
             lambda repos: repos.channels.get_sample_channel_id(kind),
             self._on_sample_channel_resolved,
+            on_error=lambda e: logger.warning(f"navigate_to sample:{kind} lookup failed: {e}"),
         )
         return True
 

@@ -27,27 +27,24 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QPushButton, QFrame,
 )
-from PyQt6.QtCore import pyqtSignal
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import ReconnectCandidateDTO
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.tool_view import ToolView, clear_layout
 
 
-class ReconnectEngagedView(QWidget):
+class ReconnectEngagedView(ToolView):
     """Tools view: orphaned engaged content + one-click reconnect to a live copy.
 
     Opening it (``on_activate``) loads the candidate list off-thread.
     ``reload`` re-runs the load (called after a reconnect settles the counts).
     """
 
-    done = pyqtSignal()
-
     def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
+        super().__init__(main_window)
         self._token = [0]
         self._candidates: list[ReconnectCandidateDTO] = []
         self._build_ui()
@@ -58,15 +55,7 @@ class ReconnectEngagedView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.prev_icon + " Back")
-        back_btn.setToolTip("Return to channel list")
-        back_btn.clicked.connect(self.done.emit)
-        title = QLabel(f"{_icons.reconnect_icon}  Reconnect Engaged Content")
-        _theme.style(title, "DETAIL_TITLE")
-        top_bar.addWidget(back_btn)
-        top_bar.addWidget(title)
-        top_bar.addStretch()
+        top_bar = self.build_top_bar(f"{_icons.reconnect_icon}  Reconnect Engaged Content")
         self._reconnect_all_btn = QPushButton(f"{_icons.reconnect_icon} Reconnect All")
         self._reconnect_all_btn.setToolTip(
             "Move every matched row's engagement onto its proposed live replacement"
@@ -101,10 +90,7 @@ class ReconnectEngagedView(QWidget):
     def on_activate(self) -> None:
         """Show a loading state, then kick the async load."""
         self._reconnect_all_btn.setEnabled(False)
-        self._clear_layout(self._rows_layout)
-        loading = QLabel("Loading…")
-        _theme.style(loading, "SECTION_HINT")
-        self._rows_layout.addWidget(loading)
+        self.show_loading(self._rows_layout)
         self._load()
 
     def on_deactivate(self) -> None:
@@ -135,7 +121,7 @@ class ReconnectEngagedView(QWidget):
 
     def _on_candidates_loaded(self, candidates: list[ReconnectCandidateDTO]) -> None:
         self._candidates = candidates
-        self._clear_layout(self._rows_layout)
+        clear_layout(self._rows_layout)
 
         matched = sum(1 for c in candidates if c.match is not None)
         self._reconnect_all_btn.setEnabled(matched > 0)
@@ -275,14 +261,4 @@ class ReconnectEngagedView(QWidget):
     # ── Error / cleanup ─────────────────────────────────────────────────────
 
     def _on_load_error(self, exc: Exception) -> None:
-        logger.error(f"Reconnect-candidates load failed: {exc}")
-        self._clear_layout(self._rows_layout)
-        err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this list")
-        _theme.style(err, "SECTION_HINT")
-        self._rows_layout.addWidget(err)
-
-    def _clear_layout(self, layout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.show_panel_error(self._rows_layout, exc)

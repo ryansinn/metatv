@@ -848,6 +848,7 @@
   "tests/test_sidebar_allocation.py::test_the_tree_never_grows_its_own_scrollbar",
   "tests/test_sidebar_bare_headers.py::TestTheHeadersAreBare::test_no_section_draws_a_glyph_beside_its_title",
   "tests/test_sidebar_bare_headers.py::TestTheHeadersAreBare::test_the_title_label_is_no_wider_than_its_words",
+  "tests/test_sidebar_chip_rows.py::test_favorites_row_is_honest_chip_row",
   "tests/test_sidebar_chip_rows.py::test_history_row_is_honest_chip_row",
   "tests/test_sidebar_chip_rows.py::test_history_row_puts_the_episode_code_on_the_meta_line",
   "tests/test_sidebar_chip_rows.py::test_queue_row_is_honest_chip_row",
