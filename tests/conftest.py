@@ -1511,8 +1511,10 @@ def first_chip_row(list_widget):
     fails somewhere far away — ``AttributeError: 'NoneType' object has no
     attribute 'text'``, in a file the change never touched.
 
-    A heading is identified by its bucket role rather than by widget type, so a
-    section that grows a different heading widget still works.
+    Two independent tells, because neither is enough on its own: the time-group
+    heading's bucket ROLE (Downloads, History), and the ``GroupHeading`` widget
+    TYPE — Favorites and the Watch Queue tag their headings with neither role
+    nor bucket, so only the type finds those.
 
     Args:
         list_widget: A ``QListWidget`` populated by a sidebar section.
@@ -1522,13 +1524,15 @@ def first_chip_row(list_widget):
     """
     from PyQt6.QtCore import Qt
 
+    from metatv.gui.sidebar.base import GroupHeading
+
     role_bucket = Qt.ItemDataRole.UserRole + 8
     for i in range(list_widget.count()):
         item = list_widget.item(i)
         if item.data(role_bucket) is not None:
             continue                      # a time-group heading, not a row
         widget = list_widget.itemWidget(item)
-        if widget is not None:
+        if widget is not None and not isinstance(widget, GroupHeading):
             return widget
     return None
 
@@ -1774,7 +1778,10 @@ def wire_watch_queue_section(sec, rendered: list) -> None:
     Args:
         sec: A ``WatchQueueSection`` built via ``__new__`` (no ``__init__`` run).
         rendered: List the stubs append to — ``("HEADER", text)`` / ``("ROW", name)``
-            tuples in render order, which is what the caller asserts on.
+            tuples in render order, which is what the caller asserts on. The
+            header text is composed the way the rendered ``GroupHeading`` reads
+            it — label, then the count in brackets — so a caller still asserts
+            on one string.
     """
     class _List:
         def clear(self):
@@ -1811,9 +1818,29 @@ def wire_watch_queue_section(sec, rendered: list) -> None:
         def text(self):
             return self._text
 
-    def _header(text):
-        rendered.append(("HEADER", text))
-        return _Item(text)
+    class _Heading:
+        """Stand-in for the ``GroupHeading`` widget ``_add_header`` now returns.
+
+        The filter retitles the WIDGET (``set_count``) and hides the ITEM, so a
+        skeleton section needs both handles — see ``_FilterGroup``.
+        """
+
+        def __init__(self, text, count):
+            self._text = text
+            self._count = count
+
+        def set_count(self, count):
+            self._count = count
+
+        def text(self):
+            return _compose(self._text, self._count)
+
+    def _compose(text, count):
+        return text if count is None else f"{text} ({count})"
+
+    def _header(text, count=None):
+        rendered.append(("HEADER", _compose(text, count)))
+        return _Item(_compose(text, count)), _Heading(text, count)
 
     def _row(e):
         rendered.append(("ROW", e.channel_name))
@@ -2986,3 +3013,36 @@ def with_programme_render_fields(cls):
         if not hasattr(cls, name):
             setattr(cls, name, default)
     return cls
+
+
+# ---------------------------------------------------------------------------
+# Sidebar rendered-row text
+# ---------------------------------------------------------------------------
+
+def sidebar_item_text(list_widget, item) -> str:
+    """What one sidebar list row READS AS, whatever kind of row it is.
+
+    Three kinds of row share these lists — a plain ``QListWidgetItem`` (an
+    empty state, a gate line), a chip row from ``build_chip_row``, and a
+    ``GroupHeading`` widget. Every test that walks a section's rendered rows
+    needs the same three-way answer, and each had grown its own two-way copy
+    that silently returned ``""`` for the third.
+
+    A heading is composed the way it reads on screen — label, then its count in
+    brackets — so a caller keeps asserting on one string.
+
+    Args:
+        list_widget: The ``QListWidget`` the item belongs to.
+        item: One ``QListWidgetItem`` from it.
+    """
+    from metatv.gui.chip_row import row_title_label
+    from metatv.gui.sidebar.base import GroupHeading
+
+    widget = list_widget.itemWidget(item)
+    if widget is None:
+        return item.text()
+    if isinstance(widget, GroupHeading):
+        count = widget.count_label.text().strip()
+        return f"{widget.label.text()} ({count})" if count else widget.label.text()
+    label = row_title_label(widget)
+    return label.text() if label is not None else ""

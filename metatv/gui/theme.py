@@ -59,6 +59,7 @@ from metatv.gui.token_color import to_qcolor
 # the type scale. See tokens/scales.py, in particular why a PILL cannot be
 # a radius step.
 from metatv.gui.tokens.scales import (  # noqa: F401
+    PROGRESS_H, PROGRESS_H_THIN,
     RADIUS_LG, RADIUS_MD, RADIUS_NONE, RADIUS_SM,
     SPACE_LG, SPACE_MD, SPACE_NONE, SPACE_SM, SPACE_XS,
     radius_px, space_px, zoomed_font,
@@ -66,6 +67,7 @@ from metatv.gui.tokens.scales import (  # noqa: F401
 # Role groups that compose themselves from the tokens and merge in below.
 from metatv.gui.tokens import chip_roles as _chip_roles
 from metatv.gui.tokens import detail_roles as _detail_roles
+from metatv.gui.tokens import progress_roles as _progress_roles
 
 
 # ── 1. Design tokens ────────────────────────────────────────────────────────────
@@ -1828,15 +1830,6 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_LIGHTBOX_FAINT + "; font-size: " + FONT_SM + ";"
     )
 
-    # Shared QProgressBar role (background enrichment queue view; migration_progress_widget.py
-    # still builds its own inline — left alone, out of scope for this addition).
-    PROGRESS_BAR = (
-        "QProgressBar { border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
-        " background: " + COLOR_LINE + "; text-align: center; color: " + COLOR_TEXT_HI + ";"
-        " font-size: " + FONT_SM + "; }"
-        "QProgressBar::chunk { background: " + COLOR_ACCENT_BLUE + "; border-radius: " + RADIUS_SM + "; }"
-    )
-
     return {k: v for k, v in dict(locals()).items() if not k.startswith("_")}
 
 
@@ -1849,6 +1842,7 @@ globals().update(_build_semantic_constants())
 # leave these roles on the old palette.
 globals().update(_chip_roles.build(globals()))
 globals().update(_detail_roles.build(globals()))
+globals().update(_progress_roles.build(globals()))
 
 
 def _relative_luminance(value: str) -> float:
@@ -2395,6 +2389,7 @@ def _apply_theme_locked(name: str) -> bool:
         globals().update(_build_semantic_constants())
         globals().update(_chip_roles.build(globals()))
         globals().update(_detail_roles.build(globals()))
+        globals().update(_progress_roles.build(globals()))
         rewrite_map = _build_palette_rewrite_map(before, _color_token_snapshot())
         _CONSTANT_REWRITE = {
             was: globals()[n]

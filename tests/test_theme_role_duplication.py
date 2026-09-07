@@ -151,4 +151,14 @@ _IDENTICAL_GROUP_BUDGET = 25
 #                      signal
 #
 # Merging them would paint the log viewer as a failure notice. Kept apart.
-_SHAPE_CLUSTER_BUDGET = 43
+# 43 -> 44, justified rather than absorbed (CHROME-1).
+#
+# The new cluster is DETAIL_SECTION_TITLE / DETAIL_SUBSECTION_TITLE. Same
+# property NAMES on the same QLabel selector; the values differ by exactly one
+# step of the type scale, and that step IS the information: the details pane's
+# Other Versions section nests headers (a source group inside the section), and
+# CollapsibleHeader(nested=True) has to read as subordinate to its parent
+# header or the hierarchy is invisible. One role with a size parameter would be
+# a composed sheet built per widget — the pre-registry population this guard's
+# siblings are ratcheting DOWN — so the pair stays two roles.
+_SHAPE_CLUSTER_BUDGET = 44

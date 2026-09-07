@@ -42,9 +42,24 @@ class CollapsibleHeader(QWidget):
 
     toggled = pyqtSignal(bool)
 
-    def __init__(self, title: str, *, collapsed: bool = False, parent=None):
+    def __init__(self, title: str, *, collapsed: bool = False,
+                 hint: str = "", nested: bool = False, parent=None):
+        """
+        Args:
+            title: The section's name — also what its tooltip names, so a
+                header never says the generic "Expand this section".
+            collapsed: Starting state.
+            hint: An explanation appended after the toggle phrase, for a
+                section whose name does not say what is in it ("Offline
+                sources" → "variants on a source you have turned off").
+            nested: This header sits INSIDE another section, so it renders one
+                step down the type scale. Without it a sub-section header is
+                the same size as its parent's and reads as its sibling.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._collapsed = collapsed
+        self._hint = hint
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, _theme.space_px(_theme.SPACE_XS),
@@ -62,7 +77,8 @@ class CollapsibleHeader(QWidget):
 
         self._title = QPushButton(title)
         self._title.setFlat(True)
-        _theme.style(self._title, "DETAIL_SECTION_TITLE")
+        _theme.style(self._title,
+                     "DETAIL_SUBSECTION_TITLE" if nested else "DETAIL_SECTION_TITLE")
         cursor_affordance.set_clickable(self._title)
         self._title.clicked.connect(self.toggle)
         row.addWidget(self._title)
@@ -105,15 +121,23 @@ class CollapsibleHeader(QWidget):
             self._chevron, "expand" if self._collapsed else "collapse"
         )
         # Set here, not at construction: the glyph flips with the state, so a
-        # fixed tooltip would contradict the arrow half the time.
-        hint = "Expand this section" if self._collapsed else "Collapse this section"
-        self._chevron.setToolTip(hint)
-        self._title.setToolTip(hint)
+        # fixed tooltip would contradict the arrow half the time. It names the
+        # SECTION — "Expand Plot", not "Expand this section" — because a
+        # tooltip that could be on any of seven headers tells you nothing you
+        # could not already see.
+        verb = "Expand" if self._collapsed else "Collapse"
+        tip = f"{verb} {self._title.text()}"
+        if self._hint:
+            tip = f"{tip} — {self._hint}"
+        self._chevron.setToolTip(tip)
+        self._title.setToolTip(tip)
 
     # ── Content ──────────────────────────────────────────────────────────────
 
     def set_title(self, title: str) -> None:
+        """Rename the section — and its tooltip with it, which names the title."""
         self._title.setText(title)
+        self._sync()
 
     def title(self) -> str:
         return self._title.text()

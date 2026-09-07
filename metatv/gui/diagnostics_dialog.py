@@ -18,12 +18,13 @@ from loguru import logger
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QDialog, QDialogButtonBox, QVBoxLayout, QGridLayout, QLabel, QPushButton,
 )
 
 from metatv.core import stream_diagnostics as _diag
 from metatv.core.stream_diagnostics import DiagnosticResult, recommend_buffer_profile
 from metatv.gui import icons as _icons
+from metatv.gui.dialog_chrome import action_button, dialog_buttons
 from metatv.gui import theme as _theme
 
 
@@ -189,24 +190,18 @@ class StreamDiagnosticsDialog(QDialog):
         self._saved.hide()
         layout.addWidget(self._saved)
 
-        # Footer buttons.
-        footer = QHBoxLayout()
-        self._apply_button = QPushButton("Apply tuning && Save")
+        # Footer buttons — the shared row. Close REJECTS, as it always has.
+        footer = dialog_buttons(
+            self, ok="Close", cancel=False, on_ok=self.reject,
+            extra=(("Apply tuning && Save", self._on_apply),))
+        footer.button(QDialogButtonBox.StandardButton.Ok).setToolTip(
+            "Close this dialog")
+        self._apply_button = action_button(footer, "Apply tuning && Save")
         self._apply_button.setToolTip(
             "Save the recommended mpv cache settings — takes effect on the next stream you play"
         )
         self._apply_button.setEnabled(False)
-        self._apply_button.clicked.connect(self._on_apply)
-        footer.addWidget(self._apply_button)
-
-        footer.addStretch()
-
-        close_button = QPushButton("Close")
-        close_button.setToolTip("Close this dialog")
-        close_button.clicked.connect(self.reject)
-        footer.addWidget(close_button)
-
-        layout.addLayout(footer)
+        layout.addWidget(footer)
 
     # ------------------------------------------------------------------ #
     # Run — worker emits signal, slot renders on main thread               #
@@ -385,9 +380,9 @@ class _TechnicalDetailsDialog(QDialog):
             self._rows.append((key_label, value_label))
         layout.addLayout(grid)
 
-        close_button = QPushButton("Close")
-        close_button.setToolTip("Close technical details")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
+        close_box = dialog_buttons(self, ok="Close", cancel=False)
+        close_box.button(QDialogButtonBox.StandardButton.Ok).setToolTip(
+            "Close technical details")
+        layout.addWidget(close_box)
 
         self.adjustSize()

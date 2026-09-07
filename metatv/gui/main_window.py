@@ -216,8 +216,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.unknown_icon = config.unknown_icon
         
         # UI Control Icons
-        self.expand_icon = config.expand_icon
-        self.collapse_icon = config.collapse_icon
         self.play_icon = config.play_icon
         self.loading_icon = config.loading_icon
         self.close_icon = config.close_icon

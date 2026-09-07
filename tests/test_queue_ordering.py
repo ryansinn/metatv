@@ -30,7 +30,6 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from metatv.core.repositories.queue import QueueEntry
-from metatv.gui.chip_row import row_title_label
 from metatv.gui.sidebar.queue import WatchQueueSection
 
 
@@ -77,13 +76,11 @@ def _headers(section) -> list[str]:
 
 
 def _real_row_title(section, item) -> str:
-    """Title text of one item in a REAL ``QListWidget`` — a header's own text,
-    or a chip row's title label (mirrors ``test_sidebar_in_place_removal.py``)."""
-    widget = section._list.itemWidget(item)
-    if widget is None:
-        return item.text()
-    label = row_title_label(widget)
-    return label.text() if label is not None else ""
+    """Title text of one item in a REAL ``QListWidget`` — a heading's label and
+    count, or a chip row's title label. One shared three-way reader."""
+    from tests.conftest import sidebar_item_text
+
+    return sidebar_item_text(section._list, item)
 
 
 def _real_texts(section) -> list[str]:
@@ -203,9 +200,14 @@ class TestChunkedBuild:
         return sec
 
     def _built_row_count(self, sec) -> int:
+        """Row widgets only — a ``GroupHeading`` is a widget on an item too,
+        and counting it would make one batch of 40 rows read as 41."""
+        from metatv.gui.sidebar.base import GroupHeading
+
         return sum(
             1 for i in range(sec._list.count())
-            if sec._list.itemWidget(sec._list.item(i)) is not None
+            if (w := sec._list.itemWidget(sec._list.item(i))) is not None
+            and not isinstance(w, GroupHeading)
         )
 
     def _pump_until_done(self, sec, max_iterations: int = 200) -> None:
@@ -253,10 +255,13 @@ class TestChunkedBuild:
 
         self._pump_until_done(sec)
 
+        from metatv.gui.sidebar.base import GroupHeading
+
         rows = [
             _real_row_title(sec, sec._list.item(i))
             for i in range(sec._list.count())
-            if sec._list.itemWidget(sec._list.item(i)) is not None
+            if (w := sec._list.itemWidget(sec._list.item(i))) is not None
+            and not isinstance(w, GroupHeading)
         ]
         assert len(rows) == 50
         assert all(t.startswith("new") for t in rows), (

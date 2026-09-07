@@ -58,7 +58,11 @@ def _mock_db():
 
 
 def _texts(list_widget):
-    return [list_widget.item(i).text() for i in range(list_widget.count())]
+    """Each row as it READS — a plain item's text, or a heading's label+count."""
+    from tests.conftest import sidebar_item_text
+
+    return [sidebar_item_text(list_widget, list_widget.item(i))
+            for i in range(list_widget.count())]
 
 
 def _chip_icon_role(list_widget, i):
@@ -198,7 +202,7 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
     # (channel_dtos, episode_dtos) — Wave 2 Slice 2B; no favorited episodes here.
     obj._on_data_ready((dtos, []))
 
-    # Headers stay plain-text items; content rows are chip-row widgets now.
+    # Headers are GroupHeading widgets; content rows are chip rows.
     texts = _texts(obj.favorites_list)
     # continue-watching sorted by last_played desc (c3 then c2), then never-watched (c1)
     assert _ids(obj.favorites_list) == ["c3", "c2", "c1"]

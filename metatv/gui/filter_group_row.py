@@ -208,7 +208,7 @@ class _GroupRow(QWidget):
             self._expand_btn, "expand", color=_group_expander_colour,
         )
         self._expand_btn.setIconSize(QSize(12, 12))
-        self._expand_btn.setToolTip("Show the codes in this group")
+        self._expand_btn.setToolTip("Expand " + group_name)
         self._expand_btn.clicked.connect(self._toggle_expand)
         hl.addWidget(self._expand_btn)
 
@@ -265,9 +265,7 @@ class _GroupRow(QWidget):
             color=_group_expander_colour,
         )
         self._expand_btn.setToolTip(
-            "Hide the codes in this group" if self._expanded
-            else "Show the codes in this group"
-        )
+            ("Collapse " if self._expanded else "Expand ") + self._group_name)
 
     def _on_tri_changed(self, state_val: int):
         state = Qt.CheckState(state_val)
@@ -386,6 +384,8 @@ class _Section(QWidget):
         )
         self._collapse_btn.clicked.connect(self._toggle_collapse)
         hl.addWidget(self._collapse_btn)
+        self._section_title = title
+        self._sync_collapse_tooltip(initially_expanded)
 
         self._title_lbl = QLabel(title.upper())
         _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
@@ -452,13 +452,21 @@ class _Section(QWidget):
     def is_expanded(self) -> bool:
         return self._expanded
 
+    def _sync_collapse_tooltip(self, expanded: bool) -> None:
+        """The caret says WHAT it does; the tooltip says what to.
+
+        On both the button and the header row, which is the wider click target
+        — a bare caret with no hover text is the affordance this section had.
+        """
+        tip = ("Collapse " if expanded else "Expand ") + self._section_title
+        self._collapse_btn.setToolTip(tip)
+        self._header.setToolTip(tip)
+
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self._content.setVisible(expanded)
         _icon_utils.set_button_icon(self._collapse_btn, "collapse" if expanded else "expand")
-        self._collapse_btn.setToolTip(
-            "Collapse this section" if expanded else "Expand this section"
-        )
+        self._sync_collapse_tooltip(expanded)
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
         """Populate the section with a sorted flat list of (key, label, count) tuples.

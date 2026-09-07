@@ -24,7 +24,7 @@ def test_filtered_variants_header_stylesheet_is_parseable(qapp):
     from metatv.gui.details_versions import _VersionSection
 
     vs = _VersionSection(Config())
-    ss = vs._filtered_hdr_lbl.styleSheet()
+    ss = vs._filtered_header._title.styleSheet()
 
     assert "}}" not in ss, f"double closing brace breaks QSS parse: {ss!r}"
     assert ss.count("{") == ss.count("}"), (

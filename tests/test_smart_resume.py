@@ -319,6 +319,9 @@ def _patch_dialog(accepted: bool):
     stack.enter_context(patch("metatv.gui.main_window_streaming.QVBoxLayout"))
     stack.enter_context(patch("metatv.gui.main_window_streaming.QLabel"))
     stack.enter_context(patch("metatv.gui.main_window_streaming.QDialogButtonBox"))
+    # The Yes/No row now comes from dialog_chrome.dialog_buttons, which builds a
+    # REAL QDialogButtonBox on the (mocked) dialog — stub the builder too.
+    stack.enter_context(patch("metatv.gui.main_window_streaming.dialog_buttons"))
     return stack
 
 

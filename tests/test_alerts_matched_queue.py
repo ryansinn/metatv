@@ -254,7 +254,10 @@ class TestAlertsMatchedSectionRendering:
         obj._alerts_matched_series = []
         obj._populate_rows([])  # empty queue — matched rows must still render
 
-        texts = [obj._list.item(i).text() for i in range(obj._list.count())]
+        from tests.conftest import sidebar_item_text
+
+        texts = [sidebar_item_text(obj._list, obj._list.item(i))
+                 for i in range(obj._list.count())]
         assert any("Alerts Matched" in t for t in texts), texts
         # "Queue is empty" placeholder must NOT show — the matched rows ARE the surface.
         assert not any("Queue is empty" in t for t in texts), texts
@@ -343,7 +346,10 @@ class TestAlertsMatchedSectionRendering:
         obj = self._make_section()
         obj._populate_rows([])
 
-        texts = [obj._list.item(i).text() for i in range(obj._list.count())]
+        from tests.conftest import sidebar_item_text
+
+        texts = [sidebar_item_text(obj._list, obj._list.item(i))
+                 for i in range(obj._list.count())]
         assert any("Queue is empty" in t for t in texts), texts
         assert not any("Alerts Matched" in t for t in texts), texts
 

@@ -33,12 +33,10 @@ from metatv.gui.progress_paint import paint_progress
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
     QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
@@ -47,6 +45,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.epg_utils import now_utc as _now_utc
 from metatv.gui import theme as _theme
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import deferred_config_save as _cfgsave
 
 # ---------------------------------------------------------------------------
@@ -297,12 +296,10 @@ class _DismissedDialog(QDialog):
         if self.list.count() == 0:
             self.list.addItem("No dismissed channels.")
 
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        undismiss_btn = QPushButton("Un-dismiss selected")
-        undismiss_btn.clicked.connect(self._undismiss)
-        btn_box.addButton(undismiss_btn, QDialogButtonBox.ButtonRole.ActionRole)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
+        # Close REJECTS, as it always has — nothing here is confirmed by it.
+        layout.addWidget(dialog_buttons(
+            self, ok="Close", cancel=False, on_ok=self.reject,
+            extra=(("Un-dismiss selected", self._undismiss),)))
 
     def _undismiss(self) -> None:
         item = self.list.currentItem()
@@ -348,12 +345,7 @@ class _AssignCategoryDialog(QDialog):
         )
         lay.addWidget(combo)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-        lay.addWidget(btns)
+        lay.addWidget(dialog_buttons(self))
 
     def category_code(self) -> str:
         return self._edit.text().strip().upper()

@@ -231,8 +231,11 @@ class TestDriftGuard:
     # this; a rise means new inline-composed styling was added instead of
     # theme.style_fn().
     #
-    # 285 -> 17 when the theme-only sheets were migrated mechanically. What is
-    # left is the residue that could NOT be rewritten safely: each of these
+    # 285 -> 17 when the theme-only sheets were migrated mechanically, and
+    # 17 -> 15 with ICON-1: two composed sheets came off icon-only buttons that
+    # now carry a real QIcon (the Discover shelf's collapse toggle, the filter
+    # panel's group caret).
+    # What is left is the residue that could NOT be rewritten safely: each of these
     # interpolates a runtime value as well as a token — a provider colour, a
     # per-row accent, a mood pair, a computed step. Wrapping those in a lambda
     # changes their meaning, because the lambda re-evaluates on every theme
@@ -244,7 +247,13 @@ class TestDriftGuard:
     # token plus a per-section accent — and it moved to a style_fn builder
     # that binds the section KEY as a default argument, the first of the two
     # per-site decisions above.
-    COMPOSED_BUDGET = 14
+    #
+    # 14 -> 12 (CHROME-1): the second one, twice over. The provider editor's
+    # subscription bar and Preferences' attribute bar each interpolated a
+    # RUNTIME colour into a hand-composed QProgressBar sheet, and both now bind
+    # that colour into theme.progress_bar(colour) — a builder that takes it as
+    # a parameter.
+    COMPOSED_BUDGET = 12
 
     def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
         tier_a, _ = self._drift_sites()

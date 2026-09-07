@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from loguru import logger
@@ -28,6 +28,8 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
@@ -236,7 +238,77 @@ def _group_prefixes(
     return result
 
 
-class _GroupSection(QWidget):
+class _ExpandableSection:
+    """The collapse/expand half of the two filter sections below.
+
+    They are separate classes — one holds region prefixes, the other raw
+    provider category labels — but the toggle, the lazy body, the caret and the
+    realtime search were identical, twice. Only what COUNTS as a match differs,
+    which is the one hook (``_row_matches``). Neither copy set hover text at
+    all, though the whole header row is the click target.
+
+    Expects ``_expanded``, ``_body``, ``_body_built``, ``_build_body``,
+    ``_checkboxes``, ``_pre_search_expanded``, ``_expand_lbl``, ``_header`` and
+    ``_toggle_label``.
+    """
+
+    def _sync_expand_affordance(self) -> None:
+        """Caret and hover text together — the tooltip names what it opens."""
+        self._expand_lbl.setText(
+            _icons.collapse_icon if self._expanded else _icons.expand_icon)
+        self._header.setToolTip(
+            ("Collapse " if self._expanded else "Expand ") + self._toggle_label)
+
+    def _toggle_expand(self, _event=None) -> None:
+        self._set_expanded(not self._expanded)
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+        if expanded and not self._body_built:
+            self._build_body()
+        self._body.setVisible(expanded)
+        self._sync_expand_affordance()
+
+    def _row_matches(self, key: str, query: str) -> bool:
+        """Does the row keyed ``key`` match ``query`` (stripped + lowercased)?"""
+        raise NotImplementedError
+
+    def apply_filter(self, query: str) -> bool:
+        """Realtime-search this section's rows for *query* (stripped, lowered).
+
+        Forces the lazily-built body so individual rows exist to filter, and
+        auto-expands while there is a match. An empty *query* restores every row
+        and the expand state captured when the search began. Returns True if the
+        section has at least one visible row (it hides itself otherwise).
+        """
+        if not self._body_built:
+            self._build_body()
+
+        if not query:
+            for cb in self._checkboxes.values():
+                cb.parentWidget().setVisible(True)
+            if self._pre_search_expanded is not None:
+                self._set_expanded(self._pre_search_expanded)
+                self._pre_search_expanded = None
+            self.setVisible(True)
+            return True
+
+        if self._pre_search_expanded is None:
+            self._pre_search_expanded = self._expanded
+
+        any_match = False
+        for key, cb in self._checkboxes.items():
+            matched = self._row_matches(key, query)
+            cb.parentWidget().setVisible(matched)
+            any_match = any_match or matched
+
+        if any_match and not self._expanded:
+            self._set_expanded(True)
+        self.setVisible(any_match)
+        return any_match
+
+
+class _GroupSection(_ExpandableSection, QWidget):
     """Collapsible group section. Header built eagerly; prefix rows built lazily
     on first expand so the dialog opens fast regardless of prefix count."""
 
@@ -266,7 +338,8 @@ class _GroupSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 4)
 
         # ── Header row (always created) ───────────────────────────────────────
-        header = QWidget()
+        header = self._header = QWidget()
+        self._toggle_label = group_name
         cursor_affordance.set_clickable(header, keyboard=True)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
@@ -277,7 +350,7 @@ class _GroupSection(QWidget):
         _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel(config.expand_icon)
+        self._expand_lbl = QLabel(_icons.expand_icon)
         _theme.style(self._expand_lbl, "EXPAND_HINT")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -305,6 +378,7 @@ class _GroupSection(QWidget):
 
         self._group_cb.clicked.connect(self._on_group_clicked)
         header.mousePressEvent = self._toggle_expand  # type: ignore[assignment]
+        self._sync_expand_affordance()
 
         self._update_group_state()
 
@@ -370,61 +444,17 @@ class _GroupSection(QWidget):
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _toggle_expand(self, _event=None) -> None:
-        self._set_expanded(not self._expanded)
-
-    def _set_expanded(self, expanded: bool) -> None:
-        self._expanded = expanded
-        if expanded and not self._body_built:
-            self._build_body()
-        self._body.setVisible(expanded)
-        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
-        self._expand_lbl.setText(glyph)
-
-    def apply_filter(self, query: str) -> bool:
-        """Realtime-search this group for *query* (already stripped + lowercased).
-
-        Matches each prefix's own code, its ``REGION_FULL_NAMES`` human-readable
-        name, OR the group's own name (so "french" matches the French group and
-        therefore shows its FR member even though FR's full name is "France").
-        Forces the lazily-built body so individual rows exist to filter, and
-        auto-expands the group while it has a match. An empty *query* restores
-        every row and the expand state captured when the search began.
-        Returns True if the group has ≥1 visible row (itself hidden otherwise).
-        """
+    def _row_matches(self, prefix: str, query: str) -> bool:
+        """A prefix matches on its own code, its ``REGION_FULL_NAMES`` human
+        name, OR the group's own name — so "french" matches the French group
+        and therefore shows its FR member even though FR's full name is
+        "France"."""
         from metatv.core.channel_name_utils import REGION_FULL_NAMES
 
-        if not self._body_built:
-            self._build_body()
-
-        if not query:
-            for cb in self._checkboxes.values():
-                cb.parentWidget().setVisible(True)
-            if self._pre_search_expanded is not None:
-                self._set_expanded(self._pre_search_expanded)
-                self._pre_search_expanded = None
-            self.setVisible(True)
-            return True
-
-        if self._pre_search_expanded is None:
-            self._pre_search_expanded = self._expanded
-
-        whole_group_match = query in self._group_name.lower()
-        any_match = False
-        for prefix, cb in self._checkboxes.items():
-            full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
-            matched = bool(
-                whole_group_match
-                or query in prefix.lower()
-                or (full_name and query in full_name.lower())
-            )
-            cb.parentWidget().setVisible(matched)
-            any_match = any_match or matched
-
-        if any_match and not self._expanded:
-            self._set_expanded(True)
-        self.setVisible(any_match)
-        return any_match
+        full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
+        return bool(query in self._group_name.lower()
+                    or query in prefix.lower()
+                    or (full_name and query in full_name.lower()))
 
     def _update_group_state(self) -> None:
         total = len(self._prefix_data)
@@ -476,7 +506,7 @@ class _GroupSection(QWidget):
         self._update_group_state()
 
 
-class _ContentTypeSection(QWidget):
+class _ContentTypeSection(_ExpandableSection, QWidget):
     """Collapsible section for unmapped source_category labels inside 'Other'.
 
     Identical collapse/expand and lazy-body pattern to _GroupSection but for
@@ -505,7 +535,8 @@ class _ContentTypeSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 4)
 
         # ── Header ────────────────────────────────────────────────────────────
-        header = QWidget()
+        header = self._header = QWidget()
+        self._toggle_label = "Other (unmapped types)"
         cursor_affordance.set_clickable(header, keyboard=True)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
@@ -516,7 +547,7 @@ class _ContentTypeSection(QWidget):
         _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel(config.expand_icon)
+        self._expand_lbl = QLabel(_icons.expand_icon)
         _theme.style(self._expand_lbl, "EXPAND_HINT")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -543,6 +574,7 @@ class _ContentTypeSection(QWidget):
 
         self._group_cb.clicked.connect(self._on_group_clicked)
         header.mousePressEvent = self._toggle_expand  # type: ignore[assignment]
+        self._sync_expand_affordance()
 
         self._update_state()
 
@@ -594,49 +626,10 @@ class _ContentTypeSection(QWidget):
             self._initial_checked = {lbl for lbl, _ in self._items} if checked else set()
         self._update_state()
 
-    def _toggle_expand(self, _event=None) -> None:
-        self._set_expanded(not self._expanded)
-
-    def _set_expanded(self, expanded: bool) -> None:
-        self._expanded = expanded
-        if expanded and not self._body_built:
-            self._build_body()
-        self._body.setVisible(expanded)
-        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
-        self._expand_lbl.setText(glyph)
-
-    def apply_filter(self, query: str) -> bool:
-        """Realtime-search this section's item labels for *query* (stripped + lowercased).
-
-        Same contract as ``_GroupSection.apply_filter`` — items here are raw
-        provider ``source_category`` labels (already human-readable, no
-        separate full-name lookup applies).
-        """
-        if not self._body_built:
-            self._build_body()
-
-        if not query:
-            for cb in self._checkboxes.values():
-                cb.parentWidget().setVisible(True)
-            if self._pre_search_expanded is not None:
-                self._set_expanded(self._pre_search_expanded)
-                self._pre_search_expanded = None
-            self.setVisible(True)
-            return True
-
-        if self._pre_search_expanded is None:
-            self._pre_search_expanded = self._expanded
-
-        any_match = False
-        for label, cb in self._checkboxes.items():
-            matched = query in label.lower()
-            cb.parentWidget().setVisible(matched)
-            any_match = any_match or matched
-
-        if any_match and not self._expanded:
-            self._set_expanded(True)
-        self.setVisible(any_match)
-        return any_match
+    def _row_matches(self, label: str, query: str) -> bool:
+        """Raw provider ``source_category`` labels are already human-readable,
+        so no separate full-name lookup applies."""
+        return query in label.lower()
 
     def _update_state(self) -> None:
         total = len(self._items)
@@ -904,12 +897,7 @@ class GlobalFilterDialog(QDialog):
         vl.addLayout(shortcut_row)
 
         # ── OK / Cancel ────────────────────────────────────────────────────────
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save_and_accept)
-        buttons.rejected.connect(self.reject)
-        vl.addWidget(buttons)
+        vl.addWidget(dialog_buttons(self, on_ok=self._save_and_accept))
 
         self._search_box.setFocus()
 

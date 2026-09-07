@@ -19,6 +19,7 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import deferred_config_save as _cfgsave
@@ -54,14 +55,11 @@ class _AttrRow(QWidget):
         bar.setRange(0, 100)
         bar.setValue(int(abs(value) / max_abs * 100) if max_abs > 0 else 0)
         bar.setTextVisible(False)
-        bar.setFixedHeight(8)
         bar.setMinimumWidth(40)
         bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Green above the line, red below — the chunk colour IS the reading here.
         color = _theme.COLOR_OK if value >= 0 else _theme.COLOR_ERR
-        bar.setStyleSheet(
-            f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; background: {_theme.COLOR_LINE_DARK}; }}"
-            f"QProgressBar::chunk {{ background: {color}; border-radius: 2px; }}"
-        )
+        _theme.style_fn(bar, lambda: _theme.progress_bar(color))
 
         sign_lbl = QLabel(f"{value:+.1f}")
         sign_lbl.setFixedWidth(46)
@@ -94,8 +92,7 @@ class _AttrRow(QWidget):
                 palette = w.palette()
                 palette.setColor(QPalette.ColorRole.WindowText, gray)
                 w.setPalette(palette)
-            _theme.style_fn(bar, lambda: f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: {_theme.COLOR_BG_BAR}; }}"
-                f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}")
+            _theme.style_fn(bar, lambda: _theme.progress_bar(_theme.COLOR_FAINT))
 
 
 class _AttrColumn(QWidget):
@@ -247,7 +244,7 @@ class PreferencesView(QWidget):
         header_row.addStretch()
 
         self._toggle_attrs_btn = _icon_utils.icon_button(
-            "expand", "Show attribute breakdown", px=13)
+            "expand", "Expand the attribute breakdown", px=13)
         self._toggle_attrs_btn.setFixedSize(24, 24)
         self._toggle_attrs_btn.clicked.connect(self._toggle_attributes)
         header_row.addWidget(self._toggle_attrs_btn)
@@ -301,7 +298,7 @@ class PreferencesView(QWidget):
 
         # Exclusions panel — collapsible, at the bottom
         excl_header = QHBoxLayout()
-        self._excl_toggle_btn = QPushButton(f"{self.config.expand_icon} Excluded (0)")
+        self._excl_toggle_btn = QPushButton(f"{_icons.expand_icon} Excluded (0)")
         self._excl_toggle_btn.setFlat(True)
         _theme.style_fn(self._excl_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
@@ -327,7 +324,8 @@ class PreferencesView(QWidget):
         _icon_utils.set_button_icon(
             self._toggle_attrs_btn, "collapse" if expanded else "expand")
         self._toggle_attrs_btn.setToolTip(
-            "Hide attribute breakdown" if expanded else "Show attribute breakdown"
+            "Collapse the attribute breakdown" if expanded
+            else "Expand the attribute breakdown"
         )
 
     def _build_mix_controls(self, row: QHBoxLayout) -> None:
@@ -425,9 +423,11 @@ class PreferencesView(QWidget):
         # section remembers being open, a fixed glyph would contradict it on the next launch.
         _ver_open = bool(getattr(self.config, "preferences_version_prefs_expanded", False))
         self._ver_prefs_toggle_btn = QPushButton(
-            f"{self.config.collapse_icon if _ver_open else self.config.expand_icon}"
+            f"{_icons.collapse_icon if _ver_open else _icons.expand_icon}"
             f" Version Preferences"
         )
+        self._ver_prefs_toggle_btn.setToolTip(
+            ("Collapse" if _ver_open else "Expand") + " Version Preferences")
         self._ver_prefs_toggle_btn.setFlat(True)
         _theme.style_fn(self._ver_prefs_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
@@ -522,8 +522,10 @@ class PreferencesView(QWidget):
     def _toggle_version_prefs(self) -> None:
         visible = not self._ver_prefs_container.isVisible()
         self._ver_prefs_container.setVisible(visible)
-        icon = self.config.collapse_icon if visible else self.config.expand_icon
+        icon = _icons.collapse_icon if visible else _icons.expand_icon
         self._ver_prefs_toggle_btn.setText(f"{icon} Version Preferences")
+        self._ver_prefs_toggle_btn.setToolTip(
+            ("Collapse" if visible else "Expand") + " Version Preferences")
         self.config.preferences_version_prefs_expanded = visible
         _cfgsave.save_soon(self)
 
@@ -589,7 +591,8 @@ class PreferencesView(QWidget):
         _icon_utils.set_button_icon(
             self._toggle_attrs_btn, "collapse" if expanded else "expand")
         self._toggle_attrs_btn.setToolTip(
-            "Hide attribute breakdown" if expanded else "Show attribute breakdown"
+            "Collapse the attribute breakdown" if expanded
+            else "Expand the attribute breakdown"
         )
         self.config.preferences_attributes_expanded = expanded
         _cfgsave.save_soon(self)
@@ -614,8 +617,11 @@ class PreferencesView(QWidget):
             session.close()
 
         total = attr_count + chan_count + dedup_count
-        arrow = self.config.collapse_icon if self._excl_container.isVisible() else self.config.expand_icon
+        open_ = self._excl_container.isVisible()
+        arrow = _icons.collapse_icon if open_ else _icons.expand_icon
         self._excl_toggle_btn.setText(f"{arrow} Excluded ({total})")
+        self._excl_toggle_btn.setToolTip(
+            ("Collapse" if open_ else "Expand") + f" Excluded ({total})")
 
     def on_activate(self) -> None:
         self._active = True

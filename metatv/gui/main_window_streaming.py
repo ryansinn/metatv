@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QVB
 from metatv.core import epg_utils as _epg
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.stream_diagnostics import _redact
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
@@ -954,11 +955,10 @@ class _StreamingMixin(_WatchCaptureMixin):
         msg.setWordWrap(True)
         layout.addWidget(msg)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
-        )
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
+        # Ok/Cancel relabelled rather than Yes/No: same accept/reject slots,
+        # and then the same row as every other dialog's.
+        btns = dialog_buttons(dlg, ok="Yes")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("No")
         layout.addWidget(btns)
 
         result = dlg.exec()

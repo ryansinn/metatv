@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel,
     QMenu, QLineEdit, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 
 
 from metatv.core.channel_name_utils import (
@@ -213,17 +213,17 @@ class _VersionSection(CollapsibleMixin, QWidget):
         # gate ... never a soft filter" — but they ARE the same widget, and
         # hand-rolling the second copy of 45 lines of header plumbing is how
         # they drift apart.
-        (self._filtered_section, self._filtered_toggle_btn, self._filtered_hdr_lbl,
+        (self._filtered_section, self._filtered_header,
          self._filtered_chips_row, self._filtered_chips_layout) = self._build_chip_subsection(
-            "FILTERED VARIANTS", "Show/hide filtered variants",
+            "FILTERED VARIANTS", "variants your own filters excluded",
             self._toggle_filtered_section,
         )
         self._filtered_collapsed: bool = True
         content_layout.addWidget(self._filtered_section)
 
-        (self._offline_section, self._offline_toggle_btn, self._offline_hdr_lbl,
+        (self._offline_section, self._offline_header,
          self._offline_chips_row, self._offline_chips_layout) = self._build_chip_subsection(
-            "OFFLINE SOURCES", "Variants on a source you have turned off or that has expired",
+            "OFFLINE SOURCES", "variants on a source you have turned off or that has expired",
             self._toggle_offline_section,
         )
         self._offline_collapsed: bool = True
@@ -272,11 +272,11 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._filtered_section.hide()
         self._filtered_collapsed = True
         self._filtered_chips_row.hide()
-        _icon_utils.set_button_icon(self._filtered_toggle_btn, "expand")
+        self._filtered_header.set_collapsed(True)
         self._offline_section.hide()
         self._offline_collapsed = True
         self._offline_chips_row.hide()
-        _icon_utils.set_button_icon(self._offline_toggle_btn, "expand")
+        self._offline_header.set_collapsed(True)
 
         if not versions:
             return
@@ -491,53 +491,33 @@ class _VersionSection(CollapsibleMixin, QWidget):
     def clear(self) -> None:
         self.load([])
 
-    def _build_chip_subsection(self, title: str, tooltip: str, on_toggle):
+    def _build_chip_subsection(self, title: str, hint: str, on_toggle):
         """Build one collapsible, titled row of chips.
 
-        Extracted when the second caller arrived. The header is ~45 lines of
-        button-styled-as-label plumbing, and a copy of it for "Offline sources"
-        would have been two headers that look identical today and drift apart
-        the first time either is touched.
+        The header is the pane's own ``CollapsibleHeader`` in its ``nested``
+        scale, not a fifth hand-rolled chevron-plus-clickable-label: this file
+        carried ~45 lines of that plumbing, which is the same shape the details
+        pane had four copies of before ``CollapsibleHeader`` existed. The
+        widget already owns the caret glyph, the click target on the words, the
+        pointing-hand cursor and a tooltip that names the section and flips
+        with the state.
 
         Args:
-            title: Header text, shown uppercase as written.
-            tooltip: Hover text, on both the arrow and the label.
-            on_toggle: Called when either the arrow or the label is clicked.
+            title: Header text, shown as written.
+            hint: What is in this bucket, appended to the header's own
+                "Expand …"/"Collapse …" tooltip.
+            on_toggle: Called with the new *collapsed* state.
 
         Returns:
-            ``(section, toggle_btn, header_label, chips_row, chips_layout)`` —
-            unpacked into the caller's own attribute names, which existing
-            tests already reach for.
+            ``(section, header, chips_row, chips_layout)``.
         """
         section = QWidget()
         section_layout = QVBoxLayout(section)
         section_layout.setContentsMargins(0, 4, 0, 0)
         section_layout.setSpacing(2)
 
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 2, 0, 2)
-        header_layout.setSpacing(4)
-
-        toggle_btn = QPushButton()
-        toggle_btn.setFixedSize(20, 20)
-        _icon_utils.set_button_icon(toggle_btn, "expand")
-        toggle_btn.setIconSize(QSize(13, 13))
-        toggle_btn.setStyleSheet("QPushButton { border: none; }")
-        toggle_btn.setToolTip(tooltip)
-        toggle_btn.clicked.connect(on_toggle)
-        header_layout.addWidget(toggle_btn)
-
-        # Flat QPushButton styled as a label so the whole text is clickable too.
-        hdr_lbl = QPushButton(title)
-        hdr_lbl.setFlat(True)
-        _theme.style_fn(hdr_lbl, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
-            " font-weight: bold; border: none; text-align: left; padding: 0; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-        hdr_lbl.setToolTip(tooltip)
-        hdr_lbl.clicked.connect(on_toggle)
-        header_layout.addWidget(hdr_lbl)
-        header_layout.addStretch()
+        header = CollapsibleHeader(title, collapsed=True, hint=hint, nested=True)
+        header.toggled.connect(on_toggle)
         section_layout.addWidget(header)
 
         chips_row = QWidget()
@@ -547,27 +527,21 @@ class _VersionSection(CollapsibleMixin, QWidget):
         section_layout.addWidget(chips_row)
 
         section.hide()                        # shown only when it has chips
-        return section, toggle_btn, hdr_lbl, chips_row, chips_layout
+        return section, header, chips_row, chips_layout
 
-    def _toggle_offline_section(self) -> None:
-        """Expand/collapse OFFLINE SOURCES."""
-        self._offline_collapsed = not self._offline_collapsed
-        self._offline_chips_row.setVisible(not self._offline_collapsed)
-        _icon_utils.set_button_icon(
-            self._offline_toggle_btn, "expand" if self._offline_collapsed else "collapse"
-        )
+    def _toggle_offline_section(self, collapsed: bool) -> None:
+        """Expand/collapse OFFLINE SOURCES. The header owns the caret glyph."""
+        self._offline_collapsed = collapsed
+        self._offline_chips_row.setVisible(not collapsed)
 
-    def _toggle_filtered_section(self) -> None:
-        """Toggle the collapsed state of the FILTERED VARIANTS sub-section."""
-        self._filtered_collapsed = not self._filtered_collapsed
-        self._filtered_chips_row.setVisible(not self._filtered_collapsed)
+    def _toggle_filtered_section(self, collapsed: bool) -> None:
+        """Expand/collapse FILTERED VARIANTS. The header owns the caret glyph."""
+        self._filtered_collapsed = collapsed
+        self._filtered_chips_row.setVisible(not collapsed)
         # After expanding, nudge Qt to re-query heightForWidth so the chips row
         # gets the correct height (the layout may have cached 0 while collapsed).
-        if not self._filtered_collapsed:
+        if not collapsed:
             self._filtered_chips_row.updateGeometry()
-        _icon_utils.set_button_icon(
-            self._filtered_toggle_btn, "expand" if self._filtered_collapsed else "collapse"
-        )
 
     # ------------------------------------------------------------------ #
     # Chip factories                                                       #

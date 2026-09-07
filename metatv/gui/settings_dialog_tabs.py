@@ -1068,10 +1068,10 @@ class SettingsTabsMixin:
         sidebar_layout.addWidget(self._sidebar_list)
 
         arrow_row = QHBoxLayout()
-        up_btn = QPushButton("▲  Move Up")
+        up_btn = QPushButton(f"{_icons.move_up_icon}  Move Up")
         up_btn.setFixedWidth(110)
         up_btn.clicked.connect(self._sidebar_move_up)
-        down_btn = QPushButton("▼  Move Down")
+        down_btn = QPushButton(f"{_icons.move_down_icon}  Move Down")
         down_btn.setFixedWidth(110)
         down_btn.clicked.connect(self._sidebar_move_down)
         arrow_row.addWidget(up_btn)

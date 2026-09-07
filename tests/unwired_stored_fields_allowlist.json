@@ -49,6 +49,8 @@
     "Config.metadata_rescan_version",
     "Config.metadata_year_backfill_version",
     "Config.monitored_series",
+    "Config.move_down_icon",
+    "Config.move_up_icon",
     "Config.network_timeout",
     "Config.next_icon",
     "Config.notification_position",

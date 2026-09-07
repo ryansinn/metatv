@@ -18,11 +18,11 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QApplication, QDialog, QLabel, QVBoxLayout,
 )
 
 from metatv.core.component_versions import ComponentVersions, collect
-from metatv.gui import cursor_affordance
+from metatv.gui.dialog_chrome import action_button, dialog_buttons
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -93,22 +93,15 @@ class AboutDialog(QDialog):
         _theme.style(notices, "META_HINT")
         root.addWidget(notices)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-
-        self._copy_btn = QPushButton("Copy details")
+        # The shared row, not a hand-laid QHBoxLayout: this dialog put its
+        # Close button wherever the layout happened to leave it rather than
+        # where the platform puts a Close button.
+        buttons = dialog_buttons(
+            self, ok="Close", cancel=False,
+            extra=(("Copy details", self._copy_details),))
+        self._copy_btn = action_button(buttons, "Copy details")
         self._copy_btn.setToolTip("Copy the version block to the clipboard")
-        self._copy_btn.clicked.connect(self._copy_details)
-        cursor_affordance.set_clickable(self._copy_btn)
-        buttons.addWidget(self._copy_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.setDefault(True)
-        close_btn.clicked.connect(self.accept)
-        cursor_affordance.set_clickable(close_btn)
-        buttons.addWidget(close_btn)
-
-        root.addLayout(buttons)
+        root.addWidget(buttons)
 
     @staticmethod
     def _licence_text() -> str:

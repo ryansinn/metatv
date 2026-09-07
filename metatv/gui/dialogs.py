@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.config import Config
+from metatv.gui import theme as _theme
+from metatv.gui.dialog_chrome import action_button, dialog_buttons
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider
 from metatv.core.notifications import NotificationManager
@@ -116,6 +118,7 @@ class AddProviderDialog(QDialog):
         
         self.progress_bar = QProgressBar()
         self.progress_bar.hide()
+        _theme.style(self.progress_bar, "PROGRESS_BAR")
         layout.addWidget(self.progress_bar)
         
         # Status text
@@ -126,18 +129,12 @@ class AddProviderDialog(QDialog):
         layout.addWidget(self.status_text)
         
         # Buttons
-        button_box = QDialogButtonBox()
-        
-        self.test_button = button_box.addButton("Test Connection", QDialogButtonBox.ButtonRole.ActionRole)
-        self.test_button.clicked.connect(self.test_connection)
-        
-        self.add_button = button_box.addButton("Add Source", QDialogButtonBox.ButtonRole.AcceptRole)
-        self.add_button.clicked.connect(self.add_provider)
+        button_box = dialog_buttons(
+            self, ok="Add Source", on_ok=self.add_provider,
+            extra=(("Test Connection", self.test_connection),))
+        self.test_button = action_button(button_box, "Test Connection")
+        self.add_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
         self.add_button.setEnabled(False)
-        
-        cancel_button = button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
-        cancel_button.clicked.connect(self.reject)
-        
         layout.addWidget(button_box)
     
     def add_url(self):

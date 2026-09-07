@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.epg_utils import to_utc_naive
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import theme as _theme
 
 
@@ -139,11 +140,7 @@ class RecordWindowDialog(QDialog):
             lambda: f"color: {_theme.COLOR_WARN}; font-size: {_theme.FONT_SM};")
         vl.addWidget(self._status_lbl)
 
-        self._buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self._buttons.accepted.connect(self.accept)
-        self._buttons.rejected.connect(self.reject)
+        self._buttons = dialog_buttons(self)
         vl.addWidget(self._buttons)
 
         self._update_state()
