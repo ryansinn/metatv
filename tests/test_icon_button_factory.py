@@ -59,6 +59,30 @@ def _icon_bytes(btn) -> bytes:
     )
 
 
+def _ink_colour(btn) -> str:
+    """The icon's ink: the most common non-faint pixel colour, as ``#rrggbb``.
+
+    ``pixelColor`` un-premultiplies, so an antialiased stroke pixel still
+    carries the ink's RGB at a lower alpha — and a 16px vector glyph has NO
+    fully opaque pixel at all (max alpha measured 248). Edge alpha bytes vary
+    with what a previous test left in the pixmap caches, which is why a
+    byte-for-byte comparison was order-dependent on CI; the colour is not.
+    """
+    from collections import Counter
+
+    from PyQt6.QtGui import QColor
+
+    image = btn.icon().pixmap(btn.iconSize()).toImage()
+    tally: Counter = Counter()
+    for y in range(image.height()):
+        for x in range(image.width()):
+            colour = QColor(image.pixelColor(x, y))
+            if colour.alpha() >= 64:
+                tally[colour.name()] += 1
+    assert tally, "the icon painted no visible pixel at all"
+    return tally.most_common(1)[0][0]
+
+
 def test_icon_button_renders_a_real_icon_at_the_requested_size(qapp) -> None:
     """The factory produces a visible, correctly sized, non-empty icon."""
     btn = _icon_utils.icon_button("close", "Close", px=16)
@@ -118,40 +142,45 @@ def test_a_colour_builder_follows_the_palette_where_a_string_freezes(qapp) -> No
     a runtime colour or a deliberately fixed cinema token, wrong for a palette
     token. Both halves are asserted together, because the string half is the
     behaviour that makes the builder half necessary rather than decorative.
+    Asserted on the icon's INK colour (not raw bytes) and from an explicit
+    starting palette, so the outcome does not depend on the test order.
     """
-    from PyQt6.QtWidgets import QPushButton
+    from PyQt6.QtWidgets import QPushButton, QWidget
+
+    from tests.conftest import destroy_widget
 
     before_theme = _theme.current_theme()
+    host = QWidget()
     try:
         _theme.apply_theme("Graphite")
-        frozen = QPushButton()
+        graphite_token = _theme.COLOR_MUTED_2
+        frozen = QPushButton(host)
         frozen.setIconSize(QSize(16, 16))
-        _icon_utils.set_button_icon(frozen, "close", color=_theme.COLOR_MUTED_2)
-        tracking = QPushButton()
+        _icon_utils.set_button_icon(frozen, "close", color=graphite_token)
+        tracking = QPushButton(host)
         tracking.setIconSize(QSize(16, 16))
         _icon_utils.set_button_icon(
             tracking, "close", color=lambda: _theme.COLOR_MUTED_2,
         )
-        graphite_frozen = _icon_bytes(frozen)
-        graphite_tracking = _icon_bytes(tracking)
-        # Same colour now, so the difference below can only come from the
-        # builder being re-invoked.
-        assert graphite_frozen == graphite_tracking
+        assert _ink_colour(frozen) == graphite_token.lower()
+        assert _ink_colour(tracking) == graphite_token.lower()
 
         assert _theme.apply_theme("Daylight"), "Daylight is not a known palette"
+        daylight_token = _theme.COLOR_MUTED_2
+        assert daylight_token.lower() != graphite_token.lower()
 
-        assert _icon_bytes(tracking) != graphite_tracking, (
+        assert _ink_colour(tracking) == daylight_token.lower(), (
             "the builder was not re-invoked — a colour builder that does not "
             "re-read its token is just a slower string"
         )
-        assert _icon_bytes(frozen) == graphite_frozen, (
+        assert _ink_colour(frozen) == graphite_token.lower(), (
             "a string colour started tracking the palette; that is the "
             "behaviour runtime colours and fixed cinema tokens rely on"
         )
         assert _ink_pixels(tracking) > 0
     finally:
         _theme.apply_theme(before_theme)
-
+        destroy_widget(host)
 
 def test_a_swapped_role_survives_a_theme_switch(qapp) -> None:
     """A toggle badge re-registers, so a repaint reproduces what is on screen.
