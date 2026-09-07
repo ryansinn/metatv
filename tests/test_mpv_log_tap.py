@@ -1,9 +1,14 @@
-"""mpv's own stderr must reach our log — it was silently DEVNULL'd (PLAY-10).
+"""mpv's own output must reach our log — it was silently DEVNULL'd (PLAY-10).
 
 Both mpv Popen sites used to run with ``stderr=subprocess.DEVNULL``, so the
 exact "HTTP error 500" / "Will reconnect at 0 in Ns" lines ffmpeg emits during
 a same-provider-switch retry backoff never reached the app log. ``start_log_tap``
-is the one place a launched process's stderr is piped and read.
+is the one place a launched process's output is piped and read.
+
+PLAY-12 (2026-09-07): both sites now launch with ``stdout=PIPE, stderr=STDOUT``
+instead of ``stdout=PIPE, stderr=DEVNULL`` — the ``Exiting... (reason)`` line
+prints on stdout at ``cplayer=info``, which the old stderr-only tap could never
+see. ``start_log_tap`` prefers ``proc.stdout``, falling back to ``proc.stderr``.
 """
 
 from __future__ import annotations
@@ -35,11 +40,25 @@ class _ListSink:
         })
 
 
-def _fake_process(lines: list[bytes]) -> MagicMock:
-    """A Popen-like double whose stderr is a real BytesIO — a real byte stream,
-    not a MagicMock, so ``readline()`` genuinely hits EOF (``b""``) at the end."""
+def _fake_process(lines: list[bytes], *, stream: str = "stderr",
+                   returncode: int | None = None) -> MagicMock:
+    """A Popen-like double whose *stream* pipe is a real BytesIO — a real byte
+    stream, not a MagicMock, so ``readline()`` genuinely hits EOF (``b""``) at
+    the end. The other channel is set to ``None`` explicitly (real Popen's
+    shape when only one is piped) rather than left unset — an unconfigured
+    ``MagicMock`` attribute auto-vivifies to a non-None mock, which would win
+    the ``stdout``-preferred read over a real ``stderr`` BytesIO here.
+
+    ``returncode``, when given, sets ``proc.wait(timeout=5).return_value`` —
+    the return-code source ``start_log_tap`` now reads (PLAY-12), replacing
+    the old ``proc.poll()`` read for a double that has ``.wait``.
+    """
     proc = MagicMock()
-    proc.stderr = io.BytesIO(b"".join(lines))
+    data = io.BytesIO(b"".join(lines))
+    proc.stdout = data if stream == "stdout" else None
+    proc.stderr = data if stream == "stderr" else None
+    if returncode is not None:
+        proc.wait.return_value = returncode
     return proc
 
 
@@ -95,6 +114,7 @@ def test_the_thread_is_a_daemon_and_is_never_joined_by_the_caller():
 
 def test_a_none_stderr_ends_the_pump_immediately_without_raising():
     proc = MagicMock()
+    proc.stdout = None
     proc.stderr = None
     thread = start_log_tap(proc, "prov-1")
     thread.join(timeout=5)
@@ -135,8 +155,8 @@ def test_the_exit_reason_and_return_code_are_recorded_per_key():
     from metatv.core.players.mpv_log_tap import clear_exit, last_exit
     clear_exit("prov-9")
     assert last_exit("prov-9") is None
-    proc = _fake_process([b"Playing: http://x/1.mkv\n", b"Exiting... (End of file)\n"])
-    proc.poll.return_value = 0
+    proc = _fake_process(
+        [b"Playing: http://x/1.mkv\n", b"Exiting... (End of file)\n"], returncode=0)
     sink = _ListSink()
     handler_id = logger.add(sink, level="INFO", format="{message}")
     try:
@@ -155,9 +175,49 @@ def test_the_exit_reason_and_return_code_are_recorded_per_key():
 
 def test_a_process_that_printed_no_exit_line_records_no_reason():
     from metatv.core.players.mpv_log_tap import last_exit
-    proc = _fake_process([b"HTTP error 500\n"])
-    proc.poll.return_value = 1
+    proc = _fake_process([b"HTTP error 500\n"], returncode=1)
     thread = start_log_tap(proc, "prov-10")
     thread.join(timeout=5)
     rec = last_exit("prov-10")
     assert rec is not None and rec.reason is None and rec.returncode == 1
+
+
+def test_a_double_without_wait_falls_back_to_poll():
+    """The guard clause: not every process double implements ``.wait``."""
+    from metatv.core.players.mpv_log_tap import last_exit
+    proc = _fake_process([b"HTTP error 500\n"])
+    proc.wait = None
+    proc.poll.return_value = 7
+    thread = start_log_tap(proc, "prov-11")
+    thread.join(timeout=5)
+    rec = last_exit("prov-11")
+    assert rec is not None and rec.returncode == 7
+
+
+def test_stdout_is_preferred_and_a_quit_exit_is_parsed_there():
+    """PLAY-12: real launches merge stderr into stdout — start_log_tap must
+    read a real ``.stdout`` pipe (not fall back to the auto-vivified, never-
+    EOF ``.stderr`` MagicMock a bare double would otherwise present)."""
+    from metatv.core.players.mpv_log_tap import clear_exit, last_exit
+    clear_exit("prov-12")
+    proc = _fake_process([b"opening stream\n", b"Exiting... (Quit)\n"],
+                          stream="stdout", returncode=0)
+    thread = start_log_tap(proc, "prov-12")
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    rec = last_exit("prov-12")
+    assert rec is not None and rec.reason == "Quit" and rec.returncode == 0
+    clear_exit("prov-12")
+
+
+def test_an_end_of_file_exit_on_the_merged_stdout_stream_is_parsed():
+    """The exact scenario PLAY-11's retry depends on: a stream-ended exit
+    line arriving on the now-merged stdout stream must still be captured."""
+    from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, clear_exit, last_exit
+    clear_exit("prov-13")
+    proc = _fake_process([b"Exiting... (End of file)\n"], stream="stdout", returncode=0)
+    thread = start_log_tap(proc, "prov-13")
+    thread.join(timeout=5)
+    rec = last_exit("prov-13")
+    assert rec is not None and rec.reason in STREAM_EXIT_REASONS
+    clear_exit("prov-13")

@@ -271,3 +271,23 @@ def test_reconnect_delay_max_lowered_for_same_provider_switching():
         "reconnect_delay_max is back to 30 — same-provider switches will "
         "wait past the provider's reaper window again")
     assert "reconnect_delay_max=8" in RECONNECT_FLAG
+
+
+def test_mpv_errors_out_of_a_held_connection_instead_of_hanging_on_it():
+    """PLAY-12: the panel now HOLDS a second connection instead of refusing it
+    outright (#744 skips the pre-play probe on a same-provider switch), so mpv
+    waits on a socket that got zero bytes back — no HTTP status to react to,
+    so the original three reconnect options (all HTTP-response-shaped) never
+    fire. ``reconnect_on_network_error`` covers the TCP/TLS-level condition;
+    ``rw_timeout`` bounds the hang so it actually errors into the existing
+    ``reconnect_delay_max=8`` backoff instead of sitting on ffmpeg's own
+    uncapped (effectively infinite) connect/read timeout.
+    """
+    from metatv.core.players.mpv import RECONNECT_FLAG
+
+    assert "reconnect_on_network_error=1" in RECONNECT_FLAG
+    assert "rw_timeout=10000000" in RECONNECT_FLAG   # 10s, in microseconds
+    # The PLAY-10 options must survive alongside the new ones.
+    for opt in ("reconnect=1", "reconnect_streamed=1", "reconnect_delay_max=8",
+                "reconnect_on_http_error=5xx"):
+        assert opt in RECONNECT_FLAG, f"dropped {opt}"

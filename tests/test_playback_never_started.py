@@ -46,12 +46,15 @@ def _host():
     Deliberately not a ``MainWindow.__new__``: this module's contract IS the
     small attribute surface below, so a real window would test Qt rather than
     the rule. Anything it reaches for that is missing raises here rather than
-    being silently absorbed.
+    being silently absorbed. ``_provider_display_name`` backs the PLAY-12
+    waiting line; unused (and un-asserted) by every test whose PlayAttempt
+    carries no ``provider_id``.
     """
     return SimpleNamespace(
         status_bar=MagicMock(),
         notification_manager=MagicMock(),
         stream_retry_manager=MagicMock(),
+        _provider_display_name=MagicMock(return_value="Test Source"),
     )
 
 
@@ -341,27 +344,34 @@ def test_the_play_path_carries_the_event_start_time():
 # ── the third shape: loaded but frozen ──────────────────────────────────────
 
 def test_stalled_start_reports_once():
-    """A file that loaded but never advanced is reported once."""
+    """A file that loaded but never advanced is reported once — the failure
+    verdict is still the LAST status-bar line, on top of the per-tick waiting
+    lines PLAY-12 adds (see the OPENING/FROZEN waiting-line tests below)."""
     host = _host()
     watch.arm(host, ATTEMPT)
     for _ in range(STALLED_AFTER_TICKS):
         watch.on_loaded_tick(host, 0.0, False)
 
-    host.status_bar.showMessage.assert_called_once()
-    assert "Nothing is playing" in host.status_bar.showMessage.call_args[0][0]
+    calls = [c.args[0] for c in host.status_bar.showMessage.call_args_list]
+    assert "Nothing is playing" in calls[-1]
     host.notification_manager.show.assert_called_once()
     host.stream_retry_manager.add_failure.assert_called_once_with(
         ATTEMPT.channel_id, ATTEMPT.channel_name, ATTEMPT.stream_url,
         "playback never started")
 
-    # Further ticks do nothing.
+    # Further ticks do nothing further — the report latch stops the waiting
+    # line too, not just the notification.
+    calls_before = len(host.status_bar.showMessage.call_args_list)
     for _ in range(5):
         watch.on_loaded_tick(host, 0.0, False)
     assert host.notification_manager.show.call_count == 1
+    assert len(host.status_bar.showMessage.call_args_list) == calls_before
 
 
 def test_progress_disarms_the_stall_watch():
-    """Once time-pos advances by the epsilon, no stall is reported."""
+    """Once time-pos advances by the epsilon, no stall is reported — and the
+    waiting line (never shown here — progress lands on tick 2, before the
+    2nd-tick floor) is cleared rather than left standing."""
     host = _host()
     watch.arm(host, ATTEMPT)
     watch.on_loaded_tick(host, 1.0, False)
@@ -370,6 +380,8 @@ def test_progress_disarms_the_stall_watch():
         watch.on_loaded_tick(host, 3.0, False)
     host.notification_manager.show.assert_not_called()
     host.stream_retry_manager.add_failure.assert_not_called()
+    host.status_bar.showMessage.assert_not_called()
+    host.status_bar.clearMessage.assert_called_once()
 
 
 def test_first_frozen_reading_is_not_progress():
@@ -496,6 +508,80 @@ def test_frozen_numeric_time_pos_still_reports_at_the_old_threshold():
     for _ in range(STALLED_AFTER_TICKS):
         watch.on_loaded_tick(host, 0.0, False, cache_duration=None)
     host.notification_manager.show.assert_called_once()
+
+
+# ── PLAY-12: a silent OPENING/FROZEN wait now counts and names the source ───
+#
+# Owner, 2026-09-07: "streams not starting, then eventually starting... it
+# does eventually start but the delay is weird" — a same-provider switch that
+# used to fail fast (PLAY-10's probe skip) now sits on a held connection with
+# no explanation at all. From the 2nd tick (4s) on, every OPENING/FROZEN tick
+# pushes a status-bar line naming what it's waiting on; the 40s/16s reports
+# above are unchanged — this only fills the silent gap before them.
+
+def test_opening_tick_one_shows_nothing():
+    """A fast-opening stream must never flash a line it didn't need."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_loaded_tick(host, None, False, cache_duration=None)
+    host.status_bar.showMessage.assert_not_called()
+
+
+def test_opening_tick_two_names_the_source_and_the_elapsed_wait():
+    host = _host()
+    watch.arm(host, PlayAttempt("p", "Some Channel", "http://x/1.ts", provider_id="prov-1"))
+    watch.on_loaded_tick(host, None, False, cache_duration=None)   # tick 1 — silent
+    watch.on_loaded_tick(host, None, False, cache_duration=None)   # tick 2 — 4s
+    msg = host.status_bar.showMessage.call_args[0][0]
+    assert "Waiting for Test Source to answer" in msg and "4s" in msg
+    host._provider_display_name.assert_called_once_with("prov-1")
+
+
+def test_opening_waiting_line_names_a_held_same_provider_switch():
+    """The exact cause from the diagnosis: the panel is still holding a
+    connection for the previous stream, not a dead/unreachable source."""
+    host = _host()
+    host._switch_same_provider = True
+    watch.arm(host, PlayAttempt("p", "Some Channel", "http://x/1.ts", provider_id="prov-1"))
+    for _ in range(2):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    msg = host.status_bar.showMessage.call_args[0][0]
+    assert "Waiting for Test Source to free the previous stream" in msg
+
+
+def test_frozen_waiting_line_uses_the_same_wording_as_opening():
+    host = _host()
+    watch.arm(host, PlayAttempt("p", "Some Channel", "http://x/1.ts", provider_id="prov-1"))
+    for _ in range(2):
+        watch.on_loaded_tick(host, 0.0, False)
+    msg = host.status_bar.showMessage.call_args[0][0]
+    assert "Waiting for Test Source to answer" in msg
+
+
+def test_waiting_line_falls_back_to_a_generic_source_with_no_provider_id():
+    """Episode playback arms with no provider_id at all — must not crash."""
+    host = _host()
+    watch.arm(host, ATTEMPT)   # ATTEMPT carries no provider_id
+    for _ in range(2):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    msg = host.status_bar.showMessage.call_args[0][0]
+    assert "Waiting for the source to answer" in msg
+    host._provider_display_name.assert_not_called()
+
+
+def test_a_progress_tick_stops_the_countdown():
+    """The waiting line disarms the moment real progress lands — same latch
+    as the failure report, so it doesn't keep counting on top of a healthy
+    stream that simply took a few ticks to get going."""
+    host = _host()
+    watch.arm(host, PlayAttempt("p", "Some Channel", "http://x/1.ts", provider_id="prov-1"))
+    for _ in range(4):
+        watch.on_loaded_tick(host, 0.0, False)   # FROZEN — waiting line shown from tick 2
+    shown_before = host.status_bar.showMessage.call_count
+    assert shown_before > 0
+    watch.on_loaded_tick(host, 5.0, False)        # real progress
+    host.status_bar.clearMessage.assert_called_once()
+    assert host.status_bar.showMessage.call_count == shown_before   # no further waiting line
 
 
 # ── the fourth shape: a fixture played before it started (SPORT-6) ──────────

@@ -18,20 +18,20 @@ from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
-# Always-on reconnect for transient live-stream drops (stable ffmpeg/libavformat
-# options; no --hls-use-mpegts or other build-varying opts). reconnect_on_http_error
-# =5xx covers what the other three do not: a stream that never opened, not one that
-# DROPPED. On a one-connection account a 5xx on the initial GET is the common
-# failure (the provider refuses while it still counts a call it hasn't reaped, and
-# mpv used to exit instantly) — 4xx stays excluded, being told no must still fail
-# fast. Rationale/measurements: ConnectionAccountant.PROVIDER_COOLDOWN_S.
-# reconnect_delay_max=8 (PLAY-10, was 30) is the PER-ATTEMPT cap, not a total —
-# ffmpeg's uncapped backoff is 1,2,4,8,16s, so attempts now land at roughly
-# +1,+3,+7,+15,+23s (was +1,+3,+7,+15,+31s), landing three extra tries inside the
-# provider's own 14-26s reaper window (#635) instead of one arriving after it.
+# Always-on reconnect for transient live-stream drops (stable ffmpeg/libavformat options; no
+# --hls-use-mpegts or other build-varying opts). reconnect_on_http_error=5xx covers a stream that
+# got an HTTP error back; reconnect_on_network_error covers one that got NO response at all — a
+# one-connection source holding a socket open with zero bytes (PLAY-12), which the other three
+# never see. rw_timeout (10s, µs) bounds that hang so it errors into the backoff below instead of
+# sitting on ffmpeg's own uncapped connect/read timeout. 4xx stays excluded — told no must still
+# fail fast (rationale: ConnectionAccountant.PROVIDER_COOLDOWN_S). reconnect_delay_max=8
+# (PLAY-10, was 30) is the PER-ATTEMPT cap — ffmpeg's uncapped backoff is 1,2,4,8,16s, so
+# attempts land at +1,+3,+7,+15,+23s: a held connection now retries about every 10s until the
+# panel frees the slot (14-26s per #635, up to ~40s in the 2026-09-07 log) instead of hanging
+# indefinitely.
 RECONNECT_FLAG = (
-    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
-    "reconnect_delay_max=8,reconnect_on_http_error=5xx"
+    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=8,"
+    "reconnect_on_http_error=5xx,reconnect_on_network_error=1,rw_timeout=10000000"
 )
 
 # Constant instance key used when split_streams_by_source is False.
@@ -297,7 +297,7 @@ class MPVPlayer(PlayerPlugin):
         Shared by :meth:`_ensure_instance_running` (normal launch) and
         :meth:`_relaunch_instance` (open-ended/deep-cache relaunch) — the caller
         does any pre-launch cleanup; this method assumes the slot is free.
-        stderr is piped and tapped (``mpv_log_tap.start_log_tap``, PLAY-10).
+        stdout is piped (stderr merged in) and tapped (``mpv_log_tap.start_log_tap``, PLAY-12).
 
         Args:
             key: Instance key — the socket path (:meth:`_socket_path_for`) and
@@ -340,7 +340,7 @@ class MPVPlayer(PlayerPlugin):
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
             clear_exit(key)
-            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             start_log_tap(process, key)
 
             logger.info(f"Started mpv instance [{key}] PID {process.pid}")
@@ -838,8 +838,8 @@ class MPVPlayer(PlayerPlugin):
     ) -> bool:
         """Launch a standalone (no-IPC) mpv process for *url*.
 
-        stderr is piped and tapped (``mpv_log_tap.start_log_tap``, tagged with
-        *title* — no instance key exists here) instead of ``DEVNULL`` (PLAY-10).
+        stdout is piped (stderr merged in) and tapped (``mpv_log_tap.start_log_tap``,
+        tagged with *title* — no instance key exists here; PLAY-12).
 
         Args:
             url: Stream URL.
@@ -874,8 +874,8 @@ class MPVPlayer(PlayerPlugin):
 
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
             )
             start_log_tap(process, title)
 
