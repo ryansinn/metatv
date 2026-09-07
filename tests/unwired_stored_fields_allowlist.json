@@ -1,6 +1,8 @@
 {
   "_comment": "GUARD-4 seed allowlist (tests/test_stored_fields_have_readers.py) - every entry here is a stored field the AST census found with ZERO readers outside its own plumbing when the guard was seeded (2026-09-04). Most are real, undiscussed dead/half-wired fields (see the PR body for the audit, grouped by model with a one-line note per entry); a handful are known census blind spots (a name only reached through a getattr()-wrapping helper, a dynamically-built attribute name, or a plain name collision) rather than genuinely dead. Shrink-only: a field that gains a real reader must be REMOVED, never left here (test_the_allowlist_only_shrinks fails the suite if it is). Regenerate the candidate list with scripts/pytest_verdict.sh tests/test_stored_fields_have_readers.py and read the failure - never bulk-add without reading each name.",
   "fields": [
+    "AlertPatternDB.applies_to",
+    "AlertPatternDB.last_checked",
     "ChannelDB.source_num",
     "ChannelDB.source_quality_flags",
     "Config.accent_color",
