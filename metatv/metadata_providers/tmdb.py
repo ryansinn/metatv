@@ -194,7 +194,7 @@ class TMDbProvider(MetadataProviderPlugin):
             if not channel:
                 return None
             title = channel.detected_title or channel.name
-            year = _parse_stored_year(channel.detected_year)
+            year = self._parse_stored_year(channel.detected_year)
             return (channel.detected_tmdb_id, title, year, channel.media_type or "movie")
 
     async def _get_details_by_id(self, tmdb_id: str,
@@ -348,15 +348,5 @@ def _year_from_date(date_str: Optional[str]) -> Optional[int]:
         return None
     try:
         return int(date_str[:4])
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_stored_year(detected_year: Optional[str]) -> Optional[int]:
-    """Parse the first year out of ``ChannelDB.detected_year`` (e.g. ``'1993-2002'``)."""
-    if not detected_year:
-        return None
-    try:
-        return int(str(detected_year)[:4])
     except (ValueError, TypeError):
         return None

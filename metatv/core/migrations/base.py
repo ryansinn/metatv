@@ -23,7 +23,13 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Callable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
+
+from loguru import logger
+
+if TYPE_CHECKING:
+    from metatv.core.config import Config
+    from metatv.core.database import Database
 
 
 @runtime_checkable
@@ -80,3 +86,53 @@ class MigrationTask(Protocol):
         completion bookkeeping (the manager stays task-agnostic).
         """
         ...
+
+
+class VersionGatedTask:
+    """Optional base for the common "gate on one Config version field" shape.
+
+    ``MigrationTask`` above stays a ``Protocol`` BY DESIGN (see its docstring)
+    — plenty of tasks don't fit this shape (``MetadataRescanTask`` takes extra
+    constructor args, ``QueryIndexTask`` doesn't version-gate at all) and must
+    stay free to hand-roll ``needs_run``/``on_completed`` themselves. This is
+    for the ones that DO fit it: 19 migration tasks had an identical
+    ``__init__`` (``self._db = db``) and 12 had an identical ``needs_run``
+    (``getattr(config, "<x>_version", 0) < CURRENT_VERSION``) before this
+    existed (docs/REFACTOR_PLAN.md R2).
+
+    Subclasses set two class attributes (alongside the ``id``/``label`` every
+    ``MigrationTask`` needs, and their own ``run``):
+
+    - ``VERSION_FIELD``: the ``Config`` attribute name holding the stored
+      version, e.g. ``"restricted_backfill_version"``.
+    - ``CURRENT_VERSION``: the version ``run()`` brings that field to.
+
+    ``needs_run``/``on_completed`` read/write via plain ``getattr``/``setattr``
+    on ``self`` — safe to call on an instance built with ``Cls.__new__(Cls)``
+    (skipping ``__init__``, as some tests do), since both only touch the class
+    attributes above, never ``self._db``.
+    """
+
+    VERSION_FIELD: str
+    CURRENT_VERSION: int
+
+    def __init__(self, db: "Database") -> None:
+        """
+        Args:
+            db: Database instance.
+        """
+        self._db = db
+
+    def needs_run(self, config: "Config") -> bool:
+        """Return True when ``VERSION_FIELD`` on *config* is behind ``CURRENT_VERSION``."""
+        stored = getattr(config, self.VERSION_FIELD, 0)
+        return stored < self.CURRENT_VERSION
+
+    def on_completed(self, config: "Config") -> None:
+        """Bump ``VERSION_FIELD`` to ``CURRENT_VERSION`` on *config* and save it."""
+        setattr(config, self.VERSION_FIELD, self.CURRENT_VERSION)
+        config.save()
+        logger.debug(
+            "{}: bumped {}={}",
+            type(self).__name__, self.VERSION_FIELD, self.CURRENT_VERSION,
+        )

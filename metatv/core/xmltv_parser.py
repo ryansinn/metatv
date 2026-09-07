@@ -3,7 +3,6 @@
 import gzip
 import io
 import re
-import unicodedata
 import urllib.request
 import zlib
 from dataclasses import dataclass
@@ -12,6 +11,8 @@ from typing import Callable, Optional
 from xml.etree import ElementTree as ET
 
 from loguru import logger
+
+from metatv.core.channel_name_utils import _is_superscript_char
 
 # Superscript badges embedded in programme titles by some providers
 _LIVE_BADGE = "ᴸᶦᵛᵉ"
@@ -253,18 +254,6 @@ def _strip_badges(title: str) -> tuple[str, bool, bool]:
     return clean, is_live, is_new
 
 
-def _is_superscript(ch: str) -> bool:
-    """True for a modifier/superscript form of an ordinary letter or digit."""
-    if ch.isascii():
-        return False
-    decomposed = unicodedata.normalize("NFKD", ch)
-    return (
-        decomposed != ch
-        and decomposed.strip() != ""
-        and all(c.isalnum() for c in decomposed)
-    )
-
-
 def _drop_superscript_runs(name: str) -> str:
     """Remove whitespace-delimited tokens that are entirely superscript.
 
@@ -272,7 +261,7 @@ def _drop_superscript_runs(name: str) -> str:
     left alone rather than half-erased.
     """
     kept = [tok for tok in name.split()
-            if not (tok and all(_is_superscript(c) for c in tok))]
+            if not (tok and all(_is_superscript_char(c) for c in tok))]
     return " ".join(kept) if kept else name
 
 

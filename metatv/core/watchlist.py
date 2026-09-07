@@ -54,13 +54,14 @@ itself, which is exactly what the notifier's private signal does.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Optional
 
 from loguru import logger
 
 from metatv.core.db_lock import retry_on_lock
+from metatv.core.queued_writer import SingleWriter
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.config import Config
@@ -104,10 +105,15 @@ class _PendingWrite:
     fields: dict = field(default_factory=dict)
 
 
-_writer: "Optional[ThreadPoolExecutor]" = None
+#: This module's own bookkeeping for replay-on-read (:func:`_apply_pending`,
+#: :func:`_pending_rule_fields`) — the reason watchlist cannot just BE a
+#: ``SingleWriter``. The pool/queue/flush/shutdown mechanics underneath are
+#: shared with ``core/profile_store.py`` and live in ``core/queued_writer.py``.
 _pending: list[_PendingWrite] = []
 _lock = threading.Lock()
 _write_error_handler: "Optional[Callable[[str, str, str], None]]" = None
+_writer = SingleWriter(thread_name_prefix="watchlist-write", label="watchlist",
+                        default_timeout=_FLUSH_TIMEOUT)
 
 
 def set_write_error_handler(
@@ -133,15 +139,7 @@ def flush(timeout: float = _FLUSH_TIMEOUT) -> bool:
     Returns:
         True when the queue drained inside *timeout*.
     """
-    with _lock:
-        futures = [w.future for w in _pending if w.future is not None]
-    if not futures:
-        return True
-    _done, not_done = wait(futures, timeout=timeout)
-    if not_done:
-        logger.warning("watchlist: {} write(s) still queued after {}s",
-                       len(not_done), timeout)
-    return not not_done
+    return _writer.flush(timeout)
 
 
 def shutdown(timeout: float = _FLUSH_TIMEOUT) -> None:
@@ -149,19 +147,8 @@ def shutdown(timeout: float = _FLUSH_TIMEOUT) -> None:
 
     Registered on ``MainWindow``'s cleanup registry, so it runs before
     ``closeEvent`` closes the database underneath a queued write.
-
-    Whether the pool is waited on is decided by whether the flush succeeded.
-    An unconditional ``shutdown(wait=True)`` blocks until the worker returns
-    however long that takes, so a write stuck on the 30 s ``busy_timeout``
-    would hold the app open for the full 30 s — the freeze this module exists
-    to remove, moved to the quit button. Once the queue IS empty the worker has
-    nothing left to do, so waiting costs nothing and leaves no stray thread.
     """
-    global _writer
-    drained = flush(timeout)
-    pool, _writer = _writer, None
-    if pool is not None:
-        pool.shutdown(wait=drained)
+    _writer.shutdown(timeout)
 
 
 def bind(db: "Optional[Database]") -> None:
@@ -488,21 +475,12 @@ def _queue(op: str, text: str, fields: "Optional[dict]" = None) -> bool:
     with _lock:
         _pending.append(write)
         try:
-            write.future = _writer_pool().submit(_run_write, write)
+            write.future = _writer.submit(_run_write, write)
         except Exception:
             _pending.remove(write)
             logger.exception("watchlist: could not queue {} of {!r}", op, text)
             return False
     return True
-
-
-def _writer_pool() -> ThreadPoolExecutor:
-    """The single writer thread, created on first use."""
-    global _writer
-    if _writer is None:
-        _writer = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="watchlist-write")
-    return _writer
 
 
 def _apply_write(write: _PendingWrite) -> None:

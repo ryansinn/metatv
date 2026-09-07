@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
 
+from metatv.core.connection_accountant import acquire_or_proceed, release_quietly
+
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
@@ -660,24 +662,14 @@ class SeriesMonitorManager(QObject):
         Returns:
             True if the fetch may proceed.
         """
-        if self._accountant is None:
-            return True
-        try:
-            return self._accountant.acquire(
-                provider_id, MONITOR_KIND, holder_id,
-                preempt_kinds=MONITOR_PREEMPTS).granted
-        except Exception:  # bookkeeping must never break the poll outright
-            logger.exception("series_monitor: connection acquire failed")
-            return True
+        return acquire_or_proceed(
+            self._accountant, provider_id, MONITOR_KIND, holder_id,
+            preempt_kinds=MONITOR_PREEMPTS, label="series_monitor")
 
     def _release_slot(self, provider_id: str, holder_id: str) -> None:
         """Release the slot :meth:`_acquire_slot` took for *holder_id*."""
-        if self._accountant is None:
-            return
-        try:
-            self._accountant.release(provider_id, holder_id)
-        except Exception:
-            logger.exception("series_monitor: connection release failed")
+        release_quietly(self._accountant, provider_id, holder_id,
+                        label="series_monitor")
 
     def _worker_check_entries(self, entries: list[dict]) -> None:
         """Check each monitored entry across every provider that carries it.

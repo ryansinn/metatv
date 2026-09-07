@@ -254,6 +254,33 @@ def test_omdb_priority():
 
 
 # ---------------------------------------------------------------------------
+# _parse_stored_year — one shared implementation on MetadataProviderPlugin
+# (R12, docs/REFACTOR_PLAN.md), was a byte-identical copy in each of
+# omdb.py/tmdb.py.
+# ---------------------------------------------------------------------------
+
+def test_parse_stored_year_takes_the_first_four_digits():
+    from metatv.metadata_providers.base import MetadataProviderPlugin
+    assert MetadataProviderPlugin._parse_stored_year("1993-2002") == 1993
+    assert MetadataProviderPlugin._parse_stored_year("2025") == 2025
+
+
+def test_parse_stored_year_none_on_empty_or_unparseable():
+    from metatv.metadata_providers.base import MetadataProviderPlugin
+    assert MetadataProviderPlugin._parse_stored_year(None) is None
+    assert MetadataProviderPlugin._parse_stored_year("") is None
+    assert MetadataProviderPlugin._parse_stored_year("n/a") is None
+
+
+def test_tmdb_and_omdb_share_the_one_parse_stored_year():
+    """Identity, not just equal behaviour — proves there is one definition,
+    not two copies that happen to agree."""
+    from metatv.metadata_providers.omdb import OMDbProvider
+    from metatv.metadata_providers.tmdb import TMDbProvider
+    assert TMDbProvider._parse_stored_year is OMDbProvider._parse_stored_year
+
+
+# ---------------------------------------------------------------------------
 # TMDb: search() + get_details() fixture mapping (title-search fallback path)
 # ---------------------------------------------------------------------------
 
