@@ -83,6 +83,31 @@ from metatv.gui.epg_widgets import _DismissedDialog, _parse_iso
 from metatv.gui import deferred_config_save as _cfgsave
 
 
+def _more_toggle_button(container, n: int, noun: str, *, indent: int = 8) -> QPushButton:
+    """One "N more <noun>" fold over ``container``, caret and label in step. Two
+    copies sat in ``_make_watchlist_item`` with a composed sheet each, both
+    drawing the caret with the LIST-ORDERING arrows ("move this", not "open
+    this"); one sheet now, differing only by ``indent``. No tooltip — the label
+    already says what it folds and which way it goes."""
+    btn = QPushButton()
+    btn.setFlat(True)
+    _theme.style_fn(btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT};"
+        f" font-size: {_theme.FONT_SM}; border: none; text-align: left;"
+        f" padding: 2px {indent}px; }}"
+        f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
+
+    def _sync(flip: bool = False) -> None:
+        if flip:
+            container.setVisible(container.isHidden())
+        shut = container.isHidden()
+        caret = _icons.expand_icon if shut else _icons.collapse_icon
+        btn.setText(f"{caret}  {n} more {noun}" if shut else f"{caret}  fewer {noun}")
+
+    btn.clicked.connect(lambda _checked=False: _sync(flip=True))
+    _sync()
+    return btn
+
+
 class _EpgWatchlistMixin:
     """Watchlist / My-Channels / Discover-tab methods for EpgView.
 
@@ -609,7 +634,7 @@ class _EpgWatchlistMixin:
         edit_btn = QPushButton(f"Edit {_icons.expand_icon}")
         edit_btn.setFlat(True)
         _theme.style(edit_btn, "LINK_BTN_SM")
-        edit_btn.setToolTip(f'Change how "{pattern}" matches')
+        edit_btn.setToolTip(f'Open the rule editor for "{pattern}"')
         header.addWidget(edit_btn)
 
         remove_btn = _icon_utils.icon_button(
@@ -703,21 +728,8 @@ class _EpgWatchlistMixin:
                     extra_inner.addWidget(_ch_row(ep))
                 extra_container.hide()
 
-                expand_btn = QPushButton(f"{self.config.move_down_icon}  {n_more} more channels")
-                expand_btn.setFlat(True)
-                _theme.style_fn(expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM}; border: none;"
-                    " text-align: left; padding-left: 16px; }"
-                    f"QPushButton:hover {{ color: {_theme.COLOR_DIM_2}; }}")
-
-                def _toggle(checked=False, btn=expand_btn, cont=extra_container, n=n_more):
-                    if cont.isHidden():
-                        cont.show()
-                        btn.setText(f"{self.config.move_up_icon}  fewer channels")
-                    else:
-                        cont.hide()
-                        btn.setText(f"{self.config.move_down_icon}  {n} more channels")
-
-                expand_btn.clicked.connect(_toggle)
+                expand_btn = _more_toggle_button(
+                    extra_container, n_more, "channels", indent=16)
                 target_layout.addWidget(expand_btn)
                 target_layout.addWidget(extra_container)
 
@@ -738,23 +750,8 @@ class _EpgWatchlistMixin:
                 _render_group(title, progs, extra_grp_layout)
             extra_grp_container.hide()
 
-            more_grps_btn = QPushButton(
-                f"{self.config.move_down_icon}  {n_extra_grps} more programs"
-            )
-            more_grps_btn.setFlat(True)
-            _theme.style_fn(more_grps_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none;"
-                " text-align: left; padding: 2px 8px; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-
-            def _toggle_groups(_, btn=more_grps_btn, cont=extra_grp_container, n=n_extra_grps):
-                if cont.isHidden():
-                    cont.show()
-                    btn.setText(f"{self.config.move_up_icon}  fewer programs")
-                else:
-                    cont.hide()
-                    btn.setText(f"{self.config.move_down_icon}  {n} more programs")
-
-            more_grps_btn.clicked.connect(_toggle_groups)
+            more_grps_btn = _more_toggle_button(
+                extra_grp_container, n_extra_grps, "programs")
             layout.addWidget(more_grps_btn)
             layout.addWidget(extra_grp_container)
 
@@ -874,8 +871,9 @@ class _EpgWatchlistMixin:
             cards_layout.addWidget(card)
 
         def _update_label():
-            arrow = self.config.move_down_icon if cards_container.isHidden() else self.config.move_up_icon
-            toggle_btn.setText(f"{arrow}  OFF AIR  ·  {n}")
+            shut = cards_container.isHidden()
+            toggle_btn.setText(f"{_icons.expand_icon if shut else _icons.collapse_icon}  OFF AIR  ·  {n}")
+            toggle_btn.setToolTip(f"{'Expand' if shut else 'Collapse'} OFF AIR ({n} not on right now)")
 
         def _toggle(checked=False):
             if cards_container.isHidden():
@@ -953,6 +951,7 @@ class _EpgWatchlistMixin:
 
         count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
         _theme.style(count_lbl, "DISCOVER_REC_COUNT")
+        count_lbl.setToolTip(f"Expand the {count} matching programmes")
         cursor_affordance.set_clickable(count_lbl, keyboard=True)
         layout.addWidget(count_lbl)
         layout.addStretch()
@@ -998,6 +997,7 @@ class _EpgWatchlistMixin:
                 # Expand
                 _collapsed_state[0] = False
                 count_lbl.setText(f"{_icons.collapse_icon} {count} matches")
+                count_lbl.setToolTip(f"Collapse the {count} matching programmes")
                 if not _loaded[0]:
                     _loaded[0] = True
                     self._load_rec_matches(channel_db_id, sub_layout)
@@ -1006,6 +1006,7 @@ class _EpgWatchlistMixin:
                 # Collapse
                 _collapsed_state[0] = True
                 count_lbl.setText(f"{_icons.expand_icon} {count} matches")
+                count_lbl.setToolTip(f"Expand the {count} matching programmes")
                 sub_list.hide()
 
         count_lbl.mousePressEvent = _toggle_matches

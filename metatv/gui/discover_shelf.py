@@ -359,14 +359,14 @@ class _Shelf(QWidget):
 
         if self._collapsed:
             _icon_utils.set_button_icon(self._collapse_btn, "expand", color=_theme.COLOR_DIM_2)
-            self._collapse_btn.setToolTip("Expand")
+            self._collapse_btn.setToolTip("Expand " + self._title_lbl.text())
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
             cursor_affordance.set_clickable(self._title_lbl, True)
             self.setStyleSheet("")
         else:
             _icon_utils.set_button_icon(self._collapse_btn, "collapse", color=_theme.COLOR_DISABLED)
-            self._collapse_btn.setToolTip("Collapse")
+            self._collapse_btn.setToolTip("Collapse " + self._title_lbl.text())
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
             cursor_affordance.set_clickable(self._title_lbl, False)

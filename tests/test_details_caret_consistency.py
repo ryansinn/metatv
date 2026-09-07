@@ -120,16 +120,27 @@ def test_the_caret_glyph_and_tooltip_always_agree(qapp):
     assert "Expand" in header._chevron.toolTip()
 
 
-def test_filtered_variants_caret_matches_reference(qapp):
-    """Not on the shared header — it is a sub-section inside Also-available.
+def test_filtered_variants_is_the_shared_header_one_step_down(qapp):
+    """It IS the shared header now — in its nested scale.
 
-    Left as its own control deliberately: it discloses filtered variants
-    *within* a section, so promoting it to a section header would put two
-    section headers in one section.
+    It was a hand-rolled chevron-plus-clickable-label, which is the same shape
+    the details pane had four copies of before ``CollapsibleHeader`` existed.
+    It stays visibly a SUB-section: at the parent's type size it would read as
+    a second section header inside one section, so the nested scale is the
+    whole point of not just reusing the default.
     """
+    from metatv.gui.details_section_header import CollapsibleHeader
     from metatv.gui.details_versions import _VersionSection
+    from metatv.gui import theme as _theme
+
     section = _VersionSection(_Cfg())
-    btn = section._filtered_toggle_btn
-    assert btn.isFlat() is False
-    assert btn.minimumWidth() == btn.maximumWidth() == 20
-    assert btn.minimumHeight() == btn.maximumHeight() == 20
+    header = section._filtered_header
+    assert isinstance(header, CollapsibleHeader)
+    assert header._chevron.text() == _icons.expand_icon, "starts collapsed"
+    assert header._title.styleSheet() == _theme.DETAIL_SUBSECTION_TITLE, (
+        "a sub-section header must not render at the parent header's size"
+    )
+    assert _theme.DETAIL_SUBSECTION_TITLE != _theme.DETAIL_SECTION_TITLE, (
+        "the nested scale is identical to the parent's — nothing distinguishes "
+        "a sub-section header from the section it sits inside"
+    )

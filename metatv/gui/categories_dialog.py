@@ -57,10 +57,9 @@ class _CategorySection(QWidget):
         self._expand_btn = QPushButton()
         self._expand_btn.setFixedSize(20, 20)
         self._expand_btn.setFlat(True)
-        _icon_utils.set_button_icon(self._expand_btn, "expand")
-        self._expand_btn.setToolTip("Expand / collapse")
         self._expand_btn.clicked.connect(self._toggle)
         hl.addWidget(self._expand_btn)
+        self._sync_expand_btn()
 
         mood_icon = self._mood_icon()
         name_lbl = QLabel(f"{mood_icon}  {self._name}")
@@ -104,11 +103,17 @@ class _CategorySection(QWidget):
 
     # ── Expand / collapse ──────────────────────────────────────────────────────
 
+    def _sync_expand_btn(self) -> None:
+        """Caret and tooltip together — a fixed "Expand / collapse" contradicts
+        the arrow half the time and never says WHICH category it opens."""
+        verb = "Collapse" if self._expanded else "Expand"
+        _icon_utils.set_button_icon(
+            self._expand_btn, "collapse" if self._expanded else "expand")
+        self._expand_btn.setToolTip(verb + " " + self._name)
+
     def _toggle(self) -> None:
         self._expanded = not self._expanded
-        _icon_utils.set_button_icon(
-            self._expand_btn, "collapse" if self._expanded else "expand"
-        )
+        self._sync_expand_btn()
         self._body.setVisible(self._expanded)
         if self._expanded and not self._channels_loaded:
             self._load_channels()

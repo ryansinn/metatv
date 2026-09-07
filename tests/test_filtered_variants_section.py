@@ -68,7 +68,7 @@ def test_filtered_chips_not_hidden_after_toggle(qapp):
         "_filtered_chips_row must start collapsed (hidden) after load()"
     )
 
-    section._toggle_filtered_section()
+    section._filtered_header.toggle()
 
     assert not section._filtered_chips_row.isHidden(), (
         "After toggle, _filtered_chips_row must not be explicitly hidden"
@@ -89,8 +89,8 @@ def test_toggle_twice_re_collapses_chips(qapp):
     section = _VersionSection(_make_config())
     section.load([_active_version(), _filtered_version("f3")])
 
-    section._toggle_filtered_section()  # expand
-    section._toggle_filtered_section()  # collapse
+    section._filtered_header.toggle()  # expand
+    section._filtered_header.toggle()  # collapse
 
     assert section._filtered_chips_row.isHidden(), (
         "After two toggles, _filtered_chips_row must be hidden again (collapsed)"
@@ -102,18 +102,24 @@ def test_toggle_twice_re_collapses_chips(qapp):
 # ---------------------------------------------------------------------------
 
 def test_header_label_is_a_button(qapp):
-    """_filtered_hdr_lbl must be a QPushButton so it can receive click events."""
+    """The header's TITLE must be a QPushButton so the words are clickable too.
+
+    It is ``CollapsibleHeader``'s title now, not a hand-rolled label — the
+    widget is what guarantees the words toggle, not a local copy of the trick.
+    """
     from PyQt6.QtWidgets import QPushButton
+    from metatv.gui.details_section_header import CollapsibleHeader
     from metatv.gui.details_versions import _VersionSection
 
     section = _VersionSection(_make_config())
-    assert isinstance(section._filtered_hdr_lbl, QPushButton), (
-        "_filtered_hdr_lbl must be a QPushButton, not a QLabel, so it is clickable"
+    assert isinstance(section._filtered_header, CollapsibleHeader)
+    assert isinstance(section._filtered_header._title, QPushButton), (
+        "the header title must be a QPushButton, not a QLabel, so it is clickable"
     )
 
 
 def test_clicking_header_label_toggles_section(qapp):
-    """Clicking _filtered_hdr_lbl (the text label) must expand/collapse the chips row."""
+    """Clicking the header TEXT must expand/collapse the chips row."""
     from metatv.gui.details_versions import _VersionSection
 
     section = _VersionSection(_make_config())
@@ -122,14 +128,14 @@ def test_clicking_header_label_toggles_section(qapp):
     assert section._filtered_chips_row.isHidden(), "Must start collapsed"
 
     # Click the TEXT LABEL (not the chevron button)
-    section._filtered_hdr_lbl.click()
+    section._filtered_header._title.click()
 
     assert not section._filtered_chips_row.isHidden(), (
         "Clicking the header label must expand the chips row"
     )
 
     # Click again — must collapse
-    section._filtered_hdr_lbl.click()
+    section._filtered_header._title.click()
 
     assert section._filtered_chips_row.isHidden(), (
         "Clicking the header label a second time must collapse the chips row"

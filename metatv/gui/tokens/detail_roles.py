@@ -74,6 +74,17 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f" padding: 0; text-align: left; }}"
             f"QPushButton:hover {{ color: {accent}; }}"
         ),
+        # The SAME header one step down the scale, for a section nested inside
+        # another one ("Filtered variants" inside "Other Versions"). One widget,
+        # two sizes: at the parent's size a sub-section reads as its sibling,
+        # and giving it a separate widget is how the details pane grew four
+        # hand-rolled collapsibles the last time.
+        "DETAIL_SUBSECTION_TITLE": (
+            f"QPushButton {{ color: {text}; font-size: {font_sm};"
+            f" font-weight: bold; background: transparent; border: none;"
+            f" padding: 0; text-align: left; }}"
+            f"QPushButton:hover {{ color: {accent}; }}"
+        ),
         # ── Sidebar rows (V3) ────────────────────────────────────────────
         # These two roles carry SIZE and background only. Both labels are
         # MiddleElideLabel, which paints itself and never consults a stylesheet

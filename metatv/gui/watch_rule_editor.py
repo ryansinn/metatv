@@ -388,10 +388,12 @@ def attach_rule_editor(host, layout, pattern: str, toggle_btn) -> None:
         lambda new_rule, p=pattern: host._on_rule_changed(p, new_rule))
     layout.addWidget(editor)
 
-    def _toggle(_checked=False, ed=editor, btn=toggle_btn):
+    def _toggle(_checked=False, ed=editor, btn=toggle_btn, p=pattern):
         showing = not ed.isVisible()
         ed.setVisible(showing)
         btn.setText(f"Edit {icons.collapse_icon if showing else icons.expand_icon}")
+        verb = "Close" if showing else "Open"
+        btn.setToolTip(verb + ' the rule editor for "' + p + '"')
 
     toggle_btn.clicked.connect(_toggle)
 

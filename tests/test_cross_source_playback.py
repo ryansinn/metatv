@@ -732,14 +732,14 @@ def test_toggle_filtered_section_shows_and_hides_chips(qapp):
     assert section._filtered_chips_row.isHidden()
 
     # Click toggle → expanded
-    section._filtered_toggle_btn.click()
+    section._filtered_header._chevron.click()
     assert not section._filtered_chips_row.isHidden(), (
         "Filtered chips row must become visible after one toggle click"
     )
     assert section._filtered_collapsed is False
 
     # Click toggle again → collapsed
-    section._filtered_toggle_btn.click()
+    section._filtered_header._chevron.click()
     assert section._filtered_chips_row.isHidden(), (
         "Filtered chips row must be hidden again after second toggle click"
     )
@@ -763,19 +763,20 @@ def test_toggle_button_icon_swaps_on_toggle(qapp):
     section.load(_make_mixed_versions())
 
     # Default: collapsed → expand icon
-    assert section._filtered_toggle_btn.text() == ""
-    collapsed_bytes = _icon_bytes(section._filtered_toggle_btn)
+    chevron = section._filtered_header._chevron
+    assert chevron.text() == ""
+    collapsed_bytes = _icon_bytes(chevron)
 
     # After expand
-    section._filtered_toggle_btn.click()
-    expanded_bytes = _icon_bytes(section._filtered_toggle_btn)
+    chevron.click()
+    expanded_bytes = _icon_bytes(chevron)
     assert expanded_bytes != collapsed_bytes, (
         "Toggle button icon must repaint when expanded"
     )
 
     # After collapse again
-    section._filtered_toggle_btn.click()
-    assert _icon_bytes(section._filtered_toggle_btn) == collapsed_bytes, (
+    chevron.click()
+    assert _icon_bytes(chevron) == collapsed_bytes, (
         "Toggle button must revert to the expand glyph when re-collapsed"
     )
 
@@ -819,7 +820,7 @@ def test_load_resets_filtered_section_to_collapsed(qapp):
     section.load(_make_mixed_versions())
 
     # Expand filtered section (isHidden() is the headless-safe visibility check)
-    section._filtered_toggle_btn.click()
+    section._filtered_header._chevron.click()
     assert not section._filtered_chips_row.isHidden()
 
     # Reload — must reset to collapsed

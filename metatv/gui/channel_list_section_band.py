@@ -77,6 +77,11 @@ LABEL_TRACKING = 114.0
 #: ``All | Whole | Part`` would carry a synonym.
 ALL = "All"
 WORD = "Word"
+#: The disclosure caret, from the ONE place glyphs live. Two literals sat here
+#: instead — a fifth pair of carets, invisible to any grep for the icon names.
+#: This band PAINTS its caret (QPainter.drawText, no QIcon), and its small
+#: triangles are deliberately its own shape, so icons.py names that pair rather
+#: than folding it into the chevrons ``expand_icon``/``collapse_icon`` carry.
 CARET_OPEN = _icons.search_band_caret_open_icon
 CARET_SHUT = _icons.search_band_caret_shut_icon
 
