@@ -499,7 +499,7 @@ class _MetadataMixin:
         """A raised details-pane read must say so, not silently leave whatever
         channel was shown before the click on screen."""
         logger.warning(f"Channel details load failed: {exc}")
-        self.status_bar.showMessage("Couldn't load channel details — try again")
+        self.status("Couldn't load channel details — try again", ms=0, level="error")
 
     def on_channel_selection_changed(self, current, previous):
         """Handle channel selection change — update details pane."""

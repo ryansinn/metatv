@@ -20,7 +20,7 @@ This is the same failure the code keeps hitting in other clothes (the `refresh_t
 
 Most Critical Rules below are instances of two ideas. When a rule states one of these, it's applying the principle — not re-deriving it.
 
-1. **Single chokepoint / one source of truth.** For any recurring operation (play, refresh, async DB read, name parsing, scoping filters) and any palette/lookup data (colors, icons, region codes), there is one canonical path or definition. Route through it; never hand-roll a parallel one. Need a variant → extend the shared core (one helper both call), don't copy-and-trim.
+1. **Single chokepoint / one source of truth.** For any recurring operation (play, refresh, async DB read, name parsing, scoping filters, status-bar messaging — `MainWindow.status()`, `main_window_status.py`) and any palette/lookup data (colors, icons, region codes), there is one canonical path or definition. Route through it; never hand-roll a parallel one. Need a variant → extend the shared core (one helper both call), don't copy-and-trim.
 2. **Compute once at ingestion, read everywhere else.** Name-derived fields, year, and content-format guesses are resolved at write time into stored fields. Display, query, and scoring code reads the stored field — never re-parses at runtime.
 
 If a rule's premise has drifted from the code, say so and adapt — don't silently ignore it. When the correct path is genuinely unclear, ask: a one-line clarifying question beats inventing a third pattern.

@@ -172,6 +172,7 @@ def test_siblings_ranks_active_before_inactive(tmp_path):
 def _make_mixin():
     """Build a bare _StreamingMixin with enough mocked state for unit tests."""
     from metatv.gui.main_window_streaming import _StreamingMixin
+    from tests.conftest import wire_status_method
     obj = _StreamingMixin.__new__(_StreamingMixin)
     obj.loading_channels = set()
     obj.db = MagicMock()
@@ -182,6 +183,7 @@ def _make_mixin():
     obj.notification_manager = MagicMock()
     obj.notification_manager.show.return_value = "notif-xyz"
     obj.status_bar = MagicMock()
+    wire_status_method(obj)   # STATUS-1: _on_stream_ready etc. call self.status(...)
     obj._stream_ready = MagicMock()
     obj._provider_icons = {}
     return obj

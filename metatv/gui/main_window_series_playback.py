@@ -74,12 +74,12 @@ class _SeriesPlaybackMixin:
             logger.info(f"Channel ID from item data: {channel_id}")
         except Exception as e:
             logger.error(f"Error getting channel ID: {e}")
-            self.status_bar.showMessage(f"Error: Cannot get channel ID - {e}")
+            self.status(f"Error: Cannot get channel ID - {e}", ms=0, level="error")
             return
 
         if not channel_id:
             logger.warning("No channel ID found for selected item")
-            self.status_bar.showMessage("Cannot play this item - no channel ID")
+            self.status("Cannot play this item - no channel ID", ms=0, level="error")
             return
 
         # Get channel from database to check media type
@@ -92,7 +92,7 @@ class _SeriesPlaybackMixin:
 
             if not channel:
                 logger.error(f"Channel not found: {channel_id}")
-                self.status_bar.showMessage("Error: Channel not found")
+                self.status("Error: Channel not found", ms=0, level="error")
                 return
 
             # Check if this is a series - if so, drill down instead of playing
@@ -106,7 +106,7 @@ class _SeriesPlaybackMixin:
 
         except Exception as e:
             logger.error(f"Error in play_channel: {e}")
-            self.status_bar.showMessage(f"Error: {e}")
+            self.status(f"Error: {e}", ms=0, level="error")
         finally:
             session.close()
 
@@ -143,7 +143,7 @@ class _SeriesPlaybackMixin:
         with self.db.session_scope() as session:
             episode = RepositoryFactory(session).episodes.get_playable_dto(episode_id)
         if episode is None:
-            self.status_bar.showMessage("This episode is no longer available")
+            self.status("This episode is no longer available", ms=0, level="warn")
             return
         self.play_episode(episode)
 
@@ -165,10 +165,10 @@ class _SeriesPlaybackMixin:
         logger.info(f"Playing episode: {episode.title}")
 
         if not episode.stream_url:
-            self.status_bar.showMessage("Error: No stream URL for episode")
+            self.status("Error: No stream URL for episode", ms=0, level="error")
             return
 
-        self.status_bar.showMessage(f"Playing: {episode.title}")
+        self.status(f"Playing: {episode.title}", ms=0)
 
         # Resolve the effective season-queue flag:
         #   explicit True/False overrides config; None defers to config.
@@ -304,7 +304,7 @@ class _SeriesPlaybackMixin:
         # Filter items with no stream URL before indexing.
         playable = [it for it in items if it.stream_url]
         if not playable:
-            self.status_bar.showMessage("No playable URLs in selection")
+            self.status("No playable URLs in selection", ms=0, level="warn")
             return
 
         first = playable[0]
@@ -386,7 +386,7 @@ class _SeriesPlaybackMixin:
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
-            self.status_bar.showMessage("Error: No media player found. Please install mpv.")
+            self.status("Error: No media player found. Please install mpv.", ms=0, level="error")
             return
 
         safe_title = title if not title.startswith("http") else "…"
@@ -491,10 +491,10 @@ class _SeriesPlaybackMixin:
             else:
                 status_msg = f"Playing: {title}"
 
-            QTimer.singleShot(2000, lambda: self.status_bar.showMessage(status_msg))
+            QTimer.singleShot(2000, lambda: self.status(status_msg, ms=0))
         else:
             logger.error(f"Failed to play episode: {title}")
-            self.status_bar.showMessage(f"Error playing: {title}")
+            self.status(f"Error playing: {title}", ms=0, level="error")
 
     def _play_all_selected_episodes(
         self,

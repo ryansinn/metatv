@@ -185,7 +185,7 @@ def _push_waiting_line(host: Any, ticks: int) -> None:
             else "answer")
     seconds = ticks * (POLL_MS // 1000)
     try:
-        host.status_bar.showMessage(f"Waiting for {source} to {verb}… {seconds}s")
+        host.status(f"Waiting for {source} to {verb}… {seconds}s", ms=0, level="warn")
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
 
@@ -315,9 +315,9 @@ def schedule_retry(host: Any) -> bool:
     att = retry_candidate(host)
     if att is None:
         return False
-    host.status_bar.showMessage(
+    host.status(
         f"{att.channel_name}: the stream closed before it started — retrying in "
-        f"{RETRY_AFTER_EXIT_MS // 1000}s")
+        f"{RETRY_AFTER_EXIT_MS // 1000}s", ms=0, level="warn")
     QTimer.singleShot(RETRY_AFTER_EXIT_MS, lambda: replay(host, att))
     return True
 
@@ -337,8 +337,9 @@ def _on_replay_failed(host: Any, attempt: PlayAttempt, exc: Exception) -> None:
     """The scheduled retry's own re-read raised — say so, rather than leaving
     the user staring at "retrying in Xs" with nothing then happening."""
     logger.warning(f"Retry for {attempt.channel_name!r} failed: {exc}")
-    host.status_bar.showMessage(
-        f"{attempt.channel_name}: retry failed — couldn't reload the channel")
+    host.status(
+        f"{attempt.channel_name}: retry failed — couldn't reload the channel",
+        ms=0, level="error")
 
 
 def retry_candidate(host: Any) -> "Optional[PlayAttempt]":
@@ -425,7 +426,7 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
             "playback never started for {!r} — mpv accepted the file and loaded "
             "nothing within {}s", name, FAILED_AFTER_TICKS * 2)
     try:
-        host.status_bar.showMessage(f"Nothing is playing: {name}")
+        host.status(f"Nothing is playing: {name}", ms=0, level="warn")
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
     try:

@@ -276,11 +276,11 @@ class _DownloadsMixin:
 
     def _open_downloads_folder(self) -> None:
         if not open_folder(library_dir(self.config)):
-            self.status_bar.showMessage("No downloads folder yet.", 4000)
+            self.status("No downloads folder yet.", ms=4000, level="warn")
 
     def _open_recordings_folder(self) -> None:
         if not open_folder(recordings_dir(self.config)):
-            self.status_bar.showMessage("No recordings folder yet.", 4000)
+            self.status("No recordings folder yet.", ms=4000, level="warn")
 
     def _reveal_in_file_manager(self, dest_path: str) -> None:
         """Reveal one transfer's file. Says so when the file is gone.
@@ -290,8 +290,7 @@ class _DownloadsMixin:
         claim this cannot check any other way.
         """
         if not reveal_file(dest_path):
-            self.status_bar.showMessage(
-                "That file is no longer on disk.", 4000)
+            self.status("That file is no longer on disk.", ms=4000, level="warn")
 
     # ── row actions ────────────────────────────────────────────────────────
 
@@ -326,13 +325,13 @@ class _DownloadsMixin:
             return
         row = rows[0]
         if not _file_exists(row.dest_path):
-            self.status_bar.showMessage("That file is no longer on disk.", 4000)
+            self.status("That file is no longer on disk.", ms=4000, level="warn")
             return
 
         own_window = bool(getattr(self.config, "split_streams_by_source", False))
         if not self.player_manager.play_local_file(
                 row.dest_path, row.channel_name, own_window=own_window):
-            self.status_bar.showMessage(f"Could not play {row.channel_name}.", 4000)
+            self.status(f"Could not play {row.channel_name}.", ms=4000, level="error")
             return
 
         self.executor.submit(self._bg_mark_played, row.channel_id, None)
@@ -363,9 +362,9 @@ class _DownloadsMixin:
             path.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning(f"Could not delete download file {path}: {exc}")
-            self.status_bar.showMessage(f"Could not delete {path.name}: {exc}", 5000)
+            self.status(f"Could not delete {path.name}: {exc}", ms=5000, level="error")
             return
-        self.status_bar.showMessage(f"Deleted {path.name}", 4000)
+        self.status(f"Deleted {path.name}", ms=4000)
         self._refresh_transfer_sections()
 
     # ── download history (terminal rows) ───────────────────────────────────
@@ -395,15 +394,15 @@ class _DownloadsMixin:
                 not_before, not_after)
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to clear download history group {bucket.label!r}: {e}")
-            self.status_bar.showMessage(f"Error clearing download history: {e}")
+            self.status(f"Error clearing download history: {e}", ms=0, level="error")
             return
 
         self._refresh_transfer_sections()
         if not count:
-            self.status_bar.showMessage(f"Nothing to forget under {bucket.label}")
+            self.status(f"Nothing to forget under {bucket.label}", ms=0)
             return
 
-        self.status_bar.showMessage(f"Cleared {count} download(s) from {bucket.label}")
+        self.status(f"Cleared {count} download(s) from {bucket.label}", ms=0)
         self.notification_manager.show(
             title="Download history cleared",
             message=(f"Forgot {count} download(s) under {bucket.label}. "
@@ -418,10 +417,10 @@ class _DownloadsMixin:
         try:
             restored = self.download_manager.restore_history_snapshot(snapshot)
             self._refresh_transfer_sections()
-            self.status_bar.showMessage(f"Restored {restored} download(s)")
+            self.status(f"Restored {restored} download(s)", ms=0)
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to undo download history clear: {e}")
-            self.status_bar.showMessage(f"Error restoring download history: {e}")
+            self.status(f"Error restoring download history: {e}", ms=0, level="error")
 
     def _clear_download_history(self) -> None:
         """The ⋯ menu's "Clear download history" — every group at once.
@@ -443,9 +442,9 @@ class _DownloadsMixin:
             return
         count, _snapshot = self.download_manager.clear_history_group(None, None)
         self._refresh_transfer_sections()
-        self.status_bar.showMessage(
+        self.status(
             f"Cleared {count} item(s) from your download history" if count
-            else "Nothing to clear", 4000)
+            else "Nothing to clear", ms=4000)
 
     # ── row context menu ────────────────────────────────────────────────────
 
@@ -564,8 +563,7 @@ class _DownloadsMixin:
         minutes = int(getattr(self.config, "recording_extend_minutes", 15) or 15)
         new_end = self.recording_manager.extend(recording_id, minutes * 60)
         if new_end is not None:
-            self.status_bar.showMessage(
-                f"Recording extended to {to_local(new_end):%H:%M}.", 4000)
+            self.status(f"Recording extended to {to_local(new_end):%H:%M}.", ms=4000)
         self._refresh_transfer_sections()
 
     def _watch_recording(self, recording_id: str) -> None:
@@ -579,11 +577,11 @@ class _DownloadsMixin:
         rows = [r for r in self.recording_manager.progress()
                 if r.recording_id == recording_id]
         if not rows or not rows[0].dest_path:
-            self.status_bar.showMessage("That recording has no file yet.", 4000)
+            self.status("That recording has no file yet.", ms=4000, level="warn")
             return
         path = Path(rows[0].dest_path)
         if not path.exists():
-            self.status_bar.showMessage("That recording has no file yet.", 4000)
+            self.status("That recording has no file yet.", ms=4000, level="warn")
             return
         self.player_manager.play(str(path), rows[0].programme_title
                                  or rows[0].channel_name)

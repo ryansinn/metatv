@@ -82,7 +82,7 @@ def count_text(shown: int) -> str:
     return f"{shown:,} downloaded title{'s' if shown != 1 else ''}"
 
 
-def show_empty(status_bar, stats_label) -> None:
+def show_empty(host, stats_label) -> None:
     """Zero-results text for the Downloaded scope."""
-    status_bar.showMessage("No downloaded titles yet")
+    host.status("No downloaded titles yet", ms=0)
     stats_label.setText("No downloads")

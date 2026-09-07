@@ -98,7 +98,7 @@ class _SeriesMixin:
             provider_db = repos.providers.get_by_id(channel.provider_id)
 
             if not provider_db:
-                self.status_bar.showMessage("Error: Source not found")
+                self.status("Error: Source not found", ms=0, level="error")
                 return
 
             provider = repos.providers.to_model(provider_db)
@@ -113,7 +113,7 @@ class _SeriesMixin:
             db=self.db
         )
         load_thread.finished.connect(self.on_series_loaded)
-        load_thread.progress.connect(lambda msg: self.status_bar.showMessage(msg))
+        load_thread.progress.connect(lambda msg: self.status(msg, ms=0))
 
         # Store thread to prevent garbage collection
         self.active_threads.append(load_thread)
@@ -153,7 +153,7 @@ class _SeriesMixin:
 
         if not success:
             logger.error(f"Failed to load series: {message}")
-            self.status_bar.showMessage(f"Error: {message}")
+            self.status(f"Error: {message}", ms=0, level="error")
             return
 
         # Store series data and switch to series view
@@ -496,7 +496,7 @@ class _SeriesMixin:
             auto_dismiss_seconds=None,
             actions=actions,
         )
-        self.status_bar.showMessage(f"Stream unavailable: {title}")
+        self.status(f"Stream unavailable: {title}", ms=0, level="warn")
 
         # Record EVERY failure — advisory (401/403/511) included — matching the
         # channel path (roadmap S3, #227). Skipping advisory codes here is what
@@ -684,7 +684,7 @@ class _SeriesMixin:
         item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
 
         status = "added to" if new_status else "removed from"
-        self.status_bar.showMessage(f"{episode.title} {status} favorites")
+        self.status(f"{episode.title} {status} favorites", ms=0)
         self.load_favorites()
 
     def _toggle_episodes_watched(

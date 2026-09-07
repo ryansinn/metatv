@@ -1,0 +1,4 @@
+{
+  "_comment": "STATUS-1 (tests/test_status_bar_has_one_path.py). Every entry here is a genuine status bar that is NOT the MainWindow one (e.g. a dialog's own QStatusBar) and therefore has no business routing through MainWindow.status(). Seeded empty 2026-09-07: the app has exactly one QStatusBar (metatv/gui/main_window.py), and dialogs.py's DIALOG-local show_status() writes to a QTextEdit (status_text.append), not a status_bar.showMessage() call, so nothing qualified. Shrink-only: an entry that stops being a genuine non-host status bar must be REMOVED, never left here (test_the_allowlist_only_shrinks fails the suite if it is).",
+  "entries": []
+}

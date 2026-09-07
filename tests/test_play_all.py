@@ -66,6 +66,8 @@ def _make_series_host(db) -> object:
     host.player_manager = MagicMock()
     host.player_manager.resolve_key.return_value = "__shared__"
     host.status_bar = MagicMock()
+    from tests.conftest import wire_status_method
+    wire_status_method(host)   # STATUS-1: the play-all handlers call self.status(...)
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif_1"
     host.executor = MagicMock()

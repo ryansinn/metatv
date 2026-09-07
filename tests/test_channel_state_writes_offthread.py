@@ -135,6 +135,8 @@ def host(db, order_log):
     h.load_history = lambda: None
     h.load_channels = lambda: None
     h.status_bar = type("S", (), {"showMessage": lambda self, *a, **k: None})()
+    from tests.conftest import wire_status_method
+    wire_status_method(h)   # STATUS-1: _apply_favorite_toggle/_write_failed call self.status(...)
 
     h.channel_state_bus = ChannelStateBus(reread=lambda cid: None)
 

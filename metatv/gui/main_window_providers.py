@@ -311,11 +311,11 @@ class _ProviderMixin:
         # (recommendations recompute over the whole library), so ignore repeat
         # clicks while one is in flight rather than stacking them.
         if sources is not None and sources.is_provider_busy(provider_id):
-            self.status_bar.showMessage("Source update already in progress…", 2000)
+            self.status("Source update already in progress…", ms=2000)
             return
         if sources is not None:
             sources.set_provider_busy(provider_id, True)
-        self.status_bar.showMessage("Updating views…")
+        self.status("Updating views…", ms=0)
 
         session = self.db.get_session()
         try:
@@ -361,7 +361,7 @@ class _ProviderMixin:
                 90_000,
                 lambda pid=provider_id: self._epg_refresh_spinner_off(pid),
             )
-        self.status_bar.showMessage("Refreshing EPG…", 3000)
+        self.status("Refreshing EPG…", ms=3000)
         self.epg_manager.force_refresh_provider(provider_id)
 
     def _epg_refresh_spinner_off(self, provider_id: str) -> None:
@@ -411,13 +411,13 @@ class _ProviderMixin:
         just the sidebar.
         """
         self._refresh_provider_dependent_views()
-        self.status_bar.showMessage("Source saved.", 3000)
+        self.status("Source saved.", ms=3000)
 
     def _on_provider_deleted(self, provider_id: str):
         """Clean up after a provider is deleted from the editor."""
         self.exit_provider_edit_mode()
         self._refresh_provider_dependent_views()
-        self.status_bar.showMessage("Source deleted.", 3000)
+        self.status("Source deleted.", ms=3000)
 
     def _on_provider_delete_requested(self, provider_id: str) -> None:
         """User confirmed a source delete — run the purge OFF the UI thread.

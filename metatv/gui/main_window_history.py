@@ -65,12 +65,12 @@ class _HistoryMixin:
         try:
             with self.db.session_scope() as session:
                 count = purge(RepositoryFactory(session).channels)
-            self.status_bar.showMessage(describe(count))
+            self.status(describe(count), ms=0)
             self.load_history()
             self.load_favorites()
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to clear history ({title}): {e}")
-            self.status_bar.showMessage(f"Error clearing history: {e}")
+            self.status(f"Error clearing history: {e}", ms=0, level="error")
 
     def clear_history_older_than(self, days: int) -> None:
         """Forget playback older than ``days``, keeping everything since.
@@ -119,14 +119,14 @@ class _HistoryMixin:
             self.load_favorites()
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to clear history group {bucket.label!r}: {e}")
-            self.status_bar.showMessage(f"Error clearing history: {e}")
+            self.status(f"Error clearing history: {e}", ms=0, level="error")
             return
 
         if not count:
-            self.status_bar.showMessage(f"Nothing to forget under {bucket.label}")
+            self.status(f"Nothing to forget under {bucket.label}", ms=0)
             return
 
-        self.status_bar.showMessage(f"Cleared {count} item(s) from {bucket.label}")
+        self.status(f"Cleared {count} item(s) from {bucket.label}", ms=0)
         self.notification_manager.show(
             title="History cleared",
             message=f"Forgot {count} item(s) under {bucket.label}.",
@@ -155,10 +155,10 @@ class _HistoryMixin:
                 )
             self.load_history()
             self.load_favorites()
-            self.status_bar.showMessage(f"Restored {restored} item(s)")
+            self.status(f"Restored {restored} item(s)", ms=0)
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to undo history clear: {e}")
-            self.status_bar.showMessage(f"Error restoring history: {e}")
+            self.status(f"Error restoring history: {e}", ms=0, level="error")
 
     def clear_history(self):
         """Clear all history — the ⋯ menu's all-or-nothing option."""

@@ -327,7 +327,7 @@ class _ChannelListMixin:
             from metatv.gui import icons as _icons
             self._show_channel_banner(f"{_icons.loading_icon} Loading channels…")
             self.stats_label.setText("Loading channels…")
-        self.status_bar.showMessage("Refreshing…" if keep_rows else "Loading channels…")
+        self.status("Refreshing…" if keep_rows else "Loading channels…", ms=0)
 
         # --- All UI-state reads must happen here on the main thread ---
         filter_state = self.current_filter_state or (
@@ -875,7 +875,7 @@ class _ChannelListMixin:
         # Clear the loading banner so the spinner doesn't hang.
         self._hide_channel_banners()
         self.stats_label.setText("Couldn't load channels")
-        self.status_bar.showMessage("Couldn't load channels")
+        self.status("Couldn't load channels", ms=0, level="error")
 
     def _on_channels_loaded(self, result) -> None:
         """Main thread: populate the virtualized channel model from query results.
@@ -925,21 +925,21 @@ class _ChannelListMixin:
                 # message + Add Source CTA always wins on a fresh install.
                 self._show_no_sources_state()
             elif params.get('hidden_only'):
-                self.status_bar.showMessage("No hidden channels found")
+                self.status("No hidden channels found", ms=0)
                 self.stats_label.setText("No hidden channels")
             elif params.get('downloaded_only'):
-                _dl_scope.show_empty(self.status_bar, self.stats_label)
+                _dl_scope.show_empty(self, self.stats_label)
             elif params.get('id_filter_active'):
                 # Dormant alert id-filter: single "N filtered — show" segment.
                 id_hidden = params.get('filtered_out_count', 0)
                 if id_hidden > 0:
                     self._show_channel_filter_breakdown(0, id_hidden)
-                    self.status_bar.showMessage(
-                        f"No results — {id_hidden:,} match{'es' if id_hidden == 1 else ''} hidden by current filters"
+                    self.status(
+                        f"No results — {id_hidden:,} match{'es' if id_hidden == 1 else ''} hidden by current filters", ms=0
                     )
                     self.stats_label.setText(f"0 shown · {id_hidden:,} filtered")
                 else:
-                    self.status_bar.showMessage("No channels match — try a different search or check filter settings")
+                    self.status("No channels match — try a different search or check filter settings", ms=0)
                     self.stats_label.setText(f"Showing 0 of {total_channels:,}")
             elif hidden_excl or hidden_search or hidden_dead or hidden_kw or hidden_adult:
                 # Results exist but are hidden by one or more filter layers — show the
@@ -954,12 +954,12 @@ class _ChannelListMixin:
                     hidden_by_adult_is_floor=params.get('hidden_by_adult_is_floor', False),
                 )
                 total_hidden = hidden_excl + hidden_search + hidden_dead + hidden_kw + hidden_adult
-                self.status_bar.showMessage(
-                    f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
+                self.status(
+                    f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)", ms=0
                 )
                 self.stats_label.setText(f"0 shown · {total_hidden:,} filtered")
             else:
-                self.status_bar.showMessage("No channels match — try a different search or check filter settings")
+                self.status("No channels match — try a different search or check filter settings", ms=0)
                 self.stats_label.setText(f"Showing 0 of {total_channels:,}")
             return
 
@@ -1026,13 +1026,13 @@ class _ChannelListMixin:
         self._refresh_channel_stats_label()
 
         if params.get('hidden_only'):
-            self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
+            self.status(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide", ms=0)
         elif params.get('downloaded_only'):
-            self.status_bar.showMessage(_dl_scope.count_text(shown))
+            self.status(_dl_scope.count_text(shown), ms=0)
         elif given_provider_id:
-            self.status_bar.showMessage(f"{shown:,} channels from selected source")
+            self.status(f"{shown:,} channels from selected source", ms=0)
         else:
-            self.status_bar.showMessage(f"{shown:,} channels from active providers")
+            self.status(f"{shown:,} channels from active providers", ms=0)
 
         self.filter_channels()
 
@@ -1155,9 +1155,9 @@ class _ChannelListMixin:
         total = self.channel_model.loaded_count()
         logger.debug(f"filter_channels: model has {total} rows")
         if total == 0:
-            self.status_bar.showMessage("No channels match — try a different search or filter")
+            self.status("No channels match — try a different search or filter", ms=0)
         else:
-            self.status_bar.showMessage(f"{total:,} channels loaded")
+            self.status(f"{total:,} channels loaded", ms=0)
 
     # ---- Banner helpers (main thread only) ------------------------------------
 
@@ -1178,7 +1178,7 @@ class _ChannelListMixin:
             self._channel_banner.setVisible(False)
         if hasattr(self, '_channel_filter_bar'):
             self._channel_filter_bar.setVisible(False)
-        self.status_bar.showMessage("No sources configured — add a source to start browsing channels")
+        self.status("No sources configured — add a source to start browsing channels", ms=0)
         self.stats_label.setText("No sources configured")
         # Arm the one-shot first-run hand-off. Discover is the intended landing
         # view, but a brand-new user has no content, so nothing ever placed them
@@ -1336,8 +1336,8 @@ class _ChannelListMixin:
         # Notify the user
         n = len(channel_ids)
         excl_note = " (added to Global Exclusions)" if exclude else ""
-        self.status_bar.showMessage(
-            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}"
+        self.status(
+            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}", ms=0
         )
 
         if hasattr(self, "discover_view"):
@@ -1870,7 +1870,7 @@ class _ChannelListMixin:
             return
         QApplication.clipboard().setText(text)
         if hasattr(self, "status_bar"):
-            self.status_bar.showMessage(f"Copied '{text}' to clipboard")
+            self.status(f"Copied '{text}' to clipboard", ms=0)
 
     # ---- Context menu entry points (thin wrappers) ---------------------------
 
@@ -2218,7 +2218,7 @@ class _ChannelListMixin:
 
         def _on_items_ready(items: list) -> None:
             if not items:
-                self.status_bar.showMessage("No playable streams in selection")
+                self.status("No playable streams in selection", ms=0, level="warn")
                 return
             self._play_all_items(items)
 

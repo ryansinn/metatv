@@ -1600,6 +1600,32 @@ def wire_hide_channel_banners(host) -> None:
     host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)
 
 
+def wire_status_method(host) -> None:
+    """Bind the real STATUS-1 chokepoint (``_StatusMixin.status``) to a skeleton host.
+
+    Every ``main_window_*.py`` mixin method that used to call
+    ``self.status_bar.showMessage(...)`` directly now calls ``self.status(...)``
+    (``main_window_status.py``) — the real ``MainWindow`` gets this for free via
+    its class bases, but a hand-rolled single-mixin double (``Mixin.__new__``, a
+    bare ``_NavMixin``, a ``SimpleNamespace``) does not, same gap
+    ``wire_hide_channel_banners`` closes for ``_hide_channel_banners``. Binds
+    the REAL implementation — not a copy — so a regression in ``status()``
+    still surfaces through whichever test wires it in (CLAUDE.md: run the real
+    one, don't copy ``__init__``).
+
+    The host must already carry (or be given right after) its own
+    ``status_bar`` — ``status()`` still ends by calling
+    ``self.status_bar.showMessage(...)``.
+
+    Args:
+        host: Any skeleton test double standing in for ``MainWindow`` or one
+            of its mixins.
+    """
+    from metatv.gui.main_window_status import _StatusMixin
+
+    host.status = _StatusMixin.status.__get__(host)
+
+
 def wire_header_search_sync(host) -> None:
     """Give a skeleton nav host ``_sync_header_search_visibility``.
 
@@ -1882,6 +1908,22 @@ def wire_inline_run_query(host) -> None:
     host._query_result = _InlineQueryResultSignal(host._on_query_result)
 
 
+class _StatusBarDouble:
+    """Records ``showMessage`` calls so a test can assert what actually landed.
+
+    Shared by :func:`make_channel_state_bus_host`, :func:`make_downloads_mixin_host`
+    and :func:`make_downloads_mixin_widget_host` — was three near-identical
+    nested classes, one per factory, until STATUS-1 needed to also wire
+    ``.status`` onto all three hosts and touched all three anyway.
+    """
+
+    def __init__(self):
+        self.messages: list[str] = []
+
+    def showMessage(self, text, *args, **kwargs):
+        self.messages.append(text)
+
+
 def make_channel_state_bus_host(db_obj):
     """Build a MainWindow stand-in wired for ChannelStateBus tests.
 
@@ -1942,16 +1984,6 @@ def make_channel_state_bus_host(db_obj):
         def apply_action_state(self, state):
             self.applied_states.append(state)
 
-    class _StatusBarDouble:
-        """Records ``showMessage`` calls so a failed-write test (``_write_failed``)
-        can assert the "Could not save ..." message actually landed."""
-
-        def __init__(self):
-            self.messages: list[str] = []
-
-        def showMessage(self, text, *args, **kwargs):
-            self.messages.append(text)
-
     class _Host:
         """Plain class (not SimpleNamespace) so it supports weakref.WeakMethod."""
 
@@ -1974,6 +2006,7 @@ def make_channel_state_bus_host(db_obj):
     host._refresh_queue_section = lambda: None
     host._remove_sidebar_row = lambda section_key, key: None
     host.status_bar = _StatusBarDouble()
+    wire_status_method(host)   # STATUS-1: _write_failed/_apply_favorite_toggle call self.status(...)
 
     host._write_failed = _FavoritesMixin._write_failed.__get__(host)
     host._toggle_rating = _FavoritesMixin._toggle_rating.__get__(host)
@@ -2097,13 +2130,6 @@ def make_downloads_mixin_host(
             fn(*args, **kwargs)
             return None
 
-    class _StatusBarDouble:
-        def __init__(self):
-            self.messages: list[str] = []
-
-        def showMessage(self, text, *args, **kwargs):
-            self.messages.append(text)
-
     host = SimpleNamespace(
         db=db_obj,
         config=config,
@@ -2115,6 +2141,7 @@ def make_downloads_mixin_host(
         executor=_InlineExecutor(),
         _recording_notif_ids={},
     )
+    wire_status_method(host)   # STATUS-1: _DownloadsMixin methods call self.status(...)
     for _name in _DOWNLOADS_MIXIN_BOUND_METHODS:
         setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
     host._bg_mark_played = _StreamingMixin._bg_mark_played.__get__(host)
@@ -2157,13 +2184,6 @@ def make_downloads_mixin_widget_host(
             fn(*args, **kwargs)
             return None
 
-    class _StatusBarDouble:
-        def __init__(self):
-            self.messages: list[str] = []
-
-        def showMessage(self, text, *args, **kwargs):
-            self.messages.append(text)
-
     class _WidgetHost(QWidget):
         pass
 
@@ -2175,6 +2195,7 @@ def make_downloads_mixin_widget_host(
     host.player_manager = player_manager
     host.notification_manager = MagicMock()
     host.status_bar = _StatusBarDouble()
+    wire_status_method(host)   # STATUS-1: _DownloadsMixin methods call self.status(...)
     host.executor = _InlineExecutor()
     host._recording_notif_ids = {}
     for _name in _DOWNLOADS_MIXIN_BOUND_METHODS:
@@ -2402,6 +2423,11 @@ def wire_nav_host(host) -> None:
     # previous view's message.
     if "status_bar" not in host.__dict__:
         host.status_bar = MagicMock()
+    # STATUS-1: switch_to_series_view/switch_to_list_view call self.status(...)
+    # rather than status_bar.showMessage directly; a bare _NavMixin doesn't
+    # get _StatusMixin for free the way the real MainWindow does.
+    if "status" not in host.__dict__:
+        wire_status_method(host)
 
     # The series Back/breadcrumb bar. Hidden as a UNIT outside series view —
     # it used to be added to the content column unconditionally with only its
