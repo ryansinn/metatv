@@ -14,12 +14,13 @@ import threading
 import weakref
 import uuid
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import Base, ChannelDB
@@ -745,6 +746,29 @@ def db_session():
 @pytest.fixture(scope="function")
 def repo(db_session):
     return ChannelRepository(db_session)
+
+
+@contextmanager
+def capture_sql_statements(engine):
+    """Yield a list that fills with every SQL statement executed on ``engine``.
+
+    Several test files (``test_channel_list_thumbnails.py``, ``test_repository_dtos.py``,
+    ...) each hand-rolled their own ``event.listen(engine, "before_cursor_execute", ...)``
+    closure to count queries; this is the one shared version — reuse it rather than
+    growing a fourth copy. ``len(statements)`` proves no N+1 (statement count doesn't
+    scale with row count); the captured text lets a caller assert a column is/isn't
+    in the emitted SELECT.
+    """
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, *a):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
 
 
 _counter = 0
