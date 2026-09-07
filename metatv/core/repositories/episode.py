@@ -24,7 +24,7 @@ class EpisodeRepository:
 
         Mirrors :meth:`ChannelRepository.update_stream_url` for episodes:
         called by the episode play-time failover path
-        (``launch_player_for_episode`` in ``main_window_series.py``) after
+        (``launch_player_for_episode`` in ``main_window_series_playback.py``) after
         ``validate_and_failover_stream_url`` finds a working alternate host —
         otherwise every subsequent play of this episode re-starts from the
         dead host and re-pays the failover stall. Scoped to this one episode

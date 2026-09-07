@@ -49,21 +49,21 @@ class _FakeEpisodeDTO:
 
 
 # ---------------------------------------------------------------------------
-# _SeriesMixin stub — provides exactly the attributes play_episode touches.
-# We inherit from _SeriesMixin so we run the real method body.
+# _SeriesPlaybackMixin stub — provides exactly the attributes play_episode touches.
+# We inherit from _SeriesPlaybackMixin so we run the real method body.
 # ---------------------------------------------------------------------------
 
 def _make_mixin(autoplay: bool, episodes_in_season: list[_FakeEpisodeDTO] | None = None):
-    """Return a _SeriesMixin instance with all dependencies stubbed out.
+    """Return a _SeriesPlaybackMixin instance with all dependencies stubbed out.
 
     Args:
         autoplay: Value of config.autoplay_season_episodes.
         episodes_in_season: DTOs that repos.episodes.get_episodes_dto_by_season
             should return (all seasons episodes, not just subsequent ones).
     """
-    from metatv.gui.main_window_series import _SeriesMixin
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
-    obj = object.__new__(_SeriesMixin)
+    obj = object.__new__(_SeriesPlaybackMixin)
 
     # Config stub
     cfg = MagicMock()
@@ -80,7 +80,7 @@ def _make_mixin(autoplay: bool, episodes_in_season: list[_FakeEpisodeDTO] | None
         episodes_in_season if episodes_in_season is not None else []
     )
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=mock_repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=mock_repos):
         obj._repos_factory = mock_repos  # stash for later assertions
 
     mock_db = MagicMock()
@@ -134,7 +134,7 @@ def test_queue_season_false_suppresses_queue_when_autoplay_on():
     ep = all_eps[2]  # episode 3 (index 2, episode_num=3)
     obj, repos = _make_mixin(autoplay=True, episodes_in_season=all_eps)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(ep, queue_season=False)
 
     _, _kwargs = obj.launch_player_for_episode.call_args
@@ -154,7 +154,7 @@ def test_queue_season_true_forces_queue_when_autoplay_off():
     ep = all_eps[1]  # episode 2
     obj, repos = _make_mixin(autoplay=False, episodes_in_season=all_eps)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(ep, queue_season=True)
 
     queued = obj.launch_player_for_episode.call_args[0][2]
@@ -175,7 +175,7 @@ def test_queue_season_none_follows_config_autoplay_on():
     ep = all_eps[0]  # episode 1
     obj, repos = _make_mixin(autoplay=True, episodes_in_season=all_eps)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(ep, queue_season=None)
 
     queued = obj.launch_player_for_episode.call_args[0][2]
@@ -195,7 +195,7 @@ def test_queue_season_none_follows_config_autoplay_off():
     ep = all_eps[0]  # episode 1
     obj, repos = _make_mixin(autoplay=False, episodes_in_season=all_eps)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(ep, queue_season=None)
 
     queued = obj.launch_player_for_episode.call_args[0][2]
@@ -214,7 +214,7 @@ def test_default_call_matches_none_behavior_autoplay_on():
     ep = all_eps[0]  # episode 1
     obj, repos = _make_mixin(autoplay=True, episodes_in_season=all_eps)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(ep)  # no queue_season kwarg
 
     queued = obj.launch_player_for_episode.call_args[0][2]

@@ -394,7 +394,7 @@ class TestHistorySectionPlayNextButton:
 
 class TestPlayNextRoutesThroughPlayEpisodeById:
     def test_emitted_episode_id_resolves_and_plays(self, db, qapp):
-        from metatv.gui.main_window_series import _SeriesMixin
+        from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
         _seed_series(db, source_id="series1")
         ep_id = _seed_episode(db, series_source_id="series1", season_num=1,
@@ -414,7 +414,7 @@ class TestPlayNextRoutesThroughPlayEpisodeById:
         btn.click()
         assert emitted == [ep_id]
 
-        host = _SeriesMixin.__new__(_SeriesMixin)
+        host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
         played = []

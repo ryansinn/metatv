@@ -62,10 +62,10 @@ def _locked() -> OperationalError:
 
 
 def _host(failure: Exception | None = None):
-    """A ``_SeriesMixin`` whose bookkeeping raises *failure*, if given."""
-    from metatv.gui.main_window_series import _SeriesMixin
+    """A ``_SeriesPlaybackMixin`` whose bookkeeping raises *failure*, if given."""
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
-    obj = object.__new__(_SeriesMixin)
+    obj = object.__new__(_SeriesPlaybackMixin)
 
     cfg = MagicMock()
     cfg.autoplay_season_episodes = False
@@ -98,7 +98,7 @@ def test_a_locked_database_does_not_kill_the_app(monkeypatch):
     """THE assertion. Pre-fix this propagates and PyQt aborts the process."""
     obj, repos, _session = _host(failure=_locked())
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())  # must not raise
 
     obj.launch_player_for_episode.assert_called_once(), (
@@ -110,7 +110,7 @@ def test_the_episode_still_plays_when_bookkeeping_fails(monkeypatch):
     """Degraded, not broken — the stream is what the user asked for."""
     obj, repos, _session = _host(failure=_locked())
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode(title="The Gang Gets Tested"))
 
     assert obj.launch_player_for_episode.call_count == 1
@@ -120,7 +120,7 @@ def test_the_session_is_still_closed_when_bookkeeping_fails():
     """The finally must survive the new except — a leaked session is a lock."""
     obj, repos, session = _host(failure=_locked())
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
 
     session.close.assert_called_once()
@@ -128,7 +128,7 @@ def test_the_session_is_still_closed_when_bookkeeping_fails():
 
 def test_the_failure_is_logged_not_swallowed():
     """A lock held this long is a real problem; it just must not be fatal."""
-    from metatv.gui import main_window_series
+    from metatv.gui import main_window_series_playback
 
     obj, repos, _session = _host(failure=_locked())
     logged: list[str] = []
@@ -138,8 +138,8 @@ def test_the_failure_is_logged_not_swallowed():
     monkey.warning.side_effect = lambda *a, **k: None
     monkey.debug.side_effect = lambda *a, **k: None
 
-    with patch.object(main_window_series, "logger", monkey), \
-            patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch.object(main_window_series_playback, "logger", monkey), \
+            patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
 
     assert logged, "the failure was swallowed with no record at all"
@@ -159,7 +159,7 @@ def test_any_bookkeeping_failure_is_survivable(failure):
     """
     obj, repos, _session = _host(failure=failure)
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
 
     obj.launch_player_for_episode.assert_called_once()
@@ -169,7 +169,7 @@ def test_the_normal_path_is_unchanged():
     """The guard must not swallow a working play."""
     obj, repos, session = _host()
 
-    with patch("metatv.gui.main_window_series.RepositoryFactory", return_value=repos):
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
 
     repos.episodes.mark_played.assert_called_once_with("e1")

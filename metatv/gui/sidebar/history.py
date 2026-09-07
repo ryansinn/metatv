@@ -282,7 +282,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         resolved smart-ladder resume target — see
         ``EpisodeRepository.get_resume_dto``). Emits :attr:`playNextClicked` with
         the resume target's episode id; MainWindow wires that straight into the
-        existing :meth:`~metatv.gui.main_window_series.play_episode_by_id`
+        existing :meth:`~metatv.gui.main_window_series_playback.play_episode_by_id`
         chokepoint, so this row never grows its own play path.
         """
         next_btn = QPushButton()

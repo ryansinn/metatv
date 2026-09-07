@@ -70,9 +70,9 @@ def _read_episode_fields(db, ep_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _make_series_host_queued(db):
-    """Build a _SeriesMixin host for queued-episode play tests."""
-    from metatv.gui.main_window_series import _SeriesMixin
-    host = _SeriesMixin.__new__(_SeriesMixin)
+    """Build a _SeriesPlaybackMixin host for queued-episode play tests."""
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     host.db = db
     host.config = MagicMock(
         autoplay_season_episodes=True,

@@ -54,9 +54,9 @@ def _seed_episodes(db, ep_ids: list[str]) -> None:
 
 
 def _make_series_host(db) -> object:
-    """Build a minimal _SeriesMixin host for unit tests."""
-    from metatv.gui.main_window_series import _SeriesMixin
-    host = _SeriesMixin.__new__(_SeriesMixin)
+    """Build a minimal _SeriesPlaybackMixin host for unit tests."""
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     host.db = db
     host.config = MagicMock(
         autoplay_season_episodes=False,
@@ -81,7 +81,7 @@ def _make_play_all_item(
     url: str, title: str, content_id: str,
     provider_id: str = "p1", media_type: str = "live",
 ):
-    from metatv.gui.main_window_series import _PlayAllItem
+    from metatv.gui.main_window_series_playback import _PlayAllItem
     return _PlayAllItem(
         stream_url=url, title=title, content_id=content_id,
         provider_id=provider_id, media_type=media_type,
@@ -178,7 +178,7 @@ def test_play_all_items_empty_list_is_noop(db):
 
 def test_play_all_items_all_no_url_shows_status(db):
     """Items with no stream_url are skipped; if all skip, show status message."""
-    from metatv.gui.main_window_series import _PlayAllItem
+    from metatv.gui.main_window_series_playback import _PlayAllItem
     host = _make_series_host(db)
     items = [
         _PlayAllItem(stream_url="", title="No URL", content_id="x1", provider_id="p1"),
@@ -353,7 +353,7 @@ def test_do_launch_episode_play_all_items_no_episode_num(db):
     host.player_manager.queue.return_value = True
     host._start_playback_health = MagicMock()
     # _play_checked lives on _StreamingMixin (not mixed into this bare
-    # _SeriesMixin test host) — stub it like _start_playback_health above.
+    # _SeriesPlaybackMixin test host) — stub it like _start_playback_health above.
     host._play_checked = MagicMock(return_value=True)
 
     queue_items = [

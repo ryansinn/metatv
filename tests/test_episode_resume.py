@@ -246,8 +246,8 @@ class _ImmediateExecutor:
 
 def _build_launch_host():
     from tests.conftest import wire_shutdown_flag
-    from metatv.gui.main_window_series import _SeriesMixin
-    host = wire_shutdown_flag(_SeriesMixin.__new__(_SeriesMixin))
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    host = wire_shutdown_flag(_SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin))
     host.player_manager = MagicMock()
     host.player_manager.is_available.return_value = True
     host.status_bar = MagicMock()
@@ -260,8 +260,8 @@ def _build_launch_host():
 
 
 def _build_do_launch_host():
-    from metatv.gui.main_window_series import _SeriesMixin
-    host = _SeriesMixin.__new__(_SeriesMixin)
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     host.notification_manager = MagicMock()
     host.status_bar = MagicMock()
     host._start_playback_health = MagicMock()
@@ -315,14 +315,14 @@ class TestStartSecondsThreadedThroughLaunchPath:
         )
 
     def test_play_episode_forwards_start_seconds_to_launch_player_for_episode(self, db):
-        from metatv.gui.main_window_series import _SeriesMixin
+        from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
         _seed_series(db)
         ep_id = _seed_episode(db, season_num=1, episode_num=2, title="Cat's in the Bag...")
         with db.session_scope(commit=False) as session:
             episode = RepositoryFactory(session).episodes.get_playable_dto(ep_id)
 
-        host = _SeriesMixin.__new__(_SeriesMixin)
+        host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
         host.config = _make_config()
@@ -344,14 +344,14 @@ class TestStartSecondsThreadedThroughLaunchPath:
     def test_play_episode_default_start_seconds_is_zero(self, db):
         """Every existing play_episode call site (Play Episode, queue rows,
         season Play-All, ...) never passes start_seconds — must stay 0."""
-        from metatv.gui.main_window_series import _SeriesMixin
+        from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
         _seed_series(db)
         ep_id = _seed_episode(db, season_num=1, episode_num=3, title="...And the Bag's in the River")
         with db.session_scope(commit=False) as session:
             episode = RepositoryFactory(session).episodes.get_playable_dto(ep_id)
 
-        host = _SeriesMixin.__new__(_SeriesMixin)
+        host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
         host.config = _make_config()
