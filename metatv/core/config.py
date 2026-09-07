@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
 from metatv.core import profile_store
+from metatv.core.catalog_refresh import RETIRED_LIVE_REFRESH_MODES
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -1104,18 +1105,10 @@ class Config(BaseModel):
     # See metadata_enabled_providers_version / _migrate_metadata_enabled_providers() below
     # for the one-time backfill that closes that gap for existing installs.
     metadata_enabled_providers: list = Field(default_factory=lambda: ["provider", "tmdb", "omdb"])  # Which providers are enabled
-    # Schema version for metadata_enabled_providers (wave4/external-metadata-providers
-    # follow-up — owner-reported: a real config.yaml persisted from before TMDb/OMDb
-    # existed had metadata_enabled_providers: [provider], so pasting a TMDb API key into
-    # Settings was a silent no-op — MetadataProviderRegistry.get_enabled() dropped "tmdb"
-    # before is_enabled() was ever consulted). 0 (or absent) = not yet migrated;
-    # _migrate_metadata_enabled_providers() (model_post_init) merges "tmdb"/"omdb" into
-    # the persisted list ONCE and bumps this to 1. This list has no Settings UI, so a
-    # config missing a shipped name only ever means "predates that provider" — there is
-    # no user intent to preserve. Version-gated (not a plain membership check re-run
-    # every load) so that if this list ever grows an editing UI, a user's later,
-    # deliberate removal of a provider is never silently undone by this migration
-    # running again.
+    # Schema version for the list above. 0 (or absent) = not yet migrated;
+    # _migrate_metadata_enabled_providers() merges "tmdb"/"omdb" into the persisted
+    # list ONCE and bumps this to 1. Why it is version-gated rather than a membership
+    # check re-run every load: see that method's docstring.
     metadata_enabled_providers_version: int = 0
     
     # Provider-specific API keys and settings
@@ -1510,8 +1503,10 @@ class Config(BaseModel):
 
     # LIVE-1 (Settings -> Content -> "Live catalog refresh"): auto-refresh
     # rate for the LIVE catalog only (never VOD/series), per catalog_refresh.py.
-    # "manual" (default), "on_view_open", or "15m"/"30m"/"1h"/"3h".
+    # "manual" (default) or "15m"/"30m"/"1h"/"3h"; a retired value is rewritten
+    # once by _migrate_live_refresh_mode().
     live_refresh_mode: str = "manual"
+    live_refresh_mode_version: int = 0  # 0 = _migrate_live_refresh_mode not yet applied
 
     # Series monitor — user-opted series tracked for new episode arrivals.
     # Each entry is a plain dict:
@@ -2187,13 +2182,12 @@ class Config(BaseModel):
         # Seed per-match "viewed" state on pre-feature VOD watch-alert rules so the
         # alert-visibility green only lights up for matches found AFTER the upgrade.
         self._migrate_vod_alert_viewed()
-        # Merge newly-shipped provider names (tmdb/omdb) into a persisted
-        # metadata_enabled_providers that predates them — see the field's docstring.
+        # Each of these rewrites a value an EXISTING config.yaml already has
+        # written down, which moving a default cannot reach. See each method's
+        # docstring for why rewriting that particular one is legitimate.
         self._migrate_metadata_enabled_providers()
-        # Turn the background pollers off in an EXISTING config, not just in the
-        # defaults — moving a default alone does nothing to anyone who already
-        # has the old one written down. See the method's docstring.
         self._migrate_background_polling_defaults()
+        self._migrate_live_refresh_mode()
 
     #: What ``tmdb_enrichment_session_cap`` and ``series_monitor_interval_minutes``
     #: defaulted to before they were turned off. A stored value EQUAL to one of
@@ -2215,19 +2209,18 @@ class Config(BaseModel):
         off.
 
         Because ``save()`` persists every field, a stored value is
-        indistinguishable from a default nobody ever chose. That is exactly the
-        argument ``_migrate_metadata_enabled_providers`` makes, and it is why
-        rewriting one is legitimate here.
+        indistinguishable from a default nobody ever chose — the same argument
+        ``_migrate_metadata_enabled_providers`` makes, and why rewriting one is
+        legitimate here.
 
         **Only a value equal to the OLD DEFAULT is rewritten.** That is the
         conservative half: 500 and 1440 are provably "the old default, written
         down by save()", while any other number is something a person typed and
         is left alone. A user who deliberately set 720 keeps 720.
 
-        Version-gated so it runs once. Turning polling back on later must stick,
-        and a migration that re-ran every launch would quietly undo it — the
-        same trap the version marker on the metadata-providers migration exists
-        to avoid.
+        Version-gated so it runs once: turning polling back on later must stick,
+        and a migration re-running every launch would quietly undo it — the trap
+        every version marker in this file exists to avoid.
         """
         if self.background_polling_off_version >= 1:
             return
@@ -2238,6 +2231,28 @@ class Config(BaseModel):
                     "Config migration: {} was {} (the old default, not a choice) "
                     "— turned off", field, old_default)
         self.background_polling_off_version = 1
+
+    def _migrate_live_refresh_mode(self) -> None:
+        """Rewrite a stored ``live_refresh_mode`` naming a retired option — ONCE.
+
+        Same argument as the method above (``save()`` writes every field, so an
+        explicit stored value beats any default), and the same version gate.
+        What makes it necessary rather than tidy: ``SettingsDialog._load_values``
+        falls back to ``findData("manual")`` for a value the combo cannot show,
+        so without this the dialog would DISPLAY "Manual" while the file still
+        said otherwise, silently, until the next Save. The retired-value map is
+        ``catalog_refresh.RETIRED_LIVE_REFRESH_MODES`` — one module owns the mode
+        vocabulary.
+        """
+        if self.live_refresh_mode_version >= 1:
+            return
+        replacement = RETIRED_LIVE_REFRESH_MODES.get(self.live_refresh_mode)
+        if replacement is not None:
+            logger.info("Config migration: live_refresh_mode was {!r}, an option "
+                        "retired with the Sports and Events views — now {!r}",
+                        self.live_refresh_mode, replacement)
+            self.live_refresh_mode = replacement
+        self.live_refresh_mode_version = 1
 
     def attach_profile_store(self, db) -> frozenset[str]:
         """Bind the profile store to *db* and migrate this config into it.
@@ -2407,23 +2422,19 @@ class Config(BaseModel):
         Returns:
             True when the file was rewritten.
         """
-        # PROFILE fields are absent on purpose — CFG-5 moved 34 of them to the
-        # `profile` table and prunes them from the YAML once a verified read-back
-        # says the database holds them. Counting those as "missing" would make
-        # this rewrite them back into config.yaml on every single launch, quietly
-        # undoing the prune. Absence stopped meaning staleness the moment some
-        # settings legitimately live somewhere else.
+        # Two subtractions, one rule: a field that lives somewhere else is not a
+        # field that is missing. PROFILE fields are absent on purpose — CFG-5
+        # moved 34 of them to the `profile` table and prunes them from the YAML
+        # once a verified read-back says the database holds them; the qa_ fields
+        # are the same story (#643 moved all nine to qa_state.yaml). Counting
+        # either as "missing" makes this rewrite them back into config.yaml on
+        # EVERY launch, quietly undoing the prune — and both were found that way,
+        # by running this against a real migrated config rather than reasoning
+        # about it.
         #
         # The DECLARED set, not `profile_store.owned_keys()`: this runs inside
         # load(), and the store is not bound until MainWindow has a database, so
         # owned_keys() is empty here and would exclude nothing.
-        #
-        # The qa_ fields are the same story and were found the same way — by
-        # running this against a real migrated config rather than reasoning
-        # about it. #643 moved them to qa_state.yaml, so all nine are absent
-        # from config.yaml by design and this rewrote the file on EVERY launch
-        # to put them back. Two subtractions, one rule: a field that lives
-        # somewhere else is not a field that is missing.
         missing = sorted(set(type(self).model_fields)
                          - set(data)
                          - _profile_field_names(type(self))
@@ -2487,11 +2498,10 @@ class Config(BaseModel):
         # Compared AFTER the database_url default above, so first-run does
         # write. `force` exists for a caller that must be certain the file on
         # disk is current (a shutdown path), not as a way to opt out.
-        # `config_file.exists()` is part of the condition, not an afterthought:
-        # if the file is deleted out from under us, the in-memory snapshot still
-        # matches and we would skip forever, leaving the user with no config on
-        # disk and no way to notice. Existence is the other half of "already
-        # written".
+        # `config_file.exists()` is the other half of "already written", not an
+        # afterthought: if the file is deleted out from under us the in-memory
+        # snapshot still matches, and we would skip forever, leaving the user
+        # with no config on disk and no way to notice.
         # Split into the two files. QA state is 38% of the owner's config and
         # is not configuration — it is the dev record of how PRs land — so it
         # lives in its own sidecar and, crucially, a QA write no longer

@@ -50,10 +50,8 @@ CATALOG_REFRESH_THRESHOLDS: dict[str, timedelta] = {
 # See docs/REFACTOR_PLAN.md row D43.)
 # ---------------------------------------------------------------------------
 
-#: ``config.live_refresh_mode`` interval values -> interval. "manual" and
-#: "on_view_open" are never looked up here — "manual" by design, and
-#: "on_view_open" because the hook that drove it went with the retired views
-#: (see the block above and docs/REFACTOR_PLAN.md row D47).
+#: ``config.live_refresh_mode`` interval values -> interval. "manual" is never
+#: looked up here, by design: it is the mode that never fires on a timer.
 LIVE_REFRESH_INTERVALS: dict[str, timedelta] = {
     "15m": timedelta(minutes=15),
     "30m": timedelta(minutes=30),
@@ -61,15 +59,29 @@ LIVE_REFRESH_INTERVALS: dict[str, timedelta] = {
     "3h": timedelta(hours=3),
 }
 
+#: Retired ``config.live_refresh_mode`` values -> what each becomes on load.
+#:
+#: This module owns the live-refresh mode vocabulary, so it owns the
+#: retirements too; ``Config._migrate_live_refresh_mode`` reads this rather
+#: than keeping a second list beside it.
+#:
+#: ``"on_view_open"`` refreshed the live catalog whenever the Sports or Events
+#: view opened. #731 retired both views, sweep B deleted the hook they called
+#: (docs/REFACTOR_PLAN.md row D43), and the Settings combo went on offering the
+#: option as a silent no-op (row D47). It retires to ``"manual"``, which is the
+#: mode that likewise never fires on a timer — so the behaviour a config
+#: carrying it already had is exactly the behaviour it keeps.
+RETIRED_LIVE_REFRESH_MODES: dict[str, str] = {"on_view_open": "manual"}
+
 
 def live_refresh_due(mode: str, last_live_refresh: datetime | None, now: datetime) -> bool:
     """Whether the GLOBAL live-refresh interval lane should fire right now.
 
     Args:
-        mode: ``config.live_refresh_mode`` ("manual"/"on_view_open"/"15m"/
-            "30m"/"1h"/"3h"). "manual" and "on_view_open" never fire from
-            this function — "on_view_open" has no trigger left to drive it
-            (see module docstring) and "manual" never has.
+        mode: ``config.live_refresh_mode`` ("manual"/"15m"/"30m"/"1h"/"3h").
+            "manual" never fires from this function, by design; so does any
+            unrecognized value, including one retired out from under an old
+            config (see ``RETIRED_LIVE_REFRESH_MODES``).
         last_live_refresh: The provider's ``last_live_refresh_at``, or None
             when it has never had a live-only (or full) refresh.
         now: The instant to measure from — injected, never read from the
