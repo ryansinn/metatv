@@ -88,15 +88,13 @@ class _DownloadsMixin:
         """
         accountant = self.player_manager.connection_accountant
 
-        # The fan-out lives in the ACCOUNTANT, not here. This branch grew its
-        # own `_preempt_listeners` list plus a `_dispatch_preempt` closure
-        # assigned onto `accountant._on_preempt`, because at the time the
-        # accountant had a single callback slot and a second assignment silently
-        # replaced the first. Main has since put `add_preempt_listener` on the
-        # accountant, which solves the same hazard one layer down and for every
-        # caller — so keeping both would be two mechanisms doing one job, with
-        # the local one re-introducing the very single-slot assignment the
-        # docstring above forbids.
+        # The fan-out lives in the ACCOUNTANT, not here. This branch grew its own
+        # `_preempt_listeners` list plus a `_dispatch_preempt` closure assigned onto
+        # `accountant._on_preempt`, because at the time the accountant had a single callback
+        # slot and a second assignment silently replaced the first. Main has since put
+        # `add_preempt_listener` on the accountant, which solves the same hazard one layer down
+        # and for every caller — so keeping both would be two mechanisms doing one job, with the
+        # local one re-introducing the very single-slot assignment the docstring above forbids.
         self.download_manager = DownloadManager(self.db, self.config, accountant)
         accountant.add_preempt_listener(self.download_manager.on_preempted)
         self.download_manager.start()
@@ -115,11 +113,10 @@ class _DownloadsMixin:
         #: stacking a fresh one — see _refresh_recording_notifications.
         self._recording_notif_ids: dict[str, str] = {}
 
-        # Both sections are PUSHED their rows on a tick — the managers are
-        # plain classes with no Qt signals, and giving a widget a manager
-        # reference would make the widget's lifetime the manager's problem.
-        # Same shape as refresh_retry: the host owns the manager, the section
-        # renders what it is handed.
+        # Both sections are PUSHED their rows on a tick — the managers are plain classes with no
+        # Qt signals, and giving a widget a manager reference would make the widget's lifetime
+        # the manager's problem. Same shape as refresh_retry: the host owns the manager, the
+        # section renders what it is handed.
         #
         # The tick is cheap by construction: progress() is an in-memory read,
         # and ProgressBar.set_pct repaints only past a 0.5% move — so an idle
@@ -512,13 +509,8 @@ class _DownloadsMixin:
         menu.exec(lst.mapToGlobal(position))
 
     def show_recordings_context_menu(self, position) -> None:
-        """The Recordings row menu — Watch / Stop recording / Extend +N min.
-
-        Mirrors ``show_downloads_context_menu`` in shape (RECORDING verbs
-        keyed on ``recording_id`` and row state, not the channel_menu.py
-        registry). No "reveal in file manager" row — Downloads' own row menu
-        has no whole-folder-open action either, only the per-file reveal.
-        """
+        """Recordings row menu (Watch / Stop / Extend +N) — mirrors the Downloads one;
+        recording verbs keyed on ``recording_id`` + row state, not the channel registry."""
         sections = self.__dict__.get("sidebar_sections") or {}
         section = sections.get("recordings")
         if section is None:
