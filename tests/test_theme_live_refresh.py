@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFont
 
 from metatv.gui import theme
 from metatv.gui import theme_palettes as tp
@@ -63,7 +63,17 @@ def _painted_colours(widget) -> Counter:
     ``grab()`` runs the real paint path, so this is rendered appearance — not
     a parsed stylesheet, which passes for infinitely many wrong renderings.
     """
-    image = widget.grab().toImage()
+    # Anti-aliased glyph edges blend the ink with the ground, and on CI's font
+    # stack a thin face can paint NO pixel in the exact ink — so sample with
+    # antialiasing off: every glyph pixel is then the ink itself.
+    font = widget.font()
+    plain = QFont(font)
+    plain.setStyleStrategy(QFont.StyleStrategy.NoAntialias)
+    widget.setFont(plain)
+    try:
+        image = widget.grab().toImage()
+    finally:
+        widget.setFont(font)
     tally: Counter = Counter()
     for y in range(image.height()):
         for x in range(image.width()):
