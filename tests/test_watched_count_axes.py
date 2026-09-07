@@ -13,11 +13,10 @@ signature, so a newly added axis reaches it without anyone remembering.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.channel import (
     _COUNT_WATCHED_IGNORED,
@@ -25,15 +24,6 @@ from metatv.core.repositories.channel import (
     _apply_channel_filters_axes,
 )
 from tests.conftest import make_channel
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    """File-backed Database — a real file, never :memory: (CLAUDE.md)."""
-    d = Database(f"sqlite:///{tmp_path / 'watched_axes.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 # ---------------------------------------------------------------------------

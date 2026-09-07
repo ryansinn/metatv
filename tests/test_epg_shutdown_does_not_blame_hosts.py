@@ -29,22 +29,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
 from metatv.core.xmltv_parser import XmltvAborted, XmltvProgramme
 
 _HOSTS = ["http://host-a.example", "http://host-b.example",
           "http://host-c.example"]
-
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed, per the DB-session testing rule (never :memory:)."""
-    database = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 @pytest.fixture

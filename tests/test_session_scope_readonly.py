@@ -7,19 +7,9 @@ write in a read path does not persist.
 """
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import event
 
-from metatv.core.database import Database, ChannelDB
-
-
-@pytest.fixture()
-def db(tmp_path):
-    # File-backed (not :memory:, whose pooled connections each get an empty DB).
-    d = Database(f"sqlite:///{tmp_path}/t.db")
-    d.create_tables()
-    yield d
-    d.close()
+from metatv.core.database import ChannelDB
 
 
 def _commit_counter(db):

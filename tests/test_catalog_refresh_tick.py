@@ -23,7 +23,6 @@ against a real session).
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 from metatv.core.catalog_refresh import (
@@ -35,16 +34,12 @@ from metatv.core.catalog_refresh import (
 from metatv.core.database import Database, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.catalog_refresh_tick import _CatalogRefreshTickMixin
+from tests.conftest import make_file_db
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_db(tmp_path: Path) -> Database:
-    db = Database(f"sqlite:///{tmp_path / 'catalog_refresh.db'}")
-    db.create_tables()
-    return db
 
 
 def _insert_provider(
@@ -162,7 +157,7 @@ def test_never_refreshed_is_always_due_for_an_opted_in_schedule():
 def test_the_tick_enqueues_due_skips_manual_and_skips_streaming(tmp_path):
     """The three-provider scenario: one due, one manual (never), one due but
     currently streaming (skipped, retried next tick)."""
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -187,7 +182,7 @@ def test_the_tick_enqueues_due_skips_manual_and_skips_streaming(tmp_path):
 
 
 def test_launch_schedule_only_fires_from_the_launch_call(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -206,7 +201,7 @@ def test_launch_schedule_only_fires_from_the_launch_call(tmp_path):
 
 
 def test_a_provider_already_queued_is_not_re_enqueued(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -224,7 +219,7 @@ def test_a_provider_already_queued_is_not_re_enqueued(tmp_path):
 
 
 def test_an_inactive_provider_is_never_a_tick_candidate(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -241,7 +236,7 @@ def test_an_inactive_provider_is_never_a_tick_candidate(tmp_path):
 def test_success_stamp_feeds_the_next_ticks_effective_refresh(tmp_path):
     """mark_catalog_refreshed's stamp is what the tick reads back — proves the
     two ends (stamp write, tick read) actually agree on the column."""
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -298,7 +293,7 @@ def test_live_refresh_on_view_open_due_is_a_five_minute_cooldown():
 # ---------------------------------------------------------------------------
 
 def test_mark_catalog_refreshed_live_only_stamps_only_the_live_column(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "p1", name="P1",
@@ -317,7 +312,7 @@ def test_mark_catalog_refreshed_live_only_stamps_only_the_live_column(tmp_path):
 
 
 def test_mark_catalog_refreshed_full_stamps_both_columns(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "p1", name="P1",
@@ -338,7 +333,7 @@ def test_mark_catalog_refreshed_full_stamps_both_columns(tmp_path):
 def test_mark_catalog_refreshed_without_a_kind_defaults_to_full(tmp_path):
     """The pre-LIVE-1 call shape (main_window_providers.py's existing site
     before it started passing kind) must keep stamping the full column."""
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "p1", name="P1",
@@ -355,7 +350,7 @@ def test_mark_catalog_refreshed_without_a_kind_defaults_to_full(tmp_path):
 
 
 def test_mark_catalog_refreshed_noops_on_a_falsy_provider_id(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     host = _Host(db)
     host._mark_catalog_refreshed(None, kind="live_only")  # must not raise
 
@@ -368,7 +363,7 @@ def test_banner_refresh_action_enqueues_live_only_for_stale_sources_only(tmp_pat
     """A source whose LIVE refresh is recent must not be re-queued even when
     its FULL refresh is old — the banner's own staleness rule is live-first
     (COALESCE(last_live_refresh_at, last_catalog_refresh_at, ...))."""
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -390,7 +385,7 @@ def test_banner_refresh_action_enqueues_live_only_for_stale_sources_only(tmp_pat
 
 
 def test_banner_refresh_action_ignores_a_fresh_active_corpus(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -410,7 +405,7 @@ def test_banner_refresh_action_ignores_a_fresh_active_corpus(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_live_refresh_tick_enqueues_live_only_when_past_the_configured_interval(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -426,7 +421,7 @@ def test_live_refresh_tick_enqueues_live_only_when_past_the_configured_interval(
 
 
 def test_live_refresh_tick_does_not_fire_within_the_interval(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -442,7 +437,7 @@ def test_live_refresh_tick_does_not_fire_within_the_interval(tmp_path):
 
 
 def test_live_refresh_tick_fires_nothing_in_manual_or_on_view_open_mode(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -458,7 +453,7 @@ def test_live_refresh_tick_fires_nothing_in_manual_or_on_view_open_mode(tmp_path
 
 
 def test_live_refresh_tick_skips_a_currently_streaming_source(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -476,7 +471,7 @@ def test_live_refresh_tick_skips_a_currently_streaming_source(tmp_path):
 
 
 def test_live_refresh_tick_ignores_inactive_providers(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -492,7 +487,7 @@ def test_live_refresh_tick_ignores_inactive_providers(tmp_path):
 
 
 def test_live_refresh_tick_already_queued_is_not_re_enqueued(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -519,7 +514,7 @@ def test_on_view_open_sports_then_events_share_one_cooldown(tmp_path):
     opening Events 1 minute later does NOT (shared 5-minute cooldown);
     opening Events 6 minutes later fires again. Both views call the SAME
     host method — there is nothing per-view to keep in sync."""
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     now = datetime.now()
     with db.session_scope() as session:
         _insert_provider(
@@ -558,7 +553,7 @@ def test_on_view_open_sports_then_events_share_one_cooldown(tmp_path):
 
 
 def test_on_view_open_does_nothing_outside_on_view_open_mode(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "p1", name="P1", refresh_schedule="manual",
@@ -572,7 +567,7 @@ def test_on_view_open_does_nothing_outside_on_view_open_mode(tmp_path):
 
 
 def test_on_view_open_skips_a_currently_streaming_source(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "p1", name="P1", refresh_schedule="manual",
@@ -586,7 +581,7 @@ def test_on_view_open_skips_a_currently_streaming_source(tmp_path):
 
 
 def test_on_view_open_ignores_inactive_providers(tmp_path):
-    db = _make_db(tmp_path)
+    db = make_file_db(tmp_path / "catalog_refresh.db")
     with db.session_scope() as session:
         _insert_provider(
             session, "off", name="Disabled", refresh_schedule="manual",

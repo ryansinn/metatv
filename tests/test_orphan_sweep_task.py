@@ -24,26 +24,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-import pytest
 
 from metatv.core.database import (
-    ChannelDB, ContentTagDB, Database, EpgProgramDB, MetadataDB,
+    ChannelDB, ContentTagDB, EpgProgramDB, MetadataDB,
     ProviderDB, TagDB, UserRatingDB, WatchQueueDB,
 )
 from metatv.core.migrations.orphan_sweep import OrphanSweepTask
 
 
 # ── Fixtures & seed helpers ──────────────────────────────────────────────────
-
-
-@pytest.fixture
-def db(tmp_path):
-    """Real file-backed Database with tables created."""
-    p = tmp_path / "orphan_sweep_test.db"
-    database = Database(f"sqlite:///{p}")
-    database.create_tables()
-    yield database
-    database.close()
 
 
 def _provider(session, pid: str) -> ProviderDB:

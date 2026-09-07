@@ -35,10 +35,9 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-import pytest
 
 from metatv.core.config import BASE_PREFIX_GROUPS, Config
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.recipe_view import RecipeView
 
@@ -55,17 +54,6 @@ assert _LEAF_PREFIX in _ARABIC_LEAVES
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    """File-backed SQLite Database (:memory: gives each connection a separate
-    empty DB, which breaks session_scope)."""
-    db_file = tmp_path / "test_recipe_exclusion.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 def _checked_group_config(tmp_path: Path, group_leaves: list[str]) -> Config:

@@ -39,15 +39,6 @@ def qapp():
     yield app
 
 
-@pytest.fixture()
-def file_db(tmp_path):
-    """File-backed Database (not :memory:) so the test proves real DB state."""
-    d = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    d.create_tables()
-    yield d
-    d.close()
-
-
 def _seed_provider(db: Database, name: str = "TestProv") -> str:
     """Insert a real ProviderDB row and return its id."""
     pid = str(uuid.uuid4())

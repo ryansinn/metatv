@@ -15,26 +15,17 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
 from metatv.core.database import (
-    Database, ProviderDB, ChannelDB, UserRatingDB, WatchQueueDB,
+    ProviderDB, ChannelDB, UserRatingDB, WatchQueueDB,
 )
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.provider import ProviderRepository
 
 
 # ── Fixtures & helpers ───────────────────────────────────────────────────────
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'reconnect.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _provider(session, pid: str, *, is_active: bool = True) -> str:

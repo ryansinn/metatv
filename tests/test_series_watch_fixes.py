@@ -14,22 +14,13 @@ Covered:
 
 from __future__ import annotations
 
-import pytest
-
-from metatv.core.database import Database, EpisodeDB
+from metatv.core.database import EpisodeDB
 from metatv.core.repositories import RepositoryFactory
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def db(tmp_path):
-    d = Database(f"sqlite:///{tmp_path / 'series_watch.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _seed_episode(db, ep_id: str, season_id: str = "s1", ep_num: int = 1,

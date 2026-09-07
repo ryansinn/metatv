@@ -31,16 +31,6 @@ from metatv.core.migrations.tag_backfill import TagBackfillTask
 
 
 @pytest.fixture()
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_path = tmp_path / "test_loguru.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
-@pytest.fixture()
 def cfg(tmp_path):
     """Isolated Config instance; config_dir points to tmp_path, not ~/.config/metatv."""
     return Config(config_dir=tmp_path / "cfg")

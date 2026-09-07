@@ -20,21 +20,11 @@ is work that cannot pay off.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.series_monitor import SeriesMonitorManager
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'exp.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _provider(session, pid, *, expired=False, active=True):

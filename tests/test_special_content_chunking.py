@@ -31,16 +31,6 @@ _CATEGORIZE_BATCH = 2000  # must match the constant inside _categorize_special_c
 
 
 @pytest.fixture
-def tmp_db(tmp_path):
-    """File-backed SQLite Database — isolated per test, not :memory:."""
-    db_path = tmp_path / "test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
-@pytest.fixture
 def fake_provider():
     """Minimal Provider (not ProviderDB) for ProviderLoadThread."""
     p = Provider.__new__(Provider)

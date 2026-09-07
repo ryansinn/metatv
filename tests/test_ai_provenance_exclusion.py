@@ -19,25 +19,16 @@ requirement for session_scope), per the tests rule.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db = Database(f"sqlite:///{tmp_path / 'ai_excl.db'}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 def _add_channel(session, name: str, media_type: str = "movie") -> str:

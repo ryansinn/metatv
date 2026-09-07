@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 
 
 @pytest.fixture(scope="module")
@@ -21,15 +21,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-@pytest.fixture
-def db(tmp_path):
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 # ── 1. Dialog persists epg_enabled ───────────────────────────────────────────── #

@@ -18,7 +18,6 @@ Two regression groups:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,16 +32,6 @@ from metatv.core.models import Provider
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def tmp_db(tmp_path: Path):
-    """File-backed SQLite Database — isolated per test, not :memory:."""
-    db_path = tmp_path / "test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture()

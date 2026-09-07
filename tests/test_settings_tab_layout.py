@@ -24,17 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS, _SECTIONS
-from tests.conftest import (
-    wire_settings_content_widgets,
-    wire_settings_density_widget,
-    wire_settings_downloads_widgets,
-    wire_settings_epg_widgets,
-    wire_settings_playback_widgets,
-    wire_settings_recommendation_widgets,
-    wire_settings_recording_widgets,
-    wire_settings_signal_widgets,
-    wire_settings_theme_widget,
-)
+from tests.conftest import wire_settings_widgets
 
 
 @pytest.fixture(scope="module")
@@ -95,6 +85,7 @@ def _full_dialog(qapp) -> SettingsDialog:
     three tabs instantiated — mirrors what _setup_ui does, but without a parent
     QDialog or button box."""
     dlg = SettingsDialog.__new__(SettingsDialog)
+    wire_settings_widgets(dlg)
 
     # -- Playback tab widgets --
     dlg._player_combo = QComboBox()
@@ -109,9 +100,6 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._middle_click_combo = QComboBox()
     for _action in MIDDLE_CLICK_ACTIONS:
         dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
-    # -- Content tab widgets -- (shared factory: CLAUDE.md — a duplicate found
-    # while touching this exact spot is fixed here, not left as a second copy)
-    wire_settings_content_widgets(dlg)
 
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
@@ -136,9 +124,6 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
 
-    # Playback Network group widgets
-    wire_settings_playback_widgets(dlg)
-
     # -- Metadata tab widgets (includes EPG after reorg) --
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()
@@ -149,24 +134,12 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._tmdb_key_input = QLineEdit()
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
-    wire_settings_epg_widgets(dlg)
-
-    # -- Recommendations tab widgets (scoring dials + shared media mix) --
-    wire_settings_recommendation_widgets(dlg)
 
     # -- Interface tab widgets (Search + Sources + Sidebar) --
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
-    wire_settings_density_widget(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_theme_widget(dlg)
-
-    # -- Downloads tab widgets --
-    wire_settings_downloads_widgets(dlg)
-    # -- Recording tab widgets --
-    wire_settings_recording_widgets(dlg)
 
     return dlg
 

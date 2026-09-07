@@ -23,17 +23,11 @@ Each test executes the changed path against a real ``Database`` on a tmp file
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 from sqlalchemy import text
 
 from metatv.core.database import ChannelDB, Database, MetadataDB
-
-
-def _make_db(tmp_path: Path) -> Database:
-    db = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    db.create_tables()  # runs the migration once on the (empty) DB, stamping v4
-    return db
+from tests.conftest import make_file_db
 
 
 def _set_user_version(db: Database, version: int) -> None:
@@ -55,7 +49,7 @@ def _metadata_title(db: Database, mid: str) -> str:
 class TestMetadataTitleMigration:
     def test_pass1_join_replaces_raw_name_with_detected_title(self, tmp_path):
         """metadata.title == linked channel.name → cleaned to channel.detected_title."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             session.add(MetadataDB(id="m1", title="EN - Cowboy Bebop (1998)", source="provider"))
             session.add(ChannelDB(
@@ -74,7 +68,7 @@ class TestMetadataTitleMigration:
 
     def test_genuinely_clean_title_is_left_untouched(self, tmp_path):
         """A real, prefix-free title is not modified by the migration."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             session.add(MetadataDB(id="m2", title="Blade Runner", source="provider"))
             session.add(ChannelDB(
@@ -91,7 +85,7 @@ class TestMetadataTitleMigration:
 
     def test_pass2_parse_fallback_cleans_linked_but_unmatched_title(self, tmp_path):
         """A linked polluted title the exact-name join missed is parse-cleaned."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             # metadata title is a raw name, but NO linked channel is named exactly
             # that (the source channel was renamed/removed; a sibling still links it).
@@ -112,7 +106,7 @@ class TestMetadataTitleMigration:
 
     def test_orphaned_polluted_title_is_left_untouched(self, tmp_path):
         """Polluted metadata reachable from no channel is not rewritten (linked-only gate)."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             session.add(MetadataDB(id="m4", title="DE - Foo (1999)", source="provider"))
             # No channel references m4.
@@ -127,7 +121,7 @@ class TestMetadataTitleMigration:
     def test_cleanup_fires_through_create_tables(self, tmp_path):
         """The real launch entry point (create_tables) runs the cleanup, not just
         the private method — guards against the wiring being dropped."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             session.add(MetadataDB(id="m6", title="EN - Cowboy Bebop (1998)", source="provider"))
             session.add(ChannelDB(
@@ -143,7 +137,7 @@ class TestMetadataTitleMigration:
 
     def test_migration_is_idempotent_and_gated(self, tmp_path):
         """Re-running after the version stamp is a no-op and does not re-mangle."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             session.add(MetadataDB(id="m5", title="EN - Cowboy Bebop (1998)", source="provider"))
             session.add(ChannelDB(
@@ -178,7 +172,7 @@ class TestIngestionTitleResolution:
 
     def test_absent_provider_name_uses_clean_detected_title(self, tmp_path):
         """No info.name → store the clean detected_title, not the raw channel name."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         self._add_channel(
             db, cid="c1",
             name="EN - Cowboy Bebop (1998)",
@@ -193,7 +187,7 @@ class TestIngestionTitleResolution:
 
     def test_raw_name_echoed_by_provider_uses_clean_detected_title(self, tmp_path):
         """info.name == raw channel name → still store the clean detected_title."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         self._add_channel(
             db, cid="c2",
             name="EN - Cowboy Bebop (1998)",
@@ -208,7 +202,7 @@ class TestIngestionTitleResolution:
 
     def test_real_distinct_provider_name_is_honored(self, tmp_path):
         """A genuine, distinct info.name overrides detected_title."""
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         self._add_channel(
             db, cid="c3",
             name="EN - Cowboy Bebop (1998)",

@@ -16,20 +16,10 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from sqlalchemy import event
 
 from metatv.core.database import ChannelDB, ContentTagDB, Database, ProviderDB, TagDB
 from tests.conftest import make_provider_load_thread
-
-
-@pytest.fixture
-def db(tmp_path):
-    """A real on-disk database — this test is about the statements SQLite receives."""
-    database = Database(f"sqlite:///{tmp_path}/tags.db")
-    database.create_tables()
-    yield database
-    database.close()
 
 
 def _seed(database: Database, provider_id: str, count: int) -> None:

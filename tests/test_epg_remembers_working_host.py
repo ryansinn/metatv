@@ -16,25 +16,15 @@ account's credentials for 11 days.
 
 from __future__ import annotations
 
-from pathlib import Path
 from urllib.error import HTTPError
 
-import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 from metatv.core.epg_manager import EpgManager
 from tests.conftest import wire_epg_manager_skeleton
 
 DEAD = "http://dead.example"
 WORKS = "http://works.example"
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'epg.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _provider(db, remembered=None, hosts=(DEAD, WORKS)) -> None:

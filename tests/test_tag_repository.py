@@ -31,15 +31,6 @@ from metatv.core.repositories.tag import (
 # Fixtures — file-backed DB (required per CLAUDE.md)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_file = tmp_path / "test_tags.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
-
 
 @pytest.fixture
 def session(file_db):

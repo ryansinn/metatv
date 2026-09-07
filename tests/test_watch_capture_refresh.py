@@ -37,7 +37,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 
 
@@ -46,14 +46,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-@pytest.fixture()
-def db(tmp_path):
-    d = Database(f"sqlite:///{tmp_path / 'watch_capture_refresh.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _seed_channel(db, ch_id: str, media_type: str = "movie") -> None:

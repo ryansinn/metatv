@@ -13,18 +13,9 @@ re-marks it complete.
 
 from __future__ import annotations
 
-import pytest
 
-from metatv.core.database import Database, ChannelDB, EpisodeDB
+from metatv.core.database import ChannelDB, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
-
-
-@pytest.fixture()
-def db(tmp_path):
-    d = Database(f"sqlite:///{tmp_path / 'watch.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 # ── Movies (ChannelRepository) ─────────────────────────────────────────────────

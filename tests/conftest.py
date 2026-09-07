@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from metatv.core.database import Base, ChannelDB
+from metatv.core.database import Base, ChannelDB, Database
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.tag import _clear_tag_cache
 
@@ -748,6 +748,53 @@ def repo(db_session):
     return ChannelRepository(db_session)
 
 
+def make_file_db(path) -> Database:
+    """Construct a file-backed ``Database`` at ``path`` with tables created.
+
+    The one helper for a test body that needs its own ``Database`` outside a
+    fixture (parametrized construction, several DBs in one test, ...) — the
+    ``_make_db``/``_make_file_backed_db`` families this replaces all did
+    exactly this in two lines. Callers that manage their own lifecycle own
+    ``close()``/``engine.dispose()`` too; the ``db`` fixture below is for the
+    common case of one DB per test with automatic teardown.
+    """
+    database = Database(f"sqlite:///{path}")
+    database.create_tables()
+    return database
+
+
+@pytest.fixture(scope="function")
+def db(tmp_path):
+    """File-backed, real-schema ``Database`` — not ``:memory:``.
+
+    193 near-identical local copies of this fixture existed across ``tests/``
+    before consolidation (CLAUDE.md "A duplicate you find is fixed or
+    LOGGED"). Real file-backed DBs matter here: pooled ``:memory:``
+    connections each start with an empty schema and don't share PRAGMA state
+    across connections in the pool — ``db_session`` (in-memory) is for tests
+    that only need one connection's worth of ORM behavior. Teardown is
+    ``close()`` (runs ``PRAGMA optimize`` then closes); the ``engine.dispose()``
+    variant seen in some of the deleted copies was the same policy for a
+    throwaway ``tmp_path`` file, not a real difference.
+    """
+    database = make_file_db(tmp_path / "test.db")
+    yield database
+    database.close()
+
+
+@pytest.fixture(scope="function")
+def file_db(db):
+    """Alias for ``db`` — so files written against a locally-named ``file_db``
+    fixture need no call-site edits once their local copy is deleted."""
+    return db
+
+
+@pytest.fixture(scope="function")
+def tmp_db(db):
+    """Alias for ``db`` — see ``file_db``."""
+    return db
+
+
 @contextmanager
 def capture_sql_statements(engine):
     """Yield a list that fills with every SQL statement executed on ``engine``.
@@ -803,6 +850,94 @@ def make_channel(
     session.add(ch)
     session.flush()
     return ch
+
+
+def channel_query_params(**overrides) -> dict:
+    """The ``params`` dict :func:`MainWindow.load_channels` builds, for tests
+    that call ``_ChannelListMixin._query_channels`` directly.
+
+    Four test files each hand-copied this dict under a local ``_params()``
+    helper (``test_hidden_accounting_dead_streams.py``,
+    ``test_dead_gate_comparison_skipped_when_empty.py``,
+    ``test_filter_transparency.py``, ``test_get_all_include_raw.py``) — one
+    edit to ``load_channels``'s params shape meant four edits, on files that
+    might not even be about the changed key.
+
+    The base below is the union of those four copies' keys with their shared
+    default values, plus one production-default resolution and eight keys
+    none of the four copies carried at all:
+
+    - The four copies agreed on every key they shared **except**
+      ``bypass_dead_gate`` (present as ``False`` in two, absent from two) —
+      resolved to the production default (``load_channels`` defaults it to
+      ``False`` via ``self.__dict__.get('_bypass_dead_gate', False)``).
+    - ``bypass_keyword_exclusions``, ``collapse_variants``,
+      ``dead_signal_streak_floor``, ``downloaded_only``, ``excluded_keywords``,
+      ``excluded_tag_content_types``, ``facets_hiding_untagged`` and
+      ``raw_fetched`` are read by ``_query_channels`` (via ``params[...]`` /
+      ``params.get(...)``) but were in NONE of the four copies — each copy's
+      docstring claimed "a full params dict shaped like load_channels builds"
+      while actually missing these; the ``.get()`` calls silently defaulted to
+      ``None``/falsy rather than raising, so the gap never showed as a
+      failure. ``tests/test_channel_query_params_helper.py`` AST-walks
+      ``_query_channels`` and fails if a key it reads is ever missing here
+      again — the whole point being that a NEW key added to production fails
+      in this one place instead of in four copies (or not at all, silently).
+      ``raw_fetched`` is a self-produced field (``_query_channels`` writes it
+      before it reads it back) — including it here is harmless, since the
+      function overwrites it unconditionally before use.
+
+    Args:
+        **overrides: Any field to set explicitly.
+
+    Returns:
+        A fresh dict (never shared/mutated between callers).
+    """
+    base = {
+        "provider_id": None,
+        "media_types": ["live", "movie", "series"],
+        "language_prefixes": None,
+        "region_prefixes": None,
+        "quality_prefixes": None,
+        "platform_prefixes": None,
+        "genre_filters": None,
+        "invert_prefix_filters": False,
+        "include_untagged": True,
+        "include_untagged_quality": True,
+        "adult_mode": "all",
+        "force_adult_ids": [],
+        "tag_includes": None,
+        "source_categories": None,
+        "excluded_prefixes": set(),
+        "excluded_user_categories": set(),
+        "bypass_global_exclusions": False,
+        "bypass_dead_gate": False,
+        "search_query": None,
+        "strict_genre_filter": None,
+        "person_filter": None,
+        "context_tag_filter": None,
+        "context_category_filter": None,
+        "context_id_filter": None,
+        "id_filter_show_all": False,
+        "page_size": 1000,
+        "show_provider_icon": False,
+        "provider_icon_map": {},
+        "given_provider_id": None,
+        "hidden_only": False,
+        "bypassing_tier1": False,
+        "hide_watched": False,
+        # Keys no existing copy carried (see docstring above).
+        "bypass_keyword_exclusions": False,
+        "collapse_variants": False,
+        "dead_signal_streak_floor": None,
+        "downloaded_only": False,
+        "excluded_keywords": [],
+        "excluded_tag_content_types": set(),
+        "facets_hiding_untagged": None,
+        "raw_fetched": 0,
+    }
+    base.update(overrides)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -2720,12 +2855,16 @@ def mock_settings_recording_widgets(dlg) -> None:
 def wire_settings_widgets(dlg) -> None:
     """Attach EVERY settings tab's widgets to a skeleton dialog.
 
-    Eight test files list the per-tab factories by hand, so a seventh tab meant
-    editing all eight — and a file that missed the edit failed on a tab it had
-    nothing to do with. This is the one call a NEW test should use; the existing
-    hand-listed runs are left alone deliberately (collapsing them safely needs
-    per-file import surgery, logged in the ledger rather than done with a
-    regex that broke three files when tried).
+    Six test files (`test_split_streams_ui.py`, `test_resume_default.py`,
+    `test_settings_playback_tab.py`, `test_watch_completion_visibility.py`,
+    `test_refresh_all_skip_inactive.py`, `test_settings_tab_layout.py`) used to
+    list all nine per-tab factories by hand, so a tenth tab meant editing all
+    six — and a file that missed the edit failed on a tab it had nothing to do
+    with. TESTS-1 migrated all six to this one call, by hand per file (a regex
+    broke three files when tried before). Logged: docs/REFACTOR_PLAN.md
+    "Running duplication ledger" D18. Three other files call one or two of the
+    nine factories directly for a deliberately narrower skeleton — that is not
+    this function's job, and they are left alone.
 
     Args:
         dlg: A ``SettingsDialog.__new__`` skeleton.

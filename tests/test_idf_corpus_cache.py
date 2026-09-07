@@ -26,21 +26,12 @@ proves ``compute_weights`` DELEGATES to ``corpus_idf`` patches the reference
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pytest
 
 from metatv.core import idf_corpus
 from metatv.core import preference_engine as pe
-from metatv.core.database import ChannelDB, Database, MetadataDB, UserRatingDB
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'idf_corpus.db'}")
-    d.create_tables()
-    yield d
-    d.close()
+from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
 
 
 @pytest.fixture(autouse=True)

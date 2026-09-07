@@ -22,20 +22,11 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-from metatv.core.database import Database, ProviderDB, EpgProgramDB
+from metatv.core.database import ProviderDB, EpgProgramDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import now_utc
 from metatv.core.provider_loader import ProviderLoadThread
-
-
-@pytest.fixture
-def db(tmp_path):
-    database = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 def _make_manager(db):

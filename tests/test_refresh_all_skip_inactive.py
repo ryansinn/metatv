@@ -309,9 +309,6 @@ def test_settings_checkbox_loads_from_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets, wire_settings_signal_widgets
-    wire_settings_content_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
     # Provide all widgets _load_values touches (minimal set for this test)
     _wire_minimal_dialog(dlg, qapp)
 
@@ -333,9 +330,6 @@ def test_settings_checkbox_saves_to_config(qapp):
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets, wire_settings_signal_widgets
-    wire_settings_content_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
     _wire_minimal_dialog(dlg, qapp)
 
     cfg = _minimal_config(refresh_all_includes_inactive=True)
@@ -411,18 +405,9 @@ def _wire_minimal_dialog(dlg, qapp):
     from PyQt6.QtWidgets import (
         QCheckBox, QComboBox, QLineEdit, QListWidget, QSpinBox,
     )
-    from tests.conftest import (
-        wire_settings_density_widget,
-        wire_settings_epg_widgets,
-        wire_settings_playback_widgets,
-        wire_settings_recommendation_widgets,
-        wire_settings_recording_widgets,
-        wire_settings_signal_widgets,
-        wire_settings_theme_widget,
-    )
+    from tests.conftest import wire_settings_widgets
 
-    # Recommendations tab dials
-    wire_settings_recommendation_widgets(dlg)
+    wire_settings_widgets(dlg)
 
     # Playback
     dlg._player_combo = QComboBox()
@@ -458,9 +443,6 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
 
-    # Playback Network group widgets
-    wire_settings_playback_widgets(dlg)
-
     # Metadata + EPG
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()
@@ -471,18 +453,9 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._tmdb_key_input = QLineEdit()
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
-    wire_settings_epg_widgets(dlg)
 
     # Interface
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
-    wire_settings_density_widget(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_theme_widget(dlg)
-
-    # Downloads tab (needed by _load_values / _save_values)
-    from tests.conftest import wire_settings_downloads_widgets
-    wire_settings_downloads_widgets(dlg)
-    wire_settings_recording_widgets(dlg)

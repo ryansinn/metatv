@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,14 +31,6 @@ from metatv.core.repositories.dtos import EpisodeDTO
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    """File-backed (not :memory:) Database so every pooled connection shares tables."""
-    d = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 @pytest.fixture(scope="module")

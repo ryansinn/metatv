@@ -29,15 +29,6 @@ from metatv.core.tag_decomposer import remap_content_descriptor_facets
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_file = tmp_path / "test_category_refacet.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
-
 
 @pytest.fixture
 def cfg(tmp_path):

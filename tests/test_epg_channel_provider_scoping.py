@@ -27,7 +27,6 @@ import pytest
 
 from metatv.core.database import (
     ChannelDB,
-    Database,
     EpgProgramDB,
     ProviderDB,
 )
@@ -38,15 +37,6 @@ from metatv.core.repositories.epg import EpgRepository
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed Database with tables created (avoids :memory: pool isolation)."""
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 @pytest.fixture

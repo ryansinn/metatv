@@ -39,13 +39,12 @@ for DB-session work).
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 from sqlalchemy import or_
 
 from metatv.core.channel_visibility import VisibilityScope, apply as apply_visibility
-from metatv.core.database import ChannelDB, Database
+from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import keyword_exclusion_criterion
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.channel import ChannelRepository
@@ -54,14 +53,6 @@ from metatv.core.repositories.channel import ChannelRepository
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db = Database(f"sqlite:///{tmp_path / 'channel_visibility.db'}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 def _add_channel(

@@ -25,7 +25,6 @@ All DB tests use a real file-backed ``Database`` (tmp_path), never
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -47,15 +46,6 @@ from tests.conftest import sidebar_config
 @pytest.fixture(scope="module")
 def qapp():
     return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    """File-backed (not :memory:) Database so every pooled connection shares tables."""
-    d = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _config():

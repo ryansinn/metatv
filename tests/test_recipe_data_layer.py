@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import FacetSummaryDTO, TagCountDTO
 
@@ -29,15 +29,6 @@ from metatv.core.repositories.dtos import FacetSummaryDTO, TagCountDTO
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_file = tmp_path / "test_recipe.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture

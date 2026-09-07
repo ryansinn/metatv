@@ -27,22 +27,13 @@ import uuid
 
 import pytest
 
-from metatv.core.database import ChannelDB, ContentTagDB, Database, ProviderDB, TagDB
+from metatv.core.database import ChannelDB, ContentTagDB, ProviderDB, TagDB
 from metatv.core.repositories.tag import _clear_tag_cache
 
 
 # ---------------------------------------------------------------------------
 # Fixtures (file-backed DB — :memory: is not safe for these tests per CLAUDE.md)
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created."""
-    db_file = tmp_path / "test_showall.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture

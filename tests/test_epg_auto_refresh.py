@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import (
     EPG_AUTO_MAX_DELTA,
@@ -35,16 +35,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed Database with tables created (avoids :memory: pool isolation)."""
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 def _add_provider(session, pid, *, is_active=True, epg_url="http://e/xmltv.php",

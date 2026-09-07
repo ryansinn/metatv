@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from metatv.core.database import ChannelDB, ProviderDB, Database
+from metatv.core.database import ChannelDB, ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import TagSearchResultDTO
 
@@ -28,15 +28,6 @@ from metatv.core.repositories.dtos import TagSearchResultDTO
 # ===========================================================================
 # Part 1 — Repository: search_tag_values_across_facets (real file DB)
 # ===========================================================================
-
-@pytest.fixture
-def file_db(tmp_path):
-    """File-backed SQLite Database with all tables created (NOT :memory:)."""
-    db_file = tmp_path / "test_pantry_search.db"
-    db = Database(f"sqlite:///{db_file}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture

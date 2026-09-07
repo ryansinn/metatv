@@ -19,18 +19,17 @@ get an empty schema there).
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from metatv.core.database import (
     ChannelDB,
-    Database,
     EpgProgramDB,
     ProviderDB,
 )
 from metatv.core.epg_utils import now_utc
+from tests.conftest import make_file_db
 
 
 # ===========================================================================
@@ -43,12 +42,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-def _make_db(tmp_path: Path) -> Database:
-    db = Database(f"sqlite:///{tmp_path / 'test.db'}")
-    db.create_tables()
-    return db
 
 
 def _add_provider(session, pid, *, is_active=True,
@@ -135,7 +128,7 @@ class TestAlertsChannelProviderScoping:
         """
         from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             _add_provider(session, "feed-p", is_active=True, epg_url="http://e/xmltv.php")
             _add_provider(session, "disabled-src", is_active=False, epg_url="http://e/xmltv.php")
@@ -169,7 +162,7 @@ class TestAlertsChannelProviderScoping:
         """An upcoming watchlist match on a disabled-source channel must not appear."""
         from metatv.gui.sidebar.alerts import WatchAlertsSection
 
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             _add_provider(session, "feed-q",     is_active=True,  epg_url="http://e/xmltv.php")
             _add_provider(session, "gone-src",   is_active=False, epg_url="http://e/xmltv.php")
@@ -202,7 +195,7 @@ class TestAlertsChannelProviderScoping:
         from metatv.gui.sidebar.alerts import WatchAlertsSection
 
         past = datetime.now() - timedelta(days=1)
-        db = _make_db(tmp_path)
+        db = make_file_db(tmp_path / "test.db")
         with db.session_scope() as session:
             _add_provider(session, "feed-r",    is_active=True, epg_url="http://e/xmltv.php")
             _add_provider(session, "fresh-src", is_active=True, epg_url="http://e/xmltv.php")
@@ -352,7 +345,7 @@ class TestSearchExcludedProviderIds:
 
     @pytest.fixture
     def db(self, tmp_path):
-        database = _make_db(tmp_path)
+        database = make_file_db(tmp_path / "test.db")
         yield database
         database.close()
 

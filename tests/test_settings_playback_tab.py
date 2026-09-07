@@ -16,14 +16,7 @@ from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent
-from tests.conftest import (
-    wire_settings_density_widget,
-    wire_settings_playback_widgets,
-    wire_settings_recommendation_widgets,
-    wire_settings_recording_widgets,
-    wire_settings_signal_widgets,
-    wire_settings_theme_widget,
-)
+from tests.conftest import wire_settings_widgets
 
 
 @pytest.fixture(scope="module")
@@ -97,9 +90,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
     from metatv.gui.settings_dialog import SettingsDialog
 
     dlg = SettingsDialog.__new__(SettingsDialog)
-    from tests.conftest import wire_settings_content_widgets
-    wire_settings_content_widgets(dlg)
-    wire_settings_signal_widgets(dlg)
+    wire_settings_widgets(dlg)
 
     # Player group
     dlg._player_combo = QComboBox()
@@ -172,10 +163,6 @@ def _bare_dialog(qapp) -> SettingsDialog:
     # Refresh-all-includes-inactive checkbox (Sources group in Interface tab)
     dlg._refresh_all_inactive_check = QCheckBox()
 
-    # EPG widgets (needed by _load_values / _save_values)
-    from tests.conftest import wire_settings_epg_widgets
-    wire_settings_epg_widgets(dlg)
-
     # Metadata — stubs to keep _load_values / _save_values happy
     dlg._meta_enabled_check = _bool_check(qapp)
     dlg._meta_autofetch_check = _bool_check(qapp)
@@ -187,25 +174,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
 
-    # Recommendations tab dials — stubs to keep _load_values / _save_values happy
-    wire_settings_recommendation_widgets(dlg)
-
-    # Playback Network group widgets (needed by _load_values / _save_values)
-    wire_settings_playback_widgets(dlg)
-
     # Sidebar list widget (needed by _load_values / _save_values)
     from PyQt6.QtWidgets import QListWidget
     dlg._sidebar_list = QListWidget()
-
-    # Interface density widget (needed by _load_values / _save_values)
-    wire_settings_density_widget(dlg)
-    wire_settings_signal_widgets(dlg)
-    wire_settings_theme_widget(dlg)
-    wire_settings_recording_widgets(dlg)
-
-    # Downloads tab (needed by _load_values / _save_values)
-    from tests.conftest import wire_settings_downloads_widgets
-    wire_settings_downloads_widgets(dlg)
 
     return dlg
 

@@ -26,16 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.database import ChannelDB, Database, ProviderDB, WatchQueueDB
+from metatv.core.database import ChannelDB, ProviderDB, WatchQueueDB
 from metatv.core.repositories import RepositoryFactory
-
-
-@pytest.fixture()
-def db(tmp_path):
-    database = Database(f"sqlite:///{tmp_path / 'queue_contract.db'}")
-    database.create_tables()
-    yield database
-    database.close()
 
 
 @pytest.fixture()

@@ -57,14 +57,6 @@ from metatv.core.repositories import RepositoryFactory
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def file_db(tmp_path: Path):
-    db = Database(f"sqlite:///{tmp_path / 'keyword_excl.db'}")
-    db.create_tables()
-    yield db
-    db.close()
-
-
 def _add_channel(
     session,
     name: str,

@@ -20,20 +20,11 @@ rating cannot be served a stale answer.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 from metatv.core import preference_engine as pe
-from metatv.core.database import ChannelDB, Database, MetadataDB, UserRatingDB
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'weights.db'}")
-    d.create_tables()
-    yield d
-    d.close()
+from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
 
 
 @pytest.fixture(autouse=True)

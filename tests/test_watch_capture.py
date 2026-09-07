@@ -11,18 +11,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
-from metatv.core.database import Database, ChannelDB
+from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
-
-
-@pytest.fixture()
-def db(tmp_path):
-    d = Database(f"sqlite:///{tmp_path / 'cap.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _seed(db, ch_id, media_type):

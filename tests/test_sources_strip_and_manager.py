@@ -13,13 +13,12 @@ offscreen platform — never source-string shape checks.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 from metatv.core.repositories import RepositoryFactory
 from tests.conftest import wire_nav_host
 
@@ -29,14 +28,6 @@ def qapp():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
-
-
-@pytest.fixture()
-def db(tmp_path: Path):
-    d = Database(f"sqlite:///{tmp_path / 'sources_strip_manager.db'}")
-    d.create_tables()
-    yield d
-    d.close()
 
 
 def _provider(

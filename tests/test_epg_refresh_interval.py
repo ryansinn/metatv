@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import Database, ProviderDB
+from metatv.core.database import ProviderDB
 from metatv.core.epg_manager import EpgManager
 from metatv.core.epg_utils import (
     EPG_INTERVAL_CHOICES,
@@ -24,15 +24,6 @@ from metatv.core.epg_utils import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def db(tmp_path):
-    """File-backed Database with tables created (avoids :memory: pool isolation)."""
-    path = tmp_path / "test.db"
-    database = Database(f"sqlite:///{path}")
-    database.create_tables()
-    yield database
-    database.engine.dispose()
 
 
 @pytest.fixture

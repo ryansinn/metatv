@@ -10,7 +10,6 @@ instead of being silently overwritten by the next refresh.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,16 +25,6 @@ from metatv.core.provider_loader import ProviderLoadThread
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def tmp_db(tmp_path: Path):
-    """File-backed SQLite Database — isolated per test, not :memory:."""
-    db_path = tmp_path / "test.db"
-    db = Database(f"sqlite:///{db_path}")
-    db.create_tables()
-    yield db
-    db.close()
 
 
 @pytest.fixture()
