@@ -10,15 +10,11 @@ from loguru import logger
 
 from metatv.core import watchlist
 from metatv.core.database import Database
-from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
+from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui import icons as _icons
 from metatv.gui.progress_paint import ProgressBar
 from metatv.gui import theme as _theme
-
-
-def _remaining_str(stop: datetime, now: datetime) -> str:
-    return _remaining_str_base(stop, now)
 
 
 class EpgAgendaWidget(QWidget):
