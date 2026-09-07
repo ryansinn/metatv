@@ -1,21 +1,19 @@
 """The adult-content gate must be reachable, sticky, and self-explaining.
 
-Three separate failures shipped together here, and each test below targets one:
+Two separate failures shipped together here, and each test below targets one:
 
-1. **Unreachable.** ``FilterBar`` built ``adult_mode_combo`` with
-   ``setVisible(False)`` and a comment pointing at ``set_adult_filter_visible()``
-   — a method defined and called by nobody. The only control over the setting was
-   permanently invisible.
-2. **Silent.** Every PORNBOX channel carries ``is_adult``, so opening that
+1. **Silent.** Every PORNBOX channel carries ``is_adult``, so opening that
    category returned 0 rows under "try a different search" — the four-axis
    transparency bar had no adult axis, so the honest branch could not be reached.
-3. **Not sticky.** ``config`` owns ``filter_adult_mode`` but ``FilterBar`` caches
-   it in the combo, and ``save_filter_state()`` writes the CACHE back to config.
-   A Settings change that did not also update the combo would be reverted by the
-   user's next filter click.
-"""
+2. **Not sticky.** ``config`` owns ``filter_adult_mode``; the only writer is
+   Settings → Content, via ``SettingsDialog._save_values()``.
 
-from PyQt6.QtWidgets import QWidget
+A third failure — a ``FilterBar``-only combo left permanently invisible via
+``setVisible(False)``, unreachable by any live control — was retired with the
+rest of the dead ``FilterBar`` class (audit slice 4, 2026-09-07);
+``_apply_adult_mode_setting`` now only reloads the channel list, covered by
+``tests/test_settings_apply.py::test_the_reloading_handlers_ask_rather_than_force``.
+"""
 
 from metatv.gui.settings_dialog import SettingsDialog, _SECTIONS, _SECTION_HELP
 from tests.test_settings_tab_layout import _FakeConfig
@@ -62,41 +60,11 @@ def test_every_adult_mode_survives_the_round_trip(qapp):
             dlg.close()
 
 
-def test_settings_change_is_pushed_into_the_filter_bar_cache(qapp):
-    """``_apply_adult_mode_setting`` must write config INTO the combo.
-
-    Without this the setting silently reverts: ``FilterBar.get_filter_state()``
-    reads the combo (never config) and ``save_filter_state()`` writes that stale
-    value back over the freshly-saved one on the user's next filter click.
-    """
+def test_adult_mode_setting_reloads_the_channel_list(qapp):
+    """``_apply_adult_mode_setting`` must reload so a Settings change shows on screen."""
     from metatv.gui.main_window import MainWindow
 
-    class _Combo(QWidget):
-        def __init__(self):
-            super().__init__()
-            self._idx = 1
-            self.blocked = None
-
-        def blockSignals(self, on):          # noqa: N802 - Qt casing
-            self.blocked = on
-            return False
-
-        def setCurrentIndex(self, i):        # noqa: N802 - Qt casing
-            assert self.blocked, (
-                "setCurrentIndex fired with signals live — it re-enters "
-                "on_filter_changed and triggers a duplicate reload"
-            )
-            self._idx = i
-
-        def currentIndex(self):              # noqa: N802 - Qt casing
-            return self._idx
-
-    class _Bar:
-        def __init__(self):
-            self.adult_mode_combo = _Combo()
-
     win = MainWindow.__new__(MainWindow)
-    win.filter_bar = _Bar()
     win.config = _FakeConfig()
     win.config.filter_adult_mode = "all"
     reloads = []
@@ -104,44 +72,7 @@ def test_settings_change_is_pushed_into_the_filter_bar_cache(qapp):
 
     MainWindow._apply_adult_mode_setting(win)
 
-    assert win.filter_bar.adult_mode_combo.currentIndex() == 0, (
-        "combo was not synced to the 'all' the user just chose in Settings"
-    )
     assert reloads, "the channel list was not reloaded, so nothing changes on screen"
-
-
-def test_sync_maps_every_mode_to_the_right_index(qapp):
-    """A wrong mapping would silently apply the wrong setting."""
-    from metatv.gui.main_window import MainWindow
-
-    class _Combo(QWidget):
-        def __init__(self):
-            super().__init__()
-            self._idx = -1
-
-        def blockSignals(self, on):          # noqa: N802 - Qt casing
-            return False
-
-        def setCurrentIndex(self, i):        # noqa: N802 - Qt casing
-            self._idx = i
-
-        def currentIndex(self):              # noqa: N802 - Qt casing
-            return self._idx
-
-    class _Bar:
-        def __init__(self):
-            self.adult_mode_combo = _Combo()
-
-    for mode, expected in (("all", 0), ("hide", 1), ("only", 2)):
-        win = MainWindow.__new__(MainWindow)
-        win.filter_bar = _Bar()
-        win.config = _FakeConfig()
-        win.config.filter_adult_mode = mode
-        win.load_channels = lambda *a, **k: None
-        MainWindow._apply_adult_mode_setting(win)
-        assert win.filter_bar.adult_mode_combo.currentIndex() == expected, (
-            f"mode {mode!r} mapped to the wrong combo index"
-        )
 
 
 def test_empty_list_names_the_adult_gate_instead_of_blaming_search(qapp):

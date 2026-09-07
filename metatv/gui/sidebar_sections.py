@@ -1,7 +1,7 @@
 """Backwards-compatibility shim — implementations moved to metatv.gui.sidebar.*"""
 
 from metatv.gui.sidebar.base import CollapsibleSection
-from metatv.gui.sidebar.sources import ProviderItemWidget, SourcesSection
+from metatv.gui.sidebar.sources import ProviderItemWidget
 from metatv.gui.sidebar.alerts import WatchAlertsSection
 from metatv.gui.sidebar.history import HistorySection
 from metatv.gui.sidebar.favorites import FavoritesSection
@@ -11,7 +11,6 @@ from metatv.gui.sidebar.queue import WatchQueueSection
 __all__ = [
     "CollapsibleSection",
     "ProviderItemWidget",
-    "SourcesSection",
     "WatchAlertsSection",
     "HistorySection",
     "FavoritesSection",

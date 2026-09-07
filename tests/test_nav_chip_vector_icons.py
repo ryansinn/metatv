@@ -27,17 +27,17 @@ def _pixels(chip):
 
 
 def test_chip_with_a_role_gets_an_icon(_app) -> None:
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
     assert not ToggleChip("Search", True, vector_role="search").icon().isNull()
 
 
 def test_chip_without_a_role_is_unchanged(_app) -> None:
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
     assert ToggleChip("Plain", True).icon().isNull(), "role-less chip grew an icon"
 
 
 def test_the_label_no_longer_carries_an_emoji(_app) -> None:
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
     chip = ToggleChip("Search", True, vector_role="search")
     stray = [c for c in chip.text() if ord(c) > 0x2600]
     assert not stray, f"emoji left in the chip label: {stray}"
@@ -52,7 +52,7 @@ def test_the_icon_repaints_on_a_palette_switch(_app) -> None:
     the assertion that caught it.
     """
     from metatv.gui import theme as _theme
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
 
     _theme.apply_theme("Midnight")
     chip = ToggleChip("Search", True, vector_role="search")
@@ -68,7 +68,7 @@ def test_the_icon_repaints_on_a_palette_switch(_app) -> None:
 
 def test_active_and_inactive_use_different_foregrounds(_app) -> None:
     from metatv.gui import theme as _theme
-    from metatv.gui.filter_bar import ToggleChip
+    from metatv.gui.chips import ToggleChip
 
     _theme.apply_theme("Midnight")
     on = ToggleChip("Search", True, vector_role="search")

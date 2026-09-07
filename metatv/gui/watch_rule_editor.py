@@ -45,7 +45,7 @@ from metatv.core.watchlist_matching import (
 )
 from metatv.gui import icons
 from metatv.gui import theme as _theme
-from metatv.gui.filter_bar import ToggleChip
+from metatv.gui.chips import ToggleChip
 
 #: Mode value -> the label the user reads. Their own three names for the axis
 #: ("Includes, Consecutively" / "Includes, all matched" / 'any, separated by

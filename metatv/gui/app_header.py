@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.filter_bar import FilterChip, ToggleChip
+from metatv.gui.chips import FilterChip, ToggleChip
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 

@@ -12,12 +12,19 @@ constructed with ``show_actions=False`` (Wave 7) — status dot, provider name
 buttons (refresh / edit / analyze / toggle / EPG-refresh) the pre-Wave-7 row
 rendered now live in the embedded editor's Summary-tab action bar
 (``ProviderEditorView._build_action_bar``); this view's public
-``providerRefreshClicked``/``providerAnalyzeClicked``/``providerToggleClicked``/
-``providerEpgRefreshClicked`` signals are unchanged (so ``main_window.py``'s
-handler wiring for them is untouched) — they now fire from the editor's action
-bar via the pass-through connections in ``__init__`` instead of from row
-buttons. The "edit" action needed no re-pointing: selecting a row already
-loads it into the editor, so there was never a separate "edit mode" to invoke.
+``providerAnalyzeClicked``/``providerToggleClicked``/``providerEpgRefreshClicked``
+signals are unchanged (so ``main_window.py``'s handler wiring for them is
+untouched) — they now fire from the editor's action bar via the pass-through
+connections in ``__init__`` instead of from row buttons. Refresh never had a
+pass-through: it fires straight off the editor's own ``refresh_requested``,
+connected directly to ``MainWindow.refresh_provider`` (see ``main_window.py``)
+— a redundant, always-dead ``providerRefreshClicked`` signal that duplicated
+that same wiring with no emitter of its own was deleted as dead code (audit
+slice 4, 2026-09-07; caught by ``tests/test_signals_reach_a_slot.py`` once
+``SourcesSection``'s coincidentally-same-named signal, which had been masking
+it, was deleted alongside it). The "edit" action needed no re-pointing:
+selecting a row already loads it into the editor, so there was never a
+separate "edit mode" to invoke.
 
 CENTER: the host's single ``ProviderEditorView`` instance, embedded here
 instead of added directly to the content stack — never a second instance /
@@ -48,7 +55,6 @@ if TYPE_CHECKING:
 class SourcesManagerView(QWidget):
     """Main-area Sources manager: provider list (left) + config (center)."""
 
-    providerRefreshClicked = pyqtSignal(str)
     providerAnalyzeClicked = pyqtSignal(str)
     providerToggleClicked = pyqtSignal(str)
     providerEpgRefreshClicked = pyqtSignal(str)

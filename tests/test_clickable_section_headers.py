@@ -295,7 +295,7 @@ def _make_section(cls, extra_kwargs=None, qapp=None):
     # Unconditionally stub every signal that create_header implementations may call.
     # Setting instance attributes here shadows the class-level pyqtSignal descriptors,
     # which is fine — we only need .emit() to not error during the test.
-    for sig_name in ("addWatchForClicked", "manageWatchForClicked", "clearAllAlertsClicked", "addProviderClicked", "refreshAllClicked"):
+    for sig_name in ("addWatchForClicked", "manageWatchForClicked", "clearAllAlertsClicked"):
         stub = MagicMock()
         stub.emit = MagicMock()
         object.__setattr__(section, sig_name, stub)
@@ -340,9 +340,13 @@ def test_alerts_header_is_clickable(qapp):
     _make_section(WatchAlertsSection, qapp=qapp)
 
 
-def test_sources_header_is_clickable(qapp):
-    from metatv.gui.sidebar.sources import SourcesSection
-    _make_section(SourcesSection, qapp=qapp)
+# Former test_sources_header_is_clickable removed (audit slice 4, 2026-09-07):
+# SourcesSection — the only CollapsibleSection this exercised for "Sources" —
+# was a dead class, never instantiated in production, and was deleted. The
+# live sidebar surface (SourcesStatusStrip) is deliberately NOT a
+# CollapsibleSection (see its own docstring), so there is nothing "Sources"
+# left to exercise this invariant against; the five remaining tests above
+# still cover every live CollapsibleSection subclass.
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ from PyQt6.QtGui import QColor
 
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes as tp
-from metatv.gui.filter_bar import ToggleChip
+from metatv.gui.chips import ToggleChip
 
 PALETTES = list(tp.PALETTES.keys())
 DARK = [n for n, kind in tp.PALETTE_KIND.items() if kind == "dark"]

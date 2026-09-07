@@ -891,7 +891,6 @@
   "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[FavoritesSection]",
   "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[HistorySection]",
   "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[RecommendedSection]",
-  "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[SourcesSection]",
   "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[WatchAlertsSection]",
   "tests/test_sidebar_section_hide.py::test_header_context_menu_has_hide_and_settings_actions[WatchQueueSection]",
   "tests/test_sidebar_v3_row_style.py::test_a_section_never_shows_a_more_marker_over_an_empty_list",

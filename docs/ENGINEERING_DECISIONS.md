@@ -417,3 +417,31 @@ carries both collections.
 - *Suppressing low-confidence tags below a threshold.* Rejected: confidence is a ranking
   and prune-priority signal. A suppression gate would silently discard the adjacent guess
   that makes a facet findable at all.
+
+## 12. A large row count renders through the virtualized list, never a per-row widget
+
+**Decision.** Any view that can grow into the thousands of rows renders through the
+virtualized channel list — `ChannelListModel` + `ChannelRowDelegate` + `ChannelListView`
+— where a delegate paints only the rows on screen and the model materializes nothing.
+`build_chip_row()` (a real `QWidget` per row) stays scoped to bounded sidebar sections
+(tens of rows) and dialogs, where it is the right, discoverable tool.
+
+**Why.** The Sports view (#594) reached for `build_chip_row` — the obviously reusable,
+discoverable helper — and froze the app for minutes on 9,769 rows: measured at 0.39
+ms/row offscreen, which is a floor, since on a real display, competing with a migration
+for CPU and I/O, it was minutes. The virtualized stack already existed and already
+painted the main channel list's full catalog without a stutter, but it was never a
+*component* — ~50 lines of hand-wiring inside `main_window.setup_ui()` — so nothing in
+the tree said "this is how you render results", and the slow path was the one anyone
+would find.
+
+**Alternatives considered.**
+
+- *Leave `build_chip_row` as the general-purpose row builder and optimize it.* Rejected:
+  a widget-per-row is the wrong shape at this cardinality whatever the per-widget cost;
+  the fix is routing large lists to the model/delegate stack, not shaving milliseconds
+  off a widget that should not exist per-row at all.
+- *Document the boundary and trust call sites to pick correctly.* This is what failed
+  once already — the correct path was invisible unless the author already knew it
+  existed. The fix packaged the wiring as `ChannelResultsList` (a three-line API) so the
+  virtualized path is now the discoverable one too.

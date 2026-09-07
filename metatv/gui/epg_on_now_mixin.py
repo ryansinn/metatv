@@ -173,7 +173,7 @@ class _EpgOnNowMixin:
     # ── Tab: On Now ────────────────────────────────────────────────────
 
     def _build_on_now_tab(self) -> None:
-        from metatv.gui.filter_bar import FilterDropdown
+        from metatv.gui.chips import FilterDropdown
 
         page = QWidget()
         layout = QVBoxLayout(page)

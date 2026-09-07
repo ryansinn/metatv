@@ -1,17 +1,30 @@
-"""Filter bar widget for channel filtering"""
+"""Chip and dropdown controls shared across filter/nav surfaces.
 
-from typing import List, Dict
-from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
-    QMenu, QCheckBox, QScrollArea, QFrame, QWidgetAction, QComboBox,
-    QSizePolicy
-)
+Extracted from ``filter_bar.py`` (audit slice 4, 2026-09-07): ``FilterBar`` itself was
+never instantiated in production and was deleted, but ``ToggleChip``, ``FilterChip``
+and ``FilterDropdown`` here are live — the nav header's view chips, the watch-rule
+editor's match-mode chips, and the global content-filter chip all build on
+``ToggleChip``.
+"""
+
+from typing import Dict, List
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
-from loguru import logger
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+    QWidgetAction,
+)
 
 from metatv.gui import theme as _theme
-from metatv.gui import deferred_config_save as _cfgsave
 
 
 class ToggleChip(QPushButton):
@@ -38,7 +51,8 @@ class ToggleChip(QPushButton):
         # rendered differently on every platform.
         self._vector_role = vector_role
         # Position in a segmented track: "first" | "middle" | "last", or None
-        # for a free-standing pill (the original, still used by the filter bar).
+        # for a free-standing pill (the original — still used, e.g. the
+        # watch-rule editor's "Whole words only" chip).
         # A segmented chip fills its whole cell when selected instead of
         # floating as a pill, which is what makes the active view read as the
         # active view rather than as one more button.
@@ -394,320 +408,3 @@ class FilterDropdown(QPushButton):
         self.checkboxes.clear()
         self.setup_menu()
         self.update_button_label()
-
-
-class FilterBar(QWidget):
-    """Filter bar with language/quality dropdowns, source chips, and untagged toggle."""
-
-    filter_changed = pyqtSignal()
-
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self._restoring_state = False
-        self._source_chips: Dict[str, ToggleChip] = {}  # provider_id → chip
-
-        self.setup_ui()
-        self.restore_state()
-
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        # Row 0: source chips (multi-provider only — hidden when ≤1 provider)
-        self._source_row_widget = QWidget()
-        source_row = QHBoxLayout(self._source_row_widget)
-        source_row.setContentsMargins(0, 0, 0, 0)
-        source_row.setSpacing(6)
-        self._source_chips_label = QLabel("Sources:")
-        _theme.style_fn(self._source_chips_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
-        source_row.addWidget(self._source_chips_label)
-        self._source_chips_layout = source_row
-        source_row.addStretch()
-        self._source_row_widget.hide()
-        layout.addWidget(self._source_row_widget)
-
-        # Row 1: filter dropdowns + untagged checkbox
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Only Show:"))
-
-        self.language_dropdown = FilterDropdown("Language", {})
-        self.language_dropdown.setToolTip(
-            "Filter by audio language.\n"
-            "\n"
-            "Selecting a language includes audio, dubbed, and subtitled variants for that\n"
-            "language — all content directed at that linguistic audience.\n"
-            "\n"
-            "Broad groups (English, Spanish, French…) match all variants of that language.\n"
-            "Locale sub-groups (English (North America), French (Europe)…) match only channels\n"
-            "where the source explicitly labeled them with a country code (US, CA, FR…).\n"
-            "Channels with a generic code (EN, ES, FR) appear in the broad group only.\n"
-            "\n"
-            "Language and Region both ADD to your results when combined — selecting either\n"
-            "or both grows the content pool, it never restricts it.\n"
-            "\n"
-            "Select nothing = no language filter (show all)."
-        )
-        self.language_dropdown.filter_changed.connect(self.on_filter_changed)
-        filter_row.addWidget(self.language_dropdown)
-
-        self.region_dropdown = FilterDropdown("Region", {})
-        self.region_dropdown.setToolTip(
-            "Filter by geographic origin or audience target.\n"
-            "\n"
-            "Region filters use the explicit geographic labels the source assigned —\n"
-            "e.g. MX/MEX channels are Mexican content, not just Spanish content.\n"
-            "This lets you find exactly your region's channels without browsing all of\n"
-            "a language group.\n"
-            "\n"
-            "Region and Language both ADD to your results when combined — selecting either\n"
-            "or both grows the content pool, it never restricts it.\n"
-            "\n"
-            "Select nothing = no region filter (show all)."
-        )
-        self.region_dropdown.filter_changed.connect(self.on_filter_changed)
-        self.region_dropdown.hide()  # shown only when regional data exists
-        filter_row.addWidget(self.region_dropdown)
-
-        self.quality_dropdown = FilterDropdown("Quality", {})
-        self.quality_dropdown.setToolTip(
-            "Filter by quality tier (RAW, 4K, HD, SD, etc.).\n"
-            "Restrictive: only channels explicitly tagged with the selected quality show.\n"
-            "Select nothing = show all quality levels."
-        )
-        self.quality_dropdown.filter_changed.connect(self.on_filter_changed)
-        self.quality_dropdown.hide()  # shown only when quality data exists
-        filter_row.addWidget(self.quality_dropdown)
-
-        self.platform_dropdown = FilterDropdown("Platform", {})
-        self.platform_dropdown.setToolTip(
-            "Filter by streaming service or platform (Netflix, EAR, VIX, etc.).\n"
-            "Platform selections ADD to your results alongside Language and Region.\n"
-            "Select nothing = no platform filter (show all)."
-        )
-        self.platform_dropdown.filter_changed.connect(self.on_filter_changed)
-        self.platform_dropdown.hide()  # shown only when platform data exists
-        filter_row.addWidget(self.platform_dropdown)
-
-        filter_row.addSpacing(12)
-
-        self.include_untagged_check = QCheckBox("Show untagged content")
-        self.include_untagged_check.setChecked(True)
-        self.include_untagged_check.setToolTip(
-            "Applies to the Category filter only.\n"
-            "When checked: content with no category tag shows alongside matching categories.\n"
-            "When unchecked: only content explicitly tagged with a selected category shows.\n"
-            "Has no effect when no Category filter is active."
-        )
-        self.include_untagged_check.stateChanged.connect(self.on_filter_changed)
-        filter_row.addWidget(self.include_untagged_check)
-
-        filter_row.addSpacing(12)
-
-        # Adult content: hidden by default; shown via set_adult_filter_visible()
-        self._adult_filter_widget = QWidget()
-        adult_row = QHBoxLayout(self._adult_filter_widget)
-        adult_row.setContentsMargins(0, 0, 0, 0)
-        adult_row.setSpacing(4)
-        adult_row.addWidget(QLabel("Adult:"))
-        self.adult_mode_combo = QComboBox()
-        self.adult_mode_combo.addItems(["All", "Hide adult", "Adult only"])
-        self.adult_mode_combo.setCurrentIndex(1)  # default: Hide adult
-        self.adult_mode_combo.setToolTip(
-            "All — show all channels including adult-flagged\n"
-            "Hide adult — hide channels marked as adult (default)\n"
-            "Adult only — show only adult-flagged channels"
-        )
-        self.adult_mode_combo.currentIndexChanged.connect(self.on_filter_changed)
-        adult_row.addWidget(self.adult_mode_combo)
-        self._adult_filter_widget.setVisible(False)  # hidden until adult content exists
-        filter_row.addWidget(self._adult_filter_widget)
-
-        self.clear_filters_btn = QPushButton("Clear")
-        self.clear_filters_btn.setToolTip("Reset all filters — show everything")
-        _theme.style(self.clear_filters_btn, "FILTER_CONTROL_BTN")
-        self.clear_filters_btn.clicked.connect(self.clear_filters)
-        filter_row.addWidget(self.clear_filters_btn)
-
-        filter_row.addStretch()
-        layout.addLayout(filter_row)
-
-        self.stats_label = QLabel("Showing 0 of 0 channels")
-        _theme.style_fn(self.stats_label, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
-
-    # ── Source chips ──────────────────────────────────────────────────────────
-
-    def update_source_chips(self, providers: list):
-        """Rebuild source filter chips from the list of active Provider/ProviderDB objects.
-
-        Each element should have .id, .name, and optionally .icon attributes.
-        The row is hidden when len(providers) <= 1.
-        """
-        # Remove all old chips (keep label + stretch)
-        for chip in self._source_chips.values():
-            self._source_chips_layout.removeWidget(chip)
-            chip.deleteLater()
-        self._source_chips.clear()
-
-        if len(providers) <= 1:
-            self._source_row_widget.hide()
-            return
-
-        # Re-insert chips before the stretch
-        stretch_index = self._source_chips_layout.count() - 1  # last item is stretch
-        for provider in providers:
-            icon = getattr(provider, 'icon', '') or ''
-            name = getattr(provider, 'name', str(provider))
-            label = f"{icon} {name}".strip() if icon else name
-            chip = ToggleChip(label, enabled=True)
-            chip.setProperty("provider_id", provider.id)
-            chip.toggled_changed.connect(self.on_filter_changed)
-            self._source_chips_layout.insertWidget(stretch_index, chip)
-            stretch_index += 1
-            self._source_chips[provider.id] = chip
-
-        self._source_row_widget.setVisible(True)
-
-    def get_excluded_provider_ids(self) -> List[str]:
-        """Return provider IDs whose source chip is deselected."""
-        return [pid for pid, chip in self._source_chips.items() if not chip.is_enabled()]
-
-    # ── Filter groups ─────────────────────────────────────────────────────────
-
-    def update_filter_groups(self, language_groups: Dict[str, int],
-                             quality_groups: Dict[str, int],
-                             platform_groups: Dict[str, int] | None = None,
-                             region_groups: Dict[str, int] | None = None):
-        """Update all filter dropdowns; auto-hide when empty."""
-        self.language_dropdown.update_groups(language_groups)
-        self.quality_dropdown.update_groups(quality_groups)
-        has_quality = any(v > 0 for v in quality_groups.values())
-        self.quality_dropdown.setVisible(has_quality)
-        if platform_groups is not None:
-            self.platform_dropdown.update_groups(platform_groups)
-            has_platform = any(v > 0 for v in platform_groups.values())
-            self.platform_dropdown.setVisible(has_platform)
-        if region_groups is not None:
-            self.region_dropdown.update_groups(region_groups)
-            has_region = any(v > 0 for v in region_groups.values())
-            self.region_dropdown.setVisible(has_region)
-
-    # ── Filter state ──────────────────────────────────────────────────────────
-
-    def update_stats(self, shown: int, total: int, filtered: int):
-        self.stats_label.setText(f"Showing {shown:,} of {total:,} · {filtered:,} filtered out")
-
-    def get_filter_state(self) -> Dict:
-        return {
-            'media_types': [],  # managed by MainWindow chips
-            'language_groups': self.language_dropdown.get_selected(),
-            'region_groups': self.region_dropdown.get_selected(),
-            'quality_groups': self.quality_dropdown.get_selected(),
-            'platform_groups': self.platform_dropdown.get_selected(),
-            'show_excluded': False,  # removed — use Global Exclusions for blacklisting
-            'include_untagged': self.include_untagged_check.isChecked(),
-            'adult_mode': ['all', 'hide', 'only'][self.adult_mode_combo.currentIndex()],
-            'excluded_provider_ids': self.get_excluded_provider_ids(),
-        }
-
-    def on_filter_changed(self):
-        logger.debug(f"Filter changed: {self.get_filter_state()}")
-        if not self._restoring_state:
-            self.save_state()
-        self.filter_changed.emit()
-
-    def clear_filters(self):
-        """Reset all filters to default (all enabled)."""
-        if self.parent():
-            parent = self.parent()
-            for attr in ('live_chip', 'movies_chip', 'series_chip'):
-                chip = getattr(parent, attr, None)
-                if chip:
-                    chip.set_enabled(True)
-
-        self.language_dropdown.blockSignals(True)
-        self.region_dropdown.blockSignals(True)
-        self.quality_dropdown.blockSignals(True)
-        self.platform_dropdown.blockSignals(True)
-        self.language_dropdown.select_all()
-        self.region_dropdown.select_all()
-        self.quality_dropdown.select_all()
-        self.platform_dropdown.select_all()
-        self.language_dropdown.blockSignals(False)
-        self.region_dropdown.blockSignals(False)
-        self.quality_dropdown.blockSignals(False)
-        self.platform_dropdown.blockSignals(False)
-
-        self.include_untagged_check.blockSignals(True)
-        self.include_untagged_check.setChecked(True)
-        self.include_untagged_check.blockSignals(False)
-
-        self.adult_mode_combo.blockSignals(True)
-        self.adult_mode_combo.setCurrentIndex(1)  # "Hide adult"
-        self.adult_mode_combo.blockSignals(False)
-
-        for chip in self._source_chips.values():
-            chip.set_enabled(True)
-
-        logger.info("Filters cleared — all enabled")
-        self.save_state()
-        self.filter_changed.emit()
-
-    def save_state(self):
-        try:
-            state = self.get_filter_state()
-            if self.parent() and hasattr(self.parent(), 'get_enabled_media_types'):
-                state['media_types'] = self.parent().get_enabled_media_types()
-
-            self.config.filter_enabled_media_types = state['media_types']
-            self.config.filter_included_languages = state['language_groups']
-            self.config.filter_included_regions = state['region_groups']
-            self.config.filter_included_qualities = state['quality_groups']
-            self.config.filter_included_platforms = state['platform_groups']
-            self.config.filter_include_untagged = state['include_untagged']
-            self.config.filter_adult_mode = state['adult_mode']
-            _cfgsave.save_soon(self)
-            logger.debug(f"Saved filter state: {state}")
-        except Exception as e:
-            logger.warning(f"Could not save filter state: {e}")
-
-    def restore_state(self):
-        self._restoring_state = True
-        try:
-            included_languages = getattr(self.config, 'filter_included_languages', [])
-            if included_languages:
-                self.language_dropdown.selected_groups = set(included_languages)
-
-            included_regions = getattr(self.config, 'filter_included_regions', [])
-            if included_regions:
-                self.region_dropdown.selected_groups = set(included_regions)
-
-            included_qualities = getattr(self.config, 'filter_included_qualities', [])
-            if included_qualities:
-                self.quality_dropdown.selected_groups = set(included_qualities)
-
-            included_platforms = getattr(self.config, 'filter_included_platforms', [])
-            if included_platforms:
-                self.platform_dropdown.selected_groups = set(included_platforms)
-
-            include_untagged = getattr(self.config, 'filter_include_untagged', True)
-            self.include_untagged_check.setChecked(include_untagged)
-
-            adult_mode = getattr(self.config, 'filter_adult_mode', 'hide')
-            idx = {'all': 0, 'hide': 1, 'only': 2}.get(adult_mode, 1)
-            self.adult_mode_combo.setCurrentIndex(idx)
-
-            logger.info("Restored filter state")
-        except Exception as e:
-            logger.warning(f"Could not restore filter state: {e}")
-        finally:
-            self._restoring_state = False
-
-    def set_adult_filter_visible(self, visible: bool) -> None:
-        """Show or hide the adult content filter based on whether adult channels exist."""
-        self._adult_filter_widget.setVisible(visible)
-
-    def get_enabled_media_types(self) -> List[str]:
-        """Kept for backwards compatibility."""
-        return []

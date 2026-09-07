@@ -112,7 +112,7 @@ def _make_render_host(config=None) -> SimpleNamespace:
     from PyQt6.QtWidgets import QLineEdit, QTreeWidget, QLabel
     from metatv.gui.epg_view import EpgView
     from metatv.gui.epg_widgets import _ProgressBarDelegate
-    from metatv.gui.filter_bar import FilterDropdown
+    from metatv.gui.chips import FilterDropdown
 
     cfg = config or _minimal_config()
     host = SimpleNamespace()

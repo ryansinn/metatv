@@ -106,7 +106,7 @@ Block signals before programmatically setting widget state (`blockSignals(True)`
 Inside `EpgManager`/the fetch path: worker notifications go through private signals, never `NotificationManager` directly (it makes a main-thread `QTimer`); fetches run one at a time (`ThreadPoolExecutor(max_workers=1)`, else SQLite `database is locked`); resolve the fetch URL via `EpgManager.effective_epg_url(provider)`, never `provider.epg_url`; and `channel_name` **must** be populated at fetch (`relink_all()` re-matches on it — else the watchlist needs a manual Refresh). Detail: docs/CRITICAL_RULES.md#epg-manager-internals.
 
 ### Context filter chips — strict SQL filter, not the inclusive panel
-A details-pane metadata click (genre/cast/director) activates a temporary **strict** SQL filter — never route through `filter_panel.select_only_genre()`; at most one chip active; text search narrows within it. Full pattern: docs/CONTEXT_FILTER_CHIPS.md; state details: docs/CRITICAL_RULES.md#context-filter-chips.
+A details-pane metadata click (genre/cast/director) activates a temporary **strict** SQL filter — never route it through `filter_panel`'s inclusive genre logic; at most one chip active; text search narrows within it. Full pattern: docs/CONTEXT_FILTER_CHIPS.md; state details: docs/CRITICAL_RULES.md#context-filter-chips.
 
 ### Channel context menus — compose via `channel_menu.py`, never hand-roll a QMenu
 Every channel menu is built by the registry in `metatv/gui/channel_menu.py` (`ACTIONS` + `SURFACE_LAYOUTS` + `build_channel_menu`); MainWindow-family menus gather context off-thread through the single `_show_channel_menu` seam. Don't regrow per-surface menus. Detail: docs/CRITICAL_RULES.md#channel-context-menus.

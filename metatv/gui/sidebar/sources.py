@@ -3,11 +3,9 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from metatv.core.repositories import RepositoryFactory
-from metatv.core.epg_utils import epg_status as _epg_status, to_local as _to_local
+from metatv.core.epg_utils import to_local as _to_local
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
-from metatv.gui.sidebar.base import CollapsibleSection
 
 
 def _epg_tooltip(state: str, start, end) -> str:
@@ -45,8 +43,9 @@ class ProviderItemWidget(QWidget):
     """Custom widget for provider items.
 
     ``show_actions=True`` (default) renders the full row: refresh / edit /
-    analyze / toggle buttons + the EPG freshness pip — used by the retired
-    sidebar ``SourcesSection`` and by tests exercising that surface.
+    analyze / toggle buttons + the EPG freshness pip — kept for tests
+    exercising that row shape (the sidebar ``SourcesSection`` that used it in
+    production was deleted as dead code, audit slice 4, 2026-09-07).
 
     ``show_actions=False`` renders a minimal row — icon, status dot, provider
     name only — used by :class:`~metatv.gui.sources_manager_view.SourcesManagerView`'s
@@ -241,203 +240,3 @@ class ProviderItemWidget(QWidget):
             self._epg_btn.setToolTip("Refreshing EPG…")
         else:
             self.set_epg_state(self._epg_state, self._epg_tooltip)
-
-
-class SourcesSection(CollapsibleSection):
-    """Sources provider list section"""
-
-    providerSelected = pyqtSignal(str)         # provider_id
-    providerRefreshClicked = pyqtSignal(str)   # provider_id
-    providerEditClicked = pyqtSignal(str)      # provider_id
-    providerAnalyzeClicked = pyqtSignal(str)   # provider_id
-    providerToggleClicked = pyqtSignal(str)    # provider_id
-    providerEpgRefreshClicked = pyqtSignal(str)  # provider_id — refresh EPG for this source
-    addProviderClicked = pyqtSignal()
-    refreshAllClicked = pyqtSignal()
-
-    def __init__(self, config, db, parent=None):
-        self.db = db
-        # provider_ids with an operation in flight (toggle + view refresh); survives the
-        # tree rebuild in refresh() so the spinner/disabled state is re-applied.
-        self._busy_ids: set[str] = set()
-        self._item_widgets: dict[str, "ProviderItemWidget"] = {}
-        super().__init__("Sources", config.provider_icon, config, parent,
-                         vector_role="sources")
-
-    def get_section_id(self):
-        return "sources"
-
-    def create_header(self):
-        """Override to add '+' and refresh buttons in the header instead of bottom buttons."""
-        header = self._build_clickable_header()
-        header_layout = header.layout()
-
-        self.title_label = self.make_title_label()
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch()
-
-        _btn_style = (
-            "QPushButton {{ font-size: {fs}px; border: 1px solid {bc};"
-            " border-radius: 3px; color: {c}; background: {bg}; }}"
-            "QPushButton:hover {{ background: {hbg}; }}"
-        )
-        refresh_all_btn = QPushButton(self.config.refresh_icon)
-        refresh_all_btn.setFixedSize(22, 20)
-        refresh_all_btn.setToolTip("Refresh all sources")
-        _theme.style_fn(refresh_all_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
-            bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
-        ))
-        refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)
-        header_layout.addWidget(refresh_all_btn)
-
-        add_btn = QPushButton(_icons.add_icon)
-        add_btn.setFixedSize(28, 24)
-        add_btn.setToolTip("Add Source…")
-        # Routed through the SHARED _btn_style template above (same one the
-        # Refresh-All button uses) — not a hand-rolled stylesheet, so the pair
-        # cannot drift and no font-size literal is inlined.
-        _theme.style_fn(add_btn, lambda: _btn_style.format(
-            fs=13, c=_theme.COLOR_TEXT, bc=_theme.COLOR_BORDER,
-            bg=_theme.OVERLAY_15, hbg=_theme.OVERLAY_18,
-        ))
-        add_btn.clicked.connect(self.addProviderClicked.emit)
-        header_layout.addWidget(add_btn)
-
-        self.main_layout.addWidget(header)
-
-    def create_content(self):
-        """Create sources tree (no bottom buttons — they moved to the header)."""
-        from PyQt6.QtWidgets import QTreeWidget
-        self.sources_tree = QTreeWidget()
-        self.sources_tree.setHeaderHidden(True)
-        self.sources_tree.itemClicked.connect(self.on_provider_clicked)
-        self.content_layout.addWidget(self.sources_tree)
-
-    def refresh(self):
-        """Load providers from database."""
-        self.sources_tree.clear()
-        self._item_widgets = {}
-
-        session = self.db.get_session()
-        try:
-            from datetime import datetime
-            from metatv.core.epg_manager import EpgManager
-            from metatv.gui.subscription_status import subscription_color
-            repos = RepositoryFactory(session)
-            providers = repos.providers.get_all()
-            self.set_empty(len(providers) == 0)
-
-            now = datetime.now()
-            for provider in providers:
-                from PyQt6.QtWidgets import QTreeWidgetItem
-                item = QTreeWidgetItem(self.sources_tree)
-                item.setText(0, "")
-                item.setData(0, Qt.ItemDataRole.UserRole, provider.id)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-                # Determine if subscription has actually lapsed (date-based, not just API status).
-                is_expired = bool(
-                    provider.account_exp_date and provider.account_exp_date <= now
-                )
-
-                # Subscription color — only shown when not expired (expired has its own style).
-                sub_color = ""
-                if not is_expired and provider.account_exp_date:
-                    sub_color = subscription_color(provider.account_exp_date, provider.account_created_at)
-
-                icon = getattr(provider, "icon", "") or ""
-
-                epg_state = _epg_status(
-                    EpgManager.effective_epg_url(provider), getattr(provider, "epg_data_end", None)
-                )
-                epg_tooltip = _epg_tooltip(
-                    epg_state, getattr(provider, "epg_data_start", None),
-                    getattr(provider, "epg_data_end", None),
-                )
-
-                widget = ProviderItemWidget(
-                    provider.id, provider.name,
-                    is_active=provider.is_active,
-                    icon=icon,
-                    sub_color=sub_color,
-                    is_expired=is_expired,
-                    busy=provider.id in self._busy_ids,
-                    epg_state=epg_state,
-                    epg_tooltip=epg_tooltip,
-                )
-                self._item_widgets[provider.id] = widget
-                widget.refreshClicked.connect(
-                    lambda pid=provider.id: self.providerRefreshClicked.emit(pid)
-                )
-                widget.editClicked.connect(
-                    lambda pid=provider.id: self.providerEditClicked.emit(pid)
-                )
-                widget.analyzeClicked.connect(
-                    lambda pid=provider.id: self.providerAnalyzeClicked.emit(pid)
-                )
-                widget.toggleClicked.connect(
-                    lambda pid=provider.id: self.providerToggleClicked.emit(pid)
-                )
-                widget.epgRefreshClicked.connect(
-                    lambda pid=provider.id: self.providerEpgRefreshClicked.emit(pid)
-                )
-                self.sources_tree.setItemWidget(item, 0, widget)
-        finally:
-            session.close()
-
-    def on_provider_clicked(self, item, column):
-        provider_id = item.data(0, Qt.ItemDataRole.UserRole)
-        if provider_id:
-            self.providerSelected.emit(provider_id)
-
-    def update_provider_status(self, provider_id: str, status: str):
-        """Legacy method — no-op; widgets now update via refresh()."""
-
-    def is_provider_busy(self, provider_id: str) -> bool:
-        return provider_id in self._busy_ids
-
-    def set_provider_busy(self, provider_id: str, busy: bool) -> None:
-        """Mark a provider's row busy/idle. Records it in `_busy_ids` (so a later
-        refresh() rebuild re-applies the state) and updates the live widget in place
-        for immediate feedback without a full rebuild."""
-        if busy:
-            self._busy_ids.add(provider_id)
-        else:
-            self._busy_ids.discard(provider_id)
-        widget = self._item_widgets.get(provider_id)
-        if widget is not None:
-            widget.set_busy(busy)
-
-    def set_provider_epg_refreshing(self, provider_id: str, busy: bool) -> None:
-        """Show/clear the spinner on a provider row's EPG indicator while its feed
-        is being refreshed (in place — no full rebuild needed)."""
-        widget = self._item_widgets.get(provider_id)
-        if widget is not None:
-            widget.set_epg_refreshing(busy)
-
-    def has_busy(self) -> bool:
-        return bool(self._busy_ids)
-
-    def clear_busy(self) -> None:
-        """Clear busy/spinner state for every provider row."""
-        for pid in list(self._busy_ids):
-            self.set_provider_busy(pid, False)
-
-    def clear_selection(self) -> None:
-        """Deselect any active source row (used when the per-source filter is toggled off)."""
-        self.sources_tree.clearSelection()
-        self.sources_tree.setCurrentItem(None)
-
-    def select_provider(self, provider_id: str) -> None:
-        """Highlight the tree row for *provider_id* (used when restoring search state).
-
-        Iterates top-level items; silently does nothing if the provider isn't found yet
-        (the sidebar may still be loading when restore happens at startup).
-        """
-        from PyQt6.QtCore import Qt
-        for i in range(self.sources_tree.topLevelItemCount()):
-            item = self.sources_tree.topLevelItem(i)
-            if item and item.data(0, Qt.ItemDataRole.UserRole) == provider_id:
-                self.sources_tree.setCurrentItem(item)
-                return

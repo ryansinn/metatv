@@ -1,7 +1,6 @@
 """Base class for content views"""
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import pyqtSignal
-from typing import Optional
 
 
 class ContentView(QWidget):
@@ -24,14 +23,6 @@ class ContentView(QWidget):
         super().__init__(parent)
         self.config = config
     
-    def get_selected_channel(self) -> Optional[object]:
-        """Get currently selected channel
-        
-        Override in subclasses to return the selected channel object.
-        Returns None if no channel is selected.
-        """
-        return None
-    
     def on_activate(self):
         """Called when this view becomes active
         
@@ -41,14 +32,7 @@ class ContentView(QWidget):
     
     def on_deactivate(self):
         """Called when this view is hidden
-        
+
         Override in subclasses to perform any necessary cleanup
         when the view is hidden.
         """
-    
-    def get_view_name(self) -> str:
-        """Get display name for this view
-        
-        Override in subclasses.
-        """
-        return "View"

@@ -1443,9 +1443,9 @@ class _ChannelListMixin:
             if hasattr(self, 'filter_panel')
             else {}
         )
-        # Chip state drives provider filtering; sidebar selection is set separately
-        # via on_provider_selected_new which calls load_channels(provider_id) directly.
-        # Reset the cursor so a subsequent source click toggles on rather than off.
+        # Chip state drives provider filtering; ``selected_provider_id`` is the
+        # separate per-source filter cursor (restored from saved search state —
+        # see load_channels()). Reset it here so a filter change starts clean.
         self.selected_provider_id = None
         self._sync_filter_chips()   # chips describe the state about to be queried
 

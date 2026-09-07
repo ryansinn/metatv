@@ -79,8 +79,7 @@ def _make_section(cls, qapp, extra_kwargs=None):
     # (frame -> layout -> header) is GC'd the moment this function exits.
     object.__setattr__(section, "_anchor_frame", frame)
 
-    for sig_name in ("addWatchForClicked", "manageWatchForClicked", "clearAllAlertsClicked",
-                     "addProviderClicked", "refreshAllClicked"):
+    for sig_name in ("addWatchForClicked", "manageWatchForClicked", "clearAllAlertsClicked"):
         stub = MagicMock()
         stub.emit = MagicMock()
         object.__setattr__(section, sig_name, stub)
@@ -108,7 +107,6 @@ for _mod, _name in (
     ("metatv.gui.sidebar.history", "HistorySection"),
     ("metatv.gui.sidebar.queue", "WatchQueueSection"),
     ("metatv.gui.sidebar.alerts", "WatchAlertsSection"),
-    ("metatv.gui.sidebar.sources", "SourcesSection"),
 ):
     import importlib
     _SECTION_CLASSES.append(getattr(importlib.import_module(_mod), _name))
