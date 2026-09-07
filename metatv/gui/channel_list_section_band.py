@@ -38,6 +38,7 @@ from typing import NamedTuple
 from PyQt6.QtCore import QRect, QRectF, Qt
 from PyQt6.QtGui import QFont, QFontMetrics, QPainter, QPainterPath
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_list_roles import (
     ROW_KIND_ROLE, SECTION_COLLAPSED_ROLE, SECTION_COUNT_ROLE,
@@ -76,8 +77,8 @@ LABEL_TRACKING = 114.0
 #: ``All | Whole | Part`` would carry a synonym.
 ALL = "All"
 WORD = "Word"
-CARET_OPEN = "▾"      # ▾
-CARET_SHUT = "▸"      # ▸
+CARET_OPEN = _icons.search_band_caret_open_icon
+CARET_SHUT = _icons.search_band_caret_shut_icon
 
 
 class BandLayout(NamedTuple):

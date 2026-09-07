@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPainter, QColor, QPixmap
-from PyQt6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 # Fraction of the window dimension used as margin on each side
@@ -89,13 +89,12 @@ class PosterLightbox(QWidget):
         _theme.style_fn(hint, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; background: transparent;")
         btn_row.addWidget(hint, 1)
 
-        close_btn = QPushButton(_icons.close_icon)
+        close_btn = _icon_utils.icon_button("close", "Close (Esc)", style="LIGHTBOX_CLOSE_BTN")
+        # The cinema-surface rule: a fixed-dark LIGHTBOX panel takes its
+        # foreground from the LIGHTBOX family, never a palette-tuned token.
+        _icon_utils.set_button_icon(close_btn, "close", color=_theme.COLOR_LIGHTBOX_MUTED)
         close_btn.setFlat(True)
         close_btn.setFixedSize(22, 22)
-        _theme.style_fn(close_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_2XL};"
-            " border: none; background: transparent; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
-        close_btn.setToolTip("Close (Esc)")
         close_btn.clicked.connect(self._close)
         btn_row.addWidget(close_btn)
 

@@ -27,7 +27,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
@@ -1385,11 +1385,11 @@ class GlobalFilterDialog(QDialog):
         rl.addWidget(count_lbl)
         rl.addStretch()
 
-        remove_btn = QPushButton(_icons.close_icon)
+        remove_btn = QPushButton()
         remove_btn.setFlat(True)
+        _icon_utils.set_button_icon(remove_btn, "close", color=_theme.COLOR_MUTED_2)
         remove_btn.setToolTip(f'Remove "{keyword}" from Global Exclusions')
-        _theme.style_fn(remove_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ERR_MUTED}; }}")
+        remove_btn.setStyleSheet("QPushButton { border: none; }")
         remove_btn.clicked.connect(lambda _, k=keyword: self._remove_keyword(k))
         rl.addWidget(remove_btn)
 

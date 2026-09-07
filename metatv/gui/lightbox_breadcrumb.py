@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QSize, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
+from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 
@@ -119,9 +121,15 @@ class LightboxBreadcrumb(QWidget):
             is_ellipsis = title == "…"
 
             if is_ellipsis:
-                # Clickable ellipsis that opens Explore with the full trail
-                ellipsis_btn = QPushButton("…")
+                # Clickable ellipsis that opens Explore with the full trail —
+                # "open this out into a bigger surface", same affordance the
+                # explore_columns_icon family already carries elsewhere.
+                ellipsis_btn = QPushButton()
                 ellipsis_btn.setFlat(True)
+                _icon_utils.set_button_icon(
+                    ellipsis_btn, "explore_columns", color=_theme.COLOR_LIGHTBOX_LINK
+                )
+                ellipsis_btn.setIconSize(QSize(12, 12))
                 _theme.style(ellipsis_btn, "LIGHTBOX_BREADCRUMB_CRUMB")
                 ellipsis_btn.setToolTip("Show full path in Explore")
                 set_clickable(ellipsis_btn)
@@ -148,7 +156,7 @@ class LightboxBreadcrumb(QWidget):
 
             # Add separator between crumbs (except after last)
             if i < len(shown) - 1:
-                sep = QLabel("›")
+                sep = QLabel(_icons.trail_expand_icon)
                 _theme.style(sep, "LIGHTBOX_BREADCRUMB_SEP")
                 self._layout.addWidget(sep, 0)
 

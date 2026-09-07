@@ -20,12 +20,12 @@ rather than a fifth copy of the same forty lines.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QSize
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -54,6 +54,7 @@ class CollapsibleHeader(QWidget):
         self._chevron = QPushButton()
         self._chevron.setFixedSize(20, 20)
         self._chevron.setFlat(True)
+        self._chevron.setIconSize(QSize(14, 14))
         _theme.style(self._chevron, "DETAIL_SECTION_CHEVRON")
         cursor_affordance.set_clickable(self._chevron)
         self._chevron.clicked.connect(self.toggle)
@@ -100,8 +101,8 @@ class CollapsibleHeader(QWidget):
         self.toggled.emit(self._collapsed)
 
     def _sync(self) -> None:
-        self._chevron.setText(
-            _icons.expand_icon if self._collapsed else _icons.collapse_icon
+        _icon_utils.set_button_icon(
+            self._chevron, "expand" if self._collapsed else "collapse"
         )
         # Set here, not at construction: the glyph flips with the state, so a
         # fixed tooltip would contradict the arrow half the time.

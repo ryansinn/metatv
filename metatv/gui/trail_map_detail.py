@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
@@ -81,9 +82,13 @@ class _DetailPoster(QFrame):
         self._img.setWordWrap(True)
         self._img.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        self._wbadge = QPushButton(_icons.unwatched_icon, self)
+        self._wbadge = QPushButton(self)
         self._wbadge.setFixedSize(22, 22)
         self._wbadge.move(6, 6)
+        _icon_utils.set_button_icon(self._wbadge, "unwatched", color=_theme.COLOR_LIGHTBOX_FAINT)
+        self._wbadge.setIconSize(QSize(14, 14))
+        self._wbadge.setStyleSheet(_theme.TRAILMAP_WBADGE)
+        self._wbadge.setToolTip("Mark as watched")
         self._wbadge.clicked.connect(self.watched_clicked)  # QPushButton → hand cursor for free
 
     def set_pixmap(self, pix: QPixmap) -> None:
@@ -99,13 +104,13 @@ class _DetailPoster(QFrame):
         self._img.setText(text)
 
     def set_watch_state(self, state: str) -> None:
-        glyph, style, tip = {
-            "done": (_icons.watched_icon, _theme.TRAILMAP_WBADGE_DONE,
+        role, color, style, tip = {
+            "done": ("watched", _theme.COLOR_LIGHTBOX_OK, _theme.TRAILMAP_WBADGE_DONE,
                      "Watched — click to unmark"),
-            "partial": (_icons.partial_watched_icon, _theme.TRAILMAP_WBADGE_PARTIAL,
+            "partial": ("partial_watched", _theme.COLOR_LIGHTBOX_WARN, _theme.TRAILMAP_WBADGE_PARTIAL,
                         "Partially watched — click to mark done"),
-        }.get(state, (_icons.unwatched_icon, _theme.TRAILMAP_WBADGE, "Mark as watched"))
-        self._wbadge.setText(glyph)
+        }.get(state, ("unwatched", _theme.COLOR_LIGHTBOX_FAINT, _theme.TRAILMAP_WBADGE, "Mark as watched"))
+        _icon_utils.set_button_icon(self._wbadge, role, color=color)
         self._wbadge.setStyleSheet(style)
         self._wbadge.setToolTip(tip)
 
@@ -167,11 +172,14 @@ class TrailDetailStrip(QWidget):
         self._year_lbl = QLabel()
         _theme.style(self._year_lbl, "TRAILMAP_DETAIL_YEAR")
         title_row.addWidget(self._year_lbl, 0, Qt.AlignmentFlag.AlignBottom)
-        self._fav_star = QPushButton(_icons.unfavorite_icon)
+        self._fav_star = QPushButton()
         self._fav_star.setCheckable(True)
         self._fav_star.setFlat(True)
         self._fav_star.setFixedSize(30, 30)
+        _icon_utils.set_button_icon(self._fav_star, "unfavorite", color=_theme.COLOR_LIGHTBOX_FAINT)
+        self._fav_star.setIconSize(QSize(20, 20))
         _theme.style(self._fav_star, "TRAILMAP_FAV_STAR")
+        self._fav_star.setToolTip("Add to Favorites")
         self._fav_star.clicked.connect(self._on_fav_clicked)
         title_row.addWidget(self._fav_star, 0, Qt.AlignmentFlag.AlignVCenter)
         title_row.addStretch()
@@ -243,7 +251,7 @@ class TrailDetailStrip(QWidget):
         self._title_lbl.setText("Select a title")
         self._year_lbl.clear()
         self._fav_star.setChecked(False)
-        self._fav_star.setText(_icons.unfavorite_icon)
+        _icon_utils.set_button_icon(self._fav_star, "unfavorite", color=_theme.COLOR_LIGHTBOX_FAINT)
         self._clear_meta()
         self._overview_lbl.setText("Pick any stop or similar title above to see its details here.")
         _theme.style(self._overview_lbl, "TRAILMAP_EMPTY_HINT")
@@ -264,7 +272,10 @@ class TrailDetailStrip(QWidget):
         self._title_lbl.setText(row.title or "Unknown")
         self._year_lbl.setText(f"({row.year})" if row.year else "")
         self._fav_star.setChecked(row.is_favorite)
-        self._fav_star.setText(_icons.favorite_icon if row.is_favorite else _icons.unfavorite_icon)
+        _icon_utils.set_button_icon(
+            self._fav_star, "favorite" if row.is_favorite else "unfavorite",
+            color=_theme.COLOR_LIGHTBOX_GOLD if row.is_favorite else _theme.COLOR_LIGHTBOX_FAINT,
+        )
         self._fav_star.setToolTip(
             "Remove from Favorites" if row.is_favorite else "Add to Favorites"
         )
@@ -384,7 +395,10 @@ class TrailDetailStrip(QWidget):
     def _on_fav_clicked(self) -> None:
         # Optimistic swap; the host persists and a reload re-syncs.
         on = self._fav_star.isChecked()
-        self._fav_star.setText(_icons.favorite_icon if on else _icons.unfavorite_icon)
+        _icon_utils.set_button_icon(
+            self._fav_star, "favorite" if on else "unfavorite",
+            color=_theme.COLOR_LIGHTBOX_GOLD if on else _theme.COLOR_LIGHTBOX_FAINT,
+        )
         self.favorite_clicked.emit()
 
     def _on_watched_badge(self) -> None:

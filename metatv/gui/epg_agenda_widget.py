@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 from loguru import logger
 
@@ -12,7 +12,7 @@ from metatv.core import watchlist
 from metatv.core.database import Database
 from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str
 from metatv.core.repositories.epg import EpgRepository
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui.progress_paint import ProgressBar
 from metatv.gui import theme as _theme
 
@@ -181,11 +181,13 @@ class EpgAgendaWidget(QWidget):
 
         if self._config is not None:
             in_wl = watchlist.contains(self._config, prog.title)
-            bell_btn = QPushButton(_icons.watchlist_on_icon if in_wl else _icons.watchlist_off_icon)
+            bell_btn = QPushButton()
             bell_btn.setFixedWidth(26)
             bell_btn.setCheckable(True)
             bell_btn.setChecked(in_wl)
-            _theme.style_fn(bell_btn, lambda: f"border: none; padding: 0; font-size: {_theme.FONT_MD};")
+            _icon_utils.set_button_icon(bell_btn, "monitor" if in_wl else "monitor_off")
+            bell_btn.setIconSize(QSize(13, 13))
+            _theme.style_fn(bell_btn, lambda: "border: none; padding: 0;")
             bell_btn.setToolTip("Remove from watchlist" if in_wl else "Add to watchlist")
             bell_btn.toggled.connect(
                 lambda checked, t=prog.title, b=bell_btn: self._toggle_watchlist(t, checked, b)
@@ -201,7 +203,7 @@ class EpgAgendaWidget(QWidget):
             watchlist.add(self._config, title)
         else:
             watchlist.remove(self._config, title)
-        btn.setText(_icons.watchlist_on_icon if add else _icons.watchlist_off_icon)
+        _icon_utils.set_button_icon(btn, "monitor" if add else "monitor_off")
         btn.setToolTip("Remove from watchlist" if add else "Add to watchlist")
 
 

@@ -17,10 +17,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -140,11 +141,11 @@ class SourcesStatusStrip(QWidget):
         _theme.style(self._summary_lbl, "CHANNEL_NAME_DIM")
         layout.addWidget(self._summary_lbl, 1)
 
-        self._refresh_btn = QPushButton(_icons.refresh_icon)
+        self._refresh_btn = _icon_utils.icon_button(
+            "refresh", "Refresh all sources", style="RECIPE_SAVED_ICON_BTN"
+        )
         self._refresh_btn.setFixedSize(22, 20)
         self._refresh_btn.setFlat(True)
-        self._refresh_btn.setToolTip("Refresh all sources")
-        _theme.style(self._refresh_btn, "RECIPE_SAVED_ICON_BTN")
         cursor_affordance.set_clickable(self._refresh_btn)
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         layout.addWidget(self._refresh_btn)

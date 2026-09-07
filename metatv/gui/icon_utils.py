@@ -10,9 +10,13 @@ fallback keys are tried in order before giving up.
 
 from __future__ import annotations
 
+import weakref
+
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QPushButton
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 # Fallback chains for keys known to have font-loading issues on some systems.
@@ -167,3 +171,145 @@ def _clear_vector_pixmap_cache() -> None:
     as dangling C++ objects, so the cache must be dropped between app
     instances (the same reason ``icons._clear_glyph_icon_cache`` exists)."""
     _VECTOR_PIXMAP_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Icon-only QPushButton factory (ICON-1)
+# ---------------------------------------------------------------------------
+# Icon-only buttons had been built ~37 different ways across gui/ — most
+# commonly ``QPushButton(icons.x_icon)``, which sets a colour EMOJI as the
+# button's TEXT: drawn at the host font size inside a fixed-size button, it
+# crops (ledger F13). This is the one chokepoint: every icon-only button goes
+# through :func:`icon_button` (fresh construction) or :func:`set_button_icon`
+# (an existing button whose glyph is set/swapped later — toggle badges like
+# watched/unwatched, favourite/unfavourite, pin/unpin, collapse/expand call
+# this on state change, never ``setText``).
+
+#: Every button whose icon this module has painted, so a theme switch can
+#: repaint it. Weak: a closed dialog's button must not be kept alive by this
+#: registry. Value is the (role, color) last used, so a re-paint reproduces
+#: exactly what is on screen now — including a role a caller swapped to after
+#: construction.
+_registered_icon_buttons: "weakref.WeakKeyDictionary[QPushButton, tuple[str, str | None]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def set_button_icon(btn: QPushButton, role: str, *, color: str | None = None) -> None:
+    """Paint *btn*'s icon from the semantic *role* and register it for re-paint.
+
+    Vector-first: a role present in :data:`icons.VECTOR_KEYS` resolves through
+    :func:`resolve_icon` (crisp, themeable ``mdi6`` glyph). Otherwise falls
+    back to the glyph constant ``icons.<role>_icon`` rendered monochrome via
+    :func:`icons.glyph_icon` — every existing emoji constant is reachable this
+    way with no registry changes.
+
+    Registers *btn* in the module's weak icon-button registry regardless of
+    call path (:func:`icon_button` calls this internally rather than
+    duplicating the resolution+registration logic), so :func:`refresh_icon_buttons`
+    repaints it too — including a button whose glyph this function is used to
+    SWAP after construction (a toggle badge), which re-registers with its new
+    role on every call.
+
+    Args:
+        btn: Any ``QPushButton`` (or subclass).
+        role: A semantic role — either a :data:`icons.VECTOR_KEYS` key or the
+            ``<role>`` in an ``icons.<role>_icon`` glyph constant.
+        color: Any CSS colour string. Defaults to ``theme.COLOR_TEXT``, read
+            at CALL time (never cached at import — a stale default would not
+            track a theme switch).
+
+    Raises:
+        KeyError: *role* is neither a vector key nor a glyph constant name —
+            naming both lookups tried, so a typo surfaces at the call site.
+    """
+    resolved_color = color if color is not None else _theme.COLOR_TEXT
+    if role in _icons.VECTOR_KEYS:
+        icon = resolve_icon(_icons.vector_key(role), color=resolved_color)
+    else:
+        glyph_name = f"{role}_icon"
+        glyph = getattr(_icons, glyph_name, None)
+        if glyph is None:
+            raise KeyError(
+                f"icon role {role!r} is not in icons.VECTOR_KEYS and "
+                f"icons.{glyph_name} does not exist"
+            )
+        icon = _icons.glyph_icon(glyph, resolved_color)
+    btn.setIcon(icon)
+    _registered_icon_buttons[btn] = (role, color)
+
+
+def icon_button(
+    role: str,
+    tooltip: str,
+    *,
+    style: str = "INLINE_ACTION_BTN",
+    px: int = 16,
+    parent=None,
+    checkable: bool = False,
+) -> QPushButton:
+    """Build a fresh icon-only ``QPushButton`` through the one shared path.
+
+    Every icon-only button needs the same handful of things done together —
+    a crisp non-cropped icon, a tooltip (a11y name to match), the right theme
+    role, live re-theming — and this is the one place that does all of them,
+    so a call site cannot ship three of the four.
+
+    Args:
+        role: Passed to :func:`set_button_icon`.
+        tooltip: Required and must be non-empty — an icon-only control with
+            no tooltip is exactly the U14 defect this factory closes.
+        style: A ``theme.py`` semantic-constant name, applied via
+            :func:`theme.style` (which also registers *btn* so it re-renders
+            on a theme switch). Defaults to the neutral flat role shared by
+            most inline icon actions.
+        px: Icon edge length in logical px.
+        parent: Optional parent widget.
+        checkable: Whether the button toggles (e.g. a filter/checkbox-style
+            icon button).
+
+    Returns:
+        The constructed, fully-wired ``QPushButton``.
+
+    Raises:
+        ValueError: *tooltip* is empty — the tooltip rule is firm.
+        KeyError: See :func:`set_button_icon`.
+    """
+    if not tooltip:
+        raise ValueError("icon_button() requires a non-empty tooltip")
+    btn = QPushButton(parent)
+    btn.setIconSize(QSize(px, px))
+    set_button_icon(btn, role)
+    btn.setToolTip(tooltip)
+    btn.setAccessibleName(tooltip)
+    btn.setCheckable(checkable)
+    _theme.style(btn, style)
+    return btn
+
+
+def refresh_icon_buttons() -> None:
+    """Re-paint every live registered icon button — called after a theme switch.
+
+    Icons are QPixmap-backed ``QIcon``s baked at paint time in a colour
+    string; unlike a stylesheet role they cannot re-resolve a token on their
+    own, so ``theme.style()``'s registry (built for stylesheets) cannot carry
+    them. This is that same idea for icons: repaint from the (role, color)
+    this module last used for that button, so the glyph follows the palette
+    like everything else.
+    """
+    for btn, (role, color) in list(_registered_icon_buttons.items()):
+        try:
+            set_button_icon(btn, role, color=color)
+        except Exception:
+            # Deliberately broad, and it is not defensiveness: this runs from
+            # theme.apply_theme(), which runs from a Qt slot, and PyQt calls
+            # qFatal() on an exception that escapes a slot (docs/REFACTOR_PLAN
+            # F18). Losing one button's repaint is a cosmetic bug; taking the
+            # process down over it is not. The usual cause is RuntimeError —
+            # the C++ object is gone while the Python wrapper lingers.
+            continue
+
+
+# theme.py must not import this module (would cycle: icon_utils already imports
+# theme) — so this module registers itself with theme's hook list instead.
+_theme.register_post_apply(refresh_icon_buttons)

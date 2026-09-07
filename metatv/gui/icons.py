@@ -1,10 +1,21 @@
 """Central icon registry for MetaTV UI.
 
 All glyphs, emoji, and symbols used in the UI must be defined here.
-Import and reference by name — never use a literal glyph in widget code:
+Import and reference by name — never use a literal glyph in widget code
+(``tests/test_no_stray_glyph_literals.py`` fails the suite on one).
 
-    from metatv.gui import icons
-    btn = QPushButton(icons.close_icon)
+An ICON-ONLY BUTTON is not built from these constants directly: passing a
+glyph as a button's text draws a colour emoji at the host font size inside a
+fixed-size button, which crops. Go through the one factory instead, which
+resolves a vector glyph where :data:`VECTOR_KEYS` has one and repaints on a
+theme switch::
+
+    from metatv.gui import icon_utils
+    btn = icon_utils.icon_button("close", "Clear filter")
+    icon_utils.set_button_icon(btn, "collapse")   # a toggle swaps its ICON
+
+A glyph read stays right for text: ``QLabel(icons.bullet_icon)``, or a label
+that is words plus a glyph (``f"{icons.play_icon} Play"``).
 
 To add a new icon, add it here first, then reference it.
 """
@@ -25,6 +36,11 @@ like_icon: str = "👍"
 dislike_icon: str = "👎"
 not_interested_icon: str = "🙅"
 curious_icon: str = "❓"
+# "No mood set" state in the mood-picker button row (category_picker_dialog) —
+# was a bare "—" literal at the call site, coincidentally the same codepoint
+# as group_mark_icon (a different, unrelated role: the nested group-heading
+# marker). Its own name so the two never collide again.
+mood_none_icon: str = "—"
 watched_icon: str = "✓"
 unwatched_icon: str = "○"   # U+25CB WHITE CIRCLE — poster "mark watched" corner badge, unwatched state
 # Channel-list playback-state separator — the fixed "·" slot between the leading
@@ -92,12 +108,26 @@ hide_watched_filter_icon: str = "✓"   # Used in "Hide watched" toggle label
 pin_icon: str = "📌"
 visibility_toggle_icon: str = "👁"
 analyze_icon: str = "📊"   # U+1F4CA BAR CHART — "analyze this source" action (overlap/content breakdown)
+edit_icon: str = "✎"   # U+270E LOWER RIGHT PENCIL — generic "edit this" action (alias of recipe_edit_icon)
 
 # Navigation / collapse
 expand_icon: str = ">"
 collapse_icon: str = "⌄"
 move_up_icon: str = "▲"
 move_down_icon: str = "▼"
+# channel_list_section_band's own PAINTED caret pair (QPainter.drawText, no
+# QIcon involved) — visually its own small-triangle shape, deliberately
+# distinct from expand_icon/collapse_icon's chevrons. search_band_caret_shut
+# shares its codepoint with qa_goto_icon on purpose (same shape, unrelated
+# meaning) but keeps its own name so the two contexts never collide under one.
+search_band_caret_open_icon: str = "▾"   # U+25BE BLACK DOWN-POINTING SMALL TRIANGLE
+search_band_caret_shut_icon: str = "▸"   # U+25B8 BLACK RIGHT-POINTING SMALL TRIANGLE
+# The "this control opens a menu" caret on a chip/dropdown button (chips.py's
+# FilterDropdown). Same codepoint as move_down_icon, different meaning — a
+# reorder arrow and a menu affordance must be free to diverge, and typing "▼"
+# inline in two places is exactly the drift tests/test_no_stray_glyph_literals.py
+# now fails the suite on.
+dropdown_caret_icon: str = "▼"           # U+25BC BLACK DOWN-POINTING TRIANGLE
 try_first_icon: str = "⤒"  # U+2912 UPWARDS ARROW TO BAR — one-shot "try this URL first on the next connection"
 prev_icon: str = "◀"
 next_icon: str = "▶"
@@ -626,6 +656,9 @@ VECTOR_KEYS: dict[str, str] = {
     "more": "mdi6.dots-horizontal",
     "close": "mdi6.close",
     "add": "mdi6.plus",
+    # Remove the selected row from a list the user is building (e.g. a
+    # provider's URL list) — the opposite of "add", not a delete/trash action.
+    "remove": "mdi6.minus",
     "refresh": "mdi6.refresh",
     # Destructive section action ("Clear History"). Registered because a
     # single-action section shows its action DIRECTLY in the header rather

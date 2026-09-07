@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 import time
 import weakref
+from typing import Callable
 
 from loguru import logger
 from PyQt6.QtGui import QColor, QPalette
@@ -82,30 +83,20 @@ _current_theme: str = theme_palettes.DEFAULT_PALETTE
 class _TokenStr(str):
     """A token value that remembers which token it came from.
 
-    Behaves as an ordinary ``str`` everywhere — it IS a str, so every existing
-    f-string, concatenation and comparison is unaffected — but reading it into a
-    stylesheet records the token's NAME in :data:`_READ_LOG`. That is what makes
-    live re-theming token-aware instead of colour-aware.
+    Behaves as an ordinary ``str`` everywhere, but reading it into a stylesheet
+    records the token's NAME in :data:`_READ_LOG` — what makes live re-theming
+    token-aware instead of colour-aware.
 
-    Why this exists
-    ---------------
-    The first live-theme pass (#286) diffed old→new VALUES and substring-replaced
-    them in live stylesheets, because ~310 call sites across 44 files compose
-    sheets with raw ``setStyleSheet(f"…{_theme.COLOR_X}…")`` and never register a
-    builder. Diffing values worked only while every value was unique — which was
-    true purely by accident, because all 140 were independently hand-picked
-    (Graphite: 140 tokens, 140 distinct values).
-
-    Deriving the palette from a scale broke that assumption on purpose: roles
-    legitimately share steps (``COLOR_ACCENT`` and ``COLOR_ACCENT_HOVER`` may be
-    one blue), so Midnight resolves 140 tokens to 84 distinct values. A global
-    value-diff then cannot tell which token produced a given colour, and the
-    ambiguity guard correctly refused 56 of them.
-
-    Recording the read makes the question answerable per widget: we know the
-    exact tokens THIS widget's sheet was built from, so a colour shared by two
-    tokens is only ambiguous if this widget used both AND they diverge in the new
-    palette — which is rare, and detectable rather than guessed.
+    Why: the first live-theme pass (#286) diffed old->new VALUES and substring-
+    replaced them in live stylesheets (~310 raw ``setStyleSheet(f"…{COLOR_X}…")``
+    sites across 44 files never register a builder). That worked only while
+    every value was unique, true by accident (Graphite: 140 tokens, 140 distinct
+    values). Deriving the palette from a scale broke the assumption on purpose —
+    roles legitimately share steps, so Midnight resolves 140 tokens to 84
+    distinct values, and a global value-diff cannot tell which token produced a
+    colour (the ambiguity guard correctly refused 56 of them). Recording the
+    read makes it answerable per widget: a shared colour is only ambiguous if
+    THIS widget used both tokens AND they diverge in the new palette.
     """
 
     __slots__ = ("token_name",)
@@ -2141,22 +2132,30 @@ def registered_style_count() -> int:
     return sum(1 for ref, _ in _style_registry if ref() is not None)
 
 
+# Non-stylesheet post-apply work (icon_utils' button-icon repaint: a QIcon is a
+# baked pixmap, not a stylesheet, so the registry above cannot reach it). This
+# module must not import icon_utils (cycle) — the consumer registers itself.
+_POST_APPLY_HOOKS: list[Callable[[], None]] = []
+
+
+def register_post_apply(fn: Callable[[], None]) -> None:
+    """Run *fn* once at the end of every :func:`apply_theme` switch."""
+    _POST_APPLY_HOOKS.append(fn)
+
+
 # --------------------------------------------------------------------------- #
 #  Palette-difference rewrite — the floor under COMPOSED stylesheets           #
 # --------------------------------------------------------------------------- #
-#
-# style()/style_fn() cover widgets that opted in; ~370 sites still hand an
-# f-string sheet straight to setStyleSheet(), and Qt caches the RENDERED string,
-# so they keep painting the previous palette. Converting them is ~300 edits and
-# fixes only the sites that exist today. Instead: after the tokens rebind, map
-# each old colour VALUE to its new one and rewrite those substrings wherever they
-# still appear — a sheet built from COLOR_BG literally contains COLOR_BG's old
-# value, so this reaches every composed sheet, including ones not yet written.
-# Two guards: **ambiguity** (one old value → two new values is skipped, never
-# guessed) and **invariance** (a theme-INVARIANT token — mood chips,
-# COLOR_QUALITY_*, the lightbox family over posters — that happens to hold a
-# value some variable token used to hold is excluded, else the rewrite would
-# silently re-theme what was pinned on purpose).
+# style()/style_fn() cover opted-in widgets; ~370 sites still hand an f-string
+# sheet straight to setStyleSheet(), and Qt caches the RENDERED string, so they
+# keep painting the old palette (converting them is ~300 edits, and only fixes
+# today's sites). Instead: after tokens rebind, map each old colour VALUE to
+# its new one and rewrite that substring wherever it appears in a live sheet —
+# reaching every composed sheet, including ones not yet written. Two guards:
+# ambiguity (one old value -> two new values is skipped, never guessed) and
+# invariance (a theme-INVARIANT token — mood chips, COLOR_QUALITY_*, the
+# lightbox family — sharing a value with one that changed is excluded, else
+# the rewrite would re-theme what was pinned on purpose).
 
 _COLOR_TOKEN_PREFIXES: tuple[str, ...] = ("COLOR_", "OVERLAY_")
 
@@ -2434,6 +2433,8 @@ def _apply_theme_locked(name: str) -> bool:
         (t3 - t2) * 1000, len(rewritten_ids), (t4 - t3) * 1000, repolished,
         (t4 - t0) * 1000,
     )
+    for hook in _POST_APPLY_HOOKS:
+        hook()
     return changed
 
 

@@ -18,13 +18,14 @@ cover the full set.  The overflow rows are simply hidden, not deleted.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton,
     QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -119,8 +120,10 @@ class _ItemRow(QWidget):
             layout.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this item across all facet sections
-        self._only_btn = QPushButton(_icons.filter_only_icon)
+        self._only_btn = QPushButton()
         self._only_btn.setFixedSize(16, 16)
+        _icon_utils.set_button_icon(self._only_btn, "filter_only")
+        self._only_btn.setIconSize(QSize(12, 12))
         _theme.style(self._only_btn, "FILTER_ONLY_BTN")
         self._only_btn.setToolTip("Show only this group")
         self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._key))
@@ -197,10 +200,12 @@ class _GroupRow(QWidget):
         hl.setContentsMargins(8 + indent, 3, 8, 3)
         hl.setSpacing(4)
 
-        self._expand_btn = QPushButton(config.expand_icon)
+        self._expand_btn = QPushButton()
         self._expand_btn.setFixedSize(16, 16)
         self._expand_btn.setFlat(True)
-        _theme.style_fn(self._expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        self._expand_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        _icon_utils.set_button_icon(self._expand_btn, "expand", color=_theme.COLOR_MUTED_2)
+        self._expand_btn.setIconSize(QSize(12, 12))
         self._expand_btn.setToolTip("Show the codes in this group")
         self._expand_btn.clicked.connect(self._toggle_expand)
         hl.addWidget(self._expand_btn)
@@ -224,8 +229,10 @@ class _GroupRow(QWidget):
             hl.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this group's channels across all facet sections
-        self._only_btn = QPushButton(_icons.filter_only_icon)
+        self._only_btn = QPushButton()
         self._only_btn.setFixedSize(16, 16)
+        _icon_utils.set_button_icon(self._only_btn, "filter_only")
+        self._only_btn.setIconSize(QSize(12, 12))
         _theme.style(self._only_btn, "FILTER_ONLY_BTN")
         self._only_btn.setToolTip("Show only this group")
         self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._group_name))
@@ -251,8 +258,10 @@ class _GroupRow(QWidget):
     def _toggle_expand(self):
         self._expanded = not self._expanded
         self._child_container.setVisible(self._expanded)
-        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
-        self._expand_btn.setText(glyph)
+        _icon_utils.set_button_icon(
+            self._expand_btn, "collapse" if self._expanded else "expand",
+            color=_theme.COLOR_MUTED_2,
+        )
         self._expand_btn.setToolTip(
             "Hide the codes in this group" if self._expanded
             else "Show the codes in this group"
@@ -305,7 +314,10 @@ class _GroupRow(QWidget):
         """Re-apply this group's tokens (expand button, tri-checkbox, name,
         count, "Only" button) and recurse into every child :class:`_ItemRow`.
         """
-        _theme.style_fn(self._expand_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        _icon_utils.set_button_icon(
+            self._expand_btn, "collapse" if self._expanded else "expand",
+            color=_theme.COLOR_MUTED_2,
+        )
         self._tri.refresh_theme()
         _theme.style_fn(self._name_lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
         if self._count_lbl is not None:
@@ -327,7 +339,6 @@ class _Section(QWidget):
                  and_axis: bool = False,
                  initially_expanded: bool = False,
                  info_text: str = "",
-                 info_icon: str = "ℹ",
                  *,
                  config,
                  parent=None):
@@ -365,10 +376,16 @@ class _Section(QWidget):
         hl.setContentsMargins(6, 0, 6, 0)
         hl.setSpacing(4)
 
-        _init_glyph = config.collapse_icon if initially_expanded else config.expand_icon
-        self._collapse_btn = QPushButton(_init_glyph)
+        self._collapse_btn = QPushButton()
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
+        _icon_utils.set_button_icon(
+            self._collapse_btn, "collapse" if initially_expanded else "expand"
+        )
+        self._collapse_btn.setIconSize(QSize(12, 12))
+        self._collapse_btn.setToolTip(
+            "Collapse this section" if initially_expanded else "Expand this section"
+        )
         self._collapse_btn.clicked.connect(self._toggle_collapse)
         hl.addWidget(self._collapse_btn)
 
@@ -382,9 +399,11 @@ class _Section(QWidget):
 
         self._info_btn: QPushButton | None = None
         if info_text:
-            self._info_btn = QPushButton(info_icon)
+            self._info_btn = QPushButton()
             self._info_btn.setFixedSize(16, 16)
             self._info_btn.setFlat(True)
+            _icon_utils.set_button_icon(self._info_btn, "info")
+            self._info_btn.setIconSize(QSize(12, 12))
             self._info_btn.setToolTip(info_text)
             # Also show on click for touch / keyboard users
             self._info_btn.clicked.connect(
@@ -433,8 +452,10 @@ class _Section(QWidget):
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self._content.setVisible(expanded)
-        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
-        self._collapse_btn.setText(glyph)
+        _icon_utils.set_button_icon(self._collapse_btn, "collapse" if expanded else "expand")
+        self._collapse_btn.setToolTip(
+            "Collapse this section" if expanded else "Expand this section"
+        )
 
     def refresh_theme(self) -> None:
         """Re-apply this section's tokens (header, collapse/info buttons, title,
@@ -449,17 +470,18 @@ class _Section(QWidget):
             f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
             f"border-left: 3px solid {accent}; }}"
         )
-        _theme.style_fn(self._collapse_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_XS};"
-            " background: transparent; }")
+        self._collapse_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        _icon_utils.set_button_icon(
+            self._collapse_btn, "collapse" if self._expanded else "expand"
+        )
         _theme.style_fn(self._title_lbl, lambda: f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
             "letter-spacing: 1px;")
         if self._narrows_lbl is not None:
             _theme.style_fn(self._narrows_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
                 " font-style: italic;")
         if self._info_btn is not None:
-            _theme.style_fn(self._info_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
-                " background: transparent; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}")
+            self._info_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+            _icon_utils.set_button_icon(self._info_btn, "info")
         _theme.style_fn(self._summary_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         self._select_all.refresh_theme()
         _theme.style_fn(self._sep, lambda: f"color: {_theme.COLOR_LINE_DARK};")

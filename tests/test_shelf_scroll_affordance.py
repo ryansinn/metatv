@@ -124,9 +124,17 @@ def test_a_short_row_shows_no_chevrons_at_all(qapp, tmp_path):
 
 
 def test_the_chevrons_use_the_shared_icon_and_theme_role(shelf):
-    """Not a literal glyph and not a raw stylesheet (CLAUDE.md)."""
-    from metatv.gui import icons as _icons
-
-    assert shelf._page_left.text() == _icons.nav_prev_icon
-    assert shelf._page_right.text() == _icons.nav_next_icon
+    """Not a literal glyph rendered as text and not a raw stylesheet (CLAUDE.md) —
+    ICON-1 moved these to the icon_button factory, so they carry a real QIcon,
+    never button text."""
+    assert shelf._page_left.text() == ""
+    assert shelf._page_right.text() == ""
+    assert not shelf._page_left.icon().isNull()
+    assert not shelf._page_right.icon().isNull()
+    left_img = shelf._page_left.icon().pixmap(shelf._page_left.iconSize()).toImage()
+    right_img = shelf._page_right.icon().pixmap(shelf._page_right.iconSize()).toImage()
+    assert left_img.bits().asstring(left_img.sizeInBytes()) != right_img.bits().asstring(
+        right_img.sizeInBytes()
+    ), "left/right must be distinct glyphs, not the same icon twice"
+    assert shelf._page_left.toolTip(), "an icon-only control needs a tooltip"
     assert shelf._page_right.toolTip(), "an icon-only control needs a tooltip"

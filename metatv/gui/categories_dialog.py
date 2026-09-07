@@ -16,6 +16,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -53,9 +54,10 @@ class _CategorySection(QWidget):
         hl.setContentsMargins(8, 6, 8, 6)
         hl.setSpacing(6)
 
-        self._expand_btn = QPushButton(config.expand_icon)
+        self._expand_btn = QPushButton()
         self._expand_btn.setFixedSize(20, 20)
         self._expand_btn.setFlat(True)
+        _icon_utils.set_button_icon(self._expand_btn, "expand")
         self._expand_btn.setToolTip("Expand / collapse")
         self._expand_btn.clicked.connect(self._toggle)
         hl.addWidget(self._expand_btn)
@@ -104,8 +106,8 @@ class _CategorySection(QWidget):
 
     def _toggle(self) -> None:
         self._expanded = not self._expanded
-        self._expand_btn.setText(
-            self._config.collapse_icon if self._expanded else self._config.expand_icon
+        _icon_utils.set_button_icon(
+            self._expand_btn, "collapse" if self._expanded else "expand"
         )
         self._body.setVisible(self._expanded)
         if self._expanded and not self._channels_loaded:

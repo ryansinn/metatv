@@ -459,18 +459,24 @@ def test_the_sweep_actually_reaches_widget_modules():
     this fails instead of reporting zero problems forever.
 
     GUARD-3 (scope-aware ``Name``/``.format()``/``.join()`` resolution) raised
-    the measured population from 28 blocks/16 files to 34/17; these floors are
-    ~90% of that new count, rounded down, so a resolver regression is still
-    caught at the new level rather than silently falling back to the old one.
+    the measured population from 28 blocks/16 files to 34/17; those floors were
+    ~90% of that count, rounded down. ICON-1 then migrated several icon-only
+    buttons (category_picker_dialog's mood bar, discover_shelf's pin/hide/
+    collapse, filter_group_row's expand/collapse/info/only) off a composed
+    ``color: X; background: Y`` sheet onto ``icon_utils.set_button_icon`` —
+    the button no longer renders TEXT, so the foreground half of the pair is
+    gone by design, not by a resolver regression. Re-measured population: 29
+    blocks / 15 files. Floors re-calibrated the same way, ~90% of the new
+    count rounded down, so a genuine resolver regression is still caught.
     """
     _theme.apply_theme("Midnight")
     measured = list(_measured_blocks())
-    assert len(measured) >= 30, (
+    assert len(measured) >= 26, (
         f"only {len(measured)} widget stylesheet blocks resolved — the AST "
         f"reconstruction has probably stopped matching how sheets are written"
     )
     files = {k[0] for k, _ in measured}
-    assert len(files) >= 15, f"only reached {sorted(files)}"
+    assert len(files) >= 13, f"only reached {sorted(files)}"
 
 
 def test_a_sheet_composed_from_a_local_variable_is_measured():

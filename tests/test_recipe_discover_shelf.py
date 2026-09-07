@@ -190,7 +190,6 @@ class TestEditIconOnlyOnRecipeShelves:
     def test_recipe_shelf_has_visible_edit_button(self, qapp, tmp_path):
         from metatv.core.config import Config
         from metatv.gui.discover_shelf import _Shelf
-        from metatv.gui import icons
 
         cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
                      cache_dir=tmp_path / "cache")
@@ -198,7 +197,10 @@ class TestEditIconOnlyOnRecipeShelves:
                         image_cache=None, config=cfg, collapsed=False)
 
         assert shelf._edit_btn is not None, "a recipe shelf must build the ✎ button"
-        assert shelf._edit_btn.text() == icons.recipe_edit_icon
+        # ICON-1: the glyph is a QIcon (icon_utils.set_button_icon), never text —
+        # a colour emoji set as button TEXT crops inside a fixed-size button.
+        assert shelf._edit_btn.text() == ""
+        assert not shelf._edit_btn.icon().isNull()
         # isVisibleTo(shelf), not isVisible(): the widget is never shown as a
         # real top-level window in this test, so isVisible() would be False
         # regardless of the internal setVisible() state we're actually

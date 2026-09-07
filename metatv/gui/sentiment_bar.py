@@ -18,8 +18,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 from PyQt6.QtCore import pyqtSignal
 
-from metatv.gui import icons as _icons
-from metatv.gui import theme as _theme
+from metatv.gui import icon_utils as _icon_utils
 
 
 class SentimentBar(QWidget):
@@ -35,12 +34,12 @@ class SentimentBar(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(2)
 
-        self._like_btn = self._mk(_icons.like_icon, "Like", btn_size)
-        self._dislike_btn = self._mk(_icons.dislike_icon, "Dislike", btn_size)
+        self._like_btn = self._mk("like", "Like", btn_size)
+        self._dislike_btn = self._mk("dislike", "Dislike", btn_size)
         self._not_interested_btn = self._mk(
-            _icons.not_interested_icon, "Not Interested — suppress from recommendations", btn_size
+            "not_interested", "Not Interested — suppress from recommendations", btn_size
         )
-        self._queue_btn = self._mk(_icons.queue_icon, "Add to / remove from Watch Later", btn_size)
+        self._queue_btn = self._mk("queue", "Add to / remove from Watch Later", btn_size)
 
         self._like_btn.clicked.connect(self._on_like)
         self._dislike_btn.clicked.connect(self._on_dislike)
@@ -50,13 +49,10 @@ class SentimentBar(QWidget):
         for b in (self._like_btn, self._dislike_btn, self._not_interested_btn, self._queue_btn):
             row.addWidget(b)
 
-    def _mk(self, glyph: str, tip: str, size: int) -> QPushButton:
-        btn = QPushButton(glyph)
-        btn.setCheckable(True)
+    def _mk(self, role: str, tip: str, size: int) -> QPushButton:
+        btn = _icon_utils.icon_button(role, tip, style="RATING_BTN", checkable=True)
         btn.setFlat(True)
         btn.setFixedSize(size, size)
-        btn.setToolTip(tip)
-        _theme.style(btn, "RATING_BTN")
         return btn
 
     # -- state sync (host-driven; never fires signals) -------------------- #

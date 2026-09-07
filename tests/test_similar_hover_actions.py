@@ -16,7 +16,6 @@ from PyQt6.QtCore import QEvent, QPointF
 from PyQt6.QtGui import QEnterEvent
 from PyQt6.QtWidgets import QPushButton
 
-from metatv.gui import icons as _icons
 from metatv.gui.details_similar import _SimilarSection
 from metatv.gui.details_versions import ChannelVersion
 
@@ -48,12 +47,18 @@ def _rows(section):
             for i in range(section._body_layout.count())]
 
 
-def _button(row, glyph):
+def _button(row, tooltip_substr):
+    """Find a row button by a substring of its tooltip.
+
+    ICON-1 moved these buttons to a real ``QIcon`` (icon_utils.set_button_icon)
+    rather than a glyph rendered as button TEXT, so ``.text()`` is always "" —
+    the tooltip is what still uniquely identifies each control.
+    """
     for i in range(row.layout().count()):
         w = row.layout().itemAt(i).widget()
-        if isinstance(w, QPushButton) and w.text() == glyph:
+        if isinstance(w, QPushButton) and tooltip_substr in w.toolTip():
             return w
-    raise AssertionError(f"no {glyph!r} button in the row")
+    raise AssertionError(f"no button with tooltip containing {tooltip_substr!r} in the row")
 
 
 def _hover(row):
@@ -69,7 +74,7 @@ def test_play_is_hidden_until_the_row_is_hovered(section, qapp):
     qapp.processEvents()
 
     for row in _rows(section):
-        assert not _button(row, _icons.play_icon).isVisible(), (
+        assert not _button(row, "Play:").isVisible(), (
             "a Play button is showing on an un-hovered row — this is the sea "
             "of identical glyphs the change removes"
         )
@@ -79,7 +84,7 @@ def test_hovering_reveals_play_and_leaving_hides_it_again(section, qapp):
     section.load(_titles())
     qapp.processEvents()
     row = _rows(section)[0]
-    play = _button(row, _icons.play_icon)
+    play = _button(row, "Play:")
 
     _hover(row)
     qapp.processEvents()
@@ -100,7 +105,7 @@ def test_only_the_hovered_row_reveals_its_play(section, qapp):
     qapp.processEvents()
 
     visible = [i for i, r in enumerate(rows)
-               if _button(r, _icons.play_icon).isVisible()]
+               if _button(r, "Play:").isVisible()]
     assert visible == [2], f"rows {visible} are showing Play, expected only [2]"
 
 
@@ -114,7 +119,7 @@ def test_nothing_moves_when_play_appears(section, qapp):
     section.load(_titles())
     qapp.processEvents()
     row = _rows(section)[0]
-    play = _button(row, _icons.play_icon)
+    play = _button(row, "Play:")
     others = [row.layout().itemAt(i).widget().geometry()
               for i in range(1, row.layout().count())]
     play_rect = play.geometry()
@@ -145,10 +150,10 @@ def test_favorite_and_queue_stay_visible_because_they_are_state(section, qapp):
     qapp.processEvents()
 
     for row in _rows(section):
-        assert _button(row, _icons.favorite_icon).isVisible(), (
+        assert _button(row, "Favorites").isVisible(), (
             "Favorite is hidden — its state is no longer visible at a glance"
         )
-        assert _button(row, _icons.watched_icon).isVisible(), (
+        assert _button(row, "Watch Later").isVisible(), (
             "the in-queue marker is hidden — same problem"
         )
 
@@ -163,6 +168,6 @@ def test_play_still_plays_when_revealed(section, qapp):
     row = _rows(section)[1]
     _hover(row)
     qapp.processEvents()
-    _button(row, _icons.play_icon).click()
+    _button(row, "Play:").click()
 
     assert played == ["c1"]

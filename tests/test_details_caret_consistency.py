@@ -96,14 +96,27 @@ def test_the_title_toggles_too_not_just_the_caret(qapp):
     assert header.is_collapsed() is True, "clicking the title did not toggle"
 
 
+def _icon_bytes(btn) -> bytes:
+    """Raw pixel bytes of *btn*'s current icon, for "did it actually repaint"."""
+    image = btn.icon().pixmap(btn.iconSize()).toImage()
+    return image.bits().asstring(image.sizeInBytes())
+
+
 def test_the_caret_glyph_and_tooltip_always_agree(qapp):
-    """A fixed tooltip contradicts the arrow half the time."""
+    """A fixed tooltip contradicts the arrow half the time.
+
+    ICON-1: the caret is a QIcon (icon_utils.set_button_icon), never text, so
+    "the glyph flipped" is asserted by the rendered pixmap changing, not by a
+    text value that is now always "".
+    """
     header = CollapsibleHeader("Cast")
-    assert header._chevron.text() == _icons.collapse_icon
+    assert header._chevron.text() == ""
+    collapsed_bytes = _icon_bytes(header._chevron)
     assert "Collapse" in header._chevron.toolTip()
 
     header.toggle()
-    assert header._chevron.text() == _icons.expand_icon
+    expanded_bytes = _icon_bytes(header._chevron)
+    assert expanded_bytes != collapsed_bytes, "the caret must repaint on toggle"
     assert "Expand" in header._chevron.toolTip()
 
 

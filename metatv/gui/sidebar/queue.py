@@ -161,9 +161,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         # squeezed and clipped to an unreadable smear. Every other button in
         # this cluster already draws a vector icon; this one was the exception.
         self._filter_btn = QPushButton()
-        self._filter_btn.setIcon(_icon_utils.resolve_icon(
-            _icons.vector_key("search"), _theme.COLOR_TEXT
-        ))
+        _icon_utils.set_button_icon(self._filter_btn, "search", color=_theme.COLOR_TEXT)
         self._filter_btn.setIconSize(QSize(14, 14))
         self._filter_btn.setCheckable(True)
         self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn

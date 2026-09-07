@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QComboBox, QPushButton, QLabel,
+    QLineEdit, QComboBox, QLabel,
     QProgressBar, QTextEdit, QDialogButtonBox,
     QListWidget, QWidget, QCheckBox
 )
@@ -15,6 +15,7 @@ from metatv.core.models import Provider
 from metatv.core.notifications import NotificationManager
 from metatv.core.provider_loader import ProviderTestThread
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 
 
@@ -69,15 +70,13 @@ class AddProviderDialog(QDialog):
         self.url_input.returnPressed.connect(self.add_url)
         url_input_layout.addWidget(self.url_input)
         
-        add_url_btn = QPushButton(_icons.add_icon)
+        add_url_btn = _icon_utils.icon_button("add", "Add URL")
         add_url_btn.setFixedWidth(30)
-        add_url_btn.setToolTip("Add URL")
         add_url_btn.clicked.connect(self.add_url)
         url_input_layout.addWidget(add_url_btn)
-        
-        remove_url_btn = QPushButton("-")
+
+        remove_url_btn = _icon_utils.icon_button("remove", "Remove selected URL")
         remove_url_btn.setFixedWidth(30)
-        remove_url_btn.setToolTip("Remove selected URL")
         remove_url_btn.clicked.connect(self.remove_url)
         url_input_layout.addWidget(remove_url_btn)
         
@@ -202,7 +201,7 @@ class AddProviderDialog(QDialog):
     
     def on_test_progress(self, message: str):
         """Handle test progress update"""
-        self.status_text.append(f"• {message}")
+        self.status_text.append(f"{_icons.bullet_icon} {message}")
     
     def on_test_result(self, success: bool, message: str):
         """Handle test result — on success, fetch and display account info."""
@@ -210,11 +209,11 @@ class AddProviderDialog(QDialog):
         self.progress_label.hide()
 
         if success:
-            self.status_text.append(f"\n✓ {message}")
+            self.status_text.append(f"\n{_icons.notification_success_icon} {message}")
             self.add_button.setEnabled(True)
             self._fetch_account_info()
         else:
-            self.status_text.append(f"\n✗ {message}")
+            self.status_text.append(f"\n{_icons.notification_error_icon} {message}")
             self.add_button.setEnabled(False)
 
     def _fetch_account_info(self):
