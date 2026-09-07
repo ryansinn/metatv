@@ -23,6 +23,8 @@ NO_DOWNLOAD = {
     "retry": "a stream that failed to open — downloading it fails the same way",
     "epg_on_now": "live programmes, not VOD",
     "epg_browse": "live programmes, not VOD",
+    "alerts_series": "series-grain rows (Open series / Mark seen); download lives on "
+                     "the episode surfaces browse_series opens",
 }
 
 #: Surfaces that deliberately do NOT offer record, and why.
@@ -32,6 +34,9 @@ NO_RECORD = {
     "retry": "a stream that failed to open",
     "history": "VOD", "favorites": "VOD", "queue": "VOD",
     "recommended": "VOD", "alerts": "VOD",
+    "alerts_series": "series rows, VOD",
+    "versions": "the details pane's VOD title versions; a live channel's other feeds "
+                "play from here and are recorded from the channel list / EPG",
 }
 
 

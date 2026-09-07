@@ -240,3 +240,26 @@ def test_versions_queue_label_reflects_state(qapp):
     menu = build_channel_menu(ctx, handlers, parent=None)
     texts = _texts(menu)
     assert any("Remove from Watch Later" in t for t in texts), texts
+
+
+def test_versions_offers_download_for_vod(qapp):
+    """A VOD version can be downloaded from its chip menu (the every-VOD-surface
+    rule, ``test_download_on_every_vod_surface.py``); the action sits between
+    Show details and the Favorites/Queue group, and is absent for live rows."""
+    handlers = {
+        "play": lambda: None, "show_details": lambda: None, "download": lambda: None,
+        "favorite": lambda: None, "queue": lambda: None,
+    }
+    vod = ChannelMenuContext(
+        channel_ids=["v1"], surface="versions", channel_found=True,
+        header="US", version_prefix="US", media_type="movie",
+    )
+    assert _texts(build_channel_menu(vod, handlers, parent=None)) == [
+        "US", "Play US version", "Show details for US version",
+        "Download to library", "Add to Favorites", "Add to Watch Later",
+    ]
+    live = ChannelMenuContext(
+        channel_ids=["v1"], surface="versions", channel_found=True,
+        header="US", version_prefix="US", media_type="live",
+    )
+    assert "Download to library" not in _texts(build_channel_menu(live, handlers, parent=None))

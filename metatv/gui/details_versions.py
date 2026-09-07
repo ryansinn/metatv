@@ -140,6 +140,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
 
     version_selected         = pyqtSignal(str)        # channel_id — show details
     play_version_requested   = pyqtSignal(str)        # channel_id — play that variant
+    download_requested       = pyqtSignal(str)        # channel_id — save that variant to the library
     favorite_toggled         = pyqtSignal(str)        # channel_id
     queue_toggled            = pyqtSignal(str)        # channel_id
     hide_requested           = pyqtSignal(str)        # channel_id
@@ -754,10 +755,12 @@ class _VersionSection(CollapsibleMixin, QWidget):
             is_favorite=v.is_favorite,
             in_queue=v.in_queue,
             channel_name=v.name,
+            media_type=v.media_type,
             channel_found=True,
         )
         handlers = {
             "play": lambda: self.play_version_requested.emit(v.channel_id),
+            "download": lambda: self.download_requested.emit(v.channel_id),
             "reactivate_play": lambda: self.play_version_requested.emit(v.channel_id),
             "show_details": lambda: self.version_selected.emit(v.channel_id),
             "favorite": lambda: self.favorite_toggled.emit(v.channel_id),

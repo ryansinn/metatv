@@ -188,6 +188,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         # order identical to the pre-registry menu (Reactivate, then Show details).
         "play", "reactivate_play", "show_details",
         "sep",
+        "download",
+        "sep",
         "favorite", "queue",
     ],
     "retry": [
