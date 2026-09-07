@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Collection, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 from sqlalchemy import func, or_, update
@@ -173,6 +173,7 @@ class ChannelIngestionMixin:
         progress_cb=None,
         is_cancelled=None,
         config=None,
+        channel_ids: Optional[Collection[str]] = None,
     ):
         """Update detected_prefix, detected_quality, and detected_region for all channels.
 
@@ -194,25 +195,24 @@ class ChannelIngestionMixin:
             ``CODE_FACETS`` treats them as language-only (``AR`` = Arabic, never a
             region). :func:`~metatv.core.channel_name_utils.split_category_prefix`
             also fills ``detected_prefix`` — the field Exclusions checks first.
-        3. **content_key sibling** — a final cross-source pass copies a region onto
-           any still-empty row from a sibling sharing the same (non-NULL)
-           ``content_key``. See :meth:`_propagate_region_from_siblings`.
+        3. **content_key sibling** — copies a region onto any still-empty row
+           from a sibling sharing the same ``content_key``. See :meth:`_propagate_region_from_siblings`.
 
         Args:
             provider_id: Only update channels for this provider, or None for all.
             separators: Ordered list of separator strings to try. Defaults to
                 ``DEFAULT_PREFIX_SEPARATORS`` from filter_utils when None.
             progress_cb: Optional ``(done: int, total: int) -> None`` called after
-                each batch commit.  ``done`` is non-decreasing and ends at
-                ``total`` on full completion.  Pass ``None`` (default) to skip
-                progress reporting (existing callers are unaffected).
-            is_cancelled: Optional ``() -> bool`` checked at the top of each batch
-                iteration. When it returns True the loop exits early; already-
-                committed batches are durable but the task isn't marked complete
-                (version not bumped). Pass ``None`` (default) to skip cancellation.
-            config: Optional live ``Config`` instance — supplies the filter groups
-                the category→region extraction consults.  Loaded lazily (default
-                ``Config()``) when ``None`` so existing callers are unaffected.
+                each batch commit; ``done`` is non-decreasing, ending at ``total``.
+                ``None`` (default) skips progress reporting.
+            is_cancelled: Optional ``() -> bool`` checked at the top of each batch;
+                True exits early (committed batches stay durable, task not marked
+                complete). ``None`` (default) skips cancellation.
+            config: Optional live ``Config`` — supplies the filter groups the
+                category→region extraction consults. Defaults to ``Config()``.
+            channel_ids: DERIVE-1 — when given, forces recompute for exactly
+                these ids (skips provider_id gathering and the library-wide
+                sibling-propagation phase — out of scope for a targeted call).
         """
         _BATCH = 2000
 
@@ -225,7 +225,7 @@ class ChannelIngestionMixin:
         id_query = self.session.query(ChannelDB.id)
         if provider_id:
             id_query = id_query.filter(ChannelDB.provider_id == provider_id)
-        all_ids = [row[0] for row in id_query.all()]
+        all_ids = list(channel_ids) if channel_ids is not None else [row[0] for row in id_query.all()]
         total = len(all_ids)
 
         updated = 0
@@ -260,11 +260,11 @@ class ChannelIngestionMixin:
                 progress_cb(min(batch_start + _BATCH, total), total)
 
         # Step 3: cross-source sibling propagation — fill any still-empty
-        # detected_region from a row sharing the same content_key. Skipped after a
-        # cancellation (partial per-row state — don't propagate from it).
+        # detected_region from a sibling sharing content_key. Skipped after a
+        # cancellation, and for a channel_ids-targeted call (see docstring).
         sib_filled = 0
         tmdb_adopted = 0
-        if not (is_cancelled is not None and is_cancelled()):
+        if channel_ids is None and not (is_cancelled is not None and is_cancelled()):
             # Both propagation phases below are bulk writers like the batch loop
             # above and hit the identical lock-contention hazard (owner log
             # 2026-08-01 18:48: propagate_tmdb_from_title_siblings crashed on

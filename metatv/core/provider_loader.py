@@ -15,6 +15,8 @@ from metatv.core.database import (
 )
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import persist_url_stats
+from metatv.core.repositories.channel_change_detection import (
+    detect_changed_channel_ids, force_recompute_for_changed_ids)
 from metatv.core.migrations.sports_reclassify import DERIVED_FIELDS
 from metatv.core.sql_batching import fetch_in_chunks
 from metatv.providers.factory import get_provider
@@ -62,10 +64,9 @@ _CATALOG_COLS: tuple[str, ...] = (
 # The same set minus `id` — on conflict we update all catalog fields except the PK.
 _CATALOG_UPDATE_COLS: tuple[str, ...] = tuple(c for c in _CATALOG_COLS if c != "id")
 
-# Batch size for bulk upsert VALUES lists.
-# SQLite ≥3.32 raises SQLITE_MAX_VARIABLE_NUMBER at 32766 by default; older
-# builds cap at 999. With ~15 catalog columns, 500 rows × 15 cols = 7 500
-# parameters — well inside either limit and far fewer commits than every-100.
+# Batch size for bulk upsert VALUES lists. SQLite ≥3.32 caps
+# SQLITE_MAX_VARIABLE_NUMBER at 32766 (older builds: 999); ~15 catalog cols ×
+# 500 rows = 7 500 params — well inside either limit, far fewer commits than every-100.
 _STORE_BATCH = 500
 
 # ---------------------------------------------------------------------------
@@ -75,11 +76,9 @@ _STORE_BATCH = 500
 # The bands are the SINGLE SOURCE OF TRUTH for all emit sites; update these
 # constants to re-weight the bar, never the emit call sites.
 #
-# Rationale: the per-channel phases (categorize / prefix / tags) dominate
-# wall-clock on large sources; tags alone can take ~10 min.  The fetch phase
-# is network-bound and fast by comparison.  Weighting reflects real time so
-# the bar advances proportionally rather than rocketing to ~94% while half
-# the tag work remains.
+# Rationale: the per-channel phases (categorize/prefix/tags) dominate
+# wall-clock on large sources (tags alone ~10 min); fetch is network-bound
+# and fast by comparison. Weighting reflects real time, not phase count.
 #
 # Sequence (non-decreasing): fetch → store → categorize → prefix → tags → stats → done(100)
 # ---------------------------------------------------------------------------
@@ -156,6 +155,7 @@ class ProviderLoadThread(QThread):
         self._regional_groups = regional_groups or {}
         self.kind = kind
         self.prefix_stats: dict | None = None  # populated after run; read by main thread
+        self._changed_detected_ids: set[str] = set()  # DERIVE-1: set by _store_channels
     
     def run(self):
         """Load provider data"""
@@ -219,7 +219,7 @@ class ProviderLoadThread(QThread):
         session = self.db.get_session()
 
         try:
-            self._store_channels(session, channels, total)
+            self._changed_detected_ids = self._store_channels(session, channels, total)
             self._reset_epg_unnamed_refetch_marker(session)
             self.progress.emit(_BAND_STORE[1], 100, f"Stored {total:,} channels")
 
@@ -303,31 +303,33 @@ class ProviderLoadThread(QThread):
         else:
             self.finished.emit(True, f"Loaded {total:,} {_kind_label} successfully")
 
-    def _store_channels(self, session, channels: list, total: int) -> None:
+    def _store_channels(self, session, channels: list, total: int) -> set[str]:
         """Bulk-upsert *channels* into the DB using SQLite's INSERT OR REPLACE semantics.
 
         Replaces the old per-row ``session.merge()`` + commit-every-100 approach.
         Key properties preserved:
 
-        * **Order is maintained** — the per-channel loop runs in list order so the
-          stateful ``##...##`` hash-header logic (which sets ``source_category`` /
-          ``source_quality_flags`` for all subsequent live channels) is correct.
-        * **User/derived columns are preserved** — the ``ON CONFLICT DO UPDATE``
-          clause only touches ``_CATALOG_UPDATE_COLS``; fields like ``is_favorite``,
-          ``play_count``, ``detected_*``, ``user_category``, etc. are untouched on
-          existing rows.
-        * **Short transaction windows** — ``autoflush=False`` (via ``no_autoflush``)
-          means SQLite only holds the write lock during each explicit ``commit()``,
-          giving concurrent provider-load threads windows to interleave writes and
-          avoiding SQLITE_BUSY errors.
+        * **Order is maintained** — the per-channel loop runs in list order, so the
+          stateful ``##...##`` hash-header logic (source_category/quality) stays correct.
+        * **User/derived columns are preserved** — ``ON CONFLICT DO UPDATE`` only
+          touches ``_CATALOG_UPDATE_COLS``; ``is_favorite``, ``play_count``,
+          ``detected_*``, ``user_category``, etc. are untouched on existing rows.
+        * **Short transaction windows** — ``autoflush=False`` (``no_autoflush``) holds
+          the write lock only during each ``commit()``, letting concurrent provider-load
+          threads interleave writes and avoid SQLITE_BUSY errors.
         * **Batch size** — ``_STORE_BATCH`` rows × 15 columns ≈ 7 500 SQL parameters,
-          well within SQLite's 32 766 limit (and even the legacy 999 limit with room to
-          spare for older builds).
+          well within SQLite's 32 766 limit (and the legacy 999 limit too).
+
+        Returns:
+            DERIVE-1 — ids whose stored name/category/raw_data differed from the
+            incoming row (see :func:`~metatv.core.repositories.channel_change_detection.detect_changed_channel_ids`);
+            never includes brand-new inserts.
         """
         batch: list[dict] = []
         processed = 0
         current_source_category: str | None = None
         current_source_quality: str | None = None
+        changed_ids: set[str] = set()
 
         # Snapshot BEFORE any upsert runs in this refresh. _flush_batch below
         # overwrites `name` (and every other catalog column) in place via
@@ -403,6 +405,7 @@ class ProviderLoadThread(QThread):
 
                 processed += 1
                 if len(batch) >= _STORE_BATCH:
+                    changed_ids |= detect_changed_channel_ids(session, batch)
                     self._flush_batch(session, batch, seen_at=self._seen_at)
                     batch.clear()
                     _ss, _se = _BAND_STORE
@@ -411,12 +414,14 @@ class ProviderLoadThread(QThread):
 
             # Flush the final partial batch
             if batch:
+                changed_ids |= detect_changed_channel_ids(session, batch)
                 self._flush_batch(session, batch, seen_at=self._seen_at)
                 batch.clear()
 
         # Report after the last flush so the comparison sees committed
         # post-upsert names.
         self._report_recycled_ids(session, engaged_before)
+        return changed_ids
 
     def _snapshot_engaged_names(self, session) -> dict[str, str]:
         """Return ``{channel_id: name}`` for this provider's engaged channels.
@@ -504,13 +509,10 @@ class ProviderLoadThread(QThread):
     def _reset_epg_unnamed_refetch_marker(self, session) -> None:
         """Clear this provider's persistent EPG "unnamed re-fetch attempted" marker.
 
-        Content was just (re)ingested, so a feed that may have improved should get
-        one more chance at the one-time channel-name re-fetch driven by
-        ``EpgManager.refresh_all_if_needed`` (which sets the marker again if the guide
-        is still nameless, keeping it to a single attempt per content refresh).
-
-        Generated/system state only — never touches user data. A bulk UPDATE (no ORM
-        load) so it stays cheap on the large refresh path.
+        Content was just (re)ingested, so a feed that improved gets one more chance
+        at the one-time re-fetch driven by ``EpgManager.refresh_all_if_needed`` (which
+        re-sets the marker if still nameless, capping it to one attempt per refresh).
+        Generated/system state only; a bulk UPDATE (no ORM load) keeps it cheap.
         """
         session.query(ProviderDB).filter_by(id=self.provider.id).update(
             {"epg_unnamed_refetch_attempted": False}
@@ -672,7 +674,8 @@ class ProviderLoadThread(QThread):
 
         Emits per-batch progress in the 87–93 band so the active notification bar
         advances continuously through the prefix-detection phase instead of sitting
-        frozen at 87%.
+        frozen at 87%. Also force-recomputes detected_* for the ids _store_channels
+        flagged as changed this refresh (DERIVE-1).
         """
         from metatv.core.repositories import RepositoryFactory
 
@@ -695,6 +698,9 @@ class ProviderLoadThread(QThread):
                 progress_cb=_progress_cb,
             )
             logger.info(f"Prefix detection: updated {updated:,} channels")
+
+            force_recompute_for_changed_ids(
+                repos.channels, self.provider.id, self._separators, self._changed_detected_ids)
 
             # Content refreshed → clear the provider-native tmdb enrichment marker
             # for this source so the next background pass re-attempts its idless
