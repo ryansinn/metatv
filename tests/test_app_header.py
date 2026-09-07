@@ -298,11 +298,11 @@ def test_the_header_restyles_on_a_theme_switch(window, palette):
     original = window.config.theme_name
     try:
         window.config.theme_name = palette
-        window.refresh_theme()
+        window.apply_configured_theme()
         assert _theme.COLOR_BG_BAR in window._app_header.styleSheet()
     finally:
         window.config.theme_name = original
-        window.refresh_theme()
+        window.apply_configured_theme()
 
 
 def _press(button: Qt.MouseButton) -> QMouseEvent:

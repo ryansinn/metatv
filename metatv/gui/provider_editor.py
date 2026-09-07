@@ -242,19 +242,6 @@ class ProviderIconPicker(QWidget):
         super().setEnabled(enabled)
         self._btn.setEnabled(enabled)
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this picker's own persistent chrome
-        (main button, popup frame, "Custom:" label, and every palette-color
-        swatch button) — all styled once at construction/``_update_selection``
-        and never touched again except on the next colour pick. Called from
-        ``ProviderEditorView.refresh_theme()``.
-        """
-        _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
-        _theme.style(self._palette, "ICON_PICK_POPUP")
-        _theme.style_fn(self._custom_label, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
-        _theme.style_fn(self._custom_input, lambda: f"font-size: {_theme.FONT_INPUT};")
-        self._update_selection(self._icon)
-
 
 class _CopyableLabel(QLabel):
     """A small label whose full text copies to the clipboard on click.
@@ -624,41 +611,6 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             return
         self._save_btn.setText("Save Changes")
         self._save_btn.setEnabled(True)
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this editor's own persistent chrome
-        styled once at construction (header field labels, the action-bar
-        buttons, the footer + its divider/Delete/Save buttons, and the
-        Connection tab's username/password visibility toggles) and forward to
-        the icon picker, which has its own ``refresh_theme()`` — same
-        recursion pattern as ``MainWindow.refresh_theme()`` forwarding to
-        ``details_pane``/``filter_panel``.
-
-        Data-driven labels (account status/remaining/EPG-freshness colour,
-        the name-row status dot) are recomputed fresh from current tokens on
-        every ``load_provider()``/refresh, same rationale as the channel-list
-        row delegate — left out of this sweep, same as ``_acct_cons_lbl``'s
-        sibling ``_acct_status_lbl`` isn't touched here either.
-        """
-        _theme.style(self._icon_field_lbl, "CHANNEL_NAME_DIM")
-        _theme.style(self._name_field_lbl, "CHANNEL_NAME_DIM")
-        if hasattr(self._icon_picker, "refresh_theme"):
-            self._icon_picker.refresh_theme()
-
-        for btn in (
-            self._action_refresh_btn, self._action_analyze_btn,
-            self._epg_refresh_btn, self._action_toggle_btn,
-        ):
-            _theme.style(btn, "PANEL_BTN")
-
-        _theme.style(self._footer, "PROVIDER_FOOTER")
-        _theme.style(self._delete_btn, "DELETE_BTN")
-        _theme.style(self._footer_divider, "FOOTER_DIVIDER")
-        _theme.style(self._save_btn, "SAVE_BTN")
-
-        _theme.style(self._acct_cons_lbl, "FIELD_LABEL")
-        _theme.style(self._username_eye_btn, "EYE_BTN")
-        _theme.style(self._password_eye_btn, "EYE_BTN")
 
     # ── Public API ────────────────────────────────────────────────────────────
 

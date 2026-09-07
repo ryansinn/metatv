@@ -130,7 +130,7 @@ def main():
     # widgets read while building their stylesheets) and the QPalette floor
     # (metatv/gui/theme.py's qt_palette(), #253) so a cold launch on a
     # non-default theme renders correctly end-to-end, not just after a live
-    # Settings round-trip via MainWindow.refresh_theme().
+    # Settings round-trip via MainWindow.apply_configured_theme().
     _theme.apply_theme(config.theme_name)
 
     # Create and show main window. Both are phases: the gap between "Main

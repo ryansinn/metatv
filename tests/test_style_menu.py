@@ -6,11 +6,11 @@ a style menu, instead? basically a way for the user to adjust some look and feel
 options easily without digging through settings?"
 
 One Style menu rather than two scattered View entries, and both groups drive the
-SAME live-apply seams the Settings dialog uses — ``refresh_theme()`` and
-``_apply_channel_list_density()``. That matters more than it looks: routing the
-theme through ``apply_theme`` directly would skip the registered-style re-apply
-and the widget repolish (#277/#278) and reproduce the half-switched rendering
-those exist to fix.
+SAME live-apply seams the Settings dialog uses —
+``apply_configured_theme()`` and ``_apply_channel_list_density()``. That
+matters more than it looks: calling ``apply_theme`` directly would duplicate
+reading the name off ``config`` and skip the channel-list repaint that method
+owns, reproducing the half-switched rendering #277/#278 exist to fix.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class _Host:
         self.config = MagicMock()
         self.config.theme_name = theme_name
         self.config.channel_list_density = density
-        self.refresh_theme = MagicMock()
+        self.apply_configured_theme = MagicMock()
         self._apply_channel_list_density = MagicMock()
         self._set_theme_from_menu = MainWindow._set_theme_from_menu.__get__(self)
         self._set_density_from_menu = MainWindow._set_density_from_menu.__get__(self)
@@ -50,21 +50,21 @@ class TestThemeSelection:
         host.config.save.assert_not_called()
         assert _cfgsave.flush(host) is True
         host.config.save.assert_called_once()
-        host.refresh_theme.assert_called_once()
+        host.apply_configured_theme.assert_called_once()
 
-    def test_it_goes_through_refresh_theme_not_apply_theme(self):
-        """refresh_theme is where the style re-apply and repolish live.
+    def test_it_goes_through_the_one_apply_seam_not_apply_theme(self):
+        """``apply_configured_theme`` owns reading config and repainting.
 
-        Calling theme.apply_theme directly would switch the tokens but leave
-        existing widgets painted in the old palette — the exact bug #277/#278
-        fixed. Pinned because it is an easy and invisible shortcut to take.
+        Calling theme.apply_theme directly would switch the tokens but skip
+        the channel-list repaint — the exact bug #277/#278 fixed. Pinned
+        because it is an easy and invisible shortcut to take.
         """
         import inspect
 
         from metatv.gui.main_window import MainWindow
 
         src = inspect.getsource(MainWindow._set_theme_from_menu)
-        assert "self.refresh_theme()" in src
+        assert "self.apply_configured_theme()" in src
         assert "apply_theme(" not in src
 
     def test_reselecting_the_active_theme_is_a_no_op(self):
@@ -74,7 +74,7 @@ class TestThemeSelection:
         host._set_theme_from_menu("Daylight")
 
         host.config.save.assert_not_called()
-        host.refresh_theme.assert_not_called()
+        host.apply_configured_theme.assert_not_called()
 
 
 class TestDensitySelection:

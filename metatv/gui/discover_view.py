@@ -691,39 +691,6 @@ class DiscoverView(QWidget):
         for shelf in self.__dict__.get("_shelf_widgets", {}).values():
             shelf.cancel_pending_build()
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this view's own persistent chrome —
-        the zoom icon, Manage button, loading label, and More Categories
-        button, all styled once at construction — and forward to the shared
-        ``_BrowseView`` "See all" drill-down, which has its own
-        ``refresh_theme()``. Called from ``MainWindow.refresh_theme()``.
-
-        Individual shelf/card widgets (``_Shelf``/``_ContentCard``) are
-        rebuilt fresh from current tokens on every ``refresh()`` (i.e. the
-        next time the user activates this view), same rationale as the
-        channel-list row delegate — not swept here; follow-up if a live
-        mid-session restyle of an already-open shelf is wanted.
-        """
-        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
-        _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-        _theme.style_fn(self._loading_lbl, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
-        _theme.style_fn(self._more_btn, lambda: "QPushButton {"
-            f"  background: {_theme.OVERLAY_08};"
-            "  border: none;"
-            "  border-radius: 4px;"
-            f"  color: {_theme.COLOR_TEXT_HI};"
-            f"  font-size: {_theme.FONT_LG};"
-            "  text-align: left;"
-            "  padding: 0 12px;"
-            "}"
-            "QPushButton:hover {"
-            f"  background: {_theme.OVERLAY_15};"
-            f"  color: {_theme.COLOR_TEXT};"
-            "}")
-        if hasattr(self._browse_view, "refresh_theme"):
-            self._browse_view.refresh_theme()
-
     @staticmethod
     def _stop_loader(worker, thread) -> None:
         """Cooperatively cancel *worker*, then quit+wait its *thread*."""

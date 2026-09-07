@@ -555,54 +555,6 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._live_refresh_timer.stop()
         self._dispose_executor()
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this view's own persistent chrome —
-        every label/notice/stats-footer styled once at construction across the
-        header + all six tabs (Watchlist/My Channels/Discover/On Now/Browse/
-        Events), spread across ``epg_view.py`` and its four mixin files
-        (``epg_watchlist_mixin.py``/``epg_on_now_mixin.py``/
-        ``epg_browse_mixin.py``/``epg_events_mixin.py`` — split out only to
-        stay under the project's 1000-line file limit; every ``self.*`` here
-        is this SAME ``EpgView`` instance). Called from
-        ``MainWindow.refresh_theme()``.
-
-        Per-row/per-card content (On Now/Browse tree rows, watchlist/channel/
-        recommendation cards, event rows, the Manage tab's hidden-items list)
-        is torn down and rebuilt from current tokens on every reload, so it's
-        already live — same rationale as the channel-list row delegate.
-        """
-        _theme.style_fn(self._header_sep, lambda: f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
-        _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
-
-        # Watchlist / My Channels / Discover tabs (epg_watchlist_mixin.py)
-        # The add-row's hint and case-note labels are gone with the bare text
-        # box; the "Track Something New" button that replaced them needs no
-        # entry here at all, because theme.style() registers it weakly and
-        # apply_theme() re-applies from that registry. That is what this hand-
-        # maintained sweep is being retired in favour of — an enumeration never
-        # sees what nobody remembered to add, and here it broke on what nobody
-        # remembered to REMOVE.
-        _theme.style(self.ch_empty_label, "EMPTY_LABEL")
-        _theme.style(self._rec_title_lbl, "CHANNEL_NAME_DIM")
-        _theme.style_fn(self.manage_dismissed_btn, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; background: transparent;")
-        _theme.style(self.rec_empty_label, "EMPTY_LABEL")
-
-        # On Now tab (epg_on_now_mixin.py)
-        _theme.style(self.on_now_stats, "LABEL_MUTED")
-
-        # Browse tab (epg_browse_mixin.py)
-        _theme.style(self._anchor_label, "LABEL_MUTED")
-        _theme.style(self._scrubber_left_label, "LABEL_MUTED")
-        _theme.style(self._scrubber_right_label, "LABEL_MUTED")
-        _theme.style(self._scrubber_pos_label, "EPG_SCRUBBER_POS")
-        _theme.style_fn(self.browse_placeholder, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_XL}; padding: 40px;")
-        _theme.style(self.browse_stats, "LABEL_MUTED")
-
-        # Events tab (epg_events_mixin.py) — reuse the existing active/inactive
-        # toggle-style method rather than duplicating its branching here.
-        _theme.style(self._events_stats, "LABEL_MUTED")
-        self._apply_events_toggle_styles()
-
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------

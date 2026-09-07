@@ -1487,19 +1487,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         _cfb_layout = _QHBoxLayout(self._channel_filter_bar)
         _cfb_layout.setContentsMargins(0, 0, 0, 0)
         _cfb_layout.setSpacing(6)
-        _seg_style = (
-            f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
-            f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
-            f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
-            f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
-            f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
-        )
         # One descriptor per axis, in metatv/gui/channel_transparency.py. This
         # was five near-identical blocks; see that module's docstring for why an
         # enumeration here was the bug rather than merely the verbosity.
         from metatv.gui import channel_transparency as _transparency
 
-        _transparency.build_segments(self, _cfb_layout, _seg_style)
+        _transparency.build_segments(self, _cfb_layout)
         _cfb_layout.addStretch(1)
         self._list_layout.addWidget(self._channel_filter_bar)
 
@@ -2007,132 +2000,25 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         if view is not None and getattr(view, "_active", False):
             view.refresh()
 
-    def refresh_theme(self) -> None:
-        """Re-apply ``self.config.theme_name`` live, no restart needed.
+    def apply_configured_theme(self) -> None:
+        """Apply ``self.config.theme_name`` live, no restart needed.
 
-        ``theme.apply_theme()`` rebinds every ``theme.COLOR_*``/semantic-constant
-        module global in place, but a widget that already called
-        ``setStyleSheet(theme.SOME_CONSTANT)`` keeps rendering the OLD string —
-        Qt cached the rendered style, not a live reference to the Python
-        constant. This sweeps the persistent chrome that caches a stylesheet
-        once at construction: this window's own cached buttons/labels, every
-        sidebar section, the details pane, and a channel-list repaint (the
-        row delegate reads ``theme.COLOR_*`` fresh on every ``paint()`` call
-        already, so it only needs to be told to repaint, not re-themed).
+        This is the app's ONE entry point into ``theme.apply_theme()`` — the
+        Style menu and Settings→OK both land here. It used to be a
+        hand-maintained sweep of every widget that had cached a stylesheet at
+        construction, forwarding into twenty-one more ``refresh_theme()``
+        overrides. That could never work: an enumeration only reaches what
+        somebody remembered to add, and there were ~838 ``setStyleSheet`` call
+        sites behind 22 sweep methods. ``theme.style``/``theme.style_fn``
+        register each widget as it is built, and ``apply_theme`` re-applies
+        every live registration, so nothing has to be listed here (THEME-1).
 
-        The sidebar Settings button, the bottom nav bar's own background, the
-        "showing hidden" label, and the context filter chip's dismiss button
-        used to be local variables in ``setup_ui()`` that this sweep couldn't
-        reach — they're now promoted to ``self.*`` and swept below, same as
-        ``self.filter_panel`` (the middle filter column), which now has its
-        own ``refresh_theme()`` that recurses through every facet section and
-        row it built at construction.
-
-        The six other persistent, ``setVisible()``-toggled views built once in
-        ``create_content_area()`` — the embedded EPG view, Preferences/
-        Recommended view, Discover view, Recipe view, Provider editor, and
-        Sources manager view — each gained their own ``refresh_theme()``
-        (#261) covering the chrome each styles once at construction; swept
-        below by name, same recursion pattern as ``filter_panel``/
-        ``details_pane`` above. Per-row/per-card content within them (tree
-        rows, shelf/cluster/card widgets, watchlist entries) is rebuilt from
-        current tokens on its next natural reload, so it needs no sweep entry
-        of its own — same rationale as the channel-list row delegate below.
-
-        Still NOT reached, and still needing a restart (or a reopen) to pick
-        up a new palette: the Similar-titles lightbox, poster lightbox, and
-        Explore trail-map (their dark "cinema" backdrop is deliberately
-        theme-invariant by design — see theme_palettes.py — but the handful
-        of tokens they DO read from the general ramp would still need a sweep
-        to update live). Actual ``QDialog`` popups (Categories, Global
-        Exclusions, category picker, new-facet-values, etc.) are each
-        constructed fresh on open and read theme tokens at build time, so
-        those already open correctly themed without needing to be in this
-        sweep at all.
+        The one thing left is the channel list: its row delegate reads
+        ``theme.COLOR_*`` fresh inside ``paint()``, so it needs a repaint
+        rather than a restyle.
         """
         if not _theme.apply_theme(self.config.theme_name):
             return
-
-
-        if hasattr(self, "_settings_btn"):
-            _theme.style(self._settings_btn, "FLAT_NAV_BTN")
-        if hasattr(self, "_tools_btn"):
-            _theme.style(self._tools_btn, "NAV_TOGGLE_BTN")
-        if hasattr(self, "_split_toggle_btn"):
-            _theme.style(self._split_toggle_btn, "NAV_TOGGLE_BTN")
-        if hasattr(self, "_playback_health_label"):
-            _theme.style(self._playback_health_label, "NAV_HEALTH")
-
-        # All/Downloaded/Hidden scope tabs: built with theme.style_fn(), which
-        # self-registers and already got its builder re-invoked by apply_theme() above.
-
-        if hasattr(self, "_context_filter_chip"):
-            _theme.style(self._context_filter_chip, "CONTEXT_FILTER_CHIP")
-            _theme.style(self._context_filter_label, "CONTEXT_FILTER_CHIP_LABEL")
-        if hasattr(self, "_context_filter_dismiss_btn"):
-            _theme.style(self._context_filter_dismiss_btn, "CONTEXT_FILTER_CHIP_BTN")
-
-        if hasattr(self, "_manage_cats_btn"):
-            _theme.style_fn(self._manage_cats_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
-                f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}")
-        if hasattr(self, "_hidden_banner"):
-            _theme.style_fn(self._hidden_banner, lambda: f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;")
-        if hasattr(self, "_hidden_banner_lbl"):
-            _theme.style_fn(self._hidden_banner_lbl, lambda: f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
-        if hasattr(self, "_channel_banner"):
-            _theme.style_fn(self._channel_banner, lambda: f"QLabel {{ color: {_theme.COLOR_TEXT}; padding: 4px 8px;"
-                f" font-size: {_theme.FONT_MD}; }}")
-        if hasattr(self, "_channel_exclusion_btn"):
-            _seg_style = (
-                f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
-                f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
-                f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
-                f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
-                f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
-            )
-            # BUTTON_ATTRS, not a re-typed list: a new axis is styled on a
-            # theme switch without anyone remembering to add it here.
-            from metatv.gui.channel_transparency import BUTTON_ATTRS
-
-            for btn_name in BUTTON_ATTRS:
-                button = self.__dict__.get(btn_name)
-                if button is not None:
-                    button.setStyleSheet(_seg_style)
-
-        if hasattr(self, "stats_label"):
-            _theme.style_fn(self.stats_label, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
-        if hasattr(self, "epg_status_label"):
-            _theme.style(self.epg_status_label, "CHANNEL_NAME_DIM")
-
-        for section in getattr(self, "sidebar_sections", {}).values():
-            if hasattr(section, "refresh_theme"):
-                section.refresh_theme()
-
-        if hasattr(self, "details_pane"):
-            self.details_pane.refresh_theme()
-
-        if hasattr(self, "filter_panel"):
-            self.filter_panel.refresh_theme()
-
-        # Persistent, setVisible()-toggled content views built once in
-        # create_content_area() (#261) — each has its own refresh_theme()
-        # covering the chrome it styles once at construction; per-row/per-card
-        # content is rebuilt from current tokens on its next natural reload
-        # (same rationale as the channel-list row delegate below), so it
-        # needs no sweep entry here.
-        for view_name in (
-            "epg_view", "preferences_view", "discover_view",
-            "recipe_view", "provider_editor", "sources_manager_view",
-        ):
-            view = getattr(self, view_name, None)
-            if view is not None and hasattr(view, "refresh_theme"):
-                view.refresh_theme()
-
-        # The row delegate already reads theme.COLOR_* fresh inside paint(),
-        # so a repaint is all the channel list needs (same trigger as
-        # _apply_channel_list_density's row-height change, minus the
-        # layoutChanged — no row geometry changed here, just colours).
         if hasattr(self, "channels_list"):
             self.channels_list.viewport().update()
 

@@ -1410,7 +1410,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_refresh_recommendation_views",
     "_apply_channel_list_density",
     "_apply_sidebar_row_density",
-    "refresh_theme",
+    "apply_configured_theme",
     "_apply_collapse_variants_setting",
     "_apply_adult_mode_setting",
     "_sync_split_toggle",

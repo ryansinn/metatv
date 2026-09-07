@@ -235,14 +235,3 @@ class _SavedRecipesPanel(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         self._relayout()
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this panel's own persistent chrome
-        (title, subtitle, empty-state hint) — all styled once at construction.
-        ``_SavedRecipeCard`` instances are rebuilt fresh from current tokens
-        on every ``set_recipes()`` call, so they need no sweep entry here.
-        Called from ``RecipeView.refresh_theme()``.
-        """
-        _theme.style(self._title_lbl, "RECIPE_BROWSE_HDR")
-        _theme.style(self._sub_lbl, "RECIPE_SAVED_SUB")
-        _theme.style(self._empty_lbl, "RECIPE_EMPTY_HINT")

@@ -24,10 +24,10 @@ Covers:
 5. The Settings → Interface → Appearance combo's load/save helpers round-trip
    through a fake config (mirrors ``test_channel_row_density.py``'s density
    round-trip tests) and fall back to Midnight on an unknown/stale value.
-6. ``MainWindow.refresh_theme()`` calls ``theme.apply_theme()`` and sweeps the
-   sidebar sections / details pane / channel-list repaint — and skips the
-   sweep entirely when the palette didn't actually change (no-op short
-   circuit), exercised against a fake ``self`` (mirrors
+6. ``MainWindow.apply_configured_theme()`` calls ``theme.apply_theme()`` and
+   repaints the channel list — and skips even that when the palette didn't
+   actually change (no-op short circuit), exercised against a fake ``self``
+   (mirrors
    ``test_apply_channel_list_density_updates_delegate_and_emits_layout_changed``).
 
 Every test executes the changed path and asserts an outcome that would break
@@ -451,59 +451,51 @@ def test_config_theme_name_persists_through_save_and_reload():
 
 
 # ---------------------------------------------------------------------------
-# 6. MainWindow.refresh_theme() sweeps the live surfaces, no-ops when unchanged
+# 6. MainWindow.apply_configured_theme() — the ONE seam into apply_theme().
+#    It used to be refresh_theme(), a hand-maintained sweep forwarding into 21
+#    more overrides; THEME-1 deleted every one of them, so all that is left is
+#    "read the name off config, apply it, repaint the channel list".
 # ---------------------------------------------------------------------------
 
-_REFRESH_THEME = MainWindow.refresh_theme
+_APPLY_CONFIGURED = MainWindow.apply_configured_theme
 
 
-def test_refresh_theme_applies_palette_and_sweeps_live_surfaces(qapp):
-    section = MagicMock()
-    details_pane = MagicMock()
+def test_apply_configured_theme_applies_the_palette_and_repaints_the_list(qapp):
     channels_list = MagicMock()
 
     fake_self = SimpleNamespace(
         config=SimpleNamespace(theme_name="Daylight"),
-        sidebar_sections={"favorites": section},
-        details_pane=details_pane,
         channels_list=channels_list,
     )
 
-    _REFRESH_THEME(fake_self)
+    _APPLY_CONFIGURED(fake_self)
 
     assert theme.current_theme() == "Daylight"
-    section.refresh_theme.assert_called_once()
-    details_pane.refresh_theme.assert_called_once()
+    # The row delegate reads theme.COLOR_* inside paint(), so the list needs a
+    # repaint rather than a restyle.
     channels_list.viewport.return_value.update.assert_called_once()
 
 
-def test_refresh_theme_is_a_noop_when_palette_unchanged(qapp):
+def test_apply_configured_theme_is_a_noop_when_palette_unchanged(qapp):
     theme.apply_theme("Midnight")  # already active — matches fake_self below
 
-    section = MagicMock()
-    details_pane = MagicMock()
     channels_list = MagicMock()
 
     fake_self = SimpleNamespace(
         config=SimpleNamespace(theme_name="Midnight"),
-        sidebar_sections={"favorites": section},
-        details_pane=details_pane,
         channels_list=channels_list,
     )
 
-    _REFRESH_THEME(fake_self)
+    _APPLY_CONFIGURED(fake_self)
 
-    section.refresh_theme.assert_not_called()
-    details_pane.refresh_theme.assert_not_called()
     channels_list.viewport.assert_not_called()
 
 
-def test_refresh_theme_tolerates_missing_optional_attrs(qapp):
-    """A fake_self with none of the guarded self.* chrome attrs must not
-    raise — every widget-sweep block is hasattr-gated (mirrors
-    _apply_channel_list_density's own hasattr guard for _split_toggle_btn)."""
+def test_apply_configured_theme_tolerates_a_window_without_a_list(qapp):
+    """Called before ``setup_ui()`` has built the channel list — the one
+    ``hasattr`` guard left in a method that used to be twenty of them."""
     fake_self = SimpleNamespace(config=SimpleNamespace(theme_name="Graphite"))
 
-    _REFRESH_THEME(fake_self)  # must not raise
+    _APPLY_CONFIGURED(fake_self)  # must not raise
 
     assert theme.current_theme() == "Graphite"

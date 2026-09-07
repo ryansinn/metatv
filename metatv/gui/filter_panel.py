@@ -71,9 +71,6 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         # list.  Static sections (Media, Untagged) are populated in __init__ and are
         # always safe to save.
         self._stats_loaded = False
-        # Dividers between sections (built by _add_divider) — tracked so
-        # refresh_theme() can restyle them on a live theme switch.
-        self._dividers: list[QFrame] = []
         # Live handle on the in-flight chunked update_data() build, if any
         # (PERF-17) — a superseding call cancels this before starting its own.
         self._update_handle = None
@@ -81,6 +78,8 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self.setMinimumWidth(160)
         self.setMaximumWidth(400)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        _theme.style_fn(self, lambda: f"background: {_theme.COLOR_BG_SECTION};")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -94,21 +93,25 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         # illegible once a light palette (Daylight) makes COLOR_TEXT_2 dark.
         self._header_bar = QWidget()
         self._header_bar.setFixedHeight(36)
+        _theme.style_fn(self._header_bar, lambda: f"background: {_theme.COLOR_LINE_DARK};")
         phl = QHBoxLayout(self._header_bar)
         phl.setContentsMargins(10, 0, 8, 0)
         self._includes_lbl = QLabel("Includes:")
+        _theme.style_fn(self._includes_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
         phl.addWidget(self._includes_lbl)
         phl.addStretch()
 
         self._all_btn = QPushButton("All")
         self._all_btn.setFixedHeight(22)
         self._all_btn.setToolTip("Select all — show everything, no filter active")
+        _theme.style(self._all_btn, "PANEL_BTN")
         self._all_btn.clicked.connect(self.select_all_sections)
         phl.addWidget(self._all_btn)
 
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setFixedHeight(22)
         self._clear_btn.setToolTip("Clear all — uncheck everything, then pick exactly what to include")
+        _theme.style(self._clear_btn, "PANEL_BTN")
         self._clear_btn.clicked.connect(self.clear_all)
         phl.addWidget(self._clear_btn)
 
@@ -119,6 +122,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         from metatv.gui import icons as _icons
         self._hide_watched_row = QWidget()
         self._hide_watched_row.setFixedHeight(30)
+        _theme.style_fn(self._hide_watched_row, lambda: f"background: {_theme.COLOR_LINE_DARK};")
         hw_rl = QHBoxLayout(self._hide_watched_row)
         hw_rl.setContentsMargins(10, 0, 8, 0)
         hw_rl.setSpacing(6)
@@ -126,6 +130,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self._hide_watched_cb.setToolTip(
             "When checked, movies and series you have marked as watched are hidden from the list."
         )
+        _theme.style_fn(self._hide_watched_cb, lambda: f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};")
         self._hide_watched_cb.setChecked(getattr(self.config, 'filter_hide_watched', False))
         self._hide_watched_cb.stateChanged.connect(self._on_hide_watched_changed)
         hw_rl.addWidget(self._hide_watched_cb)
@@ -136,8 +141,14 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _theme.style_fn(self._scroll, lambda: f"""
+            QScrollArea {{ border:none; background:{_theme.COLOR_BG_SECTION}; }}
+            QScrollBar:vertical {{ background:{_theme.COLOR_BG_BAR}; width:6px; border-radius:3px; }}
+            QScrollBar::handle:vertical {{ background:{_theme.COLOR_BORDER}; border-radius:3px; }}
+        """)
 
         self._section_container = QWidget()
+        _theme.style_fn(self._section_container, lambda: f"background:{_theme.COLOR_BG_SECTION};")
         self._sl = QVBoxLayout(self._section_container)
         self._sl.setContentsMargins(0, 0, 0, 0)
         self._sl.setSpacing(0)
@@ -297,38 +308,8 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             sec.collapse_toggled.connect(self._on_collapse_toggled)
 
         self.restore_state()
-        self.refresh_theme()
 
     # ── public API ──────────────────────────────────────────────────────────
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active theme's tokens to every stylesheet this panel
-        and its child section/row widgets cached at construction time.
-
-        ``FilterPanel`` is built once and lives for the app's lifetime
-        (shown/hidden via ``setVisible``, never re-constructed), so a live
-        theme switch would otherwise leave it showing the palette that was
-        active when the app started. Called from both ``__init__`` (so the
-        style computation isn't duplicated) and
-        ``MainWindow.refresh_theme()``.
-        """
-        _theme.style_fn(self, lambda: f"background: {_theme.COLOR_BG_SECTION};")
-        _theme.style_fn(self._header_bar, lambda: f"background: {_theme.COLOR_LINE_DARK};")
-        _theme.style_fn(self._includes_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
-        _theme.style(self._all_btn, "PANEL_BTN")
-        _theme.style(self._clear_btn, "PANEL_BTN")
-        _theme.style_fn(self._hide_watched_row, lambda: f"background: {_theme.COLOR_LINE_DARK};")
-        _theme.style_fn(self._hide_watched_cb, lambda: f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};")
-        _theme.style_fn(self._scroll, lambda: f"""
-            QScrollArea {{ border:none; background:{_theme.COLOR_BG_SECTION}; }}
-            QScrollBar:vertical {{ background:{_theme.COLOR_BG_BAR}; width:6px; border-radius:3px; }}
-            QScrollBar::handle:vertical {{ background:{_theme.COLOR_BORDER}; border-radius:3px; }}
-        """)
-        _theme.style_fn(self._section_container, lambda: f"background:{_theme.COLOR_BG_SECTION};")
-        for line in self._dividers:
-            _theme.style_fn(line, lambda: f"background:{_theme.COLOR_LINE_DARK}; border:none;")
-        for sec in self._all_sections():
-            sec.refresh_theme()
 
     def update_data(self, tag_counts: dict[str, dict[str, int]],
                     untagged_counts: dict[str, int] | None = None):
@@ -884,7 +865,6 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         line.setFixedHeight(1)
         _theme.style_fn(line, lambda: f"background:{_theme.COLOR_LINE_DARK}; border:none;")
         self._sl.addWidget(line)
-        self._dividers.append(line)
 
     def _on_item_only_requested(self, item_key: str, section_key: str) -> None:
         """Slot for the per-row 'Only' button — delegates to select_only_group."""

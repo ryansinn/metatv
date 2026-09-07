@@ -635,27 +635,6 @@ class PreferencesView(QWidget):
             # Null it so refresh() rebuilds on reactivation — a dead pool raises on any submit.
             self._executor = None
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this view's own persistent chrome styled once at
-        construction — the "Mix" caption + mix label + the Automatic button, and the
-        Excluded/Version Preferences collapsible toggles. Called from
-        ``MainWindow.refresh_theme()``.
-
-        Everything else (attribute columns, recommendation rows, the exclusions panel) is torn
-        down and rebuilt from current tokens on every ``refresh()``/``_render()`` call, so it is
-        already live — same rationale as the channel-list row delegate.
-        """
-        _theme.style(self._mix_caption_lbl, "META_HINT")
-        _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
-        _theme.style(self._mix_auto_btn, "INLINE_ACTION_BTN")
-
-        _toggle_style = (
-            f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
-        self._excl_toggle_btn.setStyleSheet(_toggle_style)
-        self._ver_prefs_toggle_btn.setStyleSheet(_toggle_style)
-
     def refresh(self) -> None:
         # Inactive → drop the request outright. on_activate() always refreshes, so a cascade fire
         # while this view is closed loses nothing — and before this guard, every

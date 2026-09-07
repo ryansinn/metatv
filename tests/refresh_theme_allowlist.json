@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Widgets still allowed to define their own `refresh_theme()` in metatv/gui/**.",
+    "SHRINK-ONLY: an entry may be removed, never added. A new one means somebody",
+    "rebuilt the hand-maintained sweep THEME-1 deleted — 22 overrides behind ~838",
+    "setStyleSheet call sites, an enumeration that could never see what nobody",
+    "remembered to add. Style a widget with theme.style()/theme.style_fn() at",
+    "construction instead: apply_theme() re-applies every live registration.",
+    "For work a stylesheet cannot express (a cached QColor, a repainted custom",
+    "delegate, a recoloured pixmap), use theme.register_post_apply(fn) with a",
+    "weakly-bound callable — that is a registration too, not a sweep. Icon",
+    "buttons already have one: icon_utils.set_button_icon() registers them and",
+    "refresh_icon_buttons() is that hook, so pass a colour BUILDER for a",
+    "palette token and the glyph follows a switch with no method here.",
+    "",
+    "Format: {\"Class.method\": \"one-line reason\"} under \"allowed\".",
+    "It is EMPTY on purpose: the migration left no survivor.",
+    "",
+    "The census that emptied it (THEME-1, docs/REFACTOR_PLAN.md row R14):",
+    "21 of the 22 only re-applied sheets that construction-time registration",
+    "already covers; the 22nd (MainWindow) was the entry point that calls",
+    "theme.apply_theme() and is now MainWindow.apply_configured_theme()."
+  ],
+  "allowed": {}
+}

@@ -3,7 +3,7 @@
 Adding an axis used to mean editing nine sites across two files — the
 measurement, the params publish, the reads, the ``elif``, the render signature,
 its booleans, its body, its ``or``-chain, and a button-name tuple in
-``refresh_theme``. Every one was a place an axis could be forgotten, and one
+the theme sweep. Every one was a place an axis could be forgotten, and one
 was: the adult-content gate was an axis nobody had added, so a category whose
 28 channels are all flagged rendered 0 rows under "try a different search".
 Ledger F26.
@@ -57,7 +57,7 @@ def test_axis_keys_and_attrs_are_unique():
 
 
 def test_button_attrs_covers_every_axis():
-    """``refresh_theme`` iterates BUTTON_ATTRS; a gap means an unstyled segment."""
+    """A skeleton host iterates BUTTON_ATTRS; a gap means a missed segment."""
     assert set(ct.BUTTON_ATTRS) == {a.attr for a in ct.AXES}
 
 
@@ -167,7 +167,7 @@ def test_build_segments_creates_and_connects_every_axis(qapp):
 
     container = QWidget()
     layout = QHBoxLayout(container)
-    ct.build_segments(host, layout, "QPushButton { color: red; }")
+    ct.build_segments(host, layout)
 
     assert layout.count() == len(ct.AXES), "a segment was not added to the bar"
     for axis in ct.AXES:

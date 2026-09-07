@@ -27,10 +27,10 @@ at call time), only its bound VALUE changes per palette. :func:`apply_theme` swa
 the active palette by rebinding every token global AND recomposing every semantic
 constant below it (:func:`_build_semantic_constants`) — see both docstrings for why
 the semantic-constant rebuild step exists. Switching the palette does not, by
-itself, repaint anything already on screen; see ``MainWindow.refresh_theme()``.
+itself, repaint anything on screen; :func:`apply_theme` is what does that.
 
-QPalette floor (#253): ``MainWindow.refresh_theme()``'s sweep only reaches
-widgets it (or a widget-owned ``refresh_theme()``) explicitly re-styles — a
+QPalette floor (#253): the style registry only reaches widgets styled through
+:func:`style`/:func:`style_fn` — a
 widget built with NO stylesheet at all (e.g. a bare ``QLabel``/``QStatusBar``)
 instead falls back to Qt's built-in default palette, which is light regardless
 of the active app theme. :func:`qt_palette` builds a ``QPalette`` from the
@@ -1904,10 +1904,9 @@ def qt_palette() -> QPalette:
     and the bottom ``QStatusBar`` used to render near-black-on-near-black /
     pure white regardless of the active app theme: with no stylesheet, Qt
     fell back to its own built-in (light) default palette instead of this
-    one. ``MainWindow.refresh_theme()``'s hand-maintained sweep still handles
-    every EXPLICITLY styled widget (a cached ``setStyleSheet()`` string
-    doesn't track a token live) — this is the floor beneath that sweep, not a
-    replacement for it.
+    one. The style registry still handles every EXPLICITLY styled widget (a
+    cached ``setStyleSheet()`` string doesn't track a token live) — this is
+    the floor beneath it, not a replacement for it.
 
     Every role below is sourced from an existing ``COLOR_*`` token (the
     current module globals, already rebound to the active palette by
@@ -1985,7 +1984,8 @@ def _sync_qt_application_palette() -> None:
 # that already called ``setStyleSheet(LIST_ROW)``. The previous answer was a
 # hand-maintained sweep in ``MainWindow.refresh_theme()``, which cannot work:
 # there were ~838 setStyleSheet call sites against 22 refresh_theme methods, and
-# an enumeration can never see the ones nobody remembered to add.
+# an enumeration can never see the ones nobody remembered to add. All 22 are
+# gone (THEME-1); `tests/test_no_hand_rolled_refresh_theme.py` keeps them gone.
 #
 # This inverts it. A widget styled through :func:`style` registers itself, and
 # ``apply_theme`` re-applies every live registration. Nothing has to be
@@ -2332,7 +2332,7 @@ def apply_theme(name: str) -> bool:
 
     (This used to say the opposite, back when only the hand-maintained
     ``refresh_theme()`` sweep existed — the owner-reported "themes are still
-    fucked up" behaviour.)
+    fucked up" behaviour. THEME-1 deleted the last 22 of those overrides.)
 
     Args:
         name: One of :data:`theme_palettes.PALETTES`'s keys (e.g. "Midnight").

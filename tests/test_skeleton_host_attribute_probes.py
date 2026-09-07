@@ -43,7 +43,10 @@ import pathlib
 
 #: Frozen population, 2026-08-31. SHRINK ONLY — never raise this to make a
 #: new call site pass. Use ``"name" in self.__dict__`` instead.
-SKELETON_PROBE_BUDGET = 122
+#: 122 -> 106 (THEME-1): ``MainWindow.refresh_theme``'s sweep was sixteen
+#: ``hasattr(self, ...)`` blocks guarding widgets that now register their own
+#: style at construction, so the whole method went with them.
+SKELETON_PROBE_BUDGET = 106
 
 
 def _probe_sites() -> list[tuple[str, int, str, str]]:

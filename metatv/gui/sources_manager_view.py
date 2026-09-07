@@ -132,22 +132,6 @@ class SourcesManagerView(QWidget):
         body_layout.addWidget(center, 1)
         outer.addWidget(body, 1)
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this view's own persistent chrome
-        (the "+" add button and the "select a source" empty-state label,
-        both styled once at construction) and forward to the embedded
-        ``ProviderEditorView``, which has its own ``refresh_theme()`` — same
-        recursion pattern as ``MainWindow.refresh_theme()`` forwarding to
-        ``details_pane``/``filter_panel``. The per-provider tree rows
-        (``ProviderItemWidget``) are rebuilt fresh from current tokens on
-        every ``refresh()`` (on_activate/select), so they need no sweep entry
-        here — same rationale as the channel-list row delegate.
-        """
-        _theme.style(self._add_btn, "SOURCES_ADD_BTN")
-        _theme.style(self._empty_label, "EXPLORE_STATUS")
-        if hasattr(self._provider_editor, "refresh_theme"):
-            self._provider_editor.refresh_theme()
-
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
     # ------------------------------------------------------------------ #

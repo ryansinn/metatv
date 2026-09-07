@@ -110,6 +110,49 @@ def test_a_theme_switch_repaints_registered_icon_buttons(qapp) -> None:
         _theme.apply_theme(before_theme)
 
 
+def test_a_colour_builder_follows_the_palette_where_a_string_freezes(qapp) -> None:
+    """``color`` may be a builder, and only a builder tracks a theme switch.
+
+    ``refresh_icon_buttons`` replays exactly what ``set_button_icon`` was
+    handed, so a colour passed as a STRING is frozen at that call — right for
+    a runtime colour or a deliberately fixed cinema token, wrong for a palette
+    token. Both halves are asserted together, because the string half is the
+    behaviour that makes the builder half necessary rather than decorative.
+    """
+    from PyQt6.QtWidgets import QPushButton
+
+    before_theme = _theme.current_theme()
+    try:
+        _theme.apply_theme("Graphite")
+        frozen = QPushButton()
+        frozen.setIconSize(QSize(16, 16))
+        _icon_utils.set_button_icon(frozen, "close", color=_theme.COLOR_MUTED_2)
+        tracking = QPushButton()
+        tracking.setIconSize(QSize(16, 16))
+        _icon_utils.set_button_icon(
+            tracking, "close", color=lambda: _theme.COLOR_MUTED_2,
+        )
+        graphite_frozen = _icon_bytes(frozen)
+        graphite_tracking = _icon_bytes(tracking)
+        # Same colour now, so the difference below can only come from the
+        # builder being re-invoked.
+        assert graphite_frozen == graphite_tracking
+
+        assert _theme.apply_theme("Daylight"), "Daylight is not a known palette"
+
+        assert _icon_bytes(tracking) != graphite_tracking, (
+            "the builder was not re-invoked — a colour builder that does not "
+            "re-read its token is just a slower string"
+        )
+        assert _icon_bytes(frozen) == graphite_frozen, (
+            "a string colour started tracking the palette; that is the "
+            "behaviour runtime colours and fixed cinema tokens rely on"
+        )
+        assert _ink_pixels(tracking) > 0
+    finally:
+        _theme.apply_theme(before_theme)
+
+
 def test_a_swapped_role_survives_a_theme_switch(qapp) -> None:
     """A toggle badge re-registers, so a repaint reproduces what is on screen.
 

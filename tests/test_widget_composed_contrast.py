@@ -75,7 +75,7 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
         "COLOR_MUTED-family secondary text; see module docstring",
     ("main_window.py", "QPushButton", "@COLOR_DISABLED@", "@COLOR_LINE_DARK@"):
         "COLOR_MUTED-family secondary text; see module docstring",
-    ("main_window.py", "QPushButton",
+    ("channel_transparency.py", "QPushButton",
      "@COLOR_BANNER_YEL_FG@", "@COLOR_BANNER_YEL_BG@"):
         "4.02:1 in Daylight — the owner's chosen banner pair, retuning it is "
         "their call (same reasoning as the Exclusions teal)",

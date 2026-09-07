@@ -104,16 +104,6 @@ class _RecipeTabBar(QWidget):
             active = i == self._index
             _theme.style(btn, "RECIPE_TAB_ACTIVE" if active else "RECIPE_TAB")
 
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this bar's own chrome (background,
-        hint label) and the pill buttons, reusing :meth:`_apply` — the same
-        active/inactive styling logic ``set_index`` already drives — so the
-        pill-state semantics are never duplicated.
-        """
-        _theme.style(self, "RECIPE_TABBAR_BG")
-        _theme.style(self._hint, "RECIPE_TABBAR_HINT")
-        self._apply()
-
 
 # ---------------------------------------------------------------------------
 # One-line recipe "sentence" bar
@@ -268,20 +258,6 @@ class _RecipeBar(QWidget):
 
         # Empty by default: hide the ingredient flow, show the empty hint.
         self._ings.setVisible(False)
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this bar's own persistent chrome —
-        background, "RECIPE" label, empty hint, yield label, and the Save/Clear
-        buttons — all styled once at construction. Ingredient pills are rebuilt
-        fresh from current tokens on every ``update_recipe()`` call, so they
-        need no sweep entry here.
-        """
-        _theme.style(self, "RECIPE_BAR_BG")
-        _theme.style(self._recipe_label, "RECIPE_BAR_LABEL")
-        _theme.style(self._empty_lbl, "RECIPE_BAR_EMPTY")
-        _theme.style(self._yield_lbl, "RECIPE_BAR_YIELD")
-        _theme.style(self.save_btn, "RECIPE_BAR_SAVE_BTN")
-        _theme.style(self.clear_btn, "RECIPE_BAR_CLEAR_BTN")
 
 
 # ---------------------------------------------------------------------------
@@ -443,14 +419,3 @@ class _MatchingShelf(QWidget):
         scroll.setWidget(inner)
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
         outer.addWidget(scroll)
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this shelf's own persistent chrome —
-        the "MATCHING CONTENT" header, the "preview · N total" sub-label, and
-        the "Show all" button — all styled once at construction. Result cards
-        are rebuilt fresh from current tokens on every ``load_results()``
-        call, so they need no sweep entry here.
-        """
-        _theme.style(self._hdr_lbl, "RECIPE_MATCH_HDR")
-        _theme.style(self._sub, "RECIPE_MATCH_SUB")
-        _theme.style(self._show_all_btn, "RECIPE_SHOW_ALL_BTN")

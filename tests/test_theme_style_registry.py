@@ -239,7 +239,12 @@ class TestDriftGuard:
     # switch and would capture whatever the variable holds THEN, not now. They
     # need a per-site decision (bind the value as a default argument, or hoist
     # it into a builder that takes it as a parameter) rather than a sweep.
-    COMPOSED_BUDGET = 15
+    #
+    # 15 -> 14 (THEME-1): _Section's header sheet was exactly that shape — a
+    # token plus a per-section accent — and it moved to a style_fn builder
+    # that binds the section KEY as a default argument, the first of the two
+    # per-site decisions above.
+    COMPOSED_BUDGET = 14
 
     def test_no_raw_setstylesheet_hands_over_a_theme_role(self):
         tier_a, _ = self._drift_sites()

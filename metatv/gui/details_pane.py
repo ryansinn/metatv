@@ -776,20 +776,3 @@ class DetailsPaneWidget(QWidget):
     # ------------------------------------------------------------------ #
     # Collapse state persistence                                           #
     # ------------------------------------------------------------------ #
-
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this pane's own persistent chrome
-        (the episode byline label, styled once at construction) so switching
-        themes in Settings takes effect without a restart, and forward to any
-        child section that exposes the same method.
-
-        Most of the details pane rebuilds its content (and therefore its
-        colours) fresh every time a channel is shown, so it's already
-        "live" — this only needs to cover pieces that are styled once and
-        never touched again. Called from ``MainWindow.refresh_theme()``.
-        """
-        _theme.style(self._byline, "DETAIL_EPISODE_BYLINE")
-        for child in (getattr(self, "_versions", None), getattr(self, "_epg_agenda", None)):
-            if child is not None and hasattr(child, "refresh_theme"):
-                child.refresh_theme()

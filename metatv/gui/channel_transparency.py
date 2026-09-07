@@ -7,7 +7,7 @@ this view only.
 **Why this is a module rather than code in two big files.** It used to be a hand
 enumeration spread over nine sites — the measurement, the ``params`` publish,
 the reads, the ``elif`` condition, the render signature, its booleans, its
-render body, its ``or``-chain, and a button-name tuple in ``refresh_theme``.
+render body, its ``or``-chain, and a button-name tuple in the theme sweep.
 Adding one axis meant editing all nine, and every one of them was a place a
 future axis could be forgotten.
 
@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import QPushButton
 
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 #: Prefix marking a count as a floor rather than an exact total.
 AT_LEAST = "≥"
@@ -144,25 +145,42 @@ AXES: tuple[TransparencyAxis, ...] = (
     ),
 )
 
-#: Every button attribute the bar owns — the one list ``refresh_theme`` and any
-#: skeleton test host should iterate, rather than re-typing four names.
+#: Every button attribute the bar owns — the one list any skeleton test host
+#: should iterate, rather than re-typing four names.
 BUTTON_ATTRS: tuple[str, ...] = tuple(axis.attr for axis in AXES)
 
 
-def build_segments(host, layout, style: str) -> None:
+def _segment_qss() -> str:
+    """The shared segment sheet, re-composed from whatever tokens are live.
+
+    A builder rather than a string: ``theme.style_fn`` re-invokes it on every
+    palette switch, which is what the caller's second, hand-maintained copy in
+    the old theme sweep existed to do (THEME-1).
+    """
+    return (
+        f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
+        f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
+        f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
+        f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
+        f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
+    )
+
+
+def build_segments(host, layout) -> None:
     """Create one button per axis on *host* and add it to *layout*.
+
+    Each button is registered with :func:`theme.style_fn`, so a live palette
+    switch re-composes its sheet with no sweep entry anywhere.
 
     Args:
         host: The ``MainWindow``; each button is stored as ``host.<axis.attr>``
             and connected to ``host.<axis.handler>``.
         layout: The bar's ``QHBoxLayout``.
-        style: The shared segment stylesheet, composed by the caller from theme
-            tokens (it re-applies the same string in ``refresh_theme``).
     """
     for axis in AXES:
         button = QPushButton()
         button.setVisible(False)
-        button.setStyleSheet(style)
+        _theme.style_fn(button, _segment_qss)
         button.setToolTip(axis.tooltip)
         button.clicked.connect(getattr(host, axis.handler))
         layout.addWidget(button)

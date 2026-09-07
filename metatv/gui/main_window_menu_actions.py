@@ -420,10 +420,11 @@ class _MenuActionsMixin:
     def _set_theme_from_menu(self, name: str) -> None:
         """Apply and persist a theme chosen from the Style menu.
 
-        Routes through the same ``refresh_theme()`` the Settings dialog uses
-        rather than calling ``apply_theme`` directly — that is where the
-        registered-style re-apply and widget repolish happen (#277/#278), and
-        skipping it would reproduce the half-switched rendering those fixed.
+        Routes through the same ``apply_configured_theme()`` the Settings
+        dialog uses rather than calling ``apply_theme`` directly — that method
+        owns reading the name off ``config`` and the channel-list repaint, and
+        skipping it would reproduce the half-switched rendering #277/#278
+        fixed.
 
         Args:
             name: A palette name from ``theme.available_themes()``.
@@ -432,7 +433,7 @@ class _MenuActionsMixin:
             return
         self.config.theme_name = name
         _cfgsave.save_soon(self)
-        self.refresh_theme()
+        self.apply_configured_theme()
 
     def _build_buffer_menu(self, menubar) -> None:
         """Build the Buffer menu — how much mpv reads ahead while playing.

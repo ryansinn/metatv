@@ -909,9 +909,9 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
             (margins 5,3,5,3), already wired to toggle on click.
         """
         header = _ClickableHeader()
-        # Stashed so refresh_theme() can re-apply SECTION_HEADER_TINT after a
-        # live palette switch — this is a local var otherwise, and every
-        # subclass routes through this one helper to build its header.
+        # Stashed for subclasses to reach; every one routes through this
+        # helper. The tint follows a palette switch on its own — the header
+        # registers itself in _ClickableHeader.__init__ via theme.style().
         self._header = header
         # The header is the one thing a section always shows, so it must win the
         # last pixels. Squeezed to its floor, a section's layout was splitting
@@ -1439,21 +1439,3 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
 
     def refresh(self):
         """Refresh section content - override in subclasses"""
-
-    def refresh_theme(self) -> None:
-        """Re-apply the active palette to this section's persistent chrome —
-        the collapsible header and its "Explore →" link, both styled once at
-        construction time (``setStyleSheet`` caches the rendered string, so a
-        later ``theme.apply_theme()`` call doesn't repaint them on its own).
-
-        Row/list content built by ``refresh()`` already reads whatever theme
-        token values are current each time it rebuilds, so it doesn't need a
-        sweep here — only the two widgets built directly by
-        ``CollapsibleSection``/``_build_clickable_header`` do.  Called from
-        ``MainWindow.refresh_theme()``'s sidebar sweep.
-        """
-        if hasattr(self, "_header"):
-            _theme.style(self._header, "SECTION_HEADER_TINT")
-        explore_btn = getattr(self, "explore_btn", None)
-        if explore_btn is not None:
-            _theme.style(explore_btn, "SIDEBAR_SEE_ALL_BTN")

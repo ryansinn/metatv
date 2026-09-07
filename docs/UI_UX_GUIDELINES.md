@@ -347,7 +347,10 @@ The original answer was a hand-maintained sweep in `MainWindow.refresh_theme()`.
 It could not work, and the measurement said so: **838 `setStyleSheet` call sites
 across 68 files against 22 `refresh_theme()` methods across 16**. An enumeration
 cannot see the call sites nobody remembered to add to it — which is why #253 and
-#261 each "completed" the theme work and each left it broken.
+#261 each "completed" the theme work and each left it broken. THEME-1 deleted
+all 22; `tests/test_no_hand_rolled_refresh_theme.py` (AST) plus the shrink-only,
+empty `tests/refresh_theme_allowlist.json` stop the twenty-third. The one seam
+left into `apply_theme()` is `MainWindow.apply_configured_theme()`.
 
 It is now inverted. A widget styled through the registry registers itself, and
 `apply_theme()` re-applies every live registration:

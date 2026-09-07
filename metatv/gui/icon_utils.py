@@ -11,6 +11,7 @@ fallback keys are tried in order before giving up.
 from __future__ import annotations
 
 import weakref
+from typing import Callable, Union
 
 from loguru import logger
 
@@ -21,6 +22,10 @@ from PyQt6.QtWidgets import QPushButton
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+
+#: A colour a button icon can be painted in: a literal CSS string, or a
+#: zero-arg builder re-invoked on every theme switch (see `set_button_icon`).
+ColorSpec = Union[str, Callable[[], str], None]
 
 # Fallback chains for keys known to have font-loading issues on some systems.
 # Only this module knows about icon pack identifiers.
@@ -193,12 +198,16 @@ def _clear_vector_pixmap_cache() -> None:
 #: registry. Value is the (role, color) last used, so a re-paint reproduces
 #: exactly what is on screen now — including a role a caller swapped to after
 #: construction.
-_registered_icon_buttons: "weakref.WeakKeyDictionary[QPushButton, tuple[str, str | None]]" = (
-    weakref.WeakKeyDictionary()
-)
+#: What each button was last painted with. The colour is stored AS PASSED —
+#: a string stays a string, a builder stays a builder — because
+#: :func:`refresh_icon_buttons` feeds it straight back in, and only a builder
+#: can re-read a token after the palette has moved under it.
+_registered_icon_buttons: (
+    "weakref.WeakKeyDictionary[QPushButton, tuple[str, ColorSpec]]"
+) = weakref.WeakKeyDictionary()
 
 
-def set_button_icon(btn: QPushButton, role: str, *, color: str | None = None) -> None:
+def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> None:
     """Paint *btn*'s icon from the semantic *role* and register it for re-paint.
 
     Vector-first: a role present in :data:`icons.VECTOR_KEYS` resolves through
@@ -218,15 +227,24 @@ def set_button_icon(btn: QPushButton, role: str, *, color: str | None = None) ->
         btn: Any ``QPushButton`` (or subclass).
         role: A semantic role — either a :data:`icons.VECTOR_KEYS` key or the
             ``<role>`` in an ``icons.<role>_icon`` glyph constant.
-        color: Any CSS colour string. Defaults to ``theme.COLOR_TEXT``, read
-            at CALL time (never cached at import — a stale default would not
-            track a theme switch).
+        color: Any CSS colour string, OR a zero-arg callable returning one —
+            the same distinction :func:`theme.style` and
+            :func:`theme.style_fn` draw, for the same reason. A STRING is
+            frozen at this call: correct for a runtime colour (a provider
+            hue, a fixed cinema token), stale for a palette token, because
+            :func:`refresh_icon_buttons` can only replay what it was given.
+            Pass ``lambda: _theme.COLOR_MUTED_2`` for a token so the glyph
+            follows a theme switch. Defaults to ``theme.COLOR_TEXT``, read at
+            CALL time (never cached at import).
 
     Raises:
         KeyError: *role* is neither a vector key nor a glyph constant name —
             naming both lookups tried, so a typo surfaces at the call site.
     """
-    resolved_color = color if color is not None else _theme.COLOR_TEXT
+    if callable(color):
+        resolved_color = color()
+    else:
+        resolved_color = color if color is not None else _theme.COLOR_TEXT
     if role in _icons.VECTOR_KEYS:
         icon = resolve_icon(_icons.vector_key(role), color=resolved_color)
     else:

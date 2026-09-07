@@ -41,7 +41,7 @@ HANDLERS: tuple[str, ...] = (
     "_refresh_recommendation_views",
     "_apply_channel_list_density",
     "_apply_sidebar_row_density",
-    "refresh_theme",
+    "apply_configured_theme",
     "_apply_collapse_variants_setting",
     # Settings → Content is the ONLY reachable adult-mode control, so its
     # change just needs the list reloaded.
