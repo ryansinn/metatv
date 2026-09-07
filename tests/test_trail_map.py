@@ -586,13 +586,14 @@ class TestDetailStrip:
 
     def test_favorite_star_state_and_signal(self, qapp):
         from metatv.gui.trail_map_detail import TrailDetailStrip
-        from metatv.gui import icons as _icons
         d = TrailDetailStrip()
         fired = []
         d.favorite_clicked.connect(lambda: fired.append(1))
         d.populate(_dto(is_favorite=True))
         assert d._fav_star.isChecked() is True
-        assert d._fav_star.text() == _icons.favorite_icon
+        # ICON-1: the star is a QIcon (icon_utils.set_button_icon), never text.
+        assert d._fav_star.text() == ""
+        assert not d._fav_star.icon().isNull()
         d._fav_star.click()
         assert fired == [1]
 

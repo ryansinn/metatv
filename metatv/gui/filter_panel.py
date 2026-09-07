@@ -148,14 +148,12 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         def _expanded(key: str, default: bool) -> bool:
             return saved_states.get(key, default)
 
-        _ii = self.config.info_icon
-
         # Build sections
         self._media_sec = _Section(
             "media", "Media",
             initially_expanded=_expanded("media", True),
             info_text="Filter by content type. Uncheck a type to hide all channels of that kind.",
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._media_sec.set_flat_items([
             ("live",   "Live",   0),
             ("movie",  "Movies", 0),
@@ -173,7 +171,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Language, Region, and Platform work as a union — "
                 "checking more always expands results, never shrinks them."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._lang_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._lang_sec)
         self._add_divider()
@@ -186,7 +184,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Works together with Language and Platform as a union — "
                 "checking more always adds to results."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._region_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._region_sec)
         self._add_divider()
@@ -199,7 +197,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Works together with Language and Region as a union — "
                 "checking more always adds to results."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._platform_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._platform_sec)
         self._add_divider()
@@ -213,7 +211,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "hides channels explicitly tagged with that quality. "
                 "Channels with no quality information are always shown."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._quality_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._quality_sec)
         self._add_divider()
@@ -227,7 +225,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Live channels with no category data are always included.\n"
                 "Only applies to Live channels; movies and series are unaffected."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._category_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._category_sec)
         self._add_divider()
@@ -241,7 +239,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Channels with no genre data are always included.\n"
                 "Only applies to Movies and Series; live channels are unaffected."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._genre_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._genre_sec)
         self._add_divider()
@@ -253,7 +251,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Filter by subtitle language detected in the channel name.\n\n"
                 "Multi = channel offers subtitles in multiple languages."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._subtitle_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._subtitle_sec)
         self._add_divider()
@@ -264,7 +262,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             info_text=(
                 "Filter by dub (dubbed audio) language detected in the channel name."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._dub_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._dub_sec)
         self._add_divider()
@@ -277,7 +275,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 "Dub = dubbed audio track. Original = original-language audio with "
                 "subtitles. Multi = multiple subtitle languages. Dual = two audio tracks."
             ),
-            info_icon=_ii, config=self.config)
+            config=self.config)
         self._format_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._format_sec)
         self._add_divider()

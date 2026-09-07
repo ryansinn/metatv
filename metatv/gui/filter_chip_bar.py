@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_chips import FilterChip
@@ -70,10 +71,10 @@ class _Chip(QWidget):
         _theme.style(self._label, "FILTER_CHIP_LABEL")
         row.addWidget(self._label)
 
-        self._close = QPushButton(_icons.close_icon)
+        self._close = _icon_utils.icon_button(
+            "close", f"Remove this filter — {chip.label}", style="FILTER_CHIP_CLOSE"
+        )
         self._close.setFixedSize(16, 16)
-        _theme.style(self._close, "FILTER_CHIP_CLOSE")
-        self._close.setToolTip(f"Remove this filter — {chip.label}")
         cursor_affordance.set_clickable(self._close)
         self._close.clicked.connect(lambda: self.removed.emit(self._facet))
         row.addWidget(self._close)

@@ -20,6 +20,7 @@ from metatv.core.database import Database
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
 from metatv.gui import theme as _theme
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import deferred_config_save as _cfgsave
 
 # Debounce before a dragged mix slider is persisted + the list re-scored.
@@ -69,11 +70,13 @@ class _AttrRow(QWidget):
         hl.addWidget(lbl)
 
         if config and attr_type:
-            icon = config.close_icon if muted else config.not_interested_icon
+            role = "close" if muted else "not_interested"
             tip  = "Restore to recommendations" if muted else "Exclude from recommendations"
-            mute_btn = QPushButton(icon)
+            mute_btn = QPushButton()
             mute_btn.setFixedSize(20, 20)
             mute_btn.setFlat(True)
+            _icon_utils.set_button_icon(mute_btn, role)
+            mute_btn.setIconSize(QSize(13, 13))
             mute_btn.setToolTip(tip)
             _theme.style_fn(mute_btn, lambda: "QPushButton { border: none; }"
                 f"QPushButton:hover {{ background: {_theme.OVERLAY_10}; border-radius: 3px; }}")
@@ -142,8 +145,7 @@ class _AttrColumn(QWidget):
 
 
 def _rec_row_btn_style() -> str:
-    """Style for _RecRow's dislike/not-interested buttons, re-read fresh so a
-    live theme switch applies."""
+    """Style for _RecRow's dislike/not-interested buttons, re-read so a theme switch applies."""
     return (
         "QPushButton { border: none; border-radius: 3px; padding: 2px; }"
         f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
@@ -176,16 +178,20 @@ class _RecRow(QWidget):
         lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         hl.addWidget(lbl)
 
-        self.dislike_btn = QPushButton(config.dislike_icon)
+        self.dislike_btn = QPushButton()
         self.dislike_btn.setFixedSize(26, 26)
+        _icon_utils.set_button_icon(self.dislike_btn, "dislike")
+        self.dislike_btn.setIconSize(QSize(15, 15))
         self.dislike_btn.setToolTip("Dislike")
         self.dislike_btn.setFlat(True)
         self.dislike_btn.setStyleSheet(_rec_row_btn_style())
         self.dislike_btn.clicked.connect(lambda: self.dislikeClicked.emit(self.channel_id))
         hl.addWidget(self.dislike_btn)
 
-        self.ni_btn = QPushButton(config.not_interested_icon)
+        self.ni_btn = QPushButton()
         self.ni_btn.setFixedSize(26, 26)
+        _icon_utils.set_button_icon(self.ni_btn, "not_interested")
+        self.ni_btn.setIconSize(QSize(15, 15))
         self.ni_btn.setToolTip("Not interested — hide from recommendations")
         self.ni_btn.setFlat(True)
         self.ni_btn.setStyleSheet(_rec_row_btn_style())
@@ -197,9 +203,9 @@ class _RecRow(QWidget):
         event.accept()
 
     def mousePressEvent(self, event) -> None:
-        # Middle-click on a recommendation row plays the user-configured action.
-        # Non-left button presses on the child buttons (Dislike / Not Interested)
-        # bubble up to here, so a middle-click anywhere on the row is caught.
+        # Middle-click on a recommendation row plays the user-configured action. Non-left button
+        # presses on the child buttons (Dislike / Not Interested) bubble up to here, so a
+        # middle-click anywhere on the row is caught.
         if event.button() == Qt.MouseButton.MiddleButton:
             self.middleClicked.emit(self.channel_id)
             event.accept()
@@ -240,15 +246,14 @@ class PreferencesView(QWidget):
         header_row.addWidget(self._header_label)
         header_row.addStretch()
 
-        self._toggle_attrs_btn = QPushButton(self.config.expand_icon)
+        self._toggle_attrs_btn = _icon_utils.icon_button(
+            "expand", "Show attribute breakdown", px=13)
         self._toggle_attrs_btn.setFixedSize(24, 24)
-        self._toggle_attrs_btn.setToolTip("Show attribute breakdown")
         self._toggle_attrs_btn.clicked.connect(self._toggle_attributes)
         header_row.addWidget(self._toggle_attrs_btn)
 
-        refresh_btn = QPushButton(self.config.refresh_icon)
+        refresh_btn = _icon_utils.icon_button("refresh", "Refresh", px=14)
         refresh_btn.setFixedSize(28, 28)
-        refresh_btn.setToolTip("Refresh")
         refresh_btn.clicked.connect(self.refresh)
         header_row.addWidget(refresh_btn)
         vl.addLayout(header_row)
@@ -319,9 +324,8 @@ class PreferencesView(QWidget):
         # Restore collapse state
         expanded = getattr(self.config, "preferences_attributes_expanded", False)
         self._attrs_container.setVisible(expanded)
-        self._toggle_attrs_btn.setText(
-            self.config.collapse_icon if expanded else self.config.expand_icon
-        )
+        _icon_utils.set_button_icon(
+            self._toggle_attrs_btn, "collapse" if expanded else "expand")
         self._toggle_attrs_btn.setToolTip(
             "Hide attribute breakdown" if expanded else "Show attribute breakdown"
         )
@@ -329,10 +333,9 @@ class PreferencesView(QWidget):
     def _build_mix_controls(self, row: QHBoxLayout) -> None:
         """Build the movie/series mix slider + Automatic reset into ``row``.
 
-        The slider is the user's override of the automatic (√-damped) share; the
-        Automatic button hands the decision back to the engine. Both write the one
-        ``rec_media_mix`` config key immediately (UI state persistence) and are
-        restored from it here, with signals blocked during the restore.
+        The slider is the user's override of the automatic (√-damped) share; the Automatic
+        button hands the decision back to the engine. Both write the one ``rec_media_mix`` config
+        key immediately (UI state persistence) and are restored from it here, signals blocked.
         """
         self._mix_caption_lbl = QLabel("Mix")
         _theme.style(self._mix_caption_lbl, "META_HINT")
@@ -395,9 +398,8 @@ class PreferencesView(QWidget):
         """Sync the mix label/slider to the effective share.
 
         Args:
-            media_share: The share the engine actually used, or ``None`` when it
-                is not known yet (pre-load) — the label then falls back to the
-                saved override, or a bare "Automatic".
+            media_share: The share the engine actually used, or ``None`` when it is not known
+                yet (pre-load) — the label falls back to the saved override, or "Automatic".
         """
         if "_mix_label" not in self.__dict__:
             return
@@ -410,8 +412,7 @@ class PreferencesView(QWidget):
             ratio = format_media_share(float(share))
             self._mix_label.setText(f"Automatic ({ratio})" if automatic else ratio)
             if automatic:
-                # Park the handle on the computed share so dragging starts from
-                # what the user is actually seeing.
+                # Park the handle on the computed share so dragging starts from what is on screen.
                 self._mix_slider.blockSignals(True)
                 self._mix_slider.setValue(int(round(float(share) * 100)))
                 self._mix_slider.blockSignals(False)
@@ -420,9 +421,8 @@ class PreferencesView(QWidget):
     def _setup_version_prefs_section(self, vl: QVBoxLayout) -> None:
         """Build the collapsible Version Preferences section."""
         ver_hdr = QHBoxLayout()
-        # The chevron is derived from the RESTORED state, not hardcoded to
-        # "expand": now that the section remembers being open, a fixed glyph
-        # would contradict the section it labels on the next launch.
+        # The chevron is derived from the RESTORED state, not hardcoded to "expand": now that the
+        # section remembers being open, a fixed glyph would contradict it on the next launch.
         _ver_open = bool(getattr(self.config, "preferences_version_prefs_expanded", False))
         self._ver_prefs_toggle_btn = QPushButton(
             f"{self.config.collapse_icon if _ver_open else self.config.expand_icon}"
@@ -466,20 +466,26 @@ class PreferencesView(QWidget):
         add_prefix_btn.clicked.connect(self._add_version_prefix)
         prefix_btn_row.addWidget(add_prefix_btn)
 
-        rm_prefix_btn = QPushButton(self.config.close_icon)
+        rm_prefix_btn = QPushButton()
         rm_prefix_btn.setFixedWidth(28)
+        _icon_utils.set_button_icon(rm_prefix_btn, "close")
+        rm_prefix_btn.setIconSize(QSize(13, 13))
         rm_prefix_btn.setToolTip("Remove selected prefix")
         rm_prefix_btn.clicked.connect(self._remove_version_prefix)
         prefix_btn_row.addWidget(rm_prefix_btn)
 
-        up_btn = QPushButton(self.config.move_up_icon)
+        up_btn = QPushButton()
         up_btn.setFixedWidth(28)
+        _icon_utils.set_button_icon(up_btn, "move_up")
+        up_btn.setIconSize(QSize(13, 13))
         up_btn.setToolTip("Move selected prefix up (higher priority)")
         up_btn.clicked.connect(lambda: self._move_version_prefix(-1))
         prefix_btn_row.addWidget(up_btn)
 
-        dn_btn = QPushButton(self.config.move_down_icon)
+        dn_btn = QPushButton()
         dn_btn.setFixedWidth(28)
+        _icon_utils.set_button_icon(dn_btn, "move_down")
+        dn_btn.setIconSize(QSize(13, 13))
         dn_btn.setToolTip("Move selected prefix down")
         dn_btn.clicked.connect(lambda: self._move_version_prefix(1))
         prefix_btn_row.addWidget(dn_btn)
@@ -580,9 +586,8 @@ class PreferencesView(QWidget):
     def _toggle_attributes(self) -> None:
         expanded = not self._attrs_container.isVisible()
         self._attrs_container.setVisible(expanded)
-        self._toggle_attrs_btn.setText(
-            self.config.collapse_icon if expanded else self.config.expand_icon
-        )
+        _icon_utils.set_button_icon(
+            self._toggle_attrs_btn, "collapse" if expanded else "expand")
         self._toggle_attrs_btn.setToolTip(
             "Hide attribute breakdown" if expanded else "Show attribute breakdown"
         )
@@ -619,29 +624,26 @@ class PreferencesView(QWidget):
     def on_deactivate(self) -> None:
         """Mark inactive and stop the owned pool.
 
-        The pool used to be stopped only by ``MainWindow.closeEvent`` naming
-        this view as a special case — so switching AWAY from Preferences left
-        its worker running, and only quitting stopped it. A view's own
-        deactivate is where that belongs.
+        The pool used to be stopped only by ``MainWindow.closeEvent`` naming this view as a
+        special case — so switching AWAY from Preferences left its worker running, and only
+        quitting stopped it. A view's own deactivate is where that belongs.
         """
         self._active = False
         executor = self.__dict__.get("_executor")
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
-            # Null it so refresh() knows to rebuild on reactivation — a
-            # shutdown ThreadPoolExecutor raises on any further submit.
+            # Null it so refresh() rebuilds on reactivation — a dead pool raises on any submit.
             self._executor = None
 
     def refresh_theme(self) -> None:
-        """Re-apply the active palette to this view's own persistent chrome
-        styled once at construction — the "Mix" caption + mix label + the
-        Automatic button, and the Excluded/Version Preferences collapsible
-        toggles. Called from ``MainWindow.refresh_theme()``.
+        """Re-apply the active palette to this view's own persistent chrome styled once at
+        construction — the "Mix" caption + mix label + the Automatic button, and the
+        Excluded/Version Preferences collapsible toggles. Called from
+        ``MainWindow.refresh_theme()``.
 
-        Everything else (attribute columns, recommendation rows, the
-        exclusions panel) is torn down and rebuilt from current tokens on
-        every ``refresh()``/``_render()`` call, so it's already live — same
-        rationale as the channel-list row delegate.
+        Everything else (attribute columns, recommendation rows, the exclusions panel) is torn
+        down and rebuilt from current tokens on every ``refresh()``/``_render()`` call, so it is
+        already live — same rationale as the channel-list row delegate.
         """
         _theme.style(self._mix_caption_lbl, "META_HINT")
         _theme.style_fn(self._mix_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
@@ -655,22 +657,20 @@ class PreferencesView(QWidget):
         self._ver_prefs_toggle_btn.setStyleSheet(_toggle_style)
 
     def refresh(self) -> None:
-        # Inactive → drop the request outright. on_activate() always refreshes,
-        # so a cascade fire while this view is closed loses nothing — and before
-        # this guard, every provider/enrichment cascade ran the FULL preference
-        # engine (compute_weights + score_candidates over the corpus) for a
-        # dashboard nobody had open; its _bg_refresh sat in nearly every stall
-        # sample of the owner's 2026-09-03 launches. Same shape as
+        # Inactive → drop the request outright. on_activate() always refreshes, so a cascade fire
+        # while this view is closed loses nothing — and before this guard, every
+        # provider/enrichment cascade ran the FULL preference engine (compute_weights +
+        # score_candidates over the corpus) for a dashboard nobody had open; its _bg_refresh sat
+        # in nearly every stall sample of the owner's 2026-09-03 launches. Same shape as
         # recipe_view.reload()'s guard.
         if not self._active:
             return
-        # on_deactivate shuts the pool down (and nulls it); a reactivation must
-        # rebuild it or this submit raises on a dead executor.
+        # on_deactivate shuts the pool down; a reactivation must rebuild it or this submit raises.
         if self._executor is None:
             self._executor = ThreadPoolExecutor(max_workers=1)
-        # Show a loading header so the stale "No ratings yet" never displays during
-        # the (often multi-second) background load. _on_pref_data_ready → _render
-        # overwrites this on both the has-ratings and genuinely-no-ratings branches.
+        # Show a loading header so the stale "No ratings yet" never displays during the (often
+        # multi-second) background load. _on_pref_data_ready → _render overwrites this on both
+        # the has-ratings and genuinely-no-ratings branches.
         self._header_label.setText("Loading recommendations…")
         self._executor.submit(self._bg_refresh)
 
@@ -687,14 +687,12 @@ class PreferencesView(QWidget):
         session = self.db.get_session()
         try:
             weights = compute_weights(session, settings=settings)
-            # Resolve the mix here (not inside the scorer) so the dashboard can
-            # show the ratio the list was actually built with.
+            # Resolve the mix here (not in the scorer) so the dashboard shows the ratio used.
             media_share = resolve_media_share(session, settings.media_mix)
-            # recommendation_scope, not a hand-copied argument list: this call
-            # site omitted adult_mode and excluded_content_types entirely, and
-            # score_candidates defaults adult_mode="all" — so the dashboard was
-            # showing adult titles with the adult filter ON. Same defect as #493,
-            # in a surface that fix did not reach.
+            # recommendation_scope, not a hand-copied argument list: this call site omitted
+            # adult_mode and excluded_content_types entirely, and score_candidates defaults
+            # adult_mode="all" — so the dashboard showed adult titles with the adult filter ON.
+            # Same defect as #493, in a surface that fix did not reach.
             recs = score_candidates(
                 session, weights,
                 **recommendation_scope(session, self.config),

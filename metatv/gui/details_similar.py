@@ -4,9 +4,10 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QMenu, QSizePolicy,
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, QSize, Qt
 
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
@@ -90,9 +91,11 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # ⤢ — the door to the cascading-column overlay. The pane deliberately
         # shows a handful rather than all eighteen: the overlay is where you
         # browse, and this says "there are more, here is the way in".
-        self._expand_btn = QPushButton(_icons.lightbox_icon)
+        self._expand_btn = QPushButton()
         self._expand_btn.setFixedSize(20, 20)
         self._expand_btn.setFlat(True)
+        _icon_utils.set_button_icon(self._expand_btn, "lightbox")
+        self._expand_btn.setIconSize(QSize(14, 14))
         _theme.style(self._expand_btn, "DETAIL_SECTION_CHEVRON")
         cursor_affordance.set_clickable(self._expand_btn)
         self._expand_btn.setToolTip("Browse all similar titles in the preview overlay")
@@ -171,10 +174,12 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         idx = self._channel_ids.index(v.channel_id)
 
         # 1. Play button
-        play_btn = QPushButton(_icons.play_icon)
+        play_btn = QPushButton()
         play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
-        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_TEXT}; }} {_icon_btn()}")
+        play_btn.setStyleSheet(_icon_btn())
+        _icon_utils.set_button_icon(play_btn, "play", color=_theme.COLOR_TEXT)
+        play_btn.setIconSize(QSize(13, 13))
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
@@ -261,32 +266,35 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         _theme.style_fn(year_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         row.addWidget(year_lbl)
 
-        # 8. Favorite toggle
+        # 8. Favorite toggle — colour alone carries state here (shape stays the
+        # solid star); see ledger F13 row for the sibling shape+colour convention.
         fav_color = _theme.COLOR_GOLD if v.is_favorite else _theme.COLOR_FAINT
-        fav_btn = QPushButton(_icons.favorite_icon)
+        fav_btn = QPushButton()
         fav_btn.setFixedSize(22, 20)
         fav_btn.setFlat(True)
-        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_icon_btn()}")
+        fav_btn.setStyleSheet(_icon_btn())
+        _icon_utils.set_button_icon(fav_btn, "favorite", color=fav_color)
+        fav_btn.setIconSize(QSize(13, 13))
         fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
         row.addWidget(fav_btn)
 
         # 9. Queue toggle — optimistic: flips icon/color on click without waiting for DB roundtrip
-        q_icon = _icons.watched_icon if v.in_queue else _icons.queue_icon
+        q_role = "watched" if v.in_queue else "queue"
         q_color = _theme.COLOR_ACCENT_BLUE if v.in_queue else _theme.COLOR_FAINT
-        queue_btn = QPushButton(q_icon)
+        queue_btn = QPushButton()
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
-        queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_icon_btn()}")
+        queue_btn.setStyleSheet(_icon_btn())
+        _icon_utils.set_button_icon(queue_btn, q_role, color=q_color)
+        queue_btn.setIconSize(QSize(13, 13))
         queue_btn.setToolTip("Remove from Watch Later" if v.in_queue else "Add to Watch Later")
 
         def _on_queue_click(_checked=False, _btn=queue_btn, _v=v):
-            # _checked absorbs the bool QPushButton.clicked emits — without it
-            # the bool binds to the first param (_btn) and _btn.setText crashes.
+            # _checked absorbs the bool QPushButton.clicked emits.
             _v.in_queue = not _v.in_queue
-            _btn.setText(_icons.watched_icon if _v.in_queue else _icons.queue_icon)
             _c = _theme.COLOR_ACCENT_BLUE if _v.in_queue else _theme.COLOR_FAINT
-            _btn.setStyleSheet(f"QPushButton {{ color: {_c}; }} {_icon_btn()}")
+            _icon_utils.set_button_icon(_btn, "watched" if _v.in_queue else "queue", color=_c)
             _btn.setToolTip("Remove from Watch Later" if _v.in_queue else "Add to Watch Later")
             self.queue_toggled.emit(_v.channel_id)
 

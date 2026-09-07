@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -145,10 +146,8 @@ class ToggleChip(QPushButton):
         if self._vector_role:
             from PyQt6.QtCore import QSize
             from metatv.gui import icon_utils as _icon_utils
-            from metatv.gui import icons as _icons_mod
             colour = _theme.COLOR_ON_ACCENT if on else _theme.COLOR_TEXT
-            self.setIcon(_icon_utils.resolve_icon(
-                _icons_mod.vector_key(self._vector_role), color=colour))
+            _icon_utils.set_button_icon(self, self._vector_role, color=colour)
             self.setIconSize(QSize(14, 14))
         return sheet
 
@@ -185,7 +184,7 @@ class ToggleChip(QPushButton):
             # A segmented cell shows its state by filling edge to edge — a
             # shape cue, not a colour one — so it does not also need the dot
             # the free-standing pill uses.
-            self.setText(label_text if segmented else f"{label_text} ●")
+            self.setText(label_text if segmented else f"{label_text} {_icons.status_dot_icon}")
             _theme.style_fn(self, lambda: self._tinted(True, f"""
                 QPushButton {{
                     background-color: {_theme.COLOR_ACCENT};
@@ -196,7 +195,7 @@ class ToggleChip(QPushButton):
                 QPushButton:hover {{ background-color: {_theme.COLOR_ACCENT_HOVER}; }}
             """))
         else:
-            self.setText(label_text if segmented else f"{label_text} ○")
+            self.setText(label_text if segmented else f"{label_text} {_icons.inactive_dot_icon}")
             # Both token reads happen INSIDE the builder. Hoisting them here
             # would bake the current palette's hex into the closure, and the
             # re-invocation on a theme switch would hand back the old colours —
@@ -266,11 +265,11 @@ class FilterChip(ToggleChip):
         self.set_enabled(has_filters)
         self.blockSignals(False)
         if has_filters and paused:
-            self.setText(f"{self.label} ●")
+            self.setText(f"{self.label} {_icons.status_dot_icon}")
             _theme.style(self, "EXCL_CHIP_PAUSED")
             self.setToolTip("Filters paused — click to resume · right-click to edit")
         elif has_filters:
-            self.setText(f"{self.label} ●")
+            self.setText(f"{self.label} {_icons.status_dot_icon}")
             _theme.style(self, "EXCL_CHIP_ACTIVE")
             self.setToolTip("Filters active — click to pause · right-click to edit")
         else:
@@ -312,7 +311,7 @@ class FilterDropdown(QPushButton):
         self.groups = groups
         self.selected_groups: set = set(groups.keys()) if all_selected else set()
 
-        self.setText(f"{label} ▼")
+        self.setText(f"{label} {_icons.dropdown_caret_icon}")
         _theme.style(self, "FILTER_CONTROL_BTN")
 
         self.menu = QMenu(self)
@@ -393,11 +392,11 @@ class FilterDropdown(QPushButton):
         total = len(self.groups)
         selected = len(self.selected_groups)
         if selected == total:
-            self.setText(f"{self.label} ▼")
+            self.setText(f"{self.label} {_icons.dropdown_caret_icon}")
         elif selected == 0:
-            self.setText(f"{self.label} (None) ▼")
+            self.setText(f"{self.label} (None) {_icons.dropdown_caret_icon}")
         else:
-            self.setText(f"{self.label} ({selected}/{total}) ▼")
+            self.setText(f"{self.label} ({selected}/{total}) {_icons.dropdown_caret_icon}")
 
     def get_selected(self) -> List[str]:
         return list(self.selected_groups)

@@ -6,13 +6,14 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel,
     QMenu, QLineEdit, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
@@ -108,9 +109,8 @@ class _CategoryNamePopup(QFrame):
         self._edit.setMinimumWidth(160)
         self._edit.returnPressed.connect(self._on_save)
         layout.addWidget(self._edit)
-        save_btn = QPushButton(config.watched_icon)
+        save_btn = _icon_utils.icon_button("watched", "Save category name")
         save_btn.setFixedSize(28, 28)
-        save_btn.setToolTip("Save category name")
         save_btn.clicked.connect(self._on_save)
         layout.addWidget(save_btn)
         self._prefix = prefix
@@ -272,11 +272,11 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._filtered_section.hide()
         self._filtered_collapsed = True
         self._filtered_chips_row.hide()
-        self._filtered_toggle_btn.setText(_icons.expand_icon)
+        _icon_utils.set_button_icon(self._filtered_toggle_btn, "expand")
         self._offline_section.hide()
         self._offline_collapsed = True
         self._offline_chips_row.hide()
-        self._offline_toggle_btn.setText(_icons.expand_icon)
+        _icon_utils.set_button_icon(self._offline_toggle_btn, "expand")
 
         if not versions:
             return
@@ -519,10 +519,11 @@ class _VersionSection(CollapsibleMixin, QWidget):
         header_layout.setContentsMargins(0, 2, 0, 2)
         header_layout.setSpacing(4)
 
-        toggle_btn = QPushButton(_icons.expand_icon)
+        toggle_btn = QPushButton()
         toggle_btn.setFixedSize(20, 20)
-        _theme.style_fn(toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
+        _icon_utils.set_button_icon(toggle_btn, "expand")
+        toggle_btn.setIconSize(QSize(13, 13))
+        toggle_btn.setStyleSheet("QPushButton { border: none; }")
         toggle_btn.setToolTip(tooltip)
         toggle_btn.clicked.connect(on_toggle)
         header_layout.addWidget(toggle_btn)
@@ -552,8 +553,8 @@ class _VersionSection(CollapsibleMixin, QWidget):
         """Expand/collapse OFFLINE SOURCES."""
         self._offline_collapsed = not self._offline_collapsed
         self._offline_chips_row.setVisible(not self._offline_collapsed)
-        self._offline_toggle_btn.setText(
-            _icons.expand_icon if self._offline_collapsed else _icons.collapse_icon
+        _icon_utils.set_button_icon(
+            self._offline_toggle_btn, "expand" if self._offline_collapsed else "collapse"
         )
 
     def _toggle_filtered_section(self) -> None:
@@ -564,8 +565,8 @@ class _VersionSection(CollapsibleMixin, QWidget):
         # gets the correct height (the layout may have cached 0 while collapsed).
         if not self._filtered_collapsed:
             self._filtered_chips_row.updateGeometry()
-        self._filtered_toggle_btn.setText(
-            _icons.expand_icon if self._filtered_collapsed else _icons.collapse_icon
+        _icon_utils.set_button_icon(
+            self._filtered_toggle_btn, "expand" if self._filtered_collapsed else "collapse"
         )
 
     # ------------------------------------------------------------------ #

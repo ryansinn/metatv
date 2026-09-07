@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
@@ -97,9 +98,9 @@ class WhatsNewDialog(QDialog):
         nav_layout.setContentsMargins(16, 8, 16, 8)
         nav_layout.setSpacing(8)
 
-        self._btn_newer = QPushButton(_icons.nav_prev_icon)
-        _theme.style(self._btn_newer, "WHATS_NEW_NAV_BTN")
-        self._btn_newer.setToolTip("Newer")
+        self._btn_newer = _icon_utils.icon_button(
+            "nav_prev", "Newer", style="WHATS_NEW_NAV_BTN"
+        )
         self._btn_newer.setFixedWidth(44)
         self._btn_newer.clicked.connect(self._go_newer)
 
@@ -107,9 +108,9 @@ class WhatsNewDialog(QDialog):
         _theme.style(self._pos_label, "WHATS_NEW_POS_LABEL")
         self._pos_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._btn_older = QPushButton(_icons.nav_next_icon)
-        _theme.style(self._btn_older, "WHATS_NEW_NAV_BTN")
-        self._btn_older.setToolTip("Older")
+        self._btn_older = _icon_utils.icon_button(
+            "nav_next", "Older", style="WHATS_NEW_NAV_BTN"
+        )
         self._btn_older.setFixedWidth(44)
         self._btn_older.clicked.connect(self._go_older)
 

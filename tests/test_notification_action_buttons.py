@@ -38,8 +38,10 @@ def card(qapp):
 
 
 def _action_buttons(card):
-    return [b for b in card.findChildren(QPushButton)
-            if b.text() and b.text() != "×"]
+    # ICON-1: the × dismiss button is icon-only now (icon_utils.icon_button),
+    # so its text is always "" and no longer needs excluding by comparison —
+    # any button with real text is an action button.
+    return [b for b in card.findChildren(QPushButton) if b.text()]
 
 
 def test_every_action_button_is_wide_enough_for_its_label(card):
@@ -104,8 +106,11 @@ def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp
     assert [b.text() for b in _action_buttons(card)] == ["Watch", "Stop"]
     # dismissible=False → no × close button, but the actions still render —
     # the ONLY way to end a persistent card is Stop (or the recording itself
-    # finishing), never an accidental close.
-    assert not any(b.text() == "×" for b in card.findChildren(QPushButton))
+    # finishing), never an accidental close. The close button is icon-only
+    # (text always ""), so its tooltip is what still identifies it.
+    assert not any(
+        b.toolTip() == "Dismiss this notification" for b in card.findChildren(QPushButton)
+    )
 
 
 def test_keep_open_action_survives_its_own_click_the_default_does_not(qapp):

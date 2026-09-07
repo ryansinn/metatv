@@ -13,7 +13,6 @@ from loguru import logger
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.chip_row import DENSITIES, DENSITY_COMPACT, ROW_SPACING
@@ -787,9 +786,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         # A vector glyph, not the "⋯" character: at 22x20 with the header's
         # font size the text form renders as a single faint dot.
         self._overflow_btn = QPushButton()
-        self._overflow_btn.setIcon(_icon_utils.resolve_icon(
-            _icons.vector_key("more"), _theme.COLOR_TEXT
-        ))
+        _icon_utils.set_button_icon(self._overflow_btn, "more", color=_theme.COLOR_TEXT)
         self._overflow_btn.setIconSize(QSize(14, 14))
         self._overflow_btn.setFixedSize(22, 20)   # structural — matches PANEL_BTN peers
         self._overflow_btn.setFlat(True)
@@ -807,9 +804,7 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         if only is not None and only.icon and not only.destructive:
             label, tooltip, slot, key = only.label, only.tooltip, only.run, only.icon
             self._overflow_btn.setText("")
-            self._overflow_btn.setIcon(_icon_utils.resolve_icon(
-                _icons.vector_key(key), _theme.COLOR_TEXT
-            ))
+            _icon_utils.set_button_icon(self._overflow_btn, key, color=_theme.COLOR_TEXT)
             self._overflow_btn.setIconSize(QSize(14, 14))
             self._overflow_btn.setToolTip(tooltip)
             self._overflow_btn.clicked.connect(slot)
@@ -979,18 +974,15 @@ class CollapsibleSection(RowBudgetMixin, SectionContentCapMixin,
         """
         if not self.EXPLORE_KEY:
             return None
-        # Local imports: explore_view pulls in the trail-map widget, and the sidebar
+        # Local import: explore_view pulls in the trail-map widget, and the sidebar
         # package is imported while MainWindow is still being built.
-        from metatv.gui import icons as _icons
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
         # The ARROW, not the columns glyph. Spec item 14 calls this "→
         # escalation" and the render draws an arrow; `explore_columns_icon` (⤢)
         # was describing the destination's layout instead of the action.
         btn = QPushButton()
-        btn.setIcon(_icon_utils.resolve_icon(
-            _icons.vector_key("explore"), _theme.COLOR_ACCENT_BLUE
-        ))
+        _icon_utils.set_button_icon(btn, "explore", color=_theme.COLOR_ACCENT_BLUE)
         btn.setIconSize(QSize(14, 14))
         btn.setFlat(True)
         btn.setFixedSize(22, 20)  # structural — aligns with the other header buttons

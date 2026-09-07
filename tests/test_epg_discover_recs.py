@@ -114,8 +114,6 @@ class TestMakeRecommendationItem:
 
     def test_play_button_exists_and_calls_play_channel(self, qapp, file_db):
         """A play button must exist and clicking it calls _play_channel(channel_db_id)."""
-        from metatv.gui import icons as _icons
-
         view = _make_view(qapp, file_db)
         calls_play: list[str] = []
         view._play_channel = lambda cid: calls_play.append(cid)
@@ -124,10 +122,13 @@ class TestMakeRecommendationItem:
 
         from PyQt6.QtWidgets import QPushButton
         btns = widget.findChildren(QPushButton)
-        play_btn = next((b for b in btns if b.text() == _icons.play_icon), None)
+        # ICON-1: the play button is icon-only (icon_utils.icon_button), so its
+        # text is always "" — the tooltip is what still identifies it.
+        play_btn = next((b for b in btns if b.toolTip() == "Play this channel"), None)
         assert play_btn is not None, (
-            f"Play button not found; buttons: {[b.text() for b in btns]}"
+            f"Play button not found; buttons: {[(b.text(), b.toolTip()) for b in btns]}"
         )
+        assert not play_btn.icon().isNull()
         play_btn.click()
         assert calls_play == ["ch-99"]
 

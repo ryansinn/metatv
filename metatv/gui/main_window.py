@@ -58,6 +58,7 @@ from metatv.gui.sidebar.recordings import RecordingsSection
 from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
 from metatv.gui.sources_manager_view import SourcesManagerView
 from metatv.gui import settings_apply as _settings_apply
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
@@ -1385,11 +1386,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._context_filter_label = QLabel()
         _theme.style(self._context_filter_label, "CONTEXT_FILTER_CHIP_LABEL")
         _cfc_layout.addWidget(self._context_filter_label)
-        self._context_filter_dismiss_btn = QPushButton("✕")
+        self._context_filter_dismiss_btn = _icon_utils.icon_button(
+            "close", "Clear filter", style="CONTEXT_FILTER_CHIP_BTN", px=12
+        )
         self._context_filter_dismiss_btn.setFixedSize(16, 16)
-        self._context_filter_dismiss_btn.setFlat(True)
-        self._context_filter_dismiss_btn.setToolTip("Clear filter")
-        _theme.style(self._context_filter_dismiss_btn, "CONTEXT_FILTER_CHIP_BTN")
         self._context_filter_dismiss_btn.clicked.connect(self._clear_context_filter)
         _cfc_layout.addWidget(self._context_filter_dismiss_btn)
         controls_layout.addWidget(self._context_filter_chip)

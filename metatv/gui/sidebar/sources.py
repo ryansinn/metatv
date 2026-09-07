@@ -1,10 +1,11 @@
 """Sources sidebar section — provider list with refresh/edit/toggle actions."""
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.epg_utils import to_local as _to_local
 from metatv.gui import theme as _theme
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 
 
@@ -90,13 +91,13 @@ class ProviderItemWidget(QWidget):
 
         # Status dot — green=active, red=expired, grey=inactive
         if is_expired:
-            dot_char = "●"
+            dot_char = _icons.status_dot_icon
             dot_color = _theme.COLOR_ERR
         elif is_active:
-            dot_char = "●"
+            dot_char = _icons.status_dot_icon
             dot_color = _theme.COLOR_OK
         else:
-            dot_char = "○"
+            dot_char = _icons.inactive_dot_icon
             dot_color = _theme.COLOR_MUTED_2
         self._status_lbl = QLabel(dot_char)
         self._status_lbl.setFixedWidth(12)
@@ -107,9 +108,10 @@ class ProviderItemWidget(QWidget):
 
         if show_actions:
             # EPG freshness indicator — colored by state; click to refresh EPG for this source.
-            self._epg_btn = QPushButton(_icons.epg_indicator_icon)
+            self._epg_btn = QPushButton()
             self._epg_btn.setFixedSize(16, 20)
             self._epg_btn.setFlat(True)
+            self._epg_btn.setIconSize(QSize(13, 13))
             self._epg_btn.clicked.connect(lambda: self.epgRefreshClicked.emit(self.provider_id))
             layout.addWidget(self._epg_btn)
             self.set_epg_state(epg_state, epg_tooltip)
@@ -148,34 +150,45 @@ class ProviderItemWidget(QWidget):
         )
 
         # Toggle (enable/disable)
-        self._toggle_btn = QPushButton("●" if is_active else "○")
+        self._toggle_btn = QPushButton()
         self._toggle_btn.setFixedSize(22, 20)
         self._toggle_btn.setToolTip("Enable / Disable this source")
         self._toggle_btn.setStyleSheet(_btn_style.format(r=180, g=180, b=180))
+        _icon_utils.set_button_icon(
+            self._toggle_btn, "status_dot" if is_active else "inactive_dot",
+            color=_theme.COLOR_TEXT_HI,
+        )
+        self._toggle_btn.setIconSize(QSize(13, 13))
         self._toggle_btn.clicked.connect(lambda: self.toggleClicked.emit(self.provider_id))
         layout.addWidget(self._toggle_btn)
 
         # Edit pencil (teal/cyan for edit action)
-        edit_btn = QPushButton("✎")
+        edit_btn = QPushButton()
         edit_btn.setFixedSize(22, 20)
         edit_btn.setToolTip("Edit source settings")
         edit_btn.setStyleSheet(_btn_style.format(r=80, g=200, b=180))
+        _icon_utils.set_button_icon(edit_btn, "edit", color=_theme.COLOR_TEXT_HI)
+        edit_btn.setIconSize(QSize(13, 13))
         edit_btn.clicked.connect(lambda: self.editClicked.emit(self.provider_id))
         layout.addWidget(edit_btn)
 
         # Analyze (purple for analytics)
-        analyze_btn = QPushButton(_icons.analyze_icon)
+        analyze_btn = QPushButton()
         analyze_btn.setFixedSize(22, 20)
         analyze_btn.setToolTip("Analyze source overlap and content")
         analyze_btn.setStyleSheet(_btn_style.format(r=200, g=100, b=255))
+        _icon_utils.set_button_icon(analyze_btn, "analyze", color=_theme.COLOR_TEXT_HI)
+        analyze_btn.setIconSize(QSize(13, 13))
         analyze_btn.clicked.connect(lambda: self.analyzeClicked.emit(self.provider_id))
         layout.addWidget(analyze_btn)
 
         # Refresh (blue — action button)
-        refresh_btn = QPushButton("↻")
+        refresh_btn = QPushButton()
         refresh_btn.setFixedSize(22, 20)
         refresh_btn.setToolTip("Refresh channels from source")
         refresh_btn.setStyleSheet(_btn_style.format(r=68, g=136, b=255))
+        _icon_utils.set_button_icon(refresh_btn, "refresh", color=_theme.COLOR_TEXT_HI)
+        refresh_btn.setIconSize(QSize(13, 13))
         refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
 
@@ -186,11 +199,14 @@ class ProviderItemWidget(QWidget):
 
     def update_active(self, is_active: bool):
         self._is_active = is_active
-        self._status_lbl.setText("●" if is_active else "○")
+        self._status_lbl.setText(_icons.status_dot_icon if is_active else _icons.inactive_dot_icon)
         dot_color = _theme.COLOR_OK if is_active else _theme.COLOR_MUTED_2
         self._status_lbl.setStyleSheet(f"color: {dot_color};")
         if self._toggle_btn is not None:
-            self._toggle_btn.setText("●" if is_active else "○")
+            _icon_utils.set_button_icon(
+                self._toggle_btn, "status_dot" if is_active else "inactive_dot",
+                color=_theme.COLOR_TEXT_HI,
+            )
 
     def set_busy(self, busy: bool) -> None:
         """Disable the row's action buttons and show a spinner on the toggle while a
@@ -204,10 +220,13 @@ class ProviderItemWidget(QWidget):
         for btn in self._action_btns:
             btn.setEnabled(not busy)
         if busy:
-            self._toggle_btn.setText(_icons.loading_icon)
+            _icon_utils.set_button_icon(self._toggle_btn, "loading", color=_theme.COLOR_TEXT_HI)
             self._toggle_btn.setToolTip("Updating…")
         else:
-            self._toggle_btn.setText("●" if self._is_active else "○")
+            _icon_utils.set_button_icon(
+                self._toggle_btn, "status_dot" if self._is_active else "inactive_dot",
+                color=_theme.COLOR_TEXT_HI,
+            )
             self._toggle_btn.setToolTip("Enable / Disable this source")
 
     def set_epg_state(self, state: str, tooltip: str) -> None:
@@ -220,11 +239,9 @@ class ProviderItemWidget(QWidget):
             return
         color = _epg_state_color().get(state, _theme.COLOR_FAINT)
         self._epg_btn.setEnabled(True)
-        self._epg_btn.setText(_icons.epg_indicator_icon)
+        _icon_utils.set_button_icon(self._epg_btn, "epg_indicator", color=color)
         self._epg_btn.setStyleSheet(
-            f"QPushButton {{ color: {color}; border: none; background: transparent;"
-            f" font-size: {_theme.FONT_MD}; }}"
-            f" QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+            "QPushButton { border: none; background: transparent; }"
         )
         self._epg_btn.setToolTip(tooltip)
 
@@ -235,7 +252,7 @@ class ProviderItemWidget(QWidget):
         if self._epg_btn is None:
             return
         if busy:
-            self._epg_btn.setText(_icons.loading_icon)
+            _icon_utils.set_button_icon(self._epg_btn, "loading", color=_theme.COLOR_FAINT)
             self._epg_btn.setEnabled(False)
             self._epg_btn.setToolTip("Refreshing EPG…")
         else:

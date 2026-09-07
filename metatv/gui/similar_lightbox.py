@@ -29,7 +29,7 @@ from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from metatv.core.channel_name_utils import quality_display
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.similar_lightbox_card import _LightboxCard
 
@@ -172,7 +172,7 @@ class SimilarTitleLightbox(QWidget):
         row.setSpacing(12)
         row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._prev_chev = self._make_chevron(_icons.nav_prev_icon, "Previous similar title (←)")
+        self._prev_chev = self._make_chevron("nav_prev", "Previous similar title (←)")
         self._prev_chev.clicked.connect(self._go_prev)
         row.addWidget(self._prev_chev, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -204,7 +204,7 @@ class SimilarTitleLightbox(QWidget):
         self._card.poster_expand_requested.connect(self.poster_expand_requested)
         row.addWidget(self._card, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._next_chev = self._make_chevron(_icons.nav_next_icon, "Next similar title (→)")
+        self._next_chev = self._make_chevron("nav_next", "Next similar title (→)")
         self._next_chev.clicked.connect(self._go_next)
         row.addWidget(self._next_chev, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -212,12 +212,11 @@ class SimilarTitleLightbox(QWidget):
         row_w.setLayout(row)
         outer.addWidget(row_w)
 
-    def _make_chevron(self, glyph: str, tip: str) -> QPushButton:
-        btn = QPushButton(glyph)
+    def _make_chevron(self, role: str, tip: str) -> QPushButton:
+        btn = _icon_utils.icon_button(role, tip, style="LIGHTBOX_CHEVRON", px=20)
+        _icon_utils.set_button_icon(btn, role, color=_theme.COLOR_LIGHTBOX_MUTED)
         btn.setFixedSize(44, 44)
         btn.setFlat(True)
-        _theme.style(btn, "LIGHTBOX_CHEVRON")
-        btn.setToolTip(tip)
         return btn
 
     # ------------------------------------------------------------------ #

@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 if TYPE_CHECKING:
     pass
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
@@ -299,11 +300,12 @@ class _LightboxCard(QFrame):
         self._explore_btn.clicked.connect(self.explore_clicked)
         row.addWidget(self._explore_btn)
 
-        close_btn = QPushButton(_icons.close_icon)
+        close_btn = _icon_utils.icon_button(
+            "close", "Close preview (Esc)", style="LIGHTBOX_CLOSE_BTN"
+        )
+        _icon_utils.set_button_icon(close_btn, "close", color=_theme.COLOR_LIGHTBOX_MUTED)
         close_btn.setFlat(True)
         close_btn.setFixedSize(24, 24)
-        _theme.style(close_btn, "LIGHTBOX_CLOSE_BTN")
-        close_btn.setToolTip("Close preview (Esc)")
         close_btn.clicked.connect(self.close_clicked)
         row.addWidget(close_btn)
 
@@ -422,17 +424,17 @@ class _LightboxCard(QFrame):
         rate_row = QHBoxLayout()
         rate_row.setContentsMargins(0, 10, 0, 0)
         rate_row.setSpacing(6)
-        self._like_btn = self._make_rating_btn(_icons.like_icon, "Like")
+        self._like_btn = self._make_rating_btn("like", "Like")
         self._like_btn.clicked.connect(lambda: self.rating_clicked.emit(1))
         rate_row.addWidget(self._like_btn)
         self._not_interested_btn = self._make_rating_btn(
-            _icons.not_interested_icon, "Not Interested (suppress from recommendations)"
+            "not_interested", "Not Interested (suppress from recommendations)"
         )
         self._not_interested_btn.clicked.connect(
             lambda checked: self.suppression_toggled.emit(checked)
         )
         rate_row.addWidget(self._not_interested_btn)
-        self._dislike_btn = self._make_rating_btn(_icons.dislike_icon, "Dislike")
+        self._dislike_btn = self._make_rating_btn("dislike", "Dislike")
         self._dislike_btn.clicked.connect(lambda: self.rating_clicked.emit(-1))
         rate_row.addWidget(self._dislike_btn)
         rate_row.addStretch()
@@ -469,13 +471,10 @@ class _LightboxCard(QFrame):
         self._build_versions_column(hero)
         body.addLayout(hero)
 
-    def _make_rating_btn(self, glyph: str, tip: str) -> QPushButton:
-        btn = QPushButton(glyph)
-        btn.setCheckable(True)
+    def _make_rating_btn(self, role: str, tip: str) -> QPushButton:
+        btn = _icon_utils.icon_button(role, tip, style="RATING_BTN", checkable=True)
         btn.setFixedSize(38, 32)
         btn.setFlat(True)
-        btn.setToolTip(tip)
-        _theme.style(btn, "RATING_BTN")
         return btn
 
     def _on_poster_clicked(self) -> None:

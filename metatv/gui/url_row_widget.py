@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.models import ProviderURL
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -132,12 +133,12 @@ class URLRowWidget(QWidget):
         # so evidence always overrode it).
         order_col = QVBoxLayout()
         order_col.setSpacing(1)
-        self._try_first_btn = QPushButton(_icons.try_first_icon)
+        self._try_first_btn = _icon_utils.icon_button(
+            "try_first", "Try this URL first on the next connection",
+            style="URL_TRY_FIRST_BTN", checkable=True,
+        )
         self._try_first_btn.setFixedSize(24, 24)
-        self._try_first_btn.setCheckable(True)
         self._try_first_btn.setChecked(provider_url.try_first)
-        self._try_first_btn.setToolTip("Try this URL first on the next connection")
-        _theme.style(self._try_first_btn, "URL_TRY_FIRST_BTN")
         self._try_first_btn.clicked.connect(self.tryFirstToggled)
         if pending_remove:
             self._try_first_btn.hide()
@@ -204,10 +205,10 @@ class URLRowWidget(QWidget):
             undo_btn.clicked.connect(self.restored)
             layout.addWidget(undo_btn)
         else:
-            rm_btn = QPushButton(_icons.close_icon)
+            rm_btn = _icon_utils.icon_button(
+                "close", "Remove this URL", style="URL_REMOVE_BTN"
+            )
             rm_btn.setFixedSize(24, 24)
-            rm_btn.setToolTip("Remove this URL")
-            _theme.style(rm_btn, "URL_REMOVE_BTN")
             rm_btn.clicked.connect(self.removed)
             layout.addWidget(rm_btn)
 

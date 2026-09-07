@@ -18,12 +18,12 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.recipe_widgets import _facet_chip_style, _facet_color
@@ -78,9 +78,9 @@ class _SavedRecipeCard(QFrame):
         self._name_edit.editingFinished.connect(self._on_rename)
         title_row.addWidget(self._name_edit, stretch=1)
 
-        del_btn = QPushButton(_icons.delete_icon)
-        _theme.style(del_btn, "RECIPE_SAVED_ICON_BTN")
-        del_btn.setToolTip("Delete this saved recipe")
+        del_btn = _icon_utils.icon_button(
+            "delete", "Delete this saved recipe", style="RECIPE_SAVED_ICON_BTN"
+        )
         cursor_affordance.set_clickable(del_btn, True)
         del_btn.clicked.connect(lambda: self.deleteRequested.emit(self._index))
         title_row.addWidget(del_btn, alignment=Qt.AlignmentFlag.AlignTop)

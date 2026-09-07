@@ -746,27 +746,37 @@ def test_toggle_filtered_section_shows_and_hides_chips(qapp):
     assert section._filtered_collapsed is True
 
 
+def _icon_bytes(btn) -> bytes:
+    """Raw pixel bytes of *btn*'s current icon, for "did it actually repaint"."""
+    image = btn.icon().pixmap(btn.iconSize()).toImage()
+    return image.bits().asstring(image.sizeInBytes())
+
+
 def test_toggle_button_icon_swaps_on_toggle(qapp):
-    """The toggle button text alternates between expand_icon and collapse_icon."""
-    from metatv.gui import icons as _icons
+    """The toggle button's icon alternates between expand and collapse glyphs.
+
+    ICON-1 moved this off ``.setText()`` onto ``icon_utils.set_button_icon``
+    (a real QIcon, never button text — a colour emoji as TEXT crops in a
+    fixed-size button), so the swap is asserted on the rendered pixel bytes.
+    """
     section = _make_version_section(qapp)
     section.load(_make_mixed_versions())
 
     # Default: collapsed → expand icon
-    assert section._filtered_toggle_btn.text() == _icons.expand_icon, (
-        f"Toggle button must show expand_icon when collapsed, got {section._filtered_toggle_btn.text()!r}"
-    )
+    assert section._filtered_toggle_btn.text() == ""
+    collapsed_bytes = _icon_bytes(section._filtered_toggle_btn)
 
     # After expand
     section._filtered_toggle_btn.click()
-    assert section._filtered_toggle_btn.text() == _icons.collapse_icon, (
-        f"Toggle button must show collapse_icon when expanded, got {section._filtered_toggle_btn.text()!r}"
+    expanded_bytes = _icon_bytes(section._filtered_toggle_btn)
+    assert expanded_bytes != collapsed_bytes, (
+        "Toggle button icon must repaint when expanded"
     )
 
     # After collapse again
     section._filtered_toggle_btn.click()
-    assert section._filtered_toggle_btn.text() == _icons.expand_icon, (
-        f"Toggle button must revert to expand_icon when re-collapsed, got {section._filtered_toggle_btn.text()!r}"
+    assert _icon_bytes(section._filtered_toggle_btn) == collapsed_bytes, (
+        "Toggle button must revert to the expand glyph when re-collapsed"
     )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -15,6 +15,7 @@ from metatv.gui.chunked_construction import ChunkHandle, build_chunked
 from metatv.gui.discover_card import _ContentCard, card_metrics
 from metatv.gui.discover_workers import _RECIPE_PREFIX
 from metatv.gui import cursor_affordance
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -118,25 +119,32 @@ class _Shelf(QWidget):
         # editable title (locked design: stays consistent with every other
         # shelf); this is the one control that opens the recipe editor.
         if self._is_recipe:
-            self._edit_btn = QPushButton(_icons.recipe_edit_icon)
+            self._edit_btn = QPushButton()
             self._edit_btn.setFixedSize(24, 22)
             self._edit_btn.setFlat(True)
             self._edit_btn.setStyleSheet(btn_ss)
+            _icon_utils.set_button_icon(self._edit_btn, "recipe_edit")
+            self._edit_btn.setIconSize(QSize(13, 13))
             self._edit_btn.setToolTip("Edit this recipe")
             self._edit_btn.clicked.connect(lambda: self.editRequested.emit(self._shelf_key))
             header.addWidget(self._edit_btn)
 
-        self._pin_btn = QPushButton(config.pin_icon)
+        self._pin_btn = QPushButton()
         self._pin_btn.setFixedSize(24, 22)
         self._pin_btn.setFlat(True)
         self._pin_btn.setStyleSheet(btn_ss)
+        _icon_utils.set_button_icon(self._pin_btn, "pin")
+        self._pin_btn.setIconSize(QSize(13, 13))
+        self._pin_btn.setToolTip("Unpin" if self._pinned else "Pin to top")
         self._pin_btn.clicked.connect(self._on_pin_clicked)
         header.addWidget(self._pin_btn)
 
-        self._hide_btn = QPushButton(config.hide_icon)
+        self._hide_btn = QPushButton()
         self._hide_btn.setFixedSize(24, 22)
         self._hide_btn.setFlat(True)
         self._hide_btn.setStyleSheet(btn_ss)
+        _icon_utils.set_button_icon(self._hide_btn, "hide")
+        self._hide_btn.setIconSize(QSize(13, 13))
         self._hide_btn.clicked.connect(lambda: self.hideRequested.emit(self._shelf_key))
         self._hide_btn.setToolTip("Hide this shelf")
         header.addWidget(self._hide_btn)
@@ -144,10 +152,13 @@ class _Shelf(QWidget):
         # collapse_btn is added LAST so it is always the rightmost control.
         # pin_btn and hide_btn are hover-revealed to its left — this prevents the
         # expand click target from shifting when the hover controls appear (D3).
-        self._collapse_btn = QPushButton(config.collapse_icon)
+        self._collapse_btn = QPushButton()
         self._collapse_btn.setFixedSize(24, 22)
         self._collapse_btn.setFlat(True)
         self._collapse_btn.setStyleSheet(btn_ss)
+        _icon_utils.set_button_icon(self._collapse_btn, "expand" if self._collapsed else "collapse")
+        self._collapse_btn.setIconSize(QSize(13, 13))
+        self._collapse_btn.setToolTip("Expand" if self._collapsed else "Collapse")
         self._collapse_btn.clicked.connect(self._on_collapse_clicked)
         header.addWidget(self._collapse_btn)
 
@@ -176,19 +187,15 @@ class _Shelf(QWidget):
         # affordance at rest and a scrollable row reads as the whole content.
         # A real control behaves identically on every platform, which is why
         # this is a button rather than a forced-visible scrollbar.
-        self._page_left = QPushButton(_icons.nav_prev_icon, scroll)
-        self._page_left.setToolTip("Scroll left")
-        self._page_right = QPushButton(_icons.nav_next_icon, scroll)
-        self._page_right.setToolTip("Scroll right")
-        # Set at construction, not in the loop below: the icon-only-button guard
-        # reads the AST and looks for setToolTip beside the QPushButton it is
-        # judging, so a tooltip applied through a loop variable is invisible to
-        # it — and an icon-only control with no tooltip is exactly what it
-        # exists to catch.
+        self._page_left = _icon_utils.icon_button(
+            "nav_prev", "Scroll left", style="DISCOVER_SHELF_PAGE_BTN", px=13, parent=scroll
+        )
+        self._page_right = _icon_utils.icon_button(
+            "nav_next", "Scroll right", style="DISCOVER_SHELF_PAGE_BTN", px=13, parent=scroll
+        )
         for _btn in (self._page_left, self._page_right):
             _btn.setFixedWidth(24)
             _btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            _theme.style(_btn, "DISCOVER_SHELF_PAGE_BTN")
             cursor_affordance.set_clickable(_btn)
             _btn.hide()
         self._page_left.clicked.connect(lambda: self._page(-1))
@@ -351,21 +358,15 @@ class _Shelf(QWidget):
             self._edit_btn.setVisible(not self._collapsed)
 
         if self._collapsed:
-            self._collapse_btn.setText(self._config.expand_icon)
+            _icon_utils.set_button_icon(self._collapse_btn, "expand", color=_theme.COLOR_DIM_2)
             self._collapse_btn.setToolTip("Expand")
-            _theme.style_fn(self._collapse_btn, lambda: "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
             cursor_affordance.set_clickable(self._title_lbl, True)
             self.setStyleSheet("")
         else:
-            self._collapse_btn.setText(self._config.collapse_icon)
+            _icon_utils.set_button_icon(self._collapse_btn, "collapse", color=_theme.COLOR_DISABLED)
             self._collapse_btn.setToolTip("Collapse")
-            _theme.style_fn(self._collapse_btn, lambda: "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_DISABLED}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
             cursor_affordance.set_clickable(self._title_lbl, False)
@@ -375,17 +376,11 @@ class _Shelf(QWidget):
             self.setStyleSheet("")
 
         if self._pinned:
-            self._pin_btn.setText(self._config.pin_icon)
+            _icon_utils.set_button_icon(self._pin_btn, "pin", color=_theme.COLOR_GOLD)
             self._pin_btn.setToolTip("Unpin")
-            _theme.style_fn(self._pin_btn, lambda: "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_GOLD}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_GOLD_LIGHT}; }}")
         else:
-            self._pin_btn.setText(self._config.pin_icon)
+            _icon_utils.set_button_icon(self._pin_btn, "pin", color=_theme.COLOR_TEXT)
             self._pin_btn.setToolTip("Pin to top")
-            _theme.style_fn(self._pin_btn, lambda: "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
 
     def set_collapsed(self, collapsed: bool) -> None:
         self._collapsed = collapsed

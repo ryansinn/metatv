@@ -9,7 +9,7 @@ Workflow:
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -30,6 +31,15 @@ MOOD_DISLIKE      = "dislike"
 
 _MOOD_ORDER = [MOOD_LIKE, MOOD_CURIOUS, MOOD_NONE, MOOD_NOT_FOR_ME, MOOD_DISLIKE]
 
+#: icon_utils role for each mood button's glyph.
+_MOOD_ICON_ROLE: dict[str | None, str] = {
+    MOOD_LIKE: "like",
+    MOOD_CURIOUS: "curious",
+    MOOD_NONE: "mood_none",
+    MOOD_NOT_FOR_ME: "not_interested",
+    MOOD_DISLIKE: "dislike",
+}
+
 def _mood_colors() -> dict:
     return {
         MOOD_LIKE:       (_theme.COLOR_MOOD_LIKE_BG, _theme.COLOR_MOOD_LIKE_FG),       # bright green bg, dark text
@@ -42,17 +52,17 @@ def _mood_colors() -> dict:
 
 def _mood_selected_style() -> str:
     return (
-        "QPushButton {{ background: {bg}; color: {fg}; border: 2px solid {bg};"
-        " border-radius: 14px; padding: 4px 10px; font-size: " + _theme.FONT_2XL + "; font-weight: bold; }}"
+        "QPushButton {{ background: {bg}; border: 2px solid {bg};"
+        " border-radius: 14px; padding: 4px 10px; }}"
     )
 
 
 def _mood_idle_style() -> str:
     return (
-        f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT};"
+        f"QPushButton {{ background: {_theme.COLOR_LINE_DARK};"
         f" border: 1px solid {_theme.COLOR_BORDER};"
-        f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
-        f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_TEXT_HI};"
+        f" border-radius: 14px; padding: 4px 10px; }}"
+        f"QPushButton:hover {{ background: {_theme.COLOR_LINE};"
         f" border-color: {_theme.COLOR_MUTED_2}; }}"
     )
 
@@ -72,18 +82,12 @@ class _MoodBar(QWidget):
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(6)
 
-        specs: list[tuple[str | None, str]] = [
-            (MOOD_LIKE,       config.like_icon),
-            (MOOD_CURIOUS,    config.curious_icon),
-            (MOOD_NONE,       "—"),
-            (MOOD_NOT_FOR_ME, config.not_interested_icon),
-            (MOOD_DISLIKE,    config.dislike_icon),
-        ]
-        for mood, icon in specs:
-            btn = QPushButton(icon)
+        for mood in _MOOD_ORDER:
+            btn = QPushButton()
             btn.setFixedSize(36, 28)
             btn.setFlat(True)
             btn.setCheckable(True)
+            btn.setIconSize(QSize(18, 18))
             btn.clicked.connect(lambda _, m=mood: self._select(m))
             self._buttons[mood] = btn
             layout.addWidget(btn)
@@ -111,14 +115,15 @@ class _MoodBar(QWidget):
 
     def _refresh_styles(self) -> None:
         for mood, btn in self._buttons.items():
+            role = _MOOD_ICON_ROLE[mood]
             if mood == self._current:
                 bg, fg = _mood_colors()[mood]
-                btn.setStyleSheet(
-                    _mood_selected_style().format(bg=bg, fg=fg)
-                )
+                btn.setStyleSheet(_mood_selected_style().format(bg=bg))
+                _icon_utils.set_button_icon(btn, role, color=fg)
                 btn.setChecked(True)
             else:
                 btn.setStyleSheet(_mood_idle_style())
+                _icon_utils.set_button_icon(btn, role, color=_theme.COLOR_TEXT)
                 btn.setChecked(False)
 
     def current_mood(self) -> str | None:

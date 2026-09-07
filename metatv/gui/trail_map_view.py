@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
@@ -516,11 +517,12 @@ class TrailMapView(QWidget):
         self._collapse_btn.clicked.connect(self._collapse_branches)
         row.addWidget(self._collapse_btn)
 
-        close_btn = QPushButton(_icons.close_icon)
+        close_btn = _icon_utils.icon_button(
+            "close", "Close Explore (Esc)", style="TRAILMAP_CLOSE_BTN"
+        )
+        _icon_utils.set_button_icon(close_btn, "close", color=_theme.COLOR_LIGHTBOX_MUTED)
         close_btn.setFlat(True)
         close_btn.setFixedSize(24, 24)
-        _theme.style(close_btn, "TRAILMAP_CLOSE_BTN")
-        close_btn.setToolTip("Close Explore (Esc)")
         close_btn.clicked.connect(self._close)
         row.addWidget(close_btn)
         shell.addWidget(bar)

@@ -188,9 +188,7 @@ class WatchAlertsSection(
         cursor_affordance.set_clickable(self._manage_btn)
 
         def _paint_manage() -> str:
-            self._manage_btn.setIcon(_icon_utils.resolve_icon(
-                _icons.vector_key("manage"), _theme.COLOR_TEXT
-            ))
+            _icon_utils.set_button_icon(self._manage_btn, "manage", color=_theme.COLOR_TEXT)
             self._manage_btn.setIconSize(QSize(13, 13))
             return _theme.PANEL_BTN
 
@@ -205,9 +203,7 @@ class WatchAlertsSection(
         cursor_affordance.set_clickable(self._add_btn)
 
         def _paint_add() -> str:
-            self._add_btn.setIcon(_icon_utils.resolve_icon(
-                _icons.vector_key("add"), _theme.COLOR_TEXT
-            ))
+            _icon_utils.set_button_icon(self._add_btn, "add", color=_theme.COLOR_TEXT)
             self._add_btn.setIconSize(QSize(13, 13))
             return _theme.PANEL_BTN
 

@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QTimer
 
 from metatv.core.notifications import Notification, NotificationType, StepStatus
 from metatv.core.config import Config
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowLayout, enable_height_for_width
@@ -139,9 +140,8 @@ class NotificationCard(QFrame):
         header_layout.addStretch()
 
         if self.notification.dismissible:
-            close_btn = QPushButton(_icons.close_icon)
+            close_btn = _icon_utils.icon_button("close", "Dismiss this notification")
             close_btn.setFixedSize(20, 20)
-            close_btn.setToolTip("Dismiss this notification")
             close_btn.clicked.connect(self.dismiss)
             header_layout.addWidget(close_btn)
 

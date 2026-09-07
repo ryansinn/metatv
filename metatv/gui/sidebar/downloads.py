@@ -281,8 +281,7 @@ class DownloadsSection(CollapsibleSection):
         forget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         def _paint_glyph() -> str:
-            forget.setIcon(_icon_utils.resolve_icon(
-                _icons.vector_key("delete"), _theme.COLOR_TEXT))
+            _icon_utils.set_button_icon(forget, "delete", color=_theme.COLOR_TEXT)
             forget.setIconSize(QSize(13, 13))
             return _theme.HISTORY_GROUP_FORGET_BUTTON
 

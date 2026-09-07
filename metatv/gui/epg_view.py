@@ -11,7 +11,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -42,6 +42,7 @@ from metatv.core.epg_utils import (
     to_local as _to_local,
 )
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 
 # Re-export shared EPG widget primitives (moved to epg_widgets.py).
 # Kept here for backwards compatibility — existing code and tests that
@@ -409,8 +410,10 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         det = QLabel(detail)
         _theme.style_fn(det, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         h.addWidget(det)
-        rm_btn = QPushButton(self.config.close_icon)
+        rm_btn = QPushButton()
         rm_btn.setFixedWidth(24)
+        _icon_utils.set_button_icon(rm_btn, "close")
+        rm_btn.setIconSize(QSize(13, 13))
         _theme.style_fn(rm_btn, lambda: f"border: none; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_2XL}; font-weight: bold;")
         rm_btn.setToolTip("Remove")
         rm_btn.clicked.connect(on_remove)

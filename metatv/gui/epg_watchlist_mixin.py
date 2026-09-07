@@ -77,6 +77,7 @@ from metatv.core.epg_utils import (
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui.epg_widgets import _DismissedDialog, _parse_iso
 from metatv.gui import deferred_config_save as _cfgsave
@@ -611,10 +612,9 @@ class _EpgWatchlistMixin:
         edit_btn.setToolTip(f'Change how "{pattern}" matches')
         header.addWidget(edit_btn)
 
-        remove_btn = QPushButton(self.config.close_icon)
+        remove_btn = _icon_utils.icon_button(
+            "close", f"Remove '{pattern}' from watchlist", style="CLOSE_BTN", px=13)
         remove_btn.setFixedWidth(24)
-        remove_btn.setToolTip(f"Remove '{pattern}' from watchlist")
-        _theme.style(remove_btn, "CLOSE_BTN")
         remove_btn.clicked.connect(lambda _=False, p=pattern: self._remove_pattern(p))
         header.addWidget(remove_btn)
         layout.addLayout(header)
@@ -666,11 +666,10 @@ class _EpgWatchlistMixin:
             if year:
                 row.addWidget(make_year_chip(year, row_w))
 
-            pb = QPushButton(self.config.play_icon)
+            pb = _icon_utils.icon_button(
+                "play", f"Play: {bare_name}", style="PLAY_BTN", px=13)
             pb.setFixedSize(22, 20)
             pb.setFlat(True)
-            pb.setToolTip(f"Play: {bare_name}")
-            _theme.style(pb, "PLAY_BTN")
             cid = prog.channel_db_id
             pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
             row.addWidget(pb)
@@ -967,10 +966,10 @@ class _EpgWatchlistMixin:
         layout.addWidget(watch_btn)
 
         # Play button
-        play_btn = QPushButton(_icons.play_icon)
+        play_btn = _icon_utils.icon_button(
+            "play", "Play this channel", style="DISCOVER_REC_PILL_BTN"
+        )
         play_btn.setFixedWidth(28)
-        _theme.style(play_btn, "DISCOVER_REC_PILL_BTN")
-        play_btn.setToolTip("Play this channel")
         play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
         layout.addWidget(play_btn)
 

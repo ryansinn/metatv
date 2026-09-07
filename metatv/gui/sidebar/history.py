@@ -16,7 +16,6 @@ from metatv.gui.sidebar.base import (
     GroupHeading, SectionAction, CollapsibleSection, make_seamless,
 )
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -200,14 +199,10 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         # F13). Repainted through style_fn so it recolours on a palette switch —
         # an already-rasterised pixmap cannot.
         def _paint_glyph() -> str:
-            forget.setIcon(
-                _icon_utils.resolve_icon(
-                    # Matches the role's resting colour — a glyph painted from
-                    # a different token than the sheet declares is exactly what
-                    # the contrast guard cannot see.
-                    _icons.vector_key("delete"), _theme.COLOR_TEXT
-                )
-            )
+            # Matches the role's resting colour — a glyph painted from a
+            # different token than the sheet declares is exactly what the
+            # contrast guard cannot see.
+            _icon_utils.set_button_icon(forget, "delete", color=_theme.COLOR_TEXT)
             forget.setIconSize(QSize(13, 13))
             return _theme.HISTORY_GROUP_FORGET_BUTTON
 
@@ -295,11 +290,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         # means "speed up" rather than "skip ahead". Re-rendered on every palette
         # switch — an already-rasterised pixmap cannot recolour itself.
         def _paint_glyph() -> str:
-            next_btn.setIcon(
-                _icon_utils.resolve_icon(
-                    _icons.vector_key("next_episode"), _theme.COLOR_TEXT
-                )
-            )
+            _icon_utils.set_button_icon(next_btn, "next_episode", color=_theme.COLOR_TEXT)
             next_btn.setIconSize(QSize(14, 14))
             return _theme.HISTORY_PLAY_NEXT_BUTTON
 
