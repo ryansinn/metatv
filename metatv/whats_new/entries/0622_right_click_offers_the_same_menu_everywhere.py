@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=622,
-    version="0.101.0",
+    version="0.102.0",
     date="2026-09-07",
     title="Right-click offers the same menu everywhere",
     items=(
