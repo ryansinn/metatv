@@ -337,6 +337,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 excluded_prefixes: Optional[Set[str]] = None,
                 excluded_user_categories: Optional[Set[str]] = None,
                 excluded_channel_ids: Optional[Set[str]] = None,
+                include_raw: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -412,6 +413,8 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
                 representative slot — it simply isn't a candidate, so the best
                 *visible* variant always wins.  Default False — existing
                 callers/behaviour unchanged.
+            include_raw: Eagerly load ``raw_data`` instead of deferring it
+                (see below) — True only for a caller that reads ``.raw_data``.
 
         Returns:
             List of channels matching all filters.
@@ -423,24 +426,21 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             result set. Quality is the only restrictive axis (AND).
             Tag facets are AND across facets, OR within each facet.
         """
-        # raw_data is DEFERRED, not selected. It is ~369 MB across 785,489 rows —
-        # roughly a third of the channels table — and nothing on this path reads
-        # it: ChannelListDTO does not carry the field, and no caller of get_all()
-        # touches it (checked across every file that calls this method).
+        # raw_data is ~369 MB across 785,489 rows (~a third of the channels
+        # table); deferred unless include_raw=True. Nothing on this path reads
+        # it by default (ChannelListDTO doesn't carry it; DB-4's detected_rating
+        # /detected_added removed the last reason one would) — measured -29%
+        # wall clock / -25% peak memory on the analogous preference_engine
+        # query. defer() is transparent (a reader gets a lazy load, not an
+        # error), so getting this wrong is a slow N+1, never a crash.
         #
-        # This is the busiest query in the app: every list render, every search,
-        # every filter change. The identical change on preference_engine's
-        # candidate query measured -29% wall clock and -25% peak memory on
-        # 106,918 rows; this one runs on far more, far more often.
-        #
-        # defer() is transparent — a caller that did read .raw_data would still
-        # get it via a lazy load rather than an error — so the failure mode of
-        # being wrong here is a slow N+1, not a break. That is why the check
-        # above was for readers, not for crashes.
-        #
-        # The collapsed path (_get_all_collapsed) builds its subquery from THIS
-        # query, so deferring here covers both shapes.
-        query = self.session.query(ChannelDB).options(defer(ChannelDB.raw_data))
+        # _get_all_collapsed's final row fetch is a SEPARATE query, not built
+        # from `query` below, so it does NOT inherit this option — it still
+        # loads raw_data eagerly regardless of include_raw. REFACTOR_PLAN.md
+        # ledger F37, not fixed here — out of this slice's scope.
+        query = self.session.query(ChannelDB)
+        if not include_raw:
+            query = query.options(defer(ChannelDB.raw_data))
         query = self._apply_channel_filters(
             query,
             provider_id=provider_id,
