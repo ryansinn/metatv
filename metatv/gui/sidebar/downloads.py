@@ -94,10 +94,6 @@ class DownloadsSection(CollapsibleSection):
 
     itemSelected            = pyqtSignal(str)   # channel_id — open its details
     openLibraryFolderClicked = pyqtSignal()     # the section's folder button
-    revealItemRequested     = pyqtSignal(str)   # dest_path — reveal THIS file
-    pauseRequested          = pyqtSignal(str)   # download_id
-    resumeRequested         = pyqtSignal(str)   # download_id
-    cancelRequested         = pyqtSignal(str)   # download_id
     playRequested           = pyqtSignal(str)   # download_id — play the finished file
     #: One history group's clear — the per-heading "forget" control. Same
     #: name and shape as ``HistorySection``'s signal; a different section

@@ -37,7 +37,6 @@ class FilterPanel(_ChipSeamMixin, QWidget):
     """Vertical faceted filter panel — lives in a QSplitter left of the channel list."""
 
     filter_changed = pyqtSignal()
-    settings_requested = pyqtSignal()
     _pending_restore_reload = False  # set True just before the restore-only emit below
 
     # Section keys in display order.

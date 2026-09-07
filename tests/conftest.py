@@ -1856,6 +1856,39 @@ def make_channel_state_bus_host(db_obj):
     return host
 
 
+#: Every ``_DownloadsMixin``/``_StreamingMixin`` method
+#: ``make_downloads_mixin_host``/``make_downloads_mixin_widget_host`` bind —
+#: named once so the two factories (a plain namespace vs. a real QWidget)
+#: cannot drift apart the way two hand-copied lists would.
+_DOWNLOADS_MIXIN_BOUND_METHODS = (
+    "record_channel_by_id",
+    "record_channel_window",
+    "_resolve_playable_channel",
+    "schedule_recording_from_programme",
+    "_schedule_and_announce",
+    "_resolve_recording_conflict",
+    "_confirm_quit_with_due_recordings",
+    "_ask_quit_with_recordings",
+    "_on_epg_refreshed_resync_recordings",
+    "_on_recordings_resynced",
+    "play_downloaded",
+    "_delete_download_file",
+    "_clear_download_history_group",
+    "_undo_download_history_group_clear",
+    "_clear_download_history",
+    "show_downloads_context_menu",
+    "_refresh_transfer_sections",
+    # REC-2: the persistent "recording in progress" notice + its actions.
+    "_refresh_recording_notifications",
+    "_recording_source_name",
+    "_watch_recording",
+    "_cancel_recording",
+    "_extend_recording",
+    # The Recordings row context menu (Watch / Stop recording / Extend).
+    "show_recordings_context_menu",
+)
+
+
 def make_downloads_mixin_host(
     db_obj, config, recording_manager=None, download_manager=None, player_manager=None
 ):
@@ -1933,30 +1966,69 @@ def make_downloads_mixin_host(
         executor=_InlineExecutor(),
         _recording_notif_ids={},
     )
-    for _name in (
-        "record_channel_by_id",
-        "record_channel_window",
-        "_resolve_playable_channel",
-        "schedule_recording_from_programme",
-        "_schedule_and_announce",
-        "_resolve_recording_conflict",
-        "_confirm_quit_with_due_recordings",
-        "_ask_quit_with_recordings",
-        "_on_epg_refreshed_resync_recordings",
-        "_on_recordings_resynced",
-        "play_downloaded",
-        "_delete_download_file",
-        "_clear_download_history_group",
-        "_undo_download_history_group_clear",
-        "_clear_download_history",
-        "show_downloads_context_menu",
-        "_refresh_transfer_sections",
-        # REC-2: the persistent "recording in progress" notice + its actions.
-        "_refresh_recording_notifications",
-        "_recording_source_name",
-        "_watch_recording",
-        "_cancel_recording",
-    ):
+    for _name in _DOWNLOADS_MIXIN_BOUND_METHODS:
+        setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
+    host._bg_mark_played = _StreamingMixin._bg_mark_played.__get__(host)
+    return host
+
+
+def make_downloads_mixin_widget_host(
+    db_obj, config, recording_manager=None, download_manager=None, player_manager=None
+):
+    """Same as :func:`make_downloads_mixin_host`, but the host is a real
+    (parentless) ``QWidget`` rather than a ``SimpleNamespace``.
+
+    ``show_downloads_context_menu``/``show_recordings_context_menu`` both do
+    ``QMenu(self)`` — a real ``QWidget|None``, which a ``SimpleNamespace``
+    is not — so any test exercising either row context menu needs this
+    variant. Kept separate from the namespace factory (used by several
+    existing tests that never touch a QMenu) rather than changing its return
+    type, to keep this a zero-risk addition. Bound methods are wired fresh
+    onto THIS object — copying already-bound methods from the namespace
+    factory would still close over the namespace as ``self``, not the widget.
+
+    Caller must ``qtbot.addWidget(host)`` — this is a genuine top-level
+    widget and the suite's teardown guard fails a test that leaks one.
+    """
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtWidgets import QWidget
+
+    from metatv.core.connection_accountant import ConnectionAccountant
+    from metatv.core.recording_manager import RecordingManager
+    from metatv.gui.main_window_downloads import _DownloadsMixin
+    from metatv.gui.main_window_streaming import _StreamingMixin
+
+    if recording_manager is None:
+        accountant = ConnectionAccountant(capacity_resolver=lambda _pid: 1)
+        recording_manager = RecordingManager(db_obj, config, accountant)
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return None
+
+    class _StatusBarDouble:
+        def __init__(self):
+            self.messages: list[str] = []
+
+        def showMessage(self, text, *args, **kwargs):
+            self.messages.append(text)
+
+    class _WidgetHost(QWidget):
+        pass
+
+    host = _WidgetHost()
+    host.db = db_obj
+    host.config = config
+    host.recording_manager = recording_manager
+    host.download_manager = download_manager
+    host.player_manager = player_manager
+    host.notification_manager = MagicMock()
+    host.status_bar = _StatusBarDouble()
+    host.executor = _InlineExecutor()
+    host._recording_notif_ids = {}
+    for _name in _DOWNLOADS_MIXIN_BOUND_METHODS:
         setattr(host, _name, getattr(_DownloadsMixin, _name).__get__(host))
     host._bg_mark_played = _StreamingMixin._bg_mark_played.__get__(host)
     return host

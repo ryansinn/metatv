@@ -241,18 +241,22 @@ class _DownloadsMixin:
             )
             notif_id = self._recording_notif_ids.get(r.recording_id)
             if notif_id is None:
+                extend_minutes = int(
+                    getattr(self.config, "recording_extend_minutes", 15) or 15)
                 notif_id = self.notification_manager.show(
                     title=title, message=message, type="warning",
                     dismissible=False,
                     actions=[
-                        # Watch does NOT close the card — the recording keeps
-                        # running — so it carries the keep_open flag the
-                        # generic action-button chokepoint reads
-                        # (notification_widget.NotificationCard).
+                        # Watch and Extend do NOT close the card — the
+                        # recording keeps running either way — so both carry
+                        # keep_open (notification_widget.NotificationCard).
+                        # This is the one surface a live recording always has.
                         ("Watch", lambda rid=r.recording_id:
                             self._watch_recording(rid), True),
                         ("Stop", lambda rid=r.recording_id:
                             self._cancel_recording(rid)),
+                        (f"Extend +{extend_minutes} min", lambda rid=r.recording_id:
+                            self._extend_recording(rid), True),
                     ],
                 )
                 self._recording_notif_ids[r.recording_id] = notif_id
@@ -502,6 +506,52 @@ class _DownloadsMixin:
         if state == "completed" and file_exists:
             act = menu.addAction(_icons.glyph_icon(_icons.delete_icon), "Delete file…")
             act.triggered.connect(lambda: self._delete_download_file(download_id))
+
+        if not menu.actions():
+            return
+        menu.exec(lst.mapToGlobal(position))
+
+    def show_recordings_context_menu(self, position) -> None:
+        """The Recordings row menu — Watch / Stop recording / Extend +N min.
+
+        Mirrors ``show_downloads_context_menu`` in shape (RECORDING verbs
+        keyed on ``recording_id`` and row state, not the channel_menu.py
+        registry). No "reveal in file manager" row — Downloads' own row menu
+        has no whole-folder-open action either, only the per-file reveal.
+        """
+        sections = self.__dict__.get("sidebar_sections") or {}
+        section = sections.get("recordings")
+        if section is None:
+            return
+        lst = section.recordings_list
+        item = lst.itemAt(position)
+        if item is None or not item.data(ROLE_ITEM_ID):
+            return
+        lst.setCurrentItem(item)
+        selected = section.selected_recording()
+        if selected is None:
+            return
+        recording_id, state, dest_path = selected
+        file_exists = _file_exists(dest_path)
+
+        menu = QMenu(self)
+
+        if state == "recording" or (state == "completed" and file_exists):
+            act = menu.addAction(_icons.glyph_icon(_icons.play_icon), "Watch")
+            act.setToolTip("Play this recording")
+            act.triggered.connect(lambda: self._watch_recording(recording_id))
+
+        if state == "recording":
+            act = menu.addAction(
+                _icons.glyph_icon(_icons.enrich_cancel_icon), "Stop recording")
+            act.setToolTip("Stop recording now — what's already recorded is kept")
+            act.triggered.connect(lambda: self._cancel_recording(recording_id))
+
+            minutes = int(getattr(self.config, "recording_extend_minutes", 15) or 15)
+            act = menu.addAction(
+                _icons.glyph_icon(_icons.record_window_icon), f"Extend +{minutes} min")
+            act.setToolTip(f"Push this recording's end time out by {minutes} minutes")
+            act.triggered.connect(lambda: self._extend_recording(recording_id))
 
         if not menu.actions():
             return
