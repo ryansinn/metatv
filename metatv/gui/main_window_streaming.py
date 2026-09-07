@@ -767,7 +767,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             # a 2s timer — see gui/playback_start_watch.py.
             self._start_playback_health(_startwatch.PlayAttempt(
                 channel_id, channel_name, final_url, start_seconds, data.get("event_start_time"),
-                retry=bool(data.get("retry"))))
+                retry=bool(data.get("retry")), provider_id=data.get("provider_id")))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")

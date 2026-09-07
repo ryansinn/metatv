@@ -115,6 +115,10 @@ class PlayAttempt(NamedTuple):
     #: True when this play IS the one automatic retry (see :func:`retry_candidate`)
     #: — a retry that exits the same way is reported but never retried again.
     retry: bool = False
+    #: The channel's provider, so the OPENING/FROZEN waiting line (PLAY-12) can
+    #: name which source it's waiting on via ``host._provider_display_name``.
+    #: None for callers with no provider to hand (falls back to a generic noun).
+    provider_id: "str | None" = None
 
 
 #: How long the retry waits after the player exited while opening. The
@@ -161,6 +165,31 @@ def on_playing(host: Any) -> bool:
     return first
 
 
+def _push_waiting_line(host: Any, ticks: int) -> None:
+    """Name what a silent OPENING/FROZEN wait is actually doing (PLAY-12).
+
+    From the 2nd tick (4s) onward — before that, a fast-opening stream would
+    flash a line it never needed. Stops once the tick's own failure verdict
+    has reported (:func:`_report_never_started` sets ``_health_reported`` and
+    owns the status bar from there). The 40s/16s reports at
+    :data:`OPENING_AFTER_TICKS`/:data:`STALLED_AFTER_TICKS` are unchanged —
+    this only fills the silent gap before them, which is the delay the owner
+    saw as an unexplained spinner.
+    """
+    if ticks < 2 or host.__dict__.get("_health_reported"):
+        return
+    attempt = host.__dict__.get("_health_attempt")
+    pid = getattr(attempt, "provider_id", None) if attempt else None
+    source = host._provider_display_name(pid) if pid else "the source"
+    verb = ("free the previous stream" if host.__dict__.get("_switch_same_provider")
+            else "answer")
+    seconds = ticks * (POLL_MS // 1000)
+    try:
+        host.status_bar.showMessage(f"Waiting for {source} to {verb}… {seconds}s")
+    except Exception:                                    # pragma: no cover
+        logger.exception("could not update the status bar")
+
+
 def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any = None) -> None:
     """Judge whether a LOADED file is actually OPENING, progressing, or frozen.
 
@@ -187,7 +216,13 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
     reading (e.g. 0.0 from one decoded garbage frame) is not progress. A
     user-paused player holds BOTH counters: a frozen or absent position proves
     nothing while they hold it. Once real progress is seen the watch disarms
-    for the rest of the play.
+    for the rest of the play and the status bar's waiting line is cleared.
+
+    PLAY-12: both counted branches also push a "still waiting" status-bar line
+    via :func:`_push_waiting_line` from their 2nd tick onward, so the owner's
+    "it's just hanging" silence now counts and names what it's waiting on. The
+    OPENING_AFTER_TICKS/STALLED_AFTER_TICKS reports below are unchanged — they
+    are the failure verdicts; this only fills the gap before them.
 
     Deliberately NOT consulted by :func:`on_player_gone` or the idle path:
     closing a just-loaded stream within its first seconds must stay silent —
@@ -207,6 +242,10 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
     if isinstance(time_pos, (int, float)):
         if last is not None and time_pos > last + _PROGRESS_EPSILON:
             host._health_ever_progressed = True
+            try:
+                host.status_bar.clearMessage()   # progress seen — the wait is over
+            except Exception:                                    # pragma: no cover
+                logger.exception("could not clear the status bar")
             return
         host._health_last_time_pos = float(time_pos)
     if paused:
@@ -217,12 +256,14 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
             return   # data is arriving; neither OPENING nor FROZEN applies
         ticks = host.__dict__.get("_health_opening_ticks", 0) + 1
         host._health_opening_ticks = ticks
+        _push_waiting_line(host, ticks)
         if ticks == OPENING_AFTER_TICKS:
             _report_never_started(host, opening=True)
         return
 
     ticks = host.__dict__.get("_health_stalled_ticks", 0) + 1
     host._health_stalled_ticks = ticks
+    _push_waiting_line(host, ticks)
     if ticks == STALLED_AFTER_TICKS:
         _report_never_started(host, stalled=True)
 

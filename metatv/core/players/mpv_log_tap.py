@@ -73,21 +73,49 @@ _WARNING_MARKERS = (
 )
 
 
+def _exit_code(proc: "subprocess.Popen") -> int | None:
+    """The process's return code, waiting briefly rather than racing EOF.
+
+    PLAY-12: ``proc.poll()`` right at EOF used to race the child's own exit —
+    the pipe closes a beat before the OS finishes reaping it, so ``poll()``
+    still read ``None`` and every exit logged ``rc=None``. ``proc.wait(timeout=5)``
+    blocks (briefly: EOF means the process is already gone or seconds from it)
+    for the real code instead, so ``rc=None`` in the log now means "still
+    running after 5s", not "we didn't wait". A double with no ``.wait`` (some
+    test stand-ins) falls back to ``.poll()`` unchanged.
+    """
+    wait = getattr(proc, "wait", None)
+    if callable(wait):
+        try:
+            rc = wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.debug("mpv still running 5s after its output closed; rc unknown")
+            rc = None
+    else:
+        poll = getattr(proc, "poll", None)
+        rc = poll() if callable(poll) else None
+    return rc if isinstance(rc, int) else None
+
+
 def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
-    """Start a daemon thread that logs *proc*'s stderr, tagged with *key*.
+    """Start a daemon thread that logs *proc*'s output, tagged with *key*.
 
     Never joined by the caller: shutdown must not wait on a stream that may
-    still be reconnecting. The thread exits on its own once ``proc.stderr``
-    hits EOF (the process died or closed the pipe).
+    still be reconnecting. The thread exits on its own once the stream hits
+    EOF (the process died or closed the pipe).
 
     Args:
-        proc: The launched mpv process. ``proc.stderr`` must be a readable
-            byte stream (the caller passes ``stderr=subprocess.PIPE``, or a
-            test double such as ``io.BytesIO``) — anything whose ``readline()``
-            doesn't yield ``bytes`` (e.g. an unconfigured ``MagicMock`` process
-            double in a test) ends the pump immediately rather than spinning:
-            a real pipe's EOF sentinel (``b""``) is itself ``bytes``, so this
-            never fires against genuine mpv output.
+        proc: The launched mpv process. Reads ``proc.stdout`` when present,
+            else ``proc.stderr`` — both launch sites now merge stderr into
+            stdout (PLAY-12: mpv's own ``Exiting... (reason)`` line prints at
+            ``cplayer=info``, which mpv writes to stdout, not stderr; the old
+            stderr-only tap could never see it). Either must be a readable
+            byte stream (a real pipe, or a test double such as
+            ``io.BytesIO``) — anything whose ``readline()`` doesn't yield
+            ``bytes`` (e.g. an unconfigured ``MagicMock`` process double in a
+            test) ends the pump immediately rather than spinning: a real
+            pipe's EOF sentinel (``b""``) is itself ``bytes``, so this never
+            fires against genuine mpv output.
         key: Instance key this process belongs to — or, for the standalone
             no-IPC launch that has no instance key, the play's title. Included
             in every log line so a multi-window session's mpv chatter is
@@ -100,10 +128,7 @@ def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
     reason: str | None = None
 
     def _record_exit() -> None:
-        poll = getattr(proc, "poll", None)
-        rc = poll() if callable(poll) else None
-        rec = ExitRecord(reason, rc if isinstance(rc, int) else None,
-                         round(time.monotonic() - started, 1))
+        rec = ExitRecord(reason, _exit_code(proc), round(time.monotonic() - started, 1))
         with _exits_lock:
             _exits[key] = rec
         logger.info("mpv[{}] exited rc={} after {}s ({})", key, rec.returncode,
@@ -112,10 +137,10 @@ def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
     def _pump() -> None:
         nonlocal reason
         try:
-            stderr = proc.stderr
-            if stderr is None:
+            stream = proc.stdout if proc.stdout is not None else proc.stderr
+            if stream is None:
                 return
-            for raw_line in iter(stderr.readline, b""):
+            for raw_line in iter(stream.readline, b""):
                 if not isinstance(raw_line, (bytes, bytearray)):
                     break   # not a real byte stream — see Args note above
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
