@@ -468,7 +468,7 @@ def recommendation_scope(session, config) -> dict:
     from metatv.core.discovery_engine import build_adult_filter
     from metatv.core.filter_utils import (
         excluded_tag_content_types, get_active_category_filter,
-        get_excluded_prefixes, keyword_exclusion_list,
+        get_excluded_prefixes, global_exclusion_sets, keyword_exclusion_list,
     )
     from metatv.core.repositories import RepositoryFactory
     from metatv.core.visibility_resolver import (
@@ -476,10 +476,21 @@ def recommendation_scope(session, config) -> dict:
     )
 
     adult_mode, force_adult_ids = build_adult_filter(session, config)
-    # The category axis and the per-prefix axis are UNIONED into the prefix
+    # The prefix-CODE blacklist (get_active_category_filter — confusingly
+    # named for what it resolves, not for VisibilityScope's user-category
+    # axis below) and the per-prefix axis are UNIONED into the prefix
     # exclusion — the existing convention, not something to re-invent per caller.
     cat_excluded, include_uncategorized = get_active_category_filter(config)
     excluded_prefixes = list(set(cat_excluded or []) | get_excluded_prefixes(config))
+    # excluded_categories: the human-assigned ChannelDB.user_category axis —
+    # a DIFFERENT config field (global_filter_excluded_user_categories) than
+    # the prefix-code blacklist above. This axis reached every Discover shelf
+    # only after #618; before that it reached nowhere score_candidates
+    # touches either, so a category-excluded title could still be
+    # recommended even though the same exclusion hid it from the categories
+    # index. Sourced from global_exclusion_sets (paused-aware, like the
+    # other three axes it resolves) rather than a bespoke read.
+    _, excluded_categories, _, _ = global_exclusion_sets(config)
 
     return {
         "muted_attrs": getattr(config, "muted_attributes", None),
@@ -490,6 +501,7 @@ def recommendation_scope(session, config) -> dict:
         "excluded_provider_ids": (
             RepositoryFactory(session).providers.get_hidden_provider_ids() or None
         ),
+        "excluded_categories": excluded_categories or None,
         "excluded_content_types": excluded_tag_content_types(config) or None,
         "adult_mode": adult_mode,
         "force_adult_provider_ids": force_adult_ids or None,
@@ -530,6 +542,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
       judged on the prefix alone, one with NO prefix falls back to its
       detected_region ("language wins over region") — or keyword
       (excluded_keywords, case-insensitive substring on the title) → excluded
+    - In a globally-excluded user_category (excluded_categories) → excluded
     - Disliked (rating < 0) → always excluded
     - Hidden (is_hidden) → excluded
     - Rec-suppressed (is_rec_suppressed) → excluded

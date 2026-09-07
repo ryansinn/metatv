@@ -34,7 +34,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXPECTED_AXES = {
     "muted_attrs", "dedupe_overrides", "excluded_prefixes",
     "include_uncategorized", "excluded_keywords", "excluded_provider_ids",
-    "excluded_content_types", "adult_mode", "force_adult_provider_ids",
+    "excluded_categories", "excluded_content_types", "adult_mode",
+    "force_adult_provider_ids",
 }
 
 # The axes a caller must NEVER name itself — naming one means it has its own

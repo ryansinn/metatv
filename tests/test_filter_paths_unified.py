@@ -5,9 +5,14 @@ refactor started by ``channel_visibility.py`` / ``tests/test_channel_visibility.
 Covers:
 
 1. ``discovery_engine.get_recently_added`` (exercises the migrated
-   ``_apply_prefix_filter`` / ``_apply_content_type_exclusion`` /
-   ``_apply_keyword_exclusion`` / ``_apply_adult_filter`` /
-   ``_apply_provider_exclusion`` helpers in one query).
+   ``_apply_prefix_filter`` — the single chokepoint that now folds the
+   prefix/content-type/keyword/user-category axes together — plus the
+   separate ``_apply_adult_filter`` / ``_apply_provider_exclusion`` helpers,
+   in one query). The three single-axis siblings this module used to name
+   (``_apply_content_type_exclusion`` / ``_apply_keyword_exclusion`` /
+   ``_apply_user_category_exclusion``) had zero callers and were deleted,
+   What's New #618 — see the "Every Discover shelf" section below for the
+   category-axis regression #618 fixed and the behavioural proof for it.
 2. ``preference_engine.score_candidates`` (Recommendations) — the structural
    cause of the reported "Recommendations ignores global exclusions" bug: it
    used to call ``discovery_engine._apply_prefix_filter`` directly, so it
@@ -38,7 +43,7 @@ from pathlib import Path
 import pytest
 
 from metatv.core.database import ChannelDB, Database, MetadataDB, ProviderDB, UserRatingDB
-from metatv.core.discovery_engine import get_recently_added
+from metatv.core.discovery_engine import get_by_genre, get_recently_added, get_top_rated
 from metatv.core.preference_engine import compute_weights, score_candidates
 from metatv.core.repositories import RepositoryFactory
 
@@ -69,9 +74,18 @@ def _add_channel(
     detected_title: str | None = None,
     media_type: str = "movie",
     added: str = "1",
+    detected_rating: float | None = None,
+    detected_genres: list | None = None,
 ) -> str:
     """Create a ChannelDB row + a matching MetadataDB row (genre=Action) so
-    every seeded channel is a valid preference-engine candidate."""
+    every seeded channel is a valid preference-engine candidate.
+
+    *detected_rating*/*detected_genres* are the ingestion-computed stored
+    fields ``get_top_rated``/``get_by_genre`` actually query — like every
+    other ``detected_*`` param here, set directly rather than derived via a
+    real ``update_detected_prefixes()`` pass, so existing callers (which
+    never touch these two shelves) are unaffected by the default ``None``.
+    """
     cid = str(uuid.uuid4())
     mid = str(uuid.uuid4())
     session.add(MetadataDB(id=mid, title=name, genres=["Action"], media_type=media_type))
@@ -88,6 +102,8 @@ def _add_channel(
             detected_region=detected_region,
             user_category=user_category,
             detected_title=detected_title,
+            detected_rating=detected_rating,
+            detected_genres=detected_genres,
             metadata_id=mid,
             raw_data={"added": added, "rating": "7.0", "genre": "Action"},
         )
@@ -194,8 +210,9 @@ def test_discovery_engine_excludes_prefix_content_type_keyword_adult(seeded):
     assert ids["excl_content_type"] not in card_ids
     assert ids["excl_keyword"] not in card_ids
     assert ids["restricted_adult"] not in card_ids
-    # user_category exclusion is NOT wired into any discovery_engine shelf
-    # query (pre-existing, unchanged by this migration) — stays visible.
+    # This call doesn't pass excluded_categories, so the category axis is a
+    # no-op here (opt-in per call, like every other axis) — stays visible.
+    # See "Every Discover shelf" below for the axis actually excluding it.
     assert ids["excl_category"] in card_ids
 
 
@@ -214,6 +231,83 @@ def test_discovery_engine_reconciles_prefix_region_divergence(seeded):
     assert ids["region_fallback"] not in card_ids
     # Prefix="EN" (not excluded), region="XX" (excluded) → prefix wins → shown.
     assert ids["prefix_wins"] in card_ids
+
+
+# ---------------------------------------------------------------------------
+# 1b) The excluded-user-category axis reaches every Discover shelf
+# (What's New #618) — before this fix, ``_apply_prefix_filter`` had no
+# ``excluded_categories`` parameter at all, so a channel in an excluded
+# user_category was hidden from ``get_all_user_categories`` (the categories
+# index) but still surfaced on Recently Added, Top Rated, every genre shelf,
+# decade, actor and collection shelf. These assertions FAIL on the pre-fix
+# tree because ``get_recently_added``/``get_top_rated``/``get_by_genre``
+# raise ``TypeError`` on an unexpected ``excluded_categories`` keyword there
+# — the sharpest possible "fails on the pre-fix tree" signal, matching
+# ``test_facet_value_counts_gap_closed_matches_list`` above.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def category_axis_seeded(file_db):
+    """Two channels differing only by user_category, both otherwise eligible
+    for Recently Added / Top Rated / the "Action" genre shelf."""
+    ids: dict[str, str] = {}
+    with file_db.session_scope() as session:
+        session.add(ProviderDB(id="prov_active", name="Active", type="xtream", url="http://x", is_active=True))
+        session.flush()
+        ids["excluded_cat"] = _add_channel(
+            session, "Excluded Category Recent Movie",
+            user_category="Sports", added="1",
+            detected_rating=8.0, detected_genres=["Action"],
+        )
+        ids["other_cat"] = _add_channel(
+            session, "Other Category Recent Movie",
+            user_category="Movies", added="2",
+            detected_rating=8.0, detected_genres=["Action"],
+        )
+    return ids, file_db
+
+
+def test_recently_added_drops_excluded_user_category_when_on(category_axis_seeded):
+    ids, db = category_axis_seeded
+    with db.session_scope(commit=False) as session:
+        on = {c.channel_id for c in get_recently_added(
+            session, limit=50, excluded_categories={"Sports"},
+        )}
+        off = {c.channel_id for c in get_recently_added(session, limit=50)}
+
+    assert ids["excluded_cat"] not in on
+    assert ids["other_cat"] in on
+    assert ids["excluded_cat"] in off, "present once the exclusion is off"
+
+
+def test_top_rated_drops_excluded_user_category_when_on(category_axis_seeded):
+    ids, db = category_axis_seeded
+    with db.session_scope(commit=False) as session:
+        on = {c.channel_id for c in get_top_rated(
+            session, media_type="movie", limit=50, min_rating=0,
+            excluded_categories={"Sports"},
+        )}
+        off = {c.channel_id for c in get_top_rated(
+            session, media_type="movie", limit=50, min_rating=0,
+        )}
+
+    assert ids["excluded_cat"] not in on
+    assert ids["other_cat"] in on
+    assert ids["excluded_cat"] in off, "present once the exclusion is off"
+
+
+def test_genre_shelf_drops_excluded_user_category_when_on(category_axis_seeded):
+    ids, db = category_axis_seeded
+    with db.session_scope(commit=False) as session:
+        on = {c.channel_id for c in get_by_genre(
+            session, "Action", limit=50, excluded_categories={"Sports"},
+        )}
+        off = {c.channel_id for c in get_by_genre(session, "Action", limit=50)}
+
+    assert ids["excluded_cat"] not in on
+    assert ids["other_cat"] in on
+    assert ids["excluded_cat"] in off, "present once the exclusion is off"
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +343,11 @@ def test_score_candidates_excludes_prefix_and_keyword(seeded):
     assert ids["hidden_provider"] not in rec_ids  # absolute gate
     assert ids["excl_prefix"] not in rec_ids
     assert ids["excl_keyword"] not in rec_ids
-    # content_type / user_category axes have no parameter on score_candidates
-    # today (a separate, un-briefed gap — not addressed by this migration);
-    # documented here so a future slice has a concrete regression baseline.
+    # This call doesn't pass excluded_content_types/excluded_categories —
+    # score_candidates accepts both, but neither axis reached it through
+    # recommendation_scope until What's New #618 wired the category one in
+    # (see test_recommendation_scope.py); both stay visible here because
+    # this particular call opts out, not because the axis doesn't exist.
     assert ids["excl_content_type"] in rec_ids
     assert ids["excl_category"] in rec_ids
 

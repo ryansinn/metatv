@@ -332,7 +332,7 @@ class _SeeAllWorker(QObject):
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
         from metatv.core.filter_utils import (
             get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list,
+            keyword_exclusion_list, global_exclusion_sets,
         )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
@@ -341,7 +341,12 @@ class _SeeAllWorker(QObject):
             cat_excluded, include_uncategorized = get_active_category_filter(self._config)
             per_prefix = get_excluded_prefixes(self._config)
             all_excl = list(set(cat_excluded or []) | per_prefix)
+            # excluded_categories: the user_category axis (distinct from the
+            # detected_prefix axis all_excl carries above) — its own field on
+            # global_exclusion_sets, paused-aware like the other three.
+            _, excluded_user_categories, _, _ = global_exclusion_sets(self._config)
             fk = {"excluded_prefixes": all_excl or None,
+                      "excluded_categories": excluded_user_categories or None,
                       "include_uncategorized": include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
                       "excluded_content_types": excluded_tag_content_types(self._config) or None,
@@ -399,7 +404,7 @@ class _ShelfCardsWorker(QObject):
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
         from metatv.core.filter_utils import (
             get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list,
+            keyword_exclusion_list, global_exclusion_sets,
         )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
@@ -410,7 +415,12 @@ class _ShelfCardsWorker(QObject):
             cat_excluded, include_uncategorized = get_active_category_filter(self._config)
             per_prefix = get_excluded_prefixes(self._config)
             all_excl = list(set(cat_excluded or []) | per_prefix)
+            # excluded_categories: the user_category axis (distinct from the
+            # detected_prefix axis all_excl carries above) — its own field on
+            # global_exclusion_sets, paused-aware like the other three.
+            _, excluded_user_categories, _, _ = global_exclusion_sets(self._config)
             fk = {"excluded_prefixes": all_excl or None,
+                      "excluded_categories": excluded_user_categories or None,
                       "include_uncategorized": include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
                       "excluded_content_types": excluded_tag_content_types(self._config) or None,
@@ -472,7 +482,7 @@ class _LoaderWorker(QObject):
         )
         from metatv.core.filter_utils import (
             get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
-            keyword_exclusion_list,
+            keyword_exclusion_list, global_exclusion_sets,
         )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
@@ -485,7 +495,12 @@ class _LoaderWorker(QObject):
             cat_excluded, include_uncategorized = get_active_category_filter(self._config)
             per_prefix = get_excluded_prefixes(self._config)
             all_excl = list(set(cat_excluded or []) | per_prefix)
+            # excluded_categories: the user_category axis (distinct from the
+            # detected_prefix axis all_excl carries above) — its own field on
+            # global_exclusion_sets, paused-aware like the other three.
+            _, excluded_user_categories, _, _ = global_exclusion_sets(self._config)
             fk = {"excluded_prefixes": all_excl or None,
+                      "excluded_categories": excluded_user_categories or None,
                       "include_uncategorized": include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
                       "excluded_content_types": excluded_tag_content_types(self._config) or None,
