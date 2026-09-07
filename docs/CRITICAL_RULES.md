@@ -148,10 +148,12 @@ Clicking a details-pane metadata value (genre/cast/director) activates a tempora
 
 Every channel context menu is built by the registry in `metatv/gui/channel_menu.py` (`ChannelMenuContext` + `ACTIONS` + `SURFACE_LAYOUTS` + `build_channel_menu`). Do not regrow the old per-surface menus.
 
-- Add an action: define it once in `ACTIONS` (label/icon/tooltip/`applies`), list its id in the relevant `SURFACE_LAYOUTS` entry, supply a handler at the call site. An id absent from a site's `handlers` is silently skipped — that's how surfaces opt in/out.
+- Add an action: define it once in `ACTIONS` (label/icon/tooltip/`applies`), list its id in the relevant `SURFACE_LAYOUTS` entry, supply a handler at the call site. An id absent from a site's `handlers` is silently skipped — that's how surfaces opt in/out (a site offering fewer verbs than another on the SAME surface, e.g. Watch Queue's Alerts-Matched series row lacking "Manage…", is this, not a bug).
 - MainWindow-family menus gather context **off-thread** through the single `_show_channel_menu` seam (`_bg_fetch_ctx_data` → `_ctx_data_ready` → `_on_ctx_data_ready`) — not bespoke `executor.submit` + inline `QMenu`.
-- EPG/Preferences views build locally via `build_channel_menu`, delegating core handlers (play/favorite/queue/rate) to the MainWindow host.
-- Non-channel menus (filter dropdowns, column headers, details chips) are out of scope.
+- A view that isn't ChannelDB-backed (a sidebar section over a config-only aggregate — a monitored series, a keyword watch-for rule) still builds via `build_channel_menu` locally, delegating core handlers (play/favorite/queue/rate) to the MainWindow host where a real channel_id exists, or closing its OWN handlers over the local id when it doesn't (`ChannelMenuContext.channel_ids`/`entry_id` is then just a bookkeeping id — MENU-1's `alerts_series` surface, `retry`'s `entry_id`).
+- `ChannelMenuContext.header`, when non-empty, renders as a disabled first action + separator — the ONE header mechanism (`build_channel_menu` itself renders it); never build a second one. Used by the `versions` surface (details-pane per-version chip menu) to name which variant/source the menu is for.
+- A menu that isn't fully channel-shaped (rule/category administration alongside a channel verb, e.g. `alerts_vod.py`'s keyword-rule menu) may still build its channel-shaped PORTION via `build_channel_menu` and `.addAction()`/`.addSeparator()` the rest onto the returned `QMenu` — the guard (`tests/test_channel_menus_come_from_registry.py`) only flags a raw `QMenu(` constructor call, never `.addAction` on an existing menu.
+- Non-channel menus (filter dropdowns, column headers, details chips, section-level "Clear Unavailable", a picker for content_key siblings) are out of scope — every pre-existing one is enumerated with a one-line reason in the shrink-only `tests/channel_menu_allowlist.json`; a NEW one goes there too, never silently.
 
 ## Player instance keying
 

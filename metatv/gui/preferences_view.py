@@ -789,7 +789,6 @@ class PreferencesView(QWidget):
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
-            item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
             variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
             item.setToolTip(
                 f"Score: {sc.score:.2f}{rating_tip}{shown_tip}{variant_tip}\n"
@@ -806,9 +805,9 @@ class PreferencesView(QWidget):
                 lambda cid=sc.channel_id: self.notInterestedRequested.emit(cid)
             )
             row.middleClicked.connect(self.channelMiddleClicked)
-            row.contextMenuRequested.connect(
-                lambda cid, gx, gy, vc=sc.variant_count: self._on_row_context_menu(cid, gx, gy, vc)
-            )
+            # Right-click opens the FULL registry "recommended" menu (show_separately
+            # leads it) — no more local two-item mini-menu.
+            row.contextMenuRequested.connect(self.channelContextMenuRequested)
             self._rec_list.setItemWidget(item, row)
 
         # Record impressions after rendering (not before — count what the user actually saw)
@@ -943,23 +942,14 @@ class PreferencesView(QWidget):
             session.close()
         self.refresh()
 
-    def _on_row_context_menu(self, channel_id: str, gx: int, gy: int, variant_count: int = 1) -> None:
-        if variant_count <= 1:
-            self.channelContextMenuRequested.emit(channel_id, gx, gy)
-            return
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtWidgets import QMenu
-        menu = QMenu(self)
-        sep_action = menu.addAction(f"≠  Show {variant_count} versions separately")
-        menu.addSeparator()
-        more_action = menu.addAction("More options...")
-        chosen = menu.exec(QPoint(gx, gy))
-        if chosen == sep_action:
-            self._on_show_separately(channel_id)
-        elif chosen == more_action:
-            self.channelContextMenuRequested.emit(channel_id, gx, gy)
+    def show_separately(self, channel_id: str) -> None:
+        """Handler for the registry's ``show_separately`` menu action.
 
-    def _on_show_separately(self, channel_id: str) -> None:
+        Public: called from ``MainWindow._show_channel_separately`` (the
+        central handler wired into the "recommended" surface), not just from
+        this view's own row menu — a right-click on the sidebar rail's copy of
+        the same title ends up here too.
+        """
         overrides: list = list(getattr(self.config, 'rec_dedupe_overrides', []))
         if channel_id not in overrides:
             overrides.append(channel_id)
@@ -980,10 +970,9 @@ class PreferencesView(QWidget):
         if not item:
             return
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        variant_count = item.data(Qt.ItemDataRole.UserRole + 2) or 1
         if channel_id:
             gp = self._rec_list.viewport().mapToGlobal(pos)
-            self._on_row_context_menu(channel_id, gp.x(), gp.y(), variant_count)
+            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
 
     def _on_rec_selection_changed(self, current: QListWidgetItem, _previous) -> None:
         if current:

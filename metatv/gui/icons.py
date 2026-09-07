@@ -76,6 +76,7 @@ search_icon: str = "🔍"
 copy_icon: str = "📄"       # U+1F4C4 PAGE FACING UP — "copy this text to the clipboard"
                             # (📋 is the Watch Queue; ⧉ is the split-streams toggle)
 versions_icon: str = "🗐"   # U+1F5D0 PAGES — channel-menu "Show N versions" (collapsed-row variant picker)
+show_separately_icon: str = "≠"   # U+2260 NOT EQUAL TO — channel-menu "Show N versions separately" (recommendation-engine dedup override, distinct from versions_icon's content_key picker)
 filter_icon: str = "⚡"
 global_exclusion_icon: str = "🔒"   # U+1F512 LOCK — content held back by Global Exclusions
 search_filter_icon: str = "🔎"      # U+1F50E MAGNIFIER TILTED RIGHT — content held back by search/Tier-1 filters
@@ -89,7 +90,6 @@ overflow_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "More…"
 hide_icon: str = "🚫"
 hide_watched_filter_icon: str = "✓"   # Used in "Hide watched" toggle label
 pin_icon: str = "📌"
-manage_icon: str = "⚙"
 visibility_toggle_icon: str = "👁"
 analyze_icon: str = "📊"   # U+1F4CA BAR CHART — "analyze this source" action (overlap/content breakdown)
 
@@ -587,6 +587,10 @@ VECTOR_KEYS: dict[str, str] = {
     "monitor_off": "mdi6.bell-off-outline",
     "hide": "mdi6.eye-off-outline",
     "queue": "mdi6.playlist-plus",
+    # channel-menu "Show N versions separately" (recommendation-engine dedup
+    # override) — distinct from "versions" would-be role: not registered
+    # because show_versions has never needed a vector counterpart either.
+    "show_separately": "mdi6.not-equal-variant",
     "watch_later": "mdi6.eye-outline",
     # navigation / chrome
     "search": "mdi6.magnify",

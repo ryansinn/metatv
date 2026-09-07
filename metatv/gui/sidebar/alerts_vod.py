@@ -510,7 +510,6 @@ class MoviesSeriesMixin:
 
     def _on_vod_context_menu(self, pos) -> None:
         """Right-click menu — differs by item kind (keyword rule vs monitored series)."""
-        from PyQt6.QtWidgets import QMenu
         item = self._vod_list.itemAt(pos)
         if not item:
             return
@@ -522,35 +521,38 @@ class MoviesSeriesMixin:
         if kind == "heading":
             return
 
+        from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
+
         rule_created = item.data(Qt.ItemDataRole.UserRole)
         unviewed = getattr(
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
         )(rule_created)
 
-        menu = QMenu(self._vod_list)
-        # When this rule has new (unviewed) matches, offer a per-rule acknowledge
-        # near the top — clears just this alert's green, not every rule's.
+        # A keyword-rule row is a config aggregate (no channel_id) reusing the
+        # "alerts" surface for its two channel-shaped verbs (clear/view); the
+        # channel actions (play/favorite/…) that surface also lists are never
+        # given a handler here, so the registry silently skips them.
+        ctx = ChannelMenuContext(
+            channel_ids=[rule_created] if rule_created else [],
+            surface="alerts",
+            has_unviewed_match=unviewed > 0,
+            channel_found=False,
+        )
+        handlers: dict = {}
         if unviewed > 0:
-            clear_action = menu.addAction(f"{_icons.new_match_icon}  Clear this alert")
-            clear_action.setToolTip("Acknowledge just this alert's new matches")
-            clear_action.triggered.connect(
-                lambda _=False, rc=rule_created: self.vodRuleClearAlertRequested.emit(rc)
-            )
-            menu.addSeparator()
+            handlers["clear_alert"] = lambda: self.vodRuleClearAlertRequested.emit(rule_created)
         if rule_created:
-            view_action = menu.addAction(f"{_icons.search_icon}  View matches")
-            view_action.setToolTip("Show this alert's matched content in the main list")
-            view_action.triggered.connect(
-                lambda _=False, rc=rule_created: self.vodRuleShowMatchesRequested.emit(rc)
-            )
-            menu.addSeparator()
+            handlers["view_matches"] = lambda: self.vodRuleShowMatchesRequested.emit(rule_created)
+        menu = build_channel_menu(ctx, handlers, parent=self._vod_list)
 
+        # Rule administration — not channel-shaped, stays hand-appended.
+        if menu.actions():
+            menu.addSeparator()
         remove_action = menu.addAction(f"{_icons.close_icon}  Remove rule")
         remove_action.setToolTip("Delete this watch-for rule")
         remove_action.triggered.connect(
             lambda _=False, rc=rule_created: self.vodRuleRemoveRequested.emit(rc)
         )
-
         menu.addSeparator()
         manage_action = menu.addAction(f"{_icons.manage_icon}  Manage rules…")
         manage_action.setToolTip("View and manage all watch-for rules")
@@ -569,51 +571,42 @@ class MoviesSeriesMixin:
     def _build_series_context_menu(self, cid: str) -> QMenu:
         """Build (does not exec) a monitored-series row's right-click menu.
 
-        Hand-rolled (not the channel_menu.py registry): a monitored-series entry
-        is a config-only aggregate, not a ChannelDB row the registry models
-        (play/favorite/queue/etc.) — the identical rationale queue.py's
-        ``_build_matched_series_menu`` documents for the sibling Alerts Matched
-        series row (#365). "Open series" reuses the SAME drill chokepoint as
+        The registry's "alerts_series" surface — a monitored-series entry is a
+        config-only aggregate, not a ChannelDB row, so ``channel_ids`` carries
+        *cid* only as an id for the menu's own bookkeeping (is_single); every
+        handler below closes over *cid* directly rather than reading
+        ``ctx.channel_id``. "Open series" reuses the SAME drill chokepoint as
         double-click (``seriesActivated``) — never the details-only
         ``seriesClicked`` (that was the owner-reported bug: right-click "Open
         series" only loaded the details pane instead of browsing in). Building
-        the menu never mutates/navigates anything — only a triggered action does
-        (mirrors queue.py's ``_build_matched_series_menu`` — opening the menu is
-        never itself a mark-viewed/navigate side effect), and splitting build
-        from exec lets tests trigger an action without a blocking ``exec()``.
+        the menu never mutates/navigates anything — only a triggered action
+        does, and splitting build from exec lets tests trigger an action
+        without a blocking ``exec()``. Sibling: queue.py's
+        ``_build_matched_series_menu`` (#365) reuses the same surface.
         """
-        from PyQt6.QtWidgets import QMenu
+        from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
+
         unseen = 0
         for e in getattr(self.config, "get_monitored_series", lambda: [])():
             if e.get("series_channel_id") == cid:
                 unseen = e.get("unseen_new") or 0
                 break
 
-        menu = QMenu(self._vod_list)
-        open_action = menu.addAction(f"{_icons.series_icon}  Open series")
-        open_action.setToolTip("Browse this series' seasons and episodes")
-        open_action.triggered.connect(lambda _=False, c=cid: self.seriesActivated.emit(c))
-
-        if unseen > 0:
-            seen_action = menu.addAction(f"{_icons.watched_icon}  Mark seen")
-            seen_action.setToolTip("Clear the new-episode count for this series")
-            seen_action.triggered.connect(
-                lambda _=False, c=cid: self.seriesMarkSeenRequested.emit(c)
-            )
-
-        menu.addSeparator()
-        stop_action = menu.addAction(f"{_icons.close_icon}  Stop alerts")
-        stop_action.setToolTip("Stop monitoring this series for new episodes")
-        stop_action.triggered.connect(
-            lambda _=False, c=cid: self.seriesStopRequested.emit(c)
+        ctx = ChannelMenuContext(
+            channel_ids=[cid],
+            surface="alerts_series",
+            media_type="series",
+            channel_found=True,
+            is_series_monitored=True,
+            has_unviewed_match=unseen > 0,
         )
-
-        menu.addSeparator()
-        manage_action = menu.addAction(f"{_icons.manage_icon}  Manage…")
-        manage_action.setToolTip("Manage watch alerts — keyword rules and monitored series")
-        manage_action.triggered.connect(self.manageWatchForClicked.emit)
-
-        return menu
+        handlers = {
+            "browse_series": lambda: self.seriesActivated.emit(cid),
+            "mark_seen": lambda: self.seriesMarkSeenRequested.emit(cid),
+            "monitor_series": lambda: self.seriesStopRequested.emit(cid),
+            "manage_alerts": self.manageWatchForClicked.emit,
+        }
+        return build_channel_menu(ctx, handlers, parent=self._vod_list)
 
     def _rule_info_for_created(self, rule_created: str) -> tuple[str, str]:
         """Return (text, match_type) for the rule identified by rule_created, or ('', 'any')."""

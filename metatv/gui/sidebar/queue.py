@@ -897,12 +897,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             grain = payload.get("grain") if isinstance(payload, dict) else None
 
             if grain == "matched_series":
-                # Monitored-series entries are config-only aggregates, not a
-                # ChannelDB row the channel_menu.py registry models (play/
-                # favorite/queue/etc.) — hand-rolled, mirroring the identical
-                # Open-series/Mark-seen pattern the Watch Alerts sidebar section
-                # already uses for its own monitored-series rows
-                # (sidebar/alerts.py _show_series_context_menu).
+                # Registry's "alerts_series" surface (Open series / Mark seen
+                # only — same surface as sidebar/alerts_vod.py's monitored-series
+                # menu, #365; this site has no handler for Stop alerts/Manage…,
+                # so the registry silently skips them).
                 cid = payload.get("channel_id")
                 if cid:
                     self._build_matched_series_menu(cid).exec(gp)
@@ -936,24 +934,30 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def _build_matched_series_menu(self, cid: str) -> "QMenu":
         """Build (does not exec) the Alerts-Matched series row's right-click menu.
 
+        The registry's "alerts_series" surface, wired with only two of its four
+        ids — this row has no Stop-alerts/Manage… affordance today, and an id
+        with no handler is silently skipped (never a hand-rolled QMenu; #365's
+        sibling is sidebar/alerts_vod.py's ``_build_series_context_menu``).
         "Open series" reuses the exact same navigate chokepoint as double-click
-        (``itemDoubleClicked`` — drilling in is itself the "seen" ack). "Mark
-        seen" is the only way to explicitly clear ``unseen_new`` without
-        navigating. Building the menu never mutates anything — only a
-        triggered action does, so opening the menu is never a mark-viewed
-        side effect.
+        (``itemDoubleClicked`` — drilling in is itself the "seen" ack). Building
+        the menu never mutates anything — only a triggered action does, so
+        opening the menu is never a mark-viewed side effect.
         """
-        from PyQt6.QtWidgets import QMenu
+        from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
-        menu = QMenu(self._list)
-        open_action = menu.addAction(f"{_icons.series_icon}  Open series")
-        open_action.setToolTip("Browse this series' seasons and episodes")
-        open_action.triggered.connect(
-            lambda _=False, c=cid: self.itemDoubleClicked.emit(c)
+        ctx = ChannelMenuContext(
+            channel_ids=[cid],
+            surface="alerts_series",
+            media_type="series",
+            channel_found=True,
+            is_series_monitored=True,
+            # Alerts-Matched rows exist only while they have something new —
+            # unlike alerts_vod.py's general monitored-series list, there is no
+            # per-row unseen count to read; the row's presence here IS the signal.
+            has_unviewed_match=True,
         )
-        seen_action = menu.addAction(f"{_icons.watched_icon}  Mark seen")
-        seen_action.setToolTip("Clear the new-episode count for this series")
-        seen_action.triggered.connect(
-            lambda _=False, c=cid: self.alertsMatchedSeriesMarkSeenRequested.emit(c)
-        )
-        return menu
+        handlers = {
+            "browse_series": lambda: self.itemDoubleClicked.emit(cid),
+            "mark_seen": lambda: self.alertsMatchedSeriesMarkSeenRequested.emit(cid),
+        }
+        return build_channel_menu(ctx, handlers, parent=self._list)
