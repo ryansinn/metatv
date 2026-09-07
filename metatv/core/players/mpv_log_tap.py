@@ -88,7 +88,8 @@ def _exit_code(proc: "subprocess.Popen") -> int | None:
     if callable(wait):
         try:
             rc = wait(timeout=5)
-        except Exception:
+        except subprocess.TimeoutExpired:
+            logger.debug("mpv still running 5s after its output closed; rc unknown")
             rc = None
     else:
         poll = getattr(proc, "poll", None)
