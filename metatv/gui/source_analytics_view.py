@@ -1,11 +1,9 @@
 """Source Analytics view — read-only fingerprint, overlap, unique content, and prefix analysis."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
     QTableWidget, QTableWidgetItem,
 )
-from PyQt6.QtCore import pyqtSignal
-from loguru import logger
 
 from metatv.core.repositories.dtos import (
     SourceFingerprintDTO,
@@ -13,11 +11,11 @@ from metatv.core.repositories.dtos import (
     UniqueChannelDTO,
     PrefixStatDTO,
 )
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.tool_view import ToolView, clear_layout
 
 
-class SourceAnalyticsView(QWidget):
+class SourceAnalyticsView(ToolView):
     """Read-only analytics view for source fingerprinting and overlap analysis.
 
     Displays:
@@ -29,11 +27,8 @@ class SourceAnalyticsView(QWidget):
     All data loads asynchronously via MainWindow._run_query seam.
     """
 
-    done = pyqtSignal()
-
     def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
+        super().__init__(main_window)
         self.current_provider_id = None
         # One token per logical query type (seam contract): these panels load
         # concurrently and do NOT supersede each other, so a single shared counter
@@ -52,16 +47,7 @@ class SourceAnalyticsView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Top bar: Back button and title
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.prev_icon + " Back")
-        back_btn.setToolTip("Return to channel list")
-        back_btn.clicked.connect(self.done.emit)
-        title = QLabel("Source Analytics")
-        _theme.style(title, "DETAIL_TITLE")
-        top_bar.addWidget(back_btn)
-        top_bar.addWidget(title)
-        top_bar.addStretch()
+        top_bar = self.build_top_bar("Source Analytics")
 
         # Scroll area for main content
         scroll = QScrollArea()
@@ -83,19 +69,19 @@ class SourceAnalyticsView(QWidget):
         self._prefixes_layout = QVBoxLayout(self._prefixes_panel)
 
         # Add panels to content
-        content_layout.addWidget(self._build_section_header("Source Fingerprint"))
+        content_layout.addWidget(self.section_header("Source Fingerprint"))
         content_layout.addWidget(self._fingerprint_panel)
         content_layout.addSpacing(20)
 
-        content_layout.addWidget(self._build_section_header("Overlap Matrix"))
+        content_layout.addWidget(self.section_header("Overlap Matrix"))
         content_layout.addWidget(self._overlap_panel)
         content_layout.addSpacing(20)
 
-        content_layout.addWidget(self._build_section_header("Unique Titles"))
+        content_layout.addWidget(self.section_header("Unique Titles"))
         content_layout.addWidget(self._unique_panel)
         content_layout.addSpacing(20)
 
-        content_layout.addWidget(self._build_section_header("Unrecognized Prefixes"))
+        content_layout.addWidget(self.section_header("Unrecognized Prefixes"))
         content_layout.addWidget(self._prefixes_panel)
         content_layout.addStretch()
 
@@ -103,12 +89,6 @@ class SourceAnalyticsView(QWidget):
 
         layout.addLayout(top_bar)
         layout.addWidget(scroll)
-
-    def _build_section_header(self, title: str) -> QLabel:
-        """Build a section header label."""
-        label = QLabel(title)
-        _theme.style(label, "SECTION_HDR_LG")
-        return label
 
     def on_activate(self, provider_id: str):
         """Called when view becomes visible (or the analyzed source switches).
@@ -118,12 +98,9 @@ class SourceAnalyticsView(QWidget):
         kicks off the async loads.
         """
         self.current_provider_id = provider_id
-        for layout in (self._fingerprint_layout, self._overlap_layout,
-                       self._unique_layout, self._prefixes_layout):
-            self._clear_layout(layout)
-            loading = QLabel("Loading…")
-            _theme.style(loading, "SECTION_HINT")
-            layout.addWidget(loading)
+        for panel_layout in (self._fingerprint_layout, self._overlap_layout,
+                              self._unique_layout, self._prefixes_layout):
+            self.show_loading(panel_layout)
         self._load_analytics(provider_id)
 
     def on_deactivate(self):
@@ -139,11 +116,15 @@ class SourceAnalyticsView(QWidget):
             providers = repos.providers.get_all()
             return [p.id for p in providers]
 
-        # Load provider list first to know which providers to compare
+        # Load provider list first to know which providers to compare. A
+        # failure here means none of the four panels below ever get kicked
+        # off, so the error is painted onto all four rather than just this
+        # (invisible) intermediate step.
         self.main_window._run_query(
             get_provider_ids,
             self._on_provider_ids_loaded,
             token_ref=self._providers_token,
+            on_error=self._on_provider_ids_error,
         )
 
     def _on_provider_ids_loaded(self, provider_ids: list[str]):
@@ -153,7 +134,7 @@ class SourceAnalyticsView(QWidget):
             lambda repos: repos.analytics.source_fingerprint(self.current_provider_id),
             self._on_fingerprint_loaded,
             token_ref=self._fingerprint_token,
-            on_error=lambda e: self._on_panel_error(self._fingerprint_layout, e),
+            on_error=lambda e: self.show_panel_error(self._fingerprint_layout, e),
         )
 
         # Load overlap matrix (all providers x current provider)
@@ -161,7 +142,7 @@ class SourceAnalyticsView(QWidget):
             lambda repos: repos.analytics.overlap_matrix(provider_ids, "live"),
             self._on_overlap_loaded,
             token_ref=self._overlap_token,
-            on_error=lambda e: self._on_panel_error(self._overlap_layout, e),
+            on_error=lambda e: self.show_panel_error(self._overlap_layout, e),
         )
 
         # Load unique titles
@@ -169,7 +150,7 @@ class SourceAnalyticsView(QWidget):
             lambda repos: repos.analytics.unique_titles(self.current_provider_id, "live", limit=1000),
             self._on_unique_loaded,
             token_ref=self._unique_token,
-            on_error=lambda e: self._on_panel_error(self._unique_layout, e),
+            on_error=lambda e: self.show_panel_error(self._unique_layout, e),
         )
 
         # Load unrecognized prefixes
@@ -177,13 +158,19 @@ class SourceAnalyticsView(QWidget):
             lambda repos: repos.analytics.unrecognized_prefixes(self.current_provider_id),
             self._on_prefixes_loaded,
             token_ref=self._prefixes_token,
-            on_error=lambda e: self._on_panel_error(self._prefixes_layout, e),
+            on_error=lambda e: self.show_panel_error(self._prefixes_layout, e),
         )
+
+    def _on_provider_ids_error(self, exc: Exception) -> None:
+        """The provider-id load feeds all four panels below — paint all four."""
+        for panel_layout in (self._fingerprint_layout, self._overlap_layout,
+                              self._unique_layout, self._prefixes_layout):
+            self.show_panel_error(panel_layout, exc)
 
     def _on_fingerprint_loaded(self, dto: SourceFingerprintDTO):
         """Render fingerprint panel."""
         # Clear previous
-        self._clear_layout(self._fingerprint_layout)
+        clear_layout(self._fingerprint_layout)
 
         # Counts row
         counts_row = QHBoxLayout()
@@ -226,7 +213,7 @@ class SourceAnalyticsView(QWidget):
     def _on_overlap_loaded(self, dtos: list[OverlapMatrixDTO]):
         """Render overlap matrix panel."""
         # Clear previous
-        self._clear_layout(self._overlap_layout)
+        clear_layout(self._overlap_layout)
 
         if not dtos:
             self._overlap_layout.addWidget(QLabel("No overlap data available"))
@@ -266,7 +253,7 @@ class SourceAnalyticsView(QWidget):
     def _on_unique_loaded(self, dtos: list[UniqueChannelDTO]):
         """Render unique titles panel."""
         # Clear previous
-        self._clear_layout(self._unique_layout)
+        clear_layout(self._unique_layout)
 
         if not dtos:
             self._unique_layout.addWidget(QLabel("No unique titles on this source"))
@@ -290,7 +277,7 @@ class SourceAnalyticsView(QWidget):
     def _on_prefixes_loaded(self, dtos: list[PrefixStatDTO]):
         """Render unrecognized prefixes panel."""
         # Clear previous
-        self._clear_layout(self._prefixes_layout)
+        clear_layout(self._prefixes_layout)
 
         if not dtos:
             self._prefixes_layout.addWidget(QLabel("All prefixes recognized"))
@@ -306,22 +293,3 @@ class SourceAnalyticsView(QWidget):
             table.setItem(row, 2, QTableWidgetItem(examples[:60]))
         table.resizeColumnsToContents()
         self._prefixes_layout.addWidget(table)
-
-    def _on_panel_error(self, layout, exc: Exception):
-        """Render a visible failure row in a panel whose query raised (main thread).
-
-        Without this, a failed load would leave the panel blank — indistinguishable
-        from an empty result (CLAUDE.md: background refresh failure must be visible).
-        """
-        logger.error("Source analytics panel load failed: {}", exc)
-        self._clear_layout(layout)
-        err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this panel")
-        _theme.style(err, "SECTION_HINT")
-        layout.addWidget(err)
-
-    def _clear_layout(self, layout):
-        """Clear all widgets from a layout."""
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()

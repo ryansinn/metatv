@@ -288,7 +288,16 @@ def replay(host: Any, attempt: PlayAttempt) -> None:
         lambda repos: repos.channels.get_playable_dto(attempt.channel_id),
         lambda ch: ch is not None and host.play_media(
             ch, start_override=attempt.resume_seconds or None, skip_probe=True),
+        on_error=lambda e: _on_replay_failed(host, attempt, e),
     )
+
+
+def _on_replay_failed(host: Any, attempt: PlayAttempt, exc: Exception) -> None:
+    """The scheduled retry's own re-read raised — say so, rather than leaving
+    the user staring at "retrying in Xs" with nothing then happening."""
+    logger.warning(f"Retry for {attempt.channel_name!r} failed: {exc}")
+    host.status_bar.showMessage(
+        f"{attempt.channel_name}: retry failed — couldn't reload the channel")
 
 
 def retry_candidate(host: Any) -> "Optional[PlayAttempt]":

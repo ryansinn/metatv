@@ -33,6 +33,11 @@ class _FavoritesMixin:
         if "is_favorite" in delta and hasattr(self, "channel_model"):
             self.channel_model.update_favorite(channel_id, delta["is_favorite"])
 
+    def _write_failed(self, what: str) -> None:
+        """DEBT-3 async write raised: say so instead of leaving stale state."""
+        logger.warning(f"Async write failed: {what}")
+        self.status_bar.showMessage(f"Could not save {what} — nothing changed")
+
     def _toggle_rating(self, channel_id: str, rating: int) -> None:
         """Toggle a like/dislike; clicking the active rating clears it.
 
@@ -54,7 +59,7 @@ class _FavoritesMixin:
                 self.preferences_view.refresh()
             self._refresh_recommended_section()
             self.channel_state_bus.publish(channel_id, rating=new_rating)
-        self._run_query(_write, _on_result, commit=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("your rating"))
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
         """Set favorite status explicitly (context-menu path). DEBT-3: async write."""
@@ -73,7 +78,7 @@ class _FavoritesMixin:
             else:
                 self._remove_sidebar_row("favorites", channel_id)
             self.channel_state_bus.publish(channel_id, is_favorite=make_favorite)
-        self._run_query(_write, _on_result, commit=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("favorite"))
 
     def _hide_channel_from_alerts(self, channel_id: str) -> None:
         """Hide a channel from Watch Alerts. DEBT-3: async write."""
@@ -85,7 +90,7 @@ class _FavoritesMixin:
             self.load_history()
             self.load_channels()
             self.channel_state_bus.publish(channel_id, is_hidden=True)
-        self._run_query(_write, _on_result, commit=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("hiding this channel"))
 
     def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
         """Suppress (or un-suppress) channel from recommendations only.
@@ -337,10 +342,9 @@ class _FavoritesMixin:
     def _refresh_alerts_retry_section(self) -> None:
         section = self.sidebar_sections.get("alerts")
         if section and hasattr(section, "refresh_retry"):
-            # Display path includes recovered "online" rows (green icon, "Back
-            # online!" tooltip) so they stay visible until the user removes
-            # them — get_all_pending() (checker-only) would drop them the
-            # instant they recover. See StreamRetryRepository.get_all_display.
+            # Display path includes recovered "online" rows (green icon, "Back online!" tooltip) so they stay
+            # visible until the user removes them — get_all_pending() (checker-only) would drop them the instant
+            # they recover. See StreamRetryRepository.get_all_display.
             entries = self.stream_retry_manager.get_all_display()
             section.refresh_retry(entries)
 
@@ -389,10 +393,9 @@ class _FavoritesMixin:
         Called when the user double-clicks an unavailable queue or favorites entry
         to find a replacement on an active source.
         """
-        # Ensure the Search chip is active and the channel-list view is actually
-        # shown (the user may be in EPG/Discover) — mirrors on_search_view_toggle,
-        # which switches the view via switch_to_list_view(). Without this the query
-        # would run but the results stay hidden behind the current view.
+        # Ensure the Search chip is active and the channel-list view is actually shown (the user may be in
+        # EPG/Discover) — mirrors on_search_view_toggle, which switches the view via switch_to_list_view().
+        # Without this the query would run but the results stay hidden behind the current view.
         if not self.search_chip.is_enabled():
             self.search_chip.blockSignals(True)
             self.search_chip.set_enabled(True)
@@ -483,9 +486,8 @@ class _FavoritesMixin:
             self._refresh_queue_section()
 
     def _clear_watched_queue(self) -> None:
-        # Confirms, like its two siblings did and this one did not. It is
-        # behind the ⋯ so it already takes two clicks, but it deletes without
-        # asking and the other clears do not — an inconsistency nobody would
+        # Confirms, like its two siblings did and this one did not. It is behind the ⋯ so it already takes two
+        # clicks, but it deletes without asking and the other clears do not — an inconsistency nobody would
         # predict from the menu.
         from PyQt6.QtWidgets import QMessageBox
 
@@ -863,7 +865,7 @@ class _FavoritesMixin:
             logger.info(f"Toggled favorite for {name}: {new_status}")
             self.load_favorites()
             self.channel_state_bus.publish(channel_id, is_favorite=new_status)
-        self._run_query(_write, _on_result, commit=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("favorite"))
 
     def toggle_favorite(self, item):
         """Toggle favorite status: an optimistic icon/cache echo, confirmed
@@ -882,9 +884,8 @@ class _FavoritesMixin:
             updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
         item.setText(updated_text)
 
-        # Also update in all_channels cache for filtering. The cached entries are
-        # frozen ChannelListDTOs, so build a new one with the flipped flag rather
-        # than mutating in place (a frozen dataclass would raise on assignment).
+        # Also update in all_channels cache for filtering. The cached entries are frozen ChannelListDTOs, so build a new one with
+        # the flipped flag rather than mutating in place (a frozen dataclass would raise on assignment).
         for i, (_text, ch) in enumerate(self.all_channels):
             if ch.id == channel_id:
                 new_ch = replace(ch, is_favorite=new_is_favorite)

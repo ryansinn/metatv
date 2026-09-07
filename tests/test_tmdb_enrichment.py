@@ -1047,9 +1047,14 @@ def test_missing_view_slot_enqueues_loaded_sample():
         def addWidget(self, *_a, **_k):
             pass
 
+        def count(self):
+            # tool_view.clear_layout no-ops on an already-empty layout — this
+            # double simply reports empty, so the real clear_layout runs
+            # unpatched instead of being bypassed by a stale private hook.
+            return 0
+
     view = MissingTmdbView.__new__(MissingTmdbView)   # skip QWidget __init__
     view.main_window = _FakeMW()
-    view._clear_layout = lambda layout: None
     view._sources_layout = _FakeLayout()
     view._source_block = lambda group: None  # don't build real widgets in this unit test
 

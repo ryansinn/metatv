@@ -944,7 +944,15 @@ class _DownloadsMixin:
         def _query(_repos):
             return self.recording_manager.resync_from_guide()
 
-        self._run_query(_query, self._on_recordings_resynced)
+        self._run_query(_query, self._on_recordings_resynced,
+                         on_error=self._on_recordings_resync_failed)
+
+    def _on_recordings_resync_failed(self, exc: Exception) -> None:
+        """The recording schedule may now be stale until the NEXT EPG refresh
+        succeeds — logged only (no toast): this runs after every refresh, so a
+        one-off failure is self-healing and a persistent one would otherwise
+        spam a notification on every guide fetch."""
+        logger.warning(f"Post-refresh recording resync failed: {exc}")
 
     def _on_recordings_resynced(self, moved: list) -> None:
         """Main-thread slot for :meth:`_on_epg_refreshed_resync_recordings`.
