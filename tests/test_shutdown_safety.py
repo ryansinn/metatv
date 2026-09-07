@@ -300,8 +300,8 @@ def test_failover_records_completed_attempts_before_aborting():
 # ===========================================================================
 
 def _make_series_host(shutting_down: bool, db):
-    from metatv.gui.main_window_series import _SeriesMixin
-    obj = _SeriesMixin.__new__(_SeriesMixin)
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    obj = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     obj._shutting_down = shutting_down
     obj.db = db
     obj.executor = _ImmediateExecutor()

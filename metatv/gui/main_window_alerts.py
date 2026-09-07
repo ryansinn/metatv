@@ -15,11 +15,13 @@ changed in behaviour.
 
 The series-monitor leftovers (``_monitor_series``, ``_on_details_monitor_toggled``,
 ``_on_mark_series_seen``, ``_backfill_series_display_titles``) were NOT moved
-here and were not folded into ``_SeriesMixin`` either — they stay on
-``MainWindow`` (DEBT-1b PR body: cohesion over arithmetic, and moving them
-into either mixin would scatter one small cohesive group rather than shrink
-one). Several call sites in this file reach back into ``MainWindow`` for
-methods that stayed behind (``self._refresh_queue_section``,
+here — DEBT-1b left them on ``MainWindow`` (cohesion over arithmetic; moving
+them into either mixin then would have scattered one small cohesive group
+rather than shrink one). DEBT-1c later folded them into ``_SeriesMixin``
+(``main_window_series.py``) once that file had room, after its playback
+family moved out to ``main_window_series_playback.py``. Several call sites in
+this file reach back into ``MainWindow`` for methods that stayed behind
+(``self._refresh_queue_section``,
 ``self._relink_epg_channel``, ``self._on_vod_rule_show_matches``,
 ``self._set_search_text_silently``, ``self._save_search_state``,
 ``self.switch_to_list_view``, ``self.load_channels``,

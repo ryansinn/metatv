@@ -542,12 +542,12 @@ class TestDetailsEpisodeToggleHandlers:
 
 class TestPlayEpisodeById:
     def test_resolves_and_plays(self, db):
-        from metatv.gui.main_window_series import _SeriesMixin
+        from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
         _seed_series(db)
         ep_id = _seed_episode(db, season_num=1, episode_num=1, title="Pilot")
 
-        host = _SeriesMixin.__new__(_SeriesMixin)
+        host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
         played = []
@@ -560,9 +560,9 @@ class TestPlayEpisodeById:
         assert played[0].title == "Pilot"
 
     def test_missing_episode_shows_status_message_and_does_not_play(self, db):
-        from metatv.gui.main_window_series import _SeriesMixin
+        from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
-        host = _SeriesMixin.__new__(_SeriesMixin)
+        host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
         host.db = db
         host.status_bar = MagicMock()
         host.play_episode = MagicMock()

@@ -2187,7 +2187,7 @@ class _ChannelListMixin:
             channel_ids: Ordered list of channel IDs as they appear in the
                 multi-select (selection order = play order).
         """
-        from metatv.gui.main_window_series import _PlayAllItem
+        from metatv.gui.main_window_series_playback import _PlayAllItem
 
         def _bg_fetch(repos) -> list:
             """Off-thread: look up playable DTOs for channel_ids in selection order."""

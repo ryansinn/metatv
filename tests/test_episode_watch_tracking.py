@@ -373,10 +373,10 @@ def test_mpv_queue_uses_instance_key_from_arg():
 # ---------------------------------------------------------------------------
 
 def _make_series_mixin_host(db):
-    """Build a _SeriesMixin host with the minimal attributes play_episode needs."""
-    from metatv.gui.main_window_series import _SeriesMixin
+    """Build a _SeriesPlaybackMixin host with the minimal attributes play_episode needs."""
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 
-    host = _SeriesMixin.__new__(_SeriesMixin)
+    host = _SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin)
     host.db = db
     host.config = MagicMock(
         autoplay_season_episodes=False,

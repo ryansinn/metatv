@@ -33,6 +33,7 @@ from metatv.gui.main_window_async import _AsyncMixin
 from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_provider_connectivity import _ProviderConnectivityMixin
 from metatv.gui.main_window_series import _SeriesMixin
+from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
 from metatv.gui.main_window_updates import _UpdatesMixin
 from metatv.gui.app_header import _AppHeaderMixin
@@ -138,7 +139,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -1173,62 +1174,6 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     # Series monitor helpers
     # ------------------------------------------------------------------
 
-    def _backfill_series_display_titles(self) -> None:
-        """Backfill cleaned ``display_title`` + identity fields for monitored series.
-
-        New monitors persist ``display_title``, ``region``, ``language`` (the
-        ingestion-computed ``detected_*``) and ``source`` (provider name) at add
-        time; this one-time startup backfill covers entries created before that (a
-        bounded off-thread lookup for just the incomplete ids — never a large-table
-        scan, never an ORM object across the session boundary).  The identity
-        fields disambiguate two series that share a cleaned title.  Always ends by
-        refreshing the Movies & Series list.
-        """
-        # An entry needs a top-up when it lacks a display_title OR any identity key
-        # is absent.  Key-presence (not truthiness) is the test so a legitimately
-        # empty region/language does not re-query on every launch.
-        def _needs_backfill(e: dict) -> bool:
-            if not e.get("display_title"):
-                return True
-            return any(k not in e for k in ("region", "language", "source"))
-
-        missing = [
-            e.get("series_channel_id")
-            for e in self.config.get_monitored_series()
-            if _needs_backfill(e) and e.get("series_channel_id")
-        ]
-        if not missing:
-            self._refresh_vod_alerts_section()
-            return
-
-        def _query(repos) -> dict:
-            # Plain-string fields only (no ORM escapes the session boundary).
-            out: dict[str, dict] = {}
-            for cid in missing:
-                ch = repos.channels.get_by_id(cid)
-                if ch is None:
-                    continue
-                provider = repos.providers.get_by_id(ch.provider_id) if ch.provider_id else None
-                out[cid] = {
-                    "display_title": ch.detected_title or ch.name or "",
-                    "region": ch.detected_region or "",
-                    "language": ch.detected_prefix or "",
-                    "source": (provider.name if provider else "") or "",
-                }
-            return out
-
-        def _apply(rows) -> None:
-            updates: dict[str, dict] = {}   # ONE save; see ..._many's docstring
-            for cid, f in (rows or {}).items():
-                updates[cid] = {"region": f["region"], "language": f["language"],
-                                "source": f["source"]}
-                if f["display_title"]:
-                    updates[cid]["display_title"] = f["display_title"]
-            self.config.update_monitored_series_many(updates)
-            self._refresh_vod_alerts_section()
-
-        self._run_query(_query, _apply, on_error=lambda _e: self._refresh_vod_alerts_section())
-
     def browse_series_by_id(self, channel_id: str) -> None:
         """Open a series' seasons and episodes, from a channel id.
 
@@ -1243,72 +1188,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         if channel is not None:
             self.drill_into_series(channel)
 
-    def _monitor_series(self, channel_id: str) -> None:
-        """Start a new-episode alert for a series.
-
-        Reads the channel from the DB to populate the config entry, then
-        tells SeriesMonitorManager to compute and store the baseline episode count.
-        """
-        with self.db.session_scope(commit=False) as session:
-            from metatv.core.repositories import RepositoryFactory
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                logger.warning(f"_monitor_series: channel {channel_id} not found")
-                return
-            provider = (
-                repos.providers.get_by_id(channel.provider_id)
-                if channel.provider_id else None
-            )
-            entry = {
-                "series_channel_id": channel_id,
-                "source_id": channel.source_id or "",
-                "provider_id": channel.provider_id or "",
-                "title": channel.name or "",
-                # Cleaned title read from the ingestion-computed detected_title, stored
-                # so the sidebar/manage-dialog render never re-parses the raw name.
-                "display_title": channel.detected_title or channel.name or "",
-                # Identity fields (also ingestion-computed) — disambiguate two series
-                # that share a cleaned title; read at render, never re-parsed.
-                "region": channel.detected_region or "",
-                "language": channel.detected_prefix or "",
-                "source": (provider.name if provider else "") or "",
-                # {} = no provider baseline established yet; set_baseline() below
-                # fills in this (primary) provider's entry. Any OTHER provider
-                # mirroring this series gets baselined silently on its first
-                # check_all()/timer pass.
-                "baselines": {},
-                "unseen_new": 0,
-                "growth_providers": [],
-                "last_checked": None,
-            }
-
-        self.config.add_monitored_series(entry)
-        self.series_monitor.set_baseline(channel_id)
-        self._refresh_vod_alerts_section()
-
     def _unmonitor_series(self, channel_id: str) -> None:
         """Stop the new-episode alert for a series."""
         self.config.remove_monitored_series(channel_id)
         self._refresh_vod_alerts_section()
-
-    def _on_details_monitor_toggled(self, channel_id: str) -> None:
-        """Toggle the new-episode alert from the details-pane Alert button."""
-        if self.config.is_series_monitored(channel_id):
-            self._unmonitor_series(channel_id)
-        else:
-            self._monitor_series(channel_id)
-
-    def _on_mark_series_seen(self, channel_id: str) -> None:
-        """Clear unseen count for the given series (main thread).
-
-        Uses the composite ``_refresh_alert_visibility`` chokepoint (not the
-        narrower ``_refresh_vod_alerts_section``) so the Watch Queue sidebar's
-        own "Alerts Matched" matched-series rows clear their badge too — not
-        just the separate Watch Alerts section's monitored-series list.
-        """
-        self.config.clear_unseen(channel_id)
-        self._refresh_alert_visibility()
 
     # ------------------------------------------------------------------
     # VOD watch-alert helpers

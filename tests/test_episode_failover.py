@@ -1,7 +1,7 @@
 """Episodes could not fail over to a source's alternate hosts at all — only
 channels/movies (via ``validate_and_failover_stream_url``) could (#308).
 
-The fix: ``launch_player_for_episode`` (main_window_series.py) now routes its
+The fix: ``launch_player_for_episode`` (main_window_series_playback.py) now routes its
 pre-flight check through the same ``validate_and_failover_stream_url``
 chokepoint the channel path uses, and — mirroring #306's channel fix — a
 successful failover to a different host is written back to the episode's own
@@ -55,17 +55,17 @@ class _ImmediateExecutor:
 
 
 def _make_mixin(db=None, failover_return=None):
-    """A bare ``_SeriesMixin`` instance wired for launch_player_for_episode.
+    """A bare ``_SeriesPlaybackMixin`` instance wired for launch_player_for_episode.
 
     ``failover_return`` is the ``(final_url, err)`` tuple
     ``validate_and_failover_stream_url`` should return — assigned directly as
-    an instance attribute (a lambda), since ``_SeriesMixin`` alone (without
-    ``_StreamingMixin`` composed in, as ``MainWindow`` does for real) doesn't
-    define that method itself.
+    an instance attribute (a lambda), since ``_SeriesPlaybackMixin`` alone
+    (without ``_StreamingMixin`` composed in, as ``MainWindow`` does for real)
+    doesn't define that method itself.
     """
     from tests.conftest import wire_shutdown_flag
-    from metatv.gui.main_window_series import _SeriesMixin
-    obj = wire_shutdown_flag(_SeriesMixin.__new__(_SeriesMixin))
+    from metatv.gui.main_window_series_playback import _SeriesPlaybackMixin
+    obj = wire_shutdown_flag(_SeriesPlaybackMixin.__new__(_SeriesPlaybackMixin))
     obj.db = db
     obj.executor = _ImmediateExecutor()
     obj.player_manager = MagicMock()
