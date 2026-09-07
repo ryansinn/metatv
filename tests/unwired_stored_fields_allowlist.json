@@ -51,6 +51,7 @@
     "Config.network_timeout",
     "Config.next_icon",
     "Config.notification_position",
+    "Config.pin_icon",
     "Config.player_args",
     "Config.preferred_player",
     "Config.prefix_bracket_enabled",

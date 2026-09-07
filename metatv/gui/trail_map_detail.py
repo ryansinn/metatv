@@ -87,7 +87,7 @@ class _DetailPoster(QFrame):
         self._wbadge.move(6, 6)
         _icon_utils.set_button_icon(self._wbadge, "unwatched", color=_theme.COLOR_LIGHTBOX_FAINT)
         self._wbadge.setIconSize(QSize(14, 14))
-        self._wbadge.setStyleSheet(_theme.TRAILMAP_WBADGE)
+        _theme.style(self._wbadge, "TRAILMAP_WBADGE")
         self._wbadge.setToolTip("Mark as watched")
         self._wbadge.clicked.connect(self.watched_clicked)  # QPushButton → hand cursor for free
 
