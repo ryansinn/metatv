@@ -424,7 +424,7 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 - [ ] **Sidebar register split + History/Recent + Sources status strip** — the left rail is over-saturated because it stacks three *registers* of information in one column (see DESIGN_RATIONALE DR-0001): **live/prospective** (Alerts, Watch Queue, Recommended — change on their own), **curated/retrospective** (Favorites, the History *archive* — change only when the user acts), and **system status** (Sources — online/active + the global show/hide filter). Reorganize by that axis: the **rail is a launcher/index into deeper views, not a content container** (root thesis — depth lives in the windshield views; only in-the-moment/forward items keep a rail face). Forward-instruments stay as the default rail; **split History** into a lightweight **Recent/resume strip** that stays in the rail (forward) and a **deep History archive** that graduates to a main-area view (see "History as a context engine"); **Favorites graduates to a windshield view** (Discovery-shelf collection) rather than a privileged rail section — real use: sidebar Favorites goes unused; **Sources** becomes an always-visible **collapsed status strip** above Settings (one-line summary → expand for per-source toggles + filter), never a tab. **Every new sidebar section must declare its register.** A recurring **live-vs-VOD** distinction runs through this (Recent re-tunes live vs. resumes VOD; the queue is a VOD construct). Open: live-follow as its own surface vs. the Recent strip; sequencing vs. the series-monitor feature.
 - [ ] **Reusable Discovery-shelf collection views (full Queue / History / Favorites views)** — generalize the `discover_shelf` / `discover_card` / flow-layout widgets into a **reusable collection-browse surface** (not Discovery-specific; reuse-before-reinvent). Concretely: a **full Watch Queue view** in the Discovery shelf style (posters organized by category/tag) reached by a new **Queue chip** on the bottom row — the windshield "face" of the rail's compact queue (see DESIGN_RATIONALE DR-0001 "Emerging pattern"). The same surface backs the History archive view and possibly Favorites. **Preserve order where it matters:** the VOD queue needs an **Up-Next** ordered lane alongside the category shelves so grouping doesn't bury "what's next"; live-follow content isn't queued (live-vs-VOD). One shelf presentation layer, many collections.
 - [ ] **UI vocabulary standard** — note the settled term is **"Global Exclusions"**, never "Global Filter(s)". Define one canonical term per action across all surfaces: "Exclude" for filter/suppression (panel or global), "Hide" for per-channel hiding, retire "Block" as a synonym; document in UI_UX_GUIDELINES.md and enforce in new UI code
-- [~] **Unified filter panel across views** — a shared `FilterPanel` exists and is used by the main channel list; EPG, Discover and Recommended still carry their own controls, so the unification itself is open. **Blocked-adjacent:** the deeper problem is four parallel *filter engines* (`_apply_channel_filters`, `discovery_engine`, `preference_engine`, `tag.py._scope_to_visible_channels`) — being unified in v0.24.0 behind `core/channel_visibility.py`. Do the UI unification after that lands, not before. Original spec: EPG, Discover, and Recommended each have their own filter controls; goal is a single FilterPanel (or shared filter state) across all views; migrate EPG sports filter bar, discover chips, recommendations filter to the same pattern; deprecate the legacy "quick filter" bar where it still appears
+- [~] **Unified filter panel across views** — **one shared search/filter CONTROL SHIPPED v0.99.0 (#764, entry 610):** every filter and search box in the app is now the same widget — clear button, Escape to clear, the same typing behaviour — with each surface keeping its own hint text. That is the input, not the panel: a shared `FilterPanel` exists and is used by the main channel list; EPG, Discover and Recommended still carry their own controls, so the unification itself is open. **Blocked-adjacent:** the deeper problem is four parallel *filter engines* (`_apply_channel_filters`, `discovery_engine`, `preference_engine`, `tag.py._scope_to_visible_channels`) — being unified in v0.24.0 behind `core/channel_visibility.py`. Do the UI unification after that lands, not before. Original spec: EPG, Discover, and Recommended each have their own filter controls; goal is a single FilterPanel (or shared filter state) across all views; migrate EPG sports filter bar, discover chips, recommendations filter to the same pattern; deprecate the legacy "quick filter" bar where it still appears
 - [~] **Uncategorized prefix audit** — SHIPPED partially v0.54.0 (#554, entry 427): 293 of 421 source codes in a large library had no name at all, showing a blank language/country chip; eleven were named and two more recognised as streaming services rather than places, giving ~111,000 channels their label back — each read off the source's own category labels rather than guessed, and two genuinely ambiguous codes left unnamed on purpose. Still to classify: GO, CITY, V+, ONE, SU, VD, SKR, BEE, TY, RD, RG, RX, PLAYER, TF, CON, LSV, TEN, TK, BLUE, GEN, NIC, FZ, LUX, PN, TGK, CRB, EST into known groups; user is actively building the mapping
 - [ ] **A yearless movie key collapses unrelated productions (found 2026-08-24).** `content_key` is tmdb-first; for the rest it falls back to `{norm_title}|movie|{start_year}`, and `docs/CONTENT_IDENTITY.md` says "junk/empty → omitted". What it does **not** say is what an omitted year costs: the key degrades to the bare title, so yearless movies sharing a title become one production. **Measured exposure: 27,375 rows across 8,007 multi-row groups** (of 69,683 yearless-keyed movie rows — the other 42,308 are singletons that collapse with nothing and are harmless). That is ~8% of the 334,187 keyed movies, not the 20% a raw yearless count suggests. Worst groups: `lilo stitch` 46, `ballerina` 39, `how to train your dragon` 34, `wicked` 34, `superman` 32. Worked example — `aladdin|movie|` holds 15 rows spanning `|MULTI| DISNEY+`, `|EN| ANIME/MANGAS` ×2, `|IT| DRAMMI/ROMANTICI`, `|NL| GESCHIEDENIS / DOCUMENTAIRE` and `|TR| KLASIK FILMLERI` — a Disney animation, an anime, an Italian romance and a documentary, merged. The tmdb-keyed Aladdins beside it are perfectly separated (`tmdb:812` 1992 ×19, `tmdb:420817` 2019 ×21, `tmdb:11238` King of Thieves ×13): the id path works, only the fallback is weak. This is **the opposite failure** from the one the fallback was written to avoid — it was made coarse so language/quality variants would not split, and that coarseness now merges distinct films.
   **Owner's question, answered with data (2026-08-24):** *"the documentary would be another type of content, no?"* — not in this model. `media_type` is only `live`/`movie`/`series`; "documentary" is a genre/collection facet, which `content_key` never reads. And it cannot simply start reading it: **only 18% of yearless movie rows carry a `genre` tag**, so the signal is absent for 4 in 5 of the rows that need it (in the Aladdin group, 2 of 15). `collection` covers 86% but is the raw provider category and is language-dependent (`Drammi/Romantici` vs `Drama / Romance` vs `Klasik Filmleri`), so comparing it raw would split genuine variants — the very failure the coarse key prevents. A collection-based discriminator would first need the provider categories normalised to a shared vocabulary.
@@ -472,6 +472,13 @@ across v0.27.1 and 0.28.0; see git history for the per-item detail.
 ## UI correctness fixes with no roadmap line
 
 Recorded here only so the roadmap watermark can move honestly — these fixed existing behaviour rather than building anything the roadmap was tracking.
+
+**Reconciliation of 2026-09-07 (What's New #331-#626, v0.41.0 → v0.103.0).** Every entry in that
+range was read against this file. The lines it moved carry their entry and PR numbers inline. The
+large remainder — the search-results rebuild, the sports classification layer, the startup and
+scroll performance work, the playback-failure reporting ladder, the config-to-database migration —
+answered no roadmap line, and **no line was invented for them**: their What's New entries are the
+record, and `scripts/roadmap_audit.py --version X.Y.Z` lists what any release actually shipped.
 
 ### 2026-09-03 — the live-QA wave (nineteen PRs, #704–#722, batches 0.86.0–0.92.0)
 
@@ -753,10 +760,11 @@ and the What's New entries; only what is still open is listed here.
   *Asymmetry 4.* Its own layout, label, buttons, middle-click and context menu,
   beside `build_chip_row` — "the one row builder" — which the sidebar uses for
   the same `ScoredChannel` objects. So the dashboard shows no media-type glyph,
-  no quality/year/language chips, and ignores `sidebar_row_density`; its two
-  buttons are styled with raw `setStyleSheet`, so they go stale on a theme
-  switch. (The raw-title half of this shipped 2026-08-31 via
-  `ScoredChannel.display_title`.) **Constraint:** `build_chip_row` sets
+  no quality/year/language chips, and ignores `sidebar_row_density`. (The
+  raw-title half of this shipped 2026-08-31 via `ScoredChannel.display_title`;
+  its two buttons were styled with raw `setStyleSheet` and went stale on a theme
+  switch — that half is gone, since every widget now registers its style at
+  construction, SHIPPED v0.103.0 (#791, entry 624).) **Constraint:** `build_chip_row` sets
   `WA_TransparentForMouseEvents` unless given a `trailing_button`; two buttons
   plus a row-level middle-click needs the untransparent branch.
 
@@ -869,12 +877,17 @@ This section lists only what is still open.
 
 ### The three big unbuilt features — sequencing (owner question, 2026-08-31)
 
-Confirmed against the tree on 2026-08-31: **downloads and DVR/recording are NOT
-BUILT** (no module, no class, no What's New entry), and **the watchlist is
-partially built** — entries persist to config and survive restarts, but the
-the database move and preferred-playback-source are open; match prioritization SHIPPED (see the Watchlist section — verified 2026-08-31).
-Their full specs already live above under **Playback & Queue**; this is only the
-order to build them in and what each one blocks.
+**Reconciled 2026-09-07: two of the three are BUILT, and this section's
+2026-08-31 verdict is superseded.** Downloads shipped across v0.64.0-v0.98.0
+(#612 entry 475, #620 entry 483, #638 entry 499, #656 entry 516, #697 entry 548,
+#732 entry 586, #747 entry 599, #749 entry 600) and DVR/recording across
+v0.64.0-v0.101.0 (#612 entry 476, #644 entry 506, #741 entry 588, #746 entry 598,
+#748 entry 597, #779 entry 616). The **watchlist** is two-thirds done: the
+database move shipped v0.63.0 (#610, entry 474) and match prioritization was
+already built; **preferred playback source for a watched show is the one piece
+still open.** Their full specs live above under **Playback & Queue**; the
+sequencing below is kept because it is the record of why they were built in this
+order and what each one turned out to depend on.
 
 **They share one dependency, and it already exists.** `ConnectionAccountant`
 (`core/connection_accountant.py`) arbitrates the per-source connection limit —
@@ -897,12 +910,15 @@ the content is:
 1. **Watchlist finish first.** It is the cheapest and it de-risks the other two,
    because recording is *scheduled from* a watchlist/EPG entry. Three pieces:
    move entries from config to the database (needed for any future multi-device
-   sync); rank a keyword's matches instead of showing them arbitrarily (quality,
-   then previously-watched, then user demote) — the **same ranking** the
-   preferred-playback-source item needs, so build it once; and remember which
-   source the user actually picked for a title.
+   sync) — **SHIPPED v0.63.0 (#610, entry 474)**; rank a keyword's matches
+   instead of showing them arbitrarily (quality, then previously-watched, then
+   user demote) — the **same ranking** the preferred-playback-source item needs,
+   so build it once — **already SHIPPED, see the Watchlist section**; and
+   remember which source the user actually picked for a title — **STILL OPEN,
+   the only unbuilt piece of the three big features.**
 
-2. **Downloads second.** VOD only. Direct HTTP GET of the static Xtream VOD URL
+2. **Downloads second — SHIPPED, and it did grow the accountant's `"download"`
+   kind as predicted.** VOD only. Direct HTTP GET of the static Xtream VOD URL
    **reusing the canonical headers/User-Agent** (dropping them is a known bug
    class here), with a queue, resume-partial via HTTP Range, and progress
    notifications. Range support is why direct GET beats `--stream-record`: a
@@ -911,9 +927,9 @@ the content is:
    pause. This is where the accountant grows its `"download"` kind and where the
    yields-to-playback rule gets its first real exercise.
 
-3. **Recording/DVR third**, because it needs both: the watchlist/EPG entry to
-   schedule from, and the accountant already carrying a second non-playback
-   kind. Record a live channel for a window, scheduled straight off an
+3. **Recording/DVR third — SHIPPED**, and it did need both: the watchlist/EPG
+   entry to schedule from, and the accountant already carrying a second
+   non-playback kind. Record a live channel for a window, scheduled straight off an
    `EpgProgramDB` row with pre/post padding. The behavioural difference from
    downloads is the whole point: a recording **reserves** its slot and makes a
    conflicting play warn the user rather than silently killing it.
@@ -921,10 +937,14 @@ the content is:
    true unattended PVR is the headless-backend stretch in PRODUCT_VISION.
 
 **Also queued, and unrelated to the above:** the signal-check sweep ("verify
-events") is specced and partly built — `core/stream_probe.py` and its settings
-exist; the storage columns, sweep engine, persistent notification and
-`hide_dead_events` wiring do not. It is the fourth consumer of the accountant
-and the lowest priority of all four, by design.
+events"). `hide_dead_events` is now wired — **SHIPPED v0.99.0 (#769, entry
+611)**: a live channel the check has found dead N consecutive times (N is the
+streak setting) leaves the channel list, search, Discover and recommendations.
+The probe itself remains **disabled** and parked (see the PARKED note under
+Source reliability — it jams a one-connection source and its verdicts were wrong
+in the common case), so the setting has nothing feeding it until that design
+conversation happens. It is the fourth consumer of the accountant and the lowest
+priority of all four, by design.
 
 **Next.**
 
@@ -977,6 +997,8 @@ and the lowest priority of all four, by design.
 `settings_dialog_tabs.py:486` — paste a key, click Test, enrich one title. Until then that work is
 unverified regardless of its green suite.
 
-**Biggest genuinely-unbuilt features** (see NOT BUILT annotations above): download/save VOD, live
-DVR, mini-player, global hotkeys, keyboard shortcuts, channel-list grid view, Similar Content
-metadata sibling, preference-scored Explore columns, Discover pre-warm, Hidden Management view.
+**Biggest genuinely-unbuilt features** (see NOT BUILT annotations above; download/save VOD and
+live DVR left this list on 2026-09-07 because they shipped): mini-player, global hotkeys, keyboard
+shortcuts, channel-list grid view, Similar Content metadata sibling, preference-scored Explore
+columns, Discover pre-warm, Hidden Management view. Each was re-checked against the tree during the
+#331-#626 reconciliation and each is still absent.
