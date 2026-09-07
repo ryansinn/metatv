@@ -21,6 +21,7 @@ import html
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import series_alert_identity as _series_identity
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import theme as _theme
 
 
@@ -87,25 +88,18 @@ class WatchForDialog(QDialog):
         vl.addLayout(type_row)
 
         # --- Buttons ---
-        buttons = QDialogButtonBox()
-        self._watch_btn = QPushButton(f"{_icons.alert_icon}  Watch")
-        self._watch_btn.setDefault(True)
+        # This one built a QDialogButtonBox, never added it to a layout, and
+        # laid out its own row beside it. The row is the shared one now; the
+        # accent fill stays, applied to the button the box hands back.
+        buttons = dialog_buttons(self, ok=f"{_icons.alert_icon}  Watch",
+                                 on_ok=self._on_watch)
+        self._watch_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
         _theme.style_fn(self._watch_btn, lambda: f"QPushButton {{ background: {_theme.COLOR_ACCENT};"
             f" color: {_theme.COLOR_ON_ACCENT};"
             f" border: none; border-radius: 4px; padding: 4px 14px;"
             f" font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ background: {_theme.COLOR_ACCENT_HOVER}; }}")
-        self._watch_btn.clicked.connect(self._on_watch)
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFlat(True)
-        cancel_btn.clicked.connect(self.reject)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(self._watch_btn)
-        vl.addLayout(btn_row)
+        vl.addWidget(buttons)
 
         self._text_edit.returnPressed.connect(self._on_watch)
         self._text_edit.textChanged.connect(self._update_watch_btn)
@@ -228,9 +222,9 @@ class ManageVodAlertsDialog(QDialog):
         self._scroll_area.setWidget(self._scroll_content)
         vl.addWidget(self._scroll_area, 1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        vl.addWidget(buttons)
+        # Close REJECTS, as it always has: edits here save as they are made.
+        vl.addWidget(dialog_buttons(self, ok="Close", cancel=False,
+                                    on_ok=self.reject))
 
     def _on_show_idle_toggled(self, checked: bool) -> None:
         """Write the shared setting and tell the host to re-render.

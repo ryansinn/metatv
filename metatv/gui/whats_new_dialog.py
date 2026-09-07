@@ -29,6 +29,7 @@ from loguru import logger
 
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import theme as _theme
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.whats_new import WhatsNewEntry
@@ -135,13 +136,10 @@ class WhatsNewDialog(QDialog):
             _theme.style(note, "LABEL_MUTED")
             footer_layout.addWidget(note)
 
-        btn_box = QDialogButtonBox()
-        got_it_btn = QPushButton("Got it")
-        got_it_btn.setDefault(True)
+        btn_box = dialog_buttons(self, ok="Got it", cancel=False)
+        got_it_btn = btn_box.button(QDialogButtonBox.StandardButton.Ok)
         got_it_btn.setToolTip("Dismiss this dialog")
         _theme.style(got_it_btn, "SAVE_BTN")
-        got_it_btn.clicked.connect(self.accept)
-        btn_box.addButton(got_it_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         footer_layout.addWidget(btn_box)
 
         root.addWidget(footer_widget)

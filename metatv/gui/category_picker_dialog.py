@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import icon_utils as _icon_utils
@@ -243,13 +244,9 @@ class CategoryPickerDialog(QDialog):
         vl.addWidget(self._excl_cb)
 
         # ── Buttons ────────────────────────────────────────────────────────────
-        self._btn_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self._btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("Add to Category")
+        self._btn_box = dialog_buttons(self, ok="Add to Category",
+                                       on_ok=self._try_accept)
         self._btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
-        self._btn_box.accepted.connect(self._try_accept)
-        self._btn_box.rejected.connect(self.reject)
         vl.addWidget(self._btn_box)
 
     # ── Data loading ───────────────────────────────────────────────────────────

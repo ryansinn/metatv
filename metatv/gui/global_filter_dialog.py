@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from loguru import logger
@@ -28,6 +28,8 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
+from metatv.gui import icons as _icons
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
@@ -895,12 +897,7 @@ class GlobalFilterDialog(QDialog):
         vl.addLayout(shortcut_row)
 
         # ── OK / Cancel ────────────────────────────────────────────────────────
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save_and_accept)
-        buttons.rejected.connect(self.reject)
-        vl.addWidget(buttons)
+        vl.addWidget(dialog_buttons(self, on_ok=self._save_and_accept))
 
         self._search_box.setFocus()
 

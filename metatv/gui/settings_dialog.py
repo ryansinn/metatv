@@ -2,7 +2,7 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QCheckBox, QComboBox, QDialogButtonBox, QFormLayout,
+    QDialog, QVBoxLayout, QCheckBox, QComboBox, QFormLayout,
     QListWidgetItem,
 )
 from loguru import logger
@@ -10,6 +10,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
 from metatv.gui.settings_downloads_tab import SettingsDownloadsTabMixin
@@ -317,15 +318,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         self._nav.set_current_row(initial_row, block_signal=True)
         self._nav.sectionChanged.connect(self._on_section_changed)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel |
-            QDialogButtonBox.StandardButton.Apply
-        )
-        buttons.accepted.connect(self._accept)
-        buttons.rejected.connect(self.reject)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply)
-        layout.addWidget(buttons)
+        layout.addWidget(dialog_buttons(self, on_ok=self._accept, apply=self._apply))
 
     def _on_section_changed(self, row: int) -> None:
         """Remember the section. Does NOT write config — ``done()`` does that.

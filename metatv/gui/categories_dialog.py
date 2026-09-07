@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
+    QDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import icon_utils as _icon_utils
@@ -246,9 +247,10 @@ class CategoriesDialog(QDialog):
         self._scroll_area.setWidget(self._scroll_content)
         vl.addWidget(self._scroll_area)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        vl.addWidget(buttons)
+        # Close REJECTS here, as it always has — this dialog edits nothing it
+        # has not already saved, so its exit code means "dismissed".
+        vl.addWidget(dialog_buttons(self, ok="Close", cancel=False,
+                                    on_ok=self.reject))
 
     # ── Data loading ───────────────────────────────────────────────────────────
 

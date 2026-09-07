@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import theme as _theme
 
 
@@ -127,17 +128,12 @@ class NewFacetValuesDialog(QDialog):
 
         vl.addWidget(scroll, 1)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        ok_btn.setText("Apply")
-        ok_btn.setToolTip("Exclude the unchecked values; keep the rest included")
+        buttons = dialog_buttons(self, ok="Apply")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setToolTip(
+            "Exclude the unchecked values; keep the rest included")
         cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
         cancel_btn.setText("Include all")
         cancel_btn.setToolTip("Keep every new value included")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
         vl.addWidget(buttons)
 
     def _set_all_checked(self, checked: bool) -> None:

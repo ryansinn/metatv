@@ -23,10 +23,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
+    QDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import deferred_config_save as _cfgsave
@@ -184,9 +185,9 @@ class DiscoverManageDialog(QDialog):
         scroll.setWidget(inner)
         vl.addWidget(scroll)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.accept)
-        vl.addWidget(buttons)
+        # Close ACCEPTS here, as it always has: the caller reads the exit code
+        # to decide whether to re-render the shelves.
+        vl.addWidget(dialog_buttons(self, ok="Close", cancel=False))
 
     def _make_list(self, parent_layout: QVBoxLayout,
                    keys: list[str], row_factory) -> QWidget:
