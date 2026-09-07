@@ -39,7 +39,7 @@ launch from scratch (already-committed batches are durable).
 
 from __future__ import annotations
 
-from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseTask
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 # Bump to re-run the full detected_title re-parse for all users on next launch.
 # History:
@@ -151,14 +151,14 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 CURRENT_VERSION: int = 13
 
 
-class DetectedTitleReparseTask(DetectedFieldsReparseTask):
+class DetectedTitleReparseTask(DetectedFieldsReparseBase):
     """Re-parse detected_title to strip trailing qualifiers and recompute content_key.
 
     ``needs_run`` checks ``config.detected_reparse_version`` against
     ``CURRENT_VERSION``.  On full completion the version is bumped and config is
     saved; on cancellation the version is left unbumped so the next launch
     re-runs from scratch. ``__init__``/``needs_run``/``on_completed``/``run``
-    all come from ``DetectedFieldsReparseTask``/``VersionGatedTask``.
+    all come from ``DetectedFieldsReparseBase``/``VersionGatedTask``.
     """
 
     id: str = "detected_title_reparse"

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from metatv.core.config import Config
 
 
-class DetectedFieldsReparseTask(VersionGatedTask):
+class DetectedFieldsReparseBase(VersionGatedTask):
     """Base for a version-gated task whose whole job is one
     ``update_detected_prefixes()`` pass. Subclasses set ``id``, ``label``,
     ``VERSION_FIELD`` and ``CURRENT_VERSION`` only.

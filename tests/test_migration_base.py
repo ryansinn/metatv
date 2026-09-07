@@ -1,6 +1,6 @@
 """Direct tests for the shared migration-task base classes (R2, docs/REFACTOR_PLAN.md).
 
-``VersionGatedTask`` (``core/migrations/base.py``) and ``DetectedFieldsReparseTask``
+``VersionGatedTask`` (``core/migrations/base.py``) and ``DetectedFieldsReparseBase``
 (``core/migrations/detected_fields_reparse.py``) replace what used to be a
 byte-identical ``__init__``/``needs_run``/``on_completed``/``run`` in each of
 ``category_marker_backfill.py``, ``collection_token_cleanup_backfill.py``,
@@ -13,9 +13,9 @@ shared base). This file covers the SHARED classes themselves:
 
 1. ``VersionGatedTask`` in isolation (no channels/DB involved at all) — the
    generic version-gate contract.
-2. ``DetectedFieldsReparseTask.run()`` really calls
+2. ``DetectedFieldsReparseBase.run()`` really calls
    ``update_detected_prefixes`` exactly once.
-3. The deliberate no-coalescing decision: two sibling ``DetectedFieldsReparseTask``
+3. The deliberate no-coalescing decision: two sibling ``DetectedFieldsReparseBase``
    subclasses, each pending, each run independently — two full passes, not one
    shared pass (docs/REFACTOR_PLAN.md R2 explains why coalescing was rejected).
 """
@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from metatv.core.migrations.base import MigrationTask, VersionGatedTask
-from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseTask
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 
 # ---------------------------------------------------------------------------
@@ -98,17 +98,17 @@ def test_init_stores_db_verbatim():
 
 
 # ---------------------------------------------------------------------------
-# 2 + 3. DetectedFieldsReparseTask.run() and the no-coalescing decision
+# 2 + 3. DetectedFieldsReparseBase.run() and the no-coalescing decision
 # ---------------------------------------------------------------------------
 
-class _StubReparseTaskA(DetectedFieldsReparseTask):
+class _StubReparseTaskA(DetectedFieldsReparseBase):
     id = "stub_reparse_a"
     label = "Stub reparse A"
     VERSION_FIELD = "stub_reparse_a_version"
     CURRENT_VERSION = 1
 
 
-class _StubReparseTaskB(DetectedFieldsReparseTask):
+class _StubReparseTaskB(DetectedFieldsReparseBase):
     id = "stub_reparse_b"
     label = "Stub reparse B"
     VERSION_FIELD = "stub_reparse_b_version"
@@ -146,7 +146,7 @@ def test_run_calls_update_detected_prefixes_once(file_db, monkeypatch):
 
 def test_two_pending_sibling_tasks_each_run_their_own_full_pass(file_db, monkeypatch):
     """Deliberate no-coalescing: docs/REFACTOR_PLAN.md R2 rejected collapsing
-    several pending DetectedFieldsReparseTask subclasses into one shared
+    several pending DetectedFieldsReparseBase subclasses into one shared
     update_detected_prefixes() pass. Pin that as tested behaviour, not just a
     docstring claim — two sibling tasks running means two full passes."""
     from metatv.core.repositories import channel as channel_mod

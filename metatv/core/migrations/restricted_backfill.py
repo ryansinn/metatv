@@ -28,7 +28,7 @@ scratch; already-committed batches are durable (#364 crash-retry semantics).
 
 from __future__ import annotations
 
-from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseTask
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 # Bump to re-run the full detected_restricted backfill for all users on next launch.
 # History:
@@ -42,7 +42,7 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 CURRENT_VERSION: int = 2
 
 
-class RestrictedBackfillTask(DetectedFieldsReparseTask):
+class RestrictedBackfillTask(DetectedFieldsReparseBase):
     """Populate ``detected_restricted`` for every channel row.
 
     ``needs_run`` checks ``config.restricted_backfill_version`` against
@@ -50,7 +50,7 @@ class RestrictedBackfillTask(DetectedFieldsReparseTask):
     is saved; on cancellation (or a crash — see ``MigrationManager._run_all``)
     the version is left unbumped so the next launch retries from scratch.
     ``__init__``/``needs_run``/``on_completed``/``run`` all come from
-    ``DetectedFieldsReparseTask``/``VersionGatedTask``.
+    ``DetectedFieldsReparseBase``/``VersionGatedTask``.
     """
 
     id: str = "restricted_backfill"

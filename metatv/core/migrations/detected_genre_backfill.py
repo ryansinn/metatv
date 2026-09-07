@@ -21,7 +21,7 @@ scratch; already-committed batches are durable (#364 crash-retry semantics).
 
 from __future__ import annotations
 
-from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseTask
+from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparseBase
 
 # Bump to re-run the full detected_genre(s) backfill for all users on next launch.
 # History:
@@ -32,7 +32,7 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 CURRENT_VERSION: int = 1
 
 
-class DetectedGenreBackfillTask(DetectedFieldsReparseTask):
+class DetectedGenreBackfillTask(DetectedFieldsReparseBase):
     """Populate ``detected_genre``/``detected_genres`` for every channel row.
 
     ``needs_run`` checks ``config.genre_backfill_version`` against
@@ -40,7 +40,7 @@ class DetectedGenreBackfillTask(DetectedFieldsReparseTask):
     is saved; on cancellation (or a crash — see ``MigrationManager._run_all``)
     the version is left unbumped so the next launch retries from scratch.
     ``__init__``/``needs_run``/``on_completed``/``run`` all come from
-    ``DetectedFieldsReparseTask``/``VersionGatedTask``.
+    ``DetectedFieldsReparseBase``/``VersionGatedTask``.
     """
 
     id: str = "detected_genre_backfill"
