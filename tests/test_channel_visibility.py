@@ -41,7 +41,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from metatv.core.channel_visibility import VisibilityScope, apply as apply_visibility
 from metatv.core.database import ChannelDB
@@ -507,3 +507,64 @@ def test_dead_signal_floor_resolves_from_the_two_settings():
         SimpleNamespace(hide_dead_events=False, signal_dead_streak_to_hide=3)) is None
     assert dead_signal_streak_floor(
         SimpleNamespace(hide_dead_events=True, signal_dead_streak_to_hide=3)) == 3
+
+
+def _make_streak_column_nullable(database) -> None:
+    """Put ``channels.signal_dead_streak`` into the shape a REAL library has.
+
+    ``create_all`` emits the ORM's ``nullable=False`` so a fresh test database
+    cannot hold a NULL streak — which is exactly why the NULL-safety defect
+    stayed invisible to the whole suite. An existing library never went through
+    ``create_all`` for this column: it got it from ``Database._migrate()``'s
+    ``("channels", "signal_dead_streak", "INTEGER DEFAULT 0")`` ALTER TABLE,
+    which carries no NOT NULL. Dropping the column and re-running the migration
+    reproduces that upgraded schema exactly.
+    """
+    with database.engine.connect() as conn:
+        conn.execute(text("ALTER TABLE channels DROP COLUMN signal_dead_streak"))
+        conn.commit()
+    database._migrate()
+    with database.engine.connect() as conn:
+        notnull = [r[3] for r in conn.execute(text("PRAGMA table_info(channels)"))
+                   if r[1] == "signal_dead_streak"]
+    assert notnull == [0], (
+        "the upgraded column must be nullable, or this test proves nothing "
+        f"about NULL-safety (PRAGMA notnull = {notnull})"
+    )
+
+
+def test_dead_signal_axis_never_hides_a_channel_with_no_streak_recorded(file_db):
+    """VE-1 NULL-safety, on the schema an upgraded library actually has.
+
+    ``NULL < 2`` is NULL in SQL, so a bare ``signal_dead_streak < floor``
+    silently EXCLUDES every never-checked channel — the opposite of what "hide
+    dead events" means, and the opposite of what ``VisibilityScope``'s
+    docstring promises. Proven to fail against the pre-fix predicate: with
+    ``query.filter(col < floor)`` the NULL row is missing from ``visible``.
+    """
+    _make_streak_column_nullable(file_db)
+    with file_db.session_scope() as session:
+        ids = _add_streak_channels(session)
+        unchecked = _add_channel(session, "EN - Event unchecked", media_type="live")
+        session.flush()
+        session.execute(
+            text("UPDATE channels SET signal_dead_streak = NULL WHERE id = :i"),
+            {"i": unchecked},
+        )
+
+        stored = {r.id: r.signal_dead_streak for r in session.query(ChannelDB).all()}
+        assert stored[unchecked] is None, "the NULL row did not survive the write"
+
+        visible = {r.id for r in apply_visibility(
+            session.query(ChannelDB),
+            VisibilityScope(dead_signal_streak_floor=2),
+            channel_cls=ChannelDB,
+        ).all()}
+
+        assert unchecked in visible, (
+            "a channel whose signal has never been checked was hidden by the "
+            "dead-streak axis — NULL < floor is NULL, not True"
+        )
+        assert ids["s0"] in visible, "streak 0 is below the floor and must stay"
+        assert ids["s2"] not in visible, "streak 2 has reached the floor of 2"
+        assert ids["s5"] not in visible, "streak 5 is past the floor of 2"
