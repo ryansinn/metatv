@@ -238,3 +238,45 @@ def test_no_change_second_call_returns_zero(db):
         repos = RepositoryFactory(session)
         second = repos.channels.update_detected_prefixes()
     assert second == 0, f"Second call should return 0 (no changes), got {second}"
+
+
+# ---------------------------------------------------------------------------
+# 4. DERIVE-1: channel_ids forces recompute for exactly that set, ignoring
+#    provider_id/all-rows gathering entirely.
+# ---------------------------------------------------------------------------
+
+def test_channel_ids_scopes_recompute_to_exactly_those_ids(db):
+    """channel_ids forces recompute for exactly those ids; everything else is untouched."""
+    from metatv.core.database import ChannelDB
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        id_a = _make_channel(session, "EN - Movie A", provider_id="p1")
+        id_b = _make_channel(session, "FR - Film B", provider_id="p1")
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        updated = repos.channels.update_detected_prefixes(channel_ids=[id_a])
+    assert updated == 1, f"only id_a is in scope, got updated={updated}"
+
+    with db.session_scope() as session:
+        a = session.query(ChannelDB).filter_by(id=id_a).one()
+        b = session.query(ChannelDB).filter_by(id=id_b).one()
+        assert a.detected_prefix == "EN"
+        assert b.detected_prefix is None, (
+            "channel_ids must bypass provider_id/all-rows gathering — id_b is "
+            "in the same provider but outside the given set"
+        )
+
+
+def test_channel_ids_empty_runs_no_query(db):
+    """An empty channel_ids returns 0 without touching any row."""
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        _make_channel(session, "EN - Movie A", provider_id="p1")
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        updated = repos.channels.update_detected_prefixes(channel_ids=[])
+    assert updated == 0

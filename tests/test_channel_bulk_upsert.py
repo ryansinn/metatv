@@ -137,11 +137,15 @@ def _count_channels(db: Database) -> int:
         session.close()
 
 
-def _store(thread: ProviderLoadThread, db: Database, channels: list) -> None:
-    """Helper: obtain a session, store channels, and close."""
+def _store(thread: ProviderLoadThread, db: Database, channels: list) -> set:
+    """Helper: obtain a session, store channels, and close.
+
+    Returns the changed-id set ``_store_channels`` now reports (DERIVE-1) —
+    ids whose stored name/category/raw_data differed from the incoming row.
+    """
     session = db.get_session()
     try:
-        thread._store_channels(session, channels, total=len(channels))
+        return thread._store_channels(session, channels, total=len(channels))
     finally:
         session.close()
 
@@ -523,3 +527,127 @@ def test_refresh_overwrites_rating_and_added_not_preserves(store_thread, tmp_db)
         "a refresh must update rating/added — they are provider facts, not "
         "preserved user/derived state"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — DERIVE-1: a changed name/category/raw_data is reported as changed
+# and can be force-recomputed without waiting for a later whole-provider sweep.
+# ---------------------------------------------------------------------------
+
+def _read_detected(db: Database, ch_id: str) -> dict:
+    session = db.get_session()
+    try:
+        row = session.query(ChannelDB).filter_by(id=ch_id).one()
+        return {
+            "detected_title": row.detected_title,
+            "detected_collection": row.detected_collection,
+            "detected_genre": row.detected_genre,
+        }
+    finally:
+        session.close()
+
+
+def _full_derive(db: Database, provider_id: str = "test_prov") -> None:
+    """Run the real whole-provider recompute — what a normal refresh does today."""
+    from metatv.core.repositories import RepositoryFactory
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=provider_id)
+
+
+def _forced_recompute(db: Database, changed_ids: set, provider_id: str = "test_prov") -> int:
+    """Run ONLY the new channel_ids-scoped recompute — never the whole-provider pass."""
+    from metatv.core.repositories import RepositoryFactory
+    with db.session_scope() as session:
+        return RepositoryFactory(session).channels.update_detected_prefixes(
+            provider_id=provider_id, channel_ids=changed_ids)
+
+
+def test_new_row_is_not_a_changed_id(store_thread, tmp_db):
+    """A brand-new row is never reported as 'changed' — the missing-field recompute covers it."""
+    changed = _store(store_thread, tmp_db, [_make_channel("ch1", category="News")])
+    assert changed == set(), "a first-seen id must never be reported as changed"
+
+
+def test_unchanged_refresh_reports_zero_changed_ids(store_thread, tmp_db):
+    """Re-serving byte-identical name/category/raw_data reports no changed ids."""
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", category="News", raw_data={"genre": "Drama"})
+    ])
+    changed = _store(store_thread, tmp_db, [
+        _make_channel("ch1", category="News", raw_data={"genre": "Drama"})
+    ])
+    assert changed == set(), "identical catalog fields must never be reported as changed"
+
+
+def test_category_change_forces_detected_recompute(store_thread, tmp_db):
+    """DERIVE-1: a provider re-listing a channel under a new category recomputes
+    detected_collection/detected_genre WITHOUT waiting for a later whole-provider sweep.
+
+    Mirrors the owner's library gap (provider 'Shark', id ..._12405: category
+    flipped 'NETFLIX DOC'->'AR| NEWS', genre 'Reality'->empty, and
+    detected_collection/detected_genre never followed).
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="AR| CNN ENGLISH", category="NETFLIX DOC",
+                      raw_data={"genre": "Reality"})
+    ])
+    _full_derive(tmp_db)
+
+    before = _read_detected(tmp_db, "ch1")
+    assert before["detected_collection"] == "NETFLIX DOC"
+    assert before["detected_genre"] == "Reality"
+
+    # Refresh #2: same id, provider now lists it under a different category/genre.
+    changed = _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="AR| CNN ENGLISH", category="News",
+                      raw_data={"genre": ""})
+    ])
+    assert changed == {"ch1"}, "a changed category/raw_data must be reported as changed"
+
+    # Force recompute for exactly the changed ids — never the whole-provider sweep.
+    updated = _forced_recompute(tmp_db, changed)
+    assert updated == 1
+
+    after = _read_detected(tmp_db, "ch1")
+    assert after["detected_collection"] == "News", (
+        "detected_collection must follow the new category, not the stale 'NETFLIX DOC'")
+    assert after["detected_genre"] is None, (
+        "detected_genre must follow the cleared raw_data genre, not the stale 'Reality'")
+
+
+def test_raw_data_genre_change_alone_forces_recompute(store_thread, tmp_db):
+    """A raw_data genre change with the SAME name/category is still reported as changed."""
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News",
+                      raw_data={"genre": "Reality"})
+    ])
+    _full_derive(tmp_db)
+    assert _read_detected(tmp_db, "ch1")["detected_genre"] == "Reality"
+
+    changed = _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News",
+                      raw_data={"genre": "Sports"})
+    ])
+    assert changed == {"ch1"}
+
+    _forced_recompute(tmp_db, changed)
+    assert _read_detected(tmp_db, "ch1")["detected_genre"] == "Sports"
+
+
+def test_name_change_is_reported_as_changed_and_recomputes_title(store_thread, tmp_db):
+    """A renamed row is reported as changed and its detected_title follows the new name.
+
+    ``_store_channels`` already NULLs ``detected_title`` on a name change (see
+    ``test_upsert_preserves_user_and_derived_columns``); this proves the id is
+    ALSO surfaced via the new changed-id return, so a caller can force its
+    recompute rather than relying on the missing-field shortcut alone.
+    """
+    _store(store_thread, tmp_db, [_make_channel("ch1", name="Old Title")])
+    _full_derive(tmp_db)
+    assert _read_detected(tmp_db, "ch1")["detected_title"] == "Old Title"
+
+    changed = _store(store_thread, tmp_db, [_make_channel("ch1", name="New Title")])
+    assert changed == {"ch1"}
+
+    _forced_recompute(tmp_db, changed)
+    assert _read_detected(tmp_db, "ch1")["detected_title"] == "New Title"
