@@ -261,7 +261,7 @@ sweep the scratch dir at session wrap. `scripts/prune_merged.sh` only covers
 the agent's own to clean.
 
 ### The owner's checkout is sacred
-The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here.
+The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here. **The shell's cwd resets to this checkout between tool calls**, so every git command meant for a worktree starts with `cd <worktree> &&` in the SAME command — on 2026-09-07 a `checkout -B` / `cherry-pick` / `push HEAD` sequence that lost its `cd` ran here on `main` and fast-forwarded `origin/main` past the PR gate (THEME-1, #791).
 
 ### Local Python 3.14 hides annotation errors that CI's 3.12 catches
 This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
