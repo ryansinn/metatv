@@ -521,7 +521,7 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
 # ``keyword_exclusion_criterion`` (SQLAlchemy KEEP clause) is the ONLY
 # implementation of this rule — every surface that filters by keyword (channel
 # list via ``ChannelRepository._apply_channel_filters``, Discover via
-# ``discovery_engine._apply_keyword_exclusion``, Recommendations via
+# ``discovery_engine._apply_prefix_filter``, Recommendations via
 # ``preference_engine.score_candidates``) routes through it; never fork a parallel
 # substring check. ``keyword_exclusion_list`` is the single paused-aware builder of
 # the keyword list every one of those callers reads from ``Config``.
@@ -539,9 +539,9 @@ def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[st
     Lifted out of ``RecipeView._global_exclusion_sets`` when a second caller
     arrived. A saved recipe rendered as a Discover shelf has to apply exactly
     the exclusions the recipe view applies, or the same recipe shows different
-    content depending on which screen you look at it from — and the Discover
-    worker's own kwargs are close but not identical (it folds excluded user
-    categories into the prefix set and has no separate category axis).
+    content depending on which screen you look at it from — and until What's
+    New #618 the Discover worker's ``fk`` kwargs had no category axis at all
+    (absent from every shelf query but the categories index; #618 fixed it).
 
     Args:
         config: The application Config.

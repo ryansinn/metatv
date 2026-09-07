@@ -27,26 +27,35 @@ call sites move):
 - ``ChannelRepository._apply_channel_filters`` — MIGRATED (this module's
   first, proof-of-faithfulness caller; see that method for exactly which
   lines moved).
-- ``discovery_engine.py`` (``_apply_prefix_filter`` / ``_apply_provider_
-  exclusion`` / ``_apply_content_type_exclusion`` / ``_apply_keyword_
-  exclusion`` / ``_apply_user_category_exclusion`` / ``_apply_adult_filter``),
-  ``preference_engine.score_candidates``, and ``TagRepository.
-  _scope_to_visible_channels`` — MIGRATED. The one known divergence flagged
-  below was reconciled onto this module's region-aware
-  ``filter_utils.channel_exclusion_criterion``: ``discovery_engine.
-  _apply_prefix_filter``'s old flat prefix-only ``NOT IN`` (which never
-  consulted ``detected_region`` for prefix-less channels) is gone — Discover
-  shelves and Recommendations (``preference_engine.score_candidates``, which
-  used to call ``discovery_engine._apply_prefix_filter`` directly) now apply
-  the SAME "language wins over region" predicate as the channel list /
-  tag-facet counts / EPG On-Now. This was a deliberate, documented behavior
-  change (see the PR that closed this migration for the full before/after) —
-  a channel with no ``detected_prefix`` but an excluded ``detected_region`` is
-  now ALSO hidden on those two surfaces, where it previously was not.
-  ``TagRepository.get_facet_value_counts`` additionally gained the
-  ``excluded_prefixes``/``excluded_categories``/``excluded_tag_content_types``
-  parameters it was missing (What's New #260), closing the gap where the
-  filter panel's counts disagreed with its list on those three axes.
+- ``discovery_engine.py`` (``_apply_prefix_filter`` — the single chokepoint
+  every card-returning/counting shelf function threads its own
+  ``excluded_prefixes``/``excluded_content_types``/``excluded_keywords``/
+  ``excluded_categories`` through, plus the separate ``_apply_provider_
+  exclusion`` / ``_apply_adult_filter``), ``preference_engine.
+  score_candidates`` (reached via ``recommendation_scope``, its own resolved-
+  kwargs chokepoint), and ``TagRepository._scope_to_visible_channels`` —
+  MIGRATED. The one known divergence flagged below was reconciled onto this
+  module's region-aware ``filter_utils.channel_exclusion_criterion``:
+  ``discovery_engine._apply_prefix_filter``'s old flat prefix-only ``NOT IN``
+  (which never consulted ``detected_region`` for prefix-less channels) is
+  gone — Discover shelves and Recommendations (``preference_engine.
+  score_candidates``, which used to call ``discovery_engine.
+  _apply_prefix_filter`` directly) now apply the SAME "language wins over
+  region" predicate as the channel list / tag-facet counts / EPG On-Now. This
+  was a deliberate, documented behavior change (see the PR that closed this
+  migration for the full before/after) — a channel with no ``detected_prefix``
+  but an excluded ``detected_region`` is now ALSO hidden on those two
+  surfaces, where it previously was not. ``TagRepository.
+  get_facet_value_counts`` additionally gained the ``excluded_prefixes``/
+  ``excluded_categories``/``excluded_tag_content_types`` parameters it was
+  missing (What's New #260), closing the gap where the filter panel's counts
+  disagreed with its list on those three axes. The three single-axis siblings
+  ``_apply_content_type_exclusion``/``_apply_keyword_exclusion``/
+  ``_apply_user_category_exclusion`` that used to sit beside
+  ``_apply_prefix_filter`` in ``discovery_engine.py`` were unreachable dead
+  code (every shelf called the combined ``_apply_prefix_filter`` instead, and
+  the ``excluded_categories`` axis in particular reached no shelf query at
+  all until it did) and were deleted, What's New #618.
 - ``dead_signal_streak_floor`` (VE-1) — the "hide dead events" setting. Wired
   into ``ChannelRepository.get_all()`` (channel list + search),
   ``discovery_engine.py``'s card-returning shelf functions (Discover), and
@@ -174,7 +183,7 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
     # ── Keyword axis — moved verbatim from ``_apply_channel_filters``
     # (pre-refactor: ``if excluded_keywords: query = query.filter(keyword_
     # exclusion_criterion(excluded_keywords, ChannelDB))``). Same canonical
-    # helper discovery_engine._apply_keyword_exclusion and TagRepository.
+    # helper discovery_engine._apply_prefix_filter and TagRepository.
     # _scope_to_visible_channels already call — single chokepoint, unchanged
     # here. ──────────────────────────────────────────────────────────────
     if scope.excluded_keywords:
@@ -195,11 +204,11 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
 
     # ── User-category axis — NOT present in ``_apply_channel_filters``
     # pre-refactor. Provisioned for the discovery_engine.py
-    # (_apply_user_category_exclusion) / tag.py migration slice; both of
-    # those sites already agree on this exact
-    # ``or_(is_(None), notin_(...))`` shape, so it is reproduced faithfully
-    # (not rewritten) rather than routed through a filter_utils helper
-    # (none exists for this axis today). ────────────────────────────────
+    # (_apply_prefix_filter's excluded_categories parameter, What's New #618)
+    # / tag.py migration slice; both of those sites already agree on this
+    # exact ``or_(is_(None), notin_(...))`` shape, so it is reproduced
+    # faithfully (not rewritten) rather than routed through a filter_utils
+    # helper (none exists for this axis today). ────────────────────────────
     if scope.excluded_categories:
         query = query.filter(
             or_(
