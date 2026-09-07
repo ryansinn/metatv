@@ -16,6 +16,7 @@ from metatv.core.database import (
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.migrations.sports_reclassify import DERIVED_FIELDS
+from metatv.core.sql_batching import fetch_in_chunks
 from metatv.providers.factory import get_provider
 
 # Columns written by the catalog loader on every channel upsert.
@@ -468,16 +469,16 @@ class ProviderLoadThread(QThread):
             return
 
         ids = list(before.keys())
-        after: dict[str, str] = {}
-        _CHUNK = 500
-        for i in range(0, len(ids), _CHUNK):
-            chunk = ids[i : i + _CHUNK]
-            rows = (
-                session.query(ChannelDB.id, ChannelDB.name)
-                .filter(ChannelDB.id.in_(chunk))
-                .all()
-            )
-            after.update(dict(rows))
+        # Chunked through the shared IN(...) chokepoint (F16, docs/REFACTOR_PLAN.md)
+        # rather than a private loop — same 500-per-chunk default as
+        # sql_batching.CHUNK_SIZE, which this used to duplicate verbatim.
+        after_rows = fetch_in_chunks(
+            lambda chunk: session.query(ChannelDB.id, ChannelDB.name)
+                                  .filter(ChannelDB.id.in_(chunk))
+                                  .all(),
+            ids,
+        )
+        after: dict[str, str] = dict(after_rows)
 
         changed: list[tuple[str, str, str]] = []
         for cid, old in before.items():

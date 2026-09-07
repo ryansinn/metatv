@@ -18,6 +18,8 @@ Bug being fixed (two parts):
 
 from __future__ import annotations
 
+import ast
+import pathlib
 from datetime import timedelta
 from unittest.mock import MagicMock
 
@@ -357,3 +359,113 @@ class TestRenderOnNowGlobalExclusionSet:
         config = self._make_config(categories=[], prefixes=[])
         result = self._compute_hidden_prefixes(config)
         assert result == set()
+
+
+# ===========================================================================
+# Part 4 (Ledger F33) — the programme-scoping block is a SINGLE chokepoint
+# ===========================================================================
+
+class TestProgrammeScopingIsAChokepoint:
+    """The ``excluded_channel_provider_ids`` JOIN and the ``lang_code`` ILIKE were
+    pasted at eleven call sites across ``core/repositories/epg.py`` and
+    ``core/repositories/epg_watchlist.py`` (docs/REFACTOR_PLAN.md ledger row F33).
+    They now live in exactly ONE place — ``epg_watchlist._scope_programmes`` —
+    and every site calls it instead of repasting.
+
+    This walks the AST of both modules (not a line regex, so a comment or a
+    docstring mentioning the pattern doesn't trip it) and fails the moment a
+    twelfth raw copy appears anywhere in either file, including inside
+    ``_scope_programmes`` itself — i.e. shrink-only: the count must stay at
+    exactly one.
+    """
+
+    MODULES = (
+        pathlib.Path("metatv/core/repositories/epg.py"),
+        pathlib.Path("metatv/core/repositories/epg_watchlist.py"),
+    )
+
+    def _count_notin_channel_provider_joins(self) -> int:
+        """Count ``ChannelDB.provider_id.notin_(...)`` call sites across both modules."""
+        count = 0
+        for module in self.MODULES:
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+            for call in ast.walk(tree):
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if not (isinstance(func, ast.Attribute) and func.attr == "notin_"):
+                    continue
+                target = func.value  # the "ChannelDB.provider_id" being called on
+                if (
+                    isinstance(target, ast.Attribute)
+                    and target.attr == "provider_id"
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "ChannelDB"
+                ):
+                    count += 1
+        return count
+
+    def _count_lang_code_ilike_filters(self) -> int:
+        """Count ``EpgProgramDB.channel_epg_id.ilike(...)`` call sites across both modules."""
+        count = 0
+        for module in self.MODULES:
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+            for call in ast.walk(tree):
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if not (isinstance(func, ast.Attribute) and func.attr == "ilike"):
+                    continue
+                target = func.value  # "EpgProgramDB.channel_epg_id"
+                if (
+                    isinstance(target, ast.Attribute)
+                    and target.attr == "channel_epg_id"
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "EpgProgramDB"
+                ):
+                    count += 1
+        return count
+
+    def test_exclusion_join_appears_exactly_once(self):
+        """A twelfth ``ChannelDB.provider_id.notin_`` paste fails this."""
+        assert self._count_notin_channel_provider_joins() == 1, (
+            "The channel-provider exclusion JOIN must live only inside "
+            "epg_watchlist._scope_programmes — every call site routes through "
+            "it instead of pasting its own copy."
+        )
+
+    def test_lang_code_ilike_appears_exactly_once(self):
+        """A new raw ``channel_epg_id.ilike`` copy outside the chokepoint fails this."""
+        assert self._count_lang_code_ilike_filters() == 1, (
+            "The lang_code ILIKE filter must live only inside "
+            "epg_watchlist._scope_programmes — every call site routes through "
+            "it instead of pasting its own copy."
+        )
+
+    def test_every_query_method_routes_through_the_chokepoint(self):
+        """Every method that used to paste the join now calls ``_scope_programmes``
+        (directly, or via ``_scope_watchlist_query`` which delegates to it) at
+        least once — proves the migration reached every site, not just some."""
+        import inspect
+
+        from metatv.core.repositories import epg as epg_module
+        from metatv.core.repositories import epg_watchlist as epg_watchlist_module
+
+        migrated_methods = [
+            epg_module.EpgRepository.get_current_programs,
+            epg_module.EpgRepository.get_schedule,
+            epg_module.EpgRepository.get_schedule_forward,
+            epg_module.EpgRepository.get_contiguous_guide_end,
+            epg_module.EpgRepository.get_guide_bounds,
+            epg_module.EpgRepository.get_oldest_airing_start,
+            epg_module.EpgRepository.search_programs,
+            epg_module.EpgRepository.get_recommendations,
+            epg_module.EpgRepository.has_future_programmes,
+            epg_watchlist_module.EpgWatchlistMixin._scope_watchlist_query,
+            epg_watchlist_module.EpgWatchlistMixin.get_programs_starting_soon,
+        ]
+        for method in migrated_methods:
+            source = inspect.getsource(method)
+            assert "_scope_programmes(" in source, (
+                f"{method.__qualname__} must route through _scope_programmes"
+            )

@@ -30,6 +30,45 @@ from metatv.core.watchlist_matching import as_rules, refine, sql_prefilter
 _WATCHLIST_PREFETCH = 400
 
 
+def _scope_programmes(
+    query,
+    *,
+    excluded_provider_ids: set[str] | list[str] | None = None,
+    lang_code: str | None = None,
+):
+    """Apply the channel-side hidden-provider exclusion + language scoping.
+
+    Ledger F33 (docs/REFACTOR_PLAN.md): this join/filter pair was pasted at
+    eleven call sites across this file and ``epg.py`` — byte-identical at
+    every one. This is the single chokepoint; every site routes through it
+    instead of repasting. ``provider_ids`` (the FEED-side ``.in_()`` filter)
+    is a separate, deliberately un-merged concern — not every caller applies
+    it the same way (:meth:`EpgWatchlistMixin._scope_watchlist_query` layers
+    it on top of this).
+
+    Args:
+        query: The SQLAlchemy query to scope. Must already select/filter on
+            ``EpgProgramDB``.
+        excluded_provider_ids: When truthy, joins to ``ChannelDB`` and drops
+            programmes whose matched channel belongs to one of these provider
+            IDs (hidden-provider channel-side scoping).
+        lang_code: When truthy, restricts to channels whose ``channel_epg_id``
+            ends ``.<lang_code>``.
+
+    Returns:
+        The query with both filters applied (whichever are truthy).
+    """
+    if excluded_provider_ids:
+        query = (
+            query
+            .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+            .filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        )
+    if lang_code:
+        query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
+    return query
+
+
 class EpgWatchlistMixin:
     """Watch-rule-driven programme queries, mixed into :class:`EpgRepository`.
 
@@ -45,22 +84,16 @@ class EpgWatchlistMixin:
     ):
         """Apply the feed / hidden-source / language filters to a programme query.
 
-        The exclusion join is pasted TWELVE times in this file. Only the two
-        watchlist queries are migrated here (WL-1's scope); the other ten are
-        in docs/REFACTOR_PLAN.md and must be checked for policy differences
-        before adoption. New query methods call this instead of pasting.
+        Layers the FEED-side ``provider_ids`` filter on top of the shared
+        :func:`_scope_programmes` chokepoint (exclusion join + lang_code).
         """
         if provider_ids:
             query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
-        if lang_code:
-            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
-        return query
+        return _scope_programmes(
+            query,
+            excluded_provider_ids=excluded_channel_provider_ids,
+            lang_code=lang_code,
+        )
 
     def get_upcoming_for_watchlist(
         self,
@@ -224,10 +257,7 @@ class EpgWatchlistMixin:
             EpgProgramDB.start_time <= cutoff,
             EpgProgramDB.channel_db_id.isnot(None),
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
         return query.all()

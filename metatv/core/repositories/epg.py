@@ -12,7 +12,7 @@ from metatv.core.database import EpgProgramDB, ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc, local_day_window as _local_day_window
 from metatv.core.epg_utils import contiguous_guide_end as _contiguous_guide_end
 from metatv.core.epg_utils import _local_tz  # re-exported so test patches still work
-from metatv.core.repositories.epg_watchlist import EpgWatchlistMixin
+from metatv.core.repositories.epg_watchlist import EpgWatchlistMixin, _scope_programmes
 
 
 # Browse time-slot windows — SINGLE SOURCE OF TRUTH shared by ``get_schedule`` (the
@@ -133,12 +133,11 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.channel_db_id.isnot(None),
         )
 
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query,
+            excluded_provider_ids=excluded_channel_provider_ids,
+            lang_code=lang_code,
+        )
 
         if hide_filler and filler_patterns:
             for pattern in filler_patterns:
@@ -148,9 +147,6 @@ class EpgRepository(EpgWatchlistMixin):
             query = query.filter(
                 ~EpgProgramDB.channel_db_id.in_(dismissed_channel_ids)
             )
-
-        if lang_code:
-            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
 
         if hidden_titles:
             query = query.filter(~EpgProgramDB.title.in_(hidden_titles))
@@ -219,12 +215,11 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
         )
 
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query,
+            excluded_provider_ids=excluded_channel_provider_ids,
+            lang_code=lang_code,
+        )
 
         if search_query:
             like = f"%{search_query}%"
@@ -235,9 +230,6 @@ class EpgRepository(EpgWatchlistMixin):
         if hide_filler and filler_patterns:
             for pattern in filler_patterns:
                 query = query.filter(~EpgProgramDB.title.ilike(f"%{pattern}%"))
-
-        if lang_code:
-            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
 
         return query.order_by(EpgProgramDB.start_time).all()
 
@@ -332,12 +324,11 @@ class EpgRepository(EpgWatchlistMixin):
         if max_age is not None:
             query = query.filter(EpgProgramDB.start_time >= now - max_age)
 
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query,
+            excluded_provider_ids=excluded_channel_provider_ids,
+            lang_code=lang_code,
+        )
 
         if search_query:
             like = f"%{search_query}%"
@@ -348,9 +339,6 @@ class EpgRepository(EpgWatchlistMixin):
         if hide_filler and filler_patterns:
             for pattern in filler_patterns:
                 query = query.filter(~EpgProgramDB.title.ilike(f"%{pattern}%"))
-
-        if lang_code:
-            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
 
         if after is not None:
             from sqlalchemy import and_, or_
@@ -409,12 +397,9 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.channel_db_id.isnot(None),
             EpgProgramDB.stop_time > now,
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
         spans = [(row.start_time, row.stop_time) for row in query.all()]
         return _contiguous_guide_end(spans, _now=now)
 
@@ -452,12 +437,9 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.provider_id.in_(provider_ids),
             EpgProgramDB.channel_db_id.isnot(None),
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
         min_start, max_start = query.one()
         return min_start, max_start
 
@@ -497,12 +479,9 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.start_time <= now,
             EpgProgramDB.stop_time > now,
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
         return query.scalar()
 
     def search_programs(
@@ -533,14 +512,11 @@ class EpgRepository(EpgWatchlistMixin):
                 EpgProgramDB.title.ilike(like) | EpgProgramDB.description.ilike(like),
             )
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
-        if lang_code:
-            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
+        query = _scope_programmes(
+            query,
+            excluded_provider_ids=excluded_channel_provider_ids,
+            lang_code=lang_code,
+        )
         return query.order_by(EpgProgramDB.start_time).limit(200).all()
 
     # ------------------------------------------------------------------
@@ -593,12 +569,9 @@ class EpgRepository(EpgWatchlistMixin):
             )
         )
 
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
 
         rows = (
             query
@@ -785,12 +758,9 @@ class EpgRepository(EpgWatchlistMixin):
             EpgProgramDB.start_time > now,
             EpgProgramDB.channel_db_id.isnot(None),
         )
-        if excluded_channel_provider_ids:
-            query = (
-                query
-                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
-                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
+        query = _scope_programmes(
+            query, excluded_provider_ids=excluded_channel_provider_ids
+        )
         return query.first() is not None
 
     def has_unmatched_epg(self, provider_id: str) -> bool:
