@@ -34,7 +34,7 @@ from metatv.core.migrations.raw_field_backfill import (
     CURRENT_VERSION, FIELDS, RawFieldBackfillTask,
 )
 from metatv.metadata_providers.provider_metadata import (
-    metadata_from_raw, runtime_from_raw,
+    metadata_from_raw, runtime_from_raw, tmdb_id_from_raw,
 )
 
 
@@ -392,10 +392,11 @@ def test_every_resolver_is_the_one_ingestion_uses():
     """
     from metatv.core.content_identity import added_from_raw, rating_from_raw
     from metatv.metadata_providers.provider_metadata import (
-        runtime_from_raw, trailer_from_raw,
+        runtime_from_raw, tmdb_id_from_raw, trailer_from_raw,
     )
     assert FIELDS["runtime"] == ("MetadataDB", runtime_from_raw)
     assert FIELDS["trailer_url"] == ("MetadataDB", trailer_from_raw)
+    assert FIELDS["tmdb_id"] == ("MetadataDB", tmdb_id_from_raw)
 
     _, rating_resolver = FIELDS["detected_rating"]
     _, added_resolver = FIELDS["detected_added"]
@@ -411,5 +412,87 @@ def test_the_version_is_ahead_of_the_field_count():
     land together — ``detected_rating``/``detected_added`` are both new in
     version 3 — so the invariant is "every column has some version that covers
     it", not one version number per field."""
-    assert CURRENT_VERSION == 3
-    assert set(FIELDS) == {"runtime", "trailer_url", "detected_rating", "detected_added"}
+    assert CURRENT_VERSION == 4
+    assert set(FIELDS) == {
+        "runtime", "trailer_url", "detected_rating", "detected_added", "tmdb_id",
+    }
+
+
+# --------------------------------------------------------------------------
+# tmdb_id (W-2a) — the key-name bug: every payload ships the id under
+# ``tmdb``, never ``tmdb_id``. Pre-fix ``metadata_from_raw`` read only
+# ``info.get('tmdb_id')``, so this was 0 of 653,306 real rows.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw, expected", [
+    # The shape every real payload sends: top-level 'tmdb', movie and series.
+    ({"tmdb": "27205"}, "27205"),
+    ({"tmdb": "1396"}, "1396"),
+    ('{"tmdb": "1396"}', "1396"),                # stored as a JSON string
+    ({"info": {"tmdb": "603"}}, "603"),          # nested shape
+    ({"info": {"tmdb_id": "603"}}, "603"),       # per-title info-endpoint spelling
+    # tmdb_id wins when a payload happens to carry both.
+    ({"tmdb_id": "10", "tmdb": "20"}, "10"),
+    # Provider sentinels for "no id" are rejected, same as detected_tmdb_id.
+    ({"tmdb": "0"}, None),
+    ({"tmdb": ""}, None),
+    ({"tmdb": "null"}, None),
+    ({"tmdb": None}, None),
+    # Never a key the payload doesn't ship at all.
+    ({"tmdb_id": "603"}, "603"),                 # accepted, but never sent for real
+    ({"name": "no id here"}, None),
+    (None, None), ("", None), ("not json", None), ([], None), ({}, None),
+])
+def test_tmdb_id_resolver_reads_the_real_key(raw, expected):
+    assert tmdb_id_from_raw(raw) == expected
+
+
+def test_tmdb_id_reaches_movie_metadata():
+    """A movie payload carrying ``tmdb`` yields a populated ``tmdb_id``."""
+    result = metadata_from_raw(
+        {"name": "Inception", "tmdb": "27205"}, name="Inception")
+    assert result.tmdb_id == "27205"
+
+
+def test_tmdb_id_absent_yields_none_for_movie():
+    result = metadata_from_raw({"name": "No Id Here"}, name="No Id Here")
+    assert result.tmdb_id is None
+
+
+def test_tmdb_id_reaches_series_metadata():
+    """A series payload carrying ``tmdb`` yields a populated ``tmdb_id``."""
+    result = metadata_from_raw(
+        {"name": "Breaking Bad", "tmdb": "1396", "episode_run_time": "47"},
+        name="Breaking Bad")
+    assert result.tmdb_id == "1396"
+    assert result.runtime == 47
+
+
+def test_tmdb_id_absent_yields_none_for_series():
+    result = metadata_from_raw(
+        {"name": "No Id Series", "episode_run_time": "47"}, name="No Id Series")
+    assert result.tmdb_id is None
+
+
+def test_backfill_writes_tmdb_id_from_the_real_key(db):
+    """The migration end-to-end: a real DB, a payload shaped like the owner's."""
+    _seed(db, [
+        {"tmdb": "27205"},          # m00000
+        {"tmdb": "0"},              # m00001 — sentinel, stays NULL
+        {"name": "no tmdb here"},   # m00002 — stays NULL
+    ])
+    _run(db)
+    with db.session_scope() as session:
+        rows = {r[0]: r[1] for r in
+                session.execute(text("SELECT id, tmdb_id FROM metadata")).all()}
+    assert rows == {"m00000": "27205", "m00001": None, "m00002": None}
+
+
+def test_backfill_leaves_an_existing_tmdb_id_alone(db):
+    """Enrichment may already have a verified id; the filter is IS NULL."""
+    _seed(db, [{"tmdb": "27205"}])
+    with db.session_scope() as session:
+        session.query(MetadataDB).first().tmdb_id = "999999"
+    _run(db)
+    with db.session_scope() as session:
+        assert session.query(MetadataDB).first().tmdb_id == "999999"

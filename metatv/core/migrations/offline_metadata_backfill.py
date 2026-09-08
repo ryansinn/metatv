@@ -200,6 +200,21 @@ class OfflineMetadataBackfillTask:
                     _fill("backdrop_url", result.backdrop_url)
                     _fill("trailer_url", result.trailer_url)
                     _fill("media_type", channel.media_type)
+                    # runtime/tmdb_id (W-2a): metadata_from_raw already computes
+                    # both (runtime_from_raw / tmdb_id_from_raw), but nothing
+                    # applied them to the row created here — the exact
+                    # enumeration gap runtime_from_raw's own docstring warned
+                    # about ("a fix at one call site does not stop the next
+                    # field making the same mistake"). tagline/content_rating/
+                    # year/crew/rating_count are deliberately NOT filled: the
+                    # movie/series LIST payload carries no source key for any
+                    # of them (content_rating's 'rating'/'rating_5based' are
+                    # Xtream stream-API placeholders metadata_from_raw already
+                    # strips before this point, so it never computes a value to
+                    # fill), and inventing one would violate CLAUDE.md's "do
+                    # not invent a source".
+                    _fill("runtime", result.runtime)
+                    _fill("tmdb_id", result.tmdb_id)
                     if existing is None:
                         meta.source = "provider-raw"
                     session.add(meta)
