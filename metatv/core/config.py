@@ -708,8 +708,7 @@ class Config(BaseModel):
     # Lets the user temporarily see unfiltered content without losing their configuration.
     global_filter_paused: bool = Field(default=False, json_schema_extra=PROFILE)
 
-    # Discover view zone persistence
-    # shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.
+    # Discover zone persistence; shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.
     discover_pinned_shelves: list = Field(default_factory=list)
     discover_expanded_shelves: list = Field(default_factory=list)
     #: Kept as a FIELD but no longer written to: collapsed is the default
@@ -725,6 +724,7 @@ class Config(BaseModel):
     discover_zones_seeded: bool = False
     discover_hidden_shelves: list = Field(default_factory=list)
     discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
+    discover_manage_folded_families: list = Field(default_factory=list)  # Manage-shelves dialog ONLY: folded family headings. Never a zone — folding hides rows in that dialog and changes nothing Discover renders.
     discover_more_expanded: bool = False   # "More Categories" accordion — collapsed by default
     discover_collapse_to_top: bool = True  # re-collapsed shelves jump to top of collapsed zone
     discover_zoom: float = 1.0             # content card zoom factor (0.6–1.8); persisted
