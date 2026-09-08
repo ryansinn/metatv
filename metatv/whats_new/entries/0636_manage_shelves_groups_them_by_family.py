@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=636,
-    version="0.104.0",
+    version="0.105.0",
     date="2026-09-08",
     title="Manage shelves groups them by family",
     items=(
