@@ -1,7 +1,4 @@
 """Tests for IMG-1: image cache stat-storm fix (avoid full directory scan per download)"""
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
 from metatv.core.image_cache import ImageCache
 
 
@@ -30,7 +27,7 @@ def test_scan_happens_once_not_per_download(tmp_path):
 
     # Call _cleanup_if_needed 20 times with different added_bytes values
     bytes_added = 0
-    for i in range(20):
+    for _ in range(20):
         added = 1024 * 100  # 100 KB each
         cache._cleanup_if_needed(added_bytes=added)
         bytes_added += added
@@ -77,7 +74,6 @@ def test_cleanup_still_works_and_deletes_oldest(tmp_path):
 
     # Count files before cleanup
     count_before = len(list(tmp_path.glob("*")))
-    total_size_before = sum(f.stat().st_size for f in tmp_path.glob("*") if f.is_file())
 
     # Trigger cleanup (adding enough bytes to push the cache over the limit again)
     cache._cleanup_if_needed(added_bytes=1024 * 100)
