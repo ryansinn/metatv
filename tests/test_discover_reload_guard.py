@@ -32,6 +32,24 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+_VIEWS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _destroy_views():
+    """Every DiscoverView _make_view builds is a parentless top-level; free it.
+
+    Left to garbage collection it leaked past teardown on SOME test orders
+    (three allowlist entries, then a fourth on CI), which is the shape the
+    top-level-widget guard exists to stop.
+    """
+    from tests.conftest import destroy_widget
+
+    yield
+    destroy_widget(*_VIEWS)
+    _VIEWS.clear()
+
+
 def _make_view(tmp_path):
     """A REAL, fully-constructed DiscoverView (not __new__) backed by a real
     file DB — reload()/refresh() spawn a genuine QThread + _LoaderWorker, and
@@ -46,6 +64,7 @@ def _make_view(tmp_path):
     cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
                  cache_dir=tmp_path / "cache")
     view = DiscoverView(db, cfg, MagicMock())
+    _VIEWS.append(view)   # destroyed by _destroy_views below — a parentless top-level
     return db, view
 
 
