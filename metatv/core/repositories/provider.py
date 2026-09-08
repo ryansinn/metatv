@@ -446,6 +446,19 @@ class ProviderRepository:
             .scalar()
         )
 
+    def effective_catalog_refresh_by_id(self, provider_id: str) -> Optional[datetime]:
+        """Public single-row wrapper around :meth:`_effective_catalog_refresh`.
+
+        For a caller holding only a ``provider_id`` (e.g. the stream-failure
+        "may be stale" hint in ``source_staleness.py``) — reuses the SPORT-7
+        COALESCE chokepoint instead of a second, parallel one. ``None`` when
+        the provider is missing or has never ingested a channel.
+        """
+        provider = self.get_by_id(provider_id)
+        if provider is None:
+            return None
+        return self._effective_catalog_refresh(provider)
+
     def get_active_providers_with_refresh_schedule(self) -> List[tuple]:
         """``(id, name, refresh_schedule, effective_last_refresh)`` for every
         ACTIVE provider — the catalog-refresh tick's one read; see

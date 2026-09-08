@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from datetime import datetime
 from time import monotonic
 from urllib.parse import urlparse
 
@@ -23,6 +24,7 @@ from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.repositories.provider import persist_url_stats
+from metatv.gui.stale_source_offer import read_last_refresh, stale_source_offer
 from metatv.core.stream_diagnostics import _redact
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import playback_start_watch as _startwatch
@@ -139,13 +141,10 @@ class _StreamingMixin(_WatchCaptureMixin):
             ) as response:
                 if response.status_code >= 400:
                     logger.warning(f"Stream URL returned HTTP {response.status_code}")
-                    # A 5xx/429 is the SERVER having a moment, not proof the
-                    # stream is bad (see this method's own docstring). On a
-                    # one-connection account THIS PROBE IS a second connection,
-                    # so the provider 500s it precisely because it is serving —
-                    # owner hit that and "Play Anyway" played fine. mpv is the
-                    # better authority: it reconnects, and a real failure still
-                    # surfaces. 511 is auth despite its number, so it is 4xx here.
+                    # A 5xx/429 is the SERVER having a moment, not proof the stream
+                    # is bad (docstring): on a one-connection account THIS PROBE IS
+                    # the second connection, so the provider 500s it because it is
+                    # serving — mpv is the better authority. 511 is auth → 4xx here.
                     if (response.status_code >= 500 and response.status_code != 511
                             ) or response.status_code == 429:
                         return True, None
@@ -419,8 +418,10 @@ class _StreamingMixin(_WatchCaptureMixin):
     def _is_advisory_error(self, stream_err: str) -> bool:
         """Return True if *stream_err* is an uncertain pre-flight error code.
 
-        Advisory errors offer "Play Anyway" in the failure toast and are NOT
-        fed to ``stream_retry_manager`` as confirmed dead streams.
+        Advisory errors offer "Play Anyway" in the failure toast; its one real
+        consumer is the failover sweep, which keeps trying sibling sources on
+        an advisory verdict (#315). They are recorded like any other failure
+        (unconditional since #227).
 
         Args:
             stream_err: The error string from ``validate_stream_url``, e.g.
@@ -570,6 +571,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             siblings = []
 
         # ── Total failure — emit for the failure toast ───────────────────────
+        provider_last_refresh = read_last_refresh(self.db, provider_id)  # STALE-1, off-thread
         self._stream_ready.emit({
             "ok": False, "channel_id": channel_id, "channel_name": channel_name,
             "original_url": stream_url, "final_url": "", "stream_err": stream_err or "",
@@ -578,6 +580,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
             "siblings": siblings,   # list of dicts for the failure toast
             "event_start_time": event_start_time,
+            "provider_last_refresh": provider_last_refresh,
         })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -612,12 +615,17 @@ class _StreamingMixin(_WatchCaptureMixin):
             _p = _pcn(channel_name)
             _display = _p.bare_name or channel_name
 
+            _pid = data.get("provider_id")
+            _hint, _refresh_action = stale_source_offer(   # STALE-1: pure, DB read was off-thread
+                self._provider_display_name, lambda p: self.refresh_provider(p), _pid,
+                data.get("provider_last_refresh", "unknown"), datetime.now())
+            if _hint:
+                detail = f"{detail}\n{_hint}"
             # Build actions: always Copy Error; advisory → Play Anyway; siblings → extra
             actions = []
 
             # Play Anyway — for advisory (auth/gating) errors, and as a general
             # escape hatch letting the user override the pre-flight check.
-            _pid = data.get("provider_id")
             _fnw = data.get("force_new_window", False)
             _cid = channel_id
             actions.append((
@@ -670,6 +678,8 @@ class _StreamingMixin(_WatchCaptureMixin):
                         self._reactivate_and_play_sibling(_pid, _u, _n, _fnw)
                 ))
 
+            if _refresh_action:
+                actions.append(_refresh_action)
             actions.append(
                 ("Copy Error", lambda n=channel_name, u=original_url, d=detail:
                     QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))
@@ -737,19 +747,12 @@ class _StreamingMixin(_WatchCaptureMixin):
                 data.get("provider_id"), force_new_window
             )
 
-            # Update UI lists in real-time (main thread).
-            #
-            # History always changes — the play IS the new entry. Favorites and
-            # the Watch Queue only change if this channel is IN them, so they
-            # are asked first. They used to be rebuilt unconditionally: every
-            # play re-read the table off-thread and rebuilt every row widget in
-            # both sections, for a channel that was usually in neither. Owner:
-            # "the watch queue completely reloads when switching content not
-            # even in the watch queue."
-            #
-            # Same grain as _remove_sidebar_row, which exists for the same
-            # complaint about deletions ("the entire watch queue still refreshes
-            # when a single line is removed") — this is the playback half of it.
+            # Update UI lists in real-time (main thread). History always changes
+            # (the play IS the new entry); Favorites/Queue only if this channel
+            # is IN them, so they are asked first — they used to rebuild every
+            # row on every play (owner: "the watch queue completely reloads when
+            # switching content not even in the watch queue"). Same grain as
+            # _remove_sidebar_row, the deletion half of the same complaint.
             if self._sidebar_shows_channel("favorites", channel_id):
                 self.load_favorites()
             if self._sidebar_shows_channel("queue", channel_id):
@@ -1222,12 +1225,9 @@ class _StreamingMixin(_WatchCaptureMixin):
         )
 
     # ---- Live playback-health indicator -------------------------------------
-    #
-    # A QTimer polls mpv's IPC socket every ~2s. The socket query runs on the
-    # shared executor (never the main thread); the result is marshalled back via
-    # the _playback_health_ready signal (same pattern as _stream_ready). The
-    # timer self-stops after a short idle grace so there's no perpetual polling
-    # once you stop watching; it restarts on the next play_media.
+    # A QTimer polls mpv's IPC socket every ~2s on the shared executor (never the
+    # main thread), marshalled back via _playback_health_ready (like _stream_ready).
+    # It self-stops after an idle grace; play_media restarts it.
 
     def _start_playback_health(self, attempt=None) -> None:
         """Start (or resume) polling mpv — see playback_start_watch.start_polling."""
@@ -1355,13 +1355,10 @@ class _StreamingMixin(_WatchCaptureMixin):
         if not props or not props.get("path"):
             self._playback_health_label.hide()
             self._notify_details_playing(None, 0)
-            # The player just went idle — the user closed it. Re-read the details
-            # pane (if it's still showing what was playing) so a part-watched title
-            # offers Resume straight away — the position is already stored
-            # (_bg_capture_watch), but the pane was rendered before the watch
-            # existed. Owner, 2026-09-01: "closed the movie, the details panel
-            # should show resume if the content I just closed was the content
-            # mpv was just playing."
+            # The player went idle (user closed it): re-read the details pane if it
+            # still shows what was playing, so a part-watched title offers Resume
+            # now — the position is stored (_bg_capture_watch) but the pane was
+            # rendered before the watch existed (owner, 2026-09-01).
             self._refresh_details_after_playback_stopped(key)
             if _startwatch.on_idle_tick(self):
                 self._playback_health_timer.stop()
