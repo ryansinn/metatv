@@ -1088,6 +1088,103 @@ def genres_from_raw(genre_str: str | None) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Compound-token splitter (moved here from tag_decomposer.py, GENRE-1) — the
+# ONE tokenizer for a compound provider-category/header string like
+# "USA | NETFLIX | HD", "FR ★ MOVIES", "### WOW SPORT ###", "DE - ENTERTAINMENT".
+# Lives here (not tag_decomposer.py) so genres_from_category() below can reuse
+# it without a reverse import — tag_decomposer already imports
+# DEFAULT_PREFIX_SEPARATORS/categorize_prefix/normalize_genre/recognized_genre
+# from this module, never the other way around. tag_decomposer.py imports
+# _split_compound from here for its own (region/language/platform/quality)
+# compound classification pass.
+# ---------------------------------------------------------------------------
+
+# Splitters beyond DEFAULT_PREFIX_SEPARATORS that appear in provider category/
+# header strings but not in name-prefix strings (bare, no surrounding spaces).
+_EXTRA_SEPS: list[str] = ["|", "★", ":", " - "]
+
+# Ordered split list: longer/more-specific first (same policy as extract_prefix).
+_COMPOUND_SEPS: list[str] = sorted(
+    set(DEFAULT_PREFIX_SEPARATORS) | set(_EXTRA_SEPS),
+    key=len,
+    reverse=True,
+)
+
+
+def _split_compound(text: str) -> list[str]:
+    """Split a compound token string on known separators.
+
+    Uses the same ordered separator list ``extract_prefix`` uses (plus a few
+    header-only extras) so that longer/more-specific patterns win over shorter
+    ones.
+
+    Returns a list of non-empty, stripped tokens.
+    """
+    # Replace each separator with a canonical null byte, then split.
+    result = text
+    for sep in _COMPOUND_SEPS:
+        result = result.replace(sep, "\x00")
+    parts = [p.strip() for p in result.split("\x00")]
+    return [p for p in parts if p]
+
+
+def genres_from_category(category: str) -> list[str]:
+    """Cross-walk a provider CATEGORY string into canonical genre labels.
+
+    The Xtream VOD/movie payload carries no ``raw_data["genre"]`` key at all —
+    only the series payload does (see :func:`genres_from_raw` above) — so a
+    movie's genre lives entirely in its provider category instead, e.g.
+    ``"|EN| HORROR/THRILLER"``, ``"|PL| HORROR/THRILLER"``,
+    ``"|FR| HORREUR/EPOUVANTE"``. This is the ingestion-time fallback for that
+    case (GENRE-1, #genre-perf follow-up): strip ``##…##``/``#`` header
+    decoration, split on the same compound separators
+    ``tag_decomposer._decompose_compound`` uses for provider-category tokens
+    (:func:`_split_compound` above — reused, not re-derived: a naive
+    single-level ``re.split`` under-recovers real categories, e.g. losing
+    "Documentary" out of ``"|EN| 4K DOCUMENTARY/MUSIC/ STAND-UP"`` because the
+    quality/language prefix never gets separated from it first), then applies
+    the same strict :func:`recognized_genre` allowlist to each ``/``/``,``
+    -delimited leaf of every token that :func:`genres_from_raw` applies to a
+    raw genre string's segments.
+
+    Unlike :func:`genres_from_raw` (a source-DENOTED field) and unlike
+    ``tag_decomposer``'s own provider_category cross-walk, this takes no
+    ``Config`` and does not classify out region/language/platform/quality
+    tokens first — it is a coarse, best-effort, ADDITIVE guess (DR-0006
+    "capture generously"), which is why ingestion only calls it as a fallback
+    when ``genres_from_raw`` found nothing. ``tag_decomposer`` calls this same
+    helper per already-classified residual token so its own (narrower) scope
+    is unchanged — one helper, two callers, two different inputs.
+
+    Args:
+        category: The raw ``ChannelDB.category`` string, or None/empty.
+
+    Returns:
+        Ordered, de-duplicated canonical genre labels, e.g.
+        ``genres_from_category("|EN| HORROR/THRILLER")`` →
+        ``["Horror", "Thriller"]``. Empty list when *category* denotes no
+        recognizable genre (e.g. ``"NETFLIX MOVIES"``, ``"4K MOVIES"``).
+    """
+    if not category or not category.strip():
+        return []
+    cleaned = re.sub(r"^#+\s*|\s*#+$", "", category).strip()
+    if not cleaned:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in _split_compound(cleaned):
+        for leaf in _GENRE_SEG_SEP_RE.split(tok):
+            leaf = leaf.strip()
+            if not leaf:
+                continue
+            canon = recognized_genre(leaf)
+            if canon and canon not in seen:
+                seen.add(canon)
+                out.append(canon)
+    return out
+
+
 # The canonical genre vocabulary — the set of all values produced by
 # ``normalize_genre``.  Used as a **strict allowlist** for the category→genre
 # cross-walk: a token is only emitted as a genre tag when it normalizes to one

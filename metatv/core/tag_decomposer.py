@@ -66,7 +66,9 @@ Classifier reuse map
              via :func:`~metatv.core.filter_utils.categorize_prefix`
 - quality  ← config ``filter_quality_groups`` via ``categorize_prefix``; also
              :data:`~metatv.core.channel_name_utils.QUALITY_TOKENS` as gate
-- genre    ← :func:`~metatv.core.filter_utils.recognized_genre` (strict allowlist)
+- genre    ← :func:`~metatv.core.filter_utils.genres_from_category` (per residual
+             token; strict :func:`~metatv.core.filter_utils.recognized_genre`
+             allowlist underneath)
 - collection ← residual token after region/quality/platform tokens are extracted
 - decade   ← ``(int(year) // 10) * 10`` from the ``detected_year`` field
 """
@@ -92,27 +94,19 @@ from metatv.core.channel_name_utils import (
     normalize_region_code,
 )
 from metatv.core.filter_utils import (
-    DEFAULT_PREFIX_SEPARATORS,
+    _split_compound,
     categorize_prefix,
+    genres_from_category,
     normalize_genre,
-    recognized_genre,
 )
 
 # ── Compound-token splitters ────────────────────────────────────────────────── #
 # Provider categories / header labels are compound strings like:
 #   "USA | NETFLIX | HD"  "FR  ★  MOVIES"  "SPORTS: FOOTBALL"
 #   "### WOW SPORT ###"   "DE - ENTERTAINMENT"
-# We split on the same separators filter_utils uses plus "|" and "★".
-
-# Additional splitters beyond DEFAULT_PREFIX_SEPARATORS that appear in headers:
-_EXTRA_SEPS: list[str] = ["|", "★", ":", " - "]
-
-# Ordered split list: longer/more-specific first (same policy as filter_utils).
-_COMPOUND_SEPS: list[str] = sorted(
-    set(DEFAULT_PREFIX_SEPARATORS) | set(_EXTRA_SEPS),
-    key=len,
-    reverse=True,
-)
+# _split_compound (splits on the same separators filter_utils uses plus "|"
+# and "★") now LIVES in filter_utils.py (GENRE-1) so genres_from_category()
+# there can reuse it without a reverse import; imported below.
 
 # Noise tokens that should never become a ``collection`` value.
 _JUNK_TOKENS: frozenset[str] = frozenset({
@@ -529,23 +523,24 @@ def _decompose_compound(raw: str, config) -> list[tuple[str, str, float]]:
         # Unclassified → candidate for collection residual.
         residual_parts.append(tok)
 
-    # Genre cross-walk: scan residual tokens for recognized genre segments.
-    # Each residual token may itself be a slash/comma-delimited genre compound
-    # (e.g. "ACTION/THRILLER" → Action + Thriller).  We use recognized_genre()
-    # — the strict allowlist predicate — so only known canonical genres are
-    # emitted.  Residual tokens remain in residual_parts for collection (additive
-    # — "|EN| ACTION/THRILLER" yields language:English + collection + genre:Action
-    # + genre:Thriller; nothing is removed).
+    # Genre cross-walk: scan residual tokens for recognized genre segments via
+    # the shared filter_utils.genres_from_category() helper (GENRE-1) — the
+    # SAME tokenize-then-recognized_genre() mechanics ingestion's movie
+    # fallback uses, so there is exactly one definition of "which genres does
+    # this compound token denote". Applied PER RESIDUAL TOKEN (not the whole
+    # raw category string) to preserve this call site's existing scope:
+    # region/language/platform/quality tokens were already classified out of
+    # residual_parts above and must stay excluded here too — some of those
+    # (e.g. "MUSIC", "SPORTS", "KIDS") are themselves recognized genre words,
+    # and widening this loop to the raw string would newly double-tag them.
+    # Residual tokens remain in residual_parts for collection (additive —
+    # "|EN| ACTION/THRILLER" yields language:English + collection +
+    # genre:Action + genre:Thriller; nothing is removed).
     # Confidence: CONF_STRONG_PRIOR (not CONF_DENOTED) — a provider category label
     # is an *inferred* genre, ranked below a source-denoted raw_data["genre"] field.
     for residual_tok in residual_parts:
-        for leaf in re.split(r"[,/]", residual_tok):
-            leaf = leaf.strip()
-            if not leaf:
-                continue
-            canon = recognized_genre(leaf)
-            if canon:
-                tags.append(("genre", canon, CONF_STRONG_PRIOR))
+        for canon in genres_from_category(residual_tok):
+            tags.append(("genre", canon, CONF_STRONG_PRIOR))
 
     # Build collection from the unclassified residual tokens.
     collection_label = _build_collection(residual_parts)
@@ -719,22 +714,6 @@ def _classify_quality_token(
 # --------------------------------------------------------------------------- #
 #  Helper utilities                                                            #
 # --------------------------------------------------------------------------- #
-
-
-def _split_compound(text: str) -> list[str]:
-    """Split a compound token string on known separators.
-
-    Uses the same ordered separator list as filter_utils so that longer /
-    more-specific patterns win over shorter ones.
-
-    Returns a list of non-empty, stripped tokens.
-    """
-    # Replace each separator with a canonical null byte, then split.
-    result = text
-    for sep in _COMPOUND_SEPS:
-        result = result.replace(sep, "\x00")
-    parts = [p.strip() for p in result.split("\x00")]
-    return [p for p in parts if p]
 
 
 def _build_collection(parts: Sequence[str]) -> str | None:
