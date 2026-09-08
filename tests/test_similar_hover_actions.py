@@ -74,7 +74,7 @@ def test_play_is_hidden_until_the_row_is_hovered(section, qapp):
     qapp.processEvents()
 
     for row in _rows(section):
-        assert not _button(row, "Play:").isVisible(), (
+        assert not _button(row, "\nPlay").isVisible(), (
             "a Play button is showing on an un-hovered row — this is the sea "
             "of identical glyphs the change removes"
         )
@@ -84,7 +84,7 @@ def test_hovering_reveals_play_and_leaving_hides_it_again(section, qapp):
     section.load(_titles())
     qapp.processEvents()
     row = _rows(section)[0]
-    play = _button(row, "Play:")
+    play = _button(row, "\nPlay")
 
     _hover(row)
     qapp.processEvents()
@@ -105,7 +105,7 @@ def test_only_the_hovered_row_reveals_its_play(section, qapp):
     qapp.processEvents()
 
     visible = [i for i, r in enumerate(rows)
-               if _button(r, "Play:").isVisible()]
+               if _button(r, "\nPlay").isVisible()]
     assert visible == [2], f"rows {visible} are showing Play, expected only [2]"
 
 
@@ -119,7 +119,7 @@ def test_nothing_moves_when_play_appears(section, qapp):
     section.load(_titles())
     qapp.processEvents()
     row = _rows(section)[0]
-    play = _button(row, "Play:")
+    play = _button(row, "\nPlay")
     others = [row.layout().itemAt(i).widget().geometry()
               for i in range(1, row.layout().count())]
     play_rect = play.geometry()
@@ -168,6 +168,6 @@ def test_play_still_plays_when_revealed(section, qapp):
     row = _rows(section)[1]
     _hover(row)
     qapp.processEvents()
-    _button(row, "Play:").click()
+    _button(row, "\nPlay").click()
 
     assert played == ["c1"]
