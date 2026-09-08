@@ -41,6 +41,13 @@ from tests.conftest import destroy_widget
 _VIEW_ROWS = tuple(spec for spec in SHORTCUTS if spec.id.startswith("view_"))
 
 
+def _native(keys: str) -> str:
+    """The key text a tooltip shows on THIS platform (``Ctrl+B`` → ``⌘B`` on macOS)."""
+    from PyQt6.QtGui import QKeySequence
+
+    return QKeySequence(keys).toString(QKeySequence.SequenceFormat.NativeText)
+
+
 class _FakePlayer:
     """Records what the playback shortcuts asked the player to do."""
 
@@ -538,7 +545,7 @@ class TestTooltips:
         _shortcuts.annotate_tooltips(win)
         tip = win._sidebar_visible_action.toolTip()
         assert tip.startswith("Show or hide the left sidebar.")
-        assert tip.endswith("(Ctrl+B)")
+        assert tip.endswith(f"({_native('Ctrl+B')})")   # ⌘B on macOS
 
     def test_annotating_twice_does_not_stack_the_keys_up(self, win):
         _shortcuts.annotate_tooltips(win)
@@ -547,7 +554,7 @@ class TestTooltips:
         assert win.search_input.toolTip() == once
 
     def test_an_action_built_here_says_its_own_key(self, win):
-        assert "(Ctrl+.)" in win._shortcut_actions["stop"].toolTip()
+        assert f"({_native('Ctrl+.')})" in win._shortcut_actions["stop"].toolTip()
 
 
 class TestCheatSheet:
