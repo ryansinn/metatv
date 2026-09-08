@@ -31,6 +31,41 @@ from metatv.core.http_headers import STREAM_HTTP_HEADERS as _DEFAULT_HEADERS
 # does. Deliberately NO `total` — large catalogs on slow servers legitimately run long.
 _CONTENT_READ_TIMEOUT = aiohttp.ClientTimeout(sock_connect=15, sock_read=60)
 
+# One-per-media-type Xtream URL path segment (DB-2). Single source of truth for
+# this shape, shared by convert_to_channel (bakes the transitional
+# ChannelDB.stream_url column at ingestion) and
+# core/stream_url_derivation.py (rebuilds the same shape at play time against
+# the CURRENT best host/credentials instead of trusting that stored snapshot).
+_STREAM_PATH_SEGMENT = {MediaType.LIVE: "live", MediaType.MOVIE: "movie"}
+
+
+def build_stream_url(base_url: str, username: str, password: str, media_type: str,
+                      source_id, container_extension: str = "ts") -> str:
+    """Build an Xtream playback URL: ``{base}/{live|movie|series}/{user}/{pass}/{id}.{ext}``.
+
+    Percent-escapes each credential/id path segment so reserved characters in
+    the username/password/id don't corrupt the path. *media_type* not
+    ``LIVE``/``MOVIE`` builds the ``series`` shape (matches the provider's own
+    three-way split — anything else the API sends is a series-shaped id).
+
+    Args:
+        base_url: Provider base URL (``scheme://host[:port]``, no trailing slash).
+        username: Provider account username.
+        password: Provider account password.
+        media_type: ``MediaType.LIVE`` / ``MOVIE`` / ``SERIES``.
+        source_id: The stream/series id (``raw_data["stream_id"]`` or
+            ``["series_id"]``).
+        container_extension: File extension, e.g. ``"ts"``/``"mkv"``/``"mp4"``.
+
+    Returns:
+        The full playable URL.
+    """
+    user_seg = quote(str(username), safe='')
+    pass_seg = quote(str(password), safe='')
+    id_seg = quote(str(source_id), safe='')
+    kind = _STREAM_PATH_SEGMENT.get(media_type, "series")
+    return f"{base_url}/{kind}/{user_seg}/{pass_seg}/{id_seg}.{container_extension}"
+
 
 class XtreamAPI:
     """Xtream Codes API client"""
@@ -307,22 +342,13 @@ class XtreamAPI:
         the streams endpoints carry only the id; the names live in
         ``get_*_categories``). When omitted, falls back to any inline name.
         """
-        
-        # Generate stream URL. Percent-escape the credential + id path segments so
-        # reserved characters in the username/password/id don't corrupt the path.
+
         stream_id = raw_data.get('stream_id') or raw_data.get('series_id')
         extension = raw_data.get('container_extension', 'ts')
-        user_seg = quote(str(self.username), safe='')
-        pass_seg = quote(str(self.password), safe='')
-        id_seg = quote(str(stream_id), safe='')
+        stream_url = build_stream_url(
+            self.base_url, self.username, self.password, media_type, stream_id, extension,
+        )
 
-        if media_type == MediaType.LIVE:
-            stream_url = f"{self.base_url}/live/{user_seg}/{pass_seg}/{id_seg}.{extension}"
-        elif media_type == MediaType.MOVIE:
-            stream_url = f"{self.base_url}/movie/{user_seg}/{pass_seg}/{id_seg}.{extension}"
-        else:
-            stream_url = f"{self.base_url}/series/{user_seg}/{pass_seg}/{id_seg}.{extension}"
-        
         # Determine quality
         name = raw_data.get('name', '')
         quality = StreamQuality.UNKNOWN
@@ -367,7 +393,12 @@ class XtreamAPI:
             # queries sort/filter on an indexed column instead of json_extract()
             # over 785k+ rows every time a shelf opens.
             detected_rating=rating_from_raw(raw_data.get("rating")),
-            detected_added=added_from_raw(raw_data.get("added")),
+            # W-1: the series payload carries no "added" key at all (only
+            # movies/live do) — it sends "last_modified" instead, confirmed
+            # against every one of the owner's 127,679 series rows. Falling
+            # back to it here (rather than a media_type branch) is exact: the
+            # two keys never co-occur on the same row in the real library.
+            detected_added=added_from_raw(raw_data.get("added") or raw_data.get("last_modified")),
         )
 
 

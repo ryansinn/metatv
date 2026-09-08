@@ -57,9 +57,9 @@ from metatv.core.channel_name_utils import (
     split_category_prefix,
     strip_collection_noise_tokens,
 )
-from metatv.core.content_identity import content_key_for, valid_tmdb_id
+from metatv.core.content_identity import added_from_raw, content_key_for, valid_tmdb_id
 from metatv.core.fixture_titles import fixture_ingest_title
-from metatv.core.repositories.channel_lens import GENRE_MEDIA_TYPES
+from metatv.core.repositories.channel_lens import GENRE_MEDIA_TYPES, metadata_years_for_chunk
 from metatv.core.repositories.sweep_guard import single_flight
 from metatv.core.database import ChannelDB, MetadataDB
 from metatv.core.filter_utils import extract_prefix, genres_from_category, genres_from_raw
@@ -340,9 +340,9 @@ class ChannelIngestionMixin:
             ``(batch_updated, batch_processed)`` — channels actually changed vs.
             total channels queried in this batch.
         """
-        channels = self.session.query(ChannelDB).filter(
-            ChannelDB.id.in_(chunk_ids)
-        ).all()
+        channels = self.session.query(ChannelDB).filter(ChannelDB.id.in_(chunk_ids)).all()
+        # W-1 (2a) fallback below: a metadata year for a name with none of its own.
+        _metadata_years = metadata_years_for_chunk(self.session, chunk_ids)
 
         batch_updated = 0
         for channel in channels:
@@ -502,7 +502,7 @@ class ChannelIngestionMixin:
                             _marker_dub_lang = _lang_name
 
             new_title = fixture_ingest_title(channel) or parsed.bare_name or None
-            new_year  = parsed.year or None
+            new_year  = parsed.year or _metadata_years.get(channel.id)
 
             # If extract_prefix set a prefix that parse_channel_name couldn't strip
             # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
@@ -562,12 +562,17 @@ class ChannelIngestionMixin:
 
             # Compute canonical genre(s) (#genre-perf): genres_from_raw() wins;
             # else genres_from_category(), movie/series only (live = bouquet, not genre).
-            _raw_genre_str = (channel.raw_data or {}).get("genre") if channel.raw_data else None
-            _genre_list = genres_from_raw(_raw_genre_str)
+            _raw = channel.raw_data or {}
+            _genre_list = genres_from_raw(_raw.get("genre"))
             if not _genre_list and channel.media_type in GENRE_MEDIA_TYPES:
                 _genre_list = genres_from_category(channel.category)
             new_detected_genre  = _genre_list[0] if _genre_list else None
             new_detected_genres = _genre_list or None
+
+            # W-1: re-derive from the ALREADY-STORED raw_data (same source
+            # convert_to_channel reads at ingestion) — the series payload
+            # carries no "added" key at all, only "last_modified".
+            new_added = added_from_raw(_raw.get("added") or _raw.get("last_modified"))
 
             # Restricted-content detection (owner-reported gap): the provider's
             # is_adult flag is unreliable, so this catches XXX/ADULT/X-prefix naming
@@ -582,29 +587,19 @@ class ChannelIngestionMixin:
 
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.
-            # Build a lightweight proxy that reflects the new field values without
-            # mutating the channel yet — this lets us include content_key in the
-            # changed comparison atomically.
-            # detected_tmdb_id is a provider fact captured at ingestion (not
-            # recomputed here) — read the already-stored value so the recomputed
-            # content_key stays tmdb-first when the provider shipped an id.
-            class _NewFields:
-                __slots__ = (
-                    "detected_title", "media_type", "detected_year",
-                    "detected_tmdb_id", "id",
-                )
-                def __init__(self, title, mt, year, tmdb_id, ch_id):
-                    self.detected_title = title
-                    self.media_type = mt
-                    self.detected_year = year
-                    self.detected_tmdb_id = tmdb_id
-                    self.id = ch_id
-            new_content_key = content_key_for(
-                _NewFields(
-                    new_title, channel.media_type, new_year,
-                    channel.detected_tmdb_id, channel.id,
-                )
-            )
+            # Reflects the new field values without mutating the channel yet —
+            # this lets us include content_key in the changed comparison
+            # atomically. detected_tmdb_id is a provider fact captured at
+            # ingestion (not recomputed here) — read the already-stored value
+            # so the recomputed content_key stays tmdb-first when the provider
+            # shipped an id. _FullKeyProxy (module level, W-1) — this used to
+            # be a `class _NewFields` declared HERE, the identical shape
+            # rebuilt as a class object on every one of 484k+ iterations, the
+            # exact anti-pattern _FullKeyProxy itself was extracted to fix.
+            new_content_key = content_key_for(_FullKeyProxy(
+                new_title, channel.media_type, new_year,
+                channel.detected_tmdb_id, channel.id,
+            ))
 
             # Trailing credits the parser identified and used to discard —
             # "NICOLAS CAGE" from "… (2002) NICOLAS CAGE". An inference, stored
@@ -640,6 +635,7 @@ class ChannelIngestionMixin:
                 or new_detected_audio != channel.detected_audio
                 or new_detected_genre != channel.detected_genre
                 or new_detected_genres != channel.detected_genres
+                or new_added != channel.detected_added
                 or new_restricted != bool(channel.detected_restricted)
                 or new_collection != channel.detected_collection
                 or new_collection_language != channel.detected_collection_language
@@ -658,6 +654,7 @@ class ChannelIngestionMixin:
                 channel.detected_audio  = new_detected_audio
                 channel.detected_genre  = new_detected_genre
                 channel.detected_genres = new_detected_genres
+                channel.detected_added  = new_added
                 channel.detected_restricted = new_restricted
                 channel.detected_collection = new_collection
                 channel.detected_collection_language = new_collection_language

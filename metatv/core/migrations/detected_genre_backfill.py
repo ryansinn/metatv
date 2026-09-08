@@ -27,6 +27,30 @@ re-runs the same full pass; ``update_detected_prefixes()`` now falls back to
 ``detected_genres IS NULL AND category IS NOT NULL AND category != ''`` —
 through the identical ingestion codepath a fresh row gets, not a second
 targeted query.
+
+W-1 (version 3): four more ``detected_*``/derived-field bugs fixed at the SAME
+ingestion chokepoint this task already re-runs, so — same as GENRE-1 above —
+they ride this one version bump rather than a fifth registered task. All four
+cost one full ``update_detected_prefixes()`` pass (~3m17s / one heavy launch
+on the owner's 2.9 GB library); shipping them as four separate version bumps
+would cost four such launches for the exact same rows:
+
+- ``detected_added`` was NULL for every series (127,679 rows) — the series
+  payload sends ``last_modified``, not ``added``; ``providers/xtream.py``
+  now falls back to it.
+- ``detected_year`` was empty for (a) 62,995 series with a year in
+  ``metadata.year`` and none parsed from the name — now filled via
+  ``channel_lens.metadata_years_for_chunk()`` — and (b) any name whose year
+  is followed by an unrecognised trailing parenthetical (e.g.
+  ``"(MULTI FHD HEVC)"``), which the step-1b pre-cut guard in
+  ``channel_name_utils.py`` used to drop entirely; measured 8,498 real
+  movie/series names newly keep their year with zero regressions.
+- ``recognized_genre()`` (``filter_utils.py``) was case-sensitive on its
+  fallback path (``recognized_genre("anime")`` returned ``None`` while
+  ``"Anime"`` worked) and missing several real category aliases
+  (``"documentales"``, ``"stand-up comedy"``, localized
+  "sci-fi & fantasy" forms, …); measured ~12,300 movies newly get a genre
+  from their category with the fix.
 """
 
 from __future__ import annotations
@@ -43,7 +67,12 @@ from metatv.core.migrations.detected_fields_reparse import DetectedFieldsReparse
 #       so update_detected_prefixes() now also falls back to
 #       genres_from_category() on the provider category; re-run to backfill the
 #       movie rows version 1 left NULL.
-CURRENT_VERSION: int = 2
+#   3 — W-1: re-derives detected_added (series "added"→"last_modified" fallback),
+#       detected_year (metadata.year fallback + the unrecognised-trailing-
+#       parenthetical fix) and detected_genre(s) (recognized_genre() case-
+#       insensitivity + new aliases) in the same full pass. See the module
+#       docstring for the measured before/after counts.
+CURRENT_VERSION: int = 3
 
 
 class DetectedGenreBackfillTask(DetectedFieldsReparseBase):

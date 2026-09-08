@@ -26,6 +26,7 @@ from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.gui.stale_source_offer import read_last_refresh, stale_source_offer
 from metatv.core.stream_diagnostics import _redact
+from metatv.core.stream_url_derivation import derive_channel_stream_url
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import playback_start_watch as _startwatch
 from metatv.gui import icons as _icons
@@ -329,8 +330,9 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         self.loading_channels.add(channel_id)
 
-        # Guard: stream URL / player availability are known from the in-memory channel.
-        if not channel.stream_url:
+        # DB-2: derive fresh (current best host) rather than trust the stored column.
+        stream_url = derive_channel_stream_url(self.db, channel) or channel.stream_url
+        if not stream_url:
             logger.error(f"Channel {channel.name} has no stream URL")
             self.status(f"Error: No stream URL for {channel.name}", ms=0, level="error")
             self.loading_channels.discard(channel_id)
@@ -350,7 +352,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         logger.info("=== Playing Channel ===")
         logger.info(f"Name: {channel.name}")
         logger.info(f"Media Type: {channel.media_type}")
-        logger.info(f"Stream URL: {channel.stream_url}")
+        logger.info(f"Stream URL: {stream_url}")
         logger.info(f"Player: {self.player_manager.get_player_name()}")
 
         # Resume position: start_override > config.playback_resume_mode > 0. Live/no-
@@ -399,7 +401,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             self._bg_validate_and_play,
             channel_id,
             channel.name,
-            channel.stream_url,
+            stream_url,
             channel.provider_id,
             notif_id,
             force_new_window,

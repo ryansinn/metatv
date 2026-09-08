@@ -3118,6 +3118,14 @@ def parse_channel_name(name: str) -> ParsedChannel:
                 bare = (
                     bare[: _last_year_match.start()].strip() + " " + _trailing
                 ).strip()
+        elif _trailing:
+            # W-1: trailing IS a parenthetical/bracket — often handled by a
+            # later end-anchored step ("(US)"), but not an UNRECOGNISED one
+            # ("(PORTUGUESE ENG-SUB)", "(MULTI FHD HEVC)"), which no later step
+            # relocates, so step 5's search finds nothing. Stash a fallback
+            # only; bare is untouched, so an already-handled trailer is unaffected.
+            _g1, _g2 = _last_year_match.group(1), _last_year_match.group(2)
+            _early_year = f"{_g1}-{_g2}" if _g2 else _g1
 
     # 2. Strip quality tokens from end (first pass)
     bare, _attrs = _strip_attributes(bare)

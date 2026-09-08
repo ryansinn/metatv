@@ -76,6 +76,33 @@ class TestRecognizedGenre:
         """'horror' → 'Horror'."""
         assert recognized_genre("horror") == "Horror"
 
+    def test_case_insensitive_anime_lowercase(self):
+        """W-1: 'anime' must resolve — it used to return None while 'Anime'
+        worked, because the secondary (fallback) check compared the raw
+        string against KNOWN_GENRES case-sensitively."""
+        assert recognized_genre("anime") == "Anime"
+
+    def test_case_insensitive_anime_uppercase(self):
+        assert recognized_genre("ANIME") == "Anime"
+
+    def test_case_insensitive_anime_titlecase(self):
+        assert recognized_genre("Anime") == "Anime"
+
+    def test_real_category_leaf_anime_via_ingestion_path(self):
+        """A real leaf from the owner's library ('|EN| ANIME' splits to this
+        leaf via genres_from_category's compound-token splitter) resolves
+        through the exact ingestion codepath — not a synthetic string."""
+        from metatv.core.filter_utils import genres_from_category
+        assert genres_from_category("|EN| ANIME") == ["Anime"]
+
+    def test_real_non_genre_category_yields_empty_list_not_junk(self):
+        """A real, common category ('NETFLIX MOVIES', a platform label, not a
+        genre) must still yield an empty list — never a falsely-populated one
+        masquerading as data — through the same ingestion codepath."""
+        from metatv.core.filter_utils import genres_from_category
+        result = genres_from_category("NETFLIX MOVIES")
+        assert result == [], f"Expected no genres, got {result!r}"
+
     def test_strict_rejection_netflix_movies(self):
         """'NETFLIX MOVIES' is NOT a genre → None."""
         assert recognized_genre("NETFLIX MOVIES") is None

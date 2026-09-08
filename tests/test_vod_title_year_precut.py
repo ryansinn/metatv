@@ -215,6 +215,50 @@ def test_update_detected_prefixes_fixes_polluted_row(db):
     assert year == "1996", f"Expected detected_year '1996', got {year!r}"
 
 
+def test_update_detected_prefixes_fills_year_from_metadata_when_name_has_none(db):
+    """W-1 (2a): a series whose NAME carries no year at all (so the parser has
+    nothing to find) but whose linked MetadataDB row does — 62,995 real series
+    measured this way — gains a detected_year from update_detected_prefixes().
+    """
+    from metatv.core.database import ChannelDB, MetadataDB
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        meta = MetadataDB(id="m1", title="Some Series", year=2019, media_type="series")
+        session.add(meta)
+        session.flush()
+        cid = _make_channel(session, name="EN - Some Series", media_type="series")
+        session.query(ChannelDB).filter_by(id=cid).update({"metadata_id": "m1"})
+
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes()
+
+    with db.session_scope(commit=False) as session:
+        year = session.query(ChannelDB).filter_by(id=cid).one().detected_year
+
+    assert year == "2019", f"Expected detected_year '2019' from metadata, got {year!r}"
+
+
+def test_update_detected_prefixes_name_year_still_wins_over_metadata(db):
+    """A name-parsed year is never overwritten by the metadata fallback."""
+    from metatv.core.database import ChannelDB, MetadataDB
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        session.add(MetadataDB(id="m2", title="Other Series", year=1999, media_type="series"))
+        session.flush()
+        cid = _make_channel(session, name="EN - Other Series (2021)", media_type="series")
+        session.query(ChannelDB).filter_by(id=cid).update({"metadata_id": "m2"})
+
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes()
+
+    with db.session_scope(commit=False) as session:
+        year = session.query(ChannelDB).filter_by(id=cid).one().detected_year
+
+    assert year == "2021", f"Name-parsed year must win, got {year!r}"
+
+
 # ---------------------------------------------------------------------------
 # 3. DetectedTitleReparseTask — version bump triggers the backfill re-run
 # ---------------------------------------------------------------------------
@@ -362,6 +406,41 @@ class TestYearAlwaysWins:
         assert r.bare_name == "Normal Film"
         assert r.year == "2019"
         assert r.trailing_meta is None
+
+
+class TestYearSurvivesAnUnrecognisedTrailingParenthetical:
+    """W-1 (2b): the step-1b pre-cut guard skipped EVERY trailing parenthetical
+    on the assumption a later end-anchored step (lang/bracket/multi-qualifier)
+    always classifies and strips it — true for a short recognised code
+    ("(US)"), false for an unrecognised/multi-word one ("(MULTI FHD HEVC)",
+    "(PORTUGUESE ENG-SUB)"): no later step relocates the year to the true end,
+    so step 5's end-anchored ``_YEAR_RE`` search comes up empty and the year
+    was silently dropped. Measured 8,498 real movie/series names newly keep
+    their year from this fix, with zero regressions on the recognised case."""
+
+    @staticmethod
+    def _p(name: str):
+        from metatv.core.channel_name_utils import parse_channel_name
+        return parse_channel_name(name)
+
+    def test_unrecognised_multiword_parenthetical_still_yields_the_year(self):
+        r = self._p("EN - Some Movie (2022) (MULTI FHD HEVC)")
+        assert r.year == "2022", f"Got {r.year!r}"
+
+    def test_unrecognised_language_sub_parenthetical_still_yields_the_year(self):
+        r = self._p("EN - Some Movie (2022) (PORTUGUESE ENG-SUB)")
+        assert r.year == "2022", f"Got {r.year!r}"
+
+    def test_a_recognised_trailing_region_parenthetical_is_unaffected(self):
+        """Regression guard: a trailer a later step DOES classify ('(US)') must
+        keep resolving exactly as before this fallback was added."""
+        r = self._p("EN - Some Movie (2022) (US)")
+        assert r.year == "2022", f"Got {r.year!r}"
+        assert r.lang == "US", f"Got {r.lang!r}"
+
+    def test_the_bare_form_with_no_second_parenthetical_is_unaffected(self):
+        r = self._p("EN - Some Movie (2022)")
+        assert r.year == "2022", f"Got {r.year!r}"
 
 
 class TestTrailingClassifier:

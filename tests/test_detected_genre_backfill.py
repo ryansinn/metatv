@@ -705,3 +705,86 @@ class TestGenrePredicateFindsCategoryDerivedMovie:
             )
         finally:
             session.close()
+
+
+# ---------------------------------------------------------------------------
+# 10. W-1 — version 3 re-runs the SAME full pass and now also fixes
+#     detected_added (series "added"->"last_modified"), detected_year (a
+#     metadata-only series) and the genre case-sensitivity bug, all through
+#     the identical update_detected_prefixes() codepath GENRE-1 already used.
+# ---------------------------------------------------------------------------
+
+class TestDetectedGenreBackfillTaskVersion3:
+
+    def test_version_bumped_to_3(self):
+        from metatv.core.migrations.detected_genre_backfill import CURRENT_VERSION
+        assert CURRENT_VERSION == 3, (
+            f"Expected version 3 (W-1), got {CURRENT_VERSION}"
+        )
+
+    def test_run_backfills_a_seeded_row_for_each_of_added_year_and_genre(self, file_db, cfg):
+        """A real Database on a tmp_path FILE (never :memory:), one
+        pre-existing (pre-migration) row per bug, all fixed by the SAME
+        DetectedGenreBackfillTask.run() call at version 3."""
+        from metatv.core.database import ChannelDB, MetadataDB
+        from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
+
+        _add_provider(file_db)
+
+        # (1) detected_added: a series row shaped exactly like the real
+        # provider payload -- "last_modified", no "added" key at all.
+        series_added_id = str(uuid.uuid4())
+        # (2) detected_year: a series whose NAME carries no year, but whose
+        # linked MetadataDB row does.
+        series_year_id = str(uuid.uuid4())
+        # (3) detected_genre: a movie whose only genre signal is an
+        # uppercase category leaf the case-sensitivity bug used to drop.
+        genre_movie_id = str(uuid.uuid4())
+
+        session = file_db.get_session()
+        try:
+            session.add(MetadataDB(id="meta1", title="Some Series", year=2019, media_type="series"))
+            session.flush()
+            session.add(ChannelDB(
+                id=series_added_id, source_id=series_added_id, provider_id="p1",
+                name="EN - Frauds (2025)", media_type="series",
+                raw_data={"last_modified": "1759675302"},
+            ))
+            session.add(ChannelDB(
+                id=series_year_id, source_id=series_year_id, provider_id="p1",
+                name="EN - Some Series", media_type="series",
+                raw_data={}, metadata_id="meta1",
+            ))
+            session.add(ChannelDB(
+                id=genre_movie_id, source_id=genre_movie_id, provider_id="p1",
+                name="EN - Some Anime Movie", media_type="movie",
+                raw_data={"rating": "7.0"}, category="|EN| ANIME",
+            ))
+            session.commit()
+        finally:
+            session.close()
+
+        task = DetectedGenreBackfillTask(file_db)
+        progress: list[tuple[int, int]] = []
+        task.run(lambda d, t: progress.append((d, t)), lambda: False)
+
+        session = file_db.get_session()
+        try:
+            added_row = session.query(ChannelDB).get(series_added_id)
+            assert added_row.detected_added == 1759675302, (
+                f"Expected detected_added from last_modified, got {added_row.detected_added!r}"
+            )
+
+            year_row = session.query(ChannelDB).get(series_year_id)
+            assert year_row.detected_year == "2019", (
+                f"Expected detected_year from metadata, got {year_row.detected_year!r}"
+            )
+
+            genre_row = session.query(ChannelDB).get(genre_movie_id)
+            assert genre_row.detected_genre == "Anime", (
+                f"Expected detected_genre 'Anime', got {genre_row.detected_genre!r}"
+            )
+        finally:
+            session.close()
+
+        assert progress, "progress_cb must be called at least once"

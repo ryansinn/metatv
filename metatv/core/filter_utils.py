@@ -1018,6 +1018,27 @@ _GENRE_NORM: dict[str, str] = {
     'music show':                     'Music Show',
     # --- TV Movie ---
     'tv movie':                       'TV Movie',
+    # --- W-1 audit: genuinely missing values found sweeping the owner's 672
+    # real movie categories (not case variants — the lookup fix above already
+    # covers those, e.g. bare "anime"/"ANIME" via the existing 'amine' entry) ---
+    'sci-fi & fantasy':               'Sci-Fi & Fantasy',
+    'sci-fi and fantasy':             'Sci-Fi & Fantasy',   # |EN|/|ALB| SCI-FI AND FANTASY
+    'sci-fi und fantasie':            'Sci-Fi & Fantasy',   # |DE| SCI-FI UND FANTASIE
+    'sci-fi e fantasia':              'Sci-Fi & Fantasy',   # |IT| SCI-FI E FANTASIA
+    'documentales':                   'Documentary',        # |ES| DOCUMENTALES (Spanish plural)
+    'documentari':                    'Documentary',        # |IT| Italian plural
+    'drammi':                         'Drama',               # |IT| Italian plural
+    'drammatico':                     'Drama',               # |IT| Italian adjective
+    'romantici':                      'Romance',             # |IT| Italian plural adjective
+    'comedies':                       'Comedy',              # English plural
+    'comedias':                       'Comedy',              # Spanish/Portuguese plural
+    'animes':                         'Anime',               # English/French plural
+    'westerns':                       'Western',             # English plural
+    'aksiyon':                        'Action',              # |TR| Turkish
+    # New canonical (not a fold into an existing genre — same convention as
+    # 'Game Show'/'Talk Show'/'TV Movie', each its own bucket, not folded).
+    'stand-up comedy':                'Stand-Up Comedy',
+    'stand-up':                       'Stand-Up Comedy',     # |AR| STAND-UP / مسرحيات
 }
 
 
@@ -1192,6 +1213,13 @@ def genres_from_category(category: str) -> list[str]:
 # "NETFLIX MOVIES" or "TOP IMDB" from leaking into the genre namespace.
 KNOWN_GENRES: frozenset[str] = frozenset(_GENRE_NORM.values())
 
+# W-1: case-insensitive membership for recognized_genre()'s secondary check —
+# a value that IS canonical but reaches that check in a different casing
+# ("ANIME", canonical "Anime") must still resolve; a case-SENSITIVE
+# `in KNOWN_GENRES` only worked when a value's casing happened to already
+# match its own canonical form (e.g. lowercase "horror", a literal dict key).
+_KNOWN_GENRES_LOWER: dict[str, str] = {g.lower(): g for g in KNOWN_GENRES}
+
 
 def recognized_genre(s: str) -> str | None:
     """Return the canonical genre if *s* is a recognized genre string, else None.
@@ -1231,9 +1259,7 @@ def recognized_genre(s: str) -> str | None:
     # canonical value (e.g. "Action" → "Action"), accept it.
     unescaped = html.unescape(s.strip())
     result = _GENRE_NORM.get(unescaped.lower(), unescaped)
-    if result in KNOWN_GENRES:
-        return result
-    return None
+    return _KNOWN_GENRES_LOWER.get(result.lower())
 
 
 # ---------------------------------------------------------------------------
