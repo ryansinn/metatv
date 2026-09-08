@@ -234,3 +234,32 @@ def lens_channels(
     # whatever order the planner happens to return.
     candidates = query.order_by(ChannelDB.name).limit(LENS_CANDIDATE_SCAN).all()
     return collapse_best_variant(candidates, config=config, limit=limit)
+
+
+def metadata_years_for_chunk(session: "Session", channel_ids) -> "dict[str, str]":
+    """``{channel.id: str(metadata.year)}`` for every row in *channel_ids* whose
+    linked ``MetadataDB`` row carries a year.
+
+    W-1 (2a): the name-parse ``detected_year`` fallback in
+    ``update_detected_prefixes()`` — 62,995 series (49.3%) have a year in
+    ``metadata.year`` (harvested from the TMDb/provider detail fetch) and none
+    in ``detected_year`` because their NAME carries no parseable year at all
+    (e.g. a bare title with no ``(YYYY)``). Lives here rather than inline in
+    ``channel_ingestion.py`` — a pinned file at its code-health ceiling — same
+    "pure query, session passed in" shape as :func:`lens_channels`.
+
+    Args:
+        session: Caller's open session.
+        channel_ids: The batch's channel ids (a query filter, not a full scan).
+
+    Returns:
+        A plain dict — no ORM objects escape.
+    """
+    rows = (
+        session.query(ChannelDB.id, MetadataDB.year)
+        .join(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        .filter(ChannelDB.id.in_(channel_ids))
+        .filter(MetadataDB.year.isnot(None))
+        .all()
+    )
+    return {cid: str(year) for cid, year in rows}

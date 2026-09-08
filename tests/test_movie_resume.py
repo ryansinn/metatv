@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from tests.conftest import wire_sidebar_membership, wire_status_method
+from tests.conftest import wire_sidebar_membership, wire_status_method, wire_streaming_db
 
 import pytest
 
@@ -121,6 +121,7 @@ def _make_streaming_host():
     host.config = MagicMock()
     host.config.playback_resume_mode = "resume"
     wire_sidebar_membership(host)
+    wire_streaming_db(host)   # DB-2: play_media reads self.db
     return host
 
 

@@ -107,6 +107,42 @@ class TestConvertToChannelCapturesRatingAndAdded:
         assert ch.detected_added is None
 
 
+class TestSeriesDetectedAddedFallsBackToLastModified:
+    """W-1 (1): the Xtream SERIES payload carries no ``"added"`` key at all —
+    only ``"last_modified"`` (confirmed against every one of the owner's
+    127,679 series rows) — so ``detected_added`` was NULL for 100% of series,
+    which structurally excludes series from ``get_recently_added``'s top-N
+    ordering (150 movies, 0 series). A real series payload shape (from the
+    owner's library) proves the fallback."""
+
+    def _api(self):
+        from metatv.providers.xtream import XtreamAPI
+        return XtreamAPI("http://host:8080", "user", "pass")
+
+    def test_series_payload_with_no_added_key_uses_last_modified(self):
+        api = self._api()
+        ch = api.convert_to_channel(
+            {
+                "series_id": "45619", "name": "EN - Frauds (2025) (GB)",
+                "last_modified": "1759675302", "rating": "10",
+                "category_id": "1403",
+            },
+            provider_id="p1", media_type="series",
+        )
+        assert ch.detected_added == 1759675302
+
+    def test_movie_payload_still_prefers_added_over_last_modified(self):
+        """Movies DO carry "added" — it must keep winning if a payload somehow
+        carried both (never overwritten by the series-only fallback key)."""
+        api = self._api()
+        ch = api.convert_to_channel(
+            {"stream_id": "7", "name": "A Movie",
+             "added": "1725500000", "last_modified": "9999999999"},
+            provider_id="p1", media_type="movie",
+        )
+        assert ch.detected_added == 1725500000
+
+
 # ---------------------------------------------------------------------------
 # 3. Discover shelf queries — sort by the stored column, not raw_data
 # ---------------------------------------------------------------------------

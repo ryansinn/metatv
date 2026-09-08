@@ -2700,6 +2700,51 @@ def wire_sidebar_membership(host, *, shows: bool = False) -> None:
     host._refresh_queue_section = lambda: None
 
 
+class _NullStreamingDb:
+    """A ``db`` stand-in for a hand-built streaming host that never plays a
+    real URL.
+
+    ``session_scope`` raises immediately, so
+    ``core.stream_url_derivation.derive_channel_stream_url`` — which never
+    raises, by contract — falls back to ``channel.stream_url`` on its very
+    first line. No ORM/session machinery is needed for a double this minimal,
+    and a real one would need a whole file-backed ``Database`` a resume-mode
+    test has no other reason to build.
+    """
+
+    def session_scope(self, *args, **kwargs):
+        raise RuntimeError("_NullStreamingDb: no real Database on this test double")
+
+
+def wire_streaming_db(host, db_obj=None) -> None:
+    """Give a skeleton playback host the ``db`` attribute ``play_media`` now reads.
+
+    DB-2 (W-1): ``play_media`` derives the playable URL fresh via
+    ``derive_channel_stream_url(self.db, channel)`` instead of trusting
+    ``channel.stream_url`` unconditionally — a real ``MainWindow`` always has
+    ``db``; a hand-built ``_StreamingMixin.__new__`` double does not, so
+    ``play_media`` died with ``AttributeError: '_StreamingMixin' object has no
+    attribute 'db'``. Same shape as :func:`wire_sidebar_membership`: a
+    cross-cutting seam whose requirement landed on every hand-built double at
+    once — three test files here (``test_resume_default.py``,
+    ``test_movie_resume.py``, ``test_resume_after_rewatch.py``), each with its
+    own copy of the SAME ``_make_streaming_host`` helper.
+
+    Assigned outright, never via ``getattr``/``hasattr`` in production — the
+    fix lives here, at the double, per CLAUDE.md's rule for this exact class
+    of bug.
+
+    Args:
+        host: The skeleton host to wire.
+        db_obj: A real ``Database``, or ``None`` (default) for
+            :class:`_NullStreamingDb` — a stub whose provider lookup always
+            fails cleanly, so ``derive_channel_stream_url`` falls back to
+            ``channel.stream_url``, which is what these tests assert on; none
+            of them plays a real URL.
+    """
+    host.db = db_obj if db_obj is not None else _NullStreamingDb()
+
+
 def make_channel_double(**overrides: object) -> "MagicMock":
     """A Channel-like double for the `_store_channels` bulk-upsert path.
 
