@@ -185,7 +185,7 @@ def _push_waiting_line(host: Any, ticks: int) -> None:
             else "answer")
     seconds = ticks * (POLL_MS // 1000)
     try:
-        host.status(f"Waiting for {source} to {verb}… {seconds}s", ms=0, level="warn")
+        host.status(f"Waiting for {source} to {verb}… {seconds}s", ms=0)   # a countdown, not a warning
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
 
