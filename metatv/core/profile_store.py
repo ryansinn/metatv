@@ -197,6 +197,42 @@ def record(values: dict[str, Any]) -> None:
     _writer.submit(_task)
 
 
+def forget(*keys: str) -> None:
+    """Queue deletion of *keys* from the store. Returns immediately.
+
+    For retiring a key that was written under a policy that no longer
+    applies (IMG-2: a stale ``image_host_cooldowns`` negative cache) — the
+    stored value is generated data, never user-authored, so discarding it
+    is safe. Mirrors :func:`record`'s fire-and-forget shape rather than
+    ``attach``'s synchronous one: there is no startup ordering dependent on
+    the delete having landed.
+    """
+    if _db is None or not keys:
+        return
+    payload = tuple(keys)
+
+    def _task() -> None:
+        try:
+            _delete_now(payload)
+        except Exception:
+            logger.exception("profile: could not delete {}", sorted(payload))
+
+    _writer.submit(_task)
+
+
+def _delete_now(keys) -> None:
+    """DELETE *keys*' rows. Runs on the writer thread."""
+    if _db is None or not keys:
+        return
+    from metatv.core.database import ProfileDB
+
+    with _db.session_scope() as session:
+        for key in keys:
+            row = session.get(ProfileDB, key)
+            if row is not None:
+                session.delete(row)
+
+
 def attach(config, field_names) -> frozenset[str]:
     """Load the stored profile into *config*, migrating any key not yet held.
 

@@ -25,10 +25,22 @@ def test_scan_happens_once_not_per_download(tmp_path):
 
     cache.get_cache_stats = counting_get_cache_stats
 
-    # Call _cleanup_if_needed 20 times with different added_bytes values
-    bytes_added = 0
-    for _ in range(20):
-        added = 1024 * 100  # 100 KB each
+    # IMG-2 review fix: the real caller (_download_and_cache) always writes
+    # its file to disk BEFORE calling _cleanup_if_needed, so the seeding
+    # scan on the very first call already counts that file — added_bytes
+    # must NOT also be added on that call, or the file is double-counted.
+    # Mirror that real call pattern here: the first call's file is actually
+    # on disk, sized to match added_bytes, so the scan (not a redundant
+    # addition) is what accounts for it.
+    added = 1024 * 100  # 100 KB each
+    (tmp_path / "seed.jpg").write_bytes(b"x" * added)
+    cache._cleanup_if_needed(added_bytes=added)  # seeding call
+    bytes_added = added
+
+    # Remaining calls behave exactly as before: no file on disk, counted
+    # purely by the incremental addition (cached_bytes is no longer None,
+    # so no rescan happens).
+    for _ in range(19):
         cache._cleanup_if_needed(added_bytes=added)
         bytes_added += added
 

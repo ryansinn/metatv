@@ -104,6 +104,11 @@ def test_queued_job_skips_download_when_file_already_cached(cache, monkeypatch) 
 # ── bug 3: negative cache ───────────────────────────────────────────────────
 
 def test_connect_failure_puts_the_host_on_cooldown(cache, monkeypatch) -> None:
+    """IMG-2: a single connect failure is no longer enough — the host cools
+    down only once repeated failures reach the threshold (see
+    tests/test_image_cache_host_cooldown_evidence.py for that policy's own
+    coverage). Drive it past the threshold here so this stays a test of the
+    cooldown-blocks-a-second-url behavior, not of how many failures it takes."""
     call_count = 0
 
     def fake_get(*args, **kwargs):
@@ -116,11 +121,12 @@ def test_connect_failure_puts_the_host_on_cooldown(cache, monkeypatch) -> None:
     url1 = "http://51.158.145.100/a.jpg"
     url2 = "http://51.158.145.100/b.jpg"  # same host, different file
 
-    cache._download_and_cache(url1)
-    assert call_count == 1
+    for _ in range(3):  # _HOST_FAILURE_THRESHOLD consecutive failures
+        cache._download_and_cache(url1)
+    assert call_count == 3
 
     cache._download_and_cache(url2)
-    assert call_count == 1, "a different url on a cooled-down host was still attempted"
+    assert call_count == 3, "a different url on a cooled-down host was still attempted"
 
 
 def test_http_404_cools_only_that_url(cache, monkeypatch) -> None:
@@ -163,12 +169,13 @@ def test_cooldown_expires(cache, monkeypatch) -> None:
 
     url = "http://51.158.145.100/a.jpg"
 
-    cache._download_and_cache(url)
-    assert call_count == 1
+    for _ in range(3):  # IMG-2: _HOST_FAILURE_THRESHOLD consecutive failures to cool the host
+        cache._download_and_cache(url)
+    assert call_count == 3
 
     fake_now[0] += _HOST_COOLDOWN_S + 1  # step past the deadline
     cache._download_and_cache(url)
-    assert call_count == 2, "the host was still on cooldown after its window expired"
+    assert call_count == 4, "the host was still on cooldown after its window expired"
 
 
 # ── PERF-19: resident pixmap cache — paint() may only ever consult memory ──
