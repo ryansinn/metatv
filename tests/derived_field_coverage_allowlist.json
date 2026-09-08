@@ -1,0 +1,27 @@
+{
+  "_comment": "W-0 seed allowlist (tests/test_derived_field_coverage.py) - every entry is a (field, media_type) combo the real ingestion + metadata-backfill pipeline produces empty for the representative fixture row, seeded 2026-09-08. This list IS the audit: each entry's reason names WHY, so W-1/W-2 can fix the real ones and leave the 'not applicable' ones alone. Shrink-only: a combo that starts populating must be REMOVED, never left here (test_the_allowlist_only_shrinks fails the suite if it is). Regenerate with scripts/pytest_verdict.sh tests/test_derived_field_coverage.py and read the failure - never bulk-add without reading each combo.",
+  "combos": {
+    "ChannelDB.detected_tmdb_id|live": "live payload carries no 'tmdb' key (Xtream live streams aren't TMDb titles) - not applicable to this media_type.",
+    "ChannelDB.detected_rating|live": "live payload carries no 'rating' key (Xtream live streams carry no viewer rating) - not applicable to this media_type.",
+    "ChannelDB.detected_added|series": "FLAGSHIP (worklog W-1 item 1): the series payload sends 'last_modified', not 'added'; XtreamAPI.convert_to_channel reads only raw_data['added']. Verified 0 of 127,679 real series rows carry an 'added' key. Empty for 100% of series, populated for movie/live.",
+    "ChannelDB.detected_year|live": "live channel names carry no release year - not applicable to this media_type (see module docstring: not a payload-key bug).",
+    "ChannelDB.detected_year|series": "worklog W-1 item 2: many series titles omit an embedded year (measured 30.8% populated vs movies' 58.6%), with no fallback to MetadataDB.year yet - a naming-convention/enrichment gap W-1 owns, not a payload-key bug (see module docstring).",
+    "ChannelDB.detected_genre|live": "deliberate: GENRE_MEDIA_TYPES excludes live by design (live channels are grouped by bouquet/category, not genre) - a policy, not a bug.",
+    "ChannelDB.detected_genre|movie": "the movie LIST payload carries no 'genre' key; genres_from_category's strict recognized_genre() allowlist doesn't match a typical non-genre-shaped category name ('US Movies') - matches the real library's majority case (84.6% of movies get no detected_genre this way).",
+    "ChannelDB.detected_genres|live": "same as ChannelDB.detected_genre|live - deliberate, GENRE_MEDIA_TYPES policy.",
+    "ChannelDB.detected_genres|movie": "same as ChannelDB.detected_genre|movie - no genre-shaped category to cross-walk.",
+    "MetadataDB.plot|movie": "the movie LIST payload carries no plot/cast/director/genre/release_date/backdrop key at all (verified 0 of 529,280 real movie rows have an 'info' key in raw_data) - only the VOD detail endpoint or network enrichment can supply it.",
+    "MetadataDB.genres|movie": "same cause as MetadataDB.plot|movie - the movie LIST payload has no 'genre' key.",
+    "MetadataDB.cast|movie": "same cause as MetadataDB.plot|movie - the movie LIST payload has no 'cast' key.",
+    "MetadataDB.director|movie": "same cause as MetadataDB.plot|movie - the movie LIST payload has no 'director' key.",
+    "MetadataDB.release_date|movie": "same cause as MetadataDB.plot|movie - the movie LIST payload has no 'releaseDate'/'release_date' key.",
+    "MetadataDB.backdrop_url|movie": "same cause as MetadataDB.plot|movie - the movie LIST payload has no 'backdrop_path' key.",
+    "MetadataDB.runtime|movie": "FLAGSHIP (worklog W-2 item 2): the movie LIST payload carries no 'duration'/'episode_run_time' key at all (verified 0 of 529,280 real movie rows); runtime_from_raw has nothing to read at this ingestion stage. Empty for 100% of movies (0 of 525,616 measured), populated for series.",
+    "MetadataDB.tagline|movie": "neither OfflineMetadataBackfillTask._fill() nor RawFieldBackfillTask.FIELDS ever writes tagline even when metadata_from_raw computes one, and the payload rarely carries a 'tagline' key anyway - the _fill() hand-list omission worklog W-2 item 1 names.",
+    "MetadataDB.tagline|series": "same write-path omission as MetadataDB.tagline|movie - not media_type-specific.",
+    "MetadataDB.content_rating|movie": "metadata_from_raw DOES compute a value (info.get('rating') as a string) but neither OfflineMetadataBackfillTask._fill() nor RawFieldBackfillTask.FIELDS ever writes content_rating - purely the _fill() hand-list omission (worklog W-2 item 1).",
+    "MetadataDB.content_rating|series": "same write-path omission as MetadataDB.content_rating|movie - not media_type-specific.",
+    "MetadataDB.tmdb_id|movie": "FLAGSHIP (worklog W-2 item 3): metadata_from_raw reads info.get('tmdb_id'), but every provider payload ships the id under 'tmdb' - this key never exists for any media_type. Also never in OfflineMetadataBackfillTask._fill()'s hand-list at all, so the omission alone would empty it even if the key name were fixed. Measured 0 of 653,306 real metadata rows.",
+    "MetadataDB.tmdb_id|series": "same double bug as MetadataDB.tmdb_id|movie - not media_type-specific."
+  }
+}
