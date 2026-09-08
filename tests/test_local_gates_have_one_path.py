@@ -45,7 +45,6 @@ _SCRIPTS = _ROOT / "scripts"
 _KNOWN_PRIVATE_TEARDOWNS = {
     "test_lightbox_badges_and_watch_later.py",
     "test_lightbox_metadata_lens.py",
-    "test_toggle_chip_paints_setchecked.py",
     "test_watch_rule_editor.py",
 }
 
