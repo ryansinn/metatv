@@ -35,7 +35,7 @@ def read_last_refresh(db, provider_id: str | None):
     ``MagicMock`` session, for one) — which yields NO offer rather than a
     wrong one.
     """
-    if not provider_id:
+    if not provider_id or db is None:
         return "unknown"
     try:
         with db.session_scope(commit=False) as session:

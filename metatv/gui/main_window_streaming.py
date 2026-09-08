@@ -571,7 +571,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             siblings = []
 
         # ── Total failure — emit for the failure toast ───────────────────────
-        provider_last_refresh = read_last_refresh(self.db, provider_id)  # STALE-1, off-thread
+        provider_last_refresh = read_last_refresh(getattr(self, "db", None), provider_id)  # STALE-1
         self._stream_ready.emit({
             "ok": False, "channel_id": channel_id, "channel_name": channel_name,
             "original_url": stream_url, "final_url": "", "stream_err": stream_err or "",
