@@ -3081,3 +3081,52 @@ def sidebar_item_text(list_widget, item) -> str:
         return f"{widget.label.text()} ({count})" if count else widget.label.text()
     label = row_title_label(widget)
     return label.text() if label is not None else ""
+
+
+# ---------------------------------------------------------------------------
+# Discover "Manage shelves" dialog
+# ---------------------------------------------------------------------------
+
+def make_discover_manage_dialog(config, *, titles=None, zones=None):
+    """A REAL ``DiscoverManageDialog`` over *config*, with no DB and no shelves.
+
+    **Runs the real ``__init__``.** The version this replaces was
+    ``DiscoverManageDialog.__new__`` plus nine hand-listed attributes under a
+    comment naming the two the ``_transfer`` guard reads — CLAUDE.md's stale-copy
+    shape, and it went stale the moment the dialog grew ``_folded_families``.
+    Everything the dialog needs is a plain argument, so the real constructor
+    runs and there is nothing to keep in sync.
+
+    ``db`` is only stored, and ``shelf_widgets`` only supplies display titles —
+    a key with no entry falls back to the key itself, which is what a test
+    asserting on grouping wants to read anyway.
+
+    Args:
+        config: An isolated ``Config`` (the zone lists are aliased in place).
+        titles: Optional ``{shelf_key: display title}``.
+        zones: Optional ``{shelf_key: zone}`` for keys not yet in any list.
+
+    Returns:
+        The dialog. Parentless, so hand it to ``owned_widgets.own()``.
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.gui.discover_filter_dialog import DiscoverManageDialog
+
+    class _TitleSource:
+        """The one attribute the dialog reads off a live ``_Shelf``.
+
+        Deliberately not a real ``QLabel``: a parentless one is a TOP-LEVEL
+        widget, so a title per shelf would be a leak per shelf against the
+        ``_top_level_widget_guard``. Only ``.text()`` is ever called.
+        """
+
+        def __init__(self, text: str) -> None:
+            self._title_lbl = self
+            self._text = text
+
+        def text(self) -> str:
+            return self._text
+
+    shelf_widgets = {k: _TitleSource(v) for k, v in (titles or {}).items()}
+    return DiscoverManageDialog(MagicMock(), config, shelf_widgets, zones or {})

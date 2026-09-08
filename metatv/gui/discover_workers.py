@@ -163,6 +163,49 @@ _RECIPE_PREFIX = "recipe:"
 #: orphaning the user's pin/zone state under a key nothing produces any more.
 _PLATFORM_PREFIX = "platform:"
 
+#: Shelf-key namespace -> the plural heading its shelves group under in the
+#: manage dialog, in the order that dialog stacks the families (PLAT-2).  ONE
+#: table, here beside the namespaces themselves for the reason
+#: ``browse_title_for_key`` gives: a namespace added to the dispatcher above and
+#: forgotten here is one edit away instead of one file away.  User-authored
+#: families lead -- the shelves someone MADE are the ones they came to manage --
+#: then the derived namespaces, whose runs are the long ones worth skipping.
+SHELF_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("user_cat:", "Your categories"),
+    (_RECIPE_PREFIX, "Saved recipes"),
+    (_PLATFORM_PREFIX, "Platforms"),
+    ("collection:", "Collections"),
+    ("genre:", "Genres"),
+    ("decade:", "Decades"),
+    ("actor:", "Featuring"),
+)
+
+#: The family for a key carrying no namespace at all -- the three fixed shelves
+#: (``recently_added``, ``top_movies``, ``top_series``).  First in the order
+#: because they are the app's own shelves, not a run anyone scrolls past.
+FIXED_SHELF_FAMILY = "Discover"
+
+#: Every family label, in the order a grouped list renders them.
+SHELF_FAMILY_ORDER: tuple[str, ...] = (
+    (FIXED_SHELF_FAMILY,) + tuple(label for _prefix, label in SHELF_FAMILIES)
+)
+
+
+def family_of(shelf_key: str) -> str:
+    """The family heading *shelf_key* belongs under.
+
+    Args:
+        shelf_key: The canonical shelf key (e.g. ``"platform:Netflix"``).
+
+    Returns:
+        A label from :data:`SHELF_FAMILY_ORDER`; :data:`FIXED_SHELF_FAMILY` for
+        a key with no namespace of its own.
+    """
+    for prefix, label in SHELF_FAMILIES:
+        if shelf_key.startswith(prefix):
+            return label
+    return FIXED_SHELF_FAMILY
+
 #: Rows fetched per card wanted, before ``_dedup_cards`` collapses versions —
 #: the same multiplier every ``discovery_engine`` shelf uses, for the same
 #: reason: a platform whose newest rows are six qualities of one film must
