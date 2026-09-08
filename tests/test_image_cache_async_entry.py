@@ -157,8 +157,10 @@ def test_a_url_level_cooldown_is_not_persisted(profile_db, qapp, tmp_path):
 
 
 def test_download_uses_a_short_connect_long_read_timeout(cache, monkeypatch):
-    """The connect half is what a dead host burns — cut from 5s to just over
-    the usual TCP handshake ceiling; the read half keeps more slack."""
+    """The connect half is what a dead host burns — cut from the original 5s.
+    IMG-2 widened it again, from 3.05s to 6.05s, after a single marginal
+    connect to a live CDN (image.tmdb.org) was mistaken for a dead host; the
+    read half keeps its own, larger slack."""
     captured: dict = {}
 
     def fake_get(url, **kwargs):
@@ -170,4 +172,4 @@ def test_download_uses_a_short_connect_long_read_timeout(cache, monkeypatch):
     # Driven directly (no executor): a plain method, worker-free path.
     cache._download_and_cache("http://example.com/timeout-check.jpg")
 
-    assert captured.get("timeout") == (3.05, 10)
+    assert captured.get("timeout") == (6.05, 10)

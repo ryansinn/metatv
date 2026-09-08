@@ -30,8 +30,31 @@ from metatv.core import profile_store
 # cooled down). Url cooldowns are NOT persisted — a 404 is about one file,
 # not worth remembering past this process, and persisting every broken
 # poster url ever seen would grow unboundedly.
-_HOST_COOLDOWN_S = 3 * 3600  # 3 hours: connect-timeout / connection error
+#
+# IMG-2: a single connect timeout is NOT proof a host is dead. The owner's
+# log showed a lone ConnectTimeoutError against image.tmdb.org one second
+# before three downloads from that same host succeeded — one missed 3.05s
+# connect blacklisted a global CDN for 3 hours, persisted, surviving every
+# relaunch in between, and TMDb hosts most of the library's posters, so
+# Discover went blank. A host cooldown now requires _HOST_FAILURE_THRESHOLD
+# consecutive connect/connection failures against that host (see
+# _record_host_failure); a single failure just fails that one attempt, same
+# as it always has. A success is proof of life and clears the count and any
+# active cooldown for that host, in memory and in the persisted store (see
+# _record_host_success) — a host that just served an image must never stay
+# blacklisted.
+_HOST_COOLDOWN_S = 3 * 3600  # 3 hours: repeated connect-timeout / connection error
+_HOST_FAILURE_THRESHOLD = 3   # consecutive host failures required before cooling it
 _URL_COOLDOWN_S = 3600        # HTTP error status (e.g. 404): skip just that url
+
+# IMG-2: persisted host cooldowns moved to a new key. The v1 key
+# ("image_host_cooldowns") was written under the single-timeout policy this
+# module no longer implements — honouring an entry it wrote would keep a
+# host blacklisted for hours after this fix ships. Retired on load in
+# __init__ (profile_store.forget); this is a negative cache (generated data),
+# never user-authored, so discarding it is safe.
+_HOST_COOLDOWN_PROFILE_KEY = "image_host_cooldowns_v2"
+_HOST_COOLDOWN_PROFILE_KEY_V1 = "image_host_cooldowns"
 
 # Bounded in-memory pixmap LRU (PERF-19): paint() may only ever consult this —
 # never disk. QPixmap construction and this dict are MAIN-THREAD-ONLY; see
@@ -97,6 +120,12 @@ class ImageCache(QObject):
         # launch. Guarded by the same lock as _inflight.
         self._download_cooldowns: Dict[str, float] = {}
 
+        # IMG-2: consecutive connect/connection failures per host, reset to 0
+        # by any success. Only a count reaching _HOST_FAILURE_THRESHOLD sets
+        # a host cooldown — see _record_host_failure/_record_host_success.
+        # Guarded by the same lock as _inflight (and _download_cooldowns).
+        self._host_failures: Dict[str, int] = {}
+
         # IMG-1: seed HOST cooldowns a previous run persisted (see
         # _set_cooldown's persist=True path), expired entries dropped. Url
         # entries are never persisted, so there is nothing to seed for them.
@@ -107,10 +136,15 @@ class ImageCache(QObject):
         # behaviour, unchanged.
         if profile_store.is_bound():
             now = time.time()
-            stored = profile_store.read_all().get("image_host_cooldowns") or {}
+            stored_profile = profile_store.read_all()
+            stored = stored_profile.get(_HOST_COOLDOWN_PROFILE_KEY) or {}
             self._download_cooldowns.update(
                 {host: deadline for host, deadline in stored.items() if deadline > now}
             )
+            # IMG-2: retire the v1 key (see the constants above) so it can
+            # never come back on a later launch, whatever policy wrote it.
+            if _HOST_COOLDOWN_PROFILE_KEY_V1 in stored_profile:
+                profile_store.forget(_HOST_COOLDOWN_PROFILE_KEY_V1)
 
         # Marshal pixmap creation to the main thread
         self._image_ready.connect(self._on_image_ready)
@@ -373,10 +407,13 @@ class ImageCache(QObject):
                     logger.debug(f"Trying to download image from: {attempt_url}")
                     # (connect, read): the connect half is what a dead host
                     # burns — that is the half IMG-1's cooldown exists to
-                    # avoid re-paying, so it is cut from 5s to just over the
-                    # usual 3s TCP handshake ceiling; read gets more slack
+                    # avoid re-paying. IMG-2: a single 3.05s connect timeout
+                    # against a global CDN turned out to be routine jitter,
+                    # not a dead host (see the module-level IMG-2 comment),
+                    # so this is given a bit more room before it counts
+                    # toward the failure threshold; read keeps its own slack
                     # since a slow-but-alive host still gets its content.
-                    response = requests.get(attempt_url, timeout=(3.05, 10), stream=True)
+                    response = requests.get(attempt_url, timeout=(6.05, 10), stream=True)
                     response.raise_for_status()
 
                     # Write to disk
@@ -392,6 +429,10 @@ class ImageCache(QObject):
 
                     # Update in-memory index
                     self.cache_index[url] = cache_path
+
+                    # IMG-2: a successful download is proof of life for this
+                    # host — clear its failure count and any cooldown.
+                    self._record_host_success(host)
 
                     # Marshal pixmap creation to the main thread via _image_ready signal
                     logger.info(f"Cached image from {attempt_url} (key: {cache_key})")
@@ -412,11 +453,12 @@ class ImageCache(QObject):
                     self._set_cooldown(attempt_url, _URL_COOLDOWN_S)
                     continue  # Try next URL
                 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                    # A host that won't connect won't connect for any url on
-                    # it — cool down the host.
+                    # A host that failed to connect ONCE is not proof it is
+                    # dead (IMG-2) — record the failure and only cool the
+                    # host once repeated evidence crosses the threshold.
                     logger.debug(f"Failed to connect to {host or attempt_url}: {e}")
                     last_error = str(e)
-                    self._set_cooldown(host, _HOST_COOLDOWN_S, persist=True)
+                    self._record_host_failure(host)
                     continue  # Try next URL
                 except requests.RequestException as e:
                     logger.debug(f"Failed to download from {attempt_url}: {e}")
@@ -443,6 +485,45 @@ class ImageCache(QObject):
         finally:
             with self._inflight_lock:
                 self._inflight.discard(url)
+
+    def _record_host_failure(self, host: str) -> None:
+        """A connect/connection failure against *host* (IMG-2).
+
+        Increments the host's failure count; only once it reaches
+        ``_HOST_FAILURE_THRESHOLD`` does this actually cool the host down
+        (and only then persisted — see ``_set_cooldown``). Below the
+        threshold nothing is cooled: the individual attempt just fails, as
+        it always has.
+        """
+        if not host:
+            return
+        with self._inflight_lock:
+            count = self._host_failures.get(host, 0) + 1
+            self._host_failures[host] = count
+            should_cool = count >= _HOST_FAILURE_THRESHOLD
+        if should_cool:
+            logger.debug(
+                f"cooldown: {host} crossed the failure threshold "
+                f"({count} consecutive failures) - cooling down"
+            )
+            self._set_cooldown(host, _HOST_COOLDOWN_S, persist=True)
+
+    def _record_host_success(self, host: str) -> None:
+        """A successful download from *host* is proof of life (IMG-2).
+
+        Resets the failure count to 0 and, if the host was on cooldown,
+        removes it — in memory and (since only a persisted entry needs
+        clearing) in the profile store — so a host that just served an
+        image never stays blacklisted for the rest of its 3-hour window.
+        """
+        if not host:
+            return
+        with self._inflight_lock:
+            self._host_failures[host] = 0
+            had_cooldown = self._download_cooldowns.pop(host, None) is not None
+            snapshot = self._host_cooldowns_snapshot_locked() if had_cooldown else None
+        if snapshot is not None:
+            profile_store.record({_HOST_COOLDOWN_PROFILE_KEY: snapshot})
 
     def _cooldown_active(self, key: str) -> bool:
         """True if *key* (a host or a full url) is still within its cooldown.
@@ -481,7 +562,7 @@ class ImageCache(QObject):
             self._download_cooldowns[key] = time.time() + seconds
             snapshot = self._host_cooldowns_snapshot_locked() if persist else None
         if snapshot is not None:
-            profile_store.record({"image_host_cooldowns": snapshot})
+            profile_store.record({_HOST_COOLDOWN_PROFILE_KEY: snapshot})
 
     def _host_cooldowns_snapshot_locked(self) -> Dict[str, float]:
         """Wall-clock deadlines for HOST-only cooldown entries, expired ones
@@ -574,15 +655,24 @@ class ImageCache(QObject):
         the counter incrementally (added_bytes) and only re-scans after
         an LRU sweep to match reality.
 
+        IMG-2 review fix: the caller (``_download_and_cache``) writes the
+        file to disk BEFORE calling this, so on the very first call the
+        seeding scan already includes the just-written file — adding
+        ``added_bytes`` on top of that scan would double-count it. Only the
+        seeding call is special-cased; every later call still needs its own
+        addition applied on top of the running total.
+
         Args:
             added_bytes: Size in bytes of the file just downloaded (if any).
         """
         with self._inflight_lock:
             if self._cached_bytes is None:
-                # First call: seed the counter from a full scan
+                # First call: seed the counter from a full scan. That scan
+                # already sees added_bytes' file on disk, so it is NOT added
+                # again here.
                 self._cached_bytes = self.get_cache_stats()["total_size"]
-            # Always track the addition (even on first call, if added_bytes > 0)
-            self._cached_bytes += added_bytes
+            else:
+                self._cached_bytes += added_bytes
 
         # Convert to MB for comparison
         cached_mb = self._cached_bytes / 1024 / 1024
