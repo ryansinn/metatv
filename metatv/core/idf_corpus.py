@@ -19,14 +19,28 @@ is why this cheap stamp beats exact per-row invalidation.
 This lives in its own module — not in ``preference_engine.py`` — because it
 depends on nothing in the preference engine (only ``MetadataDB``), and that
 file is already at its code-health ratchet baseline.
+
+The built table is also persisted to disk (``~/.cache/metatv/idf_corpus.json``)
+behind the same stamp, so a cold launch that finds a matching file skips the
+132,000-plot rebuild entirely instead of paying for it on every process start
+— the in-memory cache above only helps calls *within* one launch. This
+matters because the rebuild is the dominant CPU-bound background task at
+launch, and every PyQt call it competes with for the GIL pays a full switch
+interval per re-acquisition — measured to stall the main thread for tens of
+seconds. See ``_read_disk_cache``/``_write_disk_cache``; a disk-layer failure
+of any kind (missing file, corrupt JSON, unwritable directory) must never
+break startup, so it always falls through to a normal in-memory build.
 """
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
 import threading
 from collections import Counter
+from pathlib import Path
 
 from loguru import logger
 
@@ -107,6 +121,67 @@ def build_idf(all_plots: list[str]) -> dict[str, float]:
     }
 
 
+def _disk_cache_path() -> Path:
+    """Where the built table is persisted, resolved lazily (never at import).
+
+    Resolving ``Path.home()`` at call time — not as a module-level constant —
+    is what lets tests' autouse ``Path.home`` patch (``tests/conftest.py``)
+    redirect this; a module-level constant would bake in the real home
+    directory before any test gets a chance to patch it.
+    """
+    return Path.home() / ".cache" / "metatv" / "idf_corpus.json"
+
+
+def _serializable_stamp(stamp) -> list:
+    """Convert a live ``(count, datetime|None)`` stamp to its JSON-safe form."""
+    count, fetched_at = stamp
+    return [count, fetched_at.isoformat() if fetched_at is not None else None]
+
+
+def _read_disk_cache() -> tuple[list, dict[str, float]] | None:
+    """Read the persisted IDF table, or ``None`` on any failure.
+
+    A cache must never break startup: a missing file, corrupt/truncated JSON,
+    an unexpected shape, or any other ``OSError`` all fall through to the
+    normal build path rather than raising.
+    """
+    path = _disk_cache_path()
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        stamp = data["stamp"]
+        idf = data["idf"]
+        if not (
+            isinstance(stamp, list)
+            and len(stamp) == 2
+            and isinstance(idf, dict)
+        ):
+            raise ValueError(f"unexpected IDF disk cache shape: {path}")
+        return stamp, idf
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        logger.debug(f"IDF corpus disk cache unreadable ({exc}); will rebuild")
+        return None
+
+
+def _write_disk_cache(stamp: list, idf: dict[str, float]) -> None:
+    """Persist the built table atomically, or silently give up.
+
+    Writes to a ``.tmp`` sibling in the same directory and ``os.replace()``s
+    it into place, so a reader never sees a partially written file. Any
+    failure (unwritable directory, disk full, permissions) is logged at
+    debug and swallowed — the disk cache is purely an optimization.
+    """
+    path = _disk_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.parent / (path.name + ".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump({"stamp": stamp, "idf": idf}, f)
+        os.replace(tmp_path, path)
+    except OSError as exc:
+        logger.debug(f"Failed to write IDF corpus disk cache ({exc}); continuing without it")
+
+
 _idf_cache_lock = threading.Lock()
 _idf_cache: "tuple[tuple[int, object], dict[str, float]] | None" = None
 
@@ -123,6 +198,11 @@ def corpus_idf(session) -> dict[str, float]:
     enrichment adds or re-fetches metadata, the only way the corpus moves; a
     stale IDF is harmless (it weights terms, never gates content), so a cheap
     stamp beats exact per-row invalidation.
+
+    Below the in-memory cache is a second, disk-backed one keyed on the same
+    stamp: a fresh process with no in-memory cache yet still skips the
+    132,000-plot rebuild if the corpus hasn't moved since the file was
+    written on a previous launch.
     """
     from sqlalchemy import func
     from metatv.core.database import MetadataDB
@@ -141,6 +221,18 @@ def corpus_idf(session) -> dict[str, float]:
         if _idf_cache is not None and _idf_cache[0] == stamp:
             logger.debug(f"IDF corpus cache hit ({len(_idf_cache[1])} terms)")
             return _idf_cache[1]
+
+        serializable_stamp = _serializable_stamp(stamp)
+
+        disk = _read_disk_cache()
+        if disk is not None and disk[0] == serializable_stamp:
+            disk_idf = disk[1]
+            _idf_cache = (stamp, disk_idf)
+            logger.debug(
+                f"IDF corpus disk cache hit ({len(disk_idf)} terms) — skipped rebuild"
+            )
+            return disk_idf
+
         all_plots = [
             row[0] for row in
             session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
@@ -151,4 +243,5 @@ def corpus_idf(session) -> dict[str, float]:
             f"Preference engine: IDF corpus = {len(all_plots)} plots, "
             f"{len(idf)} unique terms (rebuilt)"
         )
+        _write_disk_cache(serializable_stamp, idf)
         return idf
