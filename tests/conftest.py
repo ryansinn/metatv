@@ -387,6 +387,34 @@ def _qt_teardown_guard(request):
 
 
 
+@pytest.fixture
+def owned_widgets():
+    """Collect parentless widgets a test builds; destroy them at teardown.
+
+    A bare details section, chip or view is a TOP-LEVEL widget. Left to garbage
+    collection it outlives the test, and the next ``apply_theme()`` repolishes
+    every live top-level — touching one whose C++ half is mid-destruction is a
+    segfault, which is how three CI shards died on 2026-09-07/08. Three test
+    files had each written their own list-plus-teardown before this existed
+    (CLAUDE.md: the third copy goes in the shared factory).
+
+    Usage::
+
+        def test_x(qapp, owned_widgets):
+            section = owned_widgets.own(_TagsSection(config))
+    """
+    from types import SimpleNamespace
+
+    collected: list = []
+
+    def own(widget):
+        collected.append(widget)
+        return widget
+
+    yield SimpleNamespace(own=own, all=collected)
+    destroy_widget(*collected)
+
+
 def destroy_widget(*widgets) -> None:
     """Actually free a parentless top-level. ``deleteLater()`` alone is NOT enough.
 

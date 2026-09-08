@@ -228,31 +228,31 @@ class TestGetChannelTagsDto:
 class TestTagsSectionRender:
     """_TagsSection.load groups chips by facet and applies correct styles."""
 
-    def _make_section(self, config=None):
+    def _make_section(self, owned_widgets, config=None):
         from metatv.gui.details_sections import _TagsSection
         config = config or _fake_config()
         # Construct without __init__ to avoid requiring a QApplication for non-Qt tests;
         # but _TagsSection inherits QWidget so we need qapp — handled at the method level.
-        return _TagsSection(config)
+        return owned_widgets.own(_TagsSection(config))
 
-    def test_section_hidden_with_empty_tags(self, qapp):
+    def test_section_hidden_with_empty_tags(self, qapp, owned_widgets):
         """Section must be hidden (not shown) when given an empty tags list."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         sec.load([])
         assert not sec.isVisible(), "Tags section must hide when tag list is empty"
 
-    def test_section_visible_with_tags(self, qapp):
+    def test_section_visible_with_tags(self, qapp, owned_widgets):
         """Section must become visible when tags are present."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("language", "English", True, 0.9, ("provider_category",)),
         ]
         sec.load(tags)
         assert sec.isVisible(), "Tags section must show when there are tags to display"
 
-    def test_source_given_chip_uses_source_stylesheet(self, qapp):
+    def test_source_given_chip_uses_source_stylesheet(self, qapp, owned_widgets):
         """A source-given tag chip must use TAG_CHIP_SOURCE stylesheet."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",)),
         ]
@@ -265,9 +265,9 @@ class TestTagsSectionRender:
             "Source-given chip must use TAG_CHIP_SOURCE stylesheet"
         )
 
-    def test_inferred_chip_uses_inferred_stylesheet(self, qapp):
+    def test_inferred_chip_uses_inferred_stylesheet(self, qapp, owned_widgets):
         """An inferred tag chip must use TAG_CHIP_INFERRED stylesheet."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("language", "French", False, 0.33, ("name_parse",)),
         ]
@@ -279,9 +279,9 @@ class TestTagsSectionRender:
             "Inferred chip must use TAG_CHIP_INFERRED stylesheet"
         )
 
-    def test_chip_label_includes_provenance_icon(self, qapp):
+    def test_chip_label_includes_provenance_icon(self, qapp, owned_widgets):
         """Chip text must include the provenance icon (■ or □)."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("region", "US", True, 0.9, ("provider_category",)),
             ChannelTagDTO("language", "French", False, 0.33, ("name_parse",)),
@@ -299,9 +299,9 @@ class TestTagsSectionRender:
             "At least one chip must contain the inferred icon (□)"
         )
 
-    def test_chip_has_tooltip_with_feeder_and_confidence(self, qapp):
+    def test_chip_has_tooltip_with_feeder_and_confidence(self, qapp, owned_widgets):
         """Each chip must have a tooltip containing feeders + confidence info."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("genre", "Action", False, 0.33, ("name_parse",)),
         ]
@@ -314,18 +314,18 @@ class TestTagsSectionRender:
         assert "33%" in tip or "33" in tip, "Tooltip must mention the confidence percentage"
         assert "Inferred by MetaTV" in tip, "Tooltip must state provenance label"
 
-    def test_clear_hides_section(self, qapp):
+    def test_clear_hides_section(self, qapp, owned_widgets):
         """After load, clear() must hide the section."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [ChannelTagDTO("genre", "Drama", True, 1.0, ("provider_category",))]
         sec.load(tags)
         assert sec.isVisible()
         sec.clear()
         assert not sec.isVisible(), "Tags section must hide after clear()"
 
-    def test_grouped_by_facet_renders_multiple_rows(self, qapp):
+    def test_grouped_by_facet_renders_multiple_rows(self, qapp, owned_widgets):
         """Tags from different facets render as separate groups."""
-        sec = self._make_section()
+        sec = self._make_section(owned_widgets, )
         tags = [
             ChannelTagDTO("language", "English", True, 0.9, ("provider_category",)),
             ChannelTagDTO("genre", "Drama", False, 0.33, ("name_parse",)),
@@ -378,20 +378,20 @@ def _collect_chips(section) -> list:
 class TestSourceGivenFeedersSet:
     """The _SOURCE_GIVEN_FEEDERS constant must include the canonical provider feeders."""
 
-    def test_provider_category_in_source_given(self):
+    def test_provider_category_in_source_given(self, owned_widgets):
         assert "provider_category" in _SOURCE_GIVEN_FEEDERS
 
-    def test_genre_in_source_given(self):
+    def test_genre_in_source_given(self, owned_widgets):
         assert "genre" in _SOURCE_GIVEN_FEEDERS
 
-    def test_user_in_source_given(self):
+    def test_user_in_source_given(self, owned_widgets):
         assert "user" in _SOURCE_GIVEN_FEEDERS
 
-    def test_name_parse_not_in_source_given(self):
+    def test_name_parse_not_in_source_given(self, owned_widgets):
         assert "name_parse" not in _SOURCE_GIVEN_FEEDERS
 
-    def test_header_not_in_source_given(self):
+    def test_header_not_in_source_given(self, owned_widgets):
         assert "header" not in _SOURCE_GIVEN_FEEDERS
 
-    def test_epg_not_in_source_given(self):
+    def test_epg_not_in_source_given(self, owned_widgets):
         assert "epg" not in _SOURCE_GIVEN_FEEDERS
