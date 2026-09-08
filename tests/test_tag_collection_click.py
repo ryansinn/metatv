@@ -93,12 +93,12 @@ def _collect_chips(section) -> list:
 class TestTagsSectionInteractivity:
     """Tag chips emit filter (left) / discover (right) with the exact facet."""
 
-    def _section(self):
+    def _section(self, owned_widgets):
         from metatv.gui.details_sections import _TagsSection
-        return _TagsSection(_fake_config())
+        return owned_widgets.own(_TagsSection(_fake_config()))
 
-    def test_left_click_emits_tag_filter_clicked(self, qapp):
-        sec = self._section()
+    def test_left_click_emits_tag_filter_clicked(self, qapp, owned_widgets):
+        sec = self._section(owned_widgets)
         captured: list[tuple[str, str]] = []
         sec.tag_filter_clicked.connect(lambda ft, v: captured.append((ft, v)))
 
@@ -111,10 +111,10 @@ class TestTagsSectionInteractivity:
             "Left-click must emit tag_filter_clicked with the exact (facet, value)"
         )
 
-    def test_right_click_emits_tag_discover_clicked(self, qapp):
+    def test_right_click_emits_tag_discover_clicked(self, qapp, owned_widgets):
         from PyQt6.QtCore import QPoint
 
-        sec = self._section()
+        sec = self._section(owned_widgets)
         captured: list[tuple[str, str]] = []
         sec.tag_discover_clicked.connect(lambda ft, v: captured.append((ft, v)))
 
@@ -128,8 +128,8 @@ class TestTagsSectionInteractivity:
             "Right-click must emit tag_discover_clicked with the exact (facet, value)"
         )
 
-    def test_collection_chip_emits_collection_facet(self, qapp):
-        sec = self._section()
+    def test_collection_chip_emits_collection_facet(self, qapp, owned_widgets):
+        sec = self._section(owned_widgets)
         captured: list[tuple[str, str]] = []
         sec.tag_filter_clicked.connect(lambda ft, v: captured.append((ft, v)))
 
@@ -139,11 +139,11 @@ class TestTagsSectionInteractivity:
 
         assert captured == [("collection", "Wow Action")]
 
-    def test_chip_has_pointing_hand_cursor(self, qapp):
+    def test_chip_has_pointing_hand_cursor(self, qapp, owned_widgets):
         from PyQt6.QtCore import QEvent, Qt
         from metatv.gui.cursor_affordance import PointingHandFilter
 
-        sec = self._section()
+        sec = self._section(owned_widgets)
         sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
         chip = _collect_chips(sec)[0]
 
@@ -152,8 +152,8 @@ class TestTagsSectionInteractivity:
         PointingHandFilter().eventFilter(chip, QEvent(QEvent.Type.Enter))
         assert chip.cursor().shape() == Qt.CursorShape.PointingHandCursor
 
-    def test_chip_tooltip_mentions_actions(self, qapp):
-        sec = self._section()
+    def test_chip_tooltip_mentions_actions(self, qapp, owned_widgets):
+        sec = self._section(owned_widgets)
         sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
         tip = _collect_chips(sec)[0].toolTip()
         assert "Click" in tip and "Right-click" in tip
