@@ -60,6 +60,40 @@ class _MetadataMixin:
         """Main-thread slot: deliver loaded tags to the details pane."""
         self.details_pane.apply_channel_tags(channel_id, tags or [])
 
+    # ── Taste weights (the ▲/▼ preference markers beside cast + director) ───
+
+    def _on_weights_requested(self, channel_id: str) -> None:
+        """Kick off an off-thread taste-weight read for the pane's people markers.
+
+        ``compute_weights`` walks every rating, batch-loads the rated channels
+        and loads every favourite WITH its metadata. The pane used to call it
+        inline from its render path; the owner's main-thread watchdog caught a
+        28,731 ms freeze doing exactly that. Same seam as every other pane read
+        — by the time this lands the pane has long since painted un-annotated.
+        """
+        from metatv.core.preference_engine import RecScoringSettings, compute_weights
+
+        settings = RecScoringSettings.from_config(self.config)
+
+        def _query(repos):
+            weights = compute_weights(repos.session, settings=settings)
+            # AttributeWeights is plain data (dicts + counters), never ORM, so it
+            # crosses the thread boundary as-is. None = no taste signal yet.
+            return None if weights.is_empty() else weights
+
+        self._run_query(
+            _query,
+            lambda weights: self._on_weights_loaded(channel_id, weights),
+            token_ref=self._details_weights_token,
+            on_error=lambda e: logger.warning(
+                f"Taste weights unavailable for {channel_id}: {e}"
+            ),
+        )
+
+    def _on_weights_loaded(self, channel_id: str, weights) -> None:
+        """Main-thread slot: hand the weights to the pane, which drops stale ones."""
+        self.details_pane.apply_taste_weights(channel_id, weights)
+
     # ── Action state (is_queued / rating / suppressed / hidden) ────────────
 
     def _on_action_state_requested(self, channel_id: str) -> None:
