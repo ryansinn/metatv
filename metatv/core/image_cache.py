@@ -84,6 +84,12 @@ class ImageCache(QObject):
         self._inflight: set[str] = set()
         self._inflight_lock = threading.Lock()
 
+        # IMG-1: Running total of cache size. None means "not yet seeded"; on
+        # first _cleanup_if_needed, we scan the full directory once. Thereafter,
+        # we track incremental additions and only rescan after an LRU sweep.
+        # Guarded by _inflight_lock (same lock as other worker-thread state).
+        self._cached_bytes: int | None = None
+
         # Negative cache: host or full url -> cooldown deadline. Wall-clock
         # (time.time()), not time.monotonic() — a cooldown is not precision
         # timing, a clock jump only shortens or lengthens a skip, and a wall
@@ -391,8 +397,10 @@ class ImageCache(QObject):
                     logger.info(f"Cached image from {attempt_url} (key: {cache_key})")
                     self._image_ready.emit(url, str(cache_path))
 
-                    # Check cache size and cleanup if needed
-                    self._cleanup_if_needed()
+                    # Check cache size and cleanup if needed, passing the size of
+                    # the file just written to update the running total
+                    file_size = cache_path.stat().st_size
+                    self._cleanup_if_needed(added_bytes=file_size)
 
                     return  # Success!
 
@@ -557,33 +565,55 @@ class ImageCache(QObject):
         except OSError:
             return False  # silent: unreadable or truncated file is not a valid image
     
-    def _cleanup_if_needed(self):
-        """LRU cleanup if cache exceeds max size"""
-        stats = self.get_cache_stats()
-        
-        if stats['total_size_mb'] > self.max_size_mb:
-            logger.info(f"Cache size {stats['total_size_mb']:.1f}MB exceeds limit "
+    def _cleanup_if_needed(self, added_bytes: int = 0) -> None:
+        """LRU cleanup if cache exceeds max size.
+
+        IMG-1: Maintains a running total of cache size to avoid a full
+        directory scan on every download. On first call, seeds the counter
+        from a single full scan via get_cache_stats(). Thereafter, updates
+        the counter incrementally (added_bytes) and only re-scans after
+        an LRU sweep to match reality.
+
+        Args:
+            added_bytes: Size in bytes of the file just downloaded (if any).
+        """
+        with self._inflight_lock:
+            if self._cached_bytes is None:
+                # First call: seed the counter from a full scan
+                self._cached_bytes = self.get_cache_stats()["total_size"]
+            # Always track the addition (even on first call, if added_bytes > 0)
+            self._cached_bytes += added_bytes
+
+        # Convert to MB for comparison
+        cached_mb = self._cached_bytes / 1024 / 1024
+
+        if cached_mb > self.max_size_mb:
+            logger.info(f"Cache size {cached_mb:.1f}MB exceeds limit "
                        f"{self.max_size_mb}MB, cleaning up...")
-            
+
             # Get all files with access times
             files = list(self.cache_dir.glob("*"))
             files_with_atime = [(f, f.stat().st_atime) for f in files if f.is_file()]
-            
+
             # Sort by access time (oldest first)
             files_with_atime.sort(key=lambda x: x[1])
-            
+
             # Delete oldest 20% of files
             num_to_delete = len(files_with_atime) // 5
             for file_path, _ in files_with_atime[:num_to_delete]:
                 try:
                     file_path.unlink()
                     # Remove from in-memory index
-                    self.cache_index = {url: path for url, path in self.cache_index.items() 
+                    self.cache_index = {url: path for url, path in self.cache_index.items()
                                        if path != file_path}
                 except Exception as e:
                     logger.warning(f"Failed to delete cache file {file_path}: {e}")
-            
+
             logger.info(f"Deleted {num_to_delete} oldest cache files")
+
+            # Re-seed the counter from a fresh scan after deletion
+            with self._inflight_lock:
+                self._cached_bytes = self.get_cache_stats()["total_size"]
     
     def get_cache_stats(self) -> dict:
         """Get cache statistics"""
