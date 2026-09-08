@@ -117,14 +117,46 @@ def busy_spinner(parent=None, icon_key: str = "mdi6.loading",
         # tick — at 13px that is invisible, and a "spinner" nobody can see spin
         # is worse than the word it replaced. 12° every 40ms is ~0.8 turns a
         # second: unmistakably moving, not distractingly fast.
-        widget.setIcon(qta.icon(
-            icon_key,
-            color=color or _theme.COLOR_TEXT,
-            animation=qta.Spin(widget, interval=SPIN_INTERVAL_MS, step=SPIN_STEP_DEG),
-        ))
+        spin = _safe_spin_class(qta)(widget, interval=SPIN_INTERVAL_MS, step=SPIN_STEP_DEG)
+        widget.setIcon(qta.icon(icon_key, color=color or _theme.COLOR_TEXT, animation=spin))
     except Exception:  # silent: a spinner is decoration — no icon beats no dialog
         return None
+    widget._metatv_spin = spin   # reachable for tests and for an explicit stop
     return widget
+
+
+_SAFE_SPIN: dict = {}
+
+
+def _safe_spin_class(qta):
+    """qtawesome's ``Spin`` with a timer tick that refuses a dead widget.
+
+    ``Spin._update`` calls ``parent_widget.update()`` from a 40ms QTimer. When
+    the widget's C++ object has already gone — its section torn down, the
+    spinner's parent deleted — that call is a ``RuntimeError`` when sip knows
+    and a SEGFAULT when the tick lands mid-destruction: the 2026-09-07 CI
+    teardown crashes (Linux and macOS, a different shard each run, never under
+    gdb) and the macOS "wrapped C/C++ object of type IconWidget has been
+    deleted" error both came from this tick. The guard stops the timer and
+    forgets the widget instead. Built lazily so the module still imports when
+    qtawesome is missing.
+    """
+    cls = _SAFE_SPIN.get("cls")
+    if cls is None:
+        class _SafeSpin(qta.Spin):
+            def _update(self):
+                widget = self.parent_widget
+                if widget is None or sip.isdeleted(widget):
+                    entry = self.info.pop(widget, None)
+                    if entry is not None:
+                        try:
+                            entry[0].stop()
+                        except RuntimeError:
+                            pass   # the timer died with its widget; nothing to stop
+                    return
+                super()._update()
+        cls = _SAFE_SPIN["cls"] = _SafeSpin
+    return cls
 
 
 def vector_pixmap(icon_key: str, color: str, size: int = 16) -> object:
