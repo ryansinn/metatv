@@ -200,4 +200,7 @@ jobs:
           # and this command's exit code IS the gate. Test paths never contain
           # spaces and 131 of them is ~5 KB, far under ARG_MAX, so plain word
           # splitting is safe here and keeps the status exact.
-          python -m pytest -q $(cat shard.txt)
+          # -v (not -q): a teardown segfault leaves faulthandler with only
+          # pytest's own frames, so the LAST NAMED TEST is the only clue to
+          # which teardown crashed (2026-09-07, three PRs).
+          python -m pytest -v $(cat shard.txt)
