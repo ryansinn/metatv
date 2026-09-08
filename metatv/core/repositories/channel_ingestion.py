@@ -61,7 +61,7 @@ from metatv.core.content_identity import content_key_for, valid_tmdb_id
 from metatv.core.fixture_titles import fixture_ingest_title
 from metatv.core.repositories.sweep_guard import single_flight
 from metatv.core.database import ChannelDB, MetadataDB
-from metatv.core.filter_utils import extract_prefix, genres_from_raw
+from metatv.core.filter_utils import extract_prefix, genres_from_category, genres_from_raw
 from metatv.core.tag_decomposer import region_code_from_category
 
 # Moved here WITH _start_year_int, its only user (CLAUDE.md: take the private
@@ -559,13 +559,12 @@ class ChannelIngestionMixin:
                         and not new_detected_audio["sub"]):
                     new_detected_audio = None
 
-            # Compute canonical genre(s) from raw_data["genre"] (#genre-perf).
-            # genres_from_raw() canonicalises each '/'/',' segment (cross-language
-            # alias collapse + HTML-entity unescape). detected_genre = first
-            # segment (display); detected_genres = every segment (shelf
-            # membership via json_each in get_by_genre).
+            # Compute canonical genre(s) (#genre-perf): genres_from_raw() on
+            # raw_data["genre"], else genres_from_category() on the provider
+            # category (VOD/movie payloads carry no genre key; only series
+            # does) — detected_genre = first segment; detected_genres = all.
             _raw_genre_str = (channel.raw_data or {}).get("genre") if channel.raw_data else None
-            _genre_list = genres_from_raw(_raw_genre_str)
+            _genre_list = genres_from_raw(_raw_genre_str) or genres_from_category(channel.category)
             new_detected_genre  = _genre_list[0] if _genre_list else None
             new_detected_genres = _genre_list or None
 

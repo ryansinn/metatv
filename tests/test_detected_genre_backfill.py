@@ -22,6 +22,23 @@ Coverage:
    engine's emitted SQL (static + dynamic proof).
 6. EXPLAIN QUERY PLAN proves the genre lookup never falls back to an
    unindexed full scan of ``channels``.
+
+GENRE-1 (owner-diagnosed, 2026-09-08): the Xtream VOD/movie payload's
+``raw_data`` carries no ``genre`` key at all (only the series payload does),
+so ``genres_from_raw()`` returned ``[]`` for every one of 529,280 real movies
+and a genre chip found 15 Horror / 6 Thriller titles out of 785,925 channels.
+The fix is a write-time fallback to ``filter_utils.genres_from_category()``
+on the provider ``category`` string (e.g. ``"|EN| HORROR/THRILLER"``) when
+the raw genre is empty:
+
+7. Ingestion falls back to the category cross-walk for a genre-less movie,
+   never overrides a raw-derived list, and a non-genre category (e.g.
+   "NETFLIX MOVIES") still yields ``None`` rather than an empty-list stand-in.
+8. ``DetectedGenreBackfillTask`` (version 2) backfills a pre-existing movie
+   row whose ``detected_genres`` is NULL and whose category names a genre.
+9. The untouched, pre-existing ``genre_predicate('Horror')`` (the SAME
+   predicate the details-pane genre chip uses) now finds a category-derived
+   movie — proof the fix is a stored-field write, not a new read path.
 """
 
 from __future__ import annotations
@@ -69,7 +86,7 @@ def _add_provider(db) -> None:
 
 
 def _add_channel(db, *, raw_genre: str | None, name: str = "Movie",
-                  media_type: str = "movie") -> str:
+                  media_type: str = "movie", category: str = "") -> str:
     """Insert a bare (pre-ingestion) ChannelDB row and return its id."""
     from metatv.core.database import ChannelDB
 
@@ -82,6 +99,7 @@ def _add_channel(db, *, raw_genre: str | None, name: str = "Movie",
         session.add(ChannelDB(
             id=channel_id, source_id=channel_id, provider_id="p1",
             name=name, media_type=media_type, raw_data=raw_data,
+            category=category,
         ))
         session.commit()
     finally:
@@ -492,3 +510,164 @@ class TestGetByGenreQueryPlan:
                     f"unindexed SCAN of channels in genre-lookup plan: {detail!r}\n"
                     f"full plan: {plan}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# 7. GENRE-1 — ingestion falls back to genres_from_category() for a
+#    genre-less movie (the actual owner-diagnosed bug)
+# ---------------------------------------------------------------------------
+
+class TestIngestionCategoryGenreFallback:
+
+    def test_movie_with_no_raw_genre_falls_back_to_category(self, file_db):
+        """A movie whose raw_data carries no 'genre' key (the real Xtream VOD
+        shape) but whose category names one gets detected_genre(s) from the
+        category cross-walk."""
+        _add_provider(file_db)
+        cid = _add_channel(
+            file_db, raw_genre=None, category="|EN| HORROR/THRILLER",
+        )
+        _run_ingestion(file_db)
+
+        session = file_db.get_session()
+        try:
+            from metatv.core.database import ChannelDB
+            ch = session.query(ChannelDB).get(cid)
+            assert ch.detected_genres == ["Horror", "Thriller"]
+            assert ch.detected_genre == "Horror"
+        finally:
+            session.close()
+
+    def test_raw_genre_always_wins_over_category(self, file_db):
+        """A row with BOTH a raw_data genre and a genre-bearing category keeps
+        the raw-derived list unchanged — the category fallback never
+        overrides a source-denoted raw genre."""
+        _add_provider(file_db)
+        cid = _add_channel(
+            file_db, raw_genre="Comedy", category="|EN| HORROR/THRILLER",
+        )
+        _run_ingestion(file_db)
+
+        session = file_db.get_session()
+        try:
+            from metatv.core.database import ChannelDB
+            ch = session.query(ChannelDB).get(cid)
+            assert ch.detected_genre == "Comedy"
+            assert ch.detected_genres == ["Comedy"]
+        finally:
+            session.close()
+
+    def test_category_with_no_recognisable_genre_stays_null(self, file_db):
+        """Real owner categories that denote no genre ('NETFLIX MOVIES',
+        '4K MOVIES') must leave detected_genre(s) NULL, not an empty list
+        masquerading as data."""
+        _add_provider(file_db)
+        cid_netflix = _add_channel(
+            file_db, raw_genre=None, category="NETFLIX MOVIES", name="M1",
+        )
+        cid_4k = _add_channel(
+            file_db, raw_genre=None, category="4K MOVIES", name="M2",
+        )
+        _run_ingestion(file_db)
+
+        session = file_db.get_session()
+        try:
+            from metatv.core.database import ChannelDB
+            ch_netflix = session.query(ChannelDB).get(cid_netflix)
+            ch_4k = session.query(ChannelDB).get(cid_4k)
+            assert ch_netflix.detected_genre is None
+            assert ch_netflix.detected_genres is None
+            assert ch_4k.detected_genre is None
+            assert ch_4k.detected_genres is None
+        finally:
+            session.close()
+
+
+# ---------------------------------------------------------------------------
+# 8. GENRE-1 — DetectedGenreBackfillTask (version 2) backfills pre-existing
+#    movie rows via the category fallback
+# ---------------------------------------------------------------------------
+
+class TestDetectedGenreBackfillTaskCategoryFallback:
+
+    def test_run_populates_preexisting_category_only_movie_row(self, file_db, cfg):
+        """A movie row that predates GENRE-1 — detected_genres NULL, a
+        genre-bearing category, no raw genre — gets backfilled by the SAME
+        DetectedGenreBackfillTask (now version 2), via the identical
+        update_detected_prefixes() pass version 1 always used, not a second
+        targeted query."""
+        from metatv.core.database import ChannelDB
+        from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
+
+        _add_provider(file_db)
+        cid = _add_channel(
+            file_db, raw_genre=None, category="|EN| HORROR/THRILLER",
+        )
+
+        session = file_db.get_session()
+        try:
+            ch = session.query(ChannelDB).get(cid)
+            assert ch.detected_genres is None, "pre-condition: not yet backfilled"
+        finally:
+            session.close()
+
+        task = DetectedGenreBackfillTask(file_db)
+        progress: list[tuple[int, int]] = []
+        task.run(lambda d, t: progress.append((d, t)), lambda: False)
+
+        session = file_db.get_session()
+        try:
+            ch = session.query(ChannelDB).get(cid)
+            assert ch.detected_genres == ["Horror", "Thriller"]
+            assert ch.detected_genre == "Horror"
+        finally:
+            session.close()
+
+
+# ---------------------------------------------------------------------------
+# 9. GENRE-1 — the untouched genre_predicate('Horror') (the SAME strict
+#    predicate the details-pane genre chip uses, channel_lens.py) finds a
+#    category-derived movie once the field is populated at ingestion.
+#
+#    This is the proof the fix is a write-time (ingestion) change and not a
+#    read-time one: genre_predicate() itself is not modified by GENRE-1.
+# ---------------------------------------------------------------------------
+
+class TestGenrePredicateFindsCategoryDerivedMovie:
+
+    def test_genre_predicate_selects_category_derived_movie(self, file_db):
+        """Regression proof for the owner's bug report: a movie whose ONLY
+        genre signal is its provider category ('|EN| HORROR/THRILLER', no
+        raw_data genre) must be selected by channel_lens.genre_predicate('Horror')
+        once ingestion has run.
+
+        Confirmed FAILING against pre-GENRE-1 main (channel.detected_genres
+        stayed NULL for every movie since genres_from_raw() always returned
+        [] for the Xtream VOD shape, so this query returned zero rows) —
+        see the GENRE-1 PR description.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories.channel_lens import genre_predicate
+
+        _add_provider(file_db)
+        cid = _add_channel(
+            file_db, raw_genre=None, category="|EN| HORROR/THRILLER",
+            name="Category-Only Horror Movie",
+        )
+        _run_ingestion(file_db)
+
+        session = file_db.get_session()
+        try:
+            rows = (
+                session.query(ChannelDB)
+                .filter(
+                    ChannelDB.media_type.in_(["movie", "series"]),
+                    genre_predicate("Horror"),
+                )
+                .all()
+            )
+            assert cid in {r.id for r in rows}, (
+                "genre_predicate('Horror') must select the category-derived movie"
+            )
+        finally:
+            session.close()
