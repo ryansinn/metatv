@@ -1,13 +1,10 @@
 """SettingsDialog's five section-content builders.
 
 Playback, Interaction, Recommendations, Metadata & API Keys, Interface — moved
-here **verbatim** from ``settings_dialog.py`` (which owns the three-panel
-shell plus ``_load_values``/``_save_values``) purely to keep both files under
-the 1000-line ceiling; nothing about widget construction changed. Mixed into
-``SettingsDialog`` via multiple inheritance so ``self._player_combo`` etc.
-(read by ``_load_values``/``_save_values``) resolve exactly as before —
-Python attribute lookup doesn't care which file defined the method that set
-them, only that ``self`` is the same ``SettingsDialog`` instance.
+here **verbatim** from ``settings_dialog.py`` (which owns the three-panel shell
+plus ``_load_values``/``_save_values``) purely to keep both files under the
+1000-line ceiling. Mixed into ``SettingsDialog`` via multiple inheritance, so
+``self._player_combo`` etc. resolve exactly as before.
 """
 from __future__ import annotations
 
@@ -30,9 +27,8 @@ from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
 from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
 
-# Channel-list row densities — single source of truth (settings_dialog re-exports
-# this; the constant lives HERE because settings_dialog imports this module for
-# the tab-builder mixin, so the dependency can only point one way).
+# Channel-list row densities — single source of truth. It lives HERE, and
+# settings_dialog re-exports it, because that import can only point one way.
 _CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
     ("Comfy (two lines)", "comfy"),
     ("Comfy+ (with description)", "comfy_plus"),
@@ -40,16 +36,14 @@ _CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
 )
 
 # Sidebar row shape — see metatv.gui.chip_row. Compact is first AND the default
-# because the sidebar's scarcest resource is vertical space: a compact row is
-# ~20px against comfortable's ~37px, so it shows roughly twice the entries in
-# the same allocation.
+# because the sidebar's scarcest resource is vertical space: ~20px a row against
+# comfortable's ~37px, so roughly twice the entries in the same allocation.
 _SIDEBAR_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
     ("Compact (one line, with chips)", "compact"),
     ("Comfortable (two lines)", "comfortable"),
 )
 
-# Platform chip name style (#257) — single source of truth, re-exported by
-# settings_dialog for the same reason _CHANNEL_DENSITY_CHOICES is.
+# Platform chip name style (#257) — re-exported by settings_dialog, same reason.
 _PLATFORM_NAME_STYLE_CHOICES: tuple[tuple[str, str], ...] = (
     ("Auto (full name in Comfy, short code in Compact)", "auto"),
     ("Full name", "full"),
@@ -234,10 +228,9 @@ class SettingsTabsMixin:
     def _build_interaction_tab(self) -> QWidget:
         """Build the Interaction tab — how clicks on a channel row play it.
 
-        Houses the default double-click action (``playback_resume_mode``) and the
-        configurable middle-click action (``middle_click_action``); the latter's
-        combo is populated from the shared ``MIDDLE_CLICK_ACTIONS`` registry so new
-        actions appear here automatically.
+        Double-click (``playback_resume_mode``) and middle-click
+        (``middle_click_action``); the latter's combo is populated from the
+        shared ``MIDDLE_CLICK_ACTIONS`` registry, so new actions appear here.
         """
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -284,8 +277,7 @@ class SettingsTabsMixin:
     def _build_content_tab(self) -> QWidget:
         """Build the Content tab — what the library may show you.
         Home for ``filter_adult_mode``, whose only control was built
-        ``setVisible(False)``. A setting you cannot find does not exist.
-        """
+        ``setVisible(False)``. A setting you cannot find does not exist."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(16)
@@ -331,16 +323,37 @@ class SettingsTabsMixin:
         live_form.addRow("Live catalog refresh:", self._live_refresh_mode_combo)
 
         layout.addWidget(live_group)
+
+        # PLAT-1: the floor a platform clears to earn its own Discover shelf.
+        # A setting, not a constant: the right number is a property of the
+        # library, not of the app.
+        shelves_group = QGroupBox("Discover shelves")
+        shelves_form = QFormLayout(shelves_group)
+        shelves_form.setSpacing(8)
+
+        shelf_threshold_row = QHBoxLayout()
+        self._platform_shelf_min_spin = QSpinBox()
+        self._platform_shelf_min_spin.setRange(5, 1000)
+        self._platform_shelf_min_spin.setSingleStep(5)
+        self._platform_shelf_min_spin.setSuffix(" titles")
+        self._platform_shelf_min_spin.setToolTip(
+            "A platform gets its own Discover shelf once at least this many\n"
+            "distinct titles carry its tag"
+        )
+        shelf_threshold_row.addWidget(self._platform_shelf_min_spin)
+        shelf_threshold_row.addStretch()
+        shelves_form.addRow("A platform gets a shelf at:", shelf_threshold_row)
+
+        layout.addWidget(shelves_group)
         layout.addStretch()
         return tab
 
     def _build_signal_tab(self) -> QWidget:
         """Build the Signal checking tab — what counts as dead air.
 
-        Exposed because the right answer is provider-dependent. A channel that
+        Exposed because the right answer is provider-dependent: a channel that
         runs a four-second bumper between segments needs a different black
-        threshold than one that cuts straight to programme, and the owner is
-        the only person who can see which is which.
+        threshold than one that cuts straight to programme.
         """
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -769,13 +782,10 @@ class SettingsTabsMixin:
         return tab
 
     # ── TMDb/OMDb "Test" buttons ────────────────────────────────────────────
-    # Off-UI-thread pattern mirrored from StreamDiagnosticsDialog
-    # (metatv/gui/diagnostics_dialog.py): the worker runs on the shared
-    # executor and ONLY emits `_provider_test_ready`; `_on_provider_test_ready`
-    # (the connected slot) is the only place that touches the result-badge
-    # widgets, per CLAUDE.md's "Qt threading — signals only" rule. Each
-    # provider is tested with the key CURRENTLY TYPED (not yet saved) via a
-    # throwaway SimpleNamespace config — this is a "test before you save" tool.
+    # Off-UI-thread pattern from StreamDiagnosticsDialog: the worker ONLY emits
+    # `_provider_test_ready`, and its slot is the only place that touches the
+    # result badges ("Qt threading — signals only"). Each provider is tested
+    # with the key CURRENTLY TYPED — a "test before you save" tool.
 
     def _on_test_tmdb_key(self) -> None:
         """Metadata tab: TMDb 'Test' button clicked."""
@@ -801,10 +811,9 @@ class SettingsTabsMixin:
         """Kick off ``provider.test_connection()`` on the shared executor.
 
         Args:
-            provider_name: ``"tmdb"`` or ``"omdb"`` — echoed back by the worker
-                so ``_on_provider_test_ready`` knows which widgets to update.
-            provider: A throwaway provider instance built from the currently
-                typed (possibly unsaved) key.
+            provider_name: ``"tmdb"``/``"omdb"`` — echoed back by the worker so
+                ``_on_provider_test_ready`` knows which widgets to update.
+            provider: A throwaway provider built from the typed (unsaved) key.
             button: The "Test" button to disable while the probe is in flight.
             label: The inline result-badge label to update.
         """
@@ -1019,13 +1028,10 @@ class SettingsTabsMixin:
     def _build_sidebar_tab(self) -> QWidget:
         """Build the Sidebar page — which sections show, and in what order.
 
-        Split out of Interface, which measured 1138px against a ~600px norm for
-        every other page. This group alone was 418px of it (39%), and it grows a
-        row per section, so it was always going to keep winning — the Downloads
-        and Recordings sections just added two more.
-
-        It is also a different job from the rest of Interface: laying out the
-        sidebar is setup, not appearance."""
+        Split out of Interface, which measured 1138px against a ~600px norm; this
+        group alone was 418px of it and grows a row per section, so it was always
+        going to keep winning. It is also a different job from the rest of
+        Interface: laying out the sidebar is setup, not appearance."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(16)
@@ -1036,9 +1042,8 @@ class SettingsTabsMixin:
         sidebar_layout.setSpacing(10)
 
         # A QFormLayout, like every other settings group: a hand-rolled
-        # label+combo QHBoxLayout puts the control at a different x from the
-        # form-managed ones, and the page's controls stop sharing a left edge
-        # (tests/test_settings_form_alignment).
+        # label+combo QHBoxLayout puts the control at a different x, and the
+        # page stops sharing a left edge (tests/test_settings_form_alignment).
         density_form = QFormLayout()
         density_form.setSpacing(8)
         self._sidebar_density_combo = QComboBox()

@@ -1651,6 +1651,23 @@ CONTENT_DESCRIPTOR_GROUPS: frozenset[str] = frozenset({
     "Adult", "Sports", "Kids", "Music", "News", "Religious", "24/7",
 })
 
+# ── Platform values that never get their own Discover shelf (PLAT-1) ─────────── #
+# A `platform:` tag value here is skipped by platform_shelves.platform_shelf_values()
+# however many titles carry it.  Curated data lives here, never a parallel set in
+# the shelf module — a decomposer rename must move BOTH the shelf and this gate.
+PLATFORM_SHELF_EXCLUDED_VALUES: frozenset[str] = frozenset({
+    # Catch-all bucket for HBO/Hulu/Peacock/Paramount/PLAY — one shelf mixing five
+    # brands is not "a platform"; splitting it needs more parsing (a separate project).
+    "Other Streaming",
+    # The other catch-all: DStv/OSN/Sky/STC/MyHD/GOtv/Digi are unrelated regional
+    # pay-TV operators, not one streaming service a viewer would browse.
+    "Pay TV",
+    # Subtitle library mis-bucketed as a platform: mixed multi-language VOD.
+    "SC",
+    # Subtitle library mis-bucketed as a platform: Arabic-subtitled foreign films.
+    "EAR",
+})
+
 # ── EPG "On Now" viewing content-type classifier (Slice 3C) ────────────────────── #
 # A *lighter*, distinct namespace from CONTENT_DESCRIPTOR_GROUPS/CONTENT_TYPE_DISPLAY_NAMES
 # above — those classify the channel CORPUS (facet tagging / dedup provenance); this

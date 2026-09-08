@@ -991,9 +991,16 @@ priority of all four, by design.
 - [ ] **Which reload changes a title under you?** Unconfirmed leftover from the scroll report:
   whether the TMDb-match / title-update refresh the owner saw comes from a third path (not the
   sidebar sections, which are now covered). Needs a reproduction before it is worth chasing.
-- [ ] **Platform rollup for Discover shelves** — DESIGN PROPOSED 2026-09-05 as worklog row PLAT-1 with the
-  Q-tag review it was owed (measured on the live library: 57,223 rows / 16,980 titles carry a platform tag;
-  seven platforms clear 100 titles; `SC`/`EAR` are subtitle libraries, not platforms). Q1-Q5 await the owner.
+- [x] **Platform rollup for Discover shelves** — SHIPPED 0.103.0 (#805, entry 633). Q1-Q5 answered by
+  the owner 2026-09-08: the floor is a setting (`discover_platform_shelf_min_titles`, default 50 DISTINCT
+  titles, Settings ▸ Content ▸ Discover shelves), one shelf per platform value, VOD only, and the two
+  catch-alls (`Other Streaming`, `Pay TV`) plus the two subtitle libraries mis-bucketed as platforms
+  (`SC`, `EAR`) never qualify — `channel_name_utils.PLATFORM_SHELF_EXCLUDED_VALUES`. On the owner's
+  library three platforms clear 50: Netflix (9,656 titles), Disney+ (2,343), Apple TV+ (193).
+  Q4's version preference is a documented seam only (`platform_shelves.representative_version`), for VP-1.
+- [ ] **A LIVE platform surface** — the same rollup for live channels, which PLAT-1 deliberately excluded
+  (Discover is the VOD surface). Its own design: a live strip answers "what is on now on this platform",
+  not "what did this platform add", so it is not the same shelf with a different filter. Ties into LIVE-1.
 
 **Owner-owed, not buildable by the coding agent:** TMDb/OMDb have never made a real network call
 (#395 was mocked-aiohttp only). The Settings **Test** button already exists at

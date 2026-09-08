@@ -2078,11 +2078,17 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # _set_density_from_menu and did nothing, which reads as a dead menu.
         self._sync_style_menu_state()
 
-    def _apply_dead_signal_setting(self) -> None:
-        """Settings OK: the VE-1 dead-signal axis changed — reload Discover.
+    def _apply_discover_reload_setting(self) -> None:
+        """Settings OK: rebuild the Discover shelves.
+
+        THE Discover reload seam, not one axis's: the VE-1 dead-signal floor,
+        the PLAT-1 platform-shelf threshold and anything else a shelf query
+        resolves at build time all need exactly this, so they share it. Naming
+        it after the first axis to want it is how a second axis ends up with a
+        second near-identical handler that does the same work twice.
 
         The channel list is reloaded once by ``settings_apply.run`` itself;
-        Discover's shelves resolve the floor on their next build, so ask for
+        Discover's shelves re-resolve everything on their next build, so ask for
         one. ``__dict__`` probe, never ``hasattr`` (a skeleton host raises).
         """
         view = self.__dict__.get("discover_view")

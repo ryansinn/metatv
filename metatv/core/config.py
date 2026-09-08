@@ -717,20 +717,20 @@ class Config(BaseModel):
     #: On the owner's config that was 818 entries — 17% of the whole file —
     #: growing by one per shelf ever rendered. See _retire_collapsed_shelves.
     discover_collapsed_shelves: list = Field(default_factory=list)
-    #: True once the first-launch zone defaults have been applied.
-    #:
-    #: This exists BECAUSE collapsed stopped being stored. "First launch" used
-    #: to mean "all four zone lists are empty", and a user who had only ever
-    #: collapsed things would suddenly match that — so every start would look
-    #: like their first and re-expand the default shelves. Inferring a
-    #: first run from an absence of data breaks the moment having no data is
-    #: legitimate; an explicit marker cannot.
+    #: True once the first-launch zone defaults have been applied. Exists
+    #: BECAUSE collapsed stopped being stored: "first launch" used to mean "all
+    #: four zone lists are empty", which a collapse-only user suddenly matched,
+    #: so every start re-expanded the defaults. Inferring a first run from an
+    #: absence of data breaks the moment having no data is legitimate.
     discover_zones_seeded: bool = False
     discover_hidden_shelves: list = Field(default_factory=list)
     discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
     discover_more_expanded: bool = False   # "More Categories" accordion — collapsed by default
     discover_collapse_to_top: bool = True  # re-collapsed shelves jump to top of collapsed zone
     discover_zoom: float = 1.0             # content card zoom factor (0.6–1.8); persisted
+    #: A platform earns its own Discover shelf once this many DISTINCT TITLES
+    #: carry its tag (PLAT-1). Titles, not rows — see core/platform_shelves.py.
+    discover_platform_shelf_min_titles: int = 50
 
     # Watch Queue view state — is the find-in-queue box revealed? Off by default:
     # a permanently-visible filter costs a row of the sidebar's scarcest resource
