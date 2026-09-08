@@ -45,7 +45,9 @@ from metatv.core.channel_name_utils import (
     AI_VOICEOVER_VALUE,
     _COMPOUND_PREFIX_RE,
     _PAREN_PREFIX_RE,
+    AGE_RATING_PREFIXES,
     AUDIO_LANG_WORD_MAP,
+    CODE_FACETS,
     QUALITY_TOKENS,
     detect_ai_provenance,
     is_restricted,
@@ -96,19 +98,19 @@ def _start_year_int(detected_year) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bool:
-    """True when *candidate_region* would contradict the row's own locale prefix.
+    """True when *candidate_region* is refuted by what the row's own prefix states.
 
-    A row prefixed ``|EN|`` or ``|AR|`` already states its locale. Its
-    ``detected_region`` is empty for a specific reason — ``EN`` is a
-    language-only code (:data:`CODE_FACETS` documents that there is no place
-    called "EN"), not because the row lacks evidence. Treating that emptiness as
-    a gap and filling it from the sibling majority actively mislabels the row.
+    A row prefixed ``|EN|``/``|AR|`` already states its locale — ``EN`` is a
+    language-only code (:data:`CODE_FACETS`: there is no place called "EN") — so an
+    empty ``detected_region`` there is a FACT, not missing evidence. An **age
+    rating** (:data:`AGE_RATING_PREFIXES`) states even less: "18+" says what may be
+    watched, never where, so it refutes every candidate region outright.
 
-    This matters because ``content_key`` is deliberately generous: the key
-    ``"aladdin|movie|"`` (no year, no TMDb id) collapses 15 unrelated releases,
-    so the "most common sibling region" is whichever locale happens to dominate
-    the user's library — which stamped ``DE`` onto the ``|EN|`` and ``|AR|``
-    Aladdin rows, reporting an Arabic release as German.
+    Filling either from the sibling majority mislabels the row, because
+    ``content_key`` is deliberately generous: ``"aladdin|movie|"`` (no year, no TMDb
+    id) collapses 15 unrelated releases, so "most common sibling region" means
+    whichever locale dominates the library — which stamped ``DE`` onto ``|EN|``/
+    ``|AR|`` Aladdin (an Arabic release, German) and onto ``18+ - Truly Naked``.
 
     Returns False when the prefix is absent or is not a recognised locale code
     (e.g. ``MULTI``, ``4K``), where the row genuinely has no locale of its own
@@ -121,16 +123,14 @@ def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bo
     Returns:
         True if the fill should be skipped.
     """
-    from metatv.core.channel_name_utils import CODE_FACETS, normalize_region_code
-
     code = normalize_region_code((own_prefix or "").strip())
+    if code in AGE_RATING_PREFIXES:
+        return True
     if not code or code not in CODE_FACETS:
         return False
     # The prefix IS a known locale code. Allow only the case where the sibling
     # agrees with a region this very code implies (e.g. "IT" → region IT).
-    implied = {
-        value for facet, value, _conf in CODE_FACETS[code] if facet == "region"
-    }
+    implied = {v for facet, v, _conf in CODE_FACETS[code] if facet == "region"}
     return normalize_region_code(candidate_region) not in implied
 
 
@@ -777,14 +777,14 @@ class ChannelIngestionMixin:
             if not region:
                 continue
             if _contradicts_own_locale(own_prefix, region):
-                # The row carries its OWN locale code, so an empty region is a
-                # fact about that code (there is no place called "EN"), not a
-                # gap to fill from someone else. Inheriting the sibling majority
-                # here mislabels the row: a generic content_key like
-                # "aladdin|movie|" collapses 15 unrelated releases, and the
-                # majority region (DE in the owner's library) was being stamped
-                # onto the |EN| and |AR| rows — an Arabic release reported as
-                # German. Leave it empty; empty is honest.
+                # The row's own prefix carries a locale code, or an age rating
+                # that carries no locale at all, so an empty region is a fact
+                # about that prefix (there is no place called "EN", and none
+                # called "18+"), not a gap to fill from someone else. A generic
+                # content_key like "aladdin|movie|" collapses 15 unrelated
+                # releases, so the majority region (DE in the owner's library)
+                # was stamped onto the |EN| and |AR| rows and onto the English
+                # "18+ - Truly Naked (2026)". Leave it empty; empty is honest.
                 continue
             self.session.execute(
                 update(ChannelDB)

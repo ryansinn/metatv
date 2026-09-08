@@ -270,10 +270,14 @@ def parse_platform_event(name: str) -> Optional[PlatformEvent]:
         always_available=always,
     )
 
-# Digit-starting prefix tokens excluded from _SEPARATOR_RE ([A-Z]-only grammar): the
-# quality tokens 4K/8K, plus the literal age-rating code "18+" — a narrow admission, not
-# a general digit+punctuation widening (owner report 2026-09-03: 466 rows, all with an
-# empty detected_prefix). Step 7 below routes "18+" into region, not quality[].
+# Age-rating prefix tokens — a viewing restriction, and NEVER a locale claim, so a row
+# carrying one may not inherit a sibling's region (channel_ingestion). One definition,
+# read by classify_trailing_metadata, step 7 of parse_channel_name, and by ingestion.
+AGE_RATING_PREFIXES: frozenset[str] = frozenset({"18+", "16+", "12+"})
+
+# Digit-starting prefix tokens excluded from _SEPARATOR_RE ([A-Z]-only grammar): quality
+# tokens 4K/8K plus the age rating "18+" — a narrow admission, not a general
+# digit+punctuation widening (owner report 2026-09-03: 466 rows, empty detected_prefix).
 _DIGIT_QUALITY_PREFIX_RE = re.compile(r'^(4K|8K|18\+)\s*(?:[★|]|-\s+)\s*(.+)$', re.IGNORECASE)
 
 # Bracket-enclosed quality token at name start where the token begins with a digit.
@@ -457,7 +461,7 @@ def classify_trailing_metadata(text: str) -> Optional[tuple[str, str]]:
         return (kind, lang)
     if low in _TRAILING_GENRE_TOKENS:
         return ("genre", _TRAILING_GENRE_TOKENS[low])
-    if low in ("18+", "16+", "12+"):
+    if low in AGE_RATING_PREFIXES:
         return ("rating", low)
     if t.upper() in QUALITY_TOKENS:
         return ("quality", t.upper())
@@ -3280,8 +3284,9 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
     # wins when both are present (e.g. "[US] 4K-DE - Movie UHD" → quality[0] = "UHD").
-    region = normalize_region_code(_prefix_quality) if _prefix_quality == "18+" else region
-    if _prefix_quality and _prefix_quality != "18+" and _prefix_quality not in quality:
+    _is_rating = _prefix_quality in AGE_RATING_PREFIXES
+    region = normalize_region_code(_prefix_quality) if _is_rating else region
+    if _prefix_quality and not _is_rating and _prefix_quality not in quality:
         # Same-rank guard as _strip_attributes: a "4K|" prefix on a name whose
         # suffix already said UHD is one tier stated twice, and would render as
         # two chips meaning one thing.

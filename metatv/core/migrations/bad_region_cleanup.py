@@ -234,93 +234,8 @@ class BadRegionCleanupTask:
         return out
 
     def _clear_batch(self, chunk: list[tuple[str, str]]) -> None:
-        """Clear ``detected_region`` and drop the matching region tag for *chunk*.
-
-        The tag matters as much as the column: the bogus region produced a
-        ``region`` facet the user can filter by and that feeds recommendations,
-        so leaving it behind would keep the wrong answer visible even after the
-        column is honest. Only the tag whose VALUE equals the region being
-        cleared is removed — a region tag from any other feeder is untouched.
-
-        Args:
-            chunk: ``(channel_id, region_being_cleared)`` pairs.
-        """
-        from sqlalchemy import update
-
-        from metatv.core.database import ChannelDB, ContentTagDB, TagDB
-
-        from metatv.core.channel_name_utils import CODE_FACETS, normalize_region_code
-
-        ids = [cid for cid, _ in chunk]
-        by_region: dict[str, list[str]] = {}
-        for cid, region in chunk:
-            by_region.setdefault(region, []).append(cid)
-
-        # A region code also implies a LANGUAGE, and the decomposer tagged it —
-        # so the owner's English Aladdin carried a "German" language tag purely
-        # because it had been handed region DE. Clearing the region without that
-        # tag leaves the visible symptom in place: the title still reads German
-        # in filters and still feeds recommendations as German.
-        #
-        # Only dropped when the row's OWN prefix does not also imply that
-        # language, so a genuinely bilingual row keeps what it earned.
-        lang_by_region: dict[str, set[str]] = {}
-        for region in by_region:
-            implied = {
-                value for facet, value, _c
-                in CODE_FACETS.get(normalize_region_code(region), ())
-                if facet == "language"
-            }
-            if implied:
-                lang_by_region[region] = implied
-
-        with self._db.session_scope() as session:
-            session.execute(
-                update(ChannelDB)
-                .where(ChannelDB.id.in_(ids))
-                .values(detected_region=None)
-            )
-            for region, cids in by_region.items():
-                tag_ids = [
-                    row[0] for row in session.query(TagDB.id)
-                    .filter(TagDB.type == "region", TagDB.value == region).all()
-                ]
-                if not tag_ids:
-                    continue
-                (
-                    session.query(ContentTagDB)
-                    .filter(ContentTagDB.channel_id.in_(cids))
-                    .filter(ContentTagDB.tag_id.in_(tag_ids))
-                    .delete(synchronize_session=False)
-                )
-
-            # …and the language tag that region implied.
-            for region, languages in lang_by_region.items():
-                cids = by_region[region]
-                keepers = {
-                    cid for cid, in session.query(ChannelDB.id)
-                    .filter(ChannelDB.id.in_(cids))
-                    .filter(ChannelDB.detected_prefix.in_(
-                        [c for c, entries in CODE_FACETS.items()
-                         if any(f == "language" and v in languages
-                                for f, v, _ in entries)]
-                    )).all()
-                }
-                targets = [c for c in cids if c not in keepers]
-                if not targets:
-                    continue
-                lang_ids = [
-                    row[0] for row in session.query(TagDB.id)
-                    .filter(TagDB.type == "language", TagDB.value.in_(languages)).all()
-                ]
-                if not lang_ids:
-                    continue
-                (
-                    session.query(ContentTagDB)
-                    .filter(ContentTagDB.channel_id.in_(targets))
-                    .filter(ContentTagDB.tag_id.in_(lang_ids))
-                    .delete(synchronize_session=False)
-                )
+        """Delegate to the shared :func:`clear_regions_and_derived_tags`."""
+        clear_regions_and_derived_tags(self._db, chunk)
 
     def on_completed(self, config: "Config") -> None:
         """Persist the version so the sweep does not repeat.
@@ -333,3 +248,103 @@ class BadRegionCleanupTask:
         logger.info(
             "BadRegionCleanupTask: complete (version={})", CURRENT_VERSION
         )
+
+
+def clear_regions_and_derived_tags(
+    db: "Database", chunk: list[tuple[str, str]]
+) -> None:
+    """Clear ``detected_region`` and drop the tags derived from it, for *chunk*.
+
+    The one writer for "this stored region was never evidence" — shared by
+    :class:`BadRegionCleanupTask` (a region contradicting the row's own locale
+    prefix) and by :mod:`~metatv.core.migrations.age_rating_region_cleanup` (a
+    region inherited by a row whose only prefix is an age rating). Two callers,
+    one definition: the tag half is the easy half to forget, and forgetting it
+    leaves the visible symptom in place.
+
+    The tags matter as much as the column: the bogus region produced a ``region``
+    facet the user can filter by and that feeds recommendations, so leaving it
+    behind would keep the wrong answer visible even after the column is honest.
+    Only the tag whose VALUE equals the region being cleared is removed — a
+    region tag from any other feeder is untouched.
+
+    Args:
+        db: Database instance; opens its own ``session_scope`` for the batch.
+        chunk: ``(channel_id, region_being_cleared)`` pairs.
+    """
+    from sqlalchemy import update
+
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+
+    from metatv.core.channel_name_utils import CODE_FACETS, normalize_region_code
+
+    ids = [cid for cid, _ in chunk]
+    by_region: dict[str, list[str]] = {}
+    for cid, region in chunk:
+        by_region.setdefault(region, []).append(cid)
+
+    # A region code also implies a LANGUAGE, and the decomposer tagged it —
+    # so the owner's English Aladdin carried a "German" language tag purely
+    # because it had been handed region DE. Clearing the region without that
+    # tag leaves the visible symptom in place: the title still reads German
+    # in filters and still feeds recommendations as German.
+    #
+    # Only dropped when the row's OWN prefix does not also imply that
+    # language, so a genuinely bilingual row keeps what it earned.
+    lang_by_region: dict[str, set[str]] = {}
+    for region in by_region:
+        implied = {
+            value for facet, value, _c
+            in CODE_FACETS.get(normalize_region_code(region), ())
+            if facet == "language"
+        }
+        if implied:
+            lang_by_region[region] = implied
+
+    with db.session_scope() as session:
+        session.execute(
+            update(ChannelDB)
+            .where(ChannelDB.id.in_(ids))
+            .values(detected_region=None)
+        )
+        for region, cids in by_region.items():
+            tag_ids = [
+                row[0] for row in session.query(TagDB.id)
+                .filter(TagDB.type == "region", TagDB.value == region).all()
+            ]
+            if not tag_ids:
+                continue
+            (
+                session.query(ContentTagDB)
+                .filter(ContentTagDB.channel_id.in_(cids))
+                .filter(ContentTagDB.tag_id.in_(tag_ids))
+                .delete(synchronize_session=False)
+            )
+
+        # …and the language tag that region implied.
+        for region, languages in lang_by_region.items():
+            cids = by_region[region]
+            keepers = {
+                cid for cid, in session.query(ChannelDB.id)
+                .filter(ChannelDB.id.in_(cids))
+                .filter(ChannelDB.detected_prefix.in_(
+                    [c for c, entries in CODE_FACETS.items()
+                     if any(f == "language" and v in languages
+                            for f, v, _ in entries)]
+                )).all()
+            }
+            targets = [c for c in cids if c not in keepers]
+            if not targets:
+                continue
+            lang_ids = [
+                row[0] for row in session.query(TagDB.id)
+                .filter(TagDB.type == "language", TagDB.value.in_(languages)).all()
+            ]
+            if not lang_ids:
+                continue
+            (
+                session.query(ContentTagDB)
+                .filter(ContentTagDB.channel_id.in_(targets))
+                .filter(ContentTagDB.tag_id.in_(lang_ids))
+                .delete(synchronize_session=False)
+            )
