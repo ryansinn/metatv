@@ -63,7 +63,7 @@ def _heading_sheet(sub: bool) -> str:
     """
     if sub:
         return (f"font-size: {_theme.FONT_MD}; font-weight: bold; "
-                f"color: {_theme.COLOR_MUTED}; padding: 4px 0 1px 0;")
+                f"color: {_theme.COLOR_TEXT}; padding: 4px 0 1px 0;")
     return (f"font-size: {_theme.FONT_LG}; font-weight: bold; "
             f"color: {_theme.COLOR_TEXT}; padding: 6px 0 2px 0;")
 
