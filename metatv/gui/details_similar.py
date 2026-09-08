@@ -180,7 +180,9 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         play_btn.setStyleSheet(_icon_btn())
         _icon_utils.set_button_icon(play_btn, "play", color=_theme.COLOR_TEXT)
         play_btn.setIconSize(QSize(13, 13))
-        play_btn.setToolTip(f"Play: {v.name}")
+        # Title first, action second: the row elides long titles, so the tooltip
+        # is where the whole title is read — it must not be cut off by the verb.
+        play_btn.setToolTip(f"{v.name}\nPlay")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
         # Pointer-only. Favourite and Queue deliberately do NOT join it: a gold
@@ -228,7 +230,9 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         _theme.style_fn(name_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
             f" font-size: {_theme.FONT_MD}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
-        name_btn.setToolTip("Click: preview in lightbox  ·  Right-click: open in details pane")
+        name_btn.setToolTip(
+            f"{clean_title}\nClick: preview in lightbox  ·  Right-click: open in details pane"
+        )
         name_btn.clicked.connect(
             lambda _, _idx=idx: self.similar_preview_requested.emit(
                 self._channel_ids, _idx, self._origin_title
