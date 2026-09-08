@@ -477,10 +477,16 @@ def _load_top_level_widget_leak_allowlist() -> frozenset[str]:
 _TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = _load_top_level_widget_leak_allowlist()
 
 # Every allowlisted nodeid this session actually ran, and the subset that
-# actually leaked — the freshness check below fails on any nodeid that ran
-# but did NOT leak, so the allowlist can only shrink.
+# actually leaked — the freshness check below reports (and, under
+# METATV_LEAK_GUARD_JUDGE, fails on) any nodeid that ran but did NOT leak, so
+# the allowlist can only shrink.
 _LEAK_ALLOWLIST_RAN: set[str] = set()
 _LEAK_ALLOWLIST_STILL_LEAKING: set[str] = set()
+
+# Stale-candidate nodeids from THIS session's freshness check, for
+# pytest_terminal_summary to report. Populated only on a full (non-partial)
+# run; see _leak_allowlist_freshness_check.
+_LEAK_ALLOWLIST_STALE_CANDIDATES: list[str] = []
 
 # Populated only under METATV_LEAK_GUARD_COLLECT=1 (allowlist seeding mode):
 # every nodeid this run found leaking, regardless of allowlist membership.
@@ -606,22 +612,36 @@ def _top_level_widget_guard(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def _leak_allowlist_freshness_check(request):
-    """Session-end companion: a listed nodeid that ran but did not leak is stale.
+    """Session-end companion: a listed nodeid that ran but did not leak is a
+    STALE CANDIDATE, never proof of staleness on its own.
 
     ``tests/top_level_widget_leak_allowlist.json`` may only SHRINK (same
-    pattern as ``tests/unwired_stored_fields_allowlist.json``): if a fix lands
-    for one of its entries and nobody removes the entry, the list silently
-    accumulates dead weight. Only checks nodeids that actually RAN this
-    session — a partial/filtered run (``-k``) says nothing about the rest.
+    pattern as ``tests/unwired_stored_fields_allowlist.json``), but its own
+    entries are the UNION of every order a leak has been seen in: the reseed
+    of 2026-09-05 collected two ``test_alerts_matched_queue`` nodeids that
+    leak only after the whole suite has run before them (not in a five-file
+    run), and five others that leak in CI's shard order but not in the local
+    full-run order. A single run, in one order, can reproduce at most one
+    member of that union — it can prove an entry is STILL needed (by
+    leaking), but it can never prove one is stale, because "didn't leak in
+    THIS order" says nothing about every other order the entry was added for.
+    Treating a single run's silence as proof was the bug: it failed the
+    macOS release build on every run, on an entry the allowlist's own
+    history names as order-dependent.
 
-    Judged on FULL runs only (no file or node id on the command line). Some
-    leaks are order-dependent — the reseed of 2026-09-05 collected two
-    ``test_alerts_matched_queue`` nodeids that leak after the whole suite has
-    run before them and not in a five-file run, and five others that leak in
-    CI's shard order but not in the local full-run order — so the allowlist
-    is the UNION of every order a leak has been seen in, and a shard (CI runs
-    four, each a file list) or a hand-picked run never judges staleness. The
-    full-suite gate is where the list is judged.
+    Only checks nodeids that actually RAN this session — a partial/filtered
+    run (a file or node id on the command line) says nothing about the rest,
+    and is never judged, full run or not.
+
+    On an ordinary full run (the default — this is what the ``main``-branch
+    release build runs), stale candidates are recorded into
+    ``_LEAK_ALLOWLIST_STALE_CANDIDATES`` for ``pytest_terminal_summary`` to
+    print as a non-fatal, clearly-labeled report: candidates for a human to
+    verify (by checking whether the entry still leaks in the orders it was
+    added for), not entries this run has cleared. The check only becomes a
+    hard failure when ``METATV_LEAK_GUARD_JUDGE=1`` is set — set that
+    deliberately, when a run's order is being used to judge the list, never
+    as part of the ordinary gate.
     """
     yield
     partial = any(
@@ -630,7 +650,10 @@ def _leak_allowlist_freshness_check(request):
     if partial:
         return
     stale = sorted(_LEAK_ALLOWLIST_RAN - _LEAK_ALLOWLIST_STILL_LEAKING)
-    if stale:
+    if not stale:
+        return
+    _LEAK_ALLOWLIST_STALE_CANDIDATES.extend(stale)
+    if os.environ.get("METATV_LEAK_GUARD_JUDGE"):
         pytest.fail(
             "tests/top_level_widget_leak_allowlist.json has stale entries — "
             f"they ran this session but did NOT leak. Remove them from the "
@@ -726,37 +749,62 @@ def sidebar_config(**over):
     return SimpleNamespace(**base)
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
-    """Summarise what the Qt teardown guard observed (leaky tests, one block)."""
+    """Summarise what the Qt teardown guard observed (leaky tests, one block).
+
+    Two INDEPENDENT sections: the Qt teardown guard's own early return (no
+    widget/thread activity this session) must not swallow the leak-allowlist
+    freshness report below it — a session with zero Qt teardown activity can
+    still have stale-candidate nodeids to report (e.g. a run scoped to a
+    single non-Qt test module via ``pytester`` in the guard's own tests).
+    """
     tr = terminalreporter
     total_qthreads = sum(len(r.qthreads) for _, r in _QT_TEARDOWN_LOG)
     total_visible = sum(len(r.visible) for _, r in _QT_TEARDOWN_LOG)
     qthread_tests = [(n, r) for n, r in _QT_TEARDOWN_LOG if r.qthreads]
     thread_tests = [(n, r) for n, r in _QT_TEARDOWN_LOG if r.threads]
-    if not (_QT_WIDGET_TESTS or qthread_tests or thread_tests):
-        return
-    tr.write_sep("=", "Qt teardown guard", cyan=True)
-    tr.write_line(
-        f"{_QT_WIDGETS_ALIVE} top-level widget(s) left alive across "
-        f"{_QT_WIDGET_TESTS} test(s) (reported, not force-deleted — see conftest note); "
-        f"{total_visible} left visible"
-    )
-    if qthread_tests:
+    if _QT_WIDGET_TESTS or qthread_tests or thread_tests:
+        tr.write_sep("=", "Qt teardown guard", cyan=True)
         tr.write_line(
-            f"waited out running QThread(s) in {len(qthread_tests)} test(s) "
-            f"({total_qthreads} total) — these tests do not join their workers:"
+            f"{_QT_WIDGETS_ALIVE} top-level widget(s) left alive across "
+            f"{_QT_WIDGET_TESTS} test(s) (reported, not force-deleted — see conftest note); "
+            f"{total_visible} left visible"
         )
-        for nodeid, r in qthread_tests[:8]:
-            stuck = (
-                f" (did NOT finish in {_QTHREAD_WAIT_MS}ms: {r.threads_alive})"
-                if r.threads_alive
-                else ""
+        if qthread_tests:
+            tr.write_line(
+                f"waited out running QThread(s) in {len(qthread_tests)} test(s) "
+                f"({total_qthreads} total) — these tests do not join their workers:"
             )
-            tr.write_line(f"  {nodeid}: {sorted(set(r.qthreads))}{stuck}")
-    if thread_tests:
-        tr.write_line(f"{len(thread_tests)} test(s) left stray Python thread(s):")
-        for nodeid, r in thread_tests:
-            alive = f" (alive after join: {r.threads_alive})" if r.threads_alive else ""
-            tr.write_line(f"  {nodeid}: {r.threads}{alive}")
+            for nodeid, r in qthread_tests[:8]:
+                stuck = (
+                    f" (did NOT finish in {_QTHREAD_WAIT_MS}ms: {r.threads_alive})"
+                    if r.threads_alive
+                    else ""
+                )
+                tr.write_line(f"  {nodeid}: {sorted(set(r.qthreads))}{stuck}")
+        if thread_tests:
+            tr.write_line(f"{len(thread_tests)} test(s) left stray Python thread(s):")
+            for nodeid, r in thread_tests:
+                alive = (
+                    f" (alive after join: {r.threads_alive})" if r.threads_alive else ""
+                )
+                tr.write_line(f"  {nodeid}: {r.threads}{alive}")
+    if _LEAK_ALLOWLIST_STALE_CANDIDATES:
+        n = len(_LEAK_ALLOWLIST_STALE_CANDIDATES)
+        tr.write_sep("=", "Leak allowlist freshness", cyan=True)
+        tr.write_line(
+            f"{n} allowlist entr{'y' if n == 1 else 'ies'} ran this session and "
+            "did NOT leak in THIS run's order. This is NOT proof they are "
+            "stale — the allowlist is a union across every order a leak has "
+            "been seen in (CI's shards, the local full run, ...), and one run "
+            "samples exactly one of those orders. These are candidates for a "
+            "human to verify, not entries this run has cleared:"
+        )
+        for nodeid in _LEAK_ALLOWLIST_STALE_CANDIDATES:
+            tr.write_line(f"  {nodeid}")
+        tr.write_line(
+            "Re-run with METATV_LEAK_GUARD_JUDGE=1 to fail on these instead of "
+            "just reporting them — only when deliberately judging the list."
+        )
 
 
 @pytest.fixture(scope="function")

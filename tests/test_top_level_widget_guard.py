@@ -96,3 +96,110 @@ def test_no_leak_passes_cleanly(pytester, monkeypatch):
             assert True
     """)
     result.assert_outcomes(passed=1, errors=0, failed=0)
+
+
+# ---------------------------------------------------------------------------
+# QT-2: ``_leak_allowlist_freshness_check`` (session-end companion, tests/
+# conftest.py) reports stale allowlist candidates instead of failing on them,
+# unless METATV_LEAK_GUARD_JUDGE opts a run into judging the list.
+# ---------------------------------------------------------------------------
+#
+# Unlike the per-test ``_top_level_widget_guard`` above, this fixture is
+# SESSION-scoped and its report comes out of ``pytest_terminal_summary`` — a
+# real HOOK, not a fixture. Fixtures rebound onto a plain test module are
+# picked up by pytest's fixture manager regardless of where they're defined
+# (that's what ``_LEAK_BODY`` above relies on), but hook implementations are
+# only discovered from files pytest registers as plugins — a conftest.py, not
+# an arbitrary imported module. So this nested session gets its own REAL
+# ``conftest.py`` (via ``pytester.makeconftest``) that imports the actual
+# ``tests/conftest.py`` and rebinds both the fixture and the hook under their
+# own names — same "reuse the real thing" approach as ``_LEAK_BODY``, just at
+# the file pytest actually scans for hooks.
+
+_STALE_CONFTEST = """
+import tests.conftest as _rc
+from PyQt6.QtWidgets import QApplication
+
+# ``_top_level_widget_guard`` is a no-op when QApplication.instance() is
+# None (nothing to snapshot) — true only for the FIRST Qt-touching test in a
+# real session; every later one, including a plain non-Qt test, finds an
+# instance already up. Recreate that condition here so the allowlist check
+# actually runs for our plain (non-Qt) stale-candidate test below. MUST be
+# held by a module-level name: an unassigned QApplication([]) is garbage
+# collected immediately (nothing keeps its Python wrapper alive), which
+# silently drops the underlying instance back to None.
+_QAPP = QApplication.instance() or QApplication([])
+
+_rc._TOP_LEVEL_WIDGET_LEAK_ALLOWLIST = frozenset({allowlist!r})
+
+_top_level_widget_guard = _rc._top_level_widget_guard
+_leak_allowlist_freshness_check = _rc._leak_allowlist_freshness_check
+pytest_terminal_summary = _rc.pytest_terminal_summary
+"""
+
+# A clean test (no leaked widget) whose nodeid IS in the allowlist — exactly
+# the "ran this session, did NOT leak" shape the freshness check reports as a
+# stale candidate.
+_STALE_TEST_BODY = """
+def test_{name}():
+    assert True
+"""
+
+
+def _run_stale_candidate(pytester, monkeypatch, name, *, judge=False, partial=False):
+    monkeypatch.setenv("PYTHONPATH", str(_REPO_ROOT))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    if judge:
+        monkeypatch.setenv("METATV_LEAK_GUARD_JUDGE", "1")
+    nodeid = f"test_case.py::test_{name}"
+    pytester.makeconftest(_STALE_CONFTEST.format(allowlist=[nodeid]))
+    pytester.makepyfile(test_case=_STALE_TEST_BODY.format(name=name))
+    args = ["-p", "no:cacheprovider"]
+    if partial:
+        args.append(nodeid)
+    result = pytester.runpytest_subprocess(*args)
+    return result, nodeid
+
+
+def test_stale_candidate_reported_not_failed_on_full_run(pytester, monkeypatch):
+    """An ordinary full run reports a stale candidate; it does NOT fail.
+
+    This is the macOS release build's exact shape: no file/nodeid on the
+    command line, ``METATV_LEAK_GUARD_JUDGE`` unset. Before this fix, a
+    stale-looking entry here was a hard `pytest.fail` — proven by
+    ``test_stale_candidate_fails_under_judge_env_var`` below reproducing that
+    same failure, opt-in only.
+    """
+    result, nodeid = _run_stale_candidate(pytester, monkeypatch, "stale_reported")
+    result.assert_outcomes(passed=1, errors=0, failed=0)
+    # The report must name the candidate AND say plainly it is not proof —
+    # never phrase this so it could pass for "list judged and clean".
+    result.stdout.fnmatch_lines(["*Leak allowlist freshness*"])
+    result.stdout.fnmatch_lines([f"*{nodeid}*"])
+    result.stdout.fnmatch_lines(["*NOT proof*"])
+
+
+def test_stale_candidate_fails_under_judge_env_var(pytester, monkeypatch):
+    """METATV_LEAK_GUARD_JUDGE=1 turns the same candidate into a hard failure.
+
+    This is today's (pre-fix) behaviour on ``main``, now opt-in only: proves
+    the judging path still exists and still names the offending nodeid.
+    """
+    result, nodeid = _run_stale_candidate(pytester, monkeypatch, "stale_judged", judge=True)
+    # Same "teardown failure reports as an error" shape as the widget-leak
+    # tests above — this fixture also raises pytest.fail from post-yield code.
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines([f"*stale entries*{nodeid}*"])
+
+
+def test_stale_candidate_not_judged_on_partial_run(pytester, monkeypatch):
+    """A file/nodeid on the command line still judges nothing — JUDGE or not.
+
+    Same rule as before this fix (partial runs never judge); asserted here
+    WITH the judge flag set to prove partial-run detection still wins.
+    """
+    result, nodeid = _run_stale_candidate(
+        pytester, monkeypatch, "stale_partial", judge=True, partial=True
+    )
+    result.assert_outcomes(passed=1, errors=0, failed=0)
+    result.stdout.no_fnmatch_line("*Leak allowlist freshness*")
