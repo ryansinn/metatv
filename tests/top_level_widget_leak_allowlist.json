@@ -207,8 +207,6 @@
   "tests/test_discover_pin_expand.py::TestExpandFetchLoadingFeedback::test_start_expand_fetch_failure_shows_error_row",
   "tests/test_discover_pin_expand.py::TestExpandFetchLoadingFeedback::test_start_expand_fetch_shows_loading_synchronously",
   "tests/test_discover_pin_expand.py::TestExpandFetchLoadingFeedback::test_start_expand_fetch_success_replaces_loading_with_cards",
-  "tests/test_discover_pin_expand.py::TestManageDialogTransferToPinned::test_transfer_collapsed_to_pinned_removes_from_collapsed",
-  "tests/test_discover_pin_expand.py::TestManageDialogTransferToPinned::test_transfer_pinned_deduped_from_expanded",
   "tests/test_discover_pin_expand.py::TestMoveShelfPinImpliesExpanded::test_move_to_collapsed_sets_collapsed_true",
   "tests/test_discover_pin_expand.py::TestMoveShelfPinImpliesExpanded::test_move_to_pinned_uncollapses_shelf",
   "tests/test_discover_pin_expand.py::TestPinTriggersCardFetch::test_pin_collapsed_shelf_starts_card_fetch",

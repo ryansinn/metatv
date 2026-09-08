@@ -496,61 +496,34 @@ class TestDefaultExpandedSet:
 # ---------------------------------------------------------------------------
 
 class TestManageDialogTransferToPinned:
+    """The real dialog, its real sections, its real rows.
 
-    def _build_dialog(self, config):
-        from PyQt6.QtWidgets import QVBoxLayout, QWidget
-        from metatv.gui.discover_filter_dialog import DiscoverManageDialog
-        dlg = DiscoverManageDialog.__new__(DiscoverManageDialog)
-        dlg._config   = config
-        dlg._pinned   = config.discover_pinned_shelves
-        dlg._expanded = config.discover_expanded_shelves
-        dlg._collapsed = config.discover_collapsed_shelves
-        dlg._hidden   = config.discover_hidden_shelves
-        dlg._titles   = {}
-        dlg._row_widgets = {}
-        dlg._changed  = False
-        # The _transfer mutual-exclusion guard reads these containers to clean
-        # up stale row widgets when a key appears in multiple zones.
-        for attr in ("_pinned_list", "_expanded_list", "_collapsed_list", "_hidden_list"):
-            w = QWidget()
-            w.setLayout(QVBoxLayout())
-            setattr(dlg, attr, w)
-        return dlg
+    This used to be ``DiscoverManageDialog.__new__`` plus nine hand-listed
+    attributes and a pair of throwaway container widgets — CLAUDE.md's
+    stale-copy shape, which went stale the moment the dialog grew
+    ``_folded_families``. The factory in ``tests/conftest.py`` runs the real
+    ``__init__``, so the rows, the sections and the family headings under test
+    are the ones the user gets.
+    """
 
-    def test_transfer_collapsed_to_pinned_removes_from_collapsed(self, qapp, config):
+    def _build_dialog(self, config, owned_widgets):
+        from tests.conftest import make_discover_manage_dialog
+        return owned_widgets.own(make_discover_manage_dialog(config))
+
+    def test_transfer_collapsed_to_pinned_removes_from_collapsed(
+            self, qapp, config, owned_widgets):
         """Transferring a shelf from collapsed to pinned removes it from collapsed."""
-        from PyQt6.QtWidgets import QVBoxLayout, QWidget
-        from metatv.gui.discover_filter_dialog import _ShelfRow
-
         config.discover_pinned_shelves    = []
         config.discover_expanded_shelves  = []
         config.discover_collapsed_shelves = ["genre:Action"]
         config.discover_hidden_shelves    = []
 
-        dlg = self._build_dialog(config)
+        dlg = self._build_dialog(config, owned_widgets)
 
-        # Build minimal src/dst container widgets.
-        src_container = QWidget()
-        src_container.setLayout(QVBoxLayout())
-        dst_container = QWidget()
-        dst_container.setLayout(QVBoxLayout())
-
-        # Put a stale row into the collapsed container.
-        stale_row = _ShelfRow("genre:Action", "genre:Action")
-        src_container.layout().addWidget(stale_row)
-        dlg._row_widgets["genre:Action"] = stale_row
-
-        # Patch _commit so it doesn't touch the real filesystem.
-        dlg._commit = MagicMock()
-        dlg._build_pinned_row = lambda k: _ShelfRow(k, k)
-        dlg._sync_empty_label = MagicMock()
-        dlg._add_empty_label  = MagicMock()
-
-        # Transfer from collapsed to pinned.
         dlg._transfer(
             "genre:Action",
-            dlg._collapsed, src_container,
-            dlg._pinned,    dst_container,
+            dlg._collapsed, dlg._collapsed_list,
+            dlg._pinned,    dlg._pinned_list,
             dlg._build_pinned_row,
         )
 
@@ -559,39 +532,24 @@ class TestManageDialogTransferToPinned:
             "key must be removed from collapsed after transfer to pinned"
         )
 
-    def test_transfer_pinned_deduped_from_expanded(self, qapp, config):
+    def test_transfer_pinned_deduped_from_expanded(
+            self, qapp, config, owned_widgets):
         """If a key is in both expanded and collapsed (inconsistent config), pinning
         it removes it from both other lists via the mutual-exclusion guard."""
-        from PyQt6.QtWidgets import QVBoxLayout, QWidget
-        from metatv.gui.discover_filter_dialog import _ShelfRow
-
         # Simulate an inconsistent state: key in expanded AND collapsed.
         config.discover_pinned_shelves    = []
         config.discover_expanded_shelves  = ["recently_added"]
         config.discover_collapsed_shelves = ["recently_added", "genre:Drama"]
         config.discover_hidden_shelves    = []
 
-        dlg = self._build_dialog(config)
+        dlg = self._build_dialog(config, owned_widgets)
 
-        src_container = QWidget()
-        src_container.setLayout(QVBoxLayout())
-        dst_container = QWidget()
-        dst_container.setLayout(QVBoxLayout())
-
-        stale_row = _ShelfRow("recently_added", "recently_added")
-        src_container.layout().addWidget(stale_row)
-        dlg._row_widgets["recently_added"] = stale_row
-
-        dlg._commit = MagicMock()
-        dlg._build_pinned_row = lambda k: _ShelfRow(k, k)
-        dlg._sync_empty_label = MagicMock()
-        dlg._add_empty_label  = MagicMock()
-
-        # Transfer from expanded to pinned.
+        # The row widget the dialog is tracking is the collapsed one (built
+        # last); the expanded section still holds a stale one for the same key.
         dlg._transfer(
             "recently_added",
-            dlg._expanded, src_container,
-            dlg._pinned,   dst_container,
+            dlg._expanded, dlg._expanded_list,
+            dlg._pinned,   dlg._pinned_list,
             dlg._build_pinned_row,
         )
 
