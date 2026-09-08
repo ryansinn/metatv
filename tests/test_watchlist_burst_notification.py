@@ -158,3 +158,29 @@ def test_the_worker_composes_through_the_shared_helper() -> None:
     assert "burst_banner" in called, (
         "the worker builds its banner some other way — then every test above "
         "is checking a function the app does not use.")
+
+
+# ── duplicate stations carrying one programme are one show ───────────────────
+
+def test_the_same_title_on_several_channels_counts_once(qapp=None):
+    """Owner's banner, 2026-09-08: "14 shows starting in 14 min / Two and a Half
+    Men, Two and a Half Men, Two and a Half Men and 11 more" — three named slots
+    spent on one show, and the other titles never surfaced."""
+    pending = ([_prog("Two and a Half Men", channel=f"CH{i}") for i in range(3)]
+               + [_prog("Newsnight"), _prog("Match of the Day")])
+    title, message, _ = burst_banner(pending)
+    assert title.startswith("3 shows starting"), title
+    assert message == "Two and a Half Men, Newsnight, Match of the Day", message
+
+
+def test_one_title_on_several_channels_is_a_single_alert_that_says_so():
+    pending = [_prog("Two and a Half Men", channel=f"CH{i}") for i in range(3)]
+    title, message, _ = burst_banner(pending)
+    assert title == "Starting in 15 min: Two and a Half Men", title
+    assert message == "On CH0 and 2 other channels", message
+
+
+def test_two_channels_reads_singular():
+    title, message, _ = burst_banner(
+        [_prog("Newsnight", channel="A"), _prog("Newsnight", channel="B")])
+    assert message == "On A and 1 other channel", message
