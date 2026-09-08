@@ -244,6 +244,7 @@ def test_bg_validate_threads_start_seconds_on_error():
     """_bg_validate_and_play includes start_seconds in the error payload too."""
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    host.db = MagicMock()  # the STALE-1 last-refresh read runs in this worker
     host._stream_ready = MagicMock()
 
     with patch.object(host, "validate_and_failover_stream_url", return_value=("", "not available")):
