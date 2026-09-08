@@ -88,6 +88,7 @@ undo_icon: str = "↩"   # U+21A9 LEFTWARDS ARROW WITH HOOK — "Undo" a pending
 watch_later_icon: str = "👀"  # Watch Later quick-pick category
 refresh_icon: str = "⟳"
 settings_icon: str = "⚙"
+keyboard_icon: str = "⌨"      # U+2328 KEYBOARD — Tools ▸ Keyboard Shortcuts (the cheat-sheet)
 search_icon: str = "🔍"
 copy_icon: str = "📄"       # U+1F4C4 PAGE FACING UP — "copy this text to the clipboard"
                             # (📋 is the Watch Queue; ⧉ is the split-streams toggle)
