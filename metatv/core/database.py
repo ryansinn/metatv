@@ -82,11 +82,10 @@ class ChannelDB(Base):
     #: edited keeps an ancient timestamp and is indistinguishable from one that
     #: has vanished.
     #:
-    #: NULL means "never observed under this scheme" and is NEVER pruned. The
-    #: backfill stamps every existing row once, so a NULL afterwards can only be
-    #: a row inserted by something that bypassed the catalog upsert — deleting
-    #: on an absence of evidence is exactly the mistake #642 recorded about
-    #: inferring a first launch from empty lists.
+    #: NULL means "never observed under this scheme" and is NEVER pruned. The backfill
+    #: stamps every existing row once, so a NULL afterwards can only be a row inserted
+    #: by something that bypassed the catalog upsert — deleting on an absence of evidence
+    #: is exactly the mistake #642 recorded about inferring a first launch from empty lists.
     last_seen_at = Column(DateTime, index=True)
     is_adult = Column(Boolean, default=False, index=True)
     is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
@@ -145,12 +144,11 @@ class ChannelDB(Base):
 
     # Stable content identity key — computed once at ingestion from stored detected_* fields,
     # never from the raw channel name.  Groups same-production channels that differ only by
-    # source/language/quality variant (e.g. "EN Dark Star movie 2017" and "FR Dark Star movie 2017"
-    # both resolve to "dark star|movie|2017").
-    # Format: "{norm_detected_title}|{media_type}|{detected_year}"
-    # Fallback: when detected_title is empty, the channel id is used so the row never
-    # collapses with unrelated rows.  NULL on pre-migration rows; backfilled via
-    # ContentKeyBackfillTask (registered at app startup in main_window.py).
+    # source/language/quality variant (e.g. "EN Dark Star movie 2017" and "FR Dark Star movie
+    # 2017" both resolve to "dark star|movie|2017").
+    # Format: "{norm_detected_title}|{media_type}|{detected_year}"; when detected_title is
+    # empty the channel id is used instead, so the row never collapses with unrelated rows.
+    # NULL on pre-migration rows; backfilled via ContentKeyBackfillTask (main_window.py).
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
     content_key = Column(String, index=True, nullable=True)
 
@@ -169,12 +167,11 @@ class ChannelDB(Base):
     # tmdb enrichment provenance marker (Phase 2 — see tmdb_enrichment_manager.py).
     # Encodes HOW/whether a row's tmdb id was resolved, driving the fetch-once guard and
     # the "Missing TMDb data" analytics funnel:
-    #   NULL         — unattempted (no id yet; a lazy-fetch candidate)
-    #   'list'       — id came straight from the provider list row (Phase-1 harvest)
-    #   'propagated' — id adopted from a confident same-title sibling (free, no network)
-    #   'fetched'    — id found via the provider's detail endpoint (get_vod/series_info)
-    #   'none'       — detail endpoint attempted but carried no id (the residual gap only
-    #                  the external TMDb API could resolve)
+    #   NULL — unattempted (no id yet; a lazy-fetch candidate) · 'list' — straight from
+    #   the provider list row (Phase-1 harvest) · 'propagated' — adopted from a confident
+    #   same-title sibling (free, no network) · 'fetched' — via the provider's detail
+    #   endpoint (get_vod/series_info) · 'none' — detail endpoint attempted but carried
+    #   no id (the residual gap only the external TMDb API could resolve).
     # Guarantees an idless row is fetched at most once; on content refresh only STILL-idless
     # rows are reset to NULL (reset_tmdb_enrich_state) so resolved rows keep their provenance.
     # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites an existing marker.
@@ -232,13 +229,12 @@ class ChannelDB(Base):
     # unambiguously marked by naming convention (XXX/ADULT/X-prefix). Computed once
     # at ingestion via channel_name_utils.is_restricted_name() in the same
     # update_detected_prefixes() pass that computes the other detected_* fields;
-    # NEVER re-derived at query/render time. Separate provenance from ``is_adult``
-    # (a provider-supplied fact) — this column is never overwritten by it, and vice
-    # versa. Read alongside ``is_adult`` by the adult-mode gate
-    # (ChannelRepository._apply_channel_filters / discovery_engine._apply_adult_filter).
-    # "restricted" is a deliberately neutral internal name — user-facing surfaces
-    # keep the "Adult" label. Backfilled for pre-existing rows by
-    # RestrictedBackfillTask (metatv/core/migrations/restricted_backfill.py).
+    # NEVER re-derived at query/render time. Separate provenance from ``is_adult`` (a
+    # provider-supplied fact) — neither column overwrites the other. Read alongside
+    # ``is_adult`` by the adult-mode gate (ChannelRepository._apply_channel_filters /
+    # discovery_engine._apply_adult_filter).
+    # "restricted" is a deliberately neutral internal name — user-facing surfaces keep
+    # the "Adult" label. Pre-existing rows: RestrictedBackfillTask.
     detected_restricted = Column(Boolean, default=False, index=True)
 
     # Category-marker cleanup (owner-reported gap): provider category strings often
@@ -249,14 +245,14 @@ class ChannelDB(Base):
     # fields; the raw ``category`` column is NEVER modified (keeps provenance).
     #   detected_collection: the CLEAN category, marker stripped and whitespace
     #     collapsed ("ANIME"). NULL when the channel has no category.
-    #   detected_collection_language: a plain-code marker ("EN") that DISAGREES
-    #     with the channel's own detected_prefix — kept as its own "other
-    #     language" chip value rather than silently dropped. NULL when the marker
-    #     was adopted as/matches the prefix, or there was no plain marker.
+    #   detected_collection_language: a plain-code marker ("EN") that DISAGREES with
+    #     the channel's own detected_prefix — kept as its own "other language" chip
+    #     value rather than silently dropped. NULL when the marker was adopted
+    #     as/matches the prefix, or there was no plain marker.
     #   detected_collection_subdub: a compound "CODE-SUB"/"CODE-DUB" marker's
     #     chip-ready display text ("AR-SUB"). The same marker also feeds the
-    #     detected_audio sub/dub facet (the queryable data); this field is purely
-    #     the pre-formatted display value for its own chip.
+    #     detected_audio sub/dub facet (the queryable data); this is purely the
+    #     pre-formatted display value for its own chip.
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never
     # overwrites these. Backfilled for pre-existing rows by
     # CategoryMarkerBackfillTask (metatv/core/migrations/category_marker_backfill.py).
@@ -414,6 +410,12 @@ class ProviderDB(Base):
     # recur, while still letting a working host survive a restart.
     epg_last_good_base_url = Column(String, nullable=True)
     epg_unnamed_refetch_attempted = Column(Boolean, default=False)  # Persistent guard: the one-time re-fetch to name legacy nameless guide rows has been tried (reset on content refresh)
+    # Condensed cause of the LAST failed guide fetch, and when it failed; both
+    # cleared on the next success (core/epg_fetch.py is the only writer). Without
+    # them the freshness line could only blame the SOURCE, which was flatly wrong
+    # whenever OUR fetch failed or the user's URL override was the broken thing.
+    epg_last_fetch_error = Column(Text, nullable=True)
+    epg_last_fetch_error_at = Column(DateTime, nullable=True)
 
     # Account info cached from provider API
     account_status = Column(String)         # Active, Expired, Banned, Disabled
@@ -886,12 +888,11 @@ class Database:
             cur.execute("PRAGMA synchronous=NORMAL")
             # auto_vacuum is a PERSISTENT db-level setting — only WRITE it when the DB
             # isn't already FULL. Running "PRAGMA auto_vacuum=FULL" unconditionally on
-            # EVERY connection acquires a write lock even when the value is unchanged,
-            # which raised "database is locked" (bypassing busy_timeout) whenever a
-            # concurrent transaction held the writer — e.g. an off-thread provider
-            # delete — and crashed the app (SIGABRT). New/empty DBs still get FULL here
-            # before any table exists; established FULL DBs skip the write entirely.
-            # The one-time legacy (mode==0) migration lives in _ensure_auto_vacuum().
+            # EVERY connection takes a write lock even when the value is unchanged, which
+            # raised "database is locked" (bypassing busy_timeout) whenever a concurrent
+            # transaction held the writer — e.g. an off-thread provider delete — and
+            # crashed the app (SIGABRT). New/empty DBs still get FULL here; established
+            # FULL DBs skip the write. Legacy (mode==0) migration: _ensure_auto_vacuum().
             if cur.execute("PRAGMA auto_vacuum").fetchone()[0] != 1:
                 cur.execute("PRAGMA auto_vacuum=FULL")
             cur.close()
@@ -967,6 +968,8 @@ class Database:
             # Host that last served a parseable guide; see the column comment.
             ("providers",    "epg_last_good_base_url",     "TEXT"),
             ("providers",    "epg_unnamed_refetch_attempted", "INTEGER DEFAULT 0"),
+            ("providers",    "epg_last_fetch_error",       "TEXT"),      # EPGF-1
+            ("providers",    "epg_last_fetch_error_at",    "DATETIME"),  # EPGF-1
             ("channels",     "watch_progress",             "INTEGER DEFAULT 0"),
             ("channels",     "watch_completed",            "INTEGER DEFAULT 0"),
             ("channels",     "last_played_via",            "TEXT"),
@@ -1412,20 +1415,17 @@ class Database:
                 if (_waited_ms >= SLOW_MAIN_THREAD_COMMIT_MS
                         and threading.current_thread() is threading.main_thread()):
                     # The UI thread blocked on a write. Under WAL readers never
-                    # block, but writer-vs-writer still serialises, so a bulk
-                    # pass holding the write lock stalls a click handler for as
-                    # long as its batch takes — up to busy_timeout (30s) before
-                    # it would fail outright.
+                    # block, but writer-vs-writer still serialises, so a bulk pass
+                    # holding the write lock stalls a click handler for as long as
+                    # its batch takes — up to busy_timeout (30s) before it fails.
                     #
-                    # Logged rather than prevented, deliberately. The two fixes
-                    # on offer both cost something real: routing every user-state
-                    # mutation through the async seam is a wide refactor, and a
-                    # short main-thread busy_timeout turns a slow favourite
-                    # toggle into a FAILED one, which is worse. Neither is worth
-                    # buying before the frequency is known, and it is not: the
-                    # batches are sized (2,000 rows) so the typical wait should
-                    # be well under this threshold. This line is what turns that
-                    # "should" into evidence.
+                    # Logged rather than prevented, deliberately: both fixes cost
+                    # something real (routing every user-state mutation through the
+                    # async seam is a wide refactor; a short main-thread busy_timeout
+                    # turns a slow favourite toggle into a FAILED one, which is
+                    # worse), and neither is worth buying before the frequency is
+                    # known. Batches are sized (2,000 rows) so the typical wait
+                    # SHOULD be well under this threshold — this line is the evidence.
                     logger.warning(
                         "UI thread blocked {:.0f}ms committing — a background "
                         "write held the lock. If this is common, user-state "

@@ -230,16 +230,19 @@ What's left to build. Completed features live in git history.
 > Whenever this is revisited, it starts with a design conversation, not with
 > this text as a spec.
 
-- [ ] **EPG freshness must distinguish "our fetch failed" from "the source is out of date".** The
-  source editor's freshness line reads *"⚠ Stale — guide ends 4 Aug 2026 (source out of date)"* —
-  it blames the provider, and in the owner's 2026-08-16 case that was flatly wrong: the guide was
-  dead because the app's own cached `epg_url` carried a **previous subscription's credentials**
-  (fixed in #316 by deriving the URL instead of caching it). The label has no way to say "we could
-  not fetch", so a broken **user override** — which #316 deliberately does not cycle, because it is
-  an explicit instruction — still fails silently forever. Needs a stored last-fetch-error (schema
-  addition, hence its own slice) so the three states read differently: fetched fine but the source
-  lags · fetch failed on every host · your override is broken. Owner asked for this while the
-  EPG-URL bug was being diagnosed; it is the honest-empty-state half that #316 did not cover.
+- [x] **EPG freshness must distinguish "our fetch failed" from "the source is out of date".** —
+  SHIPPED 0.103.0 (#797, entry 629). The source editor's freshness line read *"⚠ Stale — guide
+  ends 4 Aug 2026 (source out of date)"* — it blamed the provider, and in the owner's 2026-08-16
+  case that was flatly wrong: the guide was dead because the app's own cached `epg_url` carried a
+  **previous subscription's credentials** (fixed in #316 by deriving the URL instead of caching
+  it). The label had no way to say "we could not fetch", so a broken **user override** — which
+  #316 deliberately does not cycle, because it is an explicit instruction — failed silently
+  forever. `ProviderDB.epg_last_fetch_error`/`_at` are now written at the end of every fetch
+  attempt (`core/epg_fetch.py`, one writer, cause condensed through `condense_error`) and cleared
+  on the next success, and `epg_utils.guide_freshness()` is the one computation both status lines
+  render, so the three states read differently: fetched fine but the source lags · fetch failed on
+  every host · your override is broken. Owner asked for this while the EPG-URL bug was being
+  diagnosed; it is the honest-empty-state half that #316 did not cover.
 
 - [~] **Stream diagnostics probes ONE arbitrary host and reports it as a verdict about the
   content.** SHIPPED partially v0.56.0 (#580, entry 448): the *verdict wording* is fixed — a server that answers and refuses no longer reads as unreachable, a 403 names the account connection limit and a 404 names a removed title, and only a genuine no-answer still says unreachable. The **cycling half remains open**: `core/stream_diagnostics.py` still carries zero references to `UrlCycler`, `ordered_urls` or `provider_id` (re-verified 2026-09-07), so it cannot say "reached 0 of 20 hosts" or "18 hosts fine, this one is slow". `run_stream_diagnostic()` (`core/stream_diagnostics.py:367`) takes a bare URL string

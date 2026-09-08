@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 import types as _types
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
@@ -33,7 +33,7 @@ from metatv.core.epg_utils import (
 from metatv.core.models import Provider
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.watchlist_burst import burst_banner
-from metatv.core.repositories.epg import delete_programmes_chunked
+from metatv.core.repositories.epg import EpgRepository, delete_programmes_chunked
 from metatv.core.repositories.provider import parse_provider_urls
 
 
@@ -201,7 +201,50 @@ class EpgManager(_EpgFetchMixin, QObject):
             return override
         return EpgManager.build_epg_url(provider) or ""
 
-    def needs_refresh(self, provider: ProviderDB) -> bool:
+    def _guide_ran_out_of_starts(
+        self, provider_id: str, last_fetched: datetime, guide_expired: bool,
+        epg_repo: EpgRepository | None = None,
+    ) -> bool:
+        """Whether the expiry floor should fire for *provider_id* (ledger F8).
+
+        True when nothing in the stored guide STARTS after now **and** the last
+        fetch demonstrably produced something that did — so re-fetching has a
+        reason to expect different content. With no matched rows to measure,
+        "no starts" says nothing at all, so it falls back to *guide_expired*
+        (``epg_data_end < now``), which is exactly what this floor read before
+        EPGF-1. See :meth:`needs_refresh` for why each half exists.
+
+        Args:
+            provider_id: The feed provider whose guide is being measured.
+            last_fetched: ``epg_last_fetched`` — never ``None`` here (the
+                never-fetched branch returns before this is reached).
+            guide_expired: ``epg_is_stale(epg_data_end)``, the stored summary —
+                the fallback when there is nothing to measure.
+            epg_repo: An :class:`EpgRepository` on an open session, or ``None``
+                to open a read-only scope of our own.
+
+        Returns:
+            True when the floor may fire.
+        """
+        if epg_repo is None:
+            with self.db.session_scope(commit=False) as session:
+                return self._guide_ran_out_of_starts(
+                    provider_id, last_fetched, guide_expired,
+                    EpgRepository(session),
+                )
+        if not epg_repo.has_stored_programmes(provider_id, matched_only=True):
+            return guide_expired               # nothing to measure — old behaviour
+        ids = [provider_id]
+        if epg_repo.has_future_programmes(ids):
+            return False                       # the guide still has something to say
+        # It ran out. Only refill if the last fetch actually produced a start
+        # after itself — a feed lagging real time never does, and would
+        # otherwise re-fetch forever (#285, #320).
+        return epg_repo.has_future_programmes(ids, after=last_fetched)
+
+    def needs_refresh(
+        self, provider: ProviderDB, epg_repo: EpgRepository | None = None,
+    ) -> bool:
         """Return True if this provider's EPG data should be re-fetched.
 
         Resolution order:
@@ -221,13 +264,33 @@ class EpgManager(_EpgFetchMixin, QObject):
            expiry floor fires (guide ran out — time intervals must never leave an
            empty "On Now").
 
-        Expiry floor & stale-at-source: the floor forces an immediate re-fetch
-        when the guide has run out, but is SUPPRESSED when the guide was
-        already expired at fetch time (``epg_data_end < epg_last_fetched``) —
-        a feed lagging real time re-serves the same stale guide, so the floor
-        would re-fetch on every launch forever (sibling of the TREX
-        unmatched-guide convergence fix, #285). Such feeds fall back to the
-        interval throttle instead.
+        **The expiry floor asks whether anything can still START** (ledger F8).
+        It used to read ``epg_data_end``, the max ``stop_time``, so a guide whose
+        last entries merely ran LONG reported coverage past the point where
+        anything new could begin: measured 2026-08-26, the last programme started
+        10:38 while ``epg_data_end`` read 22:00 and no refresh was due for six
+        hours — six hours in which no watch alert could fire. It now asks
+        :meth:`EpgRepository.has_future_programmes`, which measures that
+        honestly. ``epg_data_end`` stays as informational data (the freshness
+        line reads it).
+
+        Two throttles keep the floor from becoming a re-fetch loop, which is the
+        exact failure this heuristic has been repaired for twice (#285, #320):
+
+        * **stale at source**, unchanged — the guide was already expired at fetch
+          time (``epg_data_end < epg_last_fetched``), so the feed lags real time
+          and re-serves the same stale guide. The new trigger inherits it.
+        * **the last fetch produced no future start**, its own — measured with
+          the same ``has_future_programmes`` query against ``epg_last_fetched``.
+          A feed whose newest programme had already begun when we downloaded it
+          will serve exactly that again, forever. A provider with NOTHING stored
+          is not lagging, it is empty, and the floor is what refills it.
+
+        Args:
+            provider: The row to judge.
+            epg_repo: An :class:`EpgRepository` on an already-open session (the
+                scheduler holds one); a read-only scope is opened when omitted,
+                so the predicate stays callable on its own.
         """
         if not self.effective_epg_url(provider):
             return False
@@ -254,7 +317,9 @@ class EpgManager(_EpgFetchMixin, QObject):
         # see docstring. Suppressing the floor here is what stops it re-fetching
         # every launch; the normal interval throttle still governs below.
         guide_stale_at_source = data_end is not None and data_end < last_fetched
-        expiry_floor = guide_expired and not guide_stale_at_source
+        expiry_floor = not guide_stale_at_source and self._guide_ran_out_of_starts(
+            provider.id, last_fetched, guide_expired, epg_repo
+        )
 
         if effective == "every_open":
             return True
@@ -316,7 +381,6 @@ class EpgManager(_EpgFetchMixin, QObject):
 
         session = self.db.get_session()
         try:
-            from metatv.core.repositories.epg import EpgRepository
             epg_repo = EpgRepository(session)
             # is_active alone is not the gate: an EXPIRED subscription stays
             # active until removed, and fetching its guide cycles every host
@@ -332,7 +396,7 @@ class EpgManager(_EpgFetchMixin, QObject):
                 eff_url = self.effective_epg_url(provider)
                 if not eff_url or provider.id in self._active_refreshes:
                     continue
-                if self.needs_refresh(provider):
+                if self.needs_refresh(provider, epg_repo):
                     self._start_refresh(provider.id, provider.name, force=False)
                 elif (
                     provider.id not in self._unmatched_refresh_attempted

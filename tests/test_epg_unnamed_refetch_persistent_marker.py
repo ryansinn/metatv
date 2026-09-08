@@ -18,7 +18,7 @@ is content-refreshed so a genuinely-improved feed re-attempts exactly once.  The
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -61,12 +61,18 @@ def _add_provider(session, pid, *, last_fetched_offset=timedelta(0),
 
 def _add_epg_row(session, pid, *, channel_name, channel_db_id=None):
     """An EPG row; ``channel_name=""`` + ``channel_db_id=None`` is the unnamed/unmatched
-    legacy case that keeps ``has_unmatched_unnamed_epg`` True."""
-    now = datetime.utcnow()
+    legacy case that keeps ``has_unmatched_unnamed_epg`` True.
+
+    It starts in an hour, so it actually backs the provider's ``epg_data_end``
+    of +1 day: the refresh floor now asks whether anything still STARTS (ledger
+    F8), and a "time-fresh" guide whose only programme has already begun is an
+    exhausted one.
+    """
+    now = now_utc()
     session.add(EpgProgramDB(
         provider_id=pid, channel_epg_id="x.tv", channel_db_id=channel_db_id,
         channel_name=channel_name, title="Show",
-        start_time=now, stop_time=now + timedelta(hours=1),
+        start_time=now + timedelta(hours=1), stop_time=now + timedelta(hours=2),
     ))
 
 

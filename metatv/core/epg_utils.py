@@ -6,6 +6,7 @@ Arithmetic functions compare UTC-naive against now_utc() — no conversion neede
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 
@@ -579,3 +580,146 @@ def epg_interval_delta(value: str) -> timedelta | None:
         for ``"every_open"`` / ``"when_stale"`` / ``"auto"``.
     """
     return _EPG_INTERVAL_DELTA_MAP.get(value)
+
+
+# ---------------------------------------------------------------------------
+# Guide freshness — one computation, every display (EPGF-1)
+# ---------------------------------------------------------------------------
+
+#: The freshness states, in the order they are decided. The three that matter
+#: are the last three: before EPGF-1 every bad state rendered as
+#: "Stale — guide ends <date> (source out of date)", which BLAMES THE SOURCE —
+#: flatly wrong when our own fetch failed (the owner's 2026-08-16 case: a cached
+#: ``epg_url`` carrying a dead subscription's credentials) or when the user's
+#: URL override is broken, which is never cycled because it is an explicit
+#: instruction and so failed silently forever.
+GUIDE_FRESHNESS_STATES: tuple[str, ...] = (
+    "not_configured",   # no effective EPG URL at all
+    "no_data",          # configured, nothing fetched yet
+    "current",          # the guide reaches into the future
+    "source_lagging",   # we fetched fine; the source has not published further
+    "fetch_failed",     # every host failed — OUR fetch, not their guide
+    "override_failed",  # the user's own EPG URL override is the thing failing
+)
+
+
+@dataclass(frozen=True)
+class GuideFreshness:
+    """A provider's guide freshness as one state plus the words for it.
+
+    Frozen and plain — it crosses from a repository read to the widgets with no
+    live session behind it. The glyph and colour are chosen by the render site
+    from :attr:`state` (icons live in ``metatv/gui/icons.py``, which core must
+    not import); everything language-shaped is decided here so the two displays
+    that share this computation cannot word the same state differently.
+
+    Attributes:
+        state: One of :data:`GUIDE_FRESHNESS_STATES`.
+        text: The line to render.
+        detail: The full, uncondensed cause for a tooltip — ``""`` when there
+            is nothing more to say than *text* already says.
+    """
+
+    state: str
+    text: str
+    detail: str = ""
+
+
+def _fmt_day(dt: datetime) -> str:
+    """A guide date as "4 Aug 2026", local, with no leading zero."""
+    try:
+        return to_local(dt).strftime("%d %b %Y").lstrip("0")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return str(dt)  # an unformattable date still reads
+
+
+def _fmt_when(dt: datetime | None) -> str:
+    """A failure timestamp as "4 Aug 2026, 14:05" local, or "an unknown time"."""
+    if dt is None:
+        return "an unknown time"
+    try:
+        return to_local(dt).strftime("%d %b %Y, %H:%M").lstrip("0")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return str(dt)
+
+
+def guide_freshness(
+    epg_url: str | None,
+    epg_data_end: datetime | None,
+    *,
+    epg_data_start: datetime | None = None,
+    last_fetch_error: str | None = None,
+    last_fetch_error_at: datetime | None = None,
+    has_url_override: bool = False,
+    _now: datetime | None = None,
+) -> GuideFreshness:
+    """Classify a provider's guide freshness and say it in one sentence.
+
+    Single source of truth for every guide-freshness line (the source editor's
+    Account Info "EPG guide:" row and its Settings "Guide freshness:" row today
+    — one computation, two displays).
+
+    Resolution order, most specific first: a *live* fetch error outranks the
+    stored guide's dates, because a guide that ends next Tuesday says nothing
+    about whether we can still reach the feed. A broken user override outranks
+    a plain fetch failure, because it names the one thing the user can fix.
+
+    Args:
+        epg_url: The EFFECTIVE URL (override or auto-derived) — falsy means
+            nothing is configured.
+        epg_data_end: Latest non-filler programme stop (UTC-naive).
+        epg_data_start: Earliest programme start (UTC-naive); only used for the
+            Auto depth annotation on the healthy line.
+        last_fetch_error: ``ProviderDB.epg_last_fetch_error`` — the condensed
+            cause of the last FAILED fetch, cleared on the next success.
+        last_fetch_error_at: When that failure happened (UTC-naive).
+        has_url_override: Whether the user supplied their own EPG URL.
+        _now: Injectable clock for tests (UTC-naive).
+
+    Returns:
+        A :class:`GuideFreshness`.
+    """
+    if not epg_url:
+        return GuideFreshness("not_configured", "Not configured")
+
+    cause = (last_fetch_error or "").strip()
+    if cause:
+        when = _fmt_when(last_fetch_error_at)
+        if has_url_override:
+            return GuideFreshness(
+                "override_failed",
+                f"Your EPG URL override failed since {when}: {cause}",
+                f"The XMLTV URL you supplied is the one failing — it is used "
+                f"verbatim and never cycled to another host, so nothing else "
+                f"was tried. Last attempt {when}: {cause}",
+            )
+        return GuideFreshness(
+            "fetch_failed",
+            f"Could not fetch since {when}: {cause} — press Refresh to retry",
+            f"Every configured host failed to serve a guide. Last attempt "
+            f"{when}: {cause}",
+        )
+
+    if epg_data_end is None:
+        return GuideFreshness("no_data", "No guide data fetched yet")
+
+    day = _fmt_day(epg_data_end)
+    if epg_is_stale(epg_data_end, _now):
+        return GuideFreshness(
+            "source_lagging",
+            f"Guide ends {day} — the source has not published further",
+            f"The last fetch succeeded; the feed itself stops at {day}. "
+            f"Nothing on our side is broken — there is simply no newer guide "
+            f"data to download yet.",
+        )
+
+    auto_note = ""
+    if epg_data_start is not None:
+        depth_days = (epg_data_end - epg_data_start).total_seconds() / 86400
+        resolved_hours = epg_auto_delta(epg_data_start, epg_data_end).total_seconds() / 3600
+        resolved_str = (
+            f"{resolved_hours:.0f}h" if resolved_hours < 24
+            else f"{resolved_hours / 24:.0f}d"
+        )
+        auto_note = f" · Auto: ~{depth_days:.0f}-day feed → refreshing ~every {resolved_str}"
+    return GuideFreshness("current", f"Current — guide through {day}{auto_note}")

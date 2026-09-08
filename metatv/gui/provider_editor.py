@@ -721,6 +721,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._set_epg_status_label(
                 effective_epg_url, db_prov.epg_data_end,
                 epg_data_start=getattr(db_prov, "epg_data_start", None),
+                last_fetch_error=db_prov.epg_last_fetch_error,
+                last_fetch_error_at=db_prov.epg_last_fetch_error_at,
+                has_url_override=bool(epg_url_override),
             )
 
             self._rebuild_url_list()

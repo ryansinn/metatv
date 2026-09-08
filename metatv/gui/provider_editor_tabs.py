@@ -48,6 +48,26 @@ from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget
 
 
+#: Guide-freshness state -> (glyph, colour token name). The state and its words
+#: are decided once in ``epg_utils.guide_freshness``; this is the only place the
+#: LOOK of each state is chosen, so the two labels that share the computation
+#: also share the rendering. Colour never travels alone — every state that is
+#: not "current" is announced by its own glyph as well.
+_EPG_FRESHNESS_LOOK: dict[str, tuple[str, str]] = {
+    "not_configured":  ("",                              "COLOR_TEXT"),
+    "no_data":         ("",                              "COLOR_TEXT"),
+    "current":         ("",                              "COLOR_OK"),
+    "source_lagging":  (_icons.notification_warning_icon, "COLOR_WARN"),
+    "fetch_failed":    (_icons.notification_error_icon,   "COLOR_ERR"),
+    "override_failed": (_icons.notification_error_icon,   "COLOR_ERR"),
+}
+
+#: Tooltip for the states that have nothing more to say than the line already does.
+_EPG_FRESHNESS_DEFAULT_TIP = (
+    "Current state of the downloaded EPG guide data for this source."
+)
+
+
 def _wrap_scroll(content: QWidget) -> QScrollArea:
     """Wrap *content* in a borderless, resizable vertical-scroll area — one
     shared helper so all three tabs scroll identically."""
@@ -642,53 +662,46 @@ class _ProviderEditorTabsMixin:
             self._epg_autodetected_lbl.set_url("")
             self._epg_autodetected_lbl.setVisible(False)
 
-    def _set_epg_status_label(self, epg_url, epg_data_end, epg_data_start=None) -> None:
+    def _set_epg_status_label(
+        self, epg_url, epg_data_end, epg_data_start=None, *,
+        last_fetch_error=None, last_fetch_error_at=None, has_url_override=False,
+    ) -> None:
         """Populate both EPG-guide status lines (Account Info's "EPG guide:" and
         Settings' "Guide freshness:" — one computation, two displays) from the
         provider's cached EPG fields.
 
-        When the effective refresh interval is Auto, also shows the guide depth
-        and the resolved interval so the user can see exactly what Auto computed.
-
-        Uses the canonical epg_is_stale boundary so this matches the EPG view notice.
+        The words and the state come from ``epg_utils.guide_freshness`` (core, so
+        it can be tested without Qt and cannot word the same state two ways);
+        this method only renders them — glyph from ``icons.py``, colour from a
+        token, and the full cause in the tooltip. Colour is never alone: every
+        state that is not "current" carries its own glyph.
 
         Args:
-            epg_url:        Effective EPG URL (auto-detected or override).
-            epg_data_end:   Latest non-filler programme stop (UTC-naive).
-            epg_data_start: Earliest programme start (UTC-naive); used only for the
-                            Auto depth annotation.
+            epg_url:             Effective EPG URL (auto-detected or override).
+            epg_data_end:        Latest non-filler programme stop (UTC-naive).
+            epg_data_start:      Earliest programme start (UTC-naive); used only
+                                 for the Auto depth annotation.
+            last_fetch_error:    ``ProviderDB.epg_last_fetch_error`` — the
+                                 condensed cause of the last FAILED fetch.
+            last_fetch_error_at: When that failure happened (UTC-naive).
+            has_url_override:    Whether the user supplied their own EPG URL —
+                                 what separates "your override is broken" from
+                                 "every host we tried failed".
         """
-        from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, to_local
+        from metatv.core.epg_utils import guide_freshness
 
-        if not epg_url:
-            text, style = "Not configured", f"color: {_theme.COLOR_TEXT};"
-        elif epg_data_end is None:
-            text, style = "No guide data fetched yet", f"color: {_theme.COLOR_TEXT};"
-        else:
-            try:
-                day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")
-            except (TypeError, ValueError, OSError, OverflowError):
-                day = str(epg_data_end)  # silent: unformattable date still reads
-            if epg_is_stale(epg_data_end):
-                text = f"{_icons.notification_warning_icon} Stale — guide ends {day} (source out of date)"
-                style = f"color: {_theme.COLOR_WARN};"
-            else:
-                auto_note = ""
-                if epg_data_start is not None and epg_data_end is not None:
-                    depth = epg_data_end - epg_data_start
-                    depth_days = depth.total_seconds() / 86400
-                    resolved = epg_auto_delta(epg_data_start, epg_data_end)
-                    resolved_hours = resolved.total_seconds() / 3600
-                    resolved_str = (
-                        f"{resolved_hours:.0f}h" if resolved_hours < 24
-                        else f"{resolved_hours / 24:.0f}d"
-                    )
-                    auto_note = (
-                        f" · Auto: ~{depth_days:.0f}-day feed → refreshing ~every {resolved_str}"
-                    )
-                text = f"Current — guide through {day}{auto_note}"
-                style = f"color: {_theme.COLOR_OK};"
+        fresh = guide_freshness(
+            epg_url, epg_data_end,
+            epg_data_start=epg_data_start,
+            last_fetch_error=last_fetch_error,
+            last_fetch_error_at=last_fetch_error_at,
+            has_url_override=has_url_override,
+        )
+        glyph, colour_token = _EPG_FRESHNESS_LOOK[fresh.state]
+        text = f"{glyph} {fresh.text}" if glyph else fresh.text
+        tooltip = fresh.detail or _EPG_FRESHNESS_DEFAULT_TIP
 
         for lbl in (self._acct_epg_lbl, self._epg_freshness_lbl):
             lbl.setText(text)
-            lbl.setStyleSheet(style)
+            lbl.setToolTip(tooltip)
+            _theme.style_fn(lbl, lambda t=colour_token: f"color: {getattr(_theme, t)};")

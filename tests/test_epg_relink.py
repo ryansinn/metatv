@@ -62,16 +62,23 @@ def _add_provider(session, pid: str, *, epg_url: str = "http://e/xmltv.php",
     return p
 
 
-def _add_programme(session, provider_id: str, *, channel_db_id: str | None) -> EpgProgramDB:
-    """Seed one EpgProgramDB row, matched or unmatched as directed."""
+def _add_programme(session, provider_id: str, *, channel_db_id: str | None,
+                   starts_in: timedelta = -timedelta(minutes=30)) -> EpgProgramDB:
+    """Seed one EpgProgramDB row, matched or unmatched as directed.
+
+    ``starts_in`` exists because the refresh floor now asks whether anything
+    still STARTS (ledger F8): a provider seeded as "healthy and time-fresh" has
+    to carry a programme that actually backs its ``epg_data_end``, or the floor
+    correctly reports an exhausted guide and refreshes it.
+    """
     now = now_utc()
     row = EpgProgramDB(
         provider_id=provider_id,
         channel_epg_id=f"epgch.{uuid.uuid4().hex[:6]}",
         channel_db_id=channel_db_id,
         title="Test Show",
-        start_time=now - timedelta(minutes=30),
-        stop_time=now + timedelta(minutes=30),
+        start_time=now + starts_in,
+        stop_time=now + starts_in + timedelta(hours=1),
     )
     session.add(row)
     session.flush()
@@ -183,7 +190,10 @@ def test_refresh_all_does_not_trigger_for_matched_provider(db):
     """refresh_all_if_needed must NOT trigger for a time-fresh, fully matched provider."""
     with db.session_scope() as session:
         _add_provider(session, "matched-p")
-        _add_programme(session, "matched-p", channel_db_id="cdb-1")  # matched
+        # Starts in two hours: a guide claiming six more days must have
+        # something left to start, or the F8 floor refreshes it — correctly.
+        _add_programme(session, "matched-p", channel_db_id="cdb-1",
+                       starts_in=timedelta(hours=2))
 
     manager = _make_manager(db)
     manager._start_refresh = MagicMock()
@@ -289,7 +299,10 @@ def test_unmatched_guard_does_not_suppress_needs_refresh_on_second_call(db):
             epg_refresh_interval="default",
         )
         session.add(p)
-        _add_programme(session, "stale-between", channel_db_id="cdb-matched")  # matched → no unmatched branch
+        # Matched → the unmatched branch never fires; starting in an hour so the
+        # guide genuinely still has content on the FIRST call.
+        _add_programme(session, "stale-between", channel_db_id="cdb-matched",
+                       starts_in=timedelta(hours=1))
 
     manager = _make_manager(db, epg_default="3d")
     manager._start_refresh = MagicMock()
@@ -298,10 +311,20 @@ def test_unmatched_guard_does_not_suppress_needs_refresh_on_second_call(db):
     manager.refresh_all_if_needed()
     assert manager._start_refresh.call_count == 0
 
-    # Expire the guide between calls so needs_refresh returns True
+    # Age the guide out between calls so needs_refresh returns True — both the
+    # stored summary AND the programme itself, because "ran out" now means
+    # nothing STARTS any more (ledger F8), not merely that epg_data_end passed.
     with db.session_scope() as session:
         p = session.query(ProviderDB).filter_by(id="stale-between").first()
         p.epg_data_end = now - timedelta(hours=1)  # now expired
+        prog = session.query(EpgProgramDB).filter_by(
+            provider_id="stale-between").first()
+        # Started half an hour ago — AFTER epg_last_fetched (an hour ago), so the
+        # last fetch demonstrably produced a future start that has since passed.
+        # That is the legitimate "refill it" case, distinct from a feed lagging
+        # real time (which never produces one and is throttled instead).
+        prog.start_time = now - timedelta(minutes=30)
+        prog.stop_time = now - timedelta(minutes=10)
 
     # Second call — staleness branch fires
     manager.refresh_all_if_needed()
