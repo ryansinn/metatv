@@ -269,3 +269,46 @@ def test_ensure_resident_dedupes_against_inflight(cache, monkeypatch) -> None:
     cache.ensure_resident(url)
 
     assert len(submitted) == 1, "a second ensure_resident for an in-flight url resubmitted work"
+
+
+# ── a YouTube thumbnail that only exists at hq, and a quiet negative cache ────
+
+def test_a_missing_maxres_youtube_thumbnail_falls_back_to_hqdefault(cache, monkeypatch) -> None:
+    """``maxresdefault.jpg`` exists only for videos with an HD thumbnail; the hq
+    sibling exists for every video, so it is the last candidate tried."""
+    tried: list[str] = []
+
+    def fake_get(url, *args, **kwargs):
+        tried.append(url)
+        if url.endswith("maxresdefault.jpg"):
+            return _FakeResponse(status_ok=False)
+        return _FakeResponse(content=_VALID_PNG_BYTES)
+
+    monkeypatch.setattr("metatv.core.image_cache.requests.get", fake_get)
+    url = "https://i.ytimg.com/vi/_POYcxyO9v8/maxresdefault.jpg"
+    cache._download_and_cache(url)
+    assert tried == [url, "https://i.ytimg.com/vi/_POYcxyO9v8/hqdefault.jpg"], tried
+    assert url in cache.cache_index, "the hq bytes were not cached under the requested url"
+
+
+def test_a_cooldown_only_pass_is_a_debug_line_not_a_warning(cache, monkeypatch) -> None:
+    """Four surfaces asking for one cooled-down poster in the same second made
+    four WARNINGs for zero requests (owner's log, 2026-09-08)."""
+    from loguru import logger
+
+    monkeypatch.setattr(
+        "metatv.core.image_cache.requests.get",
+        lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.HTTPError("404")),
+    )
+    url = "http://example.com/dead.jpg"
+    cache._download_and_cache(url)          # the real failure: cools the url down
+    records: list = []
+    sink = logger.add(lambda m: records.append(m.record), level="DEBUG")
+    try:
+        for _ in range(4):
+            cache._download_and_cache(url)  # negative-cache hits
+    finally:
+        logger.remove(sink)
+    levels = [r["level"].name for r in records if "download" in r["message"].lower() or "cooldown" in r["message"].lower()]
+    assert "WARNING" not in levels, levels
+    assert any(r["message"].startswith("cooldown: no candidate tried") for r in records)

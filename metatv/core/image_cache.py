@@ -1,6 +1,7 @@
 """Image caching system - Phase 1: URL-based caching (MVP)"""
 import hashlib
 import threading
+import re
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -38,6 +39,9 @@ _URL_COOLDOWN_S = 3600        # HTTP error status (e.g. 404): skip just that url
 # inside the app's existing footprint, and comfortably covers a screen's worth
 # of rows plus recent scroll history.
 _RESIDENT_CAP = 512
+
+
+_YTIMG_MAXRES = re.compile(r"^(https?://i\.ytimg\.com/vi/[^/]+/)maxresdefault\.jpg$")
 
 
 class ImageCache(QObject):
@@ -342,6 +346,15 @@ class ImageCache(QObject):
             last_error = None
 
             # Try each URL in order
+            # YouTube thumbnails: maxresdefault.jpg exists only for videos with an HD
+            # thumbnail and 404s for the rest, while hqdefault.jpg exists for every
+            # video — so a maxres URL always gets the hq sibling as its last try.
+            for candidate in list(urls_to_try):
+                m = _YTIMG_MAXRES.match(candidate)
+                if m and m.group(1) + "hqdefault.jpg" not in urls_to_try:
+                    urls_to_try.append(m.group(1) + "hqdefault.jpg")
+
+            attempted = 0
             for attempt_url in urls_to_try:
                 host = urlparse(attempt_url).netloc
                 if self._cooldown_active(host) or self._cooldown_active(attempt_url):
@@ -350,6 +363,7 @@ class ImageCache(QObject):
                     continue  # Try next URL
 
                 try:
+                    attempted += 1
                     logger.debug(f"Trying to download image from: {attempt_url}")
                     # (connect, read): the connect half is what a dead host
                     # burns — that is the half IMG-1's cooldown exists to
@@ -406,7 +420,13 @@ class ImageCache(QObject):
                     continue  # Try next URL
 
             # All URLs failed
-            logger.warning(f"Failed to download image from all {len(urls_to_try)} URLs")
+            if attempted:
+                logger.warning(f"Failed to download image from all {len(urls_to_try)} URLs")
+            else:
+                # Every candidate was in cooldown: a negative-cache hit. Four
+                # surfaces asking for one poster in the same second used to log
+                # four WARNINGs for zero requests.
+                logger.debug(f"cooldown: no candidate tried for {url}")
             # Emit only. The subscriber dispatch happens in _on_failed_main, a
             # slot on this object — which lives on the main thread, so Qt queues
             # the emission and the callbacks run there. Calling _dispatch here
