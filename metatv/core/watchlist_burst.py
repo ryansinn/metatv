@@ -41,14 +41,30 @@ def burst_banner(pending: list[tuple[str, str, str]]) -> tuple[str, str, int]:
     NEWLY inside the window, so a ``pending`` list starts within about the same
     minute — alerts genuinely minutes apart still arrive separately.
 
-    Takes ``(title, channel_name, time_str)`` per match, returns
+    Takes ``(title, channel_name, time_str)`` per match and counts DISTINCT
+    titles — several channels carrying one programme are one show — returning
     ``(banner_title, banner_message, auto_dismiss_ms)``. Rationale and the
     owner's log: tests/test_watchlist_burst_notification.py.
     """
-    if len(pending) == 1:
-        title, channel_name, time_str = pending[0]
-        return (f"Starting {time_str}: {title}", f"On {channel_name}",
-                SINGLE_DISMISS_MS)
+    # Collapse by TITLE first. One programme carried by several channels is one
+    # thing starting, not several: the owner's banner read "Two and a Half Men,
+    # Two and a Half Men, Two and a Half Men and 11 more", spending every named
+    # slot on one show and hiding the rest. Insertion order is kept, so the
+    # earliest match still leads.
+    by_title: "dict[str, list[tuple[str, str, str]]]" = {}
+    for match in pending:
+        by_title.setdefault(match[0], []).append(match)
+    titles = list(by_title)
+
+    if len(titles) == 1:
+        title = titles[0]
+        matches = by_title[title]
+        _t, channel_name, time_str = matches[0]
+        others = len(matches) - 1
+        where = ("On " + channel_name if not others
+                 else f"On {channel_name} and {others} other channel"
+                      f"{'s' if others > 1 else ''}")
+        return (f"Starting {time_str}: {title}", where, SINGLE_DISMISS_MS)
 
     # Say the time only when every programme agrees on it. A tick CAN catch a
     # spread — the first sweep, or a resume from sleep — and naming one time
@@ -56,7 +72,7 @@ def burst_banner(pending: list[tuple[str, str, str]]) -> tuple[str, str, int]:
     times = {t for _title, _chan, t in pending}
     when = f" {times.pop()}" if len(times) == 1 else ""
 
-    named = [t for t, _chan, _time in pending[:BURST_NAMED_LIMIT]]
-    rest = len(pending) - len(named)
+    named = titles[:BURST_NAMED_LIMIT]
+    rest = len(titles) - len(named)
     listed = ", ".join(named) + (f" and {rest} more" if rest else "")
-    return (f"{len(pending)} shows starting{when}", listed, BURST_DISMISS_MS)
+    return (f"{len(titles)} shows starting{when}", listed, BURST_DISMISS_MS)

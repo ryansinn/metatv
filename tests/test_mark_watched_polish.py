@@ -41,7 +41,7 @@ def _ch_id() -> str:
 # 1 & 2. ChannelRepository.mark_watched — full field set + session persistence
 # ---------------------------------------------------------------------------
 
-def test_channel_mark_watched_sets_all_fields(tmp_path):
+def test_channel_mark_watched_sets_all_fields(tmp_path, owned_widgets):
     """mark_watched(True) sets is_watched, watch_completed, watch_percent, last_played_via.
 
     Uses a file-backed DB so the commit-and-reopen proves the data was actually
@@ -75,7 +75,7 @@ def test_channel_mark_watched_sets_all_fields(tmp_path):
         # "finished" flag is watch_completed.
 
 
-def test_channel_mark_watched_false_clears_all_fields(tmp_path):
+def test_channel_mark_watched_false_clears_all_fields(tmp_path, owned_widgets):
     """mark_watched(False) zeroes all watch fields and clears the resume point."""
     from metatv.core.database import Database, ChannelDB
     from metatv.core.repositories import RepositoryFactory
@@ -105,7 +105,7 @@ def test_channel_mark_watched_false_clears_all_fields(tmp_path):
         assert ch.watch_progress == 0
 
 
-def test_channel_mark_watched_returns_false_for_missing(tmp_path):
+def test_channel_mark_watched_returns_false_for_missing(tmp_path, owned_widgets):
     """mark_watched on a nonexistent id returns False without raising."""
     from metatv.core.database import Database
     from metatv.core.repositories import RepositoryFactory
@@ -122,7 +122,7 @@ def test_channel_mark_watched_returns_false_for_missing(tmp_path):
 # 3. EpisodeRepository.mark_watched sets last_played_via="manual"
 # ---------------------------------------------------------------------------
 
-def test_episode_mark_watched_sets_last_played_via_manual(tmp_path):
+def test_episode_mark_watched_sets_last_played_via_manual(tmp_path, owned_widgets):
     """mark_watched(True) on an episode must set last_played_via='manual'."""
     from metatv.core.database import Database, EpisodeDB
     from metatv.core.repositories import RepositoryFactory
@@ -159,7 +159,7 @@ def test_episode_mark_watched_sets_last_played_via_manual(tmp_path):
 # 4. EpisodeRepository.mark_watched_bulk sets last_played_via="manual"
 # ---------------------------------------------------------------------------
 
-def test_episode_mark_watched_bulk_sets_last_played_via_manual(tmp_path):
+def test_episode_mark_watched_bulk_sets_last_played_via_manual(tmp_path, owned_widgets):
     """mark_watched_bulk sets last_played_via='manual' on every episode."""
     from metatv.core.database import Database, EpisodeDB
     from metatv.core.repositories import RepositoryFactory
@@ -193,7 +193,7 @@ def test_episode_mark_watched_bulk_sets_last_played_via_manual(tmp_path):
 # 5. Channel menu: mark_watched applies to movie/series, NOT live
 # ---------------------------------------------------------------------------
 
-def test_mark_watched_action_applies_for_movie_not_live(qapp):
+def test_mark_watched_action_applies_for_movie_not_live(qapp, owned_widgets):
     """mark_watched action must render for movies but not for live channels."""
     from metatv.gui.channel_menu import ChannelMenuContext, ACTIONS
 
@@ -212,7 +212,7 @@ def test_mark_watched_action_applies_for_movie_not_live(qapp):
     assert action_def.applies(live_ctx) is False, "mark_watched must NOT apply to live"
 
 
-def test_mark_watched_present_in_channel_surface_layout():
+def test_mark_watched_present_in_channel_surface_layout(owned_widgets):
     """'mark_watched' must appear in the channel SURFACE_LAYOUT."""
     from metatv.gui.channel_menu import SURFACE_LAYOUTS
     assert "mark_watched" in SURFACE_LAYOUTS["channel"], \
@@ -223,7 +223,7 @@ def test_mark_watched_present_in_channel_surface_layout():
 # 6. mark_watched label toggles on is_vod_watched
 # ---------------------------------------------------------------------------
 
-def test_mark_watched_label_when_not_watched(qapp):
+def test_mark_watched_label_when_not_watched(qapp, owned_widgets):
     """Label is 'Mark as Watched' when is_vod_watched=False."""
     from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
@@ -250,7 +250,7 @@ def test_mark_watched_label_when_not_watched(qapp):
         f"'Mark as Unwatched' should be absent; got {texts}"
 
 
-def test_mark_watched_label_when_already_watched(qapp):
+def test_mark_watched_label_when_already_watched(qapp, owned_widgets):
     """Label is 'Mark as Unwatched' when is_vod_watched=True."""
     from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
@@ -279,7 +279,7 @@ def test_mark_watched_label_when_already_watched(qapp):
 # 7. _toggle_episodes_watched: in-place DTO carries last_played_via="manual"
 # ---------------------------------------------------------------------------
 
-def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp):
+def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp, owned_widgets):
     """In-place DTO from _toggle_episodes_watched has last_played_via='manual'.
 
     This prevents the provenance-on-toggle bug: a queue-watched episode (gray ◐)
@@ -334,7 +334,7 @@ def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp):
 
     # We need series_tree for _update_episode_item_icon (calls setIcon/setText)
     from PyQt6.QtWidgets import QTreeWidget
-    host.series_tree = QTreeWidget()
+    host.series_tree = owned_widgets.own(QTreeWidget())
 
     # Call the method under test.
     _SeriesMixin._toggle_episodes_watched(host, [ep_item], watched=True)
@@ -360,19 +360,19 @@ def test_toggle_episodes_watched_dto_carries_manual_provenance(tmp_path, qapp):
 # 8. icons.effective_watch_pct — shared helper
 # ---------------------------------------------------------------------------
 
-def test_effective_watch_pct_returns_pct_when_nonzero():
+def test_effective_watch_pct_returns_pct_when_nonzero(owned_widgets):
     from metatv.gui.icons import effective_watch_pct
     assert effective_watch_pct(50, 0) == 50
     assert effective_watch_pct(100, 0) == 100
 
 
-def test_effective_watch_pct_promotes_progress_when_pct_zero():
+def test_effective_watch_pct_promotes_progress_when_pct_zero(owned_widgets):
     """Zero percent with nonzero progress should return 1 (partial glyph shows)."""
     from metatv.gui.icons import effective_watch_pct
     assert effective_watch_pct(0, 120) == 1
 
 
-def test_effective_watch_pct_zero_for_truly_unwatched():
+def test_effective_watch_pct_zero_for_truly_unwatched(owned_widgets):
     from metatv.gui.icons import effective_watch_pct
     assert effective_watch_pct(0, 0) == 0
 
@@ -381,7 +381,7 @@ def test_effective_watch_pct_zero_for_truly_unwatched():
 # 9. icons.watch_icon uses FONT_LG token — no raw pixel literal
 # ---------------------------------------------------------------------------
 
-def test_watch_icon_uses_font_lg_token_not_literal():
+def test_watch_icon_uses_font_lg_token_not_literal(owned_widgets):
     """icons.py must not contain a raw setPixelSize(12) call — use FONT_LG."""
     import inspect
     from metatv.gui import icons
@@ -397,7 +397,7 @@ def test_watch_icon_uses_font_lg_token_not_literal():
 # 10. icons._clear_watch_icon_cache clears the cache dict
 # ---------------------------------------------------------------------------
 
-def test_clear_watch_icon_cache_empties_dict(qapp):
+def test_clear_watch_icon_cache_empties_dict(qapp, owned_widgets):
     """_clear_watch_icon_cache must discard all cached QIcon entries."""
     from metatv.gui import icons
 
