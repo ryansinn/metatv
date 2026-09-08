@@ -153,3 +153,50 @@ def test_the_new_total_combines_rules_and_series(qapp, tmp_path):
     section._series_new_count = 3
     section._update_vod_toggle_label(5)
     assert section._new_total == 5
+
+
+# ── the tick that outlived its widget (CI teardown segfaults, 2026-09-07) ─────
+
+def _spun_up(spin_cls, qapp):
+    """A spinner whose animation timer exists (qtawesome creates it on first paint)."""
+    import qtawesome as qta
+    from PyQt6.QtCore import QSize
+
+    widget = qta.IconWidget()
+    widget.setIconSize(QSize(13, 13))
+    widget.setFixedSize(13, 13)
+    spin = spin_cls(widget, interval=40, step=12)
+    widget.setIcon(qta.icon("mdi6.loading", color="#808080", animation=spin))
+    widget.grab()   # paints → Spin.setup() → the QTimer
+    assert widget in spin.info, "qtawesome did not set the animation up on paint"
+    return widget, spin
+
+
+def test_qtawesome_s_own_tick_raises_on_a_deleted_widget(qapp):
+    """The control: the stock Spin tick touches the dead widget — the RuntimeError
+    CI reported on macOS, and the same call is the teardown segfault when the
+    tick lands mid-destruction."""
+    import pytest
+    import qtawesome as qta
+    from PyQt6 import sip
+
+    widget, spin = _spun_up(qta.Spin, qapp)
+    sip.delete(widget)
+    with pytest.raises(RuntimeError):
+        spin._update()
+
+
+def test_the_busy_spinner_s_tick_stops_when_its_widget_is_gone(qapp):
+    from PyQt6 import sip
+
+    from metatv.gui import icon_utils as _icon_utils
+    from metatv.gui import theme as _theme
+
+    spinner = _icon_utils.busy_spinner(color=_theme.COLOR_TEXT, size=13)
+    spinner.grab()
+    spin = spinner._metatv_spin
+    assert spinner in spin.info
+    sip.delete(spinner)
+    spin._update()          # must neither raise nor touch the widget
+    assert spinner not in spin.info, "the dead widget was not forgotten"
+    spin._update()          # idempotent once forgotten
