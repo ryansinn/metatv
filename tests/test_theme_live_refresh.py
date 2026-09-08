@@ -81,6 +81,33 @@ def _painted_colours(widget) -> Counter:
     return tally
 
 
+def _ink_colour(btn) -> str:
+    """The icon's ink: its most common non-faint pixel colour (``#rrggbb``).
+
+    ``pixelColor`` un-premultiplies, so antialiased stroke pixels still carry
+    the ink's RGB; edge alpha bytes vary with the pixmap caches a previous
+    test left, which is why a byte-for-byte comparison was order-dependent."""
+    image = btn.icon().pixmap(btn.iconSize()).toImage()
+    tally: Counter = Counter()
+    for y in range(image.height()):
+        for x in range(image.width()):
+            colour = QColor(image.pixelColor(x, y))
+            if colour.alpha() >= 64:
+                tally[colour.name()] += 1
+    return tally.most_common(1)[0][0] if tally else ""
+
+
+def _same_ink(painted: str, token: str, tolerance: int = 3) -> bool:
+    """Colour equality with a per-channel tolerance: un-premultiplying an
+    antialiased stroke rounds each channel by a step or two, and the step
+    differs between platforms (CI painted #5d656f for token #5c6570)."""
+    if not painted or not token:
+        return False
+    p, t = QColor(painted), QColor(token)
+    return all(abs(a - b) <= tolerance for a, b in
+               ((p.red(), t.red()), (p.green(), t.green()), (p.blue(), t.blue())))
+
+
 def _icon_bytes(btn) -> bytes:
     """The raw ARGB bytes of a button's rendered icon — a QIcon bakes its
     colour, so this is the only evidence it was actually re-rendered."""
@@ -484,19 +511,25 @@ class TestTheSwitchIsVisibleInPaintedPixels:
             config=config,
         )
         try:
-            before = _icon_bytes(group._expand_btn)
+            from metatv.gui.filter_group_row import _group_expander_colour
+
+            midnight_ink = _group_expander_colour().lower()
+            first = _ink_colour(group._expand_btn)
+            assert _same_ink(first, midnight_ink), (first, midnight_ink)
 
             assert theme.apply_theme("Daylight")
+            daylight_ink = _group_expander_colour().lower()
+            assert daylight_ink != midnight_ink, "the palettes share the muted token?"
 
             from metatv.gui import icon_utils as _icon_utils
 
-            after = _icon_bytes(group._expand_btn)
-            assert after != before, (
-                "the group expander glyph kept the previous palette's colour "
-                f"(registered={group._expand_btn in _icon_utils._registered_icon_buttons}, "
+            painted = _ink_colour(group._expand_btn)
+            assert _same_ink(painted, daylight_ink), (
+                "the group expander glyph kept the previous palette's colour: painted "
+                f"{painted}, expected {daylight_ink} (was {midnight_ink}; "
+                f"registered={group._expand_btn in _icon_utils._registered_icon_buttons}, "
                 f"entry={_icon_utils._registered_icon_buttons.get(group._expand_btn)!r}, "
-                f"theme={theme.current_theme()!r}, icon_size={group._expand_btn.iconSize()}, "
-                f"bytes={len(after)})"
+                f"theme={theme.current_theme()!r})"
             )
         finally:
             destroy_widget(group)
