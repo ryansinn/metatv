@@ -46,6 +46,7 @@ from loguru import logger
 from metatv.core.connection_accountant import acquire_or_proceed, release_quietly
 from metatv.core.database import EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import EPG_FILLER_THRESHOLD, now_utc
+from metatv.core.notifications import condense_error
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.epg import delete_programmes_chunked
 from metatv.core.repositories.provider import persist_url_stats
@@ -304,6 +305,31 @@ class _EpgFetchMixin:
             # succeeded — the guide is parsed and about to be stored.
             logger.exception("EPG: could not record the working guide host")
 
+    def _record_fetch_failure(self, provider_id: str, error: Exception | str) -> None:
+        """Store WHY this fetch attempt failed, so the guide can say so (EPGF-1).
+
+        The only writer of ``epg_last_fetch_error``/``epg_last_fetch_error_at``
+        besides the success path below, which clears both on the same row it
+        stamps ``epg_last_fetched``. Without this, every bad state rendered as
+        "Stale — guide ends <date> (source out of date)" and blamed the
+        provider — wrong whenever OUR fetch failed (a cached ``epg_url`` with a
+        dead subscription's credentials) or the user's own URL override was the
+        broken thing, which is never cycled and so failed silently forever.
+
+        The cause is condensed through the same helper the failure toasts use
+        (``condense_error``): one actionable line, never a wall of SQL.
+        """
+        cause = condense_error(str(error))
+        try:
+            with self.db.session_scope() as session:
+                row = session.query(ProviderDB).filter_by(id=provider_id).first()
+                if row is not None:
+                    row.epg_last_fetch_error = cause
+                    row.epg_last_fetch_error_at = now_utc()
+        except Exception:
+            # Bookkeeping about a failure must never become a second failure.
+            logger.exception("EPG: could not record the guide fetch error")
+
     def _emit_or_abort(self, signal, *args) -> None:
         """Emit a worker progress signal, or abandon the fetch if we are gone.
 
@@ -367,6 +393,7 @@ class _EpgFetchMixin:
             raise      # teardown — _fetch_worker handles it, quietly
         except Exception as e:
             logger.error(f"EPG refresh failed for {provider_name}: {e}")
+            self._record_fetch_failure(provider_id, e)
             self.refresh_error.emit(provider_id, str(e))
             self._emit_or_abort(self._progress_error, notif_id or "")
             self._show_notification(
@@ -482,6 +509,14 @@ class _EpgFetchMixin:
                 # believing this incomplete guide is the finished article.
                 if not fetch.partial:
                     provider.epg_last_fetched = now
+                    # This attempt reached the feed and parsed a guide, so
+                    # whatever the last one failed on no longer describes
+                    # reality (EPGF-1). A PARTIAL fetch deliberately clears
+                    # nothing: it does not stamp epg_last_fetched either, so
+                    # the row keeps saying what it said until a whole fetch
+                    # lands.
+                    provider.epg_last_fetch_error = None
+                    provider.epg_last_fetch_error_at = None
                 provider.epg_data_start = min_start
                 provider.epg_data_end = honest_end
                 # The provider's feed can serve year-old data (e.g. ottcst returns a
@@ -522,6 +557,7 @@ class _EpgFetchMixin:
         except Exception as e:
             logger.error(f"EPG refresh failed for {provider_name}: {e}")
             session.rollback()
+            self._record_fetch_failure(provider_id, e)
             self.refresh_error.emit(provider_id, str(e))
             self._emit_or_abort(self._progress_error, notif_id or "")
             self._show_notification(
