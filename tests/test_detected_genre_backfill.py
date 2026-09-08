@@ -32,8 +32,12 @@ on the provider ``category`` string (e.g. ``"|EN| HORROR/THRILLER"``) when
 the raw genre is empty:
 
 7. Ingestion falls back to the category cross-walk for a genre-less movie,
-   never overrides a raw-derived list, and a non-genre category (e.g.
-   "NETFLIX MOVIES") still yields ``None`` rather than an empty-list stand-in.
+   never overrides a raw-derived list, a non-genre category (e.g.
+   "NETFLIX MOVIES") still yields ``None`` rather than an empty-list
+   stand-in, and — CI regression, PR #813 — a LIVE channel's category
+   (its bouquet) never becomes a genre guess, gated by the pre-existing
+   ``channel_lens.GENRE_MEDIA_TYPES`` (movie/series only), the same line
+   ``tag_decomposer`` already draws via its own ``target_facet`` check.
 8. ``DetectedGenreBackfillTask`` (version 2) backfills a pre-existing movie
    row whose ``detected_genres`` is NULL and whose category names a genre.
 9. The untouched, pre-existing ``genre_predicate('Horror')`` (the SAME
@@ -579,6 +583,36 @@ class TestIngestionCategoryGenreFallback:
             assert ch_netflix.detected_genres is None
             assert ch_4k.detected_genre is None
             assert ch_4k.detected_genres is None
+        finally:
+            session.close()
+
+    def test_live_channel_category_never_becomes_a_genre(self, file_db):
+        """CI regression (PR #813): a LIVE channel's category is its bouquet
+        ("News", "|EN| HORROR/THRILLER" as a channel grouping), never a genre
+        guess — GENRE_MEDIA_TYPES (channel_lens.py) gates the category
+        fallback to movie/series only, the same line tag_decomposer already
+        draws via its own ``target_facet`` check. The identical category on a
+        MOVIE row (below) DOES yield genres — proves the gate is on
+        media_type, not on the category string."""
+        _add_provider(file_db)
+        cid_live = _add_channel(
+            file_db, raw_genre=None, category="|EN| HORROR/THRILLER",
+            media_type="live", name="AR| CNN ENGLISH",
+        )
+        cid_movie = _add_channel(
+            file_db, raw_genre=None, category="|EN| HORROR/THRILLER",
+            media_type="movie", name="Some Horror Movie",
+        )
+        _run_ingestion(file_db)
+
+        session = file_db.get_session()
+        try:
+            from metatv.core.database import ChannelDB
+            ch_live = session.query(ChannelDB).get(cid_live)
+            ch_movie = session.query(ChannelDB).get(cid_movie)
+            assert ch_live.detected_genre is None
+            assert ch_live.detected_genres is None
+            assert ch_movie.detected_genres == ["Horror", "Thriller"]
         finally:
             session.close()
 

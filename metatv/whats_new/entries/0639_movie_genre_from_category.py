@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=639,
-    version="0.105.0",
+    version="0.106.0",
     date="2026-09-08",
     title="Movie genre chips actually find movies now",
     items=(
