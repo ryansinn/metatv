@@ -203,4 +203,11 @@ jobs:
           # -v (not -q): a teardown segfault leaves faulthandler with only
           # pytest's own frames, so the LAST NAMED TEST is the only clue to
           # which teardown crashed (2026-09-07, three PRs).
-          python -m pytest -v $(cat shard.txt)
+          # DIAGNOSTIC (2026-09-08, temporary): the Linux shards run under gdb so
+          # a teardown segfault prints the Qt frames it died in.
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get install -y -q gdb >/dev/null 2>&1
+            gdb -q -batch -ex "handle SIGSEGV stop print" -ex run -ex "bt 40" --args python -m pytest -v $(cat shard.txt)
+          else
+            python -m pytest -v $(cat shard.txt)
+          fi
