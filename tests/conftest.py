@@ -1414,7 +1414,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_collapse_variants_setting",
     "_apply_adult_mode_setting",
     "_sync_split_toggle",
-    "_apply_dead_signal_setting",
+    "_apply_discover_reload_setting",
     "_apply_menu_bar_setting",
     "_refresh_vod_alerts_section",
     "_restart_series_monitor_scheduler",
@@ -1481,7 +1481,7 @@ def wire_settings_content_widgets(dlg) -> None:
     Args:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
-    from PyQt6.QtWidgets import QComboBox
+    from PyQt6.QtWidgets import QComboBox, QSpinBox
 
     dlg._adult_mode_combo = QComboBox()
     dlg._adult_mode_combo.addItem("Show everything", userData="all")
@@ -1495,6 +1495,13 @@ def wire_settings_content_widgets(dlg) -> None:
     dlg._live_refresh_mode_combo.addItem("Every 30 minutes", userData="30m")
     dlg._live_refresh_mode_combo.addItem("Every hour", userData="1h")
     dlg._live_refresh_mode_combo.addItem("Every 3 hours", userData="3h")
+
+    # PLAT-1 — Content ▸ Discover shelves. Same range/step as the real spin, so
+    # a test that round-trips a value through _save_values sees what the dialog
+    # would actually have stored.
+    dlg._platform_shelf_min_spin = QSpinBox()
+    dlg._platform_shelf_min_spin.setRange(5, 1000)
+    dlg._platform_shelf_min_spin.setSingleStep(5)
 
 
 # ---------------------------------------------------------------------------

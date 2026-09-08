@@ -148,28 +148,34 @@ def fetch_cards_for_key(
         return _cards_for_saved_recipe(
             session, config, shelf_key[len(_RECIPE_PREFIX):], limit,
         )
+    if shelf_key.startswith(_PLATFORM_PREFIX):
+        return _cards_for_platform(
+            session, config, shelf_key[len(_PLATFORM_PREFIX):], limit,
+        )
     return []
 
 
 #: Shelf-key namespace for a saved recipe, mirroring ``user_cat:``.
 _RECIPE_PREFIX = "recipe:"
 
+#: Shelf-key namespace for a platform rollup (PLAT-1).  Keyed by the tag VALUE
+#: (``platform:Netflix``), so a decomposer rename moves the shelf rather than
+#: orphaning the user's pin/zone state under a key nothing produces any more.
+_PLATFORM_PREFIX = "platform:"
+
+#: Rows fetched per card wanted, before ``_dedup_cards`` collapses versions —
+#: the same multiplier every ``discovery_engine`` shelf uses, for the same
+#: reason: a platform whose newest rows are six qualities of one film must
+#: still fill a strip.
+_PLATFORM_OVERFETCH = 5
+
 
 def _cards_for_saved_recipe(session, config: Config, name: str,
                             limit: int) -> list[ContentCard]:
     """Cards matching the saved recipe called *name*.
 
-    Deliberately NOT routed through the ``sk``/``fk``/``af``/``ek`` kwargs the
-    other shelves use. A recipe is a facet query, and the one that already
-    answers it is ``TagRepository.sample_channels_by_tag_facets`` — the same
-    call the Recipe view's own results shelf makes. Reusing it is what
-    guarantees a recipe shows the SAME titles on both screens; a second query
-    assembled from the shelf kwargs would drift the first time either changed.
-
-    The exclusion sets come from ``filter_utils.global_exclusion_sets``, which
-    is also what the Recipe view resolves — including the excluded-user-category
-    axis the shelf kwargs fold into ``excluded_prefixes`` and cannot express
-    separately.
+    The query itself is :func:`cards_for_facets` — see there for why a facet
+    shelf never goes through the ``sk``/``fk``/``af``/``ek`` kwargs.
 
     Args:
         session: Open DB session.
@@ -180,9 +186,6 @@ def _cards_for_saved_recipe(session, config: Config, name: str,
     Returns:
         Matching cards, or an empty list when the recipe no longer exists.
     """
-    from metatv.core.filter_utils import global_exclusion_sets
-    from metatv.core.repositories import RepositoryFactory
-
     recipe = next(
         (r for r in (getattr(config, "saved_recipes", None) or [])
          if isinstance(r, dict) and r.get("name") == name),
@@ -195,6 +198,51 @@ def _cards_for_saved_recipe(session, config: Config, name: str,
     excludes = {k: set(v) for k, v in (recipe.get("excludes") or {}).items() if v}
     if not includes and not excludes:
         return []
+
+    return cards_for_facets(session, config, includes, excludes, limit)
+
+
+def cards_for_facets(session, config: Config,
+                     includes: dict, excludes: "dict | None", limit: int, *,
+                     media_types: "tuple[str, ...] | None" = None,
+                     newest_first: bool = False,
+                     collapse_variants: bool = True) -> list[ContentCard]:
+    """THE facet→cards path: one helper, every facet-shaped shelf.
+
+    A saved recipe and a platform shelf are the same question with different
+    facets — ``includes={"platform": {"Netflix"}}`` IS a platform shelf — so a
+    second query assembled beside this one would drift the first time either
+    changed. That is the bug the recipe shelf was written to avoid on the Recipe
+    view, and it applies just as much between two shelves.
+
+    Deliberately NOT routed through the ``sk``/``fk``/``af``/``ek`` kwargs the
+    genre/decade shelves use. The call that already answers a facet query is
+    ``TagRepository.sample_channels_by_tag_facets`` — the same one the Recipe
+    view's own results shelf makes, which is what guarantees a recipe shows the
+    SAME titles on both screens. Its exclusion sets come from
+    ``filter_utils.global_exclusion_sets``, including the excluded-user-category
+    axis the shelf kwargs fold into ``excluded_prefixes`` and cannot express
+    separately.
+
+    Args:
+        session: Open DB session.
+        config: The application Config (the Global Exclusions source).
+        includes: Facet → allowed values; a channel must match every facet.
+        excludes: Facet → forbidden values, or ``None``.
+        limit: Row cap handed to the sampler.
+        media_types: Optional ``media_type`` whitelist — ``("movie", "series")``
+            for a VOD-only shelf, ``None`` (default) for every type.
+        newest_first: Order by ``detected_added`` desc (DB-4, indexed) instead
+            of alphabetically by clean title.
+        collapse_variants: Collapse same-``content_key`` rows in SQL (default —
+            what the recipe shelf wants). ``False`` returns every version, for a
+            caller that elects a representative in Python first.
+
+    Returns:
+        Matching cards; empty when nothing matches.
+    """
+    from metatv.core.filter_utils import global_exclusion_sets
+    from metatv.core.repositories import RepositoryFactory
 
     prefixes, categories, content_types, keywords = global_exclusion_sets(config)
     repos = RepositoryFactory(session)
@@ -213,8 +261,84 @@ def _cards_for_saved_recipe(session, config: Config, name: str,
         excluded_tag_content_types=content_types or None,
         excluded_keywords=keywords or None,
         limit=limit,
-        collapse_variants=True,
+        collapse_variants=collapse_variants,
+        media_types=media_types,
+        newest_first=newest_first,
     )
+
+
+def _cards_for_platform(session, config: Config, value: str,
+                        limit: int) -> list[ContentCard]:
+    """Cards for the platform shelf named *value* (PLAT-1).
+
+    VOD only (owner, Q2: Discover is the VOD surface — a live football feed on a
+    Netflix film strip answers a different question), newest first, one card per
+    title.
+
+    Version collapse happens in Python rather than in the sampler's SQL, because
+    that is what gives ``platform_shelves.representative_version`` — the VP-1
+    seam — a list to choose from. Over-fetch, elect, collapse, slice: the same
+    shape ``discovery_engine``'s own shelves use.
+
+    Args:
+        session: Open DB session.
+        config: The application Config.
+        value: The platform tag value from the shelf key ("Netflix").
+        limit: Cards wanted on the strip.
+
+    Returns:
+        Up to *limit* cards, one per ``content_key``.
+    """
+    from metatv.core.discovery_engine import _dedup_cards
+    from metatv.core.platform_shelves import (
+        PLATFORM_SHELF_MEDIA_TYPES, representative_version,
+    )
+
+    cards = cards_for_facets(
+        session, config, {"platform": {value}}, None,
+        limit * _PLATFORM_OVERFETCH,
+        media_types=PLATFORM_SHELF_MEDIA_TYPES,
+        newest_first=True,
+        collapse_variants=False,
+    )
+    return _dedup_cards(representative_version(cards))[:limit]
+
+
+def browse_title_for_key(shelf_key: str) -> str:
+    """The heading the "See all" browse grid shows for *shelf_key*.
+
+    A shelf key is an internal address, and the drill-down needs the name the
+    user saw on the strip. That derivation lives here, beside the key
+    namespaces themselves, rather than inside ``DiscoverView._on_see_all``,
+    so a family added to the dispatcher above and forgotten here is one edit
+    away instead of one file away.
+
+    ``user_cat:`` and ``recipe:`` deliberately still fall through to the raw
+    key — they already did before this function existed, and changing what
+    their headers say is a separate decision from adding a namespace. Logged in
+    docs/REFACTOR_PLAN.md's duplication ledger rather than fixed in passing.
+
+    Args:
+        shelf_key: The canonical shelf key (e.g. ``"genre:Action"``).
+
+    Returns:
+        A human-facing heading; the key itself for a namespace with no rule.
+    """
+    if shelf_key.startswith("genre:"):
+        return shelf_key[6:]
+    if shelf_key.startswith("decade:"):
+        return f"{shelf_key[7:]}s"
+    if shelf_key.startswith("actor:"):
+        return f"Featuring {shelf_key[6:]}"
+    if shelf_key.startswith("collection:"):
+        return shelf_key[11:]
+    if shelf_key.startswith(_PLATFORM_PREFIX):
+        return shelf_key[len(_PLATFORM_PREFIX):]
+    return {
+        "recently_added": "Recently Added",
+        "top_movies": "Top Rated Movies",
+        "top_series": "Top Rated Series",
+    }.get(shelf_key, shelf_key)
 
 
 # ---------------------------------------------------------------------------
@@ -480,11 +604,14 @@ class _LoaderWorker(QObject):
             MIN_COLLECTION_SHELF_MEMBERS,
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
+        from metatv.core.channel_name_utils import PLATFORM_SHELF_EXCLUDED_VALUES
         from metatv.core.filter_utils import (
             get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
             keyword_exclusion_list, global_exclusion_sets,
         )
+        from metatv.core.platform_shelves import platform_shelf_values
         from metatv.core.repositories import RepositoryFactory
+        from metatv.core.visibility_resolver import resolve_scope as _resolve_scope
         session = self._db.get_session()
         try:
             ss = build_status_sets(session)
@@ -622,6 +749,37 @@ class _LoaderWorker(QObject):
                     )))
                 else:
                     emit(_ShelfData(title, key, [], header_only=True))
+
+            # ── Platform shelves — the catalogue's own rollup (PLAT-1) ────────
+            #
+            # After the user's own shelves (categories, recipes) because these
+            # are the catalogue describing itself: "what did Netflix add".
+            # A platform earns a strip once enough DISTINCT TITLES carry its
+            # tag — the floor is a setting (Settings → Content → Discover
+            # shelves), because the right number depends on the library.
+            # ONE aggregate query decides all of them; never a count per value.
+            for _value, _titles in platform_shelf_values(
+                session,
+                min_titles=int(getattr(
+                    self._config, "discover_platform_shelf_min_titles", 50)),
+                excluded_values=PLATFORM_SHELF_EXCLUDED_VALUES,
+                scope=_resolve_scope(session, self._config,
+                                     excluded_provider_ids=_excl_ids),
+            ):
+                if self._cancelled:
+                    return
+                key = f"{_PLATFORM_PREFIX}{_value}"
+                if key in hidden:
+                    continue
+                # The title IS the value — icons.py has no platform glyphs, and
+                # inventing one here would put a literal in widget code.
+                if _zone(key) in (_ZONE_PINNED, _ZONE_EXPANDED):
+                    emit(_ShelfData(_value, key, fetch_cards_for_key(
+                        session, self._config, key, 30,
+                        sk=sk, fk=fk, af=af, ek=ek,
+                    )))
+                else:
+                    emit(_ShelfData(_value, key, [], header_only=True))
 
             # ── Fixed shelves ─────────────────────────────────────────────────
             for key, title in (

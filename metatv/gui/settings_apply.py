@@ -56,10 +56,12 @@ HANDLERS: tuple[str, ...] = (
     # surfaces cannot disagree after an OK.
     "_apply_menu_bar_setting",
     "_sync_split_toggle",
-    # hide_dead_events / signal_dead_streak_to_hide (VE-1) change which rows
-    # every scoped view shows; run() reloads the LIST once itself, Discover
-    # needs its own reload.
-    "_apply_dead_signal_setting",
+    # THE Discover reload. Several settings change what its shelves contain —
+    # the VE-1 dead-signal axis, the PLAT-1 platform-shelf threshold — and
+    # every one of them needs the same one reload, so they share this handler
+    # rather than each adding a near-identical entry to this list. run()
+    # reloads the channel LIST once itself; Discover needs its own.
+    "_apply_discover_reload_setting",
 )
 
 _ACTIVE = "_settings_apply_active"

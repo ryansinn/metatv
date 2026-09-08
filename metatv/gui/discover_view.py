@@ -46,8 +46,9 @@ from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.discover_workers import (
-    _LoaderWorker, _RECIPE_PREFIX, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
-    _ZoneSnapshot, determine_zone, normalize_shelf_config,
+    _LoaderWorker, _RECIPE_PREFIX, _SeeAllWorker, _ShelfCardsWorker,
+    _ShelfData, _ZoneSnapshot, browse_title_for_key, determine_zone,
+    normalize_shelf_config,
 )
 from metatv.gui import icons as _icons
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -887,22 +888,7 @@ class DiscoverView(QWidget):
     # ---- Browse drill-down --------------------------------------------------
 
     def _on_see_all(self, shelf_key: str) -> None:
-        if shelf_key.startswith("genre:"):
-            title = shelf_key[6:]
-        elif shelf_key.startswith("decade:"):
-            title = f"{shelf_key[7:]}s"
-        elif shelf_key.startswith("actor:"):
-            title = f"Featuring {shelf_key[6:]}"
-        elif shelf_key.startswith("collection:"):
-            title = shelf_key[11:]
-        elif shelf_key == "recently_added":
-            title = "Recently Added"
-        elif shelf_key == "top_movies":
-            title = "Top Rated Movies"
-        elif shelf_key == "top_series":
-            title = "Top Rated Series"
-        else:
-            title = shelf_key
+        title = browse_title_for_key(shelf_key)
 
         preview_cards = self._shelf_data_cache.get(shelf_key, [])
         self._browse_view.load(title, preview_cards)

@@ -36,7 +36,7 @@ Performance note (tag-write throughput):
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
@@ -1310,16 +1310,7 @@ class TagRepository:
                 excluded_keywords=excluded_keywords,
             )
 
-        # --- include facets: one EXISTS per facet (AND across facets) ---
-        #
-        # For each facet: EXISTS (
-        #   SELECT 1 FROM content_tags AS ct_i
-        #   JOIN tags AS t_i ON t_i.id = ct_i.tag_id
-        #   WHERE ct_i.channel_id = outer.channel_id
-        #     AND t_i.type = <ftype>
-        #     AND t_i.value IN (<allowed_values>)
-        # )
-
+        # --- include facets: one correlated EXISTS per facet (AND across facets) ---
         for ftype, allowed_values in remaining_facets:
             ct_i = aliased(ContentTagDB, flat=True)
             t_i = aliased(TagDB, flat=True)
@@ -1335,21 +1326,9 @@ class TagRepository:
             )
             query = query.filter(exists(subq))
 
-        # --- exclude facets: NOT EXISTS over all excluded (type, value) pairs ---
-        #
-        # NOT EXISTS (
-        #   SELECT 1 FROM content_tags AS ct_e
-        #   JOIN tags AS t_e ON t_e.id = ct_e.tag_id
-        #   WHERE ct_e.channel_id = outer.channel_id
-        #     AND (t_e.type, t_e.value) IN (<exclude_pairs>)
-        # )
-        #
-        # SQLite doesn't support tuple IN syntax natively, so we express it as:
-        #   AND (  (t_e.type = ftype1 AND t_e.value IN (...))
-        #       OR (t_e.type = ftype2 AND t_e.value IN (...))
-        #       OR ...  )
-
-        # Build the exclusion subquery if there are any excluded (type, value) pairs.
+        # --- exclude facets: ONE NOT EXISTS over every excluded (type, value) pair ---
+        # SQLite has no tuple-IN, so the pairs become an OR of per-type
+        # (type = ftype AND value IN (...)) clauses inside a single subquery.
         exclude_pairs: list[tuple[str, str]] = [
             (ftype, val)
             for ftype, vals in excludes.items()
@@ -1527,6 +1506,8 @@ class TagRepository:
         matching_subq,
         *,
         name_filter: Optional[str] = None,
+        media_types: Optional[Sequence[str]] = None,
+        newest_first: bool = False,
     ):
         """Wrap *matching_subq* (channel ids) with window-function collapse.
 
@@ -1549,6 +1530,12 @@ class TagRepository:
                 (the output of ``_faceted_channel_id_query(...).subquery()``).
             name_filter: Optional ILIKE filter applied before collapse so every
                 collapsed page respects it at the SQL level.
+            media_types: Optional ``ChannelDB.media_type`` whitelist, applied
+                before collapse (so a group's representative is chosen from the
+                rows that survive the filter, not discarded after election).
+            newest_first: Order by the ingestion-computed ``detected_added``
+                (DB-4, indexed) descending instead of alphabetically. SQLite
+                sorts NULL below every value, so un-stamped rows land last.
 
         Returns:
             An unexecuted SQLAlchemy query yielding ``(ChannelDB, int)`` tuples
@@ -1572,6 +1559,8 @@ class TagRepository:
         )
         if name_filter:
             inner_q = inner_q.filter(_title_expr.ilike(f"%{name_filter}%"))
+        if media_types:
+            inner_q = inner_q.filter(ChannelDB.media_type.in_(list(media_types)))
         inner = inner_q.subquery(name="inner_ch")
 
         # ── MIDDLE ── window functions over the inner set.
@@ -1581,22 +1570,13 @@ class TagRepository:
             inner.c.content_key,
             _func.concat("id:", inner.c.id),
         )
-        # Built from QUALITY_TIER_RANK, not a local ladder. This was a
-        # hardcoded CASE, and it DISAGREED with the canonical table on ordering
-        # — not just on values:
-        #
-        #   HDR   canonical: unranked → default, BELOW HD (it is a dynamic-range
-        #         descriptor, not a resolution tier, and the table says so in as
-        #         many words: "not comparable to a resolution tier, so they fall
-        #         back to _QUALITY_TIER_RANK_DEFAULT rather than a made-up
-        #         position")
-        #         local:     1, tied with FHD and ABOVE HD — the made-up
-        #         position the table exists to prevent
-        #   8K    canonical: beats 4K.        local: tied with it
-        #   SD    canonical: beats LQ.        local: tied with it
-        #
-        # So a title with an HD copy and an HDR copy elected HD in the channel
-        # list and HDR in Discover: two surfaces, same data, different answer.
+        # Built from QUALITY_TIER_RANK, not a local ladder. The hardcoded CASE
+        # this replaced DISAGREED with the canonical table on ORDERING, not just
+        # values: it ranked HDR above HD (HDR is a dynamic-range descriptor, not
+        # a resolution tier — the table deliberately leaves it unranked), and
+        # tied 8K with 4K and SD with LQ. So a title with an HD copy and an HDR
+        # copy elected HD in the channel list and HDR in Discover: two surfaces,
+        # same data, different answer.
         _max_rank = max(QUALITY_TIER_RANK.values())
         _rep_rank = _case(
             *[(inner.c.detected_quality == tok, _max_rank - rank)
@@ -1630,13 +1610,15 @@ class TagRepository:
             _func.nullif(middle.c.detected_title, ""), middle.c.name
         ).collate("NOCASE")
 
+        _order = ([middle.c.detected_added.desc(), middle.c.id] if newest_first
+                  else [_outer_title_sort, middle.c.id])
         reps_q = (
             self.session.query(
                 middle.c.id.label("rep_id"),
                 middle.c._variant_count.label("vc"),
             )
             .filter(middle.c._rn == 1)
-            .order_by(_outer_title_sort, middle.c.id)
+            .order_by(*_order)
         )
         return reps_q
 
@@ -1655,6 +1637,8 @@ class TagRepository:
         offset: int = 0,
         name_filter: Optional[str] = None,
         collapse_variants: bool = False,
+        media_types: Optional[Sequence[str]] = None,
+        newest_first: bool = False,
     ) -> list:
         """Return *limit* result cards matching the faceted constraints, from *offset*.
 
@@ -1694,6 +1678,12 @@ class TagRepository:
                 returned.  Used by the "Show all" browse filter box so every
                 page — including lazy-loaded ones — honours the filter at the
                 SQL level rather than filtering an already-loaded subset.
+            media_types: Optional ``media_type`` whitelist (e.g.
+                ``("movie", "series")`` for a VOD-only shelf). ``None`` keeps
+                every type, which is what every pre-PLAT-1 caller wants.
+            newest_first: Order by ``detected_added`` desc (DB-4, indexed)
+                instead of by clean title — what a "what has this platform
+                added lately" shelf means. Applies to both paths.
             collapse_variants: When True, collapse same-``content_key`` channels
                 into one representative card per group (highest-quality variant,
                 tiebreak by id).  The card's ``variant_count`` is set to the
@@ -1725,7 +1715,8 @@ class TagRepository:
             # One representative per content_key group, ordered by clean title.
             # _build_collapsed_sample_query returns (rep_id, vc) rows in order.
             reps_q = self._build_collapsed_sample_query(
-                matching, name_filter=name_filter
+                matching, name_filter=name_filter,
+                media_types=media_types, newest_first=newest_first,
             )
             reps = reps_q.offset(offset).limit(limit).all()
             if not reps:
@@ -1766,8 +1757,12 @@ class TagRepository:
             # Applied before OFFSET/LIMIT so every page respects the filter, not
             # just the already-loaded subset (Bug D fix).
             q = q.filter(_title_expr.ilike(f"%{name_filter}%"))
+        if media_types:
+            q = q.filter(ChannelDB.media_type.in_(list(media_types)))
+        _order = ([ChannelDB.detected_added.desc(), ChannelDB.id] if newest_first
+                  else [_title_sort, ChannelDB.id])
         rows = (
-            q.order_by(_title_sort, ChannelDB.id)
+            q.order_by(*_order)
             .offset(offset)
             .limit(limit)
             .all()
