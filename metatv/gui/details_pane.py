@@ -68,6 +68,7 @@ class DetailsPaneWidget(QWidget):
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
     episode_action_state_requested = pyqtSignal(str)    # episode_id — episode-mode queue/favorite async load (Slice 2B)
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
+    weights_requested          = pyqtSignal(str)        # channel_id — triggers async taste-weight load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
     play_episode_requested     = pyqtSignal()           # play the episode shown in the pane (read current_episode)
     resume_episode_requested   = pyqtSignal()           # resume the episode shown in the pane (read current_episode)
@@ -186,6 +187,25 @@ class DetailsPaneWidget(QWidget):
         if not self.current_channel or self.current_channel.id != channel_id:
             return  # stale response — user already moved on
         self._tags.load(tags)
+
+    def apply_taste_weights(self, channel_id: str, weights) -> None:
+        """Called from main_window when the async taste-weight load completes.
+
+        Args:
+            channel_id: The channel these weights were requested for — the same
+                stale-drop guard ``apply_action_state``/``apply_channel_tags`` use.
+            weights: An ``AttributeWeights``, or None when there is no taste
+                signal yet (or the read failed) — the un-annotated render stands.
+        """
+        if not self.current_channel or self.current_channel.id != channel_id:
+            return  # stale response — user already moved on
+        if weights is None or self.current_metadata is None:
+            # Weights are an enhancement: keep what is already painted. Never
+            # clear — an empty library and a failed read must both look like a
+            # details pane without preference markers, not an empty one.
+            logger.debug(f"No taste weights to annotate {channel_id} with")
+            return
+        self._render_people(self.current_metadata, weights)
 
     def show_channel(self, channel, metadata: Optional[MetadataResult] = None) -> None:
         """Display a channel. Triggers async version/similar/action-state fetches."""
@@ -628,29 +648,22 @@ class DetailsPaneWidget(QWidget):
         else:
             self._poster.poster_label.setText("No poster available")
 
-        weights = self._fetch_weights()
+        # Render first, annotate second. This used to call compute_weights()
+        # inline — every UserRatingDB row, every rated channel, every favourite
+        # WITH its metadata — and the owner's watchdog caught 28.7s of it with
+        # the paint held. The pane paints un-annotated now and the host fills the
+        # preference markers in when its off-thread read lands.
+        self._render_people(metadata, None)
+        self.weights_requested.emit(self.current_channel.id)
+
+    def _render_people(self, metadata: MetadataResult, weights) -> None:
+        """Paint Technical + Cast. ``weights`` adds the ▲/▼ preference markers.
+
+        The one place both sections are rendered, so the first (un-annotated)
+        pass and the later annotated one cannot drift apart.
+        """
         self._tech.load(metadata, weights)
         self._cast.load(metadata.cast or [], director=metadata.director, weights=weights)
-
-    def _fetch_weights(self):
-        """Fetch preference weights for cast/director annotation. Returns None on failure."""
-        if not self._db:
-            return None
-        try:
-            from metatv.core.preference_engine import RecScoringSettings, compute_weights
-            session = self._db.get_session()
-            try:
-                w = compute_weights(
-                    session, settings=RecScoringSettings.from_config(self.config)
-                )
-                return None if w.is_empty() else w
-            finally:
-                session.close()
-        except Exception:
-            # Taste weights are an enhancement, so a failure degrades rather than
-            # breaks — but it degrades the recommendations, so say so.
-            logger.warning("Could not compute taste weights for the details pane", exc_info=True)
-            return None
 
     # ------------------------------------------------------------------ #
     # Image callbacks                                                      #
