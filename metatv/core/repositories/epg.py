@@ -705,8 +705,9 @@ class EpgRepository(EpgWatchlistMixin):
         self,
         provider_ids: list[str],
         excluded_channel_provider_ids: set[str] | list[str] | None = None,
+        after: datetime | None = None,
     ) -> bool:
-        """True iff any scoped programme has yet to START.
+        """True iff any scoped programme has yet to START (as of *after*).
 
         The honest test for "this guide still has something to say". It is
         deliberately NOT ``ProviderDB.epg_data_end``, which reads the max
@@ -720,21 +721,53 @@ class EpgRepository(EpgWatchlistMixin):
             provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
             excluded_channel_provider_ids: Channel-side scoping — drop programmes
                 whose matched ChannelDB row belongs to a hidden provider.
+            after: The instant to measure "future" from; defaults to now. The
+                refresh floor (``EpgManager.needs_refresh``) asks the SAME
+                question against ``epg_last_fetched`` — "did the last fetch
+                actually produce a start after itself?" — so that guard shares
+                this query rather than growing a second one that can drift
+                from it.
 
         Returns:
-            True when at least one in-scope programme starts after now.
+            True when at least one in-scope programme starts after *after*.
         """
         if not provider_ids:
             return False
-        now = _now_utc()
+        boundary = _now_utc() if after is None else after
         query = self.session.query(EpgProgramDB.id).filter(
             EpgProgramDB.provider_id.in_(provider_ids),
-            EpgProgramDB.start_time > now,
+            EpgProgramDB.start_time > boundary,
             EpgProgramDB.channel_db_id.isnot(None),
         )
         query = _scope_programmes(
             query, excluded_provider_ids=excluded_channel_provider_ids
         )
+        return query.first() is not None
+
+    def has_stored_programmes(
+        self, provider_id: str, *, matched_only: bool = False
+    ) -> bool:
+        """True iff this provider has any guide row at all.
+
+        Whether a start-time question above can be ANSWERED for this provider.
+        With ``matched_only`` it measures the same population
+        :meth:`has_future_programmes` does, which is what the refresh floor
+        needs: no matched rows means "no starts" carries no information, so the
+        floor falls back to the stored ``epg_data_end`` summary instead of
+        reading silence as an exhausted guide. A cheap EXISTS on indexed
+        columns; the default (any row) is also the first half of
+        :meth:`has_unmatched_epg`, which calls this rather than repeating it.
+
+        Args:
+            provider_id: The feed provider.
+            matched_only: Count only rows linked to a channel
+                (``channel_db_id`` not NULL).
+        """
+        query = self.session.query(EpgProgramDB.id).filter(
+            EpgProgramDB.provider_id == provider_id
+        )
+        if matched_only:
+            query = query.filter(EpgProgramDB.channel_db_id.isnot(None))
         return query.first() is not None
 
     def has_unmatched_epg(self, provider_id: str) -> bool:
@@ -748,13 +781,7 @@ class EpgRepository(EpgWatchlistMixin):
         all* returns False — that is a "never fetched" state, not an unmatched state;
         ``needs_refresh`` / the never-fetched branch already handles it.
         """
-        # Any row at all?
-        has_any = (
-            self.session.query(EpgProgramDB.id)
-            .filter(EpgProgramDB.provider_id == provider_id)
-            .first()
-        )
-        if not has_any:
+        if not self.has_stored_programmes(provider_id):
             return False  # no rows → not an unmatched guide
         # Any matched row?
         has_matched = (
