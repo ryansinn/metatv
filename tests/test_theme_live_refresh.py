@@ -475,6 +475,10 @@ class TestTheSwitchIsVisibleInPaintedPixels:
         from metatv.gui.filter_group_row import _GroupRow
 
         config = SimpleNamespace(info_icon="i", expand_icon=">", collapse_icon="v")
+        before_theme = theme.current_theme()
+        # Start from a known palette: if a previous test left Daylight active,
+        # the switch below would be a no-op and the assertion meaningless.
+        theme.apply_theme("Midnight")
         group = _GroupRow(
             "Nordic", 4, [("no", "Norwegian", 2), ("se", "Swedish", 2)],
             config=config,
@@ -482,13 +486,21 @@ class TestTheSwitchIsVisibleInPaintedPixels:
         try:
             before = _icon_bytes(group._expand_btn)
 
-            theme.apply_theme("Daylight")
+            assert theme.apply_theme("Daylight")
 
-            assert _icon_bytes(group._expand_btn) != before, (
-                "the group expander glyph kept the previous palette's colour"
+            from metatv.gui import icon_utils as _icon_utils
+
+            after = _icon_bytes(group._expand_btn)
+            assert after != before, (
+                "the group expander glyph kept the previous palette's colour "
+                f"(registered={group._expand_btn in _icon_utils._registered_icon_buttons}, "
+                f"entry={_icon_utils._registered_icon_buttons.get(group._expand_btn)!r}, "
+                f"theme={theme.current_theme()!r}, icon_size={group._expand_btn.iconSize()}, "
+                f"bytes={len(after)})"
             )
         finally:
             destroy_widget(group)
+            theme.apply_theme(before_theme)
 
     def test_a_row_label_paints_the_new_ink(self, section):
         label = section._rows[0]._label
