@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=642,
-    version="0.105.0",
+    version="0.106.0",
     date="2026-09-08",
     title="One slow connect no longer hides posters for hours",
     items=(
