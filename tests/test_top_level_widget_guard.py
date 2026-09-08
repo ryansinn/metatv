@@ -24,7 +24,6 @@ is enough for pytest to treat it as an autouse fixture for that module. The
 allowlist is set INSIDE the nested module (module-level assignment on the
 imported conftest), since a subprocess cannot see this process's monkeypatch.
 """
-import os
 import pathlib
 
 pytest_plugins = ["pytester"]
@@ -38,7 +37,6 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 # no persistent reference is reclaimed by ordinary refcounting before any
 # fixture teardown runs at all, so it would never actually reach the guard).
 _LEAK_BODY = """
-import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import tests.conftest as _rc
 from PyQt6.QtWidgets import QWidget
