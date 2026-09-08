@@ -24,7 +24,7 @@ def _make_config():
 
 # ── Fix #98: variant chip queue label ─────────────────────────────────────
 
-def test_chip_status_suffix_includes_queue_icon_when_queued(qapp):
+def test_chip_status_suffix_includes_queue_icon_when_queued(qapp, owned_widgets):
     """_chip_status_suffix must include the queue icon when v.in_queue is True."""
     from metatv.gui.details_versions import ChannelVersion, _VersionSection
 
@@ -34,7 +34,7 @@ def test_chip_status_suffix_includes_queue_icon_when_queued(qapp):
     assert section.config.queue_icon in suffix
 
 
-def test_chip_status_suffix_omits_queue_icon_when_not_queued(qapp):
+def test_chip_status_suffix_omits_queue_icon_when_not_queued(qapp, owned_widgets):
     """_chip_status_suffix must NOT include the queue icon when v.in_queue is False."""
     from metatv.gui.details_versions import ChannelVersion, _VersionSection
 
@@ -44,7 +44,7 @@ def test_chip_status_suffix_omits_queue_icon_when_not_queued(qapp):
     assert section.config.queue_icon not in suffix
 
 
-def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypatch):
+def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypatch, owned_widgets):
     """Queue menu action text must match v.in_queue; choosing it flips in_queue optimistically.
 
     Strategy: subclass QMenu so that exec() returns whichever action the code added for
@@ -104,7 +104,7 @@ def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypa
         destroy_widget(section)
 
 
-def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch):
+def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch, owned_widgets):
     """When a chip reference is passed to the menu, its text updates after queue toggle."""
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QMenu, QPushButton
@@ -147,14 +147,14 @@ def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch):
 
 # ── Fix #101: genre chips wrap in flow layout ─────────────────────────────
 
-def test_genre_load_populates_flow_container(qapp):
+def test_genre_load_populates_flow_container(qapp, owned_widgets):
     """After load_metadata with genres, _genres_container holds one chip per genre."""
     from PyQt6.QtWidgets import QPushButton
     from metatv.gui.details_sections import _MetadataSection
     from metatv.gui.flow_layout import FlowLayout as _FlowLayout
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Action", "Drama", "Science Fiction"]))
 
     assert not section._genres_container.isHidden(), (
@@ -169,13 +169,13 @@ def test_genre_load_populates_flow_container(qapp):
     )
 
 
-def test_genre_chip_click_emits_genre_clicked(qapp):
+def test_genre_chip_click_emits_genre_clicked(qapp, owned_widgets):
     """Clicking a genre chip emits genre_clicked with the raw (unescaped) genre name."""
     from PyQt6.QtWidgets import QPushButton
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Science Fiction", "Drama"]))
 
     emitted: list[str] = []
@@ -191,11 +191,11 @@ def test_genre_chip_click_emits_genre_clicked(qapp):
     )
 
 
-def test_genre_chips_not_shown_for_live_channels(qapp):
+def test_genre_chips_not_shown_for_live_channels(qapp, owned_widgets):
     """Live channels (no metadata genres) must leave the genre area hidden."""
     from metatv.gui.details_sections import _MetadataSection
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.set_mode(is_live=True)
 
     assert section._genres_container.isHidden(), (
@@ -206,13 +206,12 @@ def test_genre_chips_not_shown_for_live_channels(qapp):
     )
 
 
-def test_genre_loading_label_shown_while_metadata_pending(qapp):
+def test_genre_loading_label_shown_while_metadata_pending(qapp, owned_widgets):
     """After load_basic for a non-live channel, loading label is shown, not the container."""
     from unittest.mock import MagicMock
     from metatv.gui.details_sections import _MetadataSection
 
-    section = _MetadataSection(_make_config())
-
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     # Minimal stub channel DTO
     ch = MagicMock()
     ch.name = "Test Movie (2023)"
@@ -239,12 +238,12 @@ def test_genre_loading_label_shown_while_metadata_pending(qapp):
     )
 
 
-def test_genre_clear_hides_container(qapp):
+def test_genre_clear_hides_container(qapp, owned_widgets):
     """After clear(), the genre container and loading label are hidden."""
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Action"]))
     assert not section._genres_container.isHidden(), (
         "_genres_container should not be hidden after genres loaded"
@@ -260,7 +259,7 @@ def test_genre_clear_hides_container(qapp):
 
 # ── e87956eb: comma-joined genre strings split into separate wrapping chips ──
 
-def test_comma_joined_genres_split_into_separate_chips(qapp):
+def test_comma_joined_genres_split_into_separate_chips(qapp, owned_widgets):
     """A single comma-joined genre string becomes one chip per genre so they wrap.
 
     Providers (e.g. for "Cowboy Bebop") often deliver all genres as one
@@ -271,7 +270,7 @@ def test_comma_joined_genres_split_into_separate_chips(qapp):
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(
         genres=["Animation, Action, Adventure, Comedy, Drama, Science Fiction"]
     ))
@@ -281,7 +280,7 @@ def test_comma_joined_genres_split_into_separate_chips(qapp):
     }, f"comma-joined genres must split into one chip each; got {chip_texts}"
 
 
-def test_comma_joined_genres_do_not_force_wide_minimum(qapp):
+def test_comma_joined_genres_do_not_force_wide_minimum(qapp, owned_widgets):
     """The over-wide single chip is the bug e87956eb: after splitting, the flow
     layout's minimum width is just the widest single genre, never the whole joined
     string — so it can never push the details panel (min 300px) wider."""
@@ -291,14 +290,14 @@ def test_comma_joined_genres_do_not_force_wide_minimum(qapp):
     joined = "Animation, Action, Adventure, Comedy, Drama, Science Fiction"
 
     # Sanity: the un-split joined string is genuinely wider than the panel.
-    unsplit = _MetadataSection(_make_config())
+    unsplit = owned_widgets.own(_MetadataSection(_make_config()))
     unsplit._populate_genre_chips([joined])
     unsplit_w = unsplit._genres_layout.minimumSize().width()
     assert unsplit_w > 300, (
         f"precondition: a single joined chip should be over-wide; got {unsplit_w}"
     )
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=[joined]))
     split_w = section._genres_layout.minimumSize().width()
     assert split_w < 200, (
@@ -307,7 +306,7 @@ def test_comma_joined_genres_do_not_force_wide_minimum(qapp):
     )
 
 
-def test_ampersand_genre_not_split(qapp):
+def test_ampersand_genre_not_split(qapp, owned_widgets):
     """'Sci-Fi & Fantasy' / 'Action & Adventure' are single TMDB genres — '&'
     must never split them, only ',' and '/' do.
 
@@ -318,7 +317,7 @@ def test_ampersand_genre_not_split(qapp):
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Sci-Fi & Fantasy, Action"]))
     chip_texts = {
         c.text().replace("&&", "&")
@@ -329,13 +328,13 @@ def test_ampersand_genre_not_split(qapp):
     )
 
 
-def test_duplicate_genres_deduped(qapp):
+def test_duplicate_genres_deduped(qapp, owned_widgets):
     """Merged multi-provider metadata can repeat a genre — render it once."""
     from PyQt6.QtWidgets import QPushButton
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
-    section = _MetadataSection(_make_config())
+    section = owned_widgets.own(_MetadataSection(_make_config()))
     section.load_metadata(MetadataResult(genres=["Action, Drama", "drama / Action"]))
     chips = [c.text() for c in section._genres_container.findChildren(QPushButton)]
     assert sorted(chips) == ["Action", "Drama"], (
@@ -348,22 +347,22 @@ def test_duplicate_genres_deduped(qapp):
 # DetailsPaneWidget.show_channel() does per selection, so these execute the
 # real reset path used when the reused pane switches between titles.
 
-def test_overview_hidden_when_no_plot(qapp):
+def test_overview_hidden_when_no_plot(qapp, owned_widgets):
     """A non-live title with no overview text hides the whole Overview section."""
     from metatv.gui.details_sections import _PlotSection
 
-    s = _PlotSection()
+    s = owned_widgets.own(_PlotSection())
     s.set_mode(is_live=False)
     s.clear()
     s.load(None)
     assert s.isHidden(), "Overview section must be hidden when there is no plot text"
 
 
-def test_overview_visible_when_plot_present(qapp):
+def test_overview_visible_when_plot_present(qapp, owned_widgets):
     """A title with an overview shows the Overview section with its text."""
     from metatv.gui.details_sections import _PlotSection
 
-    s = _PlotSection()
+    s = owned_widgets.own(_PlotSection())
     s.set_mode(is_live=False)
     s.clear()
     s.load("A bounty hunter drifts through space.")
@@ -371,22 +370,22 @@ def test_overview_visible_when_plot_present(qapp):
     assert s.plot_label.text() == "A bounty hunter drifts through space."
 
 
-def test_overview_visible_while_loading(qapp):
+def test_overview_visible_while_loading(qapp, owned_widgets):
     """While metadata is still loading the Overview section stays visible."""
     from metatv.gui.details_sections import _PlotSection
 
-    s = _PlotSection()
+    s = owned_widgets.own(_PlotSection())
     s.set_mode(is_live=False)
     s.clear()
     s.show_loading("...")
     assert not s.isHidden(), "Overview must be visible while metadata is loading"
 
 
-def test_overview_visibility_resets_across_reuse(qapp):
+def test_overview_visibility_resets_across_reuse(qapp, owned_widgets):
     """Reused pane: title WITH plot -> title WITHOUT plot hides -> back re-shows."""
     from metatv.gui.details_sections import _PlotSection
 
-    s = _PlotSection()
+    s = owned_widgets.own(_PlotSection())
     s.set_mode(is_live=False)
     s.clear()
     s.load("Plot one.")
@@ -401,44 +400,44 @@ def test_overview_visibility_resets_across_reuse(qapp):
     assert not s.isHidden(), "must re-show when reused for a title that has a plot"
 
 
-def test_cast_hidden_when_no_cast_or_crew(qapp):
+def test_cast_hidden_when_no_cast_or_crew(qapp, owned_widgets):
     """A title with neither cast nor director hides the whole Cast & Crew section."""
     from metatv.gui.details_sections import _CastSection
 
-    s = _CastSection(_make_config())
+    s = owned_widgets.own(_CastSection(_make_config()))
     s.set_mode(is_live=False)
     s.clear()
     s.load(cast=[], director=None)
     assert s.isHidden(), "Cast & Crew must hide with no cast and no director"
 
 
-def test_cast_visible_with_cast(qapp):
+def test_cast_visible_with_cast(qapp, owned_widgets):
     """Any cast members make the Cast & Crew section visible."""
     from metatv.gui.details_sections import _CastSection
 
-    s = _CastSection(_make_config())
+    s = owned_widgets.own(_CastSection(_make_config()))
     s.set_mode(is_live=False)
     s.clear()
     s.load(cast=[{"name": "Jane Doe"}], director=None)
     assert not s.isHidden(), "Cast & Crew must be visible when there is cast"
 
 
-def test_cast_visible_with_director_only(qapp):
+def test_cast_visible_with_director_only(qapp, owned_widgets):
     """A director alone is enough to show the Cast & Crew section."""
     from metatv.gui.details_sections import _CastSection
 
-    s = _CastSection(_make_config())
+    s = owned_widgets.own(_CastSection(_make_config()))
     s.set_mode(is_live=False)
     s.clear()
     s.load(cast=[], director="Shinichiro Watanabe")
     assert not s.isHidden(), "director alone is enough content to show the section"
 
 
-def test_cast_visibility_resets_across_reuse(qapp):
+def test_cast_visibility_resets_across_reuse(qapp, owned_widgets):
     """Reused pane: title WITH people -> title WITHOUT -> hides -> back re-shows."""
     from metatv.gui.details_sections import _CastSection
 
-    s = _CastSection(_make_config())
+    s = owned_widgets.own(_CastSection(_make_config()))
     s.set_mode(is_live=False)
     s.clear()
     s.load(cast=[{"name": "A"}], director="D")
@@ -455,7 +454,7 @@ def test_cast_visibility_resets_across_reuse(qapp):
 
 # ── the details-pane watch bell ───────────────────────────────────────────────
 
-def test_the_watch_bell_toggles_without_raising(qapp, tmp_path):
+def test_the_watch_bell_toggles_without_raising(qapp, tmp_path, owned_widgets):
     """Every click of the bell toggled the rule and then raised NameError.
 
     ``_on_watchlist`` ended with ``update_epg_title(title, patterns)`` and
@@ -470,7 +469,12 @@ def test_the_watch_bell_toggles_without_raising(qapp, tmp_path):
     from metatv.gui.details_pane import DetailsPaneWidget
 
     config = Config(config_dir=tmp_path)
-    pane = DetailsPaneWidget(config, ImageCache(cache_dir=tmp_path / "img"))
+    pane = owned_widgets.own(
+        DetailsPaneWidget(config, ImageCache(cache_dir=tmp_path / "img")))
+    # _ActionBar is deliberately never added to a layout (details_pane.py:499 —
+    # it owns the buttons the poster rail reparents), so it is a top-level of
+    # its own that destroying the pane does not take with it. Ledger F45.
+    owned_widgets.own(pane._action_bar)
     pane._on_epg_title_changed("Match of the Day")
     assert pane._action_bar.watchlist_button.isChecked() is False
 
@@ -486,7 +490,7 @@ def test_the_watch_bell_toggles_without_raising(qapp, tmp_path):
 
 # ── the deferred re-fit must not outlive its section ─────────────────────────
 
-def test_the_deferred_refit_dies_with_the_poster_section(qapp):
+def test_the_deferred_refit_dies_with_the_poster_section(qapp, owned_widgets):
     """A bare ``QTimer.singleShot(0, bound_method)`` outlived a section torn down
     in the same event-loop turn and fired into the dead widget — one of the
     timer-on-a-dead-widget shapes behind the 2026-09-07 CI teardown crashes.
@@ -498,7 +502,7 @@ def test_the_deferred_refit_dies_with_the_poster_section(qapp):
 
     from unittest.mock import MagicMock
 
-    section = _PosterSection(_make_config(), MagicMock())
+    section = owned_widgets.own(_PosterSection(_make_config(), MagicMock()))
     fired: list[str] = []
     section._apply_scaled_poster = lambda: fired.append("poster")
     section._display_poster(QPixmap(40, 60))
