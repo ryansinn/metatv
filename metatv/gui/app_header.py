@@ -202,6 +202,10 @@ class _AppHeaderMixin:
         )
         self.search_input.setMinimumWidth(240)
         self.search_input.setMaximumWidth(460)
+        # A tooltip of its own, so shortcuts.annotate_tooltips has something to
+        # append its key to — the placeholder is not a tooltip and disappears
+        # the moment there is text in the box.
+        self.search_input.setToolTip("Search every source by name or category")
         _theme.style_fn(self.search_input, _search_sheet)
         self.search_input.textChanged.connect(self._on_search_text_changed)
         self.search_input.returnPressed.connect(self._on_search_submitted)
@@ -249,6 +253,16 @@ class _AppHeaderMixin:
         layout.addWidget(self._filter_chip)
 
         QTimer.singleShot(0, self._update_filter_btn_state)
+        # The keyboard shortcuts' controls exist NOW (the chips and the search
+        # box are built above; the menu actions were built in create_menu_bar),
+        # so this is where each one's tooltip gains its key — the accelerator
+        # has to say where it is, or nobody finds it (KEYS-1). Imported here,
+        # not at module scope: shortcuts.py reads NAV_CHIP_SPECS out of THIS
+        # module while building its table, so a top-level import would be a
+        # cycle that resolves to a half-built module.
+        from metatv.gui import shortcuts as _shortcuts
+
+        _shortcuts.annotate_tooltips(self)
         return header
 
     def _show_tools_menu(self) -> None:

@@ -26,12 +26,15 @@ care which class in the MRO defines the name.
 from __future__ import annotations
 
 from loguru import logger
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtWidgets import QApplication
 
 from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icons as _icons
 from metatv.gui import settings_apply as _settings_apply
+from metatv.gui import shortcuts as _shortcuts
 from metatv.gui.menu_bar_reveal import auto_hide_supported as menu_bar_auto_hide_supported
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
@@ -60,7 +63,7 @@ class _MenuActionsMixin:
         file_menu.addAction("E&xit", self.close)
         
         # View menu
-        view_menu = menubar.addMenu("&View")
+        view_menu = self._view_menu = menubar.addMenu("&View")
         view_menu.addAction("&Refresh", self.refresh_channels)
         view_menu.addAction("&Operations", self.show_operations)
 
@@ -72,6 +75,10 @@ class _MenuActionsMixin:
         self._build_style_menu(menubar)
         self._build_layout_menu(menubar)
         self._build_buffer_menu(menubar)
+        # Empty here on purpose: every entry in it is a shortcut row, so
+        # shortcuts.install() fills it. Created HERE so it sits between
+        # Buffer and Tools rather than after Help.
+        self._playback_menu = menubar.addMenu("&Playback")
         
         # Tools menu
         tools_menu = self._tools_menu = menubar.addMenu("&Tools")
@@ -201,6 +208,111 @@ class _MenuActionsMixin:
 
         help_menu.addSeparator()
         help_menu.addAction("&About", self.show_about)
+
+        # LAST, because every menu the table names has to exist first. One
+        # call builds every accelerator in the app, places each one in the
+        # menu its row names, and hangs the two Layout toggles' keys on the
+        # actions that already do that job (KEYS-1).
+        _shortcuts.install(self)
+
+    # ── Keyboard shortcuts (KEYS-1) ─────────────────────────────────────────
+    # The handlers ``gui/shortcuts.py`` names. They live here because this is
+    # the file that owns the menu bar, and every one of them is reachable from
+    # a menu entry as well as from its key.
+
+    def show_keyboard_shortcuts(self) -> None:
+        """Open the cheat-sheet — every shortcut, read off the one table."""
+        from metatv.gui.shortcuts import ShortcutCheatSheetDialog
+
+        ShortcutCheatSheetDialog(self).exec()
+
+    def _shortcut_focus_search(self) -> None:
+        """Put the caret in the header search box with its text selected.
+
+        Selected, not appended to: the binding is reached to start a NEW
+        search far more often than to extend the last one, and the previous
+        query being highlighted means either intent is one keystroke away.
+        """
+        box = self.__dict__.get("search_input")
+        if box is None:
+            return
+        box.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        box.selectAll()
+
+    def _shortcut_escape(self) -> None:
+        """Escape: give the key back to whatever is in front.
+
+        A window-owned shortcut is matched BEFORE the focus widget's
+        ``keyPressEvent``, so this action takes Escape away from the search
+        box and the overlays, each of which already defines what Escape means
+        there (``ScopedFilterBox`` clears and emits ``escaped``; the
+        lightboxes and the trail-map close). Re-sending the key is how those
+        single definitions stay the only ones — reimplementing "close" here
+        would be a second copy that drifts.
+        """
+        focused = QApplication.focusWidget()
+        if _shortcuts.is_text_entry(focused):
+            _shortcuts.send_escape(focused)
+            if focused is self.__dict__.get("search_input"):
+                focused.clearFocus()
+            return
+        # Front to back: the poster lightbox opens ON TOP of the preview
+        # overlay, and the trail-map replaces it.
+        for attr in ("_poster_lightbox", "_trail_map", "_lightbox"):
+            overlay = self.__dict__.get(attr)
+            if overlay is not None and overlay.isVisible():
+                _shortcuts.send_escape(overlay)
+                return
+
+    def _shortcut_play_pause(self) -> None:
+        """Toggle pause on the current stream.
+
+        ``key=None`` is the most-recently-used mpv instance, which is what
+        "the current stream" means with Split Streams on — and it goes
+        through ``PlayerManager``, never ``MPVPlayer``.
+        """
+        if not self.player_manager.send_command(["cycle", "pause"]):
+            self.status("Nothing is playing", ms=4000)
+
+    def _shortcut_stop(self) -> None:
+        """Stop the current stream (the most-recently-used player instance)."""
+        if self.player_manager.stop():
+            self.status("Playback stopped", ms=4000)
+        else:
+            self.status("Nothing is playing", ms=4000)
+
+    def _shortcut_next_channel(self) -> None:
+        """Select the next channel in the list. Selection only — no play."""
+        self._step_channel_selection(1)
+
+    def _shortcut_prev_channel(self) -> None:
+        """Select the previous channel in the list. Selection only — no play."""
+        self._step_channel_selection(-1)
+
+    def _step_channel_selection(self, delta: int) -> None:
+        """Move the channel list's current row by *delta*, skipping headers.
+
+        Grouped mode puts section and person headings in the same model as
+        the channels and marks them not-selectable; stepping onto one would
+        move the details pane to nothing, so they are stepped OVER.
+
+        Args:
+            delta: ``+1`` for the next row, ``-1`` for the previous one.
+        """
+        view = self.__dict__.get("channels_list")
+        model = view.model() if view is not None else None
+        if model is None:
+            return
+        total = model.rowCount()
+        current = view.currentIndex().row()
+        row = (current if current >= 0 else (-1 if delta > 0 else total)) + delta
+        while 0 <= row < total:
+            index = model.index(row, 0)
+            if model.flags(index) & Qt.ItemFlag.ItemIsSelectable:
+                view.setCurrentIndex(index)
+                view.scrollTo(index)
+                return
+            row += delta
 
     def show_operations(self):
         """Show operations panel"""
@@ -356,7 +468,7 @@ class _MenuActionsMixin:
         (``CollapsibleSplitter.collapse_panel``/``expand_panel``, and
         ``toggle_filters``), so a menu tick can never disagree with the screen.
         """
-        layout_menu = menubar.addMenu("&Layout")
+        layout_menu = self._layout_menu = menubar.addMenu("&Layout")
         layout_menu.aboutToShow.connect(self._sync_layout_menu)
 
         self._sidebar_visible_action = QAction("&Sidebar", self, checkable=True)
