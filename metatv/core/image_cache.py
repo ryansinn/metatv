@@ -347,6 +347,19 @@ class ImageCache(QObject):
 
         pixmap = self.get_image_resident(url)
         if pixmap is not None:
+            # Subscribers FIRST, then the broadcast — the same order (and the
+            # same reason) as ``_on_image_ready``. IMG-3: this fast path used
+            # to broadcast only, so a caller that used ``subscribe()`` rather
+            # than the ``image_loaded`` signal was never told its image was
+            # already in hand. Every Discover card is such a caller (#574
+            # moved them off the broadcast to kill an N-squared fan-out), so a
+            # poster that was already resident left its card on the
+            # placeholder forever — and, because only ``_on_image_loaded``
+            # stops it, left that card's infinite shimmer animation running.
+            # The details pane made this self-inflicting: it uses the
+            # broadcast, and serving it stores the pixmap resident, after
+            # which the card for that same title could never load.
+            self._dispatch(url, 0, url, pixmap)
             self.image_loaded.emit(url, pixmap)
             return
 
