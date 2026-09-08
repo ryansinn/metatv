@@ -468,6 +468,14 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # sibling (#272 fixed it forward; this clears what already shipped).
         from metatv.core.migrations.bad_region_cleanup import BadRegionCleanupTask
         self.migration_manager.register(BadRegionCleanupTask(self.db))
+        # Its sibling for the rows the predicate above could not see: an age
+        # rating ("18+") is not a locale code, so those rows inherited a
+        # sibling's region unchallenged. Ahead of TagBackfill, so the region is
+        # already honest when the facets are derived from it.
+        from metatv.core.migrations.age_rating_region_cleanup import (
+            AgeRatingRegionCleanupTask,
+        )
+        self.migration_manager.register(AgeRatingRegionCleanupTask(self.db))
         # Owner-reported gap: restricted-content (XXX/ADULT/X-prefix naming
         # convention) name/prefix detection the provider's is_adult flag misses —
         # one-time backfill of stored detected_restricted for pre-existing rows

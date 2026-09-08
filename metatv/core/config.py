@@ -1329,17 +1329,17 @@ class Config(BaseModel):
     category_facet_version: int = 0
 
     # Internal migration version for the detected_genre(s) backfill (#genre-perf).
-    # Bump CURRENT_VERSION in metatv/core/migrations/detected_genre_backfill.py to
-    # trigger a one-time pass populating ChannelDB.detected_genre/detected_genres
-    # (stored canonical genre(s), computed at ingestion) for pre-existing rows —
-    # what lets Discover's genre shelves read a small indexed/stored field instead
-    # of alias-matching against raw_data on every shelf expand.
-    # One-time cleanup of detected_region values inherited from an unrelated
-    # content_key sibling (see migrations/bad_region_cleanup.py). Only ever
-    # CLEARS a contradicting region — an empty region is honest, a guessed one
-    # is how the mislabels happened.
-    bad_region_cleanup_version: int = 0
+    # Bump CURRENT_VERSION in metatv/core/migrations/detected_genre_backfill.py for a
+    # one-time pass populating ChannelDB.detected_genre/detected_genres on pre-existing
+    # rows — what lets Discover's genre shelves read a stored indexed field instead of
+    # alias-matching against raw_data on every shelf expand.
     genre_backfill_version: int = 0
+    # One-time cleanups of detected_region inherited from an unrelated content_key
+    # sibling. Both only ever CLEAR — an empty region is honest, a guessed one is how
+    # the mislabels happened. bad_region_cleanup.py: a region contradicting the row's
+    # own locale prefix. age_rating_region_cleanup.py: an age-rating prefix ("18+").
+    bad_region_cleanup_version: int = 0
+    age_rating_region_cleanup_version: int = 0
 
     # Internal migration version for the detected_restricted backfill (owner-reported
     # gap — restricted-content name/prefix detection, e.g. XXX/ADULT/X-prefix, that the
