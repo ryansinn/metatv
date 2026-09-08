@@ -482,3 +482,36 @@ def test_the_watch_bell_toggles_without_raising(qapp, tmp_path):
     pane._on_watchlist()
     assert watchlist.patterns(config) == ()
     assert pane._action_bar.watchlist_button.isChecked() is False
+
+
+# ── the deferred re-fit must not outlive its section ─────────────────────────
+
+def test_the_deferred_refit_dies_with_the_poster_section(qapp):
+    """A bare ``QTimer.singleShot(0, bound_method)`` outlived a section torn down
+    in the same event-loop turn and fired into the dead widget — one of the
+    timer-on-a-dead-widget shapes behind the 2026-09-07 CI teardown crashes.
+    The re-fit is now a timer the section owns: gone with it, and still firing
+    while it lives."""
+    from PyQt6.QtGui import QPixmap
+    from tests.conftest import destroy_widget
+    from metatv.gui.details_sections import _PosterSection
+
+    from unittest.mock import MagicMock
+
+    section = _PosterSection(_make_config(), MagicMock())
+    fired: list[str] = []
+    section._apply_scaled_poster = lambda: fired.append("poster")
+    section._display_poster(QPixmap(40, 60))
+    assert section._refit_timer.isActive(), "the re-fit was not scheduled"
+    qapp.processEvents()
+    for _ in range(3):
+        qapp.processEvents()
+    assert fired, "the deferred re-fit never ran while the section was alive"
+
+    section._display_poster(QPixmap(40, 60))
+    fired.clear()              # the synchronous first fit just ran; only the timer is left
+    assert section._refit_timer.isActive()
+    destroy_widget(section)
+    for _ in range(3):
+        qapp.processEvents()
+    assert not fired, "the re-fit fired after the section was destroyed"

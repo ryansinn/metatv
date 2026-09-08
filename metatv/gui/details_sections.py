@@ -233,6 +233,12 @@ class _PosterSection(QWidget):
         self._provider_urls: list = []
         self._full_pixmap: QPixmap | None = None   # full-res image for the lightbox
         self._is_live_logo: bool = False           # poster area is showing a live logo
+        # The deferred re-fit is a timer OWNED by this widget: a bare
+        # QTimer.singleShot(0, bound_method) outlives a section torn down in the
+        # same event-loop turn and fires into the dead widget.
+        self._refit_timer = QTimer(self)
+        self._refit_timer.setSingleShot(True)
+        self._refit_timer.timeout.connect(self._refit_deferred)
         self._logo_src: QPixmap | None = None      # retained original logo for resize re-fit
         self._rescaling: bool = False              # guards the resize→rescale re-entrancy loop
         # Watched-badge state (VOD only)
@@ -715,9 +721,14 @@ class _PosterSection(QWidget):
         self._full_pixmap = pixmap   # retain original for lightbox + resize re-fit
         self._is_live_logo = False
         self._apply_scaled_poster()
-        # During rapid navigation the label width can be stale when the poster loads, so a
-        # one-shot deferred pass re-fits at the settled width.
-        QTimer.singleShot(0, self._apply_scaled_poster)
+        self._refit_timer.start(0)   # width can be stale mid-navigation: re-fit once settled
+
+    def _refit_deferred(self) -> None:
+        """One settled-width re-fit for whichever image the box is showing."""
+        if self._is_live_logo:
+            self._apply_scaled_logo()
+        else:
+            self._apply_scaled_poster()
 
     def _apply_scaled_poster(self) -> None:
         """Fit the retained VOD poster INSIDE the fixed-height box (KeepAspectRatio).
@@ -761,7 +772,7 @@ class _PosterSection(QWidget):
         self._logo_src = pixmap    # retain the ORIGINAL so resize can re-fit cleanly
         self._restore_poster_metrics()   # logo keeps the fixed 400-600 box (no fill cap)
         self._apply_scaled_logo()
-        QTimer.singleShot(0, self._apply_scaled_logo)
+        self._refit_timer.start(0)
 
     def _apply_scaled_logo(self) -> None:
         """Fit the retained logo inside the current box (centered, with upscale ceiling)."""
@@ -1202,34 +1213,19 @@ class _MetadataSection(QWidget):
 
         self._genres_loading_lbl.hide()
         if metadata.genres:
-            # Split combined genre strings into one chip each so they wrap cleanly
-            # in the flow layout.  Providers deliver genres inconsistently: a real
-            # list (["Action", "Drama"]), a slash-joined string ("Action / Drama"),
-            # or a single comma-joined string ("Action, Adventure, Sci-Fi").  An
-            # un-split comma string renders as one over-wide chip whose minimum
-            # width pushes the whole details panel wider (e87956eb).  Split on both
-            # ',' and '/'; never '&' — "Sci-Fi & Fantasy" / "Action & Adventure"
-            # are single TMDB genres.  De-dupe (case-insensitive) so merged
-            # multi-provider metadata doesn't yield duplicate chips.
-            # Each leaf is then folded to its CANONICAL KEY via ``normalize_genre``
-            # — the same table ingestion and stat aggregation use. Without it this
-            # pane was the one surface rendering the raw provider payload, so an
-            # Italian source showed "Dramma" and a French one "Drame / Mystère /
-            # Science-Fiction & Fantastique" while the very same channel's list row
-            # (reading the ingestion-computed ``detected_genre``) showed "Drama" —
-            # one fact, two answers, both on screen at once. Nothing had regressed:
-            # normalize_genre had zero GUI callers despite its own docstring naming
-            # this pane as the reason it exists.
-            #
-            # This canonicalizes PRESENTATION ONLY. The provider's own wording is
-            # untouched in ``metadata.genres`` — nothing is destroyed, and every
-            # language variant a source gave us is still there to read. The key
-            # happens to BE its English display string today because the UI is
-            # English-only; when the UI speaks other languages, the display layer
-            # belongs here (key → localized label), and the key stays the one
-            # thing "all Drama" groups, filters and dedups on. Do NOT push the
-            # localized string back into storage — that is what made this pane
-            # disagree with the list in the first place.
+            # One chip per genre so they wrap in the flow layout. Providers deliver
+            # genres as a list, a slash-joined or a comma-joined string; an un-split
+            # comma string renders one over-wide chip that pushes the whole panel
+            # wider (e87956eb). Split on ',' and '/', never '&' ("Sci-Fi & Fantasy"
+            # is one TMDB genre); de-dupe case-insensitively across merged sources.
+            # Each leaf then folds to its CANONICAL KEY via ``normalize_genre`` — the
+            # table ingestion and stats use — because this pane was the one surface
+            # rendering the raw payload ("Dramma"/"Drame" here, "Drama" on the list
+            # row from ``detected_genre``: one fact, two answers on screen).
+            # PRESENTATION ONLY: ``metadata.genres`` keeps the provider's wording;
+            # when the UI is localized the label layer belongs here (key → label),
+            # and the key stays what "all Drama" groups on. Never push a localized
+            # string back into storage — that is what made this pane disagree.
             genres: list[str] = []
             seen: set[str] = set()
             for g in metadata.genres:
