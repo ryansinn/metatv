@@ -32,6 +32,14 @@ SERIES_RAW = {
     "cover": "http://cdn/rock.jpg",
 }
 
+#: Adds the two fields W-2a's _fill() calls added: the real series ``tmdb``
+#: key and a resolvable top-level ``episode_run_time``.
+SERIES_RAW_WITH_IDS = {
+    **SERIES_RAW,
+    "tmdb": "1396",
+    "episode_run_time": "47",
+}
+
 
 @pytest.fixture
 def db(tmp_path):
@@ -168,3 +176,61 @@ def test_live_channels_are_left_alone(db):
     _add(db, "c1", {"stream_icon": "http://cdn/logo.png"}, media_type="live")
 
     assert OfflineMetadataBackfillTask(db).needs_run(None) is False
+
+
+# --------------------------------------------------------------------------
+# runtime + tmdb_id (W-2a) — metadata_from_raw already computes both, but the
+# hand-listed _fill() enumeration never applied either to the row this task
+# creates. Reverting either _fill() line reddens its own test below.
+# --------------------------------------------------------------------------
+
+def test_a_series_gets_its_runtime_from_episode_run_time(db):
+    """The series shape the owner's providers actually send: a bare minutes
+    string at the top level, resolved by the same ``runtime_from_raw`` the
+    one-time ``RawFieldBackfillTask`` uses."""
+    _add(db, "c1", SERIES_RAW_WITH_IDS, detected_title="Breaking Bad")
+    _run(db)
+
+    with db.session_scope() as session:
+        ch = session.get(ChannelDB, "c1")
+        meta = session.get(MetadataDB, ch.metadata_id)
+        assert meta.runtime == 47
+
+
+def test_a_series_sending_zero_runtime_stays_none(db):
+    """``"0"`` is the provider's "unknown", not a literal zero — see
+    ``_parse_runtime``'s docstring."""
+    raw = {**SERIES_RAW, "tmdb": "1396", "episode_run_time": "0"}
+    _add(db, "c1", raw, detected_title="Breaking Bad")
+    _run(db)
+
+    with db.session_scope() as session:
+        ch = session.get(ChannelDB, "c1")
+        meta = session.get(MetadataDB, ch.metadata_id)
+        assert meta.runtime is None
+
+
+def test_a_series_gets_its_tmdb_id_from_the_real_key(db):
+    """Every real payload ships the id under ``tmdb``, never ``tmdb_id`` — the
+    key-name bug this task's fill list also needed a line for."""
+    _add(db, "c1", SERIES_RAW_WITH_IDS, detected_title="Breaking Bad")
+    _run(db)
+
+    with db.session_scope() as session:
+        ch = session.get(ChannelDB, "c1")
+        meta = session.get(MetadataDB, ch.metadata_id)
+        assert meta.tmdb_id == "1396"
+
+
+def test_a_movie_gets_its_tmdb_id_from_the_real_key(db):
+    _add(db, "c1", {
+        "name": "Inception", "tmdb": "27205", "rating": "7.8",
+    }, media_type="movie", detected_title="Inception")
+    _run(db)
+
+    with db.session_scope() as session:
+        ch = session.get(ChannelDB, "c1")
+        meta = session.get(MetadataDB, ch.metadata_id)
+        assert meta.tmdb_id == "27205"
+        # No source for a movie runtime in the LIST payload — stays None.
+        assert meta.runtime is None

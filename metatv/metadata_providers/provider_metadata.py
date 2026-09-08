@@ -5,6 +5,7 @@ import re
 
 from loguru import logger
 
+from metatv.core.content_identity import valid_tmdb_id
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
 from metatv.metadata_providers.raw_parse import (
     extract_artwork,
@@ -164,6 +165,43 @@ def runtime_from_raw(raw_data) -> Optional[int]:
     return _parse_runtime(info.get('duration') or info.get('episode_run_time'))
 
 
+def tmdb_id_from_raw(raw_data) -> Optional[str]:
+    """Return the TMDb id a provider payload implies, or None.
+
+    Sibling of :func:`runtime_from_raw` / :func:`trailer_from_raw`: ingestion
+    (``metadata_from_raw``) and the one-time backfill
+    (``core.migrations.raw_field_backfill``) both call this, so a provider
+    shape is taught here once rather than drifting between the two.
+
+    Validation is the single :func:`~metatv.core.content_identity.valid_tmdb_id`
+    — the same gate ``providers/xtream.py`` uses to populate
+    ``ChannelDB.detected_tmdb_id`` and
+    :func:`~metatv.core.tmdb_enrichment_manager._extract_tmdb_id` uses for the
+    per-title VOD/series info endpoints — so a provider sentinel (``"0"`` /
+    ``""`` / ``"null"``) is rejected identically everywhere.
+
+    ``tmdb_id`` is checked before ``tmdb`` (the same precedence
+    ``_extract_tmdb_id`` uses for the per-title info endpoints, a different
+    payload shape): both the movie and series LIST payloads — the shape this
+    reads — ship the id under ``tmdb`` only. Measured on the owner's library:
+    ``raw_data.tmdb`` present on 221,423 rows, ``raw_data.tmdb_id`` present on
+    0. Reading ``info.get('tmdb_id')`` alone (the previous code) read a key
+    that has never existed, so ``MetadataDB.tmdb_id`` was empty on all
+    653,306 rows.
+
+    Args:
+        raw_data: A stored provider blob — dict, JSON string, or None.
+
+    Returns:
+        The canonical id digit-string, or None.
+    """
+    info = _info_of(raw_data)
+    if info is None:
+        return None
+    value = info.get('tmdb_id') if info.get('tmdb_id') is not None else info.get('tmdb')
+    return valid_tmdb_id(value)
+
+
 def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
                       logo_url: str | None = None) -> "Optional[MetadataResult]":
     """Parse a provider's stored ``raw_data`` into metadata. No session, no network.
@@ -252,7 +290,7 @@ def metadata_from_raw(raw_data, *, name: str, detected_title: str | None = None,
 
         # Links
         trailer_url=extract_trailer(info),
-        tmdb_id=str(info.get('tmdb_id', '')) if info.get('tmdb_id') else None,
+        tmdb_id=tmdb_id_from_raw(raw_data),
 
         # Metadata
         provider_name="provider",

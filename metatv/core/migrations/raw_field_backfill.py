@@ -2,7 +2,7 @@
 
 Started as ``MetadataDB``-only; generalized (DB-4) to also target ``ChannelDB``
 columns, since the same "the payload had it, nothing read it" shape recurred
-there. Four fields, two target tables:
+there. Five fields, two target tables:
 
 ``runtime`` (MetadataDB)
     Populated on **0 of 652,216 rows**. Providers send it — ``info.duration`` on
@@ -22,6 +22,14 @@ there. Four fields, two target tables:
     ``json_extract(channels.raw_data, '$.rating'/'$.added')`` at query time —
     1.1-1.9s per shelf over 785k rows. Now stored + indexed at ingestion
     (``providers/xtream.py``); this backfills the rows that predate that.
+
+``tmdb_id`` (MetadataDB)
+    Populated on **0 of 653,306 rows** (W-2a). ``metadata_from_raw`` read
+    ``info.get('tmdb_id')`` — a key neither the movie nor the series payload
+    has ever shipped; both send the id under ``tmdb`` (measured: 221,423 rows
+    carry it). Fixed at the read function (``tmdb_id_from_raw``, same file as
+    ``runtime_from_raw``); this backfills the 653,306 rows
+    ``OfflineMetadataBackfillTask`` already wrote before that fix landed.
 
 Fixed forward at ingestion, which covers everything ingested from here on.
 This is the one-time pass for rows that already exist, because cached data is
@@ -54,7 +62,7 @@ from loguru import logger
 
 from metatv.core.content_identity import added_from_raw, rating_from_raw
 from metatv.metadata_providers.provider_metadata import (
-    runtime_from_raw, trailer_from_raw,
+    runtime_from_raw, tmdb_id_from_raw, trailer_from_raw,
 )
 
 if TYPE_CHECKING:                                    # pragma: no cover
@@ -69,7 +77,8 @@ if TYPE_CHECKING:                                    # pragma: no cover
 #:   1 — runtime
 #:   2 — trailer_url
 #:   3 — detected_rating, detected_added
-CURRENT_VERSION = 3
+#:   4 — tmdb_id (W-2a)
+CURRENT_VERSION = 4
 
 #: Rows per commit. Matches the other backfills — large enough that the commit
 #: overhead disappears, small enough that a cancel loses little work.
@@ -99,6 +108,7 @@ FIELDS: "dict[str, tuple[str, object]]" = {
     "trailer_url": ("MetadataDB", trailer_from_raw),
     "detected_rating": ("ChannelDB", _detected_rating_from_raw),
     "detected_added": ("ChannelDB", _detected_added_from_raw),
+    "tmdb_id": ("MetadataDB", tmdb_id_from_raw),
 }
 
 
