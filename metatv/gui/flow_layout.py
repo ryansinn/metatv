@@ -54,6 +54,23 @@ class FlowLayout(QLayout):
 
     # ── QLayout interface ──────────────────────────────────────────────
 
+    def __del__(self) -> None:
+        """Hand every item back before the C++ layout goes.
+
+        ``QLayout``'s C++ destructor calls ``takeAt(0)`` until it gets null —
+        into THIS Python object, which may already be part-finalized. A
+        Python-implemented layout that does not drain itself first is the
+        classic PyQt crash (Qt's own FlowLayout example drains in ``__del__``
+        for this reason), and it is the shape behind the intermittent CI
+        teardown segfaults: the tag chips live in a FlowLayout, and both
+        platforms crashed right after a Tags-section test.
+        """
+        try:
+            while self.takeAt(0) is not None:
+                pass
+        except (RuntimeError, AttributeError):
+            pass   # interpreter shutdown, or the C++ side is already gone
+
     def addItem(self, item) -> None:  # noqa: N802
         self._items.append(item)
 
