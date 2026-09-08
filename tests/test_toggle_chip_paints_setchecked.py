@@ -26,31 +26,27 @@ def qapp():
     yield app
 
 
+_CHIPS: list = []
+
+
 @pytest.fixture(autouse=True)
-def _delete_chips(qapp):
-    """Delete the parentless chips each test builds.
+def _destroy_chips():
+    """Every chip _chip builds is a parentless top-level; free it at teardown —
+    left to garbage collection it leaked on some test orders (four allowlist
+    entries, then a fifth on CI)."""
+    from tests.conftest import destroy_widget
 
-    A bare ``ToggleChip`` is a TOP-LEVEL widget. ``apply_theme()`` repaints
-    every top-level, and a shard carrying enough leaked ones segfaults — that
-    took a CI shard down earlier the same day. ``deleteLater()`` alone is not
-    enough: it only QUEUES the delete and ``processEvents()`` does not drain
-    ``DeferredDelete``.
-    """
-    from PyQt6.QtCore import QEvent
-    from PyQt6.QtWidgets import QApplication
-
-    before = {id(w) for w in QApplication.topLevelWidgets()}
     yield
-    for w in QApplication.topLevelWidgets():
-        if id(w) not in before:
-            w.close()
-            w.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    destroy_widget(*_CHIPS)
+    _CHIPS.clear()
 
 
 def _chip(label, enabled):
     from metatv.gui.chips import ToggleChip
-    return ToggleChip(label, enabled=enabled, segment="middle")
+
+    chip = ToggleChip(label, enabled=enabled, segment="middle")
+    _CHIPS.append(chip)
+    return chip
 
 
 class TestPaintedStateFollowsSetChecked:
