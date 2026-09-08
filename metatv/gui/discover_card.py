@@ -239,6 +239,18 @@ class _ContentCard(QWidget):
 
         # Shimmer animation — created here but only STARTED in request_image()
         # so collapsed-shelf cards don't burn CPU with hundreds of idle animations.
+        #
+        # IMG-4: the loop count is FINITE (20 loops * 900ms ~= 18s), not -1.
+        # A delivery hole that leaves a card un-notified (IMG-3's bug: the
+        # resident-LRU fast path only broadcast, so any subscribe()-only
+        # caller — every Discover card — never heard back) used to leave an
+        # infinite QPropertyAnimation repainting forever; with hundreds of
+        # stuck cards that turned a cosmetic bug into ~1.1s main-thread
+        # stalls whose Python stack was empty (the work is Qt C++, invisible
+        # to a profiler that only samples Python frames). 18s is far longer
+        # than any healthy load and short enough that a genuinely stuck card
+        # settles to a static placeholder on its own — no per-card QTimer,
+        # which would add an extra object per card across hundreds of cards.
         if card.thumbnail_url:
             effect = QGraphicsOpacityEffect(self._poster_lbl)
             self._poster_lbl.setGraphicsEffect(effect)
@@ -247,7 +259,8 @@ class _ContentCard(QWidget):
             self._shimmer.setStartValue(0.35)
             self._shimmer.setEndValue(0.85)
             self._shimmer.setEasingCurve(QEasingCurve.Type.InOutSine)
-            self._shimmer.setLoopCount(-1)
+            self._shimmer.setLoopCount(20)
+            self._shimmer.finished.connect(self._stop_shimmer)
         else:
             self._shimmer = None
 
