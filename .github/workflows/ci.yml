@@ -203,23 +203,4 @@ jobs:
           # -v (not -q): a teardown segfault leaves faulthandler with only
           # pytest's own frames, so the LAST NAMED TEST is the only clue to
           # which teardown crashed (2026-09-07, three PRs).
-          # DIAGNOSTIC (2026-09-08, temporary): under gdb the segfault never
-          # fires (a timing race), so run untouched, keep the core dump, and
-          # read every thread's backtrace post-mortem.
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            sudo apt-get install -y -q gdb >/dev/null 2>&1
-            sudo sysctl -w kernel.core_pattern="$PWD/core.%p" >/dev/null
-            ulimit -c unlimited
-            set +e
-            python -m pytest -v $(cat shard.txt)
-            rc=$?
-            set -e
-            for core in core.*; do
-              [ -f "$core" ] || continue
-              echo "===== gdb post-mortem: $core ====="
-              gdb -q -batch -ex "thread apply all bt 30" "$(which python)" "$core" 2>&1 | tail -400
-            done
-            exit $rc
-          else
-            python -m pytest -v $(cat shard.txt)
-          fi
+          python -m pytest -v $(cat shard.txt)
