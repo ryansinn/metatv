@@ -31,7 +31,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from tests.conftest import wire_status_method
+from tests.conftest import wire_status_method, wire_streaming_db
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +246,7 @@ def _make_streaming_host():
     host.loading_channels = set()
     host.status_bar = MagicMock()
     wire_status_method(host)
+    wire_streaming_db(host)   # DB-2: play_media reads self.db
     host.notification_manager = MagicMock()
     host.notification_manager.show.return_value = "notif-1"
     host.player_manager = MagicMock()
