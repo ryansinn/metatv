@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
-from metatv.core import write_gate
+from metatv.core import channel_index_policy, write_gate
 from metatv.core.tag_source import TagSourceType
 
 Base = declarative_base()
@@ -62,9 +62,9 @@ class ChannelDB(Base):
     category = Column(String, default="", index=True)
     category_id = Column(String)
     
-    language = Column(String, index=True)
+    language = Column(String)  # STORAGE-1a: dead column (100% NULL, no readers) — index dropped, not recreated
     detected_prefix = Column(String, index=True)   # Separator-delimited prefix token (e.g. "EN", "NF", "4K")
-    detected_quality = Column(String, index=True)  # Quality token found anywhere in name (e.g. "HD", "4K", "UHD")
+    detected_quality = Column(String)  # Quality token found anywhere in name (e.g. "HD", "4K", "UHD") — partial index, see __table_args__
     detected_region = Column(String, index=True)   # Parenthetical lang/region suffix (e.g. "(US)"→"US", "(JP)"→"JP")
     detected_title = Column(String)                # Bare channel name with all prefixes/suffixes stripped
     detected_year = Column(String)                 # Year or range extracted from name (e.g. "2025", "1993-2002")
@@ -77,8 +77,8 @@ class ChannelDB(Base):
     
     metadata_id = Column(String, index=True)
     
-    is_favorite = Column(Boolean, default=False, index=True)
-    is_hidden = Column(Boolean, default=False, index=True)  # hidden from all views
+    is_favorite = Column(Boolean, default=False)  # STORAGE-1a: dropped (D58), subsumed by ix_channels_favorite_hidden_name
+    is_hidden = Column(Boolean, default=False)  # hidden from all views — STORAGE-1a: dropped, ix_channels_hidden_name (is_hidden, name) already serves is_hidden alone (left-prefix)
 
     #: When this row was last present in the source's own channel list.
     #:
@@ -93,26 +93,26 @@ class ChannelDB(Base):
     #: by something that bypassed the catalog upsert — deleting on an absence of evidence
     #: is exactly the mistake #642 recorded about inferring a first launch from empty lists.
     last_seen_at = Column(DateTime, index=True)
-    is_adult = Column(Boolean, default=False, index=True)
-    is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
-    last_played = Column(DateTime, index=True)
+    is_adult = Column(Boolean, default=False)  # partial index, see __table_args__
+    is_rec_suppressed = Column(Boolean, default=False)  # hidden from recommendations only — partial index, see __table_args__
+    last_played = Column(DateTime)  # partial index, see __table_args__
     play_count = Column(Integer, default=0)
     # Watch-completion (VOD movies): resume point + sticky "finished" flag (Slice 1).
     watch_progress = Column(Integer, default=0)        # resume position, seconds
-    watch_completed = Column(Boolean, default=False, index=True)  # ever finished (≥ threshold)
+    watch_completed = Column(Boolean, default=False)  # ever finished (≥ threshold) — partial index, see __table_args__
     watch_percent = Column(Integer, default=0)         # 0–100: % watched at last capture (graduated glyph)
     last_played_via = Column(String)                   # how it was played: manual | queue | alert
 
     raw_data = Column(JSON)
     
     # Special content categorization (PPV, Events, Sports)
-    special_view = Column(String, index=True)  # 'ppv', 'live_event', 'sports', or NULL
-    event_start_time = Column(DateTime, index=True)  # Parsed event date/time for PPV/events
+    special_view = Column(String)  # 'ppv', 'live_event', 'sports', or NULL — partial index, see __table_args__
+    event_start_time = Column(DateTime)  # Parsed event date/time for PPV/events — partial index, see __table_args__
     #: The provider's OWN end time, from the "start:… stop:…" slot form — the
     #: only shape that sends one; NULL elsewhere, where "still on" falls back to
     #: event_datetime.DEFAULT_EVENT_DURATION. Read by the Sports lane CASE.
-    event_stop_time = Column(DateTime, index=True)
-    sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
+    event_stop_time = Column(DateTime)  # partial index, see __table_args__
+    sport_type = Column(String)  # 'soccer', 'basketball', 'football', etc. — partial index, see __table_args__
 
     # ── Signal check (core/stream_probe.py) ──────────────────────────────────
     # What a probe last saw on this stream. The owner abandoned the events work
@@ -122,22 +122,22 @@ class ChannelDB(Base):
     # by clicking.
     #: live | dead | black | frozen, or a connection verdict (refused/gone/
     #: unknown/cancelled) which says nothing about the picture.
-    signal_verdict    = Column(String, index=True)
+    signal_verdict    = Column(String)  # partial index, see __table_args__
     #: Consecutive checks that found no picture. Only a verdict ABOUT the
     #: picture moves it: a refused connection or a probe cancelled to give the
     #: stream back to a Play press is not evidence, and counting it would let
     #: ordinary viewing mark a working channel dead.
     signal_dead_streak = Column(Integer, nullable=False, default=0)
     #: When the last probe ran. UTC-naive, like every other stored time.
-    signal_checked_at = Column(DateTime, index=True)
-    league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
-    team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
+    signal_checked_at = Column(DateTime)  # partial index, see __table_args__
+    league_name = Column(String)  # 'Premier League', 'NBA', 'NFL', etc. — partial index, see __table_args__
+    team_name = Column(String)  # 'Manchester United', 'Lakers', etc. — partial index, see __table_args__
     #: Fixture opponents (SPORT-4, core/fixture_titles.py); @ fixtures: a=away, b=home.
     event_team_a = Column(String)
     event_team_b = Column(String)  # NULL for racks/races/racing-venue events
     event_metadata = Column(JSONEncoded)  # Additional parsed data (event name, quality, etc.)
 
-    rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
+    rec_shown_count = Column(Integer, default=0)  # impression counter for recommendation decay — partial index, see __table_args__
     rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
 
     # Incremental tag fingerprint — a short hash of the decomposer feeder fields.
@@ -181,7 +181,7 @@ class ChannelDB(Base):
     # Guarantees an idless row is fetched at most once; on content refresh only STILL-idless
     # rows are reset to NULL (reset_tmdb_enrich_state) so resolved rows keep their provenance.
     # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites an existing marker.
-    tmdb_enrich_state = Column(String, nullable=True, index=True)
+    tmdb_enrich_state = Column(String, nullable=True)  # partial index, see __table_args__
 
     # Genre-harvest fetch-once marker (see tmdb_enrichment_manager.py backfill_missing_genres).
     # The list raw_data for MOVIES is sparse (no genre/plot/cast); their real genres live only
@@ -192,7 +192,7 @@ class ChannelDB(Base):
     #   'fetched'  — detail endpoint carried a genre; harvested into the metadata row
     #   'none'     — detail endpoint attempted but carried no genre (leave it be)
     # Movie-scoped (series list rows already carry genre). NOT in _CATALOG_UPDATE_COLS.
-    genre_enrich_state = Column(String, nullable=True, index=True)
+    genre_enrich_state = Column(String, nullable=True)  # partial index, see __table_args__
 
     # Background metadata enrichment (see core/metadata_enrichment_queue.py). A row is a
     # candidate when it has no cached MetadataDB row, or one older than
@@ -203,7 +203,7 @@ class ChannelDB(Base):
     #                               permanently rather than re-hit every drain).
     #   metadata_enrich_attempts — consecutive failure count; reset to 0 on a success.
     # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites this bookkeeping.
-    metadata_enrich_state = Column(String, nullable=True, index=True)
+    metadata_enrich_state = Column(String, nullable=True)  # partial index, see __table_args__
     metadata_enrich_attempts = Column(Integer, default=0)
 
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
@@ -227,7 +227,7 @@ class ChannelDB(Base):
     #   no provider genre.  Backfilled for pre-existing rows by
     #   DetectedGenreBackfillTask (metatv/core/migrations/detected_genre_backfill.py).
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
-    detected_genre  = Column(String, index=True, nullable=True)
+    detected_genre  = Column(String, nullable=True)  # partial index, see __table_args__
     detected_genres = Column(JSONEncoded, nullable=True)
 
     # Restricted-content detection (owner-reported gap): the provider's ``is_adult``
@@ -241,7 +241,7 @@ class ChannelDB(Base):
     # discovery_engine._apply_adult_filter).
     # "restricted" is a deliberately neutral internal name — user-facing surfaces keep
     # the "Adult" label. Pre-existing rows: RestrictedBackfillTask.
-    detected_restricted = Column(Boolean, default=False, index=True)
+    detected_restricted = Column(Boolean, default=False)  # partial index, see __table_args__
 
     # Category-marker cleanup (owner-reported gap): provider category strings often
     # carry a leading pipe-delimited marker that duplicates channel-name language
@@ -283,7 +283,7 @@ class ChannelDB(Base):
     # files it under CHRISTMAS while the name says Hallmark.  Both become
     # collection: tags, the provider's denoted and this one inferred, which is
     # what lets one title carry several collections at all.
-    detected_name_collection     = Column(String, index=True, nullable=True)
+    detected_name_collection     = Column(String, nullable=True)  # partial index, see __table_args__
     # Episode identity lifted out of the NAME at ingestion. 960 rows in the
     # owner's library are 48 series whose provider filed every episode as a
     # separate movie, and the "S01E57" in the name is what made them look
@@ -291,20 +291,20 @@ class ChannelDB(Base):
     # one card. Stored as the provider wrote them ("01", "57"), so a display
     # keeps the zero-padding and a sort can int() at that point.
     detected_season              = Column(String, nullable=True)
-    detected_episode             = Column(String, index=True, nullable=True)
+    detected_episode             = Column(String, nullable=True)  # partial index, see __table_args__
 
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
     # source_quality_flags: comma-separated quality markers decoded from that header (HD,RAW,60FPS,UHD)
     source_num           = Column(Integer, index=True)
-    source_category      = Column(String,  index=True)
+    source_category      = Column(String)  # partial index, see __table_args__
     source_quality_flags = Column(String)
 
     # User-defined category — assigned via "Add to Category" right-click action.
     # Appears as a custom Discovery shelf; influences recommendations via category_mood.
     # category_mood: "like" | "curious" | "not_interested" | "dislike" | None (neutral)
-    user_category = Column(String, index=True)
+    user_category = Column(String)  # partial index, see __table_args__
     category_mood = Column(String)
 
     added_at = Column(DateTime, default=datetime.now)
@@ -320,7 +320,7 @@ class ChannelDB(Base):
         Index("ix_channels_hidden_name", "is_hidden", "name"),
         Index("ix_channels_favorite_hidden_name", "is_hidden", "name",
               sqlite_where=text("is_favorite = 1")),
-    )
+    ) + channel_index_policy.CHANNEL_PARTIAL_INDEXES  # STORAGE-1a
 
 
 class MetadataDB(Base):
@@ -1083,7 +1083,7 @@ class Database:
                 # recreate exactly what this removes.
                 "DROP INDEX IF EXISTS ix_content_tags_channel_id",
                 "DROP INDEX IF EXISTS ix_content_tags_tag_id",
-            ]
+            ] + channel_index_policy.CHANNEL_DROP_INDEX_SQL  # STORAGE-1a
             for idx_sql in index_migrations:
                 try:
                     conn.execute(text(idx_sql))

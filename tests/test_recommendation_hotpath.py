@@ -99,14 +99,30 @@ class TestLastPlayedIndex:
     """Verify ix_channels_last_played is created by both create_tables() and migration."""
 
     def test_index_present_after_create_tables(self, tmp_path):
-        """New DB: index must exist after create_tables()."""
+        """New DB: index must exist once the migration framework has run.
+
+        STORAGE-1a converted this index to a PARTIAL index
+        (``WHERE last_played IS NOT NULL``) and its name is now in
+        ``Database._migrate()``'s ``DROP INDEX`` list — deliberately, so an
+        existing library's OLD full-shape index gets removed and rebuilt
+        partial (see ``docs/REFACTOR_PLAN.md`` D56 / the module docstring in
+        ``core/migrations/query_indexes.py``). ``create_tables()`` therefore
+        builds it (via ``create_all``) and immediately drops it again (via
+        the same ``_migrate()`` call) on a genuinely fresh database — it is
+        ``QueryIndexTask``, not ``create_tables()`` alone, that leaves it in
+        place, exactly as the real app's startup sequence runs it
+        (``main_window.py``: ``db.create_tables()`` then the migration
+        manager's pending tasks, of which this is one).
+        """
+        from metatv.core.migrations.query_indexes import QueryIndexTask
         db = _make_db(tmp_path / "new.db")
+        QueryIndexTask(db).run(lambda done, total: None, lambda: False)
         with db.engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_channels_last_played'")
             ).fetchall()
         db.close()
-        assert len(rows) == 1, "ix_channels_last_played not found after create_tables()"
+        assert len(rows) == 1, "ix_channels_last_played not found after the migration framework ran"
 
     def test_migration_adds_index_to_existing_db(self, tmp_path):
         """Existing DB without the index: the upgrade path adds it.
@@ -147,11 +163,21 @@ class TestLastPlayedIndex:
         assert len(rows) == 1, "ix_channels_last_played not added by _migrate()"
 
     def test_migration_idempotent(self, tmp_path):
-        """Running _migrate() twice must not raise — IF NOT EXISTS ensures idempotency."""
+        """Running _migrate() twice must not raise — IF NOT EXISTS ensures idempotency.
+
+        STORAGE-1a's ``DROP INDEX IF EXISTS ix_channels_last_played`` in
+        ``_migrate()`` means the index is gone again after this method's
+        SECOND run too (it drops it whether or not ``QueryIndexTask`` has
+        rebuilt it in between) — so presence is asserted after the rebuild,
+        same as ``test_index_present_after_create_tables`` above; this test's
+        own job is the "must not raise" half.
+        """
         from metatv.core.database import Database
+        from metatv.core.migrations.query_indexes import QueryIndexTask
         db = Database(f"sqlite:///{tmp_path / 'idem.db'}")
         db.create_tables()
-        db._migrate()  # second run
+        db._migrate()  # second run — must not raise
+        QueryIndexTask(db).run(lambda done, total: None, lambda: False)
         with db.engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_channels_last_played'")
