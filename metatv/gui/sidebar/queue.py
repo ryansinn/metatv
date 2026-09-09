@@ -369,10 +369,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         still in flight) must never leave duplicate rows behind, so any prior
         ``_build_handle`` is cancelled FIRST, before anything else runs.
         """
-        handle = self.__dict__.get("_build_handle")
-        if handle is not None:
-            handle.cancel()
-        self._build_handle = None
+        self.cancel_pending_build()
 
         # The pinned new-matches line is independent of queue contents (it reflects
         # config watch-for matches), so refresh it before the empty-list early-out.
@@ -482,6 +479,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             haystack = _haystack(e.search_title, e.channel_name, e.episode_title, e.detected_year)
         group.rows.append((item, haystack))
         item.setHidden(not _matches_needle(self._current_filter_needle(), haystack))
+
+    def cancel_pending_build(self) -> None:
+        """Stop the in-flight chunked row build, if any (BackgroundRefreshMixin hook).
+
+        Called by ``_on_data_ready`` before it clears the list — on the failure
+        path as well as the success one — and by ``_populate_rows`` when a
+        refresh re-enters mid-build. Reads the instance dict directly: on a
+        ``__new__``'d test double whose Qt super-init never ran, ``getattr``
+        raises ``RuntimeError`` rather than returning a default.
+        """
+        handle = self.__dict__.get("_build_handle")
+        if handle is not None:
+            handle.cancel()
+        self._build_handle = None
 
     def _on_queue_build_done(self) -> None:
         """``build_chunked``'s completion callback: re-apply whatever the user
