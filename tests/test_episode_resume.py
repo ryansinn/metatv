@@ -295,8 +295,11 @@ class TestStartSecondsThreadedThroughLaunchPath:
             provider_id="p1", start_seconds=90,
         )
 
+        # PLAY-13 widened the signal with episode_id/series_id (both empty
+        # here — the call above doesn't supply them) so a later successful
+        # launch can record the play.
         host._episode_ready.emit.assert_called_once_with(
-            "notif-1", "http://x/ep", "Title", None, "p1", 90
+            "notif-1", "http://x/ep", "Title", None, "p1", 90, "", ""
         )
 
     def test_launch_player_for_episode_default_start_seconds_is_zero(self, qapp):
@@ -305,7 +308,7 @@ class TestStartSecondsThreadedThroughLaunchPath:
         host.launch_player_for_episode("http://x/ep", "Title", provider_id="p1")
 
         host._episode_ready.emit.assert_called_once_with(
-            "notif-1", "http://x/ep", "Title", None, "p1", 0
+            "notif-1", "http://x/ep", "Title", None, "p1", 0, "", ""
         )
 
     def test_play_episode_forwards_start_seconds_to_launch_player_for_episode(self, db):

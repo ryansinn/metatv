@@ -516,7 +516,12 @@ def test_episode_non_advisory_also_offers_play_anyway_and_records_failure():
 def test_episode_play_anyway_threads_full_payload():
     """Case 11 — invoking the Play Anyway action calls _do_launch_episode
     with exactly the notif_id/stream_url/title/queue_episodes/provider_id/
-    start_seconds carried through the widened _episode_failed signal."""
+    start_seconds carried through the widened _episode_failed signal.
+
+    PLAY-13 widened the payload further with episode_id/series_id (both
+    empty here, the caller's default) so a subsequent "Play Anyway" launch
+    can still record the play once it actually succeeds.
+    """
     obj = _make_episode_host()
     queue = [SimpleNamespace(stream_url="http://host/ep2.mp4", title="Ep 2")]
 
@@ -530,5 +535,5 @@ def test_episode_play_anyway_threads_full_payload():
     play_anyway_fn()
 
     obj._do_launch_episode.assert_called_once_with(
-        "notif-1", "http://host/ep.mp4", "Ep Title", queue, "prov-7", 99,
+        "notif-1", "http://host/ep.mp4", "Ep Title", queue, "prov-7", 99, "", "",
     )

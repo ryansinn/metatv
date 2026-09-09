@@ -445,6 +445,8 @@ class _SeriesMixin:
         queue_episodes=None,
         provider_id: str = "",
         start_seconds: int = 0,
+        episode_id: str = "",
+        series_id: str = "",
     ) -> None:
         """Main-thread slot: show the episode failure toast.
 
@@ -461,6 +463,10 @@ class _SeriesMixin:
           path (roadmap S3, #227): channels that return 511 forever never
           graduated to "dead" while advisory errors were skipped, so the
           ledger never learned about the very streams it existed to track.
+
+        ``episode_id``/``series_id`` (PLAY-13) are carried through only so
+        "Play Anyway" can pass them straight to ``_do_launch_episode`` — the
+        preflight failure itself is never recorded as a play.
         """
         from PyQt6.QtWidgets import QApplication
         from metatv.core.channel_name_utils import parse_channel_name
@@ -480,8 +486,8 @@ class _SeriesMixin:
         actions.append((
             "Play Anyway",
             lambda _nid=notif_id, _u=stream_url, _t=title, _q=queue_episodes,
-                   _p=provider_id, _s=start_seconds:
-                self._do_launch_episode(_nid, _u, _t, _q, _p, _s)
+                   _p=provider_id, _s=start_seconds, _eid=episode_id, _sid=series_id:
+                self._do_launch_episode(_nid, _u, _t, _q, _p, _s, _eid, _sid)
         ))
         actions.append(
             ("Copy Error", lambda t=title, u=stream_url, d=detail:

@@ -161,6 +161,17 @@ class _SeriesPlaybackMixin:
                 keeps its current behaviour unchanged. Threaded through to
                 ``launch_player_for_episode`` → ``_play_checked`` so a Resume
                 click on an episode picks up where it left off.
+
+        PLAY-13: recording the play (``mark_played`` on the episode + its
+        parent series, watch-tracking registration, History/Favorites
+        refresh) does NOT happen here — it happens in ``_do_launch_episode``,
+        and only after preflight validation succeeded AND mpv actually
+        launched. It used to happen right here, before
+        ``launch_player_for_episode`` even started its async preflight check
+        — the inverse of the channel path's HIST-1/PLAY-9 fix (which exists
+        specifically so "played" means "actually played"): a stream that
+        failed validation still bumped play_count/last_played and showed up
+        in History as watched.
         """
         logger.info(f"Playing episode: {episode.title}")
 
@@ -177,108 +188,37 @@ class _SeriesPlaybackMixin:
         else:
             _should_queue = queue_season
 
-        # Record playback.
-        #
-        # Bound BEFORE the try, because line 633 reads it after the block and a
-        # failure inside would otherwise leave it unbound — turning one crash
-        # into a different one. (It did: the guard below was added first, and
-        # the tests came back with UnboundLocalError instead of the abort.)
+        # Which subsequent episodes to hand mpv as a playlist IF this play
+        # succeeds — a read, never a write, so doing it before preflight
+        # records nothing as "played."
         episodes_to_queue: list = []
+        if _should_queue and episode.season_id:
+            try:
+                with self.db.session_scope(commit=False) as session:
+                    repos = RepositoryFactory(session)
+                    # Use DTOs — no ORM objects escape the session boundary
+                    all_episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=episode.season_id)
+                    episodes_to_queue = [
+                        ep for ep in all_episode_dtos
+                        if ep.episode_num > episode.episode_num
+                    ]
+                    episodes_to_queue.sort(key=lambda ep: ep.episode_num)
+                    if episodes_to_queue:
+                        episode_range = f"E{episodes_to_queue[0].episode_num}-E{episodes_to_queue[-1].episode_num}"
+                        logger.info(f"Will queue {len(episodes_to_queue)} subsequent episodes: {episode_range}")
+                        logger.debug(f"Queue list: {[f'E{ep.episode_num}: {ep.title}' for ep in episodes_to_queue]}")
+            except Exception as exc:
+                # Degraded, not fatal: play proceeds without the season queue.
+                logger.error("Could not read season queue for episode {}: {}", episode.title, exc)
+                episodes_to_queue = []
 
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-
-            repos.episodes.mark_played(episode.id)
-
-            logger.info(f"Episode playback recorded: {episode.title}")
-            logger.info(f"  Episode series_id: {episode.series_id}")
-            logger.info(f"  Episode provider_id: {episode.provider_id}")
-
-            parent_channel = repos.channels.get_by_source_id(
-                provider_id=episode.provider_id,
-                source_id=episode.series_id
-            )
-
-            if parent_channel:
-                repos.channels.mark_played(parent_channel.id)
-                logger.info(f"Updated parent series playback: {parent_channel.name} (play count: {parent_channel.play_count})")
-            else:
-                logger.warning(f"Could not find parent channel for episode. series_id={episode.series_id}, provider_id={episode.provider_id}")
-
-            episodes_to_queue = []          # reset; pre-bound above
-            if _should_queue and episode.season_id:
-                # Use DTOs — no ORM objects escape the session boundary
-                all_episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=episode.season_id)
-                episodes_to_queue = [
-                    ep for ep in all_episode_dtos
-                    if ep.episode_num > episode.episode_num
-                ]
-                episodes_to_queue.sort(key=lambda ep: ep.episode_num)
-                if episodes_to_queue:
-                    episode_range = f"E{episodes_to_queue[0].episode_num}-E{episodes_to_queue[-1].episode_num}"
-                    logger.info(f"Will queue {len(episodes_to_queue)} subsequent episodes: {episode_range}")
-                    logger.debug(f"Queue list: {[f'E{ep.episode_num}: {ep.title}' for ep in episodes_to_queue]}")
-        except Exception as exc:
-            # Degraded, not fatal: the play proceeds; what is lost is this
-            # episode's play count and the season queue.
-            #
-            # BOOKKEEPING MUST NOT PREVENT PLAYBACK. This block was try/finally
-            # with NO except, so a write that failed took the whole app down:
-            #
-            #   sqlalchemy.exc.OperationalError: database is locked
-            #     [SQL: UPDATE episodes SET last_played=?, play_count=? ...]
-            #   fish: Job 1, './run.sh' terminated by signal SIGABRT
-            #
-            # PyQt aborts the process when an exception escapes a slot — no
-            # traceback from Qt's side, no chance to recover. The owner hit it
-            # by playing an episode while a 293,468-item source refresh held
-            # the write lock past the 30 s busy_timeout.
-            #
-            # The channel path already behaved this way (_bg_mark_played logs
-            # and moves on); the episode path never got the same treatment.
-            # ERROR, not WARNING: a lock held this long is a real problem even
-            # though it must not be a crash.
-            logger.error("Could not record episode playback: {}", exc)
-        finally:
-            session.close()
-
-        # Register this episode for watch-progress capture (same seam as movies, Slice 3a).
-        # When subsequent episodes are queued, the tracking entry holds the full ordered
-        # queue so _bg_capture_watch can follow mpv's playlist-pos and record progress
-        # against the episode that is *actually* playing — not always the started one.
-        if not hasattr(self, "_watch_tracking"):
-            self._watch_tracking = {}
-        _watch_key = self.player_manager.resolve_key(episode.provider_id)
-        if episodes_to_queue:
-            # Multi-episode queue: store full playlist in order (started ep first).
-            _queue = [{"content_id": episode.id}] + [
-                {"content_id": ep.id} for ep in episodes_to_queue
-            ]
-            self._watch_tracking[_watch_key] = {
-                "media_type": "episode",
-                "played_via": "manual",     # for the started episode (playlist index 0)
-                "queue": _queue,
-                "last_seen_pos": 0,         # mpv playlist-pos last finalized through
-            }
-        else:
-            # Single episode: flat dict (unchanged from Slice 3a).
-            self._watch_tracking[_watch_key] = {
-                "content_id": episode.id,
-                "media_type": "episode",
-                "played_via": "manual",
-            }
-        self._start_watch_capture()
-
-        # Update UI lists in real-time
-        self.load_history()
-        self.load_favorites()
-
-        # Launch player with first episode
+        # Launch player with first episode. Recording (mark_played, watch
+        # tracking, History/Favorites) happens in _do_launch_episode, only
+        # after a successful preflight + launch — see docstring above.
         self.launch_player_for_episode(
             episode.stream_url, episode.title, episodes_to_queue,
             provider_id=episode.provider_id, start_seconds=start_seconds,
-            episode_id=episode.id,
+            episode_id=episode.id, series_id=episode.series_id,
         )
 
     def _play_all_items(self, items: "list[_PlayAllItem]") -> None:
@@ -356,7 +296,7 @@ class _SeriesPlaybackMixin:
 
     def launch_player_for_episode(
         self, stream_url, title, queue_episodes=None, provider_id: str = "",
-        start_seconds: int = 0, episode_id: str = "",
+        start_seconds: int = 0, episode_id: str = "", series_id: str = "",
     ):
         """Launch media player for an episode and queue subsequent episodes.
 
@@ -383,6 +323,15 @@ class _SeriesPlaybackMixin:
                 URL is written back to this episode's row so future plays
                 don't retry the dead host. Empty (default) at call sites that
                 don't have an episode id — write-back is skipped there.
+            series_id: The episode's parent series id (``EpisodeDTO.series_id``).
+                PLAY-13: carried through ``_episode_ready``/``_episode_failed``
+                so ``_do_launch_episode`` can record the play (mark_played +
+                watch-tracking) only once preflight has validated AND mpv has
+                actually launched — never before. Empty (default) at call
+                sites — Play-All's generic channel/episode mix — that never
+                recorded a play through this seam; recording stays skipped
+                there, same as before this fix (a separate, logged gap: see
+                docs/REFACTOR_PLAN.md).
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
@@ -418,6 +367,7 @@ class _SeriesPlaybackMixin:
                 self._episode_failed.emit(
                     notif_id, title, detail, stream_url,
                     queue_episodes, provider_id, start_seconds,
+                    episode_id, series_id,
                 )
                 return
 
@@ -439,7 +389,8 @@ class _SeriesPlaybackMixin:
             # by an overlapping launch and play/track the episode under the wrong
             # mpv key (or the wrong resume position).
             self._episode_ready.emit(
-                notif_id, final_url, title, queue_episodes, provider_id, start_seconds
+                notif_id, final_url, title, queue_episodes, provider_id, start_seconds,
+                episode_id, series_id,
             )
 
         future = self.executor.submit(_preflight)
@@ -447,7 +398,7 @@ class _SeriesPlaybackMixin:
 
     def _do_launch_episode(
         self, notif_id, stream_url, title, queue_episodes, provider_id="",
-        start_seconds: int = 0,
+        start_seconds: int = 0, episode_id: str = "", series_id: str = "",
     ) -> None:
         """Actually launch mpv after a successful preflight check (called on main thread).
 
@@ -458,6 +409,21 @@ class _SeriesPlaybackMixin:
         as each episode starts — not just for the first one. start_seconds (also
         carried in the signal payload, default 0) threads through to
         _play_checked so a Resume click starts from the saved position.
+
+        PLAY-13: recording the play (mark_played on the episode + its parent
+        series, watch-tracking registration, History/Favorites refresh) is
+        done HERE — via :meth:`_record_episode_play` — only once
+        ``_play_checked`` has actually launched mpv, mirroring the movie/
+        channel path's validate → launch → record discipline
+        (``_record_play`` in ``main_window_streaming.py``). Gated on
+        ``series_id`` rather than ``episode_id`` alone: Play-All's generic
+        launch (``_play_all_items``) also threads an ``episode_id`` (really a
+        generic ``content_id`` that may name a CHANNEL, not an episode)
+        through this same signal but never a ``series_id`` — recording here
+        stays skipped for that path, exactly as before this fix, instead of
+        mis-recording a channel id through the episode repository or
+        clobbering the ``_watch_tracking`` entry Play-All already built for
+        itself.
         """
         self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
@@ -465,6 +431,9 @@ class _SeriesPlaybackMixin:
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
             self._start_playback_health()
+
+            if series_id:
+                self._record_episode_play(episode_id, series_id, provider_id, queue_episodes)
 
             # Queue subsequent episodes if provided
             if queue_episodes:
@@ -495,6 +464,88 @@ class _SeriesPlaybackMixin:
         else:
             logger.error(f"Failed to play episode: {title}")
             self.status(f"Error playing: {title}", ms=0, level="error")
+
+    def _record_episode_play(
+        self, episode_id: str, series_id: str, provider_id: str,
+        queue_episodes: "list[EpisodeDTO] | None",
+    ) -> None:
+        """Record an episode play: mark_played (episode + parent series) and
+        watch-tracking registration, then refresh History/Favorites.
+
+        PLAY-13: this is the SAME bookkeeping :meth:`play_episode` used to do
+        before launching mpv — moved here so it only runs once
+        :meth:`_do_launch_episode` has confirmed preflight validated AND mpv
+        actually launched. Mirrors the movie/channel path's discipline
+        (``_record_play`` in ``main_window_streaming.py``): validate → launch
+        → record, never the other order. The DB write is wrapped so a locked
+        database degrades (episode play_count/parent bump lost) rather than
+        crashing the just-started playback — same rationale as
+        ``_record_play``'s own try/except and the ``database is locked``
+        SIGABRT this module's docstring already recorded once for this exact
+        write.
+
+        Args:
+            episode_id: The started episode's DB id.
+            series_id: Its parent series id — used to also bump the parent
+                channel's play count (mirrors historical ``play_episode``
+                behaviour). Callers only reach here when non-empty (see
+                ``_do_launch_episode``'s gating).
+            provider_id: Source provider — resolves the player-instance key
+                and looks up the parent channel by (series_id, provider_id).
+            queue_episodes: The subsequent EpisodeDTOs mpv is about to queue,
+                or empty/None for a single-episode play. Shapes the
+                ``_watch_tracking`` entry exactly as ``play_episode`` did.
+        """
+        try:
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                repos.episodes.mark_played(episode_id)
+                parent_channel = repos.channels.get_by_source_id(
+                    provider_id=provider_id, source_id=series_id
+                )
+                if parent_channel:
+                    repos.channels.mark_played(parent_channel.id)
+                else:
+                    logger.warning(
+                        f"Could not find parent channel for episode. "
+                        f"series_id={series_id}, provider_id={provider_id}"
+                    )
+        except Exception:
+            # BOOKKEEPING MUST NOT COST THE USER THE EPISODE THEY JUST
+            # STARTED — mpv is already playing by the time we get here.
+            logger.exception("could not record episode play for {}", episode_id)
+
+        # Register this episode for watch-progress capture (same seam as
+        # movies). When subsequent episodes are queued, the tracking entry
+        # holds the full ordered queue so _bg_capture_watch can follow mpv's
+        # playlist-pos and record progress against the episode that is
+        # *actually* playing — not always the started one.
+        if not hasattr(self, "_watch_tracking"):
+            self._watch_tracking = {}
+        _watch_key = self.player_manager.resolve_key(provider_id)
+        if queue_episodes:
+            # Multi-episode queue: store full playlist in order (started ep first).
+            _queue = [{"content_id": episode_id}] + [
+                {"content_id": ep.id} for ep in queue_episodes
+            ]
+            self._watch_tracking[_watch_key] = {
+                "media_type": "episode",
+                "played_via": "manual",     # for the started episode (playlist index 0)
+                "queue": _queue,
+                "last_seen_pos": 0,         # mpv playlist-pos last finalized through
+            }
+        else:
+            # Single episode: flat dict.
+            self._watch_tracking[_watch_key] = {
+                "content_id": episode_id,
+                "media_type": "episode",
+                "played_via": "manual",
+            }
+        self._start_watch_capture()
+
+        # Update UI lists in real-time
+        self.load_history()
+        self.load_favorites()
 
     def _play_all_selected_episodes(
         self,
