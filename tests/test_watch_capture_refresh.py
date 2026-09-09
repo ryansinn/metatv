@@ -68,6 +68,8 @@ def test_bg_mark_played_emits_only_after_write_commits(db, qapp):
     _seed_channel(db, "c1", "live")
 
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     # _WatchNotifier's real parent is the QMainWindow-derived MainWindow; this
     # bare mixin host isn't a QObject, so construct it parentless here.
@@ -100,6 +102,8 @@ def test_on_history_changed_refreshes_history_and_publishes_state(qapp):
     from tests.conftest import attach_channel_state_bus
 
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.load_history = MagicMock()
     attach_channel_state_bus(host)
     host.channel_state_bus.publish = MagicMock()
@@ -116,6 +120,8 @@ def test_on_history_changed_skips_publish_with_no_channel_id(qapp):
     from tests.conftest import attach_channel_state_bus
 
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.load_history = MagicMock()
     attach_channel_state_bus(host)
     host.channel_state_bus.publish = MagicMock()
@@ -141,6 +147,8 @@ class _SyncExecutor:
 def _make_close_host(db, pos_s: float, dur_s: float):
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host.config = MagicMock(watch_complete_threshold=0.9)
     host.executor = _SyncExecutor()

@@ -732,7 +732,10 @@ class _SeriesMixin:
         # remembered to carry across.
         with self.db.session_scope() as session:
             RepositoryFactory(session).episodes.mark_watched_bulk(episode_ids, watched)
-        self.refresh_episode_watch_state(episode_ids)
+        # Repaint the very items handed in — not whatever the tree can be
+        # searched for. The context menu already holds them, and a re-find would
+        # silently skip an item that is not currently under the tree's root.
+        self._repaint_episode_items([(it.parent(), it) for it in episode_items])
         logger.info(
             f"Toggled {len(episode_ids)} episode(s) as {'watched' if watched else 'unwatched'} in-place"
         )
@@ -764,11 +767,27 @@ class _SeriesMixin:
         if not matched:
             return
 
+        self._repaint_episode_items(matched)
+
+    def _repaint_episode_items(self, pairs) -> None:
+        """Re-read each ``(season_item, episode_item)`` pair's row and repaint it.
+
+        The shared tail of both refresh entry points — ``refresh_episode_watch_state``
+        (which finds the pairs by id) and ``_toggle_episodes_watched`` (which was
+        handed them). Reads the STORED state rather than being told what to show,
+        so neither caller can paint a glyph the database disagrees with.
+
+        Args:
+            pairs: ``(season_item_or_None, episode_item)`` tuples to repaint.
+        """
         touched_seasons: list[QTreeWidgetItem] = []
         with self.db.session_scope() as session:
             repo = RepositoryFactory(session).episodes
-            for season_item, ep_item in matched:
-                old_dto: EpisodeDTO = ep_item.data(0, Qt.ItemDataRole.UserRole)["data"]
+            for season_item, ep_item in pairs:
+                data = ep_item.data(0, Qt.ItemDataRole.UserRole)
+                if not data or data.get("type") != "episode":
+                    continue
+                old_dto: EpisodeDTO = data["data"]
                 row = repo.get_by_id(old_dto.id)
                 if row is None:
                     continue

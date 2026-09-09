@@ -314,22 +314,22 @@ def _patch_dialog(accepted: bool):
     mock_dlg_class.DialogCode = QDialog.DialogCode
 
     stack.enter_context(
-        patch("metatv.gui.main_window_streaming.QDialog", mock_dlg_class)
+        patch("metatv.gui.queue_end_prompt.QDialog", mock_dlg_class)
     )
-    stack.enter_context(patch("metatv.gui.main_window_streaming.QVBoxLayout"))
-    stack.enter_context(patch("metatv.gui.main_window_streaming.QLabel"))
-    stack.enter_context(patch("metatv.gui.main_window_streaming.QDialogButtonBox"))
+    stack.enter_context(patch("metatv.gui.queue_end_prompt.QVBoxLayout"))
+    stack.enter_context(patch("metatv.gui.queue_end_prompt.QLabel"))
+    stack.enter_context(patch("metatv.gui.queue_end_prompt.QDialogButtonBox"))
     # The Yes/No row now comes from dialog_chrome.dialog_buttons, which builds a
     # REAL QDialogButtonBox on the (mocked) dialog — stub the builder too.
-    stack.enter_context(patch("metatv.gui.main_window_streaming.dialog_buttons"))
+    stack.enter_context(patch("metatv.gui.queue_end_prompt.dialog_buttons"))
     return stack
 
 
 def test_on_queue_end_yes_submits_promote():
     """_on_queue_end_detected: when user clicks Yes, submits promote worker with correct ids."""
-    from metatv.gui.main_window_streaming import _StreamingMixin
+    from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
 
-    host = _StreamingMixin.__new__(_StreamingMixin)
+    host = _QueueEndPromptMixin.__new__(_QueueEndPromptMixin)
     host.config = MagicMock(prompt_after_autoplay=True)
     host.executor = MagicMock()
 
@@ -342,11 +342,16 @@ def test_on_queue_end_yes_submits_promote():
     )
 
 
-def test_on_queue_end_no_does_not_submit():
-    """_on_queue_end_detected: when user clicks No, does NOT submit promote worker."""
-    from metatv.gui.main_window_streaming import _StreamingMixin
+def test_on_queue_end_no_submits_unmark():
+    """_on_queue_end_detected: No unmarks them — it must not leave them watched.
 
-    host = _StreamingMixin.__new__(_StreamingMixin)
+    The prompt asks "Did you watch them?", so No has to undo the auto-mark the
+    queue already wrote. It used only to downgrade last_played_via to 'queue'
+    (a greyer glyph on a still-watched episode), which is the answer inverted.
+    """
+    from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
+
+    host = _QueueEndPromptMixin.__new__(_QueueEndPromptMixin)
     host.config = MagicMock(prompt_after_autoplay=True)
     host.executor = MagicMock()
 
@@ -354,14 +359,16 @@ def test_on_queue_end_no_does_not_submit():
     with _patch_dialog(accepted=False):
         host._on_queue_end_detected(auto_ids)
 
-    host.executor.submit.assert_not_called()
+    host.executor.submit.assert_called_once_with(
+        host._bg_unmark_queue_episodes, auto_ids
+    )
 
 
 def test_on_queue_end_skips_when_prompt_disabled():
     """_on_queue_end_detected is a no-op when prompt_after_autoplay is False."""
-    from metatv.gui.main_window_streaming import _StreamingMixin
+    from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
 
-    host = _StreamingMixin.__new__(_StreamingMixin)
+    host = _QueueEndPromptMixin.__new__(_QueueEndPromptMixin)
     host.config = MagicMock(prompt_after_autoplay=False)
     host.executor = MagicMock()
 
@@ -381,11 +388,14 @@ def test_bg_promote_writes_to_db(db):
         ("ep2", 1, 2, "queue", True),
     ])
 
-    from metatv.gui.main_window_streaming import _StreamingMixin
-    host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
+    host = _QueueEndPromptMixin.__new__(_QueueEndPromptMixin)
     host.db = db
+    emitted = wire_episode_watch_signal(host)
 
     host._bg_promote_queue_episodes(["ep1", "ep2"])
+    assert emitted == [["ep1", "ep2"]], "the open series tree was never told"
 
     assert _read_via(db, "ep1") == "manual"
     assert _read_via(db, "ep2") == "manual"

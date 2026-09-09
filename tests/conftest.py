@@ -1647,6 +1647,36 @@ def first_chip_row(list_widget):
     return None
 
 
+def wire_episode_watch_signal(host) -> list:
+    """Give a ``__new__``'d streaming/watch-capture double the episode refresh signal.
+
+    Every episode watch write in ``watch_capture.py`` ends by emitting
+    ``_episode_watch_state_changed`` so the open series tree re-reads those rows
+    (#836).  ``MainWindow`` declares that signal, so a double built with
+    ``_StreamingMixin.__new__`` does not have it — and because such a double
+    never ran ``QMainWindow.__init__``, the missing attribute surfaces as sip's
+    ``RuntimeError``, not the ``AttributeError`` a ``hasattr`` guard would
+    absorb.  Eight hand-rolled hosts across three modules need the same wiring,
+    so it lives here rather than being copied (CLAUDE.md: repair at the shared
+    factory, never with defensive ``getattr`` in production).
+
+    Args:
+        host: The skeleton host to wire.
+
+    Returns:
+        The list that records every emitted id-list, for tests that assert the
+        tree was notified.
+    """
+    emitted: list = []
+
+    class _RecordingSignal:
+        def emit(self, ids):
+            emitted.append(list(ids))
+
+    host._episode_watch_state_changed = _RecordingSignal()
+    return emitted
+
+
 def wire_channel_banner_widgets(win) -> None:
     """Attach the banner widgets ``_hide_channel_banners`` resets to a skeleton window.
 
