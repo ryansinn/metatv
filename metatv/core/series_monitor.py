@@ -892,11 +892,11 @@ class SeriesMonitorManager(QObject):
             )
 
         try:
-            # Fast path: count from the DB (seasons → episodes already stored)
+            # Fast path: from DB (seasons/episodes stored); series_id holds source_id, not id.
             with self.db.session_scope(commit=False) as session:
                 season_rows = (
                     session.query(SeasonDB)
-                    .filter(SeasonDB.series_id == series_channel_id)
+                    .filter(SeasonDB.series_id == source_id, SeasonDB.provider_id == provider_id)
                     .all()
                 )
                 season_ids = [s.id for s in season_rows]

@@ -511,6 +511,116 @@ class TestSeriesMonitorWorker:
         manager.shutdown()
 
 
+class TestBaselineFastPathKeyMatch:
+    """SERIES-2: ``_worker_set_baseline``'s fast path must key ``SeasonDB``/
+    ``EpisodeDB`` lookups on the entry's ``source_id`` (+ ``provider_id``), the
+    same pair every other reader of these tables uses (``SeasonRepository.
+    get_by_series``, ``EpisodeRepository.get_by_series``, ``queue.py``'s
+    series-completion check) — never ``series_channel_id`` (``ChannelDB.id``),
+    which ``SeasonDB.series_id``/``EpisodeDB.series_id`` never hold.
+
+    Verified against the owner's real library before this fix: a series with
+    6 stored seasons / 111 episodes returned 0 rows when queried by
+    ``ChannelDB.id`` and the correct counts when queried by ``source_id``
+    scoped to ``provider_id`` (source ids are small per-provider integers and
+    collide across providers).
+    """
+
+    def test_fast_path_finds_stored_episodes_by_source_id(self, tmp_path):
+        """With seasons/episodes already stored, the fast path must find them
+        by (source_id, provider_id) and must NOT fall through to a live fetch.
+
+        Pre-fix this was RED: the query filtered on ``series_channel_id``
+        (``ChannelDB.id``, e.g. ``"p1_s10670"``) while ``SeasonDB.series_id``
+        holds the bare provider series id (``"s10670"``) — 0 rows, so the
+        "no stored episodes yet" branch fired and called the live
+        ``fetch_series_info`` path the fast path exists to avoid.
+        """
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.database import EpisodeDB, SeasonDB
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        with db.session_scope() as session:
+            _make_provider_db(session, "p1")
+            _make_series_channel(
+                session, channel_id="p1_s10670", provider_id="p1", source_id="s10670",
+            )
+            # Two seasons, three episodes total — provider-scoped season PK,
+            # exactly as provider_loader.py writes them at ingestion.
+            season1 = SeasonDB(
+                id="p1_s10670_s1", series_id="s10670", provider_id="p1",
+                season_number=1, name="Season 1", episode_count=2,
+            )
+            season2 = SeasonDB(
+                id="p1_s10670_s2", series_id="s10670", provider_id="p1",
+                season_number=2, name="Season 2", episode_count=1,
+            )
+            session.add_all([season1, season2])
+            session.flush()
+            for i, season_id in enumerate(["p1_s10670_s1", "p1_s10670_s1", "p1_s10670_s2"]):
+                session.add(EpisodeDB(
+                    id=f"p1_ep{i}", season_id=season_id, series_id="s10670",
+                    provider_id="p1", episode_id=str(i), episode_num=i,
+                    season_num=1, title=f"Episode {i}",
+                ))
+
+            # A same-source_id season on a DIFFERENT provider must not leak in —
+            # source ids are small per-provider integers and collide (measured
+            # on the real library: two source_ids each had seasons under 2
+            # distinct providers).
+            _make_provider_db(session, "p2", name="Other Provider")
+            other_season = SeasonDB(
+                id="p2_s10670_s1", series_id="s10670", provider_id="p2",
+                season_number=1, name="Season 1", episode_count=99,
+            )
+            session.add(other_season)
+            session.add(EpisodeDB(
+                id="p2_ep0", season_id="p2_s10670_s1", series_id="s10670",
+                provider_id="p2", episode_id="0", episode_num=0,
+                season_num=1, title="Other provider's episode",
+            ))
+
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "p1_s10670",
+            "source_id": "s10670",
+            "provider_id": "p1",
+            "title": "Fast Path Series",
+            "baselines": {},
+            "unseen_new": 0,
+            "last_checked": None,
+        })
+
+        notify_args: list[tuple] = []
+
+        with patch("metatv.providers.factory.get_provider") as mock_get_provider, \
+             patch("metatv.core.series_monitor.asyncio.run") as mock_run:
+
+            manager = SeriesMonitorManager(db, cfg, notifications=None)
+            manager._notify_new.connect(
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
+            )
+
+            manager._worker_set_baseline("p1_s10670")
+
+            if QCoreApplication.instance():
+                QCoreApplication.processEvents()
+
+            # The whole point of the fast path: no live fetch is attempted.
+            mock_get_provider.assert_not_called()
+            mock_run.assert_not_called()
+
+        assert len(notify_args) == 1, f"Expected 1 baseline notification, got: {notify_args}"
+        cid, _delta, _title, payload = notify_args[0]
+        assert cid == "p1_s10670"
+        assert payload["baselines"]["p1"] == 3, (
+            f"Expected the 3 stored episodes on p1 (not p2's 1), got {payload['baselines']}"
+        )
+
+        manager.shutdown()
+
+
 # ===========================================================================
 # Part 3: Movies & Series series rows live in the Watch Alerts section now — see
 # tests/test_watch_alerts_consolidation.py (NewEpisodesSection was retired).
