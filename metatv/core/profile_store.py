@@ -164,7 +164,12 @@ def _write_now(values: dict[str, Any]) -> None:
         return
     from metatv.core.database import ProfileDB
 
-    with _db.session_scope() as session:
+    # DB-10: this is also called synchronously from attach() (startup, main
+    # thread, before any window exists) as well as from the _writer pool
+    # thread via record()/forget() — write_gate's main-thread bypass makes
+    # background=True safe for both callers without forking a gated/ungated
+    # copy of this helper.
+    with _db.session_scope(background=True) as session:
         for key, value in values.items():
             row = session.get(ProfileDB, key)
             if row is None:
@@ -226,7 +231,8 @@ def _delete_now(keys) -> None:
         return
     from metatv.core.database import ProfileDB
 
-    with _db.session_scope() as session:
+    # DB-10: writer-pool thread only (forget() -> _writer.submit).
+    with _db.session_scope(background=True) as session:
         for key in keys:
             row = session.get(ProfileDB, key)
             if row is not None:

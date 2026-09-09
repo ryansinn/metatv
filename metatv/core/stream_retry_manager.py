@@ -88,7 +88,10 @@ class StreamRetryManager(QObject):
         """
         def _run() -> None:
             try:
-                with self._db.session_scope() as session:
+                # DB-10: always runs on self._executor's single worker thread —
+                # never on the caller's (main) thread, which is the whole point
+                # of this method (see its docstring).
+                with self._db.session_scope(background=True) as session:
                     apply(StreamRetryRepository(session))
             except Exception:
                 logger.exception("stream retry: {} failed", label)
@@ -168,7 +171,9 @@ class StreamRetryManager(QObject):
 
     def _run_checks(self, force_all: bool) -> None:
         try:
-            with self._db.session_scope() as session:
+            # DB-10: submitted to self._executor by _check_due()/check_all_now()
+            # only — never called on the main thread.
+            with self._db.session_scope(background=True) as session:
                 repo = StreamRetryRepository(session)
                 entries = repo.get_all_pending() if force_all else repo.get_due()
                 if not entries:

@@ -200,7 +200,12 @@ class SignalCheckManager:
         """
         from metatv.core.database import ChannelDB
 
-        with self.db.session_scope() as session:
+        # DB-10: this write only ever runs on the signal-check worker thread
+        # (self._thread, started in start()) — never called synchronously
+        # from the UI. The accountant slot from _probe() is already released
+        # before _record() opens this scope (see write_gate.py's "Not the
+        # ConnectionAccountant" note), so this cannot deadlock against it.
+        with self.db.session_scope(background=True) as session:
             ch = session.get(ChannelDB, row["id"])
             if ch is None:
                 return

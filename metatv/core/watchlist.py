@@ -402,7 +402,10 @@ def _pending_rule_fields() -> "dict[str, dict]":
 def _db_update(target_casefold: str, fields: dict) -> None:
     """Apply field changes to every row matching *target_casefold*. RAISES."""
     from metatv.core.database import AlertPatternDB
-    with _db.session_scope() as session:
+    # DB-10: only ever called (via _apply_write) from _run_write, which runs
+    # on the watchlist-write pool thread — never the UI thread (see
+    # _run_write's own docstring).
+    with _db.session_scope(background=True) as session:
         rows = (session.query(AlertPatternDB)
                 .filter(AlertPatternDB.pattern_type == PATTERN_TYPE).all())
         for row in rows:
@@ -569,7 +572,8 @@ def _db_add(text: str) -> None:
     """Insert one pattern. RAISES on failure — see the note on ``_db_remove``."""
     import uuid
     from metatv.core.database import AlertPatternDB
-    with _db.session_scope() as session:
+    # DB-10: watchlist-write pool thread only — see _db_update's note above.
+    with _db.session_scope(background=True) as session:
         session.add(AlertPatternDB(
             id=str(uuid.uuid4()),
             name=text,
@@ -592,7 +596,8 @@ def _db_remove(target_casefold: str) -> None:
     :func:`_run_write`, which turns the exception into the error the user sees.
     """
     from metatv.core.database import AlertPatternDB
-    with _db.session_scope() as session:
+    # DB-10: watchlist-write pool thread only — see _db_update's note above.
+    with _db.session_scope(background=True) as session:
         rows = (session.query(AlertPatternDB)
                 .filter(AlertPatternDB.pattern_type == PATTERN_TYPE).all())
         for row in rows:

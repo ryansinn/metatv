@@ -330,7 +330,7 @@ class TmdbEnrichmentManager(QObject):
             totals["fetched"] += len(meta_by_id)
             totals["errors"] += errors
             if meta_by_id:
-                with self.db.session_scope() as session:
+                with self.db.session_scope(background=True) as session:
                     repos = RepositoryFactory(session)
                     totals["filled"] += repos.channels.apply_metadata_harvest(meta_by_id)
         return totals
@@ -470,7 +470,7 @@ class TmdbEnrichmentManager(QObject):
 
         try:
             self._defer_for_migration()
-            with self.db.session_scope() as session:
+            with self.db.session_scope(background=True) as session:
                 adopted = RepositoryFactory(session).channels.\
                     propagate_tmdb_from_title_siblings()
         except Exception:
@@ -574,7 +574,7 @@ class TmdbEnrichmentManager(QObject):
             hits, misses, meta_by_id, errors, _deferred = asyncio.run(
                 self._fetch_provider(providers[pid], prows, concurrency, throttle)
             )
-            with self.db.session_scope() as session:
+            with self.db.session_scope(background=True) as session:
                 repos = RepositoryFactory(session)
                 total_collapses += repos.channels.apply_tmdb_enrichment(hits, misses)
                 if hits:
@@ -685,7 +685,7 @@ class TmdbEnrichmentManager(QObject):
                     names.get(pid, pid), len(prows))
                 continue
             attempted += len(prows)
-            with self.db.session_scope() as session:
+            with self.db.session_scope(background=True) as session:
                 repos = RepositoryFactory(session)
                 filled = repos.channels.apply_metadata_harvest(meta_by_id)
             logger.debug(

@@ -430,7 +430,7 @@ class MetadataEnrichmentQueue(QObject):
     def _handle_success(self, channel_id: str, title: str) -> None:
         from metatv.core.repositories import RepositoryFactory
 
-        with self.db.session_scope() as session:
+        with self.db.session_scope(background=True) as session:
             RepositoryFactory(session).channels.record_metadata_enrich_success(channel_id)
         with self._lock:
             self._done += 1
@@ -440,7 +440,7 @@ class MetadataEnrichmentQueue(QObject):
     def _handle_failure(self, channel_id: str, title: str, reason: str) -> None:
         from metatv.core.repositories import RepositoryFactory
 
-        with self.db.session_scope() as session:
+        with self.db.session_scope(background=True) as session:
             RepositoryFactory(session).channels.record_metadata_enrich_failure(
                 channel_id, _MAX_ENRICH_ATTEMPTS
             )
