@@ -2066,7 +2066,10 @@ def make_channel_state_bus_host(db_obj):
     (``_not_interested``), hidden (``_hide_channel_from_history``,
     ``_hide_channel_from_alerts``, ``_hide_channel_from_recommendations``,
     ``_unhide_channel``), and queue (``_add_to_queue``, ``_remove_from_queue``,
-    ``_on_details_queue_toggle``).
+    ``_on_details_queue_toggle``) — plus, as of BUS-2, the three bulk mutations
+    that publish (``_bulk_add_to_favorites``, ``_bulk_add_to_queue``,
+    ``_bulk_hide_channels``); ``_bulk_mark_watched`` is not bound here because
+    it never touches the bus (see ``channel_state_bus.py``'s module docstring).
     List-membership refreshes those handlers call (``load_favorites``,
     ``load_history``, ``load_channels``, ``_refresh_watch_alerts``,
     ``_refresh_queue_section``, ``_remove_sidebar_row``) are wired as inert
@@ -2139,6 +2142,8 @@ def make_channel_state_bus_host(db_obj):
     host._add_to_queue = _FavoritesMixin._add_to_queue.__get__(host)
     host._remove_from_queue = _FavoritesMixin._remove_from_queue.__get__(host)
     host._on_details_queue_toggle = _FavoritesMixin._on_details_queue_toggle.__get__(host)
+    host._bulk_add_to_favorites = _FavoritesMixin._bulk_add_to_favorites.__get__(host)
+    host._bulk_add_to_queue = _FavoritesMixin._bulk_add_to_queue.__get__(host)
     host._on_action_state_requested = _MetadataMixin._on_action_state_requested.__get__(host)
     host._bg_fetch_action_state = _MetadataMixin._bg_fetch_action_state.__get__(host)
     host._on_action_state_loaded = _MetadataMixin._on_action_state_loaded.__get__(host)
@@ -2146,6 +2151,7 @@ def make_channel_state_bus_host(db_obj):
         _MetadataMixin._hide_channel_from_recommendations.__get__(host)
     )
     host._unhide_channel = _MetadataMixin._unhide_channel.__get__(host)
+    host._bulk_hide_channels = _MetadataMixin._bulk_hide_channels.__get__(host)
 
     host._action_state_loaded = SimpleNamespace(
         emit=lambda state: host._on_action_state_loaded(state)

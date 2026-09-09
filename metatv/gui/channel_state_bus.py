@@ -25,14 +25,31 @@ handler trying to know every view that might care.
 
 Every mutation publishes to the bus instead of hand-refreshing views itself.
 
-Known gap — bulk mutations do NOT publish. ``_bulk_add_to_favorites``,
-``_bulk_add_to_queue``, ``_bulk_hide_channels``, and ``_bulk_mark_watched``
-(``main_window_favorites.py`` / ``main_window_metadata.py``) deliberately skip
-the bus: :meth:`ChannelStateBus.publish` triggers one off-thread authoritative
-re-read per call, so a 500-item bulk action would submit 500 executor jobs to
-repaint a details pane showing at most one of them. Those handlers keep their
-existing list-membership refreshes instead. A bulk-aware seam (publish once,
-re-read only if the shown channel is in the batch) is a separate slice.
+BUS-2 closed the gap for the three bulk mutations that carry a state axis the
+bus tracks: ``_bulk_add_to_favorites``, ``_bulk_add_to_queue``, and
+``_bulk_hide_channels`` (``main_window_favorites.py`` / ``main_window_metadata.py``)
+now publish one delta per channel, after the whole batch has committed — the
+existing list-membership refresh (``load_favorites()`` etc.) stays a single
+call, a different grain, per CLAUDE.md.
+
+Measured cost of doing this the straightforward way: :meth:`publish` triggers
+one off-thread authoritative re-read per call (``_on_action_state_requested``
+→ an executor job doing a tiny ``session_scope()`` read), and
+``apply_action_state`` already drops every result whose ``channel_id`` isn't
+the one currently shown — so for a 500-item selection, 499 of those re-reads
+are pure waste. Measured on a real ``Database``: ~0.7ms/item of off-thread DB
+work (~350ms total for 500), against ~0.035ms total for the synchronous tier-1
+echo across the same 500. That's real but bounded, off the UI thread, and
+consistent with every other publish() call in the app — a bulk-aware seam that
+publishes once and re-reads only if the shown channel is in the batch would
+remove the waste, but changing the bus's own re-read contract for this one
+caller is a separate, larger slice, not a per-call special case.
+
+``_bulk_mark_watched`` is unaffected by BUS-2 and stays out of scope: "watched"
+isn't a field ``ChannelActionState`` tracks at all — not even
+``_mark_channel_watched``/``_mark_channel_unwatched``, its single-channel
+siblings, publish to this bus. The action bar has no watched indicator to
+desync, so there's nothing for this bus to fix there.
 """
 
 from __future__ import annotations

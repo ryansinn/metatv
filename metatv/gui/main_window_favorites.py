@@ -220,38 +220,43 @@ class _FavoritesMixin:
                 )
 
     def _bulk_add_to_favorites(self, channel_ids: list[str]) -> None:
-        """Add multiple channels to Favorites in one session then refresh.
-
-        Args:
-            channel_ids: IDs of the channels to favorite.
-        """
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
+        """Add multiple channels to Favorites, then refresh. BUS-2 (see
+        channel_state_bus.py): DEBT-3 async write; each found channel
+        publishes once the batch commits; load_favorites() stays one call."""
+        def _write(repos):
+            favorited = []
             for cid in channel_ids:
                 ch = repos.channels.get_by_id(cid)
                 if ch:
                     ch.is_favorite = True
-        self.load_favorites()
+                    favorited.append(cid)
+            return favorited
+        def _on_result(favorited):
+            self.load_favorites()
+            for cid in favorited:
+                self.channel_state_bus.publish(cid, is_favorite=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("favoriting these channels"))
 
     def _bulk_add_to_queue(self, channel_ids: list[str]) -> None:
-        """Add multiple channels to the Watch Queue in one session then refresh.
-
-        Args:
-            channel_ids: IDs of the channels to enqueue.
-        """
+        """Add multiple channels to the Watch Queue, then refresh. BUS-2 (see
+        channel_state_bus.py): DEBT-3 async write; each channel publishes
+        in_queue=True once the batch commits (queue.add no-ops if already
+        queued); the two section refreshes stay one call each."""
         from metatv.core.database import ChannelDB
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
+        def _write(repos):
             for cid in channel_ids:
-                ch = session.get(ChannelDB, cid)
+                ch = repos.session.get(ChannelDB, cid)
                 repos.queue.add(
-                    cid,
-                    channel_name=ch.name if ch else "",
-                    media_type=ch.media_type if ch else "",
-                    source_id=ch.source_id if ch else "",
+                    cid, channel_name=ch.name if ch else "",
+                    media_type=ch.media_type if ch else "", source_id=ch.source_id if ch else "",
                 )
-        self._refresh_queue_section()
-        self._refresh_recommended_section()
+            return list(channel_ids)
+        def _on_result(ids):
+            self._refresh_queue_section()
+            self._refresh_recommended_section()
+            for cid in ids:
+                self.channel_state_bus.publish(cid, in_queue=True)
+        self._run_query(_write, _on_result, commit=True, on_error=lambda e: self._write_failed("adding these channels to the queue"))
 
     # --- Watch Queue helpers ---
 
@@ -638,7 +643,6 @@ class _FavoritesMixin:
         if "favorites" in self.sidebar_sections:
             self.sidebar_sections["favorites"].refresh()
 
-
     def _hide_channel_from_history(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
             RepositoryFactory(session).channels.set_hidden(channel_id, True)
@@ -715,10 +719,6 @@ class _FavoritesMixin:
             self.status(f"Removed {channel_name} from history", ms=0)
             logger.info(f"Removed {channel_name} from history")
             self.load_history()
-
-
-
-
 
     def show_favorites_context_menu(self, position, list_widget=None):
         if list_widget is None:
