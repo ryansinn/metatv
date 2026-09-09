@@ -18,6 +18,7 @@ via ``self``/MRO at runtime, so the split is behaviour-preserving.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -722,66 +723,72 @@ class _SeriesMixin:
         if not episode_ids:
             return
 
-        # Persist to DB.
+        # Persist to DB, then repaint from what was actually stored — the tree
+        # is never told what it "should" now show, it re-reads (see
+        # refresh_episode_watch_state).  The DTO this used to hand-build from
+        # the toggle's own arguments could disagree with the row (its unwatched
+        # branch cleared last_played_via while mark_watched_bulk left it), and a
+        # freshly constructed EpisodeDTO silently defaulted any field nobody
+        # remembered to carry across.
         with self.db.session_scope() as session:
             RepositoryFactory(session).episodes.mark_watched_bulk(episode_ids, watched)
-
-        # Re-read each affected episode as a fresh DTO and update its tree item in-place.
-        season_items_to_refresh: set[int] = set()  # id() of QTreeWidgetItem to refresh
-        with self.db.session_scope() as session:
-            repo = RepositoryFactory(session).episodes
-            for ep_item in episode_items:
-                d = ep_item.data(0, Qt.ItemDataRole.UserRole)
-                if not d or d.get("type") != "episode":
-                    continue
-                old_dto: EpisodeDTO = d["data"]
-                # Build an updated DTO from the new state (no ORM object escapes the session).
-                new_dto = EpisodeDTO(
-                    id=old_dto.id,
-                    episode_num=old_dto.episode_num,
-                    season_num=old_dto.season_num,
-                    title=old_dto.title,
-                    series_name=old_dto.series_name,
-                    stream_url=old_dto.stream_url,
-                    duration=old_dto.duration,
-                    is_watched=watched,
-                    rating=old_dto.rating,
-                    series_id=old_dto.series_id,
-                    provider_id=old_dto.provider_id,
-                    season_id=old_dto.season_id,
-                    watch_progress=0 if not watched else old_dto.watch_progress,
-                    watch_completed=watched,
-                    watch_percent=100 if watched else 0,
-                    # Manual toggle = deliberate action → SOLID icon (not muted/gray).
-                    # Must match EpisodeRepository.mark_watched_bulk which also sets
-                    # last_played_via="manual" — the in-place DTO must not disagree.
-                    last_played_via="manual" if watched else None,
-                    # Watched-state toggle never touches favorite — carry it forward
-                    # unchanged (a fresh EpisodeDTO() would silently default it False).
-                    is_favorite=old_dto.is_favorite,
-                )
-                ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
-                self._update_episode_item_icon(ep_item, new_dto)
-
-                # Mark the parent season for rollup refresh.
-                parent = ep_item.parent()
-                if parent is not None:
-                    season_items_to_refresh.add(id(parent))
-                    # Store the actual object keyed by id().
-                    if not hasattr(self, "_season_item_map"):
-                        self._season_item_map: dict[int, QTreeWidgetItem] = {}
-                    self._season_item_map[id(parent)] = parent
-
-        # Refresh affected season rollup glyphs.
-        for sid in season_items_to_refresh:
-            season_item = getattr(self, "_season_item_map", {}).get(sid)
-            if season_item is not None:
-                self._update_season_item_icon(season_item)
-        self._season_item_map = {}  # clear after use
-
+        self.refresh_episode_watch_state(episode_ids)
         logger.info(
             f"Toggled {len(episode_ids)} episode(s) as {'watched' if watched else 'unwatched'} in-place"
         )
+
+    def refresh_episode_watch_state(self, episode_ids: "list[str]") -> None:
+        """Re-read *episode_ids* watch state from the DB and repaint their rows.
+
+        **The one refresh path for episode watch state.**  Every writer — the
+        context menu's mark watched/unwatched, the queue's auto-mark as the
+        playlist advances, and both answers to the "Still watching?" prompt —
+        ends here rather than telling the tree what to display, so a write that
+        happened off-thread while the tree was already on screen cannot leave a
+        stale glyph behind (#836).
+
+        A no-op when the series tree was never built or holds none of these
+        episodes, so an off-thread writer can call it unconditionally.
+
+        Args:
+            episode_ids: Episode DB ids whose stored watch state to re-read.
+        """
+        if not episode_ids or "series_tree" not in self.__dict__:
+            return
+        wanted = set(episode_ids)
+        matched = []
+        for season_item, ep_item in self._find_episode_items():
+            d = ep_item.data(0, Qt.ItemDataRole.UserRole)
+            if d and d.get("type") == "episode" and d["data"].id in wanted:
+                matched.append((season_item, ep_item))
+        if not matched:
+            return
+
+        touched_seasons: list[QTreeWidgetItem] = []
+        with self.db.session_scope() as session:
+            repo = RepositoryFactory(session).episodes
+            for season_item, ep_item in matched:
+                old_dto: EpisodeDTO = ep_item.data(0, Qt.ItemDataRole.UserRole)["data"]
+                row = repo.get_by_id(old_dto.id)
+                if row is None:
+                    continue
+                # dataclasses.replace carries every field the row does not own
+                # (title, rating, favorite, …) across untouched by construction.
+                new_dto = dataclasses.replace(
+                    old_dto,
+                    is_watched=bool(row.is_watched),
+                    watch_completed=bool(row.watch_completed),
+                    watch_percent=int(row.watch_percent or 0),
+                    watch_progress=int(row.watch_progress or 0),
+                    last_played_via=row.last_played_via,
+                )
+                ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
+                self._update_episode_item_icon(ep_item, new_dto)
+                touched_seasons.append(season_item)
+
+        # Season rollup glyphs are derived from the child items just rewritten.
+        for season_item in {id(s): s for s in touched_seasons if s is not None}.values():
+            self._update_season_item_icon(season_item)
 
     def _mark_season_watched(self, season_item: "QTreeWidgetItem", watched: bool) -> None:
         """Mark all episodes in a season as watched/unwatched.
