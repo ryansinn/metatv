@@ -455,16 +455,31 @@ class _MetadataMixin:
     def _bulk_hide_channels(self, channel_ids: list[str]) -> None:
         """Hide multiple channels from the channel list in one pass then refresh.
 
+        BUS-2: previously a hand-picked refresh tail with no ``channel_state_bus``
+        publish at all — the exact class of bug #311 the bus exists to prevent,
+        reopened for the bulk path (self-documented as a known gap in
+        ``channel_state_bus.py``). DEBT-3: the write runs off the UI thread via
+        ``_run_query``; each channel's own delta publishes only once the whole
+        batch has committed. The list-membership refreshes below are a
+        different grain (CLAUDE.md) and stay as one call, not one per channel.
+
         Args:
             channel_ids: IDs of the channels to hide.
         """
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
+        def _write(repos):
             for cid in channel_ids:
                 repos.channels.set_hidden(cid, True)
-        self.preferences_view.refresh()
-        self._refresh_recommended_section()
-        self.load_channels()
+            return list(channel_ids)
+        def _on_result(ids):
+            self.preferences_view.refresh()
+            self._refresh_recommended_section()
+            self.load_channels()
+            for cid in ids:
+                self.channel_state_bus.publish(cid, is_hidden=True)
+        self._run_query(
+            _write, _on_result, commit=True,
+            on_error=lambda e: self._write_failed("hiding these channels"),
+        )
 
     def _unhide_channel(self, channel_id: str) -> None:
         def _bg() -> None:
