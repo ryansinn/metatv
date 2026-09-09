@@ -52,6 +52,8 @@ def test_resolve_key_force_new_window_overrides_split_off():
 def _host(db):
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host._watch_tracking = {}
     return host

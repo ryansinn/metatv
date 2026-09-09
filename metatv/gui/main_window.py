@@ -23,6 +23,7 @@ from metatv.core.runtime_env import is_frozen
 from metatv.core import profile_store
 from metatv.gui.watchlist_write_notifier import install_watchlist_writes
 from metatv.gui.main_window_streaming import _StreamingMixin
+from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
 from metatv.gui.main_window_overlays import _OverlaysMixin
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
@@ -141,7 +142,7 @@ def _tab_btn_sheet(extra: str) -> str:
 _SHUTDOWN_POOL_WAIT_S = 8.0
 
 
-class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
+class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _SeriesMixin, _SeriesPlaybackMixin, _ChannelListMixin, _StreamingMixin, _QueueEndPromptMixin, _OverlaysMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _DownloadsMixin, _UpdatesMixin, _StyleMenuMixin, _StatusMixin, _AsyncMixin, _AppHeaderMixin, _FilterChipHostMixin, _MenuBarRevealMixin, _MenuActionsMixin, _AlertsMixin, _CatalogRefreshTickMixin,
                  QMainWindow):
     """Main application window"""
     
@@ -185,6 +186,12 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     # (last_played_via='queue'). Emitted only when >0 episodes were queue-watched so
     # the main thread can show the "Still here?" confirmation prompt.
     _queue_end_detected = pyqtSignal(object)  # list[str] — auto-advanced episode ids
+    # Episode watch state written OFF the main thread (the queue's auto-mark as the
+    # playlist advances, and either answer to the "Still watching?" prompt).  Carries
+    # the episode ids so the open series tree can re-read exactly those rows through
+    # refresh_episode_watch_state — the one refresh path for episode watch state.
+    # Without it those writes landed silently behind an already-drawn tree (#836).
+    _episode_watch_state_changed = pyqtSignal(object)  # list[str] — episode ids
     # Whole-library title-sibling propagation re-sweep result: the worker emits the
     # count of idless rows that adopted a sibling's tmdb id; the main-thread slot
     # refreshes the provider-dependent views (so newly-collapsed cards settle) when
@@ -619,6 +626,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._query_result.connect(self._on_query_result)
         self._playback_health_ready.connect(self._on_playback_health_ready)
         self._queue_end_detected.connect(self._on_queue_end_detected)
+        self._episode_watch_state_changed.connect(self.refresh_episode_watch_state)
         self._propagation_finished.connect(self._on_propagation_finished)
         # Provider-delete: off-thread purge worker → main-thread finished slot.
         self._provider_delete_notifs: dict[str, str] = {}

@@ -256,6 +256,8 @@ def _make_streaming_host(db):
     """Build a _StreamingMixin host for capture-watch tests."""
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host.config = MagicMock(watch_complete_threshold=0.9)
     host._watch_tracking = {}
@@ -404,6 +406,8 @@ def test_checkpoint_tick_finalises_current_on_window_close(db):
     from metatv.gui.main_window_streaming import _StreamingMixin
 
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host.config = MagicMock(watch_complete_threshold=0.9, prompt_after_autoplay=False)
     host._watch_checkpoint_timer = MagicMock()
@@ -449,6 +453,8 @@ def test_update_last_seen_pos_advances_in_live_dict(db):
     """_update_last_seen_pos sets last_seen_pos on the live tracking entry."""
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host._watch_tracking = {
         "k": {
@@ -467,6 +473,8 @@ def test_update_last_seen_pos_noop_for_flat_entry():
     """_update_last_seen_pos is a no-op for non-queue (flat-dict) tracking entries."""
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host._watch_tracking = {
         "k": {"content_id": "m1", "media_type": "movie"}
     }
@@ -484,6 +492,8 @@ def test_bg_finalise_episode_marks_completed(db):
     _seed_episodes(db, ["ef"])
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host.config = MagicMock(watch_complete_threshold=0.9)
 
@@ -499,6 +509,8 @@ def test_bg_finalise_episode_manual_via(db):
     _seed_episodes(db, ["ef2"])
     from metatv.gui.main_window_streaming import _StreamingMixin
     host = _StreamingMixin.__new__(_StreamingMixin)
+    from tests.conftest import wire_episode_watch_signal
+    wire_episode_watch_signal(host)
     host.db = db
     host.config = MagicMock(watch_complete_threshold=0.9)
 

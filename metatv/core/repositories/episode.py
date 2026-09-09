@@ -429,6 +429,11 @@ class EpisodeRepository:
                 episode.watch_completed = False
                 episode.watch_percent = 0
                 episode.watch_progress = 0
+                # Provenance goes with the watch: leaving a stale "manual"/"queue"
+                # here made the row disagree with the DTO the series tree builds
+                # for an unwatched episode (which has always been None), so the
+                # glyph changed the next time the tree was repopulated.
+                episode.last_played_via = None
             episode.updated_at = datetime.now()
             updated += 1
         if updated:

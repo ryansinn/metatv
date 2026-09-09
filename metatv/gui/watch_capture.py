@@ -176,6 +176,7 @@ class _WatchCaptureMixin:
                 )
         except Exception as exc:
             logger.debug(f"Episode finalise failed for {content_id!r}: {exc}")
+        self._notify_episode_watch_state([content_id])
 
     def _bg_finalise_progress(
         self, content_id: str, media_type: str, pos_s: float, dur_s: float, played_via: str
@@ -215,6 +216,8 @@ class _WatchCaptureMixin:
             notifier = self.__dict__.get("_watch_notifier")
             if notifier is not None:
                 notifier.history_changed.emit(content_id)
+            if media_type == "episode":
+                self._notify_episode_watch_state([content_id])
         except Exception as exc:
             logger.debug(f"Watch-progress finalise failed for {content_id!r}: {exc}")
 
@@ -285,6 +288,7 @@ class _WatchCaptureMixin:
                         repos.episodes.record_watch_progress(
                             current["content_id"], pos_s, dur_s, threshold, via
                         )
+                    self._notify_episode_watch_state([current["content_id"]])
             else:
                 # Single-episode / movie branch: unchanged behaviour.
                 props = self.player_manager.get_properties(["time-pos", "duration"], key=key)
@@ -301,12 +305,31 @@ class _WatchCaptureMixin:
                         repos.episodes.record_watch_progress(
                             info["content_id"], pos_s, dur_s, threshold, played_via
                         )
+                        self._notify_episode_watch_state([info["content_id"]])
                     else:
                         repos.channels.record_watch_progress(
                             info["content_id"], pos_s, dur_s, threshold, played_via
                         )
         except Exception as e:
             logger.debug(f"Watch-progress capture failed for {key}: {e}")
+
+    def _notify_episode_watch_state(self, episode_ids: "list[str]") -> None:
+        """Tell the main thread that these episodes' stored watch state moved.
+
+        Every episode watch write in this module runs on a worker, so the open
+        series tree cannot see it — it emits ``_episode_watch_state_changed``,
+        whose main-thread slot re-reads exactly these rows.  A signal, never a
+        direct widget touch: Qt widgets are not thread-safe.
+
+        Args:
+            episode_ids: Episode DB ids whose watch state was just written.
+        """
+        if not episode_ids:
+            return
+        try:
+            self._episode_watch_state_changed.emit(list(episode_ids))
+        except RuntimeError:  # window torn down mid-flight
+            pass
 
     def _update_last_seen_pos(self, key: str, new_pos: int) -> None:
         """Main-thread-safe update of ``last_seen_pos`` in the live tracking dict.

@@ -46,7 +46,7 @@ import pathlib
 #: 122 -> 106 (THEME-1): ``MainWindow.refresh_theme``'s sweep was sixteen
 #: ``hasattr(self, ...)`` blocks guarding widgets that now register their own
 #: style at construction, so the whole method went with them.
-SKELETON_PROBE_BUDGET = 106
+SKELETON_PROBE_BUDGET = 104
 
 
 def _probe_sites() -> list[tuple[str, int, str, str]]:

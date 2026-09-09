@@ -19,7 +19,7 @@
     "metatv/gui/main_window.py": 2514,
     "metatv/gui/main_window_channels.py": 2227,
     "metatv/gui/main_window_favorites.py": 1114,
-    "metatv/gui/main_window_streaming.py": 1490,
+    "metatv/gui/main_window_streaming.py": 1408,
     "metatv/gui/provider_editor.py": 1038,
     "metatv/gui/qa_checklist_window.py": 2502,
     "metatv/gui/settings_dialog_tabs.py": 1157,
