@@ -120,6 +120,40 @@ def test_the_caret_glyph_and_tooltip_always_agree(qapp):
     assert "Expand" in header._chevron.toolTip()
 
 
+def _expected_chevron_bytes(icon_key: str, size) -> bytes:
+    from metatv.gui import icon_utils as _icon_utils
+    from metatv.gui import theme as _theme
+    icon = _icon_utils.resolve_icon(icon_key, color=_theme.COLOR_TEXT)
+    image = icon.pixmap(size).toImage()
+    return image.bits().asstring(image.sizeInBytes())
+
+
+def test_every_section_header_points_the_right_direction(qapp, owned_widgets):
+    """CHV-2: all six shared headers start OPEN (down chevron) and must flip
+    to a RIGHT chevron once collapsed — never the reverse.
+
+    ``test_the_caret_glyph_and_tooltip_always_agree`` above only proves the
+    caret repaints to *something* on toggle — that passed against the
+    inverted ``icons.VECTOR_KEYS`` map too. This checks the actual resolved
+    glyph, per real section instance, so a section that somehow grew its own
+    "expand"/"collapse" string off to the side would still be caught here.
+    """
+    for name, section in _sections(_Cfg()).items():
+        owned_widgets.own(section)
+        chevron = section._header._chevron
+        size = chevron.iconSize()
+        assert not section._header.is_collapsed(), (
+            f"{name}: test assumes the default open state"
+        )
+        assert _icon_bytes(chevron) == _expected_chevron_bytes("mdi6.chevron-down", size), (
+            f"{name}: an OPEN section's chevron must point down"
+        )
+        section._header.toggle()
+        assert _icon_bytes(chevron) == _expected_chevron_bytes("mdi6.chevron-right", size), (
+            f"{name}: a CLOSED section's chevron must point right"
+        )
+
+
 def test_filtered_variants_is_the_shared_header_one_step_down(qapp):
     """It IS the shared header now — in its nested scale.
 

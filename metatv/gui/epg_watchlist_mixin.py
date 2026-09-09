@@ -631,6 +631,7 @@ class _EpgWatchlistMixin:
             _theme.style_fn(live_lbl, lambda: f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
             header.addWidget(live_lbl)
 
+        # A real (initially-closed) disclosure toggle, not decoration — CHV-2.
         edit_btn = QPushButton(f"Edit {_icons.expand_icon}")
         edit_btn.setFlat(True)
         _theme.style(edit_btn, "LINK_BTN_SM")
