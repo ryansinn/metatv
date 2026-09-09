@@ -608,3 +608,66 @@ Owner's call. The three routes differ in risk, not just in speed.
 | D56 | `QueryIndexTask.needs_run`'s statistics half asked "does `channels` have ANY `sqlite_stat1` row" and treated that as "the statistics are GOOD" | `metatv/core/migrations/query_indexes.py` `_has_channel_stats` — a genuine correctness bug, not a duplicate, logged here per the STORAGE-1 design pass's own framing of it as an owed ledger row. Measured on the owner's real library: `ix_channels_is_hidden` reported 1,725 rows/key against a true 393,162 (227x off), and once that row existed the check was permanently satisfied — the correct, unbounded `ANALYZE` this task itself runs never fired again to correct it, no matter how stale the catalog got | **DONE (STORAGE-1a).** `_has_channel_stats` now reads back ANALYZE's row-count estimate against a known FULL (non-partial) index (`ix_channels_hidden_type_name` — a partial index's stat1 row reports only the rows its own `WHERE` matches, not the table, which the (now 23) partial indexes below made a live trap) and compares it to a real `SELECT COUNT(*)`; past a 20% drift the statistics are stale and `needs_run` goes True again, so `run()`'s trailing `ANALYZE` actually refreshes them. `tests/test_query_indexes.py::test_needs_run_goes_true_again_when_the_catalog_drifts_past_recorded_stats` (proven RED against the old "any row" check) and `::test_needs_run_stays_false_for_ordinary_catalog_growth` (the tolerance isn't so tight it re-ANALYZEs every launch). |
 | D57 | **CLASS, logged, not closed — GUARD-4's census matches a stored field by BARE NAME across every model, not by which model actually declares it** | `tests/test_stored_fields_have_readers.py` `reader_map()` keys every reader hit by `node.attr` alone, with no receiver/type information, so `ChannelDB.<name>` reads as "wired" whenever ANY other census model (`ProviderDB`/`AlertPatternDB`/`RecordingDB`) declares a field of the same name that IS read. Predicate: a `ChannelDB` column whose bare name collides with a genuinely-read field on another model. Census found while measuring STORAGE-1a's own candidates: `ChannelDB.added_at` (real reader: `WatchQueueDB.added_at`, `gui/sidebar/queue.py:432`), `ChannelDB.updated_at` (real reader: `DownloadDB.updated_at`, `gui/sidebar/downloads.py:232`), `ChannelDB.language` (real reader: `MetadataDB.language`), `ChannelDB.cover_url` (real reader: `SeasonDB`/`EpisodeDB.cover_url`) — four instances, zero of which have an actual `ChannelDB`-specific reader anywhere in `metatv/` or `tests/`. | **LOGGED, not closed here, and deliberately not attempted in this slice.** CLAUDE.md's amended rule (GUARD-6, #830) prefers closing a checkable class over logging it, and this one is arguably checkable — but GUARD-6's own fix (`_series_channel_exists`) closed a QUERY-SHAPE predicate an AST walk can match directly (a `.filter()` missing a paired column). This one needs the opposite: `candidate_names_in_file`'s whole design is "any receiver — recall over precision" (its own docstring's explicit tradeoff, chosen so a false negative — a genuinely-unwired field reading as wired — "costs nothing" against the false positive of over-flagging), and closing it for real means resolving which MODEL a `.attr` receiver's expression actually names — real type inference over arbitrary Python, not a structural AST-shape match. That is a materially different, larger undertaking than GUARD-6's, it changes a shared guard three other in-flight slices (DB-9, GUARD-5, GUARD-6) are concurrently touching the same test file for, and STORAGE-1a's own file-ownership boundary explicitly excludes touching `added_at`/`updated_at` (Slice B/DB-9's columns) — the two columns half of this class's four instances are actually about. Fixing the guard's matcher while leaving the columns it would newly flag untouched is a half-step that invites exactly the kind of unbriefed scope creep CLAUDE.md's "verified slice gets merged, not resumed" rule warns against. Logged here with the full census so a future slice that DOES own model-aware resolution (or that DOES own `added_at`/`updated_at`) can close it outright instead of re-discovering it. |
 | D58 | `ix_channels_is_favorite` (one of STORAGE-1a's own 24 partial conversions) was SUBSUMED by `ix_channels_favorite_hidden_name` — not a column-list left-prefix (`is_favorite` isn't one of that composite's indexed columns, only its own `sqlite_where`), but the same functional redundancy: both indexes are gated by the IDENTICAL `is_favorite = 1` predicate, so they cover the exact same 28-row set and the standalone one buys nothing the composite doesn't already give — while giving the planner a second candidate to (sometimes) choose wrong | Found by CI, not by design: PR #831 shipped `is_favorite` as a 25th partial conversion; both Linux and macOS CI (SQLite built without STAT4, unlike this repo's local Python 3.14) failed `test_the_partial_index_keeps_favorites_off_the_full_walk` — the planner chose the narrower standalone `ix_channels_is_favorite` over the composite `ix_channels_favorite_hidden_name` for the channel list's own Favorites query (`WHERE is_favorite=1 AND is_hidden=0 ORDER BY name`) and paid for it with an added `USE TEMP B-TREE FOR ORDER BY` — the exact 1.8x-regression shape `query_indexes.py`'s own module docstring already warns about, reopened from the other side. Census over the other 23 conversions (`grep -n "sqlite_where" metatv/core/database.py` — exactly one hand-written composite, `ix_channels_favorite_hidden_name`) confirms `is_favorite` is the only column among the 24 whose `sqlite_where` collides with a pre-existing composite; not a population | **DONE (STORAGE-1a, same PR).** Moved from `channel_index_policy.CHANNEL_PARTIAL_INDEX_SPECS` (23 remain) to `CHANNEL_DEAD_INDEX_NAMES` (4 now) — `ix_channels_is_favorite` is dropped outright, never rebuilt, same mechanism as D55's three. Verified with real EXPLAIN QUERY PLAN probes against every genuine `is_favorite` call site in `metatv/` (`media_mix.py`, `channel_provider_ops.py`'s engaged-OR-clause, `discovery_engine.py`, `preference_engine.py` x2): dropping the standalone index never makes any of them worse. `tests/test_query_indexes.py::test_the_partial_index_keeps_favorites_off_the_full_walk` gained a direct assertion that the standalone index does not exist (deterministic, not planner-version-dependent); `::test_the_four_free_drops_are_removed_and_never_rebuilt` (renamed from "three") covers the drop-and-never-rebuilt property. Both proven RED against the pre-fix tree (checked out, confirmed failing, restored). |
+| D59 | `tag_case_merge.py`'s blanket `tags` prune was never actually needed to finish the merge it rode along on | `metatv/core/migrations/tag_case_merge.py`'s per-group loop already deletes its own losers explicitly (`DELETE FROM tags WHERE id IN (losers)`), unconditionally, right after repointing/absorbing their `content_tags` — regardless of whether a loser carried any links. The file's own trailing `DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM content_tags)` therefore did no work FOR the merge; it was a second, unscoped "delete anything currently unreferenced" sweep that happened to share the task's version gate | **REMOVED (TAG-2).** Not a duplicate in the ledger's usual sense (no second copy of this SQL exists elsewhere), but the same failure shape: an operation whose scope silently grew past what its own stated purpose required. See the "Tag prune scope" open decision below for the standalone-sweep question this left behind. |
+
+## Tag prune scope — the open standalone-sweep decision (2026-09-09, TAG-2)
+
+`tag_case_merge.py` used to end its run with `DELETE FROM tags WHERE id NOT IN
+(SELECT DISTINCT tag_id FROM content_tags)` — every tag row with zero current
+links, gone, on a task that runs at every launch until it stamps its version.
+TAG-2 removed it (D59 above) because it deletes more than the merge it rode
+along on, and because a design pass in flight (CONCEPT-1, artifact "Joining
+and Separating") proposes `tags` stop being purely observed provider values:
+368 alias rows already resolve to ~39 concepts, and the proposal adds a
+`concept_id` column so a merge becomes `UPDATE tags SET concept_id=B WHERE
+concept_id=A` — reversible, and explicitly NOT a delete. Under that model a
+concept with no currently-linked channel is retained vocabulary, not garbage,
+and a blanket unreferenced-tag sweep cannot tell the two apart.
+
+That leaves the standalone question TAG-2 was asked to assess, not build: is
+a "delete tags nothing references" maintenance task wanted at all, run on its
+own rather than folded into a merge?
+
+**For.** Under TODAY's model (no `concept_id`, `tags` rows are purely observed
+provider values) a zero-link tag is genuinely dead: `set_content_tags`
+replaces a channel's generated tags wholesale, so a genre that stops applying
+anywhere leaves its row behind with nothing attached. Measured on the owner's
+library: 288 of 654 genre tags (49% of the low-count tail) had zero channels
+before the case-merge ran. That is real, accumulating clutter with no purpose
+today — an admin/vocabulary browser (if one is ever built) would show 288
+dead rows to page through, and `TagRepository.get_or_create_tag`'s
+case-insensitive cache never shrinks it back down.
+
+**Against.** The exact mechanism that makes a sweep attractive — "if nothing
+points at it, it's safe to delete" — is indistinguishable from "if it isn't
+currently in use, delete the vocabulary" the instant `concept_id` lands.
+There is no query that can tell "an alias nobody has ever needed" from "an
+alias curated into a concept that happens to have zero matching channels in
+THIS library right now" without the concept model actually existing to ask.
+A sweep built today against the current schema would need rebuilding (or
+gating behind `concept_id IS NULL`) the moment CONCEPT-1 ships — building it
+now is building on ground CONCEPT-1 is about to move.
+
+**Recommendation: do not build it now.** Two reasons stack:
+
+1. It duplicates work. `orphan_sweep.py` already runs, idempotently, at every
+   launch and covers `content_tags` rows whose *channel* no longer exists —
+   the actually-costly leak (a whole provider's worth of stale links). A
+   "tags nothing references" sweep is strictly smaller in stakes (654 rows,
+   not 785k) and was never the thing `tag_case_merge.py`'s docstring measured
+   as a problem worth its own task — it was a rider on the case-merge, found
+   only because the merge needed the same existence check anyway.
+2. It is the wrong shape for what CONCEPT-1 turns `tags` into. If/when
+   `concept_id` lands, the right cleanup tool is not a silent launch-time
+   sweep but a reviewed action scoped to genuinely-orphaned ALIASES — a row
+   with `concept_id IS NULL` (never triaged into any concept) *and* zero
+   links, which a human can see before it goes, the same way CONCEPT-1's own
+   "Join"/merge operations are framed as reversible, visible edits rather
+   than background deletes. That is a CONCEPT-1-dependent design question,
+   not a TAG-2 one.
+
+If the 288-row clutter matters enough to act on before CONCEPT-1 lands, the
+lower-risk move is a manual, explicitly-invoked cleanup (a script or a
+Settings action with a confirmation and a count shown first) rather than
+another silent version-gated migration — the exact form this ledger entry
+exists to warn against re-adding.
