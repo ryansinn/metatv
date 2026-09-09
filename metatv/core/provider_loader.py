@@ -7,7 +7,6 @@ from datetime import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
 from sqlalchemy import or_
-from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
 from metatv.core.models import Provider
 from metatv.core.database import (
@@ -16,8 +15,8 @@ from metatv.core.database import (
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.repositories.channel_change_detection import (
-    detect_changed_channel_ids, force_recompute_for_changed_ids)
-from metatv.core.migrations.sports_reclassify import DERIVED_FIELDS
+    diff_batch_for_upsert, force_recompute_for_changed_ids)
+from metatv.core.repositories.channel_upsert import flush_channel_batch
 from metatv.core.sql_batching import fetch_in_chunks
 from metatv.providers.factory import get_provider
 
@@ -319,10 +318,12 @@ class ProviderLoadThread(QThread):
           threads interleave writes and avoid SQLITE_BUSY errors.
         * **Batch size** — ``_STORE_BATCH`` rows × 15 columns ≈ 7 500 SQL parameters,
           well within SQLite's 32 766 limit (and the legacy 999 limit too).
+        * **DB-7 change gate** — an unchanged row skips the upsert and only
+          gets ``last_seen_at`` touched (see ``_flush_batch``).
 
         Returns:
             DERIVE-1 — ids whose stored name/category/raw_data differed from the
-            incoming row (see :func:`~metatv.core.repositories.channel_change_detection.detect_changed_channel_ids`);
+            incoming row (see :func:`~metatv.core.repositories.channel_change_detection.diff_batch_for_upsert`);
             never includes brand-new inserts.
         """
         batch: list[dict] = []
@@ -344,6 +345,13 @@ class ProviderLoadThread(QThread):
         # now() would make the boundary drift across the run and leave the last
         # batch looking newer than the first.
         self._seen_at = datetime.utcnow()
+
+        # DB-7: diff each batch against its stored rows before flushing it (gated).
+        def _diff_and_flush(b: list[dict]) -> None:
+            nonlocal changed_ids
+            b_changed, b_unchanged = diff_batch_for_upsert(session, b, _CATALOG_UPDATE_COLS)
+            changed_ids |= b_changed
+            self._flush_batch(session, b, seen_at=self._seen_at, unchanged_ids=b_unchanged)
 
         # Disable autoflush so writes only happen at each explicit commit().
         # Without this, ORM operations would trigger an autoflush before internal
@@ -405,8 +413,7 @@ class ProviderLoadThread(QThread):
 
                 processed += 1
                 if len(batch) >= _STORE_BATCH:
-                    changed_ids |= detect_changed_channel_ids(session, batch)
-                    self._flush_batch(session, batch, seen_at=self._seen_at)
+                    _diff_and_flush(batch)
                     batch.clear()
                     _ss, _se = _BAND_STORE
                     percent = int(_ss + (processed / total) * (_se - _ss)) if total else _se
@@ -414,8 +421,7 @@ class ProviderLoadThread(QThread):
 
             # Flush the final partial batch
             if batch:
-                changed_ids |= detect_changed_channel_ids(session, batch)
-                self._flush_batch(session, batch, seen_at=self._seen_at)
+                _diff_and_flush(batch)
                 batch.clear()
 
         # Report after the last flush so the comparison sees committed
@@ -520,74 +526,17 @@ class ProviderLoadThread(QThread):
         session.commit()
 
     @staticmethod
-    def _flush_batch(session, batch: list[dict], *, seen_at=None) -> None:
-        """Execute one bulk upsert for *batch* and commit the transaction.
-
-        Uses SQLite's ``INSERT INTO ... ON CONFLICT(id) DO UPDATE SET ...``
-        to insert new rows and update only catalog columns on conflict.
-        Derived/user columns (``is_favorite``, ``play_count``, ``detected_*``,
-        ``user_category``, etc.) are NOT in the SET clause and are preserved.
-
-        **Stream-ID reuse guard:** IPTV providers occasionally recycle stream IDs
-        for completely different content.  When the incoming ``name`` differs from
-        the stored row's ``name``, the linked ``MetadataDB`` row belongs to the
-        previous occupant and must be invalidated so it re-derives from the new
-        ``raw_data``.  This is expressed as a CASE in the DO UPDATE clause so it
-        happens atomically inside the same bulk upsert — no extra query needed.
-        """
-        from sqlalchemy import case, func, literal
-
-        # Stamp presence on every row in this batch, inserted or updated.
-        #
-        # Deliberately NOT part of _CATALOG_COLS: that tuple is checked against
-        # the Channel model by test_catalog_columns_cover_the_channel, and this
-        # is loader bookkeeping rather than anything the source sends.
-        #
-        # It has to be set on the DO UPDATE branch too, which is the whole point
-        # — a channel the source still lists but has not edited takes that branch
-        # and changes nothing else. Stamping only on insert would mark every
-        # unchanged channel as vanished on the very next refresh.
-        if seen_at is not None:
-            batch = [dict(row, last_seen_at=seen_at) for row in batch]
-
-        stmt = _sqlite_insert(ChannelDB).values(batch)
-        update_set = {col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS}
-        if seen_at is not None:
-            update_set["last_seen_at"] = stmt.excluded.last_seen_at
-        # Preserve provider-native / propagated tmdb enrichment across refreshes.
-        # detected_tmdb_id is a catalog column, but the enrichment layer writes ids the
-        # provider LIST row still omits (from the detail endpoint or a title sibling).
-        # A plain overwrite would wipe those back to NULL every refresh, undoing the
-        # collapse; COALESCE keeps the stored id whenever the incoming payload carries
-        # none, and only overwrites when the refresh actually ships a real id.
-        update_set["detected_tmdb_id"] = func.coalesce(
-            stmt.excluded.detected_tmdb_id, ChannelDB.detected_tmdb_id
+    def _flush_batch(
+        session, batch: list[dict], *, seen_at=None,
+        unchanged_ids: frozenset[str] | set[str] = frozenset(),
+    ) -> None:
+        """Thin delegate — see ``channel_upsert.flush_channel_batch`` for the
+        full docstring (moved there, code-health ratchet: this class doesn't
+        touch ``self``, so the whole upsert body extracts cleanly)."""
+        flush_channel_batch(
+            session, batch, _CATALOG_UPDATE_COLS,
+            seen_at=seen_at, unchanged_ids=unchanged_ids,
         )
-        # Clear stale metadata when the channel name changes (stream-ID reuse).
-        # new rows (INSERT path) have metadata_id=NULL by default — this only fires
-        # for the DO UPDATE branch (existing rows), and only when the name actually changed.
-        update_set["metadata_id"] = case(
-            (stmt.excluded.name != ChannelDB.name, literal(None)),
-            else_=ChannelDB.metadata_id,
-        )
-        # ...and NAME-DERIVED fields, for exactly the same reason. Also clear
-        # sports/event classification columns so _categorize_special_content
-        # (which runs after _store_channels and processes special_view IS NULL rows)
-        # reclassifies a renamed slot from its new name in the same pass.
-        # detected_tmdb_id is deliberately NOT cleared: the enrichment layer owns
-        # it and COALESCEs it above, so clearing here would undo that.
-        for _derived in ("detected_title", "detected_prefix", "detected_quality",
-                         "detected_region", "detected_year", "content_key") + DERIVED_FIELDS:
-            update_set[_derived] = case(
-                (stmt.excluded.name != ChannelDB.name, literal(None)),
-                else_=getattr(ChannelDB, _derived),
-            )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["id"],
-            set_=update_set,
-        )
-        session.execute(stmt)
-        session.commit()
 
     def _categorize_special_content(self) -> None:
         """Categorize PPV / Events / Sports for uncategorized channels from this provider.
