@@ -51,13 +51,23 @@ class _PlayAllItem:
         provider_id: Source provider — threaded to ``player_manager`` for
             Split-Streams instance keying.
         media_type: ``"episode"`` or ``"movie"`` / ``"live"`` — controls which
-            repository write path watch-progress capture uses.
+            repository write path watch-progress capture uses, and (D53)
+            which ``_record_*`` seam ``_do_launch_episode`` records this item
+            through: ``_record_episode_play`` for ``"episode"``, else
+            ``_record_play``.
+        series_id: The episode's parent series id (only meaningful when
+            ``media_type == "episode"`` — ``_play_all_selected_episodes``
+            populates it from ``EpisodeDTO.series_id``; channel-shaped items
+            leave it empty). Needed by ``_record_episode_play`` to also bump
+            the parent channel's play count, exactly as a regular episode
+            play does.
     """
     stream_url: str
     title: str
     content_id: str
     provider_id: str
     media_type: str = "live"   # most channels are live; callers override for episodes/movies
+    series_id: str = ""
 
 
 class _SeriesPlaybackMixin:
@@ -233,6 +243,16 @@ class _SeriesPlaybackMixin:
 
         Single-item list: plays normally (no queue registered).
 
+        D53: this used to register ``_watch_tracking`` and refresh History/
+        Favorites right here, before ``launch_player_for_episode`` even started
+        its async preflight check — recording (and the tracking that feeds it)
+        N items before any of them had actually launched, the same
+        before-the-launch-is-confirmed bug PLAY-13 fixed on the single-episode
+        path. Both now happen in ``_do_launch_episode``, and only once
+        ``_play_checked``/``player_manager.queue`` confirm each item actually
+        reached mpv — see its docstring for the validate → launch → record
+        order and the recording census in docs/REFACTOR_PLAN.md (D53).
+
         Args:
             items: Ordered list of :class:`_PlayAllItem` instances.  The first is
                 played immediately; the rest are appended to mpv's playlist.
@@ -254,49 +274,25 @@ class _SeriesPlaybackMixin:
             f"Play All: playing {first.title!r}, queuing {len(rest)} item(s)"
         )
 
-        # Register watch-tracking BEFORE launching so the checkpoint timer starts
-        # immediately — same pattern as play_episode.
-        if not hasattr(self, "_watch_tracking"):
-            self._watch_tracking = {}
-        _watch_key = self.player_manager.resolve_key(first.provider_id)
-        if rest:
-            # Multi-item queue: the _bg_capture_watch queued-branch follows
-            # playlist-pos and writes progress against the *current* item.
-            _queue = [{"content_id": first.content_id}] + [
-                {"content_id": it.content_id} for it in rest
-            ]
-            self._watch_tracking[_watch_key] = {
-                "media_type": first.media_type,
-                "played_via": "manual",
-                "queue": _queue,
-                "last_seen_pos": 0,
-            }
-        else:
-            # Single-item selection: flat dict (same as play_episode single-ep branch).
-            self._watch_tracking[_watch_key] = {
-                "content_id": first.content_id,
-                "media_type": first.media_type,
-                "played_via": "manual",
-            }
-        self._start_watch_capture()
-
-        # Update UI sidebar lists so history reflects the play immediately.
-        self.load_history()
-        self.load_favorites()
-
         # Delegate the actual launch to the existing episode launcher which already
         # handles pre-flight URL validation, the "Loading" notification, Split-Streams
         # keying, and the playback-health readout.  The queue_episodes list is typed
         # as EpisodeDTOs in the launcher's signature but _do_launch_episode only reads
-        # .stream_url and .title — any object with those attributes works.
+        # .stream_url/.title/.content_id/.media_type/.series_id — any object with
+        # those attributes works; media_type tells _do_launch_episode this is a
+        # Play-All launch (the regular play_episode() path never passes it) so it
+        # knows to record — through _record_play or _record_episode_play, whichever
+        # this item's shape needs — instead of silently skipping recording.
         self.launch_player_for_episode(
             first.stream_url, first.title, rest,
             provider_id=first.provider_id, episode_id=first.content_id,
+            series_id=first.series_id, media_type=first.media_type,
         )
 
     def launch_player_for_episode(
         self, stream_url, title, queue_episodes=None, provider_id: str = "",
         start_seconds: int = 0, episode_id: str = "", series_id: str = "",
+        media_type: str = "",
     ):
         """Launch media player for an episode and queue subsequent episodes.
 
@@ -327,11 +323,17 @@ class _SeriesPlaybackMixin:
                 PLAY-13: carried through ``_episode_ready``/``_episode_failed``
                 so ``_do_launch_episode`` can record the play (mark_played +
                 watch-tracking) only once preflight has validated AND mpv has
-                actually launched — never before. Empty (default) at call
-                sites — Play-All's generic channel/episode mix — that never
-                recorded a play through this seam; recording stays skipped
-                there, same as before this fix (a separate, logged gap: see
-                docs/REFACTOR_PLAN.md).
+                actually launched — never before.
+            media_type: D53 — empty (default) for the regular ``play_episode``
+                call sites, preserving their exact existing behaviour
+                (``_do_launch_episode`` gates recording on ``series_id``
+                alone, as before). Play-All (``_play_all_items``) always
+                passes its started item's ``media_type`` ("episode",
+                "live", or "movie") — this is how ``_do_launch_episode``
+                recognizes a Play-All launch and records it (through
+                ``_record_episode_play`` or ``_record_play``, whichever the
+                item's shape needs) instead of silently skipping recording,
+                which Play-All did unconditionally before this fix.
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
@@ -367,7 +369,7 @@ class _SeriesPlaybackMixin:
                 self._episode_failed.emit(
                     notif_id, title, detail, stream_url,
                     queue_episodes, provider_id, start_seconds,
-                    episode_id, series_id,
+                    episode_id, series_id, media_type,
                 )
                 return
 
@@ -390,7 +392,7 @@ class _SeriesPlaybackMixin:
             # mpv key (or the wrong resume position).
             self._episode_ready.emit(
                 notif_id, final_url, title, queue_episodes, provider_id, start_seconds,
-                episode_id, series_id,
+                episode_id, series_id, media_type,
             )
 
         future = self.executor.submit(_preflight)
@@ -399,6 +401,7 @@ class _SeriesPlaybackMixin:
     def _do_launch_episode(
         self, notif_id, stream_url, title, queue_episodes, provider_id="",
         start_seconds: int = 0, episode_id: str = "", series_id: str = "",
+        media_type: str = "",
     ) -> None:
         """Actually launch mpv after a successful preflight check (called on main thread).
 
@@ -415,15 +418,33 @@ class _SeriesPlaybackMixin:
         done HERE — via :meth:`_record_episode_play` — only once
         ``_play_checked`` has actually launched mpv, mirroring the movie/
         channel path's validate → launch → record discipline
-        (``_record_play`` in ``main_window_streaming.py``). Gated on
-        ``series_id`` rather than ``episode_id`` alone: Play-All's generic
-        launch (``_play_all_items``) also threads an ``episode_id`` (really a
-        generic ``content_id`` that may name a CHANNEL, not an episode)
-        through this same signal but never a ``series_id`` — recording here
-        stays skipped for that path, exactly as before this fix, instead of
-        mis-recording a channel id through the episode repository or
-        clobbering the ``_watch_tracking`` entry Play-All already built for
-        itself.
+        (``_record_play`` in ``main_window_streaming.py``).
+
+        D53: ``media_type`` (empty for the regular ``play_episode`` call
+        sites, non-empty for Play-All — see :meth:`launch_player_for_episode`)
+        is what used to make Play-All's launch skip recording entirely: with
+        it empty, the branch below falls back to the ORIGINAL "gate on
+        ``series_id`` alone" behaviour, unchanged, and Play-All never passed a
+        ``series_id`` (its ``episode_id`` is really a generic ``content_id``
+        that may name a CHANNEL) — so nothing was ever recorded, no matter
+        which item played. With ``media_type`` now threaded through, a
+        Play-All launch is recorded per item, at the moment that item
+        actually reaches mpv — the STARTED item once ``_play_checked``
+        confirms the launch, and each QUEUED item as ``player_manager.queue``
+        confirms mpv accepted it (mpv gives no other per-item "now playing"
+        signal for a queued playlist item; polling ``playlist-pos`` is what
+        the completion-tracking checkpoint already does, a materially
+        different, poll-based observation this fix does not depend on).
+        Recording is dispatched by each item's OWN media_type: "episode" goes
+        through :meth:`_record_episode_play` (which also needs that item's
+        OWN ``series_id`` to bump the right parent channel), anything else
+        (a channel-shaped "live"/"movie" Play-All item) through
+        :meth:`_record_play`. Both are called with ``record_only=True`` here
+        — Play-All owns the queue-shaped ``_watch_tracking`` entry for the
+        WHOLE batch itself (built once, below, exactly as ``_play_all_items``
+        used to build it eagerly before this fix — just now only once the
+        launch is confirmed), so the per-item recording calls must not let
+        their own single-entry tracking logic clobber it.
         """
         self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
@@ -432,7 +453,43 @@ class _SeriesPlaybackMixin:
             # path doesn't go through play_media, so it must arm the readout too).
             self._start_playback_health()
 
-            if series_id:
+            if media_type:
+                # Play-All launch: build the queue-shaped _watch_tracking entry
+                # for the whole batch ONCE, now that the launch is confirmed —
+                # relocated verbatim from _play_all_items (D53), which used to
+                # build this eagerly, before any item had actually launched.
+                if not hasattr(self, "_watch_tracking"):
+                    self._watch_tracking = {}
+                _pa_key = self.player_manager.resolve_key(provider_id)
+                if queue_episodes:
+                    _pa_queue = [{"content_id": episode_id}] + [
+                        {"content_id": getattr(it, "content_id", None) or getattr(it, "id", "")}
+                        for it in queue_episodes
+                    ]
+                    self._watch_tracking[_pa_key] = {
+                        "media_type": media_type,
+                        "played_via": "manual",
+                        "queue": _pa_queue,
+                        "last_seen_pos": 0,
+                    }
+                else:
+                    self._watch_tracking[_pa_key] = {
+                        "content_id": episode_id,
+                        "media_type": media_type,
+                        "played_via": "manual",
+                    }
+                self._start_watch_capture()
+
+                # Record the STARTED item, dispatched by its own media_type.
+                if media_type == "episode":
+                    if series_id:
+                        self._record_episode_play(
+                            episode_id, series_id, provider_id, None, record_only=True
+                        )
+                elif episode_id:
+                    self._record_play(episode_id, provider_id, record_only=True)
+            elif series_id:
+                # Regular play_episode() path — unchanged.
                 self._record_episode_play(episode_id, series_id, provider_id, queue_episodes)
 
             # Queue subsequent episodes if provided
@@ -449,6 +506,21 @@ class _SeriesPlaybackMixin:
                         ):
                             queued_count += 1
                             logger.debug(f"Queued E{getattr(ep, 'episode_num', '?')}: {ep.title}")
+                            if media_type:
+                                # D53: this item just reached mpv's playlist —
+                                # record it now, not before (never all N up
+                                # front) and not only via the slower,
+                                # poll-based completion checkpoint.
+                                _cid = getattr(ep, "content_id", None) or getattr(ep, "id", "")
+                                _mt = getattr(ep, "media_type", media_type)
+                                _sid = getattr(ep, "series_id", "")
+                                if _mt == "episode":
+                                    if _sid:
+                                        self._record_episode_play(
+                                            _cid, _sid, provider_id, None, record_only=True
+                                        )
+                                elif _cid:
+                                    self._record_play(_cid, provider_id, record_only=True)
                         else:
                             logger.warning(f"Failed to queue E{getattr(ep, 'episode_num', '?')}: {ep.title}")
 
@@ -460,6 +532,12 @@ class _SeriesPlaybackMixin:
             else:
                 status_msg = f"Playing: {title}"
 
+            if media_type:
+                # Play-All owns its own UI refresh (record_only above skipped
+                # it per-item) — once, for the whole batch, here.
+                self.load_history()
+                self.load_favorites()
+
             QTimer.singleShot(2000, lambda: self.status(status_msg, ms=0))
         else:
             logger.error(f"Failed to play episode: {title}")
@@ -468,6 +546,7 @@ class _SeriesPlaybackMixin:
     def _record_episode_play(
         self, episode_id: str, series_id: str, provider_id: str,
         queue_episodes: "list[EpisodeDTO] | None",
+        record_only: bool = False,
     ) -> None:
         """Record an episode play: mark_played (episode + parent series) and
         watch-tracking registration, then refresh History/Favorites.
@@ -495,6 +574,13 @@ class _SeriesPlaybackMixin:
             queue_episodes: The subsequent EpisodeDTOs mpv is about to queue,
                 or empty/None for a single-episode play. Shapes the
                 ``_watch_tracking`` entry exactly as ``play_episode`` did.
+                Ignored when ``record_only`` is True.
+            record_only: D53 — True when the caller (Play-All, via
+                ``_do_launch_episode``) already owns ``_watch_tracking`` and
+                the History/Favorites refresh for the WHOLE batch itself
+                (built once, not per item); only the DB write below runs, so
+                a per-item call here can't clobber that shared entry or spam
+                redundant UI refreshes once per queued item.
         """
         try:
             with self.db.session_scope() as session:
@@ -514,6 +600,9 @@ class _SeriesPlaybackMixin:
             # BOOKKEEPING MUST NOT COST THE USER THE EPISODE THEY JUST
             # STARTED — mpv is already playing by the time we get here.
             logger.exception("could not record episode play for {}", episode_id)
+
+        if record_only:
+            return
 
         # Register this episode for watch-progress capture (same seam as
         # movies). When subsequent episodes are queued, the tracking entry
@@ -576,5 +665,6 @@ class _SeriesPlaybackMixin:
                 content_id=ep.id,
                 provider_id=ep.provider_id,
                 media_type="episode",
+                series_id=ep.series_id,
             ))
         self._play_all_items(play_items)

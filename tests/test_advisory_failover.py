@@ -520,7 +520,9 @@ def test_episode_play_anyway_threads_full_payload():
 
     PLAY-13 widened the payload further with episode_id/series_id (both
     empty here, the caller's default) so a subsequent "Play Anyway" launch
-    can still record the play once it actually succeeds.
+    can still record the play once it actually succeeds. D53 appended
+    media_type (also empty here) so a failed Play-All item retried via
+    "Play Anyway" still records through the right seam once it launches.
     """
     obj = _make_episode_host()
     queue = [SimpleNamespace(stream_url="http://host/ep2.mp4", title="Ep 2")]
@@ -535,5 +537,5 @@ def test_episode_play_anyway_threads_full_payload():
     play_anyway_fn()
 
     obj._do_launch_episode.assert_called_once_with(
-        "notif-1", "http://host/ep.mp4", "Ep Title", queue, "prov-7", 99, "", "",
+        "notif-1", "http://host/ep.mp4", "Ep Title", queue, "prov-7", 99, "", "", "",
     )
