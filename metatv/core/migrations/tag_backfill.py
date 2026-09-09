@@ -29,6 +29,19 @@ The channels table can exceed 1 M rows.  The query uses
 thousand lightweight tuples are in memory at any time — no full ORM objects,
 no JSON blobs beyond those needed for the genre feeder.
 
+Targeted vs. full scan
+-----------------------
+Most version bumps re-run every channel because a feeder's algorithm changed
+and there is no way to tell which rows it affects without re-running it.
+Version 11 (TAG-1) is different: the affected population is fully computable
+in SQL (see ``_collect_channel_ids_genre_gap``), so ``run()`` uses that cheap
+targeted query when the library is already at ``_TARGETED_GENRE_GAP_FLOOR``
+and falls back to the usual full-corpus scan (``_collect_channel_ids``) for a
+library resuming from further behind, which needs the other pending
+versions' fixes applied everywhere too. Either way, the actual re-decompose
+(``_process_batch``) is the same code — only the ``channel_ids`` it is given
+differs.
+
 Confidence
 ----------
 Each ``(type, value)`` pair accumulates the feeder name(s) that independently
@@ -46,6 +59,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
+from sqlalchemy import text
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -151,7 +165,44 @@ def _set_backfill_active(active: bool) -> None:
 #       652, DOKUMENT 531), and a wrong facet is a false statement, not a
 #       low-confidence guess. Full re-tag so existing rows gain the facet; runs
 #       AFTER prefix_rescan v4, which populates the column.
-CURRENT_TAG_BACKFILL_VERSION = 10
+#  11 — TAG-1: W-1 (#819) fixed filter_utils.recognized_genre()'s case-
+#       sensitivity and added its category→genre cross-walk, then re-derived
+#       ChannelDB.detected_genres for the whole library via
+#       DetectedGenreBackfillTask v3 (detected_genre_backfill.py) — but
+#       recognized_genre() is the SAME function the provider_category feeder
+#       below calls, and content_tags was never re-decomposed. Measured on the
+#       owner's library: 12,383 channels carry a genre in detected_genres with
+#       no matching genre: content_tags row (12,295 with zero genre tags at
+#       all — 12,261 movies + 34 series — plus ~88 more missing one value from
+#       an otherwise-populated genre list). Targeted, not full: a library
+#       already at version 10 (the version this gap shipped under) only needs
+#       those specific channels re-run through the existing decompose pipeline
+#       — see ``_collect_channel_ids_genre_gap``, a single indexed SQL anti-
+#       join (~1s on the owner's 786k-row/338k-genre-tag library) versus the
+#       ~3m17s a full corpus pass costs. A library resuming from BELOW version
+#       10 still gets the unconditional full pass (``_collect_channel_ids``)
+#       so it also catches up on versions 4-10's other feeder fixes; that full
+#       pass runs today's (already-fixed) ``_collect_tags``, so it closes this
+#       same genre gap as a side effect — see ``_TARGETED_GENRE_GAP_FLOOR``.
+#       Relies on registration order (main_window.py registers
+#       DetectedGenreBackfillTask before TagBackfillTask, and MigrationManager
+#       runs one evaluate-then-run pass through ALL pending tasks in that
+#       order): a library still pending its OWN DetectedGenreBackfillTask v3
+#       run gets it applied — and committed — before this task's query ever
+#       reads ``detected_genres``, so the targeted anti-join always sees
+#       current data even when both migrations land on the same launch.
+CURRENT_TAG_BACKFILL_VERSION = 11
+
+# The tag_backfill_version a library must already be AT (not behind) for the
+# version-11 run to use the cheap targeted genre-gap query instead of the
+# full corpus scan. Set to the CURRENT_TAG_BACKFILL_VERSION that was in force
+# immediately before the TAG-1 bump: a library already there has a full-corpus
+# pass reflecting every feeder fix through version 10 on file, so only the
+# isolated genre gap remains. A library behind this floor (catching up across
+# several versions at once) needs the general full-corpus catch-up instead —
+# using the targeted query there would silently skip versions 4-10's other
+# fixes for every channel outside the narrow genre-gap set.
+_TARGETED_GENRE_GAP_FLOOR: int = 10
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
@@ -228,7 +279,20 @@ class TagBackfillTask:
 
         _set_backfill_active(True)
         try:
-            channel_ids = self._collect_channel_ids()
+            stored_version = getattr(config, "tag_backfill_version", 0)
+            if stored_version >= _TARGETED_GENRE_GAP_FLOOR:
+                logger.info(
+                    "TagBackfillTask: library already at version {} — targeted "
+                    "genre-gap re-tag only (TAG-1)",
+                    stored_version,
+                )
+                channel_ids = self._collect_channel_ids_genre_gap()
+            else:
+                logger.info(
+                    "TagBackfillTask: library at version {} — full corpus pass",
+                    stored_version,
+                )
+                channel_ids = self._collect_channel_ids()
             total = len(channel_ids)
 
             if total == 0:
@@ -291,6 +355,40 @@ class TagBackfillTask:
                 .all()
             )
         # rows is a list of 1-tuples; extract the id strings.
+        return [r[0] for r in rows]
+
+    def _collect_channel_ids_genre_gap(self) -> list[str]:
+        """Return channel IDs whose ``detected_genres`` disagrees with content_tags.
+
+        TAG-1 (version 11, see the module docstring): finds every channel
+        where at least one genre in the stored ``detected_genres`` JSON list
+        has no matching ``type='genre'`` row in ``content_tags`` — the gap
+        W-1 (#819) left when it re-derived ``detected_genres`` but not the tag
+        corpus. A single indexed SQLite anti-join (``json_each`` over the
+        JSON column, joined against the ``content_tags``/``tags`` composite
+        index) — no per-channel decomposition needed just to pick which rows
+        are affected; re-decomposition itself still goes through the normal
+        ``_process_batch`` pipeline once this returns.
+
+        Read-only — matches the column-only-projection contract of
+        ``_collect_channel_ids`` (no full ORM objects).
+
+        Returns:
+            List of ``ChannelDB.id`` strings needing re-decomposition.
+        """
+        with self._db.session_scope(commit=False) as session:
+            rows = session.execute(text(
+                "SELECT DISTINCT c.id "
+                "FROM channels c, json_each(c.detected_genres) je "
+                "WHERE c.detected_genres IS NOT NULL "
+                "  AND c.detected_genres NOT IN ('', '[]', 'null') "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM content_tags ct "
+                "    JOIN tags t ON t.id = ct.tag_id "
+                "    WHERE ct.channel_key = c.channel_key "
+                "      AND t.type = 'genre' AND t.value = je.value"
+                "  )"
+            )).all()
         return [r[0] for r in rows]
 
     def _process_batch(self, channel_ids: list[str], config: "Config") -> None:
