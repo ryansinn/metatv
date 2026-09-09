@@ -170,8 +170,22 @@ def test_no_channel_is_orphaned_by_the_merge(db):
         assert session.query(ContentTagDB).count() == 6, "channel links were lost"
 
 
-def test_a_tag_nothing_references_is_pruned(db):
-    """288 of the owner's genre tags had zero channels — ordinary debris."""
+def test_a_tag_nothing_references_survives_the_merge(db):
+    """TAG-2: a zero-link tag that was never part of a collision is not this
+    merge's business.
+
+    Before TAG-2 this task ended with a second, unscoped pass —
+    ``DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM
+    content_tags)`` — that deleted EVERY unreferenced tag, not merely the
+    losers of the case merge it had just performed. "Orphan" here was never a
+    duplicate of anything ("Used" is a different value entirely, so they are
+    not in the same casefold group) — it is ordinary standalone debris under
+    today's "tags are observed provider values" model, but under the
+    CONCEPT-1 proposal (``tags`` rows become curated aliases with a
+    ``concept_id``) a zero-link row can be deliberately-retained vocabulary.
+    A case-merge migration must not make that call. On pre-fix code this
+    assertion is RED: "Orphan" was deleted.
+    """
     with db.session_scope() as session:
         session.add(TagDB(id=1, type="genre", value="Used"))
         session.add(TagDB(id=2, type="genre", value="Orphan"))
@@ -182,7 +196,10 @@ def test_a_tag_nothing_references_is_pruned(db):
     TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
 
     with db.session_scope() as session:
-        assert [t.value for t in session.query(TagDB).all()] == ["Used"]
+        values = {t.value for t in session.query(TagDB).all()}
+        assert values == {"Used", "Orphan"}, (
+            f"expected the unrelated orphan to survive, got {values}"
+        )
 
 
 def test_running_it_twice_changes_nothing(db):
