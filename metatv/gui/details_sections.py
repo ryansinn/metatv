@@ -1315,7 +1315,7 @@ class _PlotSection(CollapsibleMixin, QWidget):
     Collapsible since the section-header component existed to make it cheap.
     It was the one section with the most text and no way to fold it away —
     not by decision, but because collapsing it would have meant a fifth copy
-    of the toggle code.
+    of the toggle code. No ``set_summary()`` — nothing to count (CHV-2).
     """
 
     COLLAPSE_KEY = "overview"
@@ -1389,7 +1389,7 @@ class _PlotSection(CollapsibleMixin, QWidget):
 # ---------------------------------------------------------------------------
 
 class _TechnicalSection(CollapsibleMixin, QWidget):
-    """Collapsible Technical Details section."""
+    """Collapsible Technical Details section. No set_summary(): 0-or-1 fields (CHV-2)."""
 
     COLLAPSE_KEY = "technical"
 
@@ -1543,11 +1543,13 @@ class _CastSection(CollapsibleMixin, QWidget):
         else:
             self.cast_label.clear()
 
+        self._header.set_summary(str(n) if (n := len(cast)) else "", f"{n} cast member{'s'*(n!=1)}")
         # A director alone OR any cast is enough to show the section.
         self._has_content = bool(director) or bool(cast)
         self._apply_visibility()
 
     def clear(self) -> None:
+        self._header.set_summary("")
         self._director_lbl.hide()
         self.cast_label.clear()
         self._has_content = False
@@ -1670,6 +1672,7 @@ class _TagsSection(CollapsibleMixin, QWidget):
         self._clear_content()
 
         if not tags:
+            self._header.set_summary("")
             self.hide()
             return
 
@@ -1693,14 +1696,15 @@ class _TagsSection(CollapsibleMixin, QWidget):
         for facet in ordered_facets:
             self._render_facet_group(facet, grouped[facet])
 
+        self._header.set_summary(str(n := len(tags)), f"{n} tag{'s'*(n != 1)}")
         self._apply_collapsed()
         self.show()
 
     def clear(self) -> None:
         """Clear all chips and hide the section."""
+        self._header.set_summary("")
         self._clear_content()
         self.hide()
-
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #

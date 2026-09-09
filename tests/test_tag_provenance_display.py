@@ -250,6 +250,27 @@ class TestTagsSectionRender:
         sec.load(tags)
         assert sec.isVisible(), "Tags section must show when there are tags to display"
 
+    def test_summary_states_the_tag_count(self, qapp, owned_widgets):
+        """CLAUDE.md: 'a disclosure states its count' — Tags never did (CHV-2)."""
+        sec = self._make_section(owned_widgets, )
+        tags = [
+            ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",)),
+            ChannelTagDTO("language", "French", False, 0.33, ("name_parse",)),
+            ChannelTagDTO("region", "US", True, 0.9, ("provider_category",)),
+        ]
+        sec.load(tags)
+        assert sec._header.summary() == "3", (
+            "the Tags header must state how many tags are shown"
+        )
+
+    def test_summary_clears_when_reused_for_a_tagless_title(self, qapp, owned_widgets):
+        """Reused pane: a title with tags -> one with none must not keep the old count."""
+        sec = self._make_section(owned_widgets, )
+        sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
+        assert sec._header.summary() == "1"
+        sec.load([])
+        assert sec._header.summary() == ""
+
     def test_source_given_chip_uses_source_stylesheet(self, qapp, owned_widgets):
         """A source-given tag chip must use TAG_CHIP_SOURCE stylesheet."""
         sec = self._make_section(owned_widgets, )

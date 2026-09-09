@@ -452,6 +452,45 @@ def test_cast_visibility_resets_across_reuse(qapp, owned_widgets):
     assert not s.isHidden(), "must re-show when reused for a title with cast"
 
 
+def test_cast_summary_states_the_count(qapp, owned_widgets):
+    """CLAUDE.md: 'a disclosure states its count' — Cast never did (CHV-2)."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = owned_widgets.own(_CastSection(_make_config()))
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[{"name": "A"}, {"name": "B"}, {"name": "C"}], director=None)
+    assert s._header.summary() == "3", "the Cast header must state how many cast members"
+
+
+def test_cast_summary_is_empty_with_director_only(qapp, owned_widgets):
+    """A director alone shows the section but has no CAST count to state —
+    the director is already named in its own label, not folded into this
+    number."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = owned_widgets.own(_CastSection(_make_config()))
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[], director="Shinichiro Watanabe")
+    assert s._header.summary() == ""
+
+
+def test_cast_summary_clears_on_reuse(qapp, owned_widgets):
+    """Reused pane: a title with 5 cast -> a title with none must not keep '5'."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = owned_widgets.own(_CastSection(_make_config()))
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[{"name": n} for n in "ABCDE"], director=None)
+    assert s._header.summary() == "5"
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[], director=None)
+    assert s._header.summary() == ""
+
+
 # ── the details-pane watch bell ───────────────────────────────────────────────
 
 def test_the_watch_bell_toggles_without_raising(qapp, tmp_path, owned_widgets):

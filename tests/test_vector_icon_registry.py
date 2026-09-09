@@ -65,3 +65,40 @@ def test_unknown_role_is_loud(_app) -> None:
     from metatv.gui import icons
     with pytest.raises(KeyError):
         icons.vector_key("no_such_role")
+
+
+def test_expand_collapse_chevrons_point_the_correct_direction(_app) -> None:
+    """CHV-2: closed sections render a RIGHT chevron, open ones a DOWN chevron.
+
+    ``icons.VECTOR_KEYS["expand"]``/``["collapse"]`` had these swapped — every
+    call site passes the role naming the ACTION AVAILABLE ("expand" for a
+    closed section, "collapse" for an open one), so a closed section rendered
+    a down chevron and an open one a right chevron: backwards against the
+    universal disclosure convention (closed ▸, open ▾).
+
+    This renders the actual pixels behind each role and compares them
+    against the two chevron glyphs directly (not just "some icon, and it
+    changed on toggle" — the token-existence check that let the inversion
+    ship) — so a re-inversion, even one where both keys still resolve to a
+    valid icon, fails this test.
+    """
+    from metatv.gui import icons, icon_utils
+
+    def _bits(icon_key: str) -> bytes:
+        img = icon_utils.resolve_icon(icon_key, color="#ffffff").pixmap(24, 24).toImage()
+        return bytes(img.constBits().asstring(img.sizeInBytes()))
+
+    expand_bits = _bits(icons.VECTOR_KEYS["expand"])
+    collapse_bits = _bits(icons.VECTOR_KEYS["collapse"])
+    right_bits = _bits("mdi6.chevron-right")
+    down_bits = _bits("mdi6.chevron-down")
+
+    assert expand_bits == right_bits, (
+        "a CLOSED section's chevron (role 'expand') must render as the "
+        "RIGHT-pointing mdi6.chevron-right glyph"
+    )
+    assert collapse_bits == down_bits, (
+        "an OPEN section's chevron (role 'collapse') must render as the "
+        "DOWN-pointing mdi6.chevron-down glyph"
+    )
+    assert expand_bits != collapse_bits, "closed and open must not share a glyph"

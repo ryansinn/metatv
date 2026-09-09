@@ -208,6 +208,56 @@ def test_collapsible_header_tooltip_follows_a_rename(qtbot):
     assert header._chevron.toolTip() == "Expand Cast & Crew"
 
 
+def _resolved_icon_bytes(icon_key: str, size) -> bytes:
+    """Raw pixel bytes of *icon_key* rendered directly, for comparing against
+    what a widget actually painted — not just "an icon exists"."""
+    from metatv.gui import icon_utils as _icon_utils
+    from metatv.gui import theme as _theme
+    icon = _icon_utils.resolve_icon(icon_key, color=_theme.COLOR_TEXT)
+    image = icon.pixmap(size).toImage()
+    return image.bits().asstring(image.sizeInBytes())
+
+
+def test_collapsible_header_closed_renders_right_chevron(qtbot):
+    """CHV-2: a CLOSED details-pane section must paint chevron-RIGHT.
+
+    ``test_group_row_initial_shows_expand_icon`` above only proved an icon
+    exists and stays the same shape it started as — that check passed on the
+    inverted map too, since "expand" resolved to *some* glyph, just the wrong
+    one. This compares the actual painted pixels against the two chevron keys
+    directly, so it fails against today's swapped ``icons.VECTOR_KEYS``.
+    """
+    from metatv.gui.details_section_header import CollapsibleHeader
+    header = CollapsibleHeader("Cast", collapsed=True)
+    qtbot.addWidget(header)
+    actual = _icon_bytes(header._chevron)
+    expected = _resolved_icon_bytes("mdi6.chevron-right", header._chevron.iconSize())
+    assert actual == expected, "a closed section's chevron must point right, not down"
+
+
+def test_collapsible_header_open_renders_down_chevron(qtbot):
+    """CHV-2: an OPEN details-pane section must paint chevron-DOWN."""
+    from metatv.gui.details_section_header import CollapsibleHeader
+    header = CollapsibleHeader("Cast", collapsed=False)
+    qtbot.addWidget(header)
+    actual = _icon_bytes(header._chevron)
+    expected = _resolved_icon_bytes("mdi6.chevron-down", header._chevron.iconSize())
+    assert actual == expected, "an open section's chevron must point down, not right"
+
+
+def test_collapsible_header_toggle_flips_chevron_direction(qtbot):
+    from metatv.gui.details_section_header import CollapsibleHeader
+    header = CollapsibleHeader("Cast", collapsed=True)
+    qtbot.addWidget(header)
+    right = _resolved_icon_bytes("mdi6.chevron-right", header._chevron.iconSize())
+    down = _resolved_icon_bytes("mdi6.chevron-down", header._chevron.iconSize())
+    assert _icon_bytes(header._chevron) == right
+    header.toggle()
+    assert _icon_bytes(header._chevron) == down
+    header.toggle()
+    assert _icon_bytes(header._chevron) == right
+
+
 # ---------------------------------------------------------------------------
 # The channel-list section band paints its caret from icons.py too
 # ---------------------------------------------------------------------------

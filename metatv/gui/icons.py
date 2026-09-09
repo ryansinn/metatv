@@ -644,8 +644,15 @@ VECTOR_KEYS: dict[str, str] = {
     "settings": "mdi6.cog-outline",
     "tools": "mdi6.wrench-outline",
     "split": "mdi6.view-split-vertical",
-    "expand": "mdi6.chevron-down",
-    "collapse": "mdi6.chevron-right",
+    # Universal disclosure convention: closed shows a RIGHT chevron, open shows
+    # a DOWN chevron — the same direction the plain-text carets above
+    # (``expand_icon``/``collapse_icon`` = ">"/"⌄") already use. These two were
+    # swapped (CHV-2): "expand" — the role every call site passes for a CLOSED
+    # section, naming the action available — resolved to chevron-DOWN, and
+    # "collapse" (OPEN section) resolved to chevron-RIGHT, so every
+    # vector-rendered disclosure chevron in the app pointed backwards.
+    "expand": "mdi6.chevron-right",
+    "collapse": "mdi6.chevron-down",
     # "this programme is on several sources" — NOT the expand/collapse chevron.
     # A chevron at 14px is very nearly a play triangle, and on the EPG
     # programme row the two sat in the same column: owner, "carot and play
