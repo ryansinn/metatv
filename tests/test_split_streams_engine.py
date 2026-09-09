@@ -536,6 +536,50 @@ def test_play_local_file_claims_no_connection_slot(_patched_manager):
         "play_local_file must never register a provider for its key")
 
 
+def test_play_local_file_over_a_shared_key_releases_the_stale_providers_slot(_patched_manager):
+    """CONN-2: a finished download played into the SAME key a provider stream
+    was using must release that provider's accountant slot.
+
+    Before the fix, ``play_local_file`` never touched ``_key_provider``/
+    ``_key_url`` and never released the old holder — so the provider's one
+    connection stayed charged to a window that had moved on to a local file,
+    and a subsequent download from that same provider was refused even though
+    nothing was actually talking to it.
+    """
+    mgr, _procs = _patched_manager
+    mgr.play("http://a", "A", provider_id="p1", provider_max_connections=1)  # split OFF -> __shared__
+    assert mgr.connection_accountant.in_use("p1") == 1
+
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=False)
+
+    assert mgr.connection_accountant.in_use("p1") == 0
+    # A download (a holder id distinct from the playback key) must be granted
+    # now — before the fix this was refused with holders=("__shared__",), a
+    # slot nothing was actually streaming through any more.
+    mgr.connection_accountant._cooldown_until["p1"] = 0.0  # bypass the unrelated post-playback cooldown
+    grant = mgr.connection_accountant.acquire("p1", "download", "dl-1", preempt_kinds=("monitor",))
+    assert grant.granted is True
+
+
+def test_play_local_file_over_a_shared_key_clears_the_stale_live_base_url(_patched_manager):
+    """CONN-2 second half: ``live_base_url`` must stop naming the old provider
+    host once the window is playing a local file, not that provider's stream.
+
+    Before the fix, ``_key_url[key]`` was never cleared by ``play_local_file``,
+    so ``live_base_url`` kept reporting the old stream's host even though the
+    same (still-running) window was now playing a file with no connection to
+    anyone.
+    """
+    mgr, _procs = _patched_manager
+    mgr.play("http://provider1.example.com/live/a.ts", "A", provider_id="p1")
+    assert mgr.live_base_url("__shared__") == "http://provider1.example.com"
+
+    assert mgr.play_local_file("/lib/gb.mkv", "Ghostbusters", own_window=False)
+
+    assert mgr.is_running(key="__shared__") is True  # same window, still alive
+    assert mgr.live_base_url("__shared__") is None
+
+
 def test_play_local_file_with_no_player_returns_false():
     mgr = _make_manager()
     mgr.player = None
