@@ -41,6 +41,51 @@ frozen set was checked against the columns declared in the revision of
 ``database.py`` that first named its ``__tablename__``, and after the twelve
 entries above they agree exactly. "Any database old enough to lack these never
 existed" is now a verified statement rather than an assumption.
+
+**Widened again, from presence to presence-AND-TYPE (GUARD-6).** Everything
+above proves a column EXISTS after the upgrade; nothing proves it has the
+right TYPE. `create_all()` creating a table from scratch and `_migrate()`
+adding one column with `ALTER TABLE ... ADD COLUMN` can only ever agree with
+the ORM or be caught by the presence check above — but a table REBUILD (DROP
++ recreate under the same name with a different declared type) is invisible
+to a presence-only check: the column is there, under the right name, with the
+wrong type. No rebuild exists in this codebase yet, but one is queued and
+already designed to do exactly this — **DB-9's `content_tags` integer FK**
+rebuilds the table, and its own design pass flagged that it would ship
+carrying this exact gap. This extension lands ahead of it on purpose.
+
+`test_upgraded_schema_matches_orm_column_types` (below) reflects the live,
+upgraded schema with SQLAlchemy's own `sa.inspect(engine).get_columns(table)`
+— never a hand-listed expectation, so a changed type is checked declaratively
+against the ORM model the same way the presence check above is — and compares
+each column's SQLite column AFFINITY (`INTEGER`/`TEXT`/`REAL`/`NUMERIC`/
+`BLOB` — the actual 5-class system SQLite itself resolves a declared type
+NAME into, per sqlite.org/datatype3.html: INTEGER if it contains "INT", TEXT
+if it contains "CHAR"/"CLOB"/"TEXT", BLOB if it contains "BLOB" or is empty,
+REAL if it contains "REAL"/"FLOA"/"DOUB", NUMERIC otherwise) against the
+ORM's declared type, compiled through the same dialect and classified by the
+same rule. **This is the honest granularity, arrived at empirically, not
+assumed:** the first version of this compared SQLAlchemy's own reflected TYPE
+CLASS name (`VARCHAR` vs `TEXT`, `BOOLEAN` vs `INTEGER`) and false-failed on
+ten real, correct tables — `_migrate()`'s ALTER TABLE list writes bare `TEXT`
+for columns the ORM declares `String`/VARCHAR (SQLite has no separate VARCHAR
+storage; TEXT and VARCHAR are the SAME affinity) and bare `INTEGER DEFAULT
+0/1` for columns the ORM declares `Boolean` (SQLite has no boolean storage
+class at all — sqlite.org: "Boolean values are stored as integers 0 and 1").
+Both are correct, established, working SQLite convention, not a defect, so
+comparing anything finer than affinity — exact SQLAlchemy type class,
+`VARCHAR(50)` vs `VARCHAR(255)`, signed-ness — asserts a distinction SQLite
+itself does not keep, and would have taught this guard to cry wolf on the
+schema as it exists today. The one deliberate widening beyond SQLite's literal
+5-rule text: "BOOLEAN" folds into the INTEGER bucket rather than NUMERIC, for
+the reason above. **What this deliberately does not cover:** nullable/
+default/PRIMARY KEY/index differences between the ORM and the live schema —
+SQLite's own `ALTER TABLE ADD COLUMN` cannot express `NOT NULL` without a
+default in the first place, so a constraint check would manufacture failures
+out of a real SQLite limitation rather than a bug — and extra live columns
+not present on the ORM (a column a rebuild forgot to keep, rather than one
+that changed shape); presence in that direction is a different failure mode
+this file does not claim to guard.
 """
 
 from __future__ import annotations
@@ -421,3 +466,188 @@ def test_database_py_declares_no_index_by_hand():
         "declared on the ORM model and built by QueryIndexTask, never by a "
         "literal SQL string here."
     )
+
+
+# ---------------------------------------------------------------------------
+# GUARD-6: column TYPE, not just presence — the table-rebuild blind spot.
+# ---------------------------------------------------------------------------
+
+def _sqlite_affinity(type_repr: str) -> str:
+    """SQLite's own column-affinity bucket for a declared/reflected type NAME.
+
+    Implements the rules at sqlite.org/datatype3.html, checked in the order
+    SQLite specifies: INTEGER if the name contains "INT"; TEXT if it contains
+    "CHAR"/"CLOB"/"TEXT" (this is what makes VARCHAR and TEXT the SAME
+    affinity — SQLite has no separate VARCHAR storage class); BLOB if it
+    contains "BLOB" or is empty; REAL if it contains "REAL"/"FLOA"/"DOUB";
+    NUMERIC otherwise.
+
+    One deliberate widening past the literal SQLite text (see module
+    docstring for why): "BOOLEAN" is folded into the INTEGER bucket rather
+    than left in NUMERIC, since SQLite stores every boolean as the integer 0
+    or 1 and this codebase's own migrations already declare boolean columns
+    as literal ``INTEGER DEFAULT 0/1``.
+    """
+    name = type_repr.upper()
+    if "INT" in name or "BOOL" in name:
+        return "INTEGER"
+    if "CHAR" in name or "CLOB" in name or "TEXT" in name:
+        return "TEXT"
+    if "BLOB" in name or not name:
+        return "BLOB"
+    if "REAL" in name or "FLOA" in name or "DOUB" in name:
+        return "REAL"
+    return "NUMERIC"
+
+
+def _orm_column_type_classes(dialect, table: str) -> dict[str, str]:
+    """``{column_name: affinity}`` as the ORM model declares it, compiled
+    through *dialect* — so a custom type (e.g. ``JSONEncoded``, whose ``impl``
+    is ``Text``) resolves to the DDL it actually emits, not its Python class
+    name."""
+    return {
+        col.name: _sqlite_affinity(str(col.type.compile(dialect=dialect)))
+        for col in Base.metadata.tables[table].columns
+    }
+
+
+def _reflected_column_type_classes(engine, table: str) -> dict[str, str]:
+    """``{column_name: affinity}`` as SQLAlchemy's own reflection reads off
+    the LIVE table — ``sa.inspect(engine).get_columns(...)``, never a
+    hand-listed expectation, so this stays declarative the same way the
+    presence check above does."""
+    return {
+        c["name"]: _sqlite_affinity(type(c["type"]).__name__)
+        for c in sa.inspect(engine).get_columns(table)
+    }
+
+
+@pytest.mark.parametrize("table", ORM_TABLES)
+def test_upgraded_schema_matches_orm_column_types(tmp_path, table):
+    """After the real upgrade path, the live schema must match ``Base.metadata``
+    on BOTH column presence and SQLite column AFFINITY — not presence alone.
+
+    Presence alone is what ``test_a_real_query_runs_after_the_upgrade`` and
+    ``test_every_added_column_has_an_alter_table_entry`` already prove; both are
+    blind to a column that exists under the right name with the WRONG type,
+    which only a table REBUILD can produce (an ``ALTER TABLE ADD COLUMN`` can't
+    misdeclare an existing column's type — it can only add a new one). Runs for
+    every ORM table, not only the ones ``_migrate()`` touches, so a table with
+    zero migrated columns is still checked against a fresh ``create_all()`` —
+    the same round-trip DB-9's rebuilt ``content_tags`` would go through.
+    """
+    url = f"sqlite:///{tmp_path / f'typecheck_{table}.db'}"
+    db = Database(url)
+    db.create_tables()
+
+    migrated = _migrated_columns().get(table, set())
+    if migrated:
+        dropped = _simulate_older_database(db, table, migrated)
+        assert dropped, (
+            f"could not drop any of {table}'s {len(migrated)} migrated columns, "
+            "so this never simulated an older database"
+        )
+        Database(url).create_tables()  # the upgrade path
+
+    engine = db.engine
+    orm_types = _orm_column_type_classes(engine.dialect, table)
+    live_types = _reflected_column_type_classes(engine, table)
+
+    missing = sorted(set(orm_types) - set(live_types))
+    assert not missing, (
+        f"{table}: {missing} present on the model but absent from the live "
+        "table after the upgrade path"
+    )
+
+    mismatched = sorted(
+        (name, orm_types[name], live_types[name])
+        for name in orm_types
+        if live_types[name] != orm_types[name]
+    )
+    assert not mismatched, (
+        f"{table}: column affinity disagrees between the ORM model and the "
+        f"live upgraded schema, as (name, orm_affinity, live_affinity): "
+        f"{mismatched}. A column existing under the right name is not enough "
+        "— this is exactly what a table REBUILD (DROP + recreate with a "
+        "different declared type) breaks and a presence-only check cannot see."
+    )
+
+
+def test_type_class_helper_is_censusing_every_table():
+    """A runner that ran nothing exits 0: if ``ORM_TABLES`` or the type-class
+    helpers silently produced empty dicts for every table, the parametrized
+    test above would pass vacuously. Pin that today's schema gives every
+    table at least one column, so a real regression in the helpers themselves
+    cannot hide behind zero collected assertions."""
+    assert ORM_TABLES, "censused zero tables — Base.metadata.tables is empty"
+    engine = sa.create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    empty_tables = [
+        t for t in ORM_TABLES
+        if not _orm_column_type_classes(engine.dialect, t)
+        or not _reflected_column_type_classes(engine, t)
+    ]
+    assert not empty_tables, (
+        f"these tables censused zero columns on either side: {empty_tables} "
+        "— the type-class helpers broke, not the schema"
+    )
+
+
+def test_type_mismatch_detection_fires_on_a_db9_shaped_rebuild(tmp_path):
+    """Proof this guard actually distinguishes match from mismatch.
+
+    No table rebuild exists yet in this codebase to exercise (that is the
+    whole point — this lands ahead of DB-9), so this produces the shape by
+    hand: drop and recreate ``episodes`` with ``series_id`` as ``INTEGER``
+    instead of the ORM's declared ``VARCHAR`` (TEXT affinity) — the exact
+    kind of change a DROP + recreate rebuild can make and an
+    ``ALTER TABLE ADD COLUMN`` cannot. Asserts the SAME comparison
+    ``test_upgraded_schema_matches_orm_column_types`` uses catches it, so
+    that test is not merely passing because nothing it checks can ever fail.
+    """
+    url = f"sqlite:///{tmp_path / 'db9_shaped_rebuild.db'}"
+    db = Database(url)
+    db.create_tables()
+    engine = db.engine
+    with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE episodes"))
+        conn.execute(sa.text(
+            "CREATE TABLE episodes (id VARCHAR PRIMARY KEY, series_id INTEGER)"
+        ))
+        conn.commit()
+
+    orm_types = _orm_column_type_classes(engine.dialect, "episodes")
+    live_types = _reflected_column_type_classes(engine, "episodes")
+
+    assert orm_types["series_id"] == "TEXT", (
+        "sanity: the ORM must still declare series_id as a TEXT-affinity "
+        "type (VARCHAR), or this proof is not testing what it claims to"
+    )
+    assert live_types["series_id"] == "INTEGER", (
+        "sanity: the rebuild above must actually have landed as INTEGER"
+    )
+    assert live_types["series_id"] != orm_types["series_id"], (
+        "the comparison must flag episodes.series_id after a rebuild changed "
+        f"its affinity to INTEGER (ORM still declares {orm_types['series_id']!r}) "
+        "— if this passes, the guard test above would too, on a real bug"
+    )
+
+
+def test_type_classes_agree_on_a_column_untouched_by_the_rebuild(tmp_path):
+    """The mismatch proof above must not be a blanket failure — a column the
+    rebuild left alone (``id``) must still compare equal, or the detector is
+    just reporting every column as mismatched regardless of content."""
+    url = f"sqlite:///{tmp_path / 'db9_shaped_rebuild_control.db'}"
+    db = Database(url)
+    db.create_tables()
+    engine = db.engine
+    with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE episodes"))
+        conn.execute(sa.text(
+            "CREATE TABLE episodes (id VARCHAR PRIMARY KEY, series_id INTEGER)"
+        ))
+        conn.commit()
+
+    orm_types = _orm_column_type_classes(engine.dialect, "episodes")
+    live_types = _reflected_column_type_classes(engine, "episodes")
+    assert live_types["id"] == orm_types["id"] == "TEXT"

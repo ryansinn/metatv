@@ -59,9 +59,16 @@ def inspect(title_fragment: str) -> None:
             norm = normalize_title(ch.name, ch.detected_prefix)
             provider_name = providers.get(ch.provider_id, ch.provider_id)
 
+            # GUARD-6: series_id holds the provider's own series id
+            # (ch.source_id), never ch.id — and it collides across providers,
+            # so provider_id must be paired in the same filter (see
+            # tests/test_no_unscoped_series_id_filter.py).
             seasons = (
                 session.query(SeasonDB)
-                .filter(SeasonDB.series_id == ch.id)
+                .filter(
+                    SeasonDB.series_id == ch.source_id,
+                    SeasonDB.provider_id == ch.provider_id,
+                )
                 .order_by(SeasonDB.season_number)
                 .all()
             )
