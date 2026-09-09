@@ -342,6 +342,17 @@ class PlayerManager:
         elsewhere keeps playing) or the shared window (replaces whatever is in
         it, matching split-off behaviour).
 
+        When *key* was last used for a provider's stream (own_window=False
+        reusing ``__shared__``, or a stale ``DOWNLOADS_INSTANCE_KEY`` — not
+        reachable today, but the check is keyed on content not on which fixed
+        key this is), that provider's accounting is dropped: its
+        ``ConnectionAccountant`` slot is released and the key→provider/
+        key→URL tracking is forgotten (CONN-2). Without this, ``play()``'s own
+        "repoint this key" release runs only when a NEW provider claims the
+        key — a local file claims none, so the slot stayed charged and
+        ``live_base_url(key)`` kept naming the old host, as if the window were
+        still streaming from it.
+
         Args:
             path: Absolute path to the file on disk.
             title: Display title for the player window.
@@ -356,6 +367,10 @@ class PlayerManager:
             return False
         key = self._resolve_instance_key(
             DOWNLOADS_INSTANCE_KEY if own_window else None, force_split=own_window)
+        old_provider = self._key_provider.pop(key, None)
+        self._key_url.pop(key, None)
+        if old_provider:
+            self.connection_accountant.release(old_provider, key)
         return self.player.play(path, title, instance_key=key)
 
     def queue(
