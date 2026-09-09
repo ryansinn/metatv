@@ -27,6 +27,7 @@ from metatv.core.migrations.tag_backfill import (
     TagBackfillTask,
     _collect_tags,
 )
+from tests.conftest import add_content_tag
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +71,14 @@ def _add_channel(
 
 def _tag_values_for(db: Database, channel_id: str) -> dict[tuple[str, str], str]:
     """Return {(type, value): source} for all tags on a channel."""
+    from metatv.core.database import ChannelDB
+
     with db.session_scope(commit=False) as session:
         rows = (
             session.query(TagDB.type, TagDB.value, ContentTagDB.source)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == channel_id)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == channel_id)
             .all()
         )
     return {(r.type, r.value): r.source for r in rows}
@@ -200,13 +204,8 @@ class TestBackfillFoldsSportToSports:
             tag = TagDB(type="genre", value="Sport")
             session.add(tag)
             session.flush()
-            session.add(ContentTagDB(
-                channel_id=channel_id,
-                tag_id=tag.id,
-                source="generated",
-                confidence=0.33,
-                feeders=["genre"],
-            ))
+            add_content_tag(session, channel_id, tag.id, source="generated",
+                            feeders=["genre"])
 
         # Verify the bad tag is present before backfill
         before = _tag_values_for(file_db, channel_id)
@@ -236,13 +235,8 @@ class TestBackfillFoldsSportToSports:
             tag = TagDB(type="genre", value="Sport")
             session.add(tag)
             session.flush()
-            session.add(ContentTagDB(
-                channel_id=channel_id,
-                tag_id=tag.id,
-                source="user",
-                confidence=1.0,
-                feeders=["user"],
-            ))
+            add_content_tag(session, channel_id, tag.id, source="user",
+                            feeders=["user"])
 
         _run_backfill(file_db, cfg)
 
@@ -263,12 +257,15 @@ class TestBackfillFoldsSportToSports:
         channel_id = _add_channel(file_db, raw_data={"genre": "Sports"})
         _run_backfill(file_db, cfg)
 
+        from metatv.core.database import ChannelDB
+
         with file_db.session_scope(commit=False) as session:
             sports_count = (
                 session.query(ContentTagDB)
                 .join(TagDB, ContentTagDB.tag_id == TagDB.id)
+                .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
                 .filter(
-                    ContentTagDB.channel_id == channel_id,
+                    ChannelDB.id == channel_id,
                     TagDB.type == "genre",
                     TagDB.value == "Sports",
                 )
@@ -277,8 +274,9 @@ class TestBackfillFoldsSportToSports:
             sport_singular_count = (
                 session.query(ContentTagDB)
                 .join(TagDB, ContentTagDB.tag_id == TagDB.id)
+                .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
                 .filter(
-                    ContentTagDB.channel_id == channel_id,
+                    ChannelDB.id == channel_id,
                     TagDB.type == "genre",
                     TagDB.value == "Sport",
                 )

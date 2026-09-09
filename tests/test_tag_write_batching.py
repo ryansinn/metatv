@@ -117,13 +117,19 @@ def test_the_batching_still_writes_the_same_tags(db):
     _run_tagging(db, "p1")
 
     with db.session_scope() as session:
-        links = session.query(ContentTagDB).filter(
-            ContentTagDB.channel_id.like("p1-%")
-        ).all()
-        tagged = {link.channel_id for link in links}
+        # DB-9: content_tags joins on the int channel_key, not the public
+        # channel_id string, so the "p1-%" pattern match has to run on
+        # ChannelDB.id via a join rather than directly on the link row.
+        rows = (
+            session.query(ChannelDB.id, ContentTagDB.source, ContentTagDB.feeders)
+            .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+            .filter(ChannelDB.id.like("p1-%"))
+            .all()
+        )
+        tagged = {cid for cid, _source, _feeders in rows}
         assert len(tagged) == 6, f"every channel must be tagged, got {sorted(tagged)}"
-        assert all(link.source == "generated" for link in links)
-        assert all(link.feeders for link in links), "every link records its feeder"
+        assert all(source == "generated" for _cid, source, _feeders in rows)
+        assert all(feeders for _cid, _source, feeders in rows), "every link records its feeder"
 
 
 def test_a_second_pass_rewrites_nothing(db):

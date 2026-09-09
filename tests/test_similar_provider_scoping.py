@@ -369,7 +369,8 @@ def _seed_axes(session):
     caught by the two gates Similar Titles already had — each extra row can only
     be removed by the axis it is named for.
     """
-    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+    from metatv.core.database import ChannelDB, TagDB
+    from tests.conftest import add_content_tag
 
     now = datetime.now()
     _make_provider(session, "prov-active", is_active=True, exp=now + timedelta(days=30))
@@ -389,7 +390,7 @@ def _seed_axes(session):
     tag = TagDB(type="content_type", value="ai_generated")
     session.add(tag)
     session.flush()
-    session.add(ContentTagDB(channel_id="ai-sim", tag_id=tag.id))
+    add_content_tag(session, "ai-sim", tag.id)
     session.flush()
 
 

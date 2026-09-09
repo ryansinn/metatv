@@ -329,7 +329,7 @@ def channel_exclusion_criterion(excluded: set[str], channel_cls):
 # test against ``content_tags``.  Two forms, one rule:
 #
 #   • SQL twin (aggregate / query surfaces — tag facet counts, Discover shelves):
-#     ``tag_content_type_exclusion_criterion(slugs, channel_id_col)`` — a NOT EXISTS
+#     ``tag_content_type_exclusion_criterion(slugs, channel_key_col)`` — a NOT EXISTS
 #     KEEP clause.  No id-set materialisation; safe over 1M+ content_tags rows.
 #   • Python twin (row-by-row surfaces — channel list, EPG On-Now, details "Other
 #     Versions"): those surfaces already iterate ChannelDB rows / DTOs that carry no
@@ -364,7 +364,7 @@ def excluded_tag_content_types(config) -> set[str]:
     return set(getattr(config, "global_filter_excluded_tag_content_types", []) or [])
 
 
-def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_col):
+def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_key_col):
     """Return the SQLAlchemy KEEP criterion for the content_type Global Exclusion.
 
     The SQL twin of the content-provenance rule: a boolean clause usable in
@@ -384,8 +384,9 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
         excluded_slugs: The ``content_type`` values to exclude (build with
             :func:`excluded_tag_content_types`).  Empty → a tautology (keeps all
             rows).
-        channel_id_col: The column expression carrying the outer query's channel id
-            to correlate against (e.g. ``ChannelDB.id`` or an aliased equivalent).
+        channel_key_col: The column expression carrying the outer query's DB-9
+            ``channel_key`` int to correlate against (e.g.
+            ``ChannelDB.channel_key`` or an aliased equivalent).
 
     Returns:
         A SQLAlchemy boolean clause for ``.filter(...)`` — ``true()`` when
@@ -409,10 +410,10 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
     _ct = aliased(ContentTagDB, flat=True)
     _t = aliased(TagDB, flat=True)
     subq = (
-        select(_ct.channel_id)
+        select(_ct.channel_key)
         .join(_t, _t.id == _ct.tag_id)
         .where(
-            _ct.channel_id == channel_id_col,
+            _ct.channel_key == channel_key_col,
             _t.type == "content_type",
             _t.value.in_(list(excluded_slugs)),
         )
@@ -1274,7 +1275,7 @@ def recognized_genre(s: str) -> str | None:
 # Facet INCLUDE criterion — the filter panel's "which values do I want?" axis
 # ---------------------------------------------------------------------------
 
-def facet_include_criterion(facet: str, allowed, channel_id_col=None, *,
+def facet_include_criterion(facet: str, allowed, channel_key_col=None, *,
                             allow_untagged: bool = True):
     """"Show values I ticked, AND anything this facet cannot describe."
 
@@ -1316,7 +1317,8 @@ def facet_include_criterion(facet: str, allowed, channel_id_col=None, *,
     Args:
         facet: The ``TagDB.type`` to constrain (``"subtitle"``, ``"genre"``, …).
         allowed: The values the user ticked. Empty/None => no constraint at all.
-        channel_id_col: Column to correlate against; defaults to ``ChannelDB.id``.
+        channel_key_col: Column to correlate against; defaults to
+            ``ChannelDB.channel_key`` (DB-9).
         allow_untagged: The section's "Untagged" footer toggle. ``True``
             (default, and what the checkbox ships checked as) is the rule
             described above. ``False`` restores the strict form — the user has
@@ -1332,17 +1334,17 @@ def facet_include_criterion(facet: str, allowed, channel_id_col=None, *,
 
     if not allowed:
         return true()
-    if channel_id_col is None:
-        channel_id_col = ChannelDB.id
+    if channel_key_col is None:
+        channel_key_col = ChannelDB.channel_key
 
     def _subq(with_values: bool):
         ct = aliased(ContentTagDB, flat=True)
         t = aliased(TagDB, flat=True)
-        where = [ct.channel_id == channel_id_col, t.type == facet]
+        where = [ct.channel_key == channel_key_col, t.type == facet]
         if with_values:
             where.append(t.value.in_(list(allowed)))
         return (
-            select(ct.channel_id)
+            select(ct.channel_key)
             .join(t, t.id == ct.tag_id)
             .where(*where)
             .correlate_except(ct, t)

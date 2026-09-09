@@ -182,6 +182,11 @@ class _ChannelPruningMixin:
         doomed_channel_ids = (
             self.session.query(ChannelDB.id).filter(scope).filter(~engaged)
         )
+        # DB-9: content_tags joins on the int channel_key, not ChannelDB.id —
+        # a second reusable subquery, same doomed set.
+        doomed_channel_keys = (
+            self.session.query(ChannelDB.channel_key).filter(scope).filter(~engaged)
+        )
         doomed_meta_ids = (
             self.session.query(ChannelDB.metadata_id)
             .filter(scope).filter(~engaged)
@@ -191,7 +196,7 @@ class _ChannelPruningMixin:
         # content_tags first (no FK cascade — the leak this also fixes).
         counts["content_tags"] += (
             self.session.query(ContentTagDB)
-            .filter(ContentTagDB.channel_id.in_(doomed_channel_ids))
+            .filter(ContentTagDB.channel_key.in_(doomed_channel_keys))
             .delete(synchronize_session=False)
         )
         # chunked-delete-exempt: one step of an ATOMIC cascade; per-chunk commits

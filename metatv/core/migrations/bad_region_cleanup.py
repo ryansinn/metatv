@@ -307,6 +307,12 @@ def clear_regions_and_derived_tags(
             .where(ChannelDB.id.in_(ids))
             .values(detected_region=None)
         )
+        # DB-9: content_tags joins on the int channel_key, not ChannelDB.id —
+        # resolve the whole chunk once, reused by both loops below.
+        key_by_cid = dict(
+            session.query(ChannelDB.id, ChannelDB.channel_key)
+            .filter(ChannelDB.id.in_(ids)).all()
+        )
         for region, cids in by_region.items():
             tag_ids = [
                 row[0] for row in session.query(TagDB.id)
@@ -314,9 +320,10 @@ def clear_regions_and_derived_tags(
             ]
             if not tag_ids:
                 continue
+            keys = [key_by_cid[c] for c in cids if c in key_by_cid]
             (
                 session.query(ContentTagDB)
-                .filter(ContentTagDB.channel_id.in_(cids))
+                .filter(ContentTagDB.channel_key.in_(keys))
                 .filter(ContentTagDB.tag_id.in_(tag_ids))
                 .delete(synchronize_session=False)
             )
@@ -342,9 +349,10 @@ def clear_regions_and_derived_tags(
             ]
             if not lang_ids:
                 continue
+            target_keys = [key_by_cid[c] for c in targets if c in key_by_cid]
             (
                 session.query(ContentTagDB)
-                .filter(ContentTagDB.channel_id.in_(targets))
+                .filter(ContentTagDB.channel_key.in_(target_keys))
                 .filter(ContentTagDB.tag_id.in_(lang_ids))
                 .delete(synchronize_session=False)
             )

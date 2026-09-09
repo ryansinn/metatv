@@ -53,9 +53,8 @@ def platform_db(tmp_path):
     Never ``:memory:`` — CLAUDE.md's DB-session rule, and the collapse query
     uses window functions whose behaviour is worth exercising on a real file.
     """
-    from metatv.core.database import (
-        ChannelDB, ContentTagDB, Database, ProviderDB, TagDB,
-    )
+    from metatv.core.database import ChannelDB, Database, ProviderDB, TagDB
+    from tests.conftest import add_content_tag
 
     db = Database(f"sqlite:///{tmp_path / 'platform_shelves.db'}")
     db.create_tables()
@@ -87,8 +86,7 @@ def platform_db(tmp_path):
                             name=title, detected_title=title,
                             media_type=media_type, content_key=key,
                             detected_added=added))
-            s.add(ContentTagDB(channel_id=cid, tag_id=tag_id(platform),
-                               source="generated", confidence=1.0))
+            add_content_tag(s, cid, tag_id(platform), source="generated")
 
         for i in range(NETFLIX_TITLES):
             add(f"nf-{i}", "Netflix", title=f"Netflix Title {i:03d}",

@@ -664,14 +664,14 @@ def test_scope_to_visible_channels_empty_keywords_adds_no_clause(genre_tagged):
     _wrestling_id, _drama_id, _comedy_id, db = genre_tagged
     with db.session_scope(commit=False) as session:
         repos = RepositoryFactory(session)
-        q_none = repos.session.query(ContentTagDB.channel_id)
+        q_none = repos.session.query(ContentTagDB.channel_key)
         q_none = repos.tags._scope_to_visible_channels(
-            q_none, ContentTagDB.channel_id, excluded_provider_ids=[],
+            q_none, ContentTagDB.channel_key, excluded_provider_ids=[],
             excluded_keywords=None,
         )
-        q_empty = repos.session.query(ContentTagDB.channel_id)
+        q_empty = repos.session.query(ContentTagDB.channel_key)
         q_empty = repos.tags._scope_to_visible_channels(
-            q_empty, ContentTagDB.channel_id, excluded_provider_ids=[],
+            q_empty, ContentTagDB.channel_key, excluded_provider_ids=[],
             excluded_keywords=set(),
         )
         assert str(q_none.statement.compile(session.get_bind())) == str(

@@ -975,10 +975,10 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
             _ct = _aliased(_ContentTagDB, flat=True)
             _t  = _aliased(_TagDB, flat=True)
             _subq = (
-                _sa_select(_ct.channel_id)
+                _sa_select(_ct.channel_key)
                 .join(_t, _t.id == _ct.tag_id)
                 .where(
-                    _ct.channel_id == ChannelDB.id,
+                    _ct.channel_key == ChannelDB.channel_key,
                     _t.type == _ctype,
                     _t.value == _cvalue,
                 )

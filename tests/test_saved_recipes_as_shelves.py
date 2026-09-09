@@ -84,7 +84,8 @@ def test_a_malformed_saved_recipe_does_not_break_the_load(db, junk) -> None:
 
 def _seed(db, rows) -> None:
     """``rows`` = ``(channel_id, provider_id, genre)``, tagged for the sampler."""
-    from metatv.core.database import ContentTagDB, ProviderDB, TagDB
+    from metatv.core.database import ProviderDB, TagDB
+    from tests.conftest import add_content_tag
 
     with db.session_scope() as s:
         # A ProviderDB row per provider_id, or get_hidden_provider_ids() reads
@@ -104,8 +105,7 @@ def _seed(db, rows) -> None:
                 s.add(tag)
                 s.flush()
                 tag_ids[genre] = tag.id
-            s.add(ContentTagDB(channel_id=cid, tag_id=tag_ids[genre],
-                               source="generated", confidence=1.0))
+            add_content_tag(s, cid, tag_ids[genre], source="generated")
 
 
 def _titles(cards) -> set[str]:

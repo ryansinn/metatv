@@ -196,11 +196,12 @@ class CategoryFacetRefacetTask:
         an already-correct channel produces the same tags.
         """
         from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
-        from metatv.core.database import ContentTagDB, TagDB
+        from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
         with self._db.session_scope(commit=False) as session:
             rows = (
-                session.query(ContentTagDB.channel_id)
+                session.query(ChannelDB.id)
+                .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
                 .join(TagDB, ContentTagDB.tag_id == TagDB.id)
                 .filter(TagDB.value.in_(list(CONTENT_DESCRIPTOR_GROUPS)))
                 .distinct()

@@ -224,7 +224,7 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
     # (the same helper both of those sites already call). ───────────────
     if scope.excluded_content_types:
         query = query.filter(
-            tag_content_type_exclusion_criterion(scope.excluded_content_types, channel_cls.id)
+            tag_content_type_exclusion_criterion(scope.excluded_content_types, channel_cls.channel_key)
         )
 
     # ── Adult-content gate — moved verbatim from ``_apply_channel_filters``
