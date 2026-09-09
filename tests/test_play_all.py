@@ -81,13 +81,43 @@ def _make_series_host(db) -> object:
 
 def _make_play_all_item(
     url: str, title: str, content_id: str,
-    provider_id: str = "p1", media_type: str = "live",
+    provider_id: str = "p1", media_type: str = "live", series_id: str = "",
 ):
     from metatv.gui.main_window_series_playback import _PlayAllItem
     return _PlayAllItem(
         stream_url=url, title=title, content_id=content_id,
-        provider_id=provider_id, media_type=media_type,
+        provider_id=provider_id, media_type=media_type, series_id=series_id,
     )
+
+
+def _drive_do_launch_episode_from_play_all_call(host, queue_ok=True, play_ok=True):
+    """D53: _play_all_items() only kicks off launch_player_for_episode (stubbed
+    by _make_series_host); actual recording (and, since D53, the queue-shaped
+    _watch_tracking registration too) now happens in _do_launch_episode, only
+    once _play_checked / player_manager.queue confirm each item actually
+    reached mpv. Drives that seam directly with the exact args _play_all_items
+    passed to the (mocked) launcher — the same shape the real preflight-success
+    callback would supply. Mirrors test_follow_queue_watch.py's
+    _drive_do_launch_episode_from_play_episode_call for the season-queue path.
+    """
+    args, kwargs = host.launch_player_for_episode.call_args
+    stream_url, title, queue_episodes = args
+    host._play_checked = MagicMock(return_value=play_ok)
+    host._start_playback_health = MagicMock()
+    host.player_manager.queue.return_value = queue_ok
+    # _record_play lives on _StreamingMixin, not mixed into this bare
+    # _SeriesPlaybackMixin test host — stub it like _play_checked above,
+    # needed whenever a channel-shaped ("live"/"movie") item is recorded.
+    if not isinstance(getattr(host, "_record_play", None), MagicMock):
+        host._record_play = MagicMock()
+    host._do_launch_episode(
+        "notif_1", stream_url, title, queue_episodes,
+        provider_id=kwargs["provider_id"],
+        episode_id=kwargs["episode_id"],
+        series_id=kwargs.get("series_id", ""),
+        media_type=kwargs.get("media_type", ""),
+    )
+    return kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +150,14 @@ def test_play_all_items_3_plays_first_queues_rest(db):
 
 
 def test_play_all_items_3_populates_watch_tracking(db):
-    """_watch_tracking[key] contains queue list with all 3 content_ids."""
+    """_watch_tracking[key] contains queue list with all 3 content_ids.
+
+    D53: this registration moved out of _play_all_items and into
+    _do_launch_episode (built once the launch is confirmed, not eagerly
+    before any item has actually launched) — so this test now drives that
+    seam directly, same as the analogous season-queue tests in
+    tests/test_follow_queue_watch.py.
+    """
     host = _make_series_host(db)
 
     items = [
@@ -130,6 +167,7 @@ def test_play_all_items_3_populates_watch_tracking(db):
     ]
 
     host._play_all_items(items)
+    _drive_do_launch_episode_from_play_all_call(host)
 
     tracking = host._watch_tracking
     assert "__shared__" in tracking, "tracking entry missing"
@@ -149,12 +187,17 @@ def test_play_all_items_3_populates_watch_tracking(db):
 # ---------------------------------------------------------------------------
 
 def test_play_all_items_single_no_queue_in_tracking(db):
-    """Single-item play_all uses flat tracking dict (same as single play_episode)."""
+    """Single-item play_all uses flat tracking dict (same as single play_episode).
+
+    D53: driven via _do_launch_episode — see test_play_all_items_3_populates_
+    watch_tracking's docstring for why.
+    """
     host = _make_series_host(db)
 
     items = [_make_play_all_item("http://x.com/1.ts", "Movie A", "m1", media_type="movie")]
 
     host._play_all_items(items)
+    _drive_do_launch_episode_from_play_all_call(host)
 
     info = host._watch_tracking.get("__shared__")
     assert info is not None, "tracking entry missing"
@@ -323,7 +366,11 @@ def test_channel_surface_layout_includes_play_all():
 # ---------------------------------------------------------------------------
 
 def test_play_all_tracking_shape_is_queue_list_compatible(db):
-    """The queue list shape from _play_all_items is the same as play_episode queued branch."""
+    """The queue list shape from _play_all_items is the same as play_episode queued branch.
+
+    D53: driven via _do_launch_episode — see test_play_all_items_3_populates_
+    watch_tracking's docstring for why.
+    """
     host = _make_series_host(db)
 
     items = [
@@ -331,6 +378,7 @@ def test_play_all_tracking_shape_is_queue_list_compatible(db):
         _make_play_all_item("http://x.com/2.ts", "Movie 2", "m2", media_type="movie"),
     ]
     host._play_all_items(items)
+    _drive_do_launch_episode_from_play_all_call(host)
 
     info = host._watch_tracking["__shared__"]
     # The _bg_capture_watch worker expects: info["queue"] is a list of {"content_id": ...}
@@ -367,3 +415,153 @@ def test_do_launch_episode_play_all_items_no_episode_num(db):
     host._do_launch_episode("notif_1", "http://x/1.mp4", "A Christmas Carol 1954", queue_items)
 
     assert host.player_manager.queue.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# D53 — Play-All records each item at the moment it actually launches, never
+# 0 (the pre-fix gap: no mark_played call at all) and never all N up front
+# (recording before any item has actually reached mpv).
+# ---------------------------------------------------------------------------
+
+def test_do_launch_episode_records_each_channel_item_in_play_all(db):
+    """3 channel items played via Play-All: 3 plays recorded — the STARTED
+    item once _play_checked confirms the launch, each QUEUED item as
+    player_manager.queue confirms mpv accepted it. Not 0 (the pre-fix gap:
+    _play_all_items never called _record_play/_record_episode_play at all —
+    Play-All's own queue tracking got built, but nothing was ever recorded
+    through the mark_played seam), and not N-at-once (proven below by the
+    fact that nothing is recorded until _do_launch_episode runs at all)."""
+    host = _make_series_host(db)
+    items = [
+        _make_play_all_item("http://x.com/1.ts", "Channel 1", "c1", media_type="live"),
+        _make_play_all_item("http://x.com/2.ts", "Channel 2", "c2", media_type="live"),
+        _make_play_all_item("http://x.com/3.ts", "Channel 3", "c3", media_type="live"),
+    ]
+
+    host._play_all_items(items)
+    # Nothing recorded yet — launch_player_for_episode is stubbed, so
+    # _do_launch_episode (and therefore all recording) hasn't run.
+    host._record_play = MagicMock()
+    host._record_play.assert_not_called()
+
+    _drive_do_launch_episode_from_play_all_call(host)
+
+    assert host._record_play.call_count == 3, (
+        f"expected 3 plays recorded (one per item), got "
+        f"{host._record_play.call_count}"
+    )
+    recorded_ids = [c.args[0] for c in host._record_play.call_args_list]
+    assert recorded_ids == ["c1", "c2", "c3"], recorded_ids
+    # Every call must be record_only — Play-All owns the queue-shaped
+    # _watch_tracking entry for the whole batch itself; a non-record_only
+    # call would clobber it with a single-item shape.
+    for c in host._record_play.call_args_list:
+        assert c.kwargs.get("record_only") is True, c
+
+
+def test_do_launch_episode_skips_recording_item_that_fails_to_queue(db):
+    """An item whose player_manager.queue() call fails records nothing for
+    THAT item — the others still record."""
+    host = _make_series_host(db)
+    items = [
+        _make_play_all_item("http://x.com/1.ts", "Channel 1", "c1", media_type="live"),
+        _make_play_all_item("http://x.com/2.ts", "Channel 2", "c2", media_type="live"),
+        _make_play_all_item("http://x.com/3.ts", "Channel 3", "c3", media_type="live"),
+    ]
+    host._play_all_items(items)
+    host._record_play = MagicMock()
+
+    args, kwargs = host.launch_player_for_episode.call_args
+    stream_url, title, queue_episodes = args
+    host._play_checked = MagicMock(return_value=True)
+    host._start_playback_health = MagicMock()
+    # c2 fails to queue into mpv; c3 succeeds.
+    host.player_manager.queue.side_effect = [False, True]
+
+    host._do_launch_episode(
+        "notif_1", stream_url, title, queue_episodes,
+        provider_id=kwargs["provider_id"], episode_id=kwargs["episode_id"],
+        series_id=kwargs.get("series_id", ""), media_type=kwargs.get("media_type", ""),
+    )
+
+    recorded_ids = [c.args[0] for c in host._record_play.call_args_list]
+    assert recorded_ids == ["c1", "c3"], (
+        f"item that failed to queue must not be recorded; got {recorded_ids}"
+    )
+
+
+def test_do_launch_episode_records_nothing_when_first_item_fails_to_launch(db):
+    """The whole Play-All batch fails to launch (preflight/_play_checked
+    fails on the started item) — records nothing at all, and never even
+    attempts to queue the rest."""
+    host = _make_series_host(db)
+    items = [
+        _make_play_all_item("http://x.com/1.ts", "Channel 1", "c1", media_type="live"),
+        _make_play_all_item("http://x.com/2.ts", "Channel 2", "c2", media_type="live"),
+    ]
+    host._play_all_items(items)
+    host._record_play = MagicMock()
+
+    _drive_do_launch_episode_from_play_all_call(host, play_ok=False)
+
+    assert host._record_play.call_count == 0
+    host.player_manager.queue.assert_not_called()
+
+
+def test_play_all_channel_items_do_not_record_before_do_launch_episode_runs(db):
+    """_play_all_items itself must record nothing — not 0-because-broken, but
+    0-because-not-yet-launched: the write happens only once
+    _do_launch_episode confirms the launch, never eagerly at Play-All time
+    (the 'not N-at-once-before-launch' half of the D53 policy)."""
+    host = _make_series_host(db)
+    host._record_play = MagicMock()
+    items = [
+        _make_play_all_item("http://x.com/1.ts", "Channel 1", "c1", media_type="live"),
+        _make_play_all_item("http://x.com/2.ts", "Channel 2", "c2", media_type="live"),
+    ]
+
+    host._play_all_items(items)
+
+    host._record_play.assert_not_called()
+    assert host._watch_tracking == {}, (
+        "watch-tracking must not be built until the launch is confirmed"
+    )
+
+
+def test_do_launch_episode_records_episode_shaped_play_all_writes_db(db):
+    """Episode-shaped Play-All (as built by _play_all_selected_episodes, which
+    threads series_id onto each item) records N items' plays as real DB
+    writes — play_count bumped for the started episode AND each queued one,
+    proving this is the mark_played seam and not just a mocked call."""
+    from metatv.core.database import ChannelDB
+    from metatv.gui.main_window_series_playback import _PlayAllItem
+
+    ep_ids = ["e1", "e2", "e3"]
+    _seed_episodes(db, ep_ids)
+    with db.session_scope() as session:
+        session.add(ChannelDB(
+            id="ch_parent", source_id="ser1", provider_id="p1",
+            name="Test Series", media_type="series",
+        ))
+
+    host = _make_series_host(db)
+    items = [
+        _PlayAllItem(
+            stream_url=f"http://x.com/{i}.ts", title=f"Episode {i}",
+            content_id=eid, provider_id="p1", media_type="episode",
+            series_id="ser1",
+        )
+        for i, eid in enumerate(ep_ids, start=1)
+    ]
+
+    host._play_all_items(items)
+    _drive_do_launch_episode_from_play_all_call(host)
+
+    with db.session_scope(commit=False) as session:
+        from metatv.core.repositories import RepositoryFactory
+        repos = RepositoryFactory(session)
+        for eid in ep_ids:
+            ep = repos.episodes.get_by_id(eid)
+            assert ep.play_count == 1, (
+                f"{eid} must be recorded (play_count bumped), got {ep.play_count}"
+            )

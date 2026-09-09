@@ -496,10 +496,17 @@ def test_do_launch_episode_registers_watch_tracking_after_success(db):
 
 
 def test_do_launch_episode_skips_recording_when_series_id_absent(db):
-    """Play-All's generic launch threads no series_id — recording stays
-    skipped there (a separate, pre-existing gap; see docs/REFACTOR_PLAN.md),
-    and critically it must not clobber a _watch_tracking entry Play-All
-    already built for itself under the same key.
+    """A caller that passes no media_type (the regular play_episode() path's
+    own shape) AND no series_id skips recording entirely — the legacy
+    behaviour _do_launch_episode preserves when media_type is empty. It must
+    not clobber a _watch_tracking entry another caller already built for
+    itself under the same key.
+
+    D53: this scenario used to describe Play-All's actual call shape (no
+    series_id, recording genuinely skipped for every item) — Play-All now
+    threads an explicit non-empty media_type instead, which routes it through
+    the NEW recording branch covered in tests/test_play_all.py rather than
+    this legacy one.
     """
     host = _make_series_mixin_host(db)
     host._play_checked = MagicMock(return_value=True)

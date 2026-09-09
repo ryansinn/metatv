@@ -159,14 +159,19 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     _episode_action_state_loaded = pyqtSignal(str, bool, bool)
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
-    # notif_id, url, title, queue_episodes, provider_id, start_seconds, episode_id, series_id
+    # notif_id, url, title, queue_episodes, provider_id, start_seconds, episode_id, series_id, media_type
     # PLAY-13: episode_id/series_id ride along so a play is only recorded (mark_played +
     # watch-tracking) once THIS signal fires — i.e. after preflight validated and mpv
     # actually launched — never before, which is what let a failed preflight still land
     # in History.
-    _episode_ready  = pyqtSignal(str, str, str, object, str, int, str, str)
-    # notif_id, title, detail, stream_url, queue_episodes, provider_id, start_seconds, episode_id, series_id
-    _episode_failed = pyqtSignal(str, str, str, str, object, str, int, str, str)
+    # D53: media_type rides along too — empty for the regular play_episode() path
+    # (preserves that exact behaviour), non-empty for a Play-All launch, telling
+    # _do_launch_episode whether to record via _record_episode_play (media_type
+    # "episode") or _record_play (a channel-shaped "live"/"movie" item) instead of
+    # silently skipping recording the way Play-All always used to.
+    _episode_ready  = pyqtSignal(str, str, str, object, str, int, str, str, str)
+    # notif_id, title, detail, stream_url, queue_episodes, provider_id, start_seconds, episode_id, series_id, media_type
+    _episode_failed = pyqtSignal(str, str, str, str, object, str, int, str, str, str)
     # Context menu async fetch: (ChannelMenuContext, gx, gy)
     _ctx_data_ready = pyqtSignal(object, int, int)
     # Stream validation result: emitted from background thread after validate_and_failover

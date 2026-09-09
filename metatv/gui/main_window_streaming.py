@@ -792,9 +792,8 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
 
-    def _record_play(self, channel_id: str,
-                                  provider_id: str | None,
-                                  force_new_window: bool = False) -> None:
+    def _record_play(self, channel_id: str, provider_id: str | None,
+                      force_new_window: bool = False, record_only: bool = False) -> None:
         """Record a play: the DB write, watch capture, and History.
 
         ONE copy of this sequence for CHANNEL-shaped plays (any ``ChannelDB``
@@ -802,17 +801,18 @@ class _StreamingMixin(_WatchCaptureMixin):
         other call sites launch mpv without it: "Play Anyway" and
         "Try <source>" call this directly; reactivate-and-play now does too
         (PLAY-13 — it used to carry no ``channel_id``, so it could not).
-        Episode playback records via the analogous but NOT identical
-        ``_record_episode_play`` (``main_window_series_playback.py`` — an
-        episode write also bumps its parent channel). Coverage was claimed
-        but unverified; the PLAY-13 PR has the census. Records the same two
-        things ``_on_stream_ready`` does — DB write off-thread, History
-        refresh — not the health/status chrome (the validated path's job).
+        Episode playback records via the analogous ``_record_episode_play``
+        (``main_window_series_playback.py``); Play-All records through both,
+        per item, via ``record_only`` below. Records the same two things
+        ``_on_stream_ready`` does — DB write off-thread, History refresh —
+        not the health/status chrome (the validated path's job).
 
         Args:
             channel_id: Channel actually launched. No-op when empty.
             provider_id: Its provider, for resolving the player-instance key.
             force_new_window: Whether a second window was opened.
+            record_only: D53 — Play-All already owns ``_watch_tracking`` for
+                this key; passes ``key=None`` so the write below skips it.
         """
         if not channel_id:
             return
@@ -827,7 +827,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             # the write it was meant to reflect — _on_history_changed now
             # does that refresh only after the write actually commits.
             self._start_watch_capture()
-            self.executor.submit(self._bg_mark_played, channel_id, key)
+            self.executor.submit(self._bg_mark_played, channel_id, None if record_only else key)
             if "_playing_channels" not in self.__dict__:
                 self._playing_channels: dict[str, str] = {}
             self._playing_channels[key] = channel_id
