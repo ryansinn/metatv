@@ -42,6 +42,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from scripts.rebaseline_code_health import (  # noqa: E402
     BASELINE_PATH,
+    SIZE_EXEMPT,
     check_session_calls,
     check_sizes,
     load_baseline,
@@ -157,3 +158,110 @@ def test_real_tree_passes_the_ratchet() -> None:
             f"Code-health ratchet violated ({len(violations)} issue(s)):\n\n"
             + "\n\n".join(violations)
         )
+
+
+# ---------------------------------------------------------------------------
+# Stale-entry check: a baseline pin above the file's current size
+# ---------------------------------------------------------------------------
+
+#: Per-file "unclaimed slack" (baseline pin minus current measured lines),
+#: recorded as of GUARD-5 (2026-09-08) — 317 lines the audit found nothing
+#: was ever checking: ``check_sizes`` above is one-directional by design (a
+#: file may shrink freely), so a file that drops below its pin leaves that
+#: much headroom for silent regrowth all the way back up to the old ceiling
+#: without ever tripping the ratchet. Two of these (``discover_view.py``,
+#: ``provider_editor.py``) have fallen entirely below ``SIZE_FLOOR`` and so
+#: carry no legitimate reason to have a nonzero pin at all —
+#: ``scripts/rebaseline_code_health.py``'s own ``main()`` would drop them on
+#: the next regeneration. Fixing any of this (tightening a pin, dropping a
+#: dead entry) is the owner's call, not this guard's; its only job is to
+#: stop the untracked headroom from growing past what is recorded here.
+#:
+#: Shrink-only in the SAME one-directional shape as ``check_sizes`` itself
+#: (never the two-directional "must also shrink" shape of
+#: ``tests/test_local_gates_have_one_path.py``'s boolean known-sets — slack
+#: legitimately drifts by a line or two on any unrelated edit to a huge
+#: file, and requiring an exact match on decrease would fail the suite on
+#: every such improvement): a recorded amount may go unused (file regrows
+#: partway, using up its own slack) without complaint, but a path not listed
+#: here has ZERO known slack, so any new gap must be added explicitly.
+_KNOWN_SLACK: dict[str, int] = {
+    "metatv/core/channel_name_utils.py": 1,
+    "metatv/core/filter_utils.py": 25,
+    "metatv/core/repositories/channel.py": 53,
+    "metatv/core/repositories/channel_ingestion.py": 3,
+    "metatv/core/repositories/tag.py": 5,
+    "metatv/gui/details_sections.py": 4,
+    "metatv/gui/discover_view.py": 47,
+    "metatv/gui/epg_watchlist_mixin.py": 1,
+    "metatv/gui/global_filter_dialog.py": 3,
+    "metatv/gui/main_window.py": 98,
+    "metatv/gui/main_window_streaming.py": 1,
+    "metatv/gui/provider_editor.py": 45,
+    "metatv/gui/settings_dialog_tabs.py": 1,
+    "metatv/gui/sidebar/base.py": 26,
+    "metatv/gui/theme.py": 4,
+}
+
+
+def test_baseline_has_no_new_stale_entries() -> None:
+    """A baseline pin sitting above the file's current size is stale RIGHT
+    NOW — unlike ``tests/conftest.py``'s ``_leak_allowlist_freshness_check``,
+    a file's line count is one deterministic number, not a behavior that can
+    vary between test-run orders (a leak allowlist entry can reproduce in
+    CI's shard order and not in a local full run; a line count cannot), so
+    there is no "a single run can't prove staleness" caveat here and this
+    can hard-fail directly instead of only reporting a candidate.
+
+    A file that no longer exists at all is the same dead-weight case taken
+    to its limit, and gets zero tolerance: nothing currently references a
+    deleted file's baseline entry, so any occurrence is new.
+    """
+    baseline = load_baseline(BASELINE_PATH)
+    measured = measure_file_lines()
+    file_lines = baseline.get("file_lines", {})
+    assert file_lines, (
+        "the baseline's file_lines section is empty — this guard has "
+        "nothing to check and must not report a false pass"
+    )
+
+    deleted: list[str] = []
+    slack: dict[str, int] = {}
+    for path, recorded in file_lines.items():
+        if path in SIZE_EXEMPT:
+            continue
+        cur = measured.get(path)
+        if cur is None:
+            deleted.append(path)
+            continue
+        if cur < recorded:
+            slack[path] = recorded - cur
+
+    assert not deleted, (
+        "these baseline entries reference files that no longer exist in the "
+        "tree — re-run scripts/rebaseline_code_health.py to drop them: "
+        f"{sorted(deleted)}"
+    )
+
+    grown = {
+        path: (amount, _KNOWN_SLACK.get(path, 0))
+        for path, amount in slack.items()
+        if amount > _KNOWN_SLACK.get(path, 0)
+    }
+    assert not grown, (
+        "unclaimed slack grew past what GUARD-5 recorded — one of these "
+        "files shrank further with nothing tightening its pin to match "
+        f"(path: (new slack, known slack)): {grown}. Either record the new "
+        "amount in _KNOWN_SLACK above, or re-run "
+        "scripts/rebaseline_code_health.py to close the gap."
+    )
+
+    # Sanity: every recorded amount is real slack against SIZE_FLOOR/the
+    # exemption set, not a leftover for a path that has since been dropped
+    # from the baseline entirely (which would silently stop this guard from
+    # ever checking it again).
+    missing = set(_KNOWN_SLACK) - set(file_lines)
+    assert not missing, (
+        "these paths carry known slack but are no longer in the baseline at "
+        f"all — remove them from _KNOWN_SLACK: {sorted(missing)}"
+    )
