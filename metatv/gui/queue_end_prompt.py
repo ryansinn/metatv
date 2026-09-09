@@ -45,9 +45,7 @@ class _QueueEndPromptMixin:
         """
         if not auto_episode_ids:
             return
-        if not getattr(self, "config", None) or not getattr(
-            self.config, "prompt_after_autoplay", True
-        ):
+        if not getattr(self.config, "prompt_after_autoplay", True):
             return
 
         # Build a human-friendly label — show the episode count, not raw ids.
