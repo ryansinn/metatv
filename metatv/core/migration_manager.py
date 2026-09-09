@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
-from metatv.core import migration_gate
+from metatv.core import migration_gate, write_gate
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -273,7 +273,21 @@ class MigrationManager(QObject):
                     return self._cancel_event.is_set()
 
                 try:
-                    task.run(_progress_cb, _is_cancelled)
+                    # DB-10: one migration task's own write pass is the gated
+                    # unit — coarser than a per-batch-commit gate, but this is
+                    # the one chokepoint every task (including OrphanSweepTask,
+                    # which is not version-gated and so runs every launch)
+                    # already funnels through, so it covers "the migration
+                    # tasks" and "the orphan sweep" with a single edit rather
+                    # than one per task module. The finer-grained "other bulk
+                    # writers defer to an in-progress migration pass" concern
+                    # is already handled by ``migration_gate`` (which
+                    # TmdbEnrichmentManager/MetadataEnrichmentQueue poll); this
+                    # gate additionally protects writers that do NOT poll it
+                    # (signal check, download/recording progress, EPG fetch)
+                    # from stacking a write against a migration in progress.
+                    with write_gate.background_write_gate():
+                        task.run(_progress_cb, _is_cancelled)
                 except Exception:
                     logger.exception(
                         "MigrationManager: task {} raised an exception", task.id

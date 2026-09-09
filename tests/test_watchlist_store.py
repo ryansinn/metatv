@@ -245,12 +245,12 @@ class _GatedDb:
         self.threads: list[str] = []
 
     @contextlib.contextmanager
-    def session_scope(self, commit: bool = True):
+    def session_scope(self, commit: bool = True, *, background: bool = False):
         if commit:
             self.threads.append(threading.current_thread().name)
             self.gate.wait(timeout=10)
             time.sleep(self._delay)
-        with self._database.session_scope(commit=commit) as session:
+        with self._database.session_scope(commit=commit, background=background) as session:
             yield session
 
 
@@ -410,7 +410,7 @@ class _BrokenDbWrites:
     def __init__(self, database):
         self._database = database
 
-    def session_scope(self, commit: bool = True):
+    def session_scope(self, commit: bool = True, *, background: bool = False):
         if commit:
             raise RuntimeError("(sqlite3.OperationalError) database is locked")
         return self._database.session_scope(commit=commit)

@@ -370,7 +370,7 @@ class MetadataManager:
             than its own ``result`` because the write preserves fields the
             refetch did not supply.
         """
-        with self.db.session_scope() as session:
+        with self.db.session_scope(background=True) as session:
             channel = session.query(ChannelDB).filter_by(id=channel_id).first()
             if not channel:
                 logger.warning(

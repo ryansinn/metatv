@@ -266,7 +266,11 @@ class RecordingManager:
             f"{title} {window_start:%Y-%m-%d %H%M}", source_url,
             default_suffix=".ts")
 
-        with self.db.session_scope() as session:
+        # DB-10: called from the Qt main thread (a "Record" click/context-menu
+        # action) — write_gate's main-thread bypass makes background=True
+        # safe here too, so this shares one write helper with the scheduler
+        # thread's own writes rather than forking a gated/ungated copy.
+        with self.db.session_scope(background=True) as session:
             live = session.query(RecordingDB).filter(
                 RecordingDB.state.notin_(TERMINAL_STATES)).all()
 
@@ -311,7 +315,9 @@ class RecordingManager:
         """
         from metatv.core.database import RecordingDB
 
-        with self.db.session_scope() as session:
+        # DB-10: called from the Qt main thread (an "Extend" click) — see
+        # schedule()'s note above.
+        with self.db.session_scope(background=True) as session:
             row = session.get(RecordingDB, recording_id)
             if row is None:
                 return None
@@ -361,7 +367,11 @@ class RecordingManager:
 
         window = timedelta(hours=20)
         moved: "list[tuple[str, str, datetime]]" = []
-        with self.db.session_scope() as session:
+        # DB-10: called via _run_query (main_window_downloads.py's
+        # _on_epg_refreshed_resync_recordings), so this always runs on the
+        # shared executor pool, never the Qt main thread — see this method's
+        # own docstring ("must not run on the UI thread").
+        with self.db.session_scope(background=True) as session:
             pending = session.query(RecordingDB).filter(
                 RecordingDB.state == "scheduled").all()
             for row in pending:
@@ -463,7 +473,9 @@ class RecordingManager:
         from metatv.core.database import RecordingDB
 
         now = now_utc()
-        with self.db.session_scope() as session:
+        # DB-10: only ever called from _step(), on the recording scheduler
+        # thread (self._thread, started in start()).
+        with self.db.session_scope(background=True) as session:
             pending = [
                 (r.id, r.programme_title or r.channel_name, r.provider_id,
                  r.effective_start)
@@ -519,7 +531,9 @@ class RecordingManager:
         from metatv.core.database import RecordingDB
 
         now = now_utc()
-        with self.db.session_scope() as session:
+        # DB-10: only ever called from _step(), on the recording scheduler
+        # thread — see _announce_countdowns's note above.
+        with self.db.session_scope(background=True) as session:
             # Filtered in Python, not SQL: effective_end is computed from three
             # columns plus a live extension, so there is no column to compare.
             # The non-terminal set is small — it is what is scheduled, not history.
@@ -655,7 +669,9 @@ class RecordingManager:
     def _set_state(self, recording_id: str, state: str) -> None:
         from metatv.core.database import RecordingDB
 
-        with self.db.session_scope() as session:
+        # DB-10: shared between the scheduler thread (_record()) and cancel()
+        # (Qt main thread) — see schedule()'s note above.
+        with self.db.session_scope(background=True) as session:
             row = session.get(RecordingDB, recording_id)
             if row is not None and row.state not in TERMINAL_STATES:
                 row.state = state
@@ -670,7 +686,9 @@ class RecordingManager:
         """
         from metatv.core.database import RecordingDB
 
-        with self.db.session_scope() as session:
+        # DB-10: only ever called from _record(), on the recording scheduler
+        # thread — see _announce_countdowns's note above.
+        with self.db.session_scope(background=True) as session:
             row = session.get(RecordingDB, recording_id)
             if row is not None:
                 row.recorded_bytes = written

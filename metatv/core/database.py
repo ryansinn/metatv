@@ -1,6 +1,6 @@
 """Database models and connection management"""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 import json as _json
 import threading
@@ -11,6 +11,8 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.types import TypeDecorator
 from loguru import logger
+
+from metatv.core import write_gate
 
 Base = declarative_base()
 
@@ -1392,53 +1394,51 @@ class Database:
         return self.SessionLocal()
 
     @contextmanager
-    def session_scope(self, commit: bool = True):
+    def session_scope(self, commit: bool = True, *, background: bool = False):
         """Context manager that commits on success, rolls back on exception, always closes.
 
         Preferred form for new code (supersedes raw try/finally around get_session):
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
-                ...
 
-        Pass ``commit=False`` for a read-only scope: it never issues a COMMIT, and rolls
-        back at exit so any accidental write in a read path is discarded rather than
-        persisted. The async-read seam (``_run_query``) uses ``commit=False`` — its
-        ``query_fn`` returns plain data and must not write.
+        Pass ``commit=False`` for a read-only scope; ``_run_query`` uses this. Pass
+        ``background=True`` for a background write (DB-10, ``core/write_gate.py``).
         """
-        session = self.SessionLocal()
-        try:
-            yield session
-            if commit:
-                _started = time.perf_counter()
-                session.commit()
-                _waited_ms = (time.perf_counter() - _started) * 1000.0
-                if (_waited_ms >= SLOW_MAIN_THREAD_COMMIT_MS
-                        and threading.current_thread() is threading.main_thread()):
-                    # The UI thread blocked on a write. Under WAL readers never
-                    # block, but writer-vs-writer still serialises, so a bulk pass
-                    # holding the write lock stalls a click handler for as long as
-                    # its batch takes — up to busy_timeout (30s) before it fails.
-                    #
-                    # Logged rather than prevented, deliberately: both fixes cost
-                    # something real (routing every user-state mutation through the
-                    # async seam is a wide refactor; a short main-thread busy_timeout
-                    # turns a slow favourite toggle into a FAILED one, which is
-                    # worse), and neither is worth buying before the frequency is
-                    # known. Batches are sized (2,000 rows) so the typical wait
-                    # SHOULD be well under this threshold — this line is the evidence.
-                    logger.warning(
-                        "UI thread blocked {:.0f}ms committing — a background "
-                        "write held the lock. If this is common, user-state "
-                        "writes need the async seam.",
-                        _waited_ms,
-                    )
-            else:
+        with write_gate.background_write_gate() if (background and commit) else nullcontext():
+            session = self.SessionLocal()
+            try:
+                yield session
+                if commit:
+                    _started = time.perf_counter()
+                    session.commit()
+                    _waited_ms = (time.perf_counter() - _started) * 1000.0
+                    if (_waited_ms >= SLOW_MAIN_THREAD_COMMIT_MS
+                            and threading.current_thread() is threading.main_thread()):
+                        # The UI thread blocked on a write. Under WAL readers never
+                        # block, but writer-vs-writer still serialises, so a bulk pass
+                        # holding the write lock stalls a click handler for as long as
+                        # its batch takes — up to busy_timeout (30s) before it fails.
+                        #
+                        # Logged rather than prevented, deliberately: both fixes cost
+                        # something real (routing every user-state mutation through the
+                        # async seam is a wide refactor; a short main-thread busy_timeout
+                        # turns a slow favourite toggle into a FAILED one, which is
+                        # worse), and neither is worth buying before the frequency is
+                        # known. Batches are sized (2,000 rows) so the typical wait
+                        # SHOULD be well under this threshold — this line is the evidence.
+                        logger.warning(
+                            "UI thread blocked {:.0f}ms committing — a background "
+                            "write held the lock. If this is common, user-state "
+                            "writes need the async seam.",
+                            _waited_ms,
+                        )
+                else:
+                    session.rollback()
+            except Exception:
                 session.rollback()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+                raise
+            finally:
+                session.close()
 
     def close(self):
         """Close the connection, refreshing stale query statistics on the way out.

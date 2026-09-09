@@ -35,6 +35,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.watchlist_burst import burst_banner
 from metatv.core.repositories.epg import EpgRepository, delete_programmes_chunked
 from metatv.core.repositories.provider import parse_provider_urls
+from metatv.core import write_gate
 
 
 # Floor for Config.epg_retention_hours — enforced in prune_expired() (not on the
@@ -613,62 +614,63 @@ class EpgManager(_EpgFetchMixin, QObject):
     def _relink_worker(self) -> None:
         """Background worker: re-link EPG rows for all active, EPG-enabled providers."""
         session = self.db.get_session()
-        try:
-            # Same gate as the fetch scan above, and for the same reason: an
-            # EXPIRED subscription stays is_active until removed — #536 fixed
-            # the fetch loop and left this one + the watchlist check behind,
-            # applied at one call site instead of the three sharing the mistake.
-            hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
-            providers = [
-                p for p in session.query(ProviderDB).filter_by(is_active=True).all()
-                if p.id not in hidden
-            ]
-            grand_total = 0
-            changed_provider_ids: list[str] = []
-            for provider in providers:
-                if not getattr(provider, "epg_enabled", True):
-                    continue
-                if provider.id in self._active_refreshes:
-                    logger.debug(
-                        f"EPG relink: skipping {provider.name!r} — fetch in progress"
-                    )
-                    continue
-                self._active_refreshes.add(provider.id)
-                try:
-                    relinked = self._relink_provider(session, provider.id)
-                    if relinked:
-                        session.commit()
-                        grand_total += relinked
-                        changed_provider_ids.append(provider.id)
+        with write_gate.background_write_gate():  # DB-10
+            try:
+                # Same gate as the fetch scan above, and for the same reason: an
+                # EXPIRED subscription stays is_active until removed — #536 fixed
+                # the fetch loop and left this one + the watchlist check behind,
+                # applied at one call site instead of the three sharing the mistake.
+                hidden = set(RepositoryFactory(session).providers.get_hidden_provider_ids())
+                providers = [
+                    p for p in session.query(ProviderDB).filter_by(is_active=True).all()
+                    if p.id not in hidden
+                ]
+                grand_total = 0
+                changed_provider_ids: list[str] = []
+                for provider in providers:
+                    if not getattr(provider, "epg_enabled", True):
+                        continue
+                    if provider.id in self._active_refreshes:
                         logger.debug(
-                            f"EPG relink: {relinked} rows updated for {provider.name!r}"
+                            f"EPG relink: skipping {provider.name!r} — fetch in progress"
                         )
-                except Exception as exc:
-                    session.rollback()
-                    logger.warning(f"EPG relink failed for {provider.id}: {exc}")
-                finally:
-                    self._active_refreshes.discard(provider.id)
+                        continue
+                    self._active_refreshes.add(provider.id)
+                    try:
+                        relinked = self._relink_provider(session, provider.id)
+                        if relinked:
+                            session.commit()
+                            grand_total += relinked
+                            changed_provider_ids.append(provider.id)
+                            logger.debug(
+                                f"EPG relink: {relinked} rows updated for {provider.name!r}"
+                            )
+                    except Exception as exc:
+                        session.rollback()
+                        logger.warning(f"EPG relink failed for {provider.id}: {exc}")
+                    finally:
+                        self._active_refreshes.discard(provider.id)
 
-            if grand_total:
-                logger.info(
-                    f"EPG relink complete: {grand_total} rows updated across "
-                    f"{len(changed_provider_ids)} provider(s)"
-                )
-                # Reuse refresh_finished so the already-wired handlers reload
-                # On Now / Watchlist without any new signal plumbing.
-                for pid in changed_provider_ids:
-                    count = (
-                        session.query(EpgProgramDB)
-                        .filter_by(provider_id=pid)
-                        .count()
+                if grand_total:
+                    logger.info(
+                        f"EPG relink complete: {grand_total} rows updated across "
+                        f"{len(changed_provider_ids)} provider(s)"
                     )
-                    self.refresh_finished.emit(pid, count)
-            else:
-                logger.debug("EPG relink: no rows needed updating")
-        except Exception as exc:
-            logger.error(f"EPG relink worker error: {exc}")
-        finally:
-            session.close()
+                    # Reuse refresh_finished so the already-wired handlers reload
+                    # On Now / Watchlist without any new signal plumbing.
+                    for pid in changed_provider_ids:
+                        count = (
+                            session.query(EpgProgramDB)
+                            .filter_by(provider_id=pid)
+                            .count()
+                        )
+                        self.refresh_finished.emit(pid, count)
+                else:
+                    logger.debug("EPG relink: no rows needed updating")
+            except Exception as exc:
+                logger.error(f"EPG relink worker error: {exc}")
+            finally:
+                session.close()
 
     def relink_all(self) -> None:
         """Re-run channel matching for all providers using existing EPG rows.
@@ -707,7 +709,7 @@ class EpgManager(_EpgFetchMixin, QObject):
         provider_id: str | None = None
         updated = 0
         try:
-            with self.db.session_scope() as session:
+            with self.db.session_scope(background=True) as session:
                 channel = session.query(ChannelDB).filter_by(id=channel_id).first()
                 if channel is not None:
                     provider_id = channel.provider_id

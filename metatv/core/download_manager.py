@@ -252,7 +252,11 @@ class DownloadManager:
         """
         from metatv.core.database import DownloadDB
 
-        with self._db.session_scope() as session:
+        # DB-10: called from the Qt main thread (a "Download" click) — the
+        # gate's main-thread bypass (write_gate.py) makes background=True
+        # safe here too, so this shares one write helper with the transfer
+        # loop's own writes rather than forking a gated/ungated copy.
+        with self._db.session_scope(background=True) as session:
             existing = (session.query(DownloadDB)
                         .filter(DownloadDB.channel_id == channel_id)
                         .filter(DownloadDB.state != "failed")
@@ -293,7 +297,9 @@ class DownloadManager:
 
         if self._active_id == download_id:
             self._preempted.set()
-        with self._db.session_scope() as session:
+        # DB-10: called from the Qt main thread (a "Cancel" click) — see
+        # enqueue()'s note above.
+        with self._db.session_scope(background=True) as session:
             row = session.query(DownloadDB).filter_by(id=download_id).first()
             if row is None:
                 return
@@ -347,7 +353,9 @@ class DownloadManager:
         """
         from metatv.core.database import DownloadDB
 
-        with self._db.session_scope() as session:
+        # DB-10: called from the Qt main thread (a "Clear history" click) —
+        # see enqueue()'s note above.
+        with self._db.session_scope(background=True) as session:
             query = session.query(DownloadDB).filter(
                 DownloadDB.state.in_(TERMINAL_STATES),
                 DownloadDB.history_cleared.is_(False))
@@ -382,7 +390,9 @@ class DownloadManager:
         from metatv.core.database import DownloadDB
 
         restored = 0
-        with self._db.session_scope() as session:
+        # DB-10: called from the Qt main thread (an Undo click) — see
+        # enqueue()'s note above.
+        with self._db.session_scope(background=True) as session:
             for data in snapshot:
                 row = session.query(DownloadDB).filter_by(id=data["id"]).first()
                 if row is None:
@@ -654,7 +664,13 @@ class DownloadManager:
         """Re-queue rows that playback paused, once its provider is free again."""
         from metatv.core.database import DownloadDB
 
-        with self._db.session_scope() as session:
+        # DB-10: only ever called from _step(), on the download worker
+        # thread. self._accountant.holders() below only briefly takes the
+        # accountant's OWN lock (never a DB call while held — see
+        # write_gate.py's "Not the ConnectionAccountant" note) and releases it
+        # before returning, so nesting it inside this gated scope cannot
+        # deadlock.
+        with self._db.session_scope(background=True) as session:
             rows = (session.query(DownloadDB)
                     .filter(DownloadDB.state == "paused")
                     .filter(DownloadDB.paused_by_playback.is_(True)).all())
@@ -775,7 +791,10 @@ class DownloadManager:
                    error: Optional[str] = None) -> None:
         from metatv.core.database import DownloadDB
 
-        with self._db.session_scope() as session:
+        # DB-10: shared between the transfer loop (download worker thread)
+        # and pause()/resume()/on_preempted() (Qt main thread, or the
+        # accountant's preempt callback) — see enqueue()'s note above.
+        with self._db.session_scope(background=True) as session:
             row = session.query(DownloadDB).filter_by(id=download_id).first()
             if row is None:
                 return
@@ -791,7 +810,9 @@ class DownloadManager:
 
         if total is None:
             return
-        with self._db.session_scope() as session:
+        # DB-10: only ever called from _transfer(), which only runs on the
+        # download worker thread (self._thread, started in start()).
+        with self._db.session_scope(background=True) as session:
             row = session.query(DownloadDB).filter_by(id=download_id).first()
             if row is not None:
                 row.total_bytes = total
@@ -817,7 +838,9 @@ class DownloadManager:
         if not force and now - last < 1.0:
             return
         self._last_flush = now
-        with self._db.session_scope() as session:
+        # DB-10: only ever called from _transfer(), on the download worker
+        # thread — see _set_total's note above.
+        with self._db.session_scope(background=True) as session:
             row = session.query(DownloadDB).filter_by(id=download_id).first()
             if row is not None:
                 row.downloaded_bytes = written
