@@ -54,7 +54,7 @@ Skeleton hosts (`MainWindow.__new__`, a bare `_NavMixin`, a hand-rolled `_FakeHo
 A test asserting `minimumHeight() == 24` or "padding is symmetric" (satisfied by `0 == 0`) turns a deliberate improvement into a red gate, or passes on the broken state it was named to prevent. Assert the **floor plus the property that would break** — `>= 24`; equal *and* non-zero. Same family as the v0.21.0 `test_quality_chip_hugs_title_no_stretch` case that encoded the stretched geometry it was supposed to forbid.
 
 ### Channel-name fields — computed at ingestion, read at render
-`detected_*` fields (`detected_prefix/quality/region/title/year`) are computed at ingestion by `update_detected_prefixes()` (`core/repositories/channel.py`) and stored; render code reads `channel.detected_*` directly and **never calls `parse_channel_name()`**. Detail + the one accepted `epg_watchlist_mixin.py` exception: docs/CRITICAL_RULES.md#channel-name-detected-fields.
+`detected_*` fields (`detected_prefix/quality/region/title/year`) are computed at ingestion by `update_detected_prefixes()` (`core/repositories/channel.py`) and stored; render code reads `channel.detected_*` directly and **never calls `parse_channel_name()`**. The accepted exceptions are enumerated mechanically in `tests/test_render_parse_exceptions.py`'s `ACCEPTED` dict (currently three: `sidebar/base.py`, `main_window_series.py`, `main_window_streaming.py` — an `epg_watchlist_mixin.py` exception once stood here too, but that render path was since moved onto stored `detected_*` maps and no longer calls the parser at all, confirmed by that same test), not restated here where it would only drift again. Detail: docs/CRITICAL_RULES.md#channel-name-detected-fields.
 
 ### Content identity — one stored `content_key`, computed at ingestion, collapsed at read
 Cross-source dedup has one identity field: `content_key`, computed at ingestion by `content_identity.content_key_for()` and stored (indexed) on `ChannelDB`. Every collapse surface reads the stored key (Browse/tag counts via `tag.py` `collapse_variants`, Discover via `_dedup_cards`, details "Other Versions" via `content_key ==`) — never a parallel heuristic; group on `COALESCE(content_key, 'id:' || id)`. The key is **tmdb-first**: `tmdb:{id}|{media_type}` when the ingested `detected_tmdb_id` (harvested from the provider's `raw_data.tmdb`) is present, else the normalized title/year key (#317, DR-0011). Spec: docs/CONTENT_IDENTITY.md; rationale DR-0009 + DR-0011; detail incl. the Phase-2 runtime-fingerprint layer (recommendations/Similar) and its known compromises: docs/CRITICAL_RULES.md#content-identity, docs/CRITICAL_RULES.md#content-dedup-compromises.
@@ -263,18 +263,28 @@ the agent's own to clean.
 ### The owner's checkout is sacred
 The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here. **The shell's cwd resets to this checkout between tool calls**, so every git command meant for a worktree starts with `cd <worktree> &&` in the SAME command — on 2026-09-07 a `checkout -B` / `cherry-pick` / `push HEAD` sequence that lost its `cd` ran here on `main` and fast-forwarded `origin/main` past the PR gate (THEME-1, #791).
 
+### The stash stack is shared, not per-worktree
+`refs/stash` lives in the repository's common `.git` directory, not in a linked worktree, so concurrent agents each in their own worktree still share ONE stash stack — a `git stash pop` can return a different agent's diff (to a file you were forbidden to touch) while silently discarding your own. Never `git stash`/`stash pop`/`stash apply` when other agents may be running; set work aside with `git diff > patch-file` + `git apply`, or a WIP commit on your branch, instead.
+
 ### Local Python 3.14 hides annotation errors that CI's 3.12 catches
 This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
 
 ### `--quick` cannot see a repo-wide drift guard
-The guards that scan the WHOLE tree — `test_no_stray_color_literals`,
+The guards a changed-file selection can never pick up — `test_no_stray_color_literals`,
 `test_code_health_ratchet`, `test_no_new_undefined_names`,
-`test_local_gates_have_one_path` — live in no file a PR touches, so neither
-`--quick` nor a hand-picked list ever selects them. Both cost a CI cycle on
-2026-09-02: the literal guard scans source TEXT, so two hex values in a
-**docstring** failed it, and the ratchet fired on a file that was already at the
-1000-line floor. Run those four alongside your changed files; the pre-push hook
-now does it in 564ms if `core.hooksPath` is set.
+`test_local_gates_have_one_path`, `test_mainwindow_launch_smoke`,
+`test_config_isolation` — live in no file a PR touches (the first four because
+they scan the whole tree rather than any one file; the last two because
+nothing in a diff of unrelated files ever names them), so neither `--quick`
+nor a hand-picked list ever selects them. Both cost a CI cycle on 2026-09-02:
+the literal guard scans source TEXT, so two hex values in a **docstring**
+failed it, and the ratchet fired on a file that was already at the 1000-line
+floor. Run those six alongside your changed files; the pre-push hook does it
+in a few seconds if `core.hooksPath` is set. GUARD-5 (2026-09-08) found these
+six named in three places — this file, `.githooks/pre-push`, and the CI
+`smoke` job in `.github/workflows/ci.yml` — that had drifted to naming three
+different subsets; `tests/test_local_gates_have_one_path.py::test_repo_wide_guard_lists_agree`
+now fails the suite the moment any of the three lists this exact set again.
 
 ### Shell discipline for gates
 Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it. **Redirecting is only half of it: decide on the EXIT CODE, never on a grep of the log.** Greps of a pytest summary have now produced a false GREEN twice in one session — `tail -1` of `[0-9]+ (passed|failed)` reads the passing number out of "1 failed, 8044 passed", and `^FAILED` never matches a line pytest has prefixed with ANSI colour. `scripts/pytest_verdict.sh` exists so this decision is not re-implemented by hand each time.

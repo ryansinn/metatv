@@ -7,12 +7,19 @@
 # locally for free and the push happened without asking for it.
 #
 # NOT a test SUITE — that stays CI's job on both platforms, and a pre-push suite
-# would be the very habit the full-suite gate exists to stop. But the four
-# STRUCTURAL guards run in 564ms together, and on 2026-09-02 the code-health
-# ratchet failed CI four separate times in one session. Each was ~10 minutes of
-# CI to learn something that was free here. CI runs these same four as its own
-# fast "smoke" job precisely because they are cheap and catch a class nothing
-# else does; the only question was why they were not also run before the push.
+# would be the very habit the full-suite gate exists to stop. But the six
+# STRUCTURAL guards run in a few seconds together, and on 2026-09-02 the
+# code-health ratchet failed CI four separate times in one session. Each was
+# ~10 minutes of CI to learn something that was free here. CI runs these same
+# six as its own fast "smoke" job precisely because they are cheap and catch a
+# class nothing else does; the only question was why they were not also run
+# before the push.
+#
+# GUARD-5 (2026-09-08): this list, the CI smoke job's list, and CLAUDE.md's
+# "`--quick` cannot see a repo-wide drift guard" list had drifted to naming
+# three different subsets of these six — fixed by unifying all three, and
+# tests/test_local_gates_have_one_path.py::test_repo_wide_guard_lists_agree
+# now fails the suite if they diverge again.
 #
 # Enable with:  git config core.hooksPath .githooks
 # Bypass with:  git push --no-verify   (and be able to say why)
@@ -63,7 +70,9 @@ GUARDS=""
 for t in tests/test_code_health_ratchet.py \
          tests/test_no_new_undefined_names.py \
          tests/test_mainwindow_launch_smoke.py \
-         tests/test_config_isolation.py; do
+         tests/test_config_isolation.py \
+         tests/test_no_stray_color_literals.py \
+         tests/test_local_gates_have_one_path.py; do
     [ -f "$t" ] && GUARDS="$GUARDS $t"
 done
 
@@ -75,9 +84,10 @@ if [ -n "$GUARDS" ] && [ -x scripts/pytest_verdict.sh ]; then
 
 PUSH BLOCKED: a structural guard failed.
 
-These four run in about half a second and catch what a lint pass cannot — a file
+These six run in a few seconds and catch what a lint pass cannot — a file
 grown past its code-health baseline, a new undefined name, a window that no
-longer launches, a test writing to the real user config.
+longer launches, a test writing to the real user config, a stray colour
+literal, or a second path for a gate that already has one.
 
     tail -40 $LOG
 

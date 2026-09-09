@@ -40,7 +40,15 @@ year_str = f" · {channel.detected_year}" if channel.detected_year else ""
 _p = parse_channel_name(channel.name)
 ```
 
-**One accepted exception:** `_make_recommendation_item` / `_make_channel_item` in `gui/epg_watchlist_mixin.py` still parse at render to derive audio/lang chips — there is no stored `detected_*` field for those. The audit does not flag this; every other surface reads stored fields.
+**Three accepted exceptions**, enumerated mechanically (not just described in prose) in `tests/test_render_parse_exceptions.py`'s `ACCEPTED` dict, which AST-walks every `metatv/gui/**/*.py` call site — including aliased imports (`from ... import parse_channel_name as _pcn`), which a name-only grep misses — and fails the suite the moment a fourth site appears or a listed one stops parsing:
+
+- `gui/sidebar/base.py`'s `_fmt_channel_name` parses only in its documented raw-string fallback branch (no `detected_title` argument supplied) — used for callers with no ingested channel row at all, e.g. a live EPG programme title in Alerts. The stored-fields branch (the normal case) never parses.
+- `gui/main_window_series.py`'s episode-stream-failure toast (`_on_episode_stream_unavailable`) parses the episode's raw `title` to strip provider junk for display — episodes have no `detected_*`-equivalent stored field (`EpisodeDTO` carries only the provider's raw `title`), so there is nothing to read instead.
+- `gui/main_window_streaming.py`'s stream-failure toast parses a `channel_name` string handed in by the player callback, which does not carry the row either.
+
+(GUARD-5, 2026-09-08, verified via an AST-based call-site census across all of `metatv/`: `core/database.py`, `core/migrations/bad_region_cleanup.py`, and `core/repositories/channel_ingestion.py` also call `parse_channel_name()`, but at migration/ingestion time, not render, so they are not exceptions to this rule at all — `channel_ingestion.py`'s call is the canonical ingestion site the rule's `detected_*` fields come FROM.)
+
+`_make_recommendation_item` / `_make_channel_item` in `gui/epg_watchlist_mixin.py` used to be the one accepted exception named here, but that module's own docstring now says otherwise: both were moved onto stored `_channel_*_map` dicts (including a `detected_audio` column added for this) and **no longer call `parse_channel_name()` at all** — confirmed by the same AST walk finding zero call sites in that file. Every other surface reads stored fields.
 
 ## Content identity
 

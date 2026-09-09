@@ -1045,8 +1045,12 @@ _GENRE_NORM: dict[str, str] = {
 def normalize_genre(genre: str) -> str:
     """Return the canonical English genre label for a raw genre string.
 
-    Applies the :data:`_GENRE_NORM` lookup so a genre clicked in the details
-    pane maps to the same filter-panel key produced during stat aggregation.
+    Applies the :data:`_GENRE_NORM` lookup a genre clicked in the details
+    pane goes through. ``repositories/channel_stats.py``'s stat-aggregation
+    sweep shares the same :data:`_GENRE_NORM` table but does NOT call this
+    function — it re-derives the lookup inline and skips the unescape step
+    below, so an HTML-encoded genre resolves to a *different* key there than
+    it does here (tracked, not fixed, as docs/REFACTOR_PLAN.md row D50).
 
     HTML entities are unescaped first so provider strings like
     ``"Action &amp; Adventure"`` and ``"Action & Adventure"`` both resolve to
@@ -1057,9 +1061,13 @@ def normalize_genre(genre: str) -> str:
 
 
 # Splits comma- or slash-delimited raw provider genre strings into individual
-# segments (e.g. "Action & Adventure / Sci-Fi" → two segments). Single source
-# of truth for genre segmentation — imported by ``genres_from_raw`` below and
-# by ``repositories/channel_stats.py`` for filter-stat aggregation.
+# segments (e.g. "Action & Adventure / Sci-Fi" → two segments). Imported by
+# ``genres_from_raw`` below. NOT imported by ``repositories/channel_stats.py``
+# despite an earlier version of this comment claiming it was:
+# ``channel_stats.py`` defines its own byte-identical
+# ``_GENRE_SEP_RE = re.compile(r"[,/]")`` (only the character-class order
+# differs) instead of importing this one, so it is a duplicate, not a shared
+# chokepoint (tracked, not fixed here — docs/REFACTOR_PLAN.md row F46).
 _GENRE_SEG_SEP_RE = re.compile(r"[/,]")
 
 # Bogus sentinel values some providers store literally in raw_data["genre"]

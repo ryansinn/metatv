@@ -323,3 +323,94 @@ def test_auto_merge_refuses_when_the_repo_setting_would_make_it_immediate():
     assert result.returncode != 0, "--auto was allowed through with the setting off"
     assert "allow_auto_merge" in result.stderr, (
         f"refused, but not for the auto-merge reason:\n{result.stderr[-600:]}")
+
+
+#: Extracts the six guard test names two different ways (as ``tests/test_x.py``
+#: path fragments, and as bare `` `test_x` `` backtick-quoted identifiers) —
+#: both normalized to the bare stem below, so the three sources can be
+#: compared regardless of which spelling each one happens to use.
+_GUARD_STEM = re.compile(r"(?:tests/)?(test_[A-Za-z0-9_]+)(?:\.py)?")
+
+
+def _pre_push_guard_stems() -> set[str]:
+    """The GUARDS for-loop in ``.githooks/pre-push``."""
+    body = (_ROOT / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    match = re.search(r"for t in(.*?); do", body, re.S)
+    assert match, (
+        "the GUARDS for-loop in .githooks/pre-push is gone or reshaped — "
+        "this guard has nothing to compare and must not report a false pass")
+    return set(_GUARD_STEM.findall(match.group(1)))
+
+
+def _ci_smoke_guard_stems() -> set[str]:
+    """The ``Structural guards`` step's pytest file args in ``ci.yml``."""
+    body = (_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    match = re.search(r"name: Structural guards\n.*?run: \|\n(.*?)\n\n", body, re.S)
+    assert match, (
+        "the 'Structural guards' step in .github/workflows/ci.yml is gone or "
+        "reshaped — this guard has nothing to compare and must not report a "
+        "false pass")
+    return set(_GUARD_STEM.findall(match.group(1)))
+
+
+def _claudemd_guard_stems() -> set[str]:
+    """CLAUDE.md's ``--quick`` cannot see a repo-wide drift guard`` section."""
+    body = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"### `--quick` cannot see a repo-wide drift guard\n(.*?)\n### ",
+        body, re.S,
+    )
+    assert match, (
+        "the '--quick cannot see a repo-wide drift guard' section of "
+        "CLAUDE.md is gone or renamed — this guard has nothing to compare "
+        "and must not report a false pass")
+    # Only bare `test_x` names (no slash, no dot) count here — CLAUDE.md's
+    # own cross-reference to this test's dotted path
+    # (tests/test_local_gates_have_one_path.py::test_repo_wide_guard_lists_agree)
+    # must not be read as a seventh guard.
+    return set(re.findall(r"`(test_[A-Za-z0-9_]+)`", match.group(1)))
+
+
+def test_repo_wide_guard_lists_agree():
+    """The three hand-maintained lists of "guards a changed-file selection
+    can never pick up" must name the same set, or they are not actually
+    describing the same gate.
+
+    GUARD-5 (2026-09-08): CLAUDE.md, ``.githooks/pre-push``, and the CI
+    ``smoke`` job each named a different subset of six guard test files —
+    CLAUDE.md's own text claimed "the pre-push hook now does it" for a list
+    the hook did not actually run, and the CI job was silently missing
+    ``test_no_new_undefined_names.py`` even though ``.githooks/pre-push``'s
+    own comment claimed "CI runs these same [guards] as its own fast smoke
+    job". All three are now the same six; this fails the moment any one of
+    them drifts again.
+    """
+    pre_push = _pre_push_guard_stems()
+    ci_smoke = _ci_smoke_guard_stems()
+    claudemd = _claudemd_guard_stems()
+
+    # A runner that censused nothing must not read as a pass: an empty set
+    # from any source means the parser broke, not that the lists agree.
+    for name, found in (
+        (".githooks/pre-push", pre_push),
+        ("ci.yml Structural guards step", ci_smoke),
+        ("CLAUDE.md repo-wide drift guard section", claudemd),
+    ):
+        assert found, f"parsed zero guard names from {name} — the regex or the source drifted"
+
+    assert pre_push == ci_smoke, (
+        "the pre-push hook and the CI 'Structural guards' smoke job no longer "
+        f"name the same guards: pre-push only has {sorted(pre_push - ci_smoke)}, "
+        f"ci.yml only has {sorted(ci_smoke - pre_push)}"
+    )
+    assert pre_push == claudemd, (
+        "CLAUDE.md's repo-wide drift guard list no longer matches "
+        f".githooks/pre-push: CLAUDE.md only has {sorted(claudemd - pre_push)}, "
+        f"pre-push only has {sorted(pre_push - claudemd)}"
+    )
+
+    # Every named guard must actually exist as a test file — a name that
+    # drifted out of sync with a rename would otherwise agree with itself
+    # across all three lists while testing nothing real.
+    missing = {name for name in pre_push if not (_TESTS / f"{name}.py").exists()}
+    assert not missing, f"these guard names have no matching test file: {sorted(missing)}"
