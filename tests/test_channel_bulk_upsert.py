@@ -18,7 +18,7 @@ from datetime import datetime
 
 import pytest
 
-from tests.conftest import make_channel_double
+from tests.conftest import capture_sql_statements, make_channel_double
 
 from metatv.core.database import Database, ChannelDB
 from metatv.core.provider_loader import ProviderLoadThread, _STORE_BATCH
@@ -642,3 +642,149 @@ def test_name_change_is_reported_as_changed_and_recomputes_title(store_thread, t
 
     _forced_recompute(tmp_db, changed)
     assert _read_detected(tmp_db, "ch1")["detected_title"] == "New Title"
+
+
+# ---------------------------------------------------------------------------
+# Test 9 — DB-7: the upsert gate. A byte-identical row skips the full
+# catalog upsert entirely, but last_seen_at still advances — the pruner
+# (channel_pruning.py) diffs on that column and was NOT changed by this
+# slice, so presence tracking must keep moving on every row, gated or not.
+# ---------------------------------------------------------------------------
+
+def _last_seen_at(db: Database, ch_id: str):
+    session = db.get_session()
+    try:
+        return session.query(ChannelDB.last_seen_at).filter_by(id=ch_id).scalar()
+    finally:
+        session.close()
+
+
+def test_unchanged_row_skips_the_full_upsert(store_thread, tmp_db):
+    """A second, byte-identical refresh must not re-run the multi-column
+    INSERT..ON CONFLICT upsert for a row nothing about it changed.
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News", raw_data={"genre": "Drama"})
+    ])
+
+    with capture_sql_statements(tmp_db.engine) as stmts:
+        _store(store_thread, tmp_db, [
+            _make_channel("ch1", name="Test Channel", category="News", raw_data={"genre": "Drama"})
+        ])
+
+    assert not any("INSERT INTO channels" in s for s in stmts), (
+        "an unchanged row must skip the full catalog upsert entirely — "
+        f"statements were: {stmts}"
+    )
+    assert any("UPDATE channels" in s and "last_seen_at" in s for s in stmts), (
+        "an unchanged row must still take the cheap last_seen_at-only UPDATE path"
+    )
+
+
+def test_unchanged_row_still_advances_last_seen_at(store_thread, tmp_db):
+    """The gate skips the full upsert, but the pruner's timestamp diff
+    (channel_pruning.prune_vanished_channels: last_seen_at < seen_at) must
+    keep working — an unchanged row is exactly the case a change gate could
+    silently stop stamping and get pruned as "vanished" on the very next
+    refresh.
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News", raw_data={"genre": "Drama"})
+    ])
+
+    # Backdate directly (bypassing the loader) so the second store's stamp
+    # is provably NEWER, not just "not None" — avoids relying on two
+    # datetime.utcnow() calls a few lines apart differing by enough to notice.
+    old = datetime(2020, 1, 1)
+    with tmp_db.session_scope() as s:
+        s.query(ChannelDB).filter_by(id="ch1").update({"last_seen_at": old})
+    assert _last_seen_at(tmp_db, "ch1") == old
+
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News", raw_data={"genre": "Drama"})
+    ])
+
+    seen = _last_seen_at(tmp_db, "ch1")
+    assert seen is not None and seen > old, (
+        "last_seen_at must advance on an unchanged row even though the change "
+        "gate skips the full upsert — pruning correctness depends on this"
+    )
+
+
+def test_mixed_batch_gates_only_the_unchanged_member(store_thread, tmp_db):
+    """One batch with a changed row and an unchanged row: the changed row's
+    catalog fields update and the unchanged row's don't get rewritten, but
+    BOTH advance last_seen_at.
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Channel One", stream_url="http://old.example/1"),
+        _make_channel("ch2", name="Channel Two", stream_url="http://old.example/2"),
+    ])
+    old = datetime(2020, 1, 1)
+    with tmp_db.session_scope() as s:
+        s.query(ChannelDB).filter(ChannelDB.id.in_(["ch1", "ch2"])).update(
+            {"last_seen_at": old}, synchronize_session=False)
+
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Channel One", stream_url="http://new.example/1"),  # changed
+        _make_channel("ch2", name="Channel Two", stream_url="http://old.example/2"),  # unchanged
+    ])
+
+    ch1 = _read_channel(tmp_db, "ch1")
+    ch2 = _read_channel(tmp_db, "ch2")
+    assert ch1["stream_url"] == "http://new.example/1", "the changed row's catalog field must update"
+    assert ch2["stream_url"] == "http://old.example/2", "the unchanged row's catalog field is untouched"
+    assert _last_seen_at(tmp_db, "ch1") > old, "the changed row still advances last_seen_at"
+    assert _last_seen_at(tmp_db, "ch2") > old, "the unchanged row must ALSO advance last_seen_at"
+
+
+def test_rating_only_change_is_not_gated(store_thread, tmp_db):
+    """A DB-7 regression guard: name/category/raw_data are unchanged but
+    detected_rating differs — the gate must widen its comparison beyond the
+    three DERIVE-1 columns, or a provider-fact update (rating/added, which
+    CAN change independent of raw_data per the _CATALOG_COLS comment) would
+    silently stop landing.
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News", detected_rating=5.0)
+    ])
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="News", detected_rating=8.2)
+    ])
+    assert _read_rating_added(tmp_db, "ch1")[0] == 8.2, (
+        "a rating-only change must still be written even though name/category/"
+        "raw_data are identical — the gate must not suppress it"
+    )
+
+
+def test_incoming_null_tmdb_id_does_not_defeat_the_gate(store_thread, tmp_db):
+    """The steady-state case after enrichment: the list refresh's incoming
+    detected_tmdb_id is None (enrichment, not the list endpoint, owns it),
+    while the stored row already carries a real id from a prior enrichment
+    pass. _flush_batch's COALESCE keeps the stored id either way, so this
+    must still be gated — otherwise the gate would never fire again for any
+    provider using tmdb enrichment, which is most of the win.
+    """
+    _store(store_thread, tmp_db, [
+        _make_channel("ch1", name="Test Channel", category="Movies", detected_tmdb_id=None)
+    ])
+    # Simulate enrichment populating the id out-of-band (as MetadataManager does).
+    with tmp_db.session_scope() as s:
+        s.query(ChannelDB).filter_by(id="ch1").update({"detected_tmdb_id": "12345"})
+
+    with capture_sql_statements(tmp_db.engine) as stmts:
+        _store(store_thread, tmp_db, [
+            _make_channel("ch1", name="Test Channel", category="Movies", detected_tmdb_id=None)
+        ])
+
+    assert not any("INSERT INTO channels" in s for s in stmts), (
+        "an incoming NULL tmdb id against a populated stored id must still gate "
+        "— COALESCE would keep the stored value either way"
+    )
+    row = _read_channel(tmp_db, "ch1")
+    session = tmp_db.get_session()
+    try:
+        tmdb_id = session.query(ChannelDB.detected_tmdb_id).filter_by(id="ch1").scalar()
+    finally:
+        session.close()
+    assert tmdb_id == "12345", "the enriched tmdb id must survive the gated pass"
