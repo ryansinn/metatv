@@ -102,6 +102,73 @@ EMPTY channels table; ``ANALYZE`` on an empty table writes no ``sqlite_stat1``
 row at all, so the task stays pending and runs for real after the first catalog
 import — which is when the statistics start to mean something.
 
+The index diet (STORAGE-1a)
+-----------------------------
+27 of ``channels``'s indexes changed shape or disappeared (docs/REFACTOR_PLAN.md
+D55/D56): three dead/redundant single-column indexes drop with no replacement
+(``core.database.CHANNEL_DEAD_INDEX_NAMES``), and 24 more convert from a FULL
+``index=True`` index to a PARTIAL one — a column whose real population is a
+sliver of 786k rows (``last_played``: 7.4 MiB indexing 25 non-NULL rows on the
+owner's library) — via ``sqlite_where`` (``core.database.CHANNEL_PARTIAL_INDEX_SPECS``,
+the ``(column, where)`` pairs; both constants also drive ``Database._migrate()``'s
+``DROP INDEX`` list, one source for both). Safe for `col = ?` (implies `col IS
+NOT NULL`, re-verified per column with EXPLAIN QUERY PLAN — see
+``tests/test_query_indexes.py`` and the PR body), not for `col IS NULL` on the
+same column — checked against every real call site, in each case NULL was
+already the vast majority of rows. This task builds all 24 in their new shape
+via the same generic declared-index sweep described below; the only NEW code
+here is the statistics-staleness fix that follows, since a reshaped index set
+needs its statistics to actually catch up.
+
+Statistics staleness (STORAGE-1a)
+----------------------------------
+``needs_run``'s statistics half used to ask one question — "does ``channels``
+have ANY ``sqlite_stat1`` row at all" — and treated the answer as "are the
+statistics GOOD". Those are different questions. The STORAGE-1 design pass
+measured the owner's real library and found ``sqlite_stat1`` reporting
+roughly 455-way selectivity for every low-cardinality index —
+``ix_channels_is_hidden`` recorded 1,725 rows/key against a true 393,162 (2
+distinct values), 227x off. Once written, that row satisfied the old
+"any row exists" check forever: the unbounded, CORRECT ``ANALYZE`` this task
+runs never fired again, because nothing ever asked whether the number it
+already had was still true. This matters more, not less, after the
+STORAGE-1a index diet lands: the planner is choosing plans over a
+substantially reshaped index set (24 columns went full -> partial) using
+statistics that describe the OLD shape until something re-runs ``ANALYZE``.
+
+The fix asks the second question. ``_has_channel_stats`` now reads back the
+row-count ANALYZE recorded against ``ix_channels_hidden_type_name`` — a full
+(non-partial) composite that is always present and always covers every row,
+so it is safe to treat as "the table's size" (a PARTIAL index would report
+only the rows satisfying its own ``WHERE``, not the table — a live trap now
+that 24 of them exist) — and compares it to a real ``SELECT COUNT(*)``. Past
+:data:`_CHANNEL_STATS_DRIFT_TOLERANCE` (20%) the statistics are stale and
+``needs_run`` returns True, which makes ``run()`` execute its always-present
+trailing ``ANALYZE`` again. Two triggers end up covering this task, both
+already implicit in the existing shape:
+
+1. **After an index change.** Dropping+recreating 27 indexes (STORAGE-1a
+   itself) makes ``_missing_indexes`` non-empty on the very next launch,
+   which alone makes ``needs_run`` True and ``run()`` executes — ending, as
+   it always has, in one unlimited ``ANALYZE``. No extra plumbing needed.
+2. **Staleness drift**, the new check above — catches ordinary catalog
+   growth/shrinkage between index changes, which is the gap that let the
+   owner's real stats go stale forever once written.
+
+20% is deliberately generous — a provider swap or a big prune commonly moves
+the table that much, and a drift that size is exactly the case ANALYZE
+exists to correct; a tighter threshold would re-run a real ``COUNT(*)`` (and
+occasionally a real ``ANALYZE``) on every launch for no measurable benefit.
+The ``COUNT(*)`` itself is cheap next to what it gates: SQLite answers it
+from the smallest available index without touching table rows, and
+``needs_run`` already runs off the main thread (see
+``core/migration_manager.py``'s docstring on the probe-pass stall it fixed).
+``run()``'s ``ANALYZE`` is the one real cost here — ~11s on a 1.6 GB library
+per the measurement above — and it already runs where it always has: inside
+``MigrationManager``'s single-worker background executor, under DB-10's
+``write_gate.background_write_gate()`` (``migration_manager.py`` wraps every
+task there), never on the UI thread and never inside ``Database._migrate()``.
+
 Generalized to every declared index (DB-6)
 -------------------------------------------
 This task used to build only the three composite/partial indexes above, named
@@ -144,6 +211,22 @@ if TYPE_CHECKING:
 
     from metatv.core.config import Config
     from metatv.core.database import Database
+
+
+#: Row-count drift, as a fraction of the table's ACTUAL size, past which
+#: recorded ``sqlite_stat1`` figures are treated as stale — see "Statistics
+#: staleness (STORAGE-1a)" above. 20% is deliberately generous: a routine
+#: catalog refresh or a big prune commonly moves the table that much, and
+#: that is exactly the case ANALYZE exists to correct, not noise to ignore.
+_CHANNEL_STATS_DRIFT_TOLERANCE = 0.20
+
+#: The index read back to learn ANALYZE's row-count estimate for ``channels``.
+#: Must be a FULL (non-partial) index — a partial one's ``sqlite_stat1`` row
+#: reports the rows ITS OWN ``WHERE`` matches, not the table, which would read
+#: as false staleness (or false freshness) on every one of the 24 partial
+#: indexes STORAGE-1a added. This composite is always declared and always
+#: covers every row.
+_CHANNEL_ROW_ESTIMATE_INDEX = "ix_channels_hidden_type_name"
 
 
 def _all_declared_indexes() -> list[tuple[str, "Index"]]:
@@ -198,23 +281,51 @@ class QueryIndexTask:
                 missing.append((table, index))
         return missing
 
-    def _has_channel_stats(self, conn) -> bool:
-        """Return True when ANALYZE has recorded statistics for ``channels``.
+    def _channel_row_estimate(self, conn: "Connection") -> "int | None":
+        """The row count ANALYZE last recorded for ``channels``, or None.
 
-        Checks for the row, not the table: ``ANALYZE`` always creates
-        ``sqlite_stat1``, but writes no row for a table that is empty.
+        Reads ``sqlite_stat1`` for :data:`_CHANNEL_ROW_ESTIMATE_INDEX`
+        specifically — a full, non-partial index — rather than "any row for
+        this table", because a PARTIAL index's row carries the count of rows
+        satisfying ITS OWN ``WHERE``, not the table (STORAGE-1a made this a
+        live trap: 24 of ``channels``'s indexes are now partial). None means
+        no ANALYZE has ever recorded this index, which ``ANALYZE`` on an
+        empty table also produces — see the module docstring's "Idempotency".
+        """
+        stat = conn.execute(text(
+            "SELECT stat FROM sqlite_stat1 WHERE tbl = 'channels' AND idx = :idx"
+        ), {"idx": _CHANNEL_ROW_ESTIMATE_INDEX}).scalar()
+        if not stat:
+            return None
+        try:
+            return int(str(stat).split()[0])
+        except (ValueError, IndexError):
+            return None
+
+    def _has_channel_stats(self, conn) -> bool:
+        """Return True when ``channels`` has statistics that are not stale.
+
+        "Has a statistics row" used to be the whole check, and a garbage row
+        anywhere satisfied it forever — see "Statistics staleness
+        (STORAGE-1a)" in the module docstring for the measured wrongness this
+        replaces. Now also compares the recorded row count to a real
+        ``SELECT COUNT(*)`` and treats a drift past
+        :data:`_CHANNEL_STATS_DRIFT_TOLERANCE` as stale.
         """
         exists = conn.execute(text(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'"
         )).scalar()
         if not exists:
             return False
-        return bool(conn.execute(text(
-            "SELECT 1 FROM sqlite_stat1 WHERE tbl = 'channels' LIMIT 1"
-        )).scalar())
+        recorded = self._channel_row_estimate(conn)
+        if recorded is None:
+            return False
+        actual = conn.execute(text("SELECT COUNT(*) FROM channels")).scalar() or 0
+        drift = abs(actual - recorded) / max(actual, 1)
+        return drift <= _CHANNEL_STATS_DRIFT_TOLERANCE
 
     def needs_run(self, config: "Config") -> bool:
-        """Return True while an index is missing or ``channels`` has no statistics.
+        """Return True while an index is missing or ``channels``'s statistics are stale.
 
         Args:
             config: Unused; the database is the source of truth here.

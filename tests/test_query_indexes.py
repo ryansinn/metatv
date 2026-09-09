@@ -12,6 +12,8 @@ ANALYZE landed with it.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from sqlalchemy import text
 
@@ -119,6 +121,16 @@ def test_the_partial_index_keeps_favorites_off_the_full_walk(db):
 
     ``ix_channels_favorite_hidden_name`` is chosen from its own WHERE clause,
     so this assertion holds on either build.
+
+    STORAGE-1a (D58) reopened this exact trap from the other side: a
+    standalone ``ix_channels_is_favorite`` partial index — gated by the SAME
+    ``is_favorite = 1`` predicate — gave the planner a second candidate, and
+    CI's non-STAT4 planner chose IT over this composite, losing the free
+    ordering and adding ``USE TEMP B-TREE FOR ORDER BY``. Fixed by never
+    creating that standalone index at all (see channel_index_policy.py's
+    ``CHANNEL_DEAD_INDEX_NAMES``) rather than by hoping the planner keeps
+    picking the composite — asserted here directly so the fix cannot regress
+    silently.
     """
     _run(QueryIndexTask(db))
 
@@ -128,6 +140,13 @@ def test_the_partial_index_keeps_favorites_off_the_full_walk(db):
     )
     assert "ix_channels_hidden_name (" not in plan, (
         f"Favorites fell back to the full name-ordered walk: {plan}"
+    )
+    assert "USE TEMP B-TREE" not in plan, f"Favorites is sorting again: {plan}"
+    with db.engine.connect() as conn:
+        names = _index_names(conn, "channels")
+    assert "ix_channels_is_favorite" not in names, (
+        "a standalone is_favorite index exists again and can lure the "
+        "planner away from the composite (D58)"
     )
 
 
@@ -319,3 +338,198 @@ def test_the_index_task_is_idempotent(tmp_path):
             for table in Base.metadata.sorted_tables
         }
     assert before == after, "the idempotent second run changed the index set"
+
+
+# ---------------------------------------------------------------------------
+# STORAGE-1a — the index diet: three free drops, 24 full->partial conversions,
+# and the ANALYZE staleness fix. Ships through the same DB-6 machinery these
+# tests already exercise: Database._migrate()'s DROP INDEX list removes the
+# old-shape index by name, QueryIndexTask's declared-index sweep rebuilds the
+# ones still declared (now in their partial shape) and leaves the rest gone.
+# ---------------------------------------------------------------------------
+
+
+def _index_sql(conn, name: str) -> str | None:
+    """The exact ``CREATE INDEX`` text SQLite has stored for *name*, or None."""
+    return conn.execute(text(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = :name"
+    ), {"name": name}).scalar()
+
+
+def test_the_four_free_drops_are_removed_and_never_rebuilt(tmp_path):
+    """A legacy library carries the undeclared duplicate + three redundant indexes.
+
+    ``idx_channels_detected_prefix`` (an orphan, declared nowhere in the ORM),
+    ``ix_channels_is_hidden`` (a left-prefix of ``ix_channels_hidden_name``),
+    ``ix_channels_language`` (a dead column) and ``ix_channels_is_favorite``
+    (D58 — subsumed by ``ix_channels_favorite_hidden_name``, which is gated by
+    the identical ``is_favorite = 1`` predicate; found when CI's non-STAT4
+    planner chose the standalone index over the composite for the channel
+    list's own Favorites query and paid for it with an unnecessary sort) must
+    all be gone after the migration, and — because none of the four carries
+    ``index=True`` any more — QueryIndexTask's declared-index sweep must not
+    recreate them.
+    """
+    database = Database(f"sqlite:///{tmp_path}/legacy_drops.db")
+    database.create_tables()  # builds the current (post-diet) declared shape
+
+    # Simulate the pre-STORAGE-1a state: these four existed on disk even
+    # though only three of the names were ever ORM-declared.
+    with database.engine.connect() as conn:
+        conn.execute(text(
+            "CREATE INDEX idx_channels_detected_prefix ON channels (detected_prefix)"
+        ))
+        conn.execute(text("CREATE INDEX ix_channels_is_hidden ON channels (is_hidden)"))
+        conn.execute(text("CREATE INDEX ix_channels_language ON channels (language)"))
+        conn.execute(text("CREATE INDEX ix_channels_is_favorite ON channels (is_favorite)"))
+        conn.commit()
+
+    database._migrate()
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        names = _index_names(conn, "channels")
+    for dropped in (
+        "idx_channels_detected_prefix", "ix_channels_is_hidden",
+        "ix_channels_language", "ix_channels_is_favorite",
+    ):
+        assert dropped not in names, f"{dropped} was rebuilt — index=True must be gone"
+
+
+def test_a_legacy_full_index_is_dropped_and_rebuilt_partial(tmp_path):
+    """The core DB-6 trap: a dropped index must not keep ``index=True``.
+
+    Simulates a pre-STORAGE-1a library where ``ix_channels_last_played`` is a
+    FULL index (no WHERE clause). ``_migrate()`` must drop it by name so
+    QueryIndexTask's sweep — which only fills in a MISSING declared index —
+    rebuilds it in the declared PARTIAL shape rather than finding the name
+    already present and leaving the old full shape in place.
+    """
+    database = Database(f"sqlite:///{tmp_path}/legacy_partial.db")
+    # create_tables() itself already runs _migrate(), whose DROP INDEX list
+    # removes ix_channels_last_played right after create_all() builds it — so
+    # by the time this returns, the name is free to recreate in the OLD shape
+    # below (exactly what a real pre-STORAGE-1a-upgrade launch does: drop,
+    # then QueryIndexTask fills the gap back in on the declared shape).
+    database.create_tables()
+
+    # Simulate a pre-STORAGE-1a library: the index exists in its OLD, FULL
+    # shape (no WHERE clause) under the declared name.
+    with database.engine.connect() as conn:
+        conn.execute(text(
+            "CREATE INDEX ix_channels_last_played ON channels (last_played)"
+        ))
+        conn.commit()
+        legacy_sql = _index_sql(conn, "ix_channels_last_played")
+    assert legacy_sql is not None and "WHERE" not in legacy_sql.upper(), (
+        "test setup failed to build a legacy FULL index"
+    )
+
+    database._migrate()
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        rebuilt_sql = _index_sql(conn, "ix_channels_last_played")
+    assert rebuilt_sql is not None, "the index must be rebuilt, not left dropped"
+    assert "WHERE" in rebuilt_sql.upper() and "IS NOT NULL" in rebuilt_sql.upper(), (
+        f"rebuilt index is not partial: {rebuilt_sql}"
+    )
+
+
+#: The three busiest conversions named in the STORAGE-1 design pass, re-
+#: verified here rather than trusted: a ``col = ?`` equality lookup must
+#: still choose the PARTIAL ``col IS NOT NULL`` index, because SQLite's
+#: partial-index analysis recognises that the equality implies the WHERE.
+_PARTIAL_EQUALITY_COLUMNS = ("last_played", "tmdb_enrich_state", "detected_genre")
+
+
+def test_partial_indexes_still_serve_an_equality_lookup_on_their_own_column(tmp_path):
+    """Re-verifies STORAGE-1's own safety claim on real data, not by citation.
+
+    A ``WHERE col IS NOT NULL`` partial index still serves ``WHERE col = ?``
+    — checked here (plan AND result rows) for the three busiest conversions,
+    matching the design pass's own probe methodology (EXPLAIN QUERY PLAN,
+    identical result set) rather than re-citing its numbers.
+    """
+    database = Database(f"sqlite:///{tmp_path}/partial_eq.db")
+    database.create_tables()
+    with database.session_scope() as session:
+        for i in range(600):
+            session.add(ChannelDB(
+                id=f"c{i}", source_id=str(i), provider_id="p",
+                name=f"N{i:04d}", media_type="movie", is_hidden=False,
+                last_played=(datetime(2024, 1, 1) if i % 25 == 0 else None),
+                tmdb_enrich_state=("fetched" if i % 17 == 0 else None),
+                detected_genre=("Drama" if i % 11 == 0 else None),
+            ))
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        last_played_literal = conn.execute(
+            text("SELECT last_played FROM channels WHERE id = 'c0'")
+        ).scalar()
+
+    probes = {
+        "last_played": f"SELECT id FROM channels WHERE last_played = '{last_played_literal}'",
+        "tmdb_enrich_state": "SELECT id FROM channels WHERE tmdb_enrich_state = 'fetched'",
+        "detected_genre": "SELECT id FROM channels WHERE detected_genre = 'Drama'",
+    }
+    for col in _PARTIAL_EQUALITY_COLUMNS:
+        sql = probes[col]
+        plan = _plan(database, sql)
+        assert f"ix_channels_{col}" in plan, f"{col}: partial index not chosen: {plan}"
+        with database.engine.connect() as conn:
+            rows = conn.execute(text(sql)).fetchall()
+        assert rows, f"{col}: probe query returned no rows — fixture/probe mismatch"
+
+
+def test_needs_run_goes_true_again_when_the_catalog_drifts_past_recorded_stats(db):
+    """The bug STORAGE-1a fixes: "a stat1 row exists" != "the stats are still true".
+
+    Before this fix, ``needs_run()`` went permanently False the moment
+    ANALYZE wrote ONE row for ``channels`` — however wrong — because the old
+    check only asked whether a row existed at all (measured on the owner's
+    real library: ``ix_channels_is_hidden`` recorded 1,725 rows/key against a
+    true 393,162, and had clearly been sitting that wrong for a long time).
+    Growing the catalog well past what was recorded, with no re-ANALYZE
+    between, must make ``needs_run()`` True again.
+    """
+    task = QueryIndexTask(db)
+    _run(task)
+    assert task.needs_run(None) is False
+
+    # 3,000 -> 33,000 rows with no re-ANALYZE: a 10x drift past what was
+    # recorded, simulating a catalog that grew between launches.
+    with db.session_scope() as session:
+        for i in range(3000, 33000):
+            session.add(ChannelDB(
+                id=f"c{i}", source_id=str(i), provider_id="p",
+                name=f"Name {i:05d}", media_type="movie", is_hidden=False,
+            ))
+
+    assert task.needs_run(None) is True, (
+        "statistics drifted 10x past what ANALYZE recorded and needs_run stayed False"
+    )
+
+
+def test_needs_run_stays_false_for_ordinary_catalog_growth(db):
+    """The staleness check must not make every launch re-ANALYZE.
+
+    A drift comfortably inside ``_CHANNEL_STATS_DRIFT_TOLERANCE`` (20%) must
+    leave ``needs_run`` False — the fix targets a catalog that has genuinely
+    outgrown its statistics, not ordinary noise between launches.
+    """
+    task = QueryIndexTask(db)
+    _run(task)
+    assert task.needs_run(None) is False
+
+    with db.session_scope() as session:
+        for i in range(3000, 3150):  # +5%, well inside tolerance
+            session.add(ChannelDB(
+                id=f"c{i}", source_id=str(i), provider_id="p",
+                name=f"Name {i:05d}", media_type="movie", is_hidden=False,
+            ))
+
+    assert task.needs_run(None) is False, (
+        "a 5% catalog change re-triggered ANALYZE — the tolerance is too tight"
+    )
