@@ -13,6 +13,7 @@ from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 from metatv.core import write_gate
+from metatv.core.tag_source import TagSourceType
 
 Base = declarative_base()
 
@@ -48,8 +49,11 @@ class JSONEncoded(TypeDecorator):
 class ChannelDB(Base):
     """Channel database model"""
     __tablename__ = "channels"
-    
+
     id = Column(String, primary_key=True)
+    #: DB-9 surrogate key for content_tags (3-byte int vs. 43-byte ``id``);
+    #: seeded from ``rowid``, then assigned by the trigger in content_tags_rebuild.py.
+    channel_key = Column(Integer, unique=True, index=True)
     source_id = Column(String, nullable=False, index=True)
     provider_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False, index=True)
@@ -798,54 +802,42 @@ class TagDB(Base):
 
 
 class ContentTagDB(Base):
-    """Link between a channel and a tag, with provenance and confidence.
+    """Link between a channel and a tag, with provenance.
 
-    ``source`` is ``"generated"`` for machine-derived tags or ``"user"`` for
-    explicit user assertions.  ``feeders`` is a list of feeder names (rule ids,
-    provider slug, etc.) that each independently asserted this tag for this
-    channel; multiple feeders raise ``confidence``.
+    ``source`` is ``"generated"`` or ``"user"`` (stored as a small int via
+    ``TagSourceType``). ``feeders`` is a list of feeder names that each
+    independently asserted this tag; multiple feeders raise confidence.
 
-    Confidence formula (v1): ``min(1.0, len(distinct_feeders) / 3)``.
-    One feeder → 0.33, two → 0.67, three or more → 1.0.
-    This is intentionally coarse; future slices may replace it with a
-    Bayesian prior or a signal-weighted blend.
+    Confidence (v1): ``min(1.0, len(distinct_feeders) / 3)`` — one feeder ->
+    0.33, two -> 0.67, three+ -> 1.0. DB-9 dropped the stored ``confidence``
+    column — a pure function of ``feeders`` (verified against all 15 distinct
+    real values) — computed at read time (``TagRepository._compute_confidence``).
 
-    The unique constraint is on ``(channel_id, tag_id, source)`` — not just
-    ``(channel_id, tag_id)`` — so that a ``"generated"`` and a ``"user"``
-    assertion for the same tag can coexist independently.  ``set_content_tags``
-    only touches rows matching the given ``source``, preserving the other.
+    DB-9 also rebuilt this table on an integer ``channel_key`` (FK to
+    ``ChannelDB.channel_key``, zero readers outside this join table) instead
+    of the 43-byte string ``ChannelDB.id``, ``WITHOUT ROWID`` with composite
+    PK ``(channel_key, tag_id, source)`` so a ``"generated"`` and a ``"user"``
+    assertion for the same tag coexist. The old surrogate ``id`` had zero
+    production readers; dropping it merges the table + its UNIQUE autoindex.
     """
 
     __tablename__ = "content_tags"
 
-    id         = Column(Integer, primary_key=True)
-    # NEITHER FK CARRIES index=True, and that is deliberate — both single-column
-    # indexes were strict left-prefixes of wider indexes that already exist, so
-    # they cost 221 MB on the owner's database and bought nothing:
-    #
-    #   channel_id  -> leading column of UNIQUE(channel_id, tag_id, source),
-    #                  whose autoindex SQLite creates whether we like it or not
-    #   tag_id      -> leading column of ix_content_tags_tag_channel, declared
-    #                  below in __table_args__
-    #
-    # Three independent auditors reached this separately, and EXPLAIN QUERY PLAN
-    # on the real call sites (tags_for, channels_for_tag) shows the wider
-    # indexes already serving every shape. The planner picked the narrow ones
-    # only because they were smaller, not because anything needed them.
-    channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
-    tag_id     = Column(Integer, ForeignKey("tags.id"), nullable=False)
-    source     = Column(String, nullable=False, default="generated")  # "generated" | "user"
-    feeders    = Column(JSONEncoded)      # list[str] of contributing feeder names
-    confidence = Column(Float, default=1.0)
+    # DB-9: FK to ChannelDB.channel_key. Part of the composite PK, so no
+    # separate index=True needed.
+    channel_key = Column(Integer, ForeignKey("channels.channel_key"),
+                          primary_key=True, nullable=False)
+    tag_id      = Column(Integer, ForeignKey("tags.id"),
+                          primary_key=True, nullable=False)
+    source      = Column(TagSourceType, primary_key=True, nullable=False,
+                          default="generated")  # "generated" | "user"
+    feeders     = Column(JSONEncoded)      # list[str] of contributing feeder names
 
     __table_args__ = (
-        UniqueConstraint("channel_id", "tag_id", "source", name="uq_content_tag"),
-        # (tag_id, channel_id) — the wider index the comment above refers to.
-        # Declared here (DB-6) rather than only as hand-written SQL in
-        # Database._migrate(), so QueryIndexTask's Base.metadata sweep builds
-        # it for an existing library the same way create_all builds it here
-        # for a new one — one declaration, not two mechanisms.
-        Index("ix_content_tags_tag_channel", "tag_id", "channel_id"),
+        # (tag_id, channel_key) — declared here (DB-6) so QueryIndexTask's
+        # Base.metadata sweep builds it for an existing library too.
+        Index("ix_content_tags_tag_channel", "tag_id", "channel_key"),
+        {"sqlite_with_rowid": False},
     )
 
 
@@ -1066,6 +1058,7 @@ class Database:
             ("metadata",     "trailer_url",                   "TEXT"),
             ("metadata",     "content_rating",                "TEXT"),
             ("metadata",     "release_date",                  "TEXT"),
+            ("channels",     "channel_key",                   "INTEGER"),  # DB-9
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -1114,6 +1107,11 @@ class Database:
                                     f"{res.rowcount} watch rule(s)")
                 except OperationalError:
                     pass  # table absent on a brand-new database
+
+        # DB-9: a column REPLACEMENT (channel_id -> int channel_key) the ALTER
+        # TABLE loop above cannot express — own module, not a MigrationTask.
+        from metatv.core.migrations.content_tags_rebuild import rebuild_content_tags_int_key
+        rebuild_content_tags_int_key(self.engine)
 
         self._normalize_double_encoded_json()
 

@@ -33,6 +33,7 @@ import pytest
 from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_case_merge import TagCaseMergeTask
 from metatv.core.repositories.tag import TagRepository, _clear_tag_cache
+from tests.conftest import add_content_tag
 
 
 @pytest.fixture
@@ -132,8 +133,8 @@ def test_existing_variants_are_merged_and_channels_repointed(db):
         _channel(session, "c1")
         _channel(session, "c2")
         session.flush()
-        session.add(ContentTagDB(channel_id="c1", tag_id=1, source="generated"))
-        session.add(ContentTagDB(channel_id="c2", tag_id=2, source="generated"))
+        add_content_tag(session, "c1", 1, source="generated")
+        add_content_tag(session, "c2", 2, source="generated")
 
     TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
 
@@ -155,8 +156,7 @@ def test_no_channel_is_orphaned_by_the_merge(db):
             _channel(session, f"ch{n}")
         session.flush()
         for n in range(6):
-            session.add(ContentTagDB(channel_id=f"ch{n}", tag_id=(n % 3) + 1,
-                                     source="generated"))
+            add_content_tag(session, f"ch{n}", (n % 3) + 1, source="generated")
 
     TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
 
@@ -177,7 +177,7 @@ def test_a_tag_nothing_references_is_pruned(db):
         session.add(TagDB(id=2, type="genre", value="Orphan"))
         _channel(session, "c1")
         session.flush()
-        session.add(ContentTagDB(channel_id="c1", tag_id=1, source="generated"))
+        add_content_tag(session, "c1", 1, source="generated")
 
     TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
 
@@ -192,7 +192,7 @@ def test_running_it_twice_changes_nothing(db):
         session.add(TagDB(id=2, type="genre", value="DRAMA"))
         _channel(session, "c1")
         session.flush()
-        session.add(ContentTagDB(channel_id="c1", tag_id=2, source="generated"))
+        add_content_tag(session, "c1", 2, source="generated")
 
     task = TagCaseMergeTask(db)
     task.run(lambda a, b: None, lambda: False)
@@ -214,12 +214,60 @@ def test_the_survivor_is_the_most_used_spelling(db):
         for n in range(4):
             _channel(session, f"c{n}")
         session.flush()
-        session.add(ContentTagDB(channel_id="c0", tag_id=1, source="generated"))
+        add_content_tag(session, "c0", 1, source="generated")
         for n in (1, 2, 3):
-            session.add(ContentTagDB(channel_id=f"c{n}", tag_id=2, source="generated"))
+            add_content_tag(session, f"c{n}", 2, source="generated")
 
     TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
 
     with db.session_scope() as session:
         rows = session.query(TagDB).all()
         assert len(rows) == 1 and rows[0].value == "Rare"
+
+
+def test_a_channel_carrying_both_variants_does_not_duplicate_or_lose_its_link(db):
+    """DB-9 risk #6: ``UPDATE OR IGNORE ... SET tag_id`` now updates a PRIMARY
+    KEY column of a WITHOUT ROWID table (``channel_key, tag_id, source``).
+
+    A channel that already carries BOTH the keeper's and a loser's tag makes
+    the repoint collide with a row that already exists for that channel under
+    the keeper's tag_id — the collision ``OR IGNORE`` exists to absorb. Must
+    survive with exactly ONE link to the surviving tag, never two (a
+    duplicate) and never zero (an orphaned channel).
+    """
+    with db.session_scope() as session:
+        session.add(TagDB(id=1, type="genre", value="Horror"))
+        session.add(TagDB(id=2, type="genre", value="HORROR"))
+        session.add(TagDB(id=3, type="genre", value="horror"))
+        _channel(session, "both")     # carries every variant — the collision case
+        _channel(session, "c1")
+        _channel(session, "c2")
+        session.flush()
+        add_content_tag(session, "both", 1, source="generated")
+        add_content_tag(session, "both", 2, source="generated")
+        add_content_tag(session, "both", 3, source="generated")
+        add_content_tag(session, "c1", 1, source="generated")
+        add_content_tag(session, "c2", 1, source="generated")
+
+    TagCaseMergeTask(db).run(lambda a, b: None, lambda: False)
+
+    with db.session_scope() as session:
+        tags = session.query(TagDB).filter_by(type="genre").all()
+        assert len(tags) == 1, f"expected one Horror row, got {[t.value for t in tags]}"
+        keeper_id = tags[0].id
+
+        both_key = (
+            session.query(ChannelDB.channel_key)
+            .filter(ChannelDB.id == "both").scalar()
+        )
+        both_links = (
+            session.query(ContentTagDB)
+            .filter(ContentTagDB.channel_key == both_key).all()
+        )
+        assert len(both_links) == 1, (
+            f"'both' must have exactly one surviving link, not {len(both_links)} "
+            "(the collision must be absorbed, never duplicated)"
+        )
+        assert both_links[0].tag_id == keeper_id, (
+            "'both' must still point at the surviving tag, not be silently dropped"
+        )

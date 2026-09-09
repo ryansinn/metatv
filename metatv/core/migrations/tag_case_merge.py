@@ -105,8 +105,8 @@ class TagCaseMergeTask:
                 if not losers:
                     continue
                 placeholders = ",".join(str(int(i)) for i in losers)
-                # Repoint, skipping any pair the keeper already has — the unique
-                # constraint is on (channel_id, tag_id, source).
+                # Repoint, skipping any pair the keeper already has — DB-9:
+                # (channel_key, tag_id, source) is the primary key.
                 session.execute(text(
                     f"UPDATE OR IGNORE content_tags SET tag_id = {int(keep_id)} "
                     f"WHERE tag_id IN ({placeholders})"

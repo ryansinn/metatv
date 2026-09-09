@@ -81,12 +81,25 @@ def _tag(session, value: str) -> int:
     return t.id
 
 
-def _content_tag(session, channel_id: str, tag_id: int) -> None:
+def _content_tag(session, channel_id: str, tag_id: int) -> int:
+    """Insert a content_tags row for *channel_id*; returns its channel_key.
+
+    Callers that later assert content_tags state AFTER *channel_id* has been
+    pruned must capture this return value first — content_tags now joins on
+    the int channel_key, not the string channel_id, and a channel_id lookup
+    issued after the ChannelDB row is gone would resolve to nothing and make
+    the assertion pass vacuously regardless of whether pruning worked.
+    """
+    channel_key = (
+        session.query(ChannelDB.channel_key)
+        .filter(ChannelDB.id == channel_id).scalar()
+    )
     session.add(ContentTagDB(
-        channel_id=channel_id, tag_id=tag_id,
-        source="generated", feeders=["rule:test"], confidence=1.0,
+        channel_key=channel_key, tag_id=tag_id,
+        source="generated", feeders=["rule:test"],
     ))
     session.flush()
+    return channel_key
 
 
 # ── Part B: content_tags pruned for doomed, spared for engaged ───────────────
@@ -104,9 +117,9 @@ def test_prune_deletes_content_tags_of_nonengaged_and_spares_engaged(db):
         _channel(session, pid, cid=eng_id, is_favorite=True)  # engaged
         t1 = _tag(session, "Action")
         t2 = _tag(session, "Drama")
-        _content_tag(session, ne_id, t1)    # doomed
-        _content_tag(session, ne_id, t2)    # doomed
-        _content_tag(session, eng_id, t1)   # must survive (engaged channel)
+        ne_key = _content_tag(session, ne_id, t1)    # doomed
+        _content_tag(session, ne_id, t2)             # doomed
+        eng_key = _content_tag(session, eng_id, t1)  # must survive (engaged channel)
 
     with db.session_scope() as session:
         counts = ChannelRepository(session).prune_provider_content([pid])
@@ -114,9 +127,9 @@ def test_prune_deletes_content_tags_of_nonengaged_and_spares_engaged(db):
     assert counts["content_tags"] == 2, "both doomed-channel tag links must be counted"
 
     with db.session_scope(commit=False) as session:
-        assert session.query(ContentTagDB).filter_by(channel_id=ne_id).count() == 0, \
+        assert session.query(ContentTagDB).filter_by(channel_key=ne_key).count() == 0, \
             "non-engaged channel's content_tags must be pruned"
-        assert session.query(ContentTagDB).filter_by(channel_id=eng_id).count() == 1, \
+        assert session.query(ContentTagDB).filter_by(channel_key=eng_key).count() == 1, \
             "engaged channel's content_tags must be preserved"
         # Sanity: the doomed channel is gone, the engaged one remains.
         assert session.query(ChannelDB).filter_by(id=ne_id).first() is None
@@ -132,13 +145,13 @@ def test_prune_content_tags_via_provider_delete(db):
         _provider(session, pid)
         _channel(session, pid, cid=ch)
         t = _tag(session, "Comedy")
-        _content_tag(session, ch, t)
+        ch_key = _content_tag(session, ch, t)
 
     with db.session_scope() as session:
         assert ProviderRepository(session).delete(pid) is True
 
     with db.session_scope(commit=False) as session:
-        assert session.query(ContentTagDB).filter_by(channel_id=ch).count() == 0
+        assert session.query(ContentTagDB).filter_by(channel_key=ch_key).count() == 0
 
 
 # ── Part A: the off-thread delete seam ───────────────────────────────────────
@@ -173,7 +186,7 @@ def test_delete_seam_runs_purge_offthread_then_refreshes(db):
         _provider(session, pid)
         _channel(session, pid, cid=ch)
         t = _tag(session, "SciFi")
-        _content_tag(session, ch, t)
+        ch_key = _content_tag(session, ch, t)
 
     on_deleted = MagicMock()
     sources = MagicMock()
@@ -185,7 +198,7 @@ def test_delete_seam_runs_purge_offthread_then_refreshes(db):
     with db.session_scope(commit=False) as session:
         assert session.query(ProviderDB).filter_by(id=pid).first() is None
         assert session.query(ChannelDB).filter_by(id=ch).first() is None
-        assert session.query(ContentTagDB).filter_by(channel_id=ch).count() == 0
+        assert session.query(ContentTagDB).filter_by(channel_key=ch_key).count() == 0
 
     # Canonical post-delete cleanup fired exactly once.
     on_deleted.assert_called_once_with(pid)

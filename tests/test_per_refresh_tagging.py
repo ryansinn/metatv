@@ -90,8 +90,9 @@ def _content_tag_rows(
         rows = (
             session.query(TagDB.type, TagDB.value, ContentTagDB.feeders)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
             .filter(
-                ContentTagDB.channel_id == channel_id,
+                ChannelDB.id == channel_id,
                 ContentTagDB.source == source,
             )
             .all()
@@ -105,7 +106,8 @@ def _content_tag_count(
     with db.session_scope(commit=False) as session:
         return (
             session.query(ContentTagDB)
-            .filter_by(channel_id=channel_id, source=source)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == channel_id, ContentTagDB.source == source)
             .count()
         )
 
@@ -301,8 +303,9 @@ class TestUserTagsSurvive:
             rows = (
                 session.query(ContentTagDB.source)
                 .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+                .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
                 .filter(
-                    ContentTagDB.channel_id == cid,
+                    ChannelDB.id == cid,
                     TagDB.type == "genre",
                     TagDB.value == "Drama",
                 )

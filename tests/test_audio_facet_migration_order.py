@@ -76,14 +76,15 @@ def _seed_subbed_channel(db) -> str:
 
 def _facet_values(db, channel_id: str, facet_type: str) -> set[str]:
     """Return the set of TagDB.value for one channel + facet type (e.g. 'subtitle')."""
-    from metatv.core.database import ContentTagDB, TagDB
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
     with db.session_scope(commit=False) as session:
         rows = (
             session.query(TagDB.value)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
             .filter(
-                ContentTagDB.channel_id == channel_id,
+                ChannelDB.id == channel_id,
                 TagDB.type == facet_type,
             )
             .all()

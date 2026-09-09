@@ -38,15 +38,12 @@ from __future__ import annotations
 import threading
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import exists
 
 from metatv.core.database import ChannelDB, ContentTagDB, TagDB
-
-# Confidence denominator — three independent feeders → full confidence.
-_FEEDER_DENOMINATOR: int = 3
+from metatv.core.repositories.tag_content_tags import ContentTagCrudMixin
 
 # ---------------------------------------------------------------------------
 # Process-level tag-id cache
@@ -70,11 +67,16 @@ def _tag_cache_key(type: str, value: str) -> tuple[str, str]:
     return (type, (value or "").strip().casefold())
 
 
-class TagRepository:
+class TagRepository(ContentTagCrudMixin):
     """CRUD + upsert operations for ``TagDB`` / ``ContentTagDB``.
 
     All methods run inside the *caller's* session; commit / rollback is
     the caller's responsibility (use ``Database.session_scope()``).
+
+    Composes ``ContentTagCrudMixin`` (``tag_content_tags.py``) for the
+    content-tag write/CRUD path (``set_content_tags``, ``get_channel_tags_dto``,
+    ``tags_for``, deletes, ``channel_ids_for_content_types``); this class body
+    holds tag-namespace CRUD plus the faceted read/aggregate query engine.
     """
 
     def __init__(self, session: Session) -> None:
@@ -190,413 +192,11 @@ class TagRepository:
         return self.get_or_create_tag(type, value).id
 
     # ------------------------------------------------------------------
-    # ContentTag level
+    # Faceted query engine — write/CRUD methods live in
+    # ContentTagCrudMixin (tag_content_tags.py), composed in below.
     # ------------------------------------------------------------------
 
-    def set_content_tags(
-        self,
-        channel_id: str,
-        tags: List[Tuple[str, str, str]],
-        source: str = "generated",
-    ) -> None:
-        """Upsert content-tag links for ``channel_id``, merging feeders.
-
-        Each element of ``tags`` is ``(type, value, feeder)``.  For each
-        distinct ``(type, value)`` pair:
-
-        - If no link exists, one is created with ``feeders=[feeder]``.
-        - If a link already exists (same source), the feeder is added to the
-          existing ``feeders`` list (deduplicated) and ``confidence`` is
-          recomputed using the v1 formula.
-
-        Only rows with the given ``source`` are touched; rows written by a
-        different source are left unchanged.
-
-        **Performance:** Replaces the original per-tag SELECT + conditional
-        ``session.add`` loop with a single bulk SELECT over all existing links
-        for this channel+source, Python-side feeder merge, then a single
-        ``INSERT … ON CONFLICT DO UPDATE`` upsert for the full set.  This
-        reduces ~2N small queries to 1 bulk SELECT + 1 bulk upsert per call.
-
-        Args:
-            channel_id: The ``ChannelDB.id`` to tag.
-            tags: List of ``(type, value, feeder)`` tuples.
-            source: Provenance label; ``"generated"`` or ``"user"``.
-        """
-        if not tags:
-            return
-
-        from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
-
-        # Step 1: resolve tag ids (cached — typically 0 DB round-trips after warmup).
-        tag_ids: List[Tuple[int, str]] = []  # (tag_id, feeder)
-        for tag_type, tag_value, feeder in tags:
-            tag_ids.append((self.get_or_create_tag_id(tag_type, tag_value), feeder))
-
-        # Step 2: load all existing links for this channel+source in one SELECT.
-        existing_tag_ids = [tid for tid, _ in tag_ids]
-        existing_rows = (
-            self.session.query(ContentTagDB)
-            .filter(
-                ContentTagDB.channel_id == channel_id,
-                ContentTagDB.tag_id.in_(existing_tag_ids),
-                ContentTagDB.source == source,
-            )
-            .all()
-        )
-        # Build a map tag_id → current feeders list for O(1) merge lookups.
-        existing_feeders: Dict[int, List[str]] = {
-            row.tag_id: list(row.feeders or []) for row in existing_rows
-        }
-
-        # Step 3: compute merged feeders + confidence for every (tag_id, feeder) pair.
-        # Group by tag_id first so that duplicate (type, value) pairs in a single
-        # `tags` call are handled correctly (multiple feeders for the same tag).
-        merged: Dict[int, List[str]] = {}
-        for tag_id, feeder in tag_ids:
-            if tag_id not in merged:
-                # Start from existing DB feeders so we don't clobber prior assertions.
-                merged[tag_id] = list(existing_feeders.get(tag_id, []))
-            if feeder not in merged[tag_id]:
-                merged[tag_id].append(feeder)
-
-        # Step 4: single bulk upsert — INSERT … ON CONFLICT(channel_id, tag_id, source)
-        # DO UPDATE SET feeders=excluded.feeders, confidence=excluded.confidence.
-        # The unique constraint ``uq_content_tag`` is on (channel_id, tag_id, source).
-        rows = [
-            {
-                "channel_id": channel_id,
-                "tag_id": tag_id,
-                "source": source,
-                "feeders": feeders,
-                "confidence": _compute_confidence(feeders),
-            }
-            for tag_id, feeders in merged.items()
-        ]
-
-        try:
-            stmt = _sqlite_insert(ContentTagDB).values(rows)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["channel_id", "tag_id", "source"],
-                set_={
-                    "feeders": stmt.excluded.feeders,
-                    "confidence": stmt.excluded.confidence,
-                },
-            )
-            self.session.execute(stmt)
-            self.session.flush()
-        except IntegrityError:
-            logger.warning(
-                "set_content_tags: integrity error for channel_id={} — skipping",
-                channel_id,
-            )
-            self.session.rollback()
-
-    def get_channel_tags_dto(self, channel_id: str) -> List:
-        """Return ChannelTagDTO objects for all tags on ``channel_id``.
-
-        Reads ``ContentTagDB`` + ``TagDB`` in one JOIN; maps feeders to the
-        ``source_given`` provenance flag per DR-0006.  No ORM objects cross
-        the session boundary — caller gets plain frozen dataclasses.
-
-        Provenance rule: a tag is ``source_given=True`` when *any* feeder in
-        its feeders list is a direct provider-field reader (``provider_category``,
-        ``genre``, or ``user``).  If all feeders are inference-based
-        (``name_parse``, ``header``, ``epg``), ``source_given=False``.
-
-        Args:
-            channel_id: The ``ChannelDB.id`` to look up.
-
-        Returns:
-            List of ``ChannelTagDTO``, sorted by facet then value.
-            An empty list is returned when the channel has no tags.
-        """
-        from metatv.core.repositories.dtos import ChannelTagDTO, _SOURCE_GIVEN_FEEDERS
-
-        rows = (
-            self.session.query(
-                TagDB.type,
-                TagDB.value,
-                ContentTagDB.feeders,
-                ContentTagDB.confidence,
-            )
-            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == channel_id)
-            .order_by(TagDB.type, TagDB.value)
-            .all()
-        )
-
-        dtos: List[ChannelTagDTO] = []
-        for tag_type, value, feeders_raw, confidence in rows:
-            feeder_list: List[str] = feeders_raw if isinstance(feeders_raw, list) else []
-            # source_given = True when any feeder is a direct provider-field reader
-            source_given = any(f in _SOURCE_GIVEN_FEEDERS for f in feeder_list)
-            dtos.append(ChannelTagDTO(
-                facet_type=tag_type,
-                value=value,
-                source_given=source_given,
-                confidence=float(confidence or 0.0),
-                feeders=tuple(feeder_list),
-            ))
-        return dtos
-
-    def tags_for(self, channel_id: str) -> List[Tuple[str, str]]:
-        """Return all ``(type, value)`` tuples tagged on ``channel_id``.
-
-        Returns plain tuples — no ORM objects cross the session boundary.
-
-        Args:
-            channel_id: The ``ChannelDB.id`` to look up.
-
-        Returns:
-            List of ``(type, value)`` pairs, unordered.
-        """
-        rows = (
-            self.session.query(TagDB.type, TagDB.value)
-            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == channel_id)
-            .all()
-        )
-        return [(r.type, r.value) for r in rows]
-
-    def channels_for_tag(self, type: str, value: str) -> List[str]:
-        """Return ``channel_id`` strings for every channel carrying ``(type, value)``.
-
-        Returns plain strings — no ORM objects cross the session boundary.
-
-        Args:
-            type: Tag namespace.
-            value: Canonical tag value.
-
-        Returns:
-            List of ``channel_id`` strings, unordered.
-        """
-        tag = (
-            self.session.query(TagDB)
-            .filter_by(type=type, value=value)
-            .first()
-        )
-        if tag is None:
-            return []
-
-        rows = (
-            self.session.query(ContentTagDB.channel_id)
-            .filter_by(tag_id=tag.id)
-            .all()
-        )
-        return [r.channel_id for r in rows]
-
-    # ------------------------------------------------------------------
-    # Reprocess support
-    # ------------------------------------------------------------------
-
-    def reprocess_delete_generated(self) -> int:
-        """Delete all ``source="generated"`` content-tag links.
-
-        User tags (``source="user"``) are untouched.  This is the non-
-        destructive reprocess primitive: callers can wipe machine-derived
-        tags and re-run detection without touching user curation.
-
-        Returns:
-            Number of rows deleted.
-        """
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter_by(source="generated")
-            .delete(synchronize_session="fetch")
-        )
-        logger.info("reprocess_delete_generated: removed {} content_tag rows", deleted)
-        return deleted
-
-    def delete_generated_for_channel(self, channel_id: str) -> int:
-        """Delete only the ``source="generated"`` content-tag links for *channel_id*.
-
-        User tags (``source="user"``) for the same channel are left intact.
-        This is the per-channel non-destructive scrub used by the backfill task
-        before re-deriving tags for each channel.
-
-        Args:
-            channel_id: The ``ChannelDB.id`` whose generated tags should be cleared.
-
-        Returns:
-            Number of rows deleted.
-        """
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter_by(channel_id=channel_id, source="generated")
-            .delete(synchronize_session="fetch")
-        )
-        return deleted
-
-    def delete_generated_for_channels(self, channel_ids: List[str]) -> int:
-        """Delete ``source="generated"`` content-tag links for ALL channels in *channel_ids*.
-
-        Single bulk DELETE for an entire batch, replacing N individual
-        :meth:`delete_generated_for_channel` calls.  User tags
-        (``source="user"``) are never touched.
-
-        Args:
-            channel_ids: The ``ChannelDB.id`` values whose generated tags should
-                be cleared.  An empty list is a no-op.
-
-        Returns:
-            Total number of rows deleted.
-        """
-        if not channel_ids:
-            return 0
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter(
-                ContentTagDB.channel_id.in_(channel_ids),
-                ContentTagDB.source == "generated",
-            )
-            .delete(synchronize_session="fetch")
-        )
-        return deleted
-
-    def set_content_tags_bulk(
-        self,
-        mapping: Dict[str, List[Tuple[str, str, str]]],
-        source: str = "generated",
-    ) -> None:
-        """Upsert content-tag links for ALL channels in *mapping* in one bulk statement.
-
-        Replaces N individual :meth:`set_content_tags` calls (one per channel)
-        with two SQL statements for the entire batch:
-
-        1. A single bulk SELECT to load existing links (all channels × all
-           tag_ids in the batch).
-        2. A single ``INSERT … ON CONFLICT DO UPDATE`` upsert for every
-           ``(channel_id, tag_id, source)`` triple in the batch.
-
-        Only rows with the given ``source`` are touched; rows with a different
-        source (e.g. ``"user"``) are left unchanged.
-
-        Args:
-            mapping: ``{channel_id: [(type, value, feeder), ...]}`` — the
-                decomposed tag tuples for each channel in the batch.  Channels
-                with an empty list are silently skipped (no rows emitted).
-            source: Provenance label; ``"generated"`` or ``"user"``.
-        """
-        if not mapping:
-            return
-
-        from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
-
-        # ── Step 1: resolve all tag ids (process-level cache → typically 0 DB
-        # round-trips after warmup).  Build a flat list of
-        # (channel_id, tag_id, feeder) triples across the whole batch.
-        channel_tag_feeders: List[Tuple[str, int, str]] = []  # (cid, tid, feeder)
-        for channel_id, tags in mapping.items():
-            if not tags:
-                continue
-            for tag_type, tag_value, feeder in tags:
-                tag_id = self.get_or_create_tag_id(tag_type, tag_value)
-                channel_tag_feeders.append((channel_id, tag_id, feeder))
-
-        if not channel_tag_feeders:
-            return
-
-        # ── Step 2: one SELECT for ALL existing links in the batch.
-        # We need to merge new feeders with any feeders already on existing rows
-        # (the caller deleted generated rows before calling us during backfill,
-        # so this mainly catches the incremental-tagging path where we might
-        # revisit a channel).  Collect needed channel_ids and tag_ids.
-        all_cids = list({cid for cid, _, _ in channel_tag_feeders})
-        all_tids = list({tid for _, tid, _ in channel_tag_feeders})
-
-        existing_rows = (
-            self.session.query(ContentTagDB)
-            .filter(
-                ContentTagDB.channel_id.in_(all_cids),
-                ContentTagDB.tag_id.in_(all_tids),
-                ContentTagDB.source == source,
-            )
-            .all()
-        )
-        # existing_feeders[(channel_id, tag_id)] → list of feeders already on row
-        existing_feeders: Dict[Tuple[str, int], List[str]] = {
-            (row.channel_id, row.tag_id): list(row.feeders or [])
-            for row in existing_rows
-        }
-
-        # ── Step 3: merge feeders per (channel_id, tag_id) across the whole batch.
-        # merged[(channel_id, tag_id)] → deduplicated feeder list
-        merged: Dict[Tuple[str, int], List[str]] = {}
-        for cid, tid, feeder in channel_tag_feeders:
-            key = (cid, tid)
-            if key not in merged:
-                merged[key] = list(existing_feeders.get(key, []))
-            if feeder not in merged[key]:
-                merged[key].append(feeder)
-
-        # ── Step 4: single bulk upsert for the entire batch.
-        rows = [
-            {
-                "channel_id": cid,
-                "tag_id": tid,
-                "source": source,
-                "feeders": feeders,
-                "confidence": _compute_confidence(feeders),
-            }
-            for (cid, tid), feeders in merged.items()
-        ]
-
-        try:
-            stmt = _sqlite_insert(ContentTagDB).values(rows)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["channel_id", "tag_id", "source"],
-                set_={
-                    "feeders": stmt.excluded.feeders,
-                    "confidence": stmt.excluded.confidence,
-                },
-            )
-            self.session.execute(stmt)
-            self.session.flush()
-        except Exception:
-            logger.warning(
-                "set_content_tags_bulk: integrity error for batch of {} channels — skipping",
-                len(mapping),
-            )
-            self.session.rollback()
-
-    # ------------------------------------------------------------------
-    # Faceted stats
-    # ------------------------------------------------------------------
-
-    def channel_ids_for_content_types(self, values: Set[str]) -> Set[str]:
-        """Return channel ids carrying a ``content_type`` tag whose value ∈ *values*.
-
-        The Python id-set twin of
-        ``filter_utils.tag_content_type_exclusion_criterion`` (the SQL NOT EXISTS):
-        materialises the *excluded* channel-id set for the row-by-row surfaces that
-        cannot express a correlated subquery over ChannelDB rows / DTOs — the
-        channel list (``_apply_python_exclusions``), EPG On-Now, and details "Other
-        Versions".  Both ``source="generated"`` and ``source="user"`` tags count.
-
-        The population is small (content_type is a niche trailing marker), so this
-        is a bounded, indexed lookup — safe to materialise off the UI thread.
-
-        Args:
-            values: The ``content_type`` slugs to resolve (e.g.
-                ``{"ai_generated", "ai_voiceover"}``).  Empty → empty set.
-
-        Returns:
-            The set of ``channel_id`` strings carrying any of those content_type
-            tags.  Empty when *values* is empty or nothing matches.
-        """
-        if not values:
-            return set()
-        rows = (
-            self.session.query(ContentTagDB.channel_id)
-            .join(TagDB, TagDB.id == ContentTagDB.tag_id)
-            .filter(TagDB.type == "content_type", TagDB.value.in_(list(values)))
-            .distinct()
-            .all()
-        )
-        return {r.channel_id for r in rows}
-
-    def _scope_to_visible_channels(self, query, channel_id_col,
+    def _scope_to_visible_channels(self, query, channel_key_col,
                                    excluded_provider_ids: Optional[List[str]] = None,
                                    excluded_prefixes: Optional[Set[str]] = None,
                                    excluded_categories: Optional[Set[str]] = None,
@@ -640,9 +240,10 @@ class TagRepository:
 
         Args:
             query: The SQLAlchemy query to scope.
-            channel_id_col: The column expression carrying the channel id to
-                join ``ChannelDB.id`` against (e.g. ``ContentTagDB.channel_id``
-                or an aliased equivalent). Ignored when *join_channel* is False.
+            channel_key_col: The column expression carrying the channel key to
+                join ``ChannelDB.channel_key`` against (e.g.
+                ``ContentTagDB.channel_key`` or an aliased equivalent).
+                Ignored when *join_channel* is False.
             join_channel: Whether to JOIN ``ChannelDB``. Pass ``False`` when the
                 query already selects from it — every filter below still
                 applies, so both kinds of caller share one definition of
@@ -685,7 +286,7 @@ class TagRepository:
         # that needed it ran inside a background worker, the exception surfaced
         # as an empty filter panel rather than a traceback.
         if join_channel:
-            query = query.join(ChannelDB, ChannelDB.id == channel_id_col)
+            query = query.join(ChannelDB, ChannelDB.channel_key == channel_key_col)
         query = query.filter(
             ChannelDB.name.notlike("##%"),      # exclude provider category headers
         )
@@ -752,12 +353,12 @@ class TagRepository:
             self.session.query(
                 TagDB.type,
                 TagDB.value,
-                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+                _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids,
+            q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
@@ -826,12 +427,12 @@ class TagRepository:
         tagged_q = (
             self.session.query(
                 TagDB.type,
-                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+                _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
         )
         tagged_q = self._scope_to_visible_channels(
-            tagged_q, ContentTagDB.channel_id, excluded_provider_ids,
+            tagged_q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
@@ -907,7 +508,7 @@ class TagRepository:
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids,
+            q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type)
@@ -972,17 +573,17 @@ class TagRepository:
         q = (
             self.session.query(
                 TagDB.value,
-                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+                _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             .filter(TagDB.type == facet_type)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids,
+            q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         ).group_by(TagDB.value).order_by(
-            _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
+            _func.count(_func.distinct(ContentTagDB.channel_key)).desc()
         )
         if limit is not None:
             q = q.limit(limit)
@@ -1054,13 +655,13 @@ class TagRepository:
             self.session.query(
                 TagDB.type.label("ftype"),
                 TagDB.value.label("value"),
-                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+                _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             .filter(TagDB.type.in_(facet_list))
         )
         inner_q = self._scope_to_visible_channels(
-            inner_q, ContentTagDB.channel_id, excluded_provider_ids,
+            inner_q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value)
@@ -1151,18 +752,18 @@ class TagRepository:
             self.session.query(
                 TagDB.type,
                 TagDB.value,
-                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+                _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             # Lower-cased LIKE = portable case-insensitive substring match.
             .filter(_func.lower(TagDB.value).like(pattern))
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids,
+            q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value).order_by(
-            _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
+            _func.count(_func.distinct(ContentTagDB.channel_key)).desc()
         )
         if limit is not None:
             q = q.limit(limit)
@@ -1241,11 +842,12 @@ class TagRepository:
                 engine never reads Config.
 
         Returns:
-            An unexecuted SQLAlchemy query selecting ``DISTINCT channel_id`` for
-            every channel satisfying the constraints.  Callers choose how to
-            consume it: ``.all()`` for the id set, ``.count()`` for a SQL count,
-            ``.limit(n)`` for a bounded sample — so a count or preview never
-            materialises the full match set.
+            An unexecuted SQLAlchemy query selecting ``DISTINCT channel_key``
+            (DB-9's internal int surrogate — every public caller below
+            translates back to ``ChannelDB.id``) for every channel satisfying
+            the constraints.  Callers choose how to consume it: ``.all()`` for
+            the key set, ``.count()`` for a SQL count, ``.limit(n)`` for a
+            bounded sample.
         """
         from sqlalchemy.orm import aliased
         from sqlalchemy import select as sa_select
@@ -1261,7 +863,7 @@ class TagRepository:
 
         # --- build the base query: distinct channel_ids in content_tags ---
         #
-        # We anchor the outer query on ContentTagDB.channel_id and filter it
+        # We anchor the outer query on ContentTagDB.channel_key and filter it
         # with correlated EXISTS subqueries — one per include facet (AND) and
         # one NOT EXISTS for the union of all exclude tags.  SQLite evaluates
         # each EXISTS as a correlated scan using the idx on content_tags(tag_id);
@@ -1270,7 +872,7 @@ class TagRepository:
         # Anchor the driving query directly on the first constrained include
         # facet's tag membership (JOIN tags … WHERE type/value), so SQLite seeks
         # the tag_id index and the driving scan is bounded to that facet's
-        # channels — instead of `SELECT DISTINCT channel_id FROM content_tags`
+        # channels — instead of `SELECT DISTINCT channel_key FROM content_tags`
         # enumerating the entire content_tags table (1M+ rows) and EXISTS-checking
         # each.  The remaining include facets stay as correlated EXISTS subqueries
         # (AND across facets), and the exclude block (NOT EXISTS) is unchanged.
@@ -1283,7 +885,7 @@ class TagRepository:
             remaining_facets = constrained_facets[1:]
             t_anchor = aliased(TagDB, flat=True)
             query = (
-                self.session.query(outer.channel_id)
+                self.session.query(outer.channel_key)
                 .join(t_anchor, t_anchor.id == outer.tag_id)
                 .filter(
                     t_anchor.type == anchor_ftype,
@@ -1293,11 +895,14 @@ class TagRepository:
             )
         else:
             remaining_facets = []
-            query = self.session.query(outer.channel_id).distinct()
+            query = self.session.query(outer.channel_key).distinct()
 
-        # Scope to a caller-provided pre-filter if given.
+        # Scope to a caller-provided pre-filter if given. base_channel_ids is
+        # public ChannelDB.id strings — DB-9: translate to the int
+        # channel_keys the query is actually anchored on.
         if base_channel_ids is not None:
-            query = query.filter(outer.channel_id.in_(base_channel_ids))
+            base_channel_keys = set(self._channel_keys(base_channel_ids).values())
+            query = query.filter(outer.channel_key.in_(base_channel_keys))
 
         # Scope to visible channels on active sources when requested (recipe
         # YIELDS uses this so its count matches the pantry/cloud facet counts).
@@ -1305,7 +910,7 @@ class TagRepository:
         # surface content the user has globally banished.
         if excluded_provider_ids is not None:
             query = self._scope_to_visible_channels(
-                query, outer.channel_id, excluded_provider_ids,
+                query, outer.channel_key, excluded_provider_ids,
                 excluded_prefixes, excluded_categories, excluded_tag_content_types,
                 excluded_keywords=excluded_keywords,
             )
@@ -1315,10 +920,10 @@ class TagRepository:
             ct_i = aliased(ContentTagDB, flat=True)
             t_i = aliased(TagDB, flat=True)
             subq = (
-                sa_select(ct_i.channel_id)
+                sa_select(ct_i.channel_key)
                 .join(t_i, t_i.id == ct_i.tag_id)
                 .where(
-                    ct_i.channel_id == outer.channel_id,
+                    ct_i.channel_key == outer.channel_key,
                     t_i.type == ftype,
                     t_i.value.in_(list(allowed_values)),
                 )
@@ -1348,10 +953,10 @@ class TagRepository:
             ]
 
             excl_subq = (
-                sa_select(ct_e.channel_id)
+                sa_select(ct_e.channel_key)
                 .join(t_e, t_e.id == ct_e.tag_id)
                 .where(
-                    ct_e.channel_id == outer.channel_id,
+                    ct_e.channel_key == outer.channel_key,
                     or_(*excl_facet_clauses),
                 )
                 .correlate(outer)
@@ -1392,7 +997,13 @@ class TagRepository:
             excluded_tag_content_types=excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         )
-        return {row.channel_id for row in query.all()}
+        keys = {row.channel_key for row in query.all()}
+        if not keys:
+            return set()
+        # DB-9: translate the (already small, already-filtered) match set back
+        # to public channel_id strings, this method's contract.
+        rows = self.session.query(ChannelDB.id).filter(ChannelDB.channel_key.in_(keys)).all()
+        return {r.id for r in rows}
 
     def count_channels_by_tag_facets(
         self,
@@ -1446,7 +1057,7 @@ class TagRepository:
                 self.session.query(
                     _func.count(_func.distinct(_group_key))
                 )
-                .join(matching, matching.c.channel_id == ChannelDB.id)
+                .join(matching, matching.c.channel_key == ChannelDB.channel_key)
                 .scalar()
             ) or 0
         return query.count()
@@ -1481,12 +1092,12 @@ class TagRepository:
             excluded_tag_content_types=excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         )
-        ids = [row.channel_id for row in query.limit(limit).all()]
-        if not ids:
+        keys = [row.channel_key for row in query.limit(limit).all()]
+        if not keys:
             return []
         rows = (
             self.session.query(ChannelDB.name)
-            .filter(ChannelDB.id.in_(ids))
+            .filter(ChannelDB.channel_key.in_(keys))
             .order_by(ChannelDB.name)
             .all()
         )
@@ -1555,7 +1166,7 @@ class TagRepository:
         )
         inner_q = (
             self.session.query(ChannelDB)
-            .join(matching_subq, matching_subq.c.channel_id == ChannelDB.id)
+            .join(matching_subq, matching_subq.c.channel_key == ChannelDB.channel_key)
         )
         if name_filter:
             inner_q = inner_q.filter(_title_expr.ilike(f"%{name_filter}%"))
@@ -1750,7 +1361,7 @@ class TagRepository:
         _title_sort = _title_expr.collate("NOCASE")
         q = (
             self.session.query(ChannelDB)
-            .join(matching, matching.c.channel_id == ChannelDB.id)
+            .join(matching, matching.c.channel_key == ChannelDB.channel_key)
         )
         if name_filter:
             # SQL-level filter: COALESCE(detected_title, name) LIKE '%<filter>%'.
@@ -1787,19 +1398,3 @@ def _clear_tag_cache() -> None:
     """
     with _TAG_ID_LOCK:
         _TAG_ID_CACHE.clear()
-
-
-def _compute_confidence(feeders: List[str]) -> float:
-    """Confidence v1 formula: ``min(1.0, len(distinct_feeders) / 3)``.
-
-    Args:
-        feeders: List of feeder names (may contain duplicates; only distinct
-            values are counted).
-
-    Returns:
-        Float in ``[0.33, 1.0]`` for non-empty lists; ``0.0`` for empty.
-    """
-    distinct = len(set(feeders))
-    if distinct == 0:
-        return 0.0
-    return min(1.0, distinct / _FEEDER_DENOMINATOR)

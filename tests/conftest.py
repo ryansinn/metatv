@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from metatv.core.database import Base, ChannelDB, Database
+from metatv.core.database import Base, ChannelDB, ContentTagDB, Database
 from metatv.core.repositories.channel import ChannelRepository
 from metatv.core.repositories.tag import _clear_tag_cache
 
@@ -926,6 +926,33 @@ def make_channel(
     session.add(ch)
     session.flush()
     return ch
+
+
+def add_content_tag(
+    session, channel_id: str, tag_id: int, source: str = "generated", **kwargs,
+) -> ContentTagDB:
+    """Insert a ``ContentTagDB`` row for *channel_id*, resolving its channel_key.
+
+    DB-9: ``content_tags`` joins on the int ``ChannelDB.channel_key``, not the
+    public channel_id string — the single factory every test uses instead of
+    re-deriving the mapping at each of the 19 direct-construction call sites
+    (the shared-factory rule, CLAUDE.md). *channel_id* must already have a
+    ``ChannelDB`` row (e.g. via :func:`make_channel`) — the trigger assigns
+    ``channel_key`` at insert, so a fresh query here always sees it even
+    though the ORM object from an earlier flush was never refreshed with it.
+    """
+    channel_key = (
+        session.query(ChannelDB.channel_key)
+        .filter(ChannelDB.id == channel_id)
+        .scalar()
+    )
+    assert channel_key is not None, (
+        f"add_content_tag: no channel_key for channel_id={channel_id!r} — "
+        "insert the ChannelDB row first (e.g. via make_channel)"
+    )
+    row = ContentTagDB(channel_key=channel_key, tag_id=tag_id, source=source, **kwargs)
+    session.add(row)
+    return row
 
 
 def channel_query_params(**overrides) -> dict:

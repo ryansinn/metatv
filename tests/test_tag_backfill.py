@@ -28,7 +28,7 @@ from metatv.core.migrations.tag_backfill import (
     _collect_tags,
 )
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.tag import _compute_confidence
+from metatv.core.repositories.tag_content_tags import _compute_confidence
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,8 @@ def _tags_for(db: Database, channel_id: str) -> list[tuple[str, str, str, list[s
         rows = (
             session.query(TagDB.type, TagDB.value, ContentTagDB.source, ContentTagDB.feeders)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == channel_id)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == channel_id)
             .all()
         )
     return [(r.type, r.value, r.source, list(r.feeders or [])) for r in rows]
@@ -105,7 +106,8 @@ def _content_tag_count(db: Database, channel_id: str, source: str = "generated")
     with db.session_scope(commit=False) as session:
         return (
             session.query(ContentTagDB)
-            .filter_by(channel_id=channel_id, source=source)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == channel_id, ContentTagDB.source == source)
             .count()
         )
 
@@ -312,11 +314,13 @@ class TestBackfillPopulatesTags:
             assert tag is not None, "region:US tag should have been created"
             link = (
                 session.query(ContentTagDB)
-                .filter_by(channel_id=cid, tag_id=tag.id, source="generated")
+                .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+                .filter(ChannelDB.id == cid, ContentTagDB.tag_id == tag.id,
+                       ContentTagDB.source == "generated")
                 .one()
             )
             assert len(set(link.feeders)) == 2
-            assert link.confidence > _compute_confidence(["single_feeder"])
+            assert _compute_confidence(link.feeders) > _compute_confidence(["single_feeder"])
 
     def test_no_channel_produces_no_tags(self, file_db, cfg):
         """A channel with all-None feeder fields gets no content_tags."""

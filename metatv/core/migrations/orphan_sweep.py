@@ -64,9 +64,9 @@ def _has_orphaned_content_tag(session: Session) -> bool:
     """True if a ``content_tags`` row points at a channel that no longer exists."""
     from metatv.core.database import ChannelDB, ContentTagDB
 
-    channel_ids = session.query(ChannelDB.id)
-    return session.query(ContentTagDB.channel_id).filter(
-        ~ContentTagDB.channel_id.in_(channel_ids)
+    channel_keys = session.query(ChannelDB.channel_key)
+    return session.query(ContentTagDB.channel_key).filter(
+        ~ContentTagDB.channel_key.in_(channel_keys)
     ).limit(1).first() is not None
 
 
@@ -156,7 +156,7 @@ class OrphanSweepTask:
         with self._db.session_scope() as session:
             result = session.execute(text(
                 "DELETE FROM content_tags WHERE NOT EXISTS "
-                "(SELECT 1 FROM channels WHERE channels.id = content_tags.channel_id)"
+                "(SELECT 1 FROM channels WHERE channels.channel_key = content_tags.channel_key)"
             ))
             removed = result.rowcount or 0
 

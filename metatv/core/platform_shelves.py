@@ -93,7 +93,7 @@ def platform_shelf_values(
         session.query(TagDB.value, titles.label("titles"))
         .select_from(ContentTagDB)
         .join(TagDB, TagDB.id == ContentTagDB.tag_id)
-        .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
+        .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
         .filter(
             TagDB.type == PLATFORM_FACET,
             ChannelDB.media_type.in_(list(PLATFORM_SHELF_MEDIA_TYPES)),

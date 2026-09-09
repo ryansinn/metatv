@@ -105,7 +105,7 @@ def _load_tag_content_type_counts(db: Database, values: list[str]) -> dict[str, 
         rows = (
             session.query(
                 TagDB.value,
-                func.count(func.distinct(ContentTagDB.channel_id)),
+                func.count(func.distinct(ContentTagDB.channel_key)),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             .filter(TagDB.type == "content_type", TagDB.value.in_(values))

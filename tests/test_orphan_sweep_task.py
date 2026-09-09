@@ -82,8 +82,33 @@ def _tag(session, tag_id: int = 1) -> TagDB:
     return t
 
 
+def _sentinel_channel_key(channel_id: str) -> int:
+    """A deterministic, always-negative surrogate key for a *channel_id*
+    string this file deliberately gives no ``ChannelDB`` row (the ghost/orphan
+    scenarios these tests exist to cover). Real ``channel_key`` values are
+    always positive (seeded from ``rowid`` / the AFTER INSERT trigger's
+    ``MAX()+1``), so a negative one can never collide with one — the same
+    "content_tags row with no matching channels row at all" shape a pre-DB-9
+    orphan took, since FKs are off.
+    """
+    return -(abs(hash(channel_id)) % 1_000_000_000) - 1
+
+
+def _channel_key_for(session, channel_id: str) -> int:
+    """Resolve *channel_id* to its real ``channel_key``, or the deterministic
+    sentinel this file's ghost channels use — so insert and later assertion
+    always agree on which key a given channel_id maps to."""
+    key = (
+        session.query(ChannelDB.channel_key)
+        .filter(ChannelDB.id == channel_id)
+        .scalar()
+    )
+    return key if key is not None else _sentinel_channel_key(channel_id)
+
+
 def _content_tag(session, channel_id: str, tag_id: int = 1) -> ContentTagDB:
-    ct = ContentTagDB(channel_id=channel_id, tag_id=tag_id, source="generated")
+    ct = ContentTagDB(channel_key=_channel_key_for(session, channel_id),
+                      tag_id=tag_id, source="generated")
     session.add(ct)
     session.flush()
     return ct
@@ -130,6 +155,11 @@ def test_run_prunes_nonengaged_orphans_preserves_engaged(db):
         _epg(session, plain_id, "pid-a")
         _tag(session)
         _content_tag(session, plain_id)
+        # Captured now, before pruning: once plain_id's ChannelDB row is gone,
+        # _channel_key_for(plain_id) would fall through to the deterministic
+        # SENTINEL instead of the real key the row was actually inserted
+        # under, which would make the assertion below pass vacuously.
+        plain_key = _channel_key_for(session, plain_id)
 
         _orphan_provider(session, "pid-a")
 
@@ -153,7 +183,7 @@ def test_run_prunes_nonengaged_orphans_preserves_engaged(db):
             "metadata linked to the pruned channel must be removed"
         assert session.query(EpgProgramDB).filter_by(channel_db_id=plain_id).count() == 0, \
             "EPG rows for the pruned channel must be removed"
-        assert session.query(ContentTagDB).filter_by(channel_id=plain_id).count() == 0, \
+        assert session.query(ContentTagDB).filter_by(channel_key=plain_key).count() == 0, \
             "content_tags for the pruned channel must be removed"
 
     assert progress_calls, "run() must report progress"
@@ -191,9 +221,9 @@ def test_run_removes_content_tags_for_missing_channels_only(db):
     OrphanSweepTask(db).run(lambda d, t: None, lambda: False)
 
     with db.session_scope(commit=False) as session:
-        assert session.query(ContentTagDB).filter_by(channel_id=ghost_id).count() == 0, \
+        assert session.query(ContentTagDB).filter_by(channel_key=_channel_key_for(session, ghost_id)).count() == 0, \
             "content_tags row for a missing channel must be removed"
-        assert session.query(ContentTagDB).filter_by(channel_id=live_id).count() == 1, \
+        assert session.query(ContentTagDB).filter_by(channel_key=_channel_key_for(session, live_id)).count() == 1, \
             "content_tags row for a live channel must be preserved"
 
 
@@ -227,7 +257,7 @@ def test_cancellation_stops_after_channel_prune_needs_run_stays_true(db):
     with db.session_scope(commit=False) as session:
         assert session.query(ChannelDB).filter_by(id=plain_id).first() is None, \
             "the channel-prune step must have completed before cancellation"
-        assert session.query(ContentTagDB).filter_by(channel_id=ghost_id).count() == 1, \
+        assert session.query(ContentTagDB).filter_by(channel_key=_channel_key_for(session, ghost_id)).count() == 1, \
             "the content_tags step must have been skipped by cancellation"
 
     assert task.needs_run(None) is True, \

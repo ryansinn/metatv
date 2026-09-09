@@ -133,7 +133,8 @@ def _genre_tags(db: Database, cid: str) -> set[str]:
         rows = (
             session.query(TagDB.value)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == cid, TagDB.type == "genre",
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == cid, TagDB.type == "genre",
                     ContentTagDB.source == "generated")
             .all()
         )
@@ -196,7 +197,8 @@ def test_backfill_preserves_user_genre_tag(file_db, cfg):
         user_rows = (
             session.query(TagDB.value)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == cid, ContentTagDB.source == "user")
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == cid, ContentTagDB.source == "user")
             .all()
         )
     assert {r[0] for r in user_rows} == {"Soap"}, "user genre:'Soap' must be untouched"

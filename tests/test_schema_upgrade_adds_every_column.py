@@ -135,8 +135,16 @@ ORIGINAL_COLUMNS: dict[str, frozenset[str]] = {
         "metadata_id", "name", "play_count", "provider_id", "quality",
         "raw_data", "source_id", "stream_url", "updated_at",
     }),
+    # DB-9 rebuilt this table (channel_id str -> channel_key int FK; id and
+    # confidence dropped) — a full DROP+recreate, not an ALTER TABLE entry, so
+    # this is what an existing database ends up with via
+    # content_tags_rebuild.py, not via _migrate()'s per-column list. See
+    # test_an_old_shaped_content_tags_is_rebuilt_by_migrate below — the
+    # sibling assertion GUARD-6's own docstring calls for, since a rebuilt
+    # table with ZERO _migrate() entries is invisible to the type-affinity
+    # test unless something first drops it to the pre-rebuild shape.
     "content_tags": frozenset({
-        "channel_id", "confidence", "feeders", "id", "source", "tag_id",
+        "channel_key", "feeders", "source", "tag_id",
     }),
     "downloads": frozenset({
         "channel_id", "channel_name", "created_at", "dest_path",
@@ -651,3 +659,60 @@ def test_type_classes_agree_on_a_column_untouched_by_the_rebuild(tmp_path):
     orm_types = _orm_column_type_classes(engine.dialect, "episodes")
     live_types = _reflected_column_type_classes(engine, "episodes")
     assert live_types["id"] == orm_types["id"] == "TEXT"
+
+
+def test_an_old_shaped_content_tags_is_rebuilt_by_migrate(tmp_path):
+    """The sibling assertion GUARD-6's own docstring calls for.
+
+    ``content_tags`` has ZERO entries in ``_migrate()``'s ALTER TABLE list —
+    the DB-9 rebuild is a full DROP+recreate, not a column add — so
+    ``test_upgraded_schema_matches_orm_column_types`` above never actually
+    drops+rebuilds it (``migrated = _migrated_columns().get("content_tags")``
+    is empty, so that test's "simulate older" branch never runs for this
+    table). This builds the genuine pre-DB-9 shape by hand — string
+    ``channel_id``, surrogate ``id`` PK, a stored ``confidence`` column — and
+    proves ``Database.create_tables()`` (the real upgrade path) rebuilds it
+    onto ``channel_key`` and that a real ORM query then works.
+    """
+    from metatv.core.database import ContentTagDB
+
+    url = f"sqlite:///{tmp_path / 'old_content_tags.db'}"
+    db = Database(url)
+    db.create_tables()  # channels.channel_key + its trigger already exist
+
+    with db.session_scope() as session:
+        session.add(ChannelDB(id="p_1", source_id="s", provider_id="p",
+                              name="Test", media_type="movie"))
+
+    with db.engine.connect() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO tags (id, type, value) VALUES (1, 'genre', 'Drama')"
+        ))
+        conn.execute(sa.text("DROP TABLE content_tags"))
+        conn.execute(sa.text(
+            "CREATE TABLE content_tags ("
+            "id INTEGER PRIMARY KEY, channel_id VARCHAR NOT NULL, "
+            "tag_id INTEGER NOT NULL, source VARCHAR NOT NULL DEFAULT 'generated', "
+            "feeders TEXT, confidence FLOAT, "
+            "UNIQUE (channel_id, tag_id, source))"
+        ))
+        conn.execute(sa.text(
+            "INSERT INTO content_tags (channel_id, tag_id, source, feeders, confidence) "
+            "VALUES ('p_1', 1, 'generated', '[\"name_parse\"]', 0.33)"
+        ))
+        conn.commit()
+
+    Database(url).create_tables()  # the upgrade path — triggers the rebuild
+
+    live_types = _reflected_column_type_classes(db.engine, "content_tags")
+    assert set(live_types) == {"channel_key", "tag_id", "source", "feeders"}, (
+        f"content_tags did not land in the DB-9 shape: {sorted(live_types)}"
+    )
+    assert live_types["channel_key"] == "INTEGER"
+
+    with db.session_scope(commit=False) as session:
+        row = session.query(ContentTagDB).one()
+        channel = session.query(ChannelDB).filter_by(id="p_1").one()
+        assert row.channel_key == channel.channel_key
+        assert row.feeders == ["name_parse"]
+        assert row.source == "generated"

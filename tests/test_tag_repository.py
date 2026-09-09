@@ -21,10 +21,8 @@ import pytest
 
 from metatv.core.database import ChannelDB, Database, TagDB, ContentTagDB
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.tag import (
-    _TAG_ID_CACHE,
-    _compute_confidence,
-)
+from metatv.core.repositories.tag import _TAG_ID_CACHE
+from metatv.core.repositories.tag_content_tags import _compute_confidence
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +50,11 @@ def _make_channel(session, provider_id: str = "test_provider") -> str:
     session.add(ch)
     session.flush()
     return ch.id
+
+
+def _ck(session, cid: str) -> int:
+    """DB-9: content_tags joins on channel_key, not the public channel_id."""
+    return session.query(ChannelDB.channel_key).filter_by(id=cid).scalar()
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +150,7 @@ class TestSetContentTags:
         )
         session.commit()
 
-        links = session.query(ContentTagDB).filter_by(channel_id=cid).all()
+        links = session.query(ContentTagDB).filter_by(channel_key=_ck(session, cid)).all()
         assert len(links) == 2
 
     def test_no_duplicate_links_for_same_type_value(self, session):
@@ -160,7 +163,7 @@ class TestSetContentTags:
         repos.tags.set_content_tags(cid, [("genre", "Drama", "feeder_a")])
         session.commit()
 
-        links = session.query(ContentTagDB).filter_by(channel_id=cid).all()
+        links = session.query(ContentTagDB).filter_by(channel_key=_ck(session, cid)).all()
         assert len(links) == 1
 
     def test_feeders_merge_on_second_assertion(self, session):
@@ -176,7 +179,7 @@ class TestSetContentTags:
         tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
         assert set(link.feeders) == {"feeder_a", "feeder_b"}
@@ -192,17 +195,17 @@ class TestSetContentTags:
         tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
-        confidence_one = link.confidence
+        confidence_one = _compute_confidence(link.feeders)
         assert abs(confidence_one - 1 / 3) < 1e-9
 
         repos.tags.set_content_tags(cid, [("genre", "Drama", "feeder_b")])
         session.commit()
 
         session.refresh(link)
-        confidence_two = link.confidence
+        confidence_two = _compute_confidence(link.feeders)
         assert abs(confidence_two - 2 / 3) < 1e-9
         assert confidence_two > confidence_one
 
@@ -218,10 +221,10 @@ class TestSetContentTags:
         tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
-        assert link.confidence == 1.0
+        assert _compute_confidence(link.feeders) == 1.0
 
     def test_duplicate_feeder_does_not_inflate_confidence(self, session):
         """Asserting the same feeder twice does not raise confidence."""
@@ -236,11 +239,11 @@ class TestSetContentTags:
         tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
         # Still one distinct feeder → 1/3
-        assert abs(link.confidence - 1 / 3) < 1e-9
+        assert abs(_compute_confidence(link.feeders) - 1 / 3) < 1e-9
 
     def test_source_default_is_generated(self, session):
         """Without an explicit source argument, links are tagged 'generated'."""
@@ -249,7 +252,7 @@ class TestSetContentTags:
         repos.tags.set_content_tags(cid, [("quality", "4K", "some_feeder")])
         session.commit()
 
-        link = session.query(ContentTagDB).filter_by(channel_id=cid).one()
+        link = session.query(ContentTagDB).filter_by(channel_key=_ck(session, cid)).one()
         assert link.source == "generated"
 
     def test_user_source_stored_separately(self, session):
@@ -262,7 +265,7 @@ class TestSetContentTags:
         repos.tags.set_content_tags(cid, [("genre", "Drama", "human")], source="user")
         session.commit()
 
-        links = session.query(ContentTagDB).filter_by(channel_id=cid).all()
+        links = session.query(ContentTagDB).filter_by(channel_key=_ck(session, cid)).all()
         sources = {lnk.source for lnk in links}
         assert sources == {"generated", "user"}
 
@@ -619,11 +622,11 @@ class TestBulkUpsert:
         tag = session.query(TagDB).filter_by(type="region", value="US").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
         assert link.feeders == ["prefix_feeder"]
-        assert abs(link.confidence - 1 / 3) < 1e-9
+        assert abs(_compute_confidence(link.feeders) - 1 / 3) < 1e-9
 
     def test_feeder_merge_via_upsert_no_duplicate_rows(self, session):
         """Re-tagging a channel with a new feeder merges onto the existing link row.
@@ -645,12 +648,12 @@ class TestBulkUpsert:
         tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
         links = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .all()
         )
         assert len(links) == 1, "Must be exactly one link row after two calls"
         assert set(links[0].feeders) == {"feeder_a", "feeder_b"}
-        assert abs(links[0].confidence - 2 / 3) < 1e-9
+        assert abs(_compute_confidence(links[0].feeders) - 2 / 3) < 1e-9
 
     def test_bulk_inserts_n_links_in_one_statement(self, file_db):
         """set_content_tags issues ONE INSERT … ON CONFLICT for N tags (not N inserts).
@@ -718,8 +721,8 @@ class TestBulkUpsert:
         tag = session.query(TagDB).filter_by(type="genre", value="Action").one()
         link = (
             session.query(ContentTagDB)
-            .filter_by(channel_id=cid, tag_id=tag.id)
+            .filter_by(channel_key=_ck(session, cid), tag_id=tag.id)
             .one()
         )
         assert link.feeders == ["feeder_x"], "Duplicate feeder must not be appended"
-        assert abs(link.confidence - 1 / 3) < 1e-9
+        assert abs(_compute_confidence(link.feeders) - 1 / 3) < 1e-9

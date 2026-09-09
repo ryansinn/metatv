@@ -78,19 +78,21 @@ def _region_of(database, cid):
 
 
 def _tags_of(database, cid):
-    from metatv.core.database import ContentTagDB, TagDB
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
     with database.session_scope() as s:
         return {
             (t.type, t.value) for t in
             s.query(TagDB)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == cid).all()
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == cid).all()
         }
 
 
 def _tag(database, cid, type_, value):
-    from metatv.core.database import ContentTagDB, TagDB
+    from metatv.core.database import TagDB
+    from tests.conftest import add_content_tag
 
     with database.session_scope() as s:
         existing = s.query(TagDB).filter(
@@ -99,7 +101,7 @@ def _tag(database, cid, type_, value):
             existing = TagDB(type=type_, value=value)
             s.add(existing)
             s.flush()
-        s.add(ContentTagDB(channel_id=cid, tag_id=existing.id, source="generated"))
+        add_content_tag(s, cid, existing.id, source="generated")
 
 
 def _run_migration(database):

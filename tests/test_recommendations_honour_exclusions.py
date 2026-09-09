@@ -24,7 +24,7 @@ from datetime import datetime
 
 
 from metatv.core.database import (
-    ChannelDB, ContentTagDB, MetadataDB, TagDB, UserRatingDB,
+    ChannelDB, MetadataDB, TagDB, UserRatingDB,
 )
 from metatv.core.preference_engine import compute_weights, score_candidates
 
@@ -102,13 +102,14 @@ def test_content_type_exclusions_reach_recommendations(file_db):
     over ``content_tags JOIN tags`` — so the fixture has to tag the row rather
     than set a field on it.
     """
+    from tests.conftest import add_content_tag
+
     with file_db.session_scope() as session:
         ai_id = _seed(session)
         tag = TagDB(type="content_type", value="ai")
         session.add(tag)
         session.flush()
-        session.add(ContentTagDB(channel_id=ai_id, tag_id=tag.id,
-                                 source="generated"))
+        add_content_tag(session, ai_id, tag.id, source="generated")
 
     with file_db.session_scope(commit=False) as session:
         without = _ids(session)

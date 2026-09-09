@@ -27,7 +27,7 @@ import uuid
 
 import pytest
 
-from metatv.core.database import ChannelDB, ContentTagDB, ProviderDB, TagDB
+from metatv.core.database import ChannelDB, ProviderDB, TagDB
 from metatv.core.repositories.tag import _clear_tag_cache
 
 
@@ -92,14 +92,14 @@ def _make_channel(
 
 def _tag_channel(session, channel_id: str, tag_type: str, tag_value: str) -> None:
     """Create a tag + content_tag link for a channel."""
+    from tests.conftest import add_content_tag
+
     tag = session.query(TagDB).filter_by(type=tag_type, value=tag_value).first()
     if tag is None:
         tag = TagDB(type=tag_type, value=tag_value)
         session.add(tag)
         session.flush()
-    ct = ContentTagDB(channel_id=channel_id, tag_id=tag.id, source="generated",
-                      feeders=["test"], confidence=1.0)
-    session.add(ct)
+    add_content_tag(session, channel_id, tag.id, source="generated", feeders=["test"])
     session.flush()
 
 

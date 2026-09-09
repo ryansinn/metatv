@@ -292,7 +292,8 @@ def _tags_for(db: Database, channel_id: str) -> set[tuple[str, str]]:
         rows = (
             session.query(TagDB.type, TagDB.value)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(ContentTagDB.channel_id == channel_id)
+            .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+            .filter(ChannelDB.id == channel_id)
             .all()
         )
     return {(r[0], r[1]) for r in rows}

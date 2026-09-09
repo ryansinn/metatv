@@ -126,7 +126,8 @@ class TestDerivedTags:
         recommendations as German. Clearing the column without the tag would
         leave that in place.
         """
-        from metatv.core.database import ContentTagDB, TagDB
+        from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+        from tests.conftest import add_content_tag
 
         cid = _add(db, prefix="EN", region="DE")
         with db.session_scope() as s:
@@ -138,7 +139,7 @@ class TestDerivedTags:
             s.add_all([english, german, region])
             s.flush()
             for t in (english, german, region):
-                s.add(ContentTagDB(channel_id=cid, tag_id=t.id, source="generated"))
+                add_content_tag(s, cid, t.id, source="generated")
 
         _run(db)
 
@@ -147,7 +148,8 @@ class TestDerivedTags:
                 (t.type, t.value) for t, in (
                     (row,) for row in s.query(TagDB)
                     .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-                    .filter(ContentTagDB.channel_id == cid).all()
+                    .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
+                    .filter(ChannelDB.id == cid).all()
                 )
             }
         assert ("region", "DE") not in remaining, "the bogus region tag survived"
