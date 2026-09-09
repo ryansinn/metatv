@@ -24,6 +24,7 @@ from metatv.core.config import Config
 from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_backfill import (
     CURRENT_TAG_BACKFILL_VERSION,
+    _TARGETED_GENRE_GAP_FLOOR,
     TagBackfillTask,
     _collect_tags,
 )
@@ -760,3 +761,160 @@ class TestBatchPathBehavior:
             "A tag-less channel must produce zero content_tag rows"
         )
         assert _content_tag_count(file_db, cid, source="user") == 0
+
+
+# ---------------------------------------------------------------------------
+# TAG-1 (version 11): content_tags catches up with detected_genres
+#
+# W-1 (#819) fixed filter_utils.recognized_genre()'s case-sensitivity and
+# added its category->genre cross-walk, then re-derived ChannelDB.
+# detected_genres for the whole library via DetectedGenreBackfillTask v3 --
+# but recognized_genre() is also the provider_category feeder's genre pass
+# here, and content_tags was never re-decomposed. A library already at
+# tag_backfill_version == _TARGETED_GENRE_GAP_FLOOR (10, the version this gap
+# shipped under) only needs THOSE channels re-run -- a library resuming from
+# further behind still gets the full corpus pass, which also closes this gap
+# as a side effect because _collect_tags always runs today's feeder code.
+# ---------------------------------------------------------------------------
+
+class TestGenreGapTargetedRerun:
+    def test_channel_missing_genre_tag_gets_one_agreeing_sibling_untouched(
+        self, file_db, cfg, monkeypatch
+    ):
+        """A channel whose detected_genres disagrees with content_tags gets the
+        missing genre tag; a sibling channel whose tags already agree is left
+        completely alone by the targeted pass.
+        """
+        # Affected: detected_genres already reflects the post-W-1 recognized_genre()
+        # cross-walk (as if DetectedGenreBackfillTask v3 already ran), but
+        # content_tags predates the fix -- exactly the TAG-1 gap.
+        affected = _add_channel(file_db, name="Affected Movie", category="Documentaire")
+        with file_db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=affected).one()
+            ch.detected_genres = ["Documentary"]
+            ch.media_type = "movie"
+
+        # Agreeing sibling: same category, but its content_tags already carry
+        # the matching genre tag -- a real post-fix corpus row. Must not be
+        # touched by the targeted pass.
+        agreeing = _add_channel(file_db, name="Agreeing Movie", category="Documentaire")
+        with file_db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=agreeing).one()
+            ch.detected_genres = ["Documentary"]
+            ch.media_type = "movie"
+        with file_db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            repos.tags.set_content_tags(
+                agreeing, [("genre", "Documentary", "provider_category")], source="generated"
+            )
+
+        # Sanity on the seeded starting state.
+        assert _content_tag_count(file_db, affected, source="generated") == 0
+        assert ("genre", "Documentary") in {
+            (t, v) for t, v, _s, _f in _tags_for(file_db, agreeing)
+        }
+
+        # Library already caught up through the immediately-prior version --
+        # the realistic production state (everyone was on 10 before TAG-1).
+        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR
+        assert TagBackfillTask(file_db, config=cfg).needs_run(cfg) is True
+
+        # Track exactly which channel ids get re-decomposed.
+        import metatv.core.repositories.tag as _tag_repo_module
+
+        touched: list[str] = []
+        original = _tag_repo_module.TagRepository.delete_generated_for_channels
+
+        def _tracking(self_repo, channel_ids):
+            touched.extend(channel_ids)
+            return original(self_repo, channel_ids)
+
+        monkeypatch.setattr(
+            _tag_repo_module.TagRepository, "delete_generated_for_channels", _tracking
+        )
+
+        _run_backfill(file_db, cfg)
+
+        assert affected in touched, "the affected channel must be re-decomposed"
+        assert agreeing not in touched, "an already-agreeing channel must be left alone"
+
+        affected_tags = {(t, v) for t, v, _s, _f in _tags_for(file_db, affected)}
+        assert ("genre", "Documentary") in affected_tags, (
+            "the missing genre tag must exist after the targeted pass"
+        )
+
+        agreeing_tags_after = _tags_for(file_db, agreeing)
+        assert len(agreeing_tags_after) == 1, "the agreeing channel's tags must be unchanged"
+
+    def test_targeted_path_used_when_library_at_floor(self, file_db, cfg, monkeypatch):
+        """A library already at _TARGETED_GENRE_GAP_FLOOR uses the cheap targeted
+        query, never the full-corpus scan."""
+        _add_channel(file_db, category="USA")
+        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids_genre_gap",
+            lambda self: calls.append("targeted") or [],
+        )
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids",
+            lambda self: calls.append("full") or [],
+        )
+
+        _run_backfill(file_db, cfg)
+
+        assert calls == ["targeted"]
+
+    def test_full_scan_used_when_library_behind_floor(self, file_db, cfg, monkeypatch):
+        """A library behind _TARGETED_GENRE_GAP_FLOOR (catching up across several
+        pending versions at once) still gets the full corpus scan, not the
+        narrow genre-gap query."""
+        _add_channel(file_db, category="USA")
+        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR - 1
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids_genre_gap",
+            lambda self: calls.append("targeted") or [],
+        )
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids",
+            lambda self: calls.append("full") or [],
+        )
+
+        _run_backfill(file_db, cfg)
+
+        assert calls == ["full"]
+
+    def test_collector_finds_only_channels_with_a_genre_mismatch(self, file_db, cfg):
+        """_collect_channel_ids_genre_gap returns exactly the channels whose
+        detected_genres disagrees with their genre content_tags -- not channels
+        with no detected_genres, and not channels that already agree."""
+        no_genre = _add_channel(file_db, name="No Genre Set")
+
+        agreeing = _add_channel(file_db, name="Agreeing")
+        with file_db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=agreeing).one()
+            ch.detected_genres = ["Comedy"]
+        with file_db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            repos.tags.set_content_tags(
+                agreeing, [("genre", "Comedy", "provider_category")], source="generated"
+            )
+
+        mismatched = _add_channel(file_db, name="Mismatched")
+        with file_db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=mismatched).one()
+            ch.detected_genres = ["Horror"]
+
+        task = TagBackfillTask(file_db, config=cfg)
+        found = set(task._collect_channel_ids_genre_gap())
+
+        assert found == {mismatched}
+        assert no_genre not in found
+        assert agreeing not in found
