@@ -7,7 +7,10 @@ Covered behaviours:
 4. EpisodeDTO carries watch_progress and watch_completed from the repo builder.
 5. Series-view row builder yields ✓ / ◐ / ▶ for the three watch states.
 6. MPVPlayer.queue sends the title as a per-file force-media-title option.
-7. play_episode registers the episode in _watch_tracking for capture.
+7. play_episode registers the episode in _watch_tracking for capture — via
+   _do_launch_episode, only after a successful launch (PLAY-13: moved out of
+   play_episode itself, which used to register tracking — and mark_played —
+   before preflight validation even ran).
 """
 
 from __future__ import annotations
@@ -444,16 +447,44 @@ def _seed_channel_for_play(db):
         ))
 
 
-def test_play_episode_registers_episode_in_watch_tracking(db):
-    """play_episode registers the episode in _watch_tracking for capture."""
+def test_play_episode_does_not_record_before_launch_succeeds(db):
+    """PLAY-13: play_episode() itself must not touch _watch_tracking any more.
+
+    It used to register tracking (and mark_played) right here, before
+    launch_player_for_episode even started its async preflight check — the
+    mirror-image of the channel path's HIST-1/PLAY-9 bug, over-recording a
+    play that might still fail validation. Recording now happens only in
+    _do_launch_episode, after a confirmed successful launch (see the test
+    below) — so with launch_player_for_episode stubbed out (as it is here),
+    nothing should be recorded at all.
+    """
     _seed_channel_for_play(db)
     host = _make_series_mixin_host(db)
     ep = _make_playable_episode_dto()
-
-    # Stub _start_watch_capture to avoid QTimer dependency
     host._start_watch_capture = MagicMock()
 
     host.play_episode(ep)
+
+    assert host._watch_tracking == {}, (
+        "play_episode recorded watch-tracking before the launch was confirmed"
+    )
+    host._start_watch_capture.assert_not_called()
+
+
+def test_do_launch_episode_registers_watch_tracking_after_success(db):
+    """The registration PLAY-13 moved out of play_episode happens here instead,
+    in _do_launch_episode, and only once _play_checked confirms mpv launched.
+    """
+    _seed_channel_for_play(db)
+    host = _make_series_mixin_host(db)
+    host._play_checked = MagicMock(return_value=True)
+    host._start_playback_health = MagicMock()
+    host._start_watch_capture = MagicMock()
+
+    host._do_launch_episode(
+        "notif1", "http://example.com/s02e03.ts", "S02E03 - Test", [],
+        provider_id="prov1", episode_id="e_play", series_id="ser_src_1",
+    )
 
     tracking = host._watch_tracking
     assert "__shared__" in tracking, "episode not registered in _watch_tracking"
@@ -461,18 +492,29 @@ def test_play_episode_registers_episode_in_watch_tracking(db):
     assert info["content_id"] == "e_play"
     assert info["media_type"] == "episode"
     assert info["played_via"] == "manual"
-
-
-def test_play_episode_calls_start_watch_capture(db):
-    """play_episode calls _start_watch_capture to arm the checkpoint timer."""
-    _seed_channel_for_play(db)
-    host = _make_series_mixin_host(db)
-    ep = _make_playable_episode_dto()
-    host._start_watch_capture = MagicMock()
-
-    host.play_episode(ep)
-
     host._start_watch_capture.assert_called_once()
+
+
+def test_do_launch_episode_skips_recording_when_series_id_absent(db):
+    """Play-All's generic launch threads no series_id — recording stays
+    skipped there (a separate, pre-existing gap; see docs/REFACTOR_PLAN.md),
+    and critically it must not clobber a _watch_tracking entry Play-All
+    already built for itself under the same key.
+    """
+    host = _make_series_mixin_host(db)
+    host._play_checked = MagicMock(return_value=True)
+    host._start_playback_health = MagicMock()
+    host._start_watch_capture = MagicMock()
+    host._watch_tracking = {"__shared__": {"content_id": "ch1", "media_type": "movie"}}
+
+    host._do_launch_episode(
+        "notif1", "http://example.com/ch1.ts", "Channel One", [],
+        provider_id="prov1", episode_id="ch1", series_id="",
+    )
+
+    assert host._watch_tracking == {"__shared__": {"content_id": "ch1", "media_type": "movie"}}, (
+        "recording ran with no series_id and clobbered Play-All's own tracking entry"
+    )
 
 
 def test_play_episode_threads_provider_id_to_launch(db):

@@ -674,10 +674,12 @@ class _StreamingMixin(_WatchCaptureMixin):
                 if not sib_url or not sib_pid:
                     continue
                 label = f"Reactivate & play {sib_prefix or sib_name}"
+                _sib_reactivate_cid = sib.get("id") or ""
                 actions.append((
                     label,
-                    lambda _pid=sib_pid, _u=sib_url, _n=channel_name, _fnw=_fnw:
-                        self._reactivate_and_play_sibling(_pid, _u, _n, _fnw)
+                    lambda _pid=sib_pid, _u=sib_url, _n=channel_name, _fnw=_fnw,
+                           _c=_sib_reactivate_cid:
+                        self._reactivate_and_play_sibling(_pid, _u, _n, _fnw, _c)
                 ))
 
             if _refresh_action:
@@ -795,24 +797,17 @@ class _StreamingMixin(_WatchCaptureMixin):
                                   force_new_window: bool = False) -> None:
         """Record a play: the DB write, watch capture, and History.
 
-        ONE copy of this sequence. It lived inline in ``_on_stream_ready``,
-        which is the validated path — and four other call sites launch mpv
-        without going through it:
-        "Play Anyway", the "Try <source>" siblings, reactivate-and-play, and
-        episode playback. All are plays the user asked for, and none of them
-        recorded anything — so a channel watched via any of them never reached
-        History, never bumped its play count, and never registered for
-        watch-progress capture.
-
-        Owner hit it on a stream whose pre-flight timed out, 2026-09-01: the
-        game played after "Play Anyway" and did not appear in History; a third
-        attempt validated cleanly, took the normal path, and only then showed
-        up. Their log shows ``mark_played`` firing on the attempts that
-        validated and absent from the one that did not.
-
-        This records the same two things ``_on_stream_ready`` does — the DB
-        write, off-thread, and the History refresh — and deliberately not the
-        health/status chrome, which belongs to the validated path.
+        ONE copy of this sequence for CHANNEL-shaped plays (any ``ChannelDB``
+        row). Lived inline in ``_on_stream_ready`` (the validated path); four
+        other call sites launch mpv without it: "Play Anyway" and
+        "Try <source>" call this directly; reactivate-and-play now does too
+        (PLAY-13 — it used to carry no ``channel_id``, so it could not).
+        Episode playback records via the analogous but NOT identical
+        ``_record_episode_play`` (``main_window_series_playback.py`` — an
+        episode write also bumps its parent channel). Coverage was claimed
+        but unverified; the PLAY-13 PR has the census. Records the same two
+        things ``_on_stream_ready`` does — DB write off-thread, History
+        refresh — not the health/status chrome (the validated path's job).
 
         Args:
             channel_id: Channel actually launched. No-op when empty.
@@ -846,20 +841,23 @@ class _StreamingMixin(_WatchCaptureMixin):
         stream_url: str,
         channel_name: str,
         force_new_window: bool = False,
+        channel_id: str = "",
     ) -> None:
         """Main-thread action: reactivate a disabled provider, then play its stream.
 
         Called by the "Reactivate & play" action in the failure toast when the user
         explicitly opts into an inactive-source variant (mirror-not-cage: we surfaced
         the option; they chose it).  The provider is re-activated then the URL is
-        passed directly to player_manager (no extra validation — the user already
-        consented to the playback attempt).
+        passed directly to player_manager (no extra validation — already consented).
+        PLAY-13: used to carry no ``channel_id`` — fixed via ``_record_play``.
 
         Args:
             provider_id: The inactive provider to reactivate.
             stream_url: The sibling channel's stream URL to play immediately after.
             channel_name: Display name for the player window.
             force_new_window: When True, open/replace a separate per-source window.
+            channel_id: The sibling channel's DB id, for ``_record_play``
+                (empty is a no-op there; the caller always supplies it).
         """
         reactivated = False
         try:
@@ -877,11 +875,14 @@ class _StreamingMixin(_WatchCaptureMixin):
         # stay stale until the next refresh trigger.
         if reactivated:
             self._refresh_provider_dependent_views()
-        self._play_checked(
+        if self._play_checked(
             stream_url, channel_name,
             provider_id=provider_id,
             force_new_window=force_new_window,
-        )
+            channel_id=channel_id,
+        ):
+            # Same recording seam as the other escape hatches above.
+            self._record_play(channel_id, provider_id, force_new_window)
 
     def _bg_mark_played(self, channel_id: str, key: str | None = None) -> None:
         """Worker: write play-count + last-played to DB (off main thread).

@@ -23,6 +23,17 @@ The 30 s ``busy_timeout`` is not the fix and these tests do not assume one — a
 bulk catalogue insert can hold the write lock longer than any timeout worth
 setting, which is recorded separately as a contention problem. What is fixed
 here is that it can no longer be *fatal*.
+
+PLAY-13 (2026-09-08) moved WHERE this write happens: it used to run
+synchronously inside ``play_episode()``, before the stream had even been
+validated — the mirror-image of the channel path's HIST-1/PLAY-9 bug, over-
+recording instead of under-recording. It now runs in ``_record_episode_play``,
+called from ``_do_launch_episode`` only after preflight validated AND mpv
+actually launched (``self.db.session_scope()``, not the old ``get_session()``+
+``finally`` pattern). The try/except this file exists to prove survives that
+move unchanged in spirit: these tests now drive ``_do_launch_episode`` with the
+args ``play_episode`` would have handed a successful preflight, rather than
+``play_episode`` itself, which no longer touches the database for the write.
 """
 
 from __future__ import annotations
@@ -80,7 +91,14 @@ def _host(failure: Exception | None = None):
 
     session = MagicMock()
     db = MagicMock()
-    db.get_session.return_value = session
+    # __exit__ must return falsy so an exception raised inside the `with`
+    # block (mark_played's side_effect) actually propagates out of
+    # session_scope() into _record_episode_play's try/except, exactly as the
+    # real generator-based context manager does — a bare MagicMock's
+    # auto-mocked __exit__ returns a truthy Mock by default and would
+    # silently SWALLOW the exception, proving nothing.
+    db.session_scope.return_value.__enter__.return_value = session
+    db.session_scope.return_value.__exit__.return_value = False
     obj.db = db
 
     obj.player_manager = MagicMock()
@@ -91,9 +109,27 @@ def _host(failure: Exception | None = None):
     obj.load_history = MagicMock()
     obj.load_favorites = MagicMock()
     obj._start_watch_capture = MagicMock()
+    obj._start_playback_health = MagicMock()
+    obj._play_checked = MagicMock(return_value=True)
     obj.launch_player_for_episode = MagicMock()
     obj.executor = MagicMock()
     return obj, repos, session
+
+
+def _drive_do_launch_episode(obj):
+    """Call _do_launch_episode with exactly the args play_episode passed to
+    the (mocked) launch_player_for_episode — simulating a successful
+    preflight, which is when PLAY-13 moved the write to actually happen.
+    """
+    args, kwargs = obj.launch_player_for_episode.call_args
+    stream_url, title, episodes_to_queue = args
+    obj._do_launch_episode(
+        "notif_1", stream_url, title, episodes_to_queue,
+        provider_id=kwargs["provider_id"],
+        start_seconds=kwargs.get("start_seconds", 0),
+        episode_id=kwargs["episode_id"],
+        series_id=kwargs["series_id"],
+    )
 
 
 def test_a_locked_database_does_not_kill_the_app(monkeypatch):
@@ -101,11 +137,9 @@ def test_a_locked_database_does_not_kill_the_app(monkeypatch):
     obj, repos, _session = _host(failure=_locked())
 
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
-        obj.play_episode(_Episode())  # must not raise
-
-    obj.launch_player_for_episode.assert_called_once(), (
-        "the episode did not play; bookkeeping blocked the user's actual intent"
-    )
+        obj.play_episode(_Episode())
+        obj.launch_player_for_episode.assert_called_once()
+        _drive_do_launch_episode(obj)  # must not raise
 
 
 def test_the_episode_still_plays_when_bookkeeping_fails(monkeypatch):
@@ -114,18 +148,24 @@ def test_the_episode_still_plays_when_bookkeeping_fails(monkeypatch):
 
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode(title="The Gang Gets Tested"))
+        _drive_do_launch_episode(obj)
 
     assert obj.launch_player_for_episode.call_count == 1
+    obj._play_checked.assert_called_once()
 
 
-def test_the_session_is_still_closed_when_bookkeeping_fails():
-    """The finally must survive the new except — a leaked session is a lock."""
-    obj, repos, session = _host(failure=_locked())
+def test_the_context_manager_still_exits_when_bookkeeping_fails():
+    """session_scope()'s __exit__ must run even though the write inside raised
+    — that guarantee is the whole reason PLAY-13 moved this write onto
+    session_scope() rather than the legacy get_session()+finally pattern.
+    """
+    obj, repos, _session = _host(failure=_locked())
 
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
+        _drive_do_launch_episode(obj)
 
-    session.close.assert_called_once()
+    obj.db.session_scope.return_value.__exit__.assert_called_once()
 
 
 def test_the_failure_is_logged_not_swallowed():
@@ -135,7 +175,7 @@ def test_the_failure_is_logged_not_swallowed():
     obj, repos, _session = _host(failure=_locked())
     logged: list[str] = []
     monkey = MagicMock()
-    monkey.error.side_effect = lambda msg, *a: logged.append(str(msg))
+    monkey.exception.side_effect = lambda msg, *a: logged.append(str(msg))
     monkey.info.side_effect = lambda *a, **k: None
     monkey.warning.side_effect = lambda *a, **k: None
     monkey.debug.side_effect = lambda *a, **k: None
@@ -143,6 +183,7 @@ def test_the_failure_is_logged_not_swallowed():
     with patch.object(main_window_series_playback, "logger", monkey), \
             patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
+        _drive_do_launch_episode(obj)
 
     assert logged, "the failure was swallowed with no record at all"
 
@@ -163,6 +204,7 @@ def test_any_bookkeeping_failure_is_survivable(failure):
 
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
+        _drive_do_launch_episode(obj)  # must not raise
 
     obj.launch_player_for_episode.assert_called_once()
 
@@ -173,7 +215,8 @@ def test_the_normal_path_is_unchanged():
 
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
+        obj.launch_player_for_episode.assert_called_once()
+        _drive_do_launch_episode(obj)
 
     repos.episodes.mark_played.assert_called_once_with("e1")
-    obj.launch_player_for_episode.assert_called_once()
-    session.close.assert_called_once()
+    obj.db.session_scope.return_value.__exit__.assert_called_once()

@@ -12,10 +12,15 @@ validated cleanly, took the normal path, and only then showed up. Their log:
 
 ``mark_played`` lived only in ``_on_stream_ready``, the validated path. FOUR
 call sites launch mpv without passing through it — Play Anyway, the
-"Try <source>" siblings, reactivate-and-play, and episode playback — and none
-recorded anything, so a channel watched through any of them never reached
-History, never bumped its play count and never registered for watch-progress
-capture.
+"Try <source>" siblings, reactivate-and-play, and episode playback.
+
+PLAY-13 (2026-09-08): a follow-up audit found this docstring's "fixed" claim
+was only 2 of 4 true at the time — Play Anyway and "Try <source>" called
+``_record_play``; reactivate-and-play did not (its signature carried no
+``channel_id`` at all) and stayed silently broken.
+``TestReactivateAndPlayRecords`` below closes that gap. Episode playback is
+covered separately in ``tests/test_episode_watch_tracking.py`` (it had the
+mirror-image bug — recording BEFORE preflight validated, not never).
 """
 
 from __future__ import annotations
@@ -95,3 +100,67 @@ class TestEscapeHatchPlaysAreRecorded:
         h = _host()
         _StreamingMixin._record_play(h, "c1", "prov", True)
         h.player_manager.resolve_key.assert_called_once_with("prov", True)
+
+
+class TestReactivateAndPlayRecords:
+    """PLAY-13: reactivate-and-play was the one escape hatch that never called
+    ``_record_play`` — its signature carried no ``channel_id`` at all, so it
+    could not have, no matter what the ``_record_play`` docstring claimed.
+    """
+
+    def test_reactivate_and_play_records_on_success(self, qapp):
+        from metatv.gui.main_window_streaming import _StreamingMixin
+        from tests.conftest import wire_streaming_db
+        h = _host()
+        wire_streaming_db(h)   # session_scope raises -> reactivation degrades harmlessly
+        h._refresh_provider_dependent_views = MagicMock()
+        h._play_checked = MagicMock(return_value=True)
+
+        _StreamingMixin._reactivate_and_play_sibling(
+            h, "prov_x", "http://example.com/stream.ts", "Sibling Channel",
+            False, "chan_sib_1",
+        )
+
+        h._play_checked.assert_called_once()
+        _, kwargs = h._play_checked.call_args
+        assert kwargs.get("channel_id") == "chan_sib_1", (
+            "channel_id not threaded to _play_checked"
+        )
+        assert h.executor.submit.call_count == 1, (
+            "reactivate-and-play launched mpv but never recorded the play — "
+            "this is the gap the docstring claimed was already closed"
+        )
+        args = h.executor.submit.call_args[0]
+        assert args[1] == "chan_sib_1", "recorded the wrong channel"
+
+    def test_reactivate_and_play_skips_recording_when_launch_fails(self, qapp):
+        """No mpv launch, no play to record."""
+        from metatv.gui.main_window_streaming import _StreamingMixin
+        from tests.conftest import wire_streaming_db
+        h = _host()
+        wire_streaming_db(h)
+        h._refresh_provider_dependent_views = MagicMock()
+        h._play_checked = MagicMock(return_value=False)
+
+        _StreamingMixin._reactivate_and_play_sibling(
+            h, "prov_x", "http://example.com/stream.ts", "Sibling Channel",
+            False, "chan_sib_1",
+        )
+
+        assert h.executor.submit.call_count == 0
+
+    def test_reactivate_and_play_with_no_channel_id_is_a_no_op_record(self, qapp):
+        """A defensive default, never taken by the real caller (it always
+        supplies the sibling's id) — must not crash and must not record."""
+        from metatv.gui.main_window_streaming import _StreamingMixin
+        from tests.conftest import wire_streaming_db
+        h = _host()
+        wire_streaming_db(h)
+        h._refresh_provider_dependent_views = MagicMock()
+        h._play_checked = MagicMock(return_value=True)
+
+        _StreamingMixin._reactivate_and_play_sibling(
+            h, "prov_x", "http://example.com/stream.ts", "Sibling Channel", False,
+        )
+
+        assert h.executor.submit.call_count == 0

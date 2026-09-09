@@ -3,6 +3,9 @@
 Covered behaviors:
 1. play_episode with queued episodes stores a 'queue' list in _watch_tracking, not
    a flat 'content_id' — so the checkpoint can map playlist-pos to the right episode.
+   PLAY-13 moved this registration out of play_episode() and into
+   _do_launch_episode(), so it only happens after a confirmed successful
+   launch — group-1 tests below drive that seam directly.
 2. _bg_capture_watch (queued branch) records progress against the episode at the
    *current* playlist-pos, not always episode-0.
 3. Auto-advancing (playlist-pos 0→1→2) finalises each passed episode as watch_completed
@@ -140,6 +143,28 @@ def _seed_series_channel_and_episodes(db, ep_ids):
             ))
 
 
+def _drive_do_launch_episode_from_play_episode_call(host):
+    """PLAY-13: play_episode() no longer builds _watch_tracking itself — it
+    only reads the season queue and hands it to launch_player_for_episode
+    (stubbed by ``_make_series_host_queued``). Recording moves to
+    _do_launch_episode, only after a confirmed successful launch, so these
+    tests drive that seam directly with the exact args play_episode passed
+    to the (mocked) launcher — the same shape the real preflight-success
+    callback would supply.
+    """
+    args, kwargs = host.launch_player_for_episode.call_args
+    stream_url, title, episodes_to_queue = args
+    host._play_checked = MagicMock(return_value=True)
+    host._start_playback_health = MagicMock()
+    host._do_launch_episode(
+        "notif_1", stream_url, title, episodes_to_queue,
+        provider_id=kwargs["provider_id"],
+        start_seconds=kwargs.get("start_seconds", 0),
+        episode_id=kwargs["episode_id"],
+        series_id=kwargs["series_id"],
+    )
+
+
 def test_play_episode_with_queue_stores_queue_list(db):
     """When episodes are queued, _watch_tracking[key] contains a 'queue' list."""
     _seed_series_channel_and_episodes(db, ["e1", "e2", "e3"])
@@ -161,6 +186,8 @@ def test_play_episode_with_queue_stores_queue_list(db):
         return_value=[ep1, ep2, ep3],
     ):
         host.play_episode(ep1)
+
+    _drive_do_launch_episode_from_play_episode_call(host)
 
     tracking = host._watch_tracking
     assert "__shared__" in tracking, "tracking entry missing"
@@ -189,6 +216,8 @@ def test_play_episode_queue_tracking_has_last_seen_pos(db):
     ):
         host.play_episode(ep1)
 
+    _drive_do_launch_episode_from_play_episode_call(host)
+
     info = host._watch_tracking["__shared__"]
     assert info.get("last_seen_pos") == 0
     assert info.get("played_via") == "manual"
@@ -209,6 +238,8 @@ def test_play_episode_single_no_queue_uses_flat_dict(db):
         return_value=[ep1],
     ):
         host.play_episode(ep1)
+
+    _drive_do_launch_episode_from_play_episode_call(host)
 
     info = host._watch_tracking["__shared__"]
     assert "queue" not in info, "flat-dict branch should not have 'queue'"
