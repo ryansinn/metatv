@@ -42,6 +42,31 @@ from metatv.core.repositories.epg import delete_programmes_chunked
 class _ChannelPruningMixin:
     """Channel deletion for ChannelRepository (uses ``self.session``)."""
 
+    def _series_channel_exists(self, model, channel_filter):
+        """``EXISTS`` of a ``ChannelDB`` row matching *channel_filter* that is
+        *model*'s series channel.
+
+        ``SeasonDB``/``EpisodeDB.series_id`` hold the provider's own series id
+        (``ChannelDB.source_id``), never ``ChannelDB.id`` (D52, REFACTOR_PLAN.md)
+        — the same key SERIES-2 fixed in ``series_monitor.py``'s baseline fast
+        path, and the convention ``SeasonRepository``/``EpisodeRepository
+        .get_by_series()`` and ``queue.py``'s series-completion check already
+        use. ``source_id`` collides across providers (confirmed in the owner's
+        real library), so every match is paired with ``provider_id`` — never
+        ``source_id`` alone, which would reach across providers.
+
+        A correlated ``EXISTS`` (not an ``.in_()`` id list) so the comparison
+        is a proper ``(source_id, provider_id)`` pair rather than two
+        independently-matched columns.
+        """
+        return (
+            self.session.query(ChannelDB.id)
+            .filter(channel_filter)
+            .filter(ChannelDB.source_id == model.series_id)
+            .filter(ChannelDB.provider_id == model.provider_id)
+            .exists()
+        )
+
     #: Refuse to prune when more than this share of a source's rows look vanished.
     #:
     #: A truncated fetch is indistinguishable from a shrunken catalog at the point
@@ -176,14 +201,18 @@ class _ChannelPruningMixin:
             .filter(EpgProgramDB.channel_db_id.in_(doomed_channel_ids))
             .delete(synchronize_session=False)
         )
+        # D52: EpisodeDB/SeasonDB.series_id holds the doomed channel's
+        # source_id, never its id — doomed_channel_ids can't be used here.
+        # _series_channel_exists() translates through (source_id, provider_id).
+        doomed_scope = and_(scope, ~engaged)
         counts["episodes"] += (
             self.session.query(EpisodeDB)
-            .filter(EpisodeDB.series_id.in_(doomed_channel_ids))
+            .filter(self._series_channel_exists(EpisodeDB, doomed_scope))
             .delete(synchronize_session=False)
         )
         counts["seasons"] += (
             self.session.query(SeasonDB)
-            .filter(SeasonDB.series_id.in_(doomed_channel_ids))
+            .filter(self._series_channel_exists(SeasonDB, doomed_scope))
             .delete(synchronize_session=False)
         )
         counts["ratings"] += (
@@ -287,14 +316,19 @@ class _ChannelPruningMixin:
         # survives a provider delete (history is sacrosanct).  Only truly orphaned
         # catalog rows (series channel already gone) are pruned, and even those are
         # spared when the episode itself still carries user watch-state.
-        kept_series_subq = (
-            self.session.query(ChannelDB.id)
-            .filter(ChannelDB.provider_id.in_(provider_ids))
-        )
+        #
+        # D52: "kept" is matched by (source_id, provider_id), never a raw
+        # ChannelDB.id list — series_id holds the provider's source_id, and
+        # source_id collides across providers, so an id-only match either never
+        # matches (leaking every kept series' rows as false orphans) or, worse,
+        # matches a DIFFERENT provider's series that happens to share a
+        # source_id. _series_channel_exists() is the same helper
+        # _delete_channel_cascade uses for the mirror-image (doomed) case.
+        kept_filter = ChannelDB.provider_id.in_(provider_ids)
         counts["episodes"] += (
             self.session.query(EpisodeDB)
             .filter(EpisodeDB.provider_id.in_(provider_ids))
-            .filter(~EpisodeDB.series_id.in_(kept_series_subq))
+            .filter(~self._series_channel_exists(EpisodeDB, kept_filter))
             # Floor: never delete an episode carrying user watch-state, even if its
             # series channel is already gone (pre-fix orphans).
             .filter(
@@ -311,7 +345,7 @@ class _ChannelPruningMixin:
         counts["seasons"] += (
             self.session.query(SeasonDB)
             .filter(SeasonDB.provider_id.in_(provider_ids))
-            .filter(~SeasonDB.series_id.in_(kept_series_subq))
+            .filter(~self._series_channel_exists(SeasonDB, kept_filter))
             .delete(synchronize_session=False)
         )
         self.session.commit()

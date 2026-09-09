@@ -506,7 +506,7 @@ class SeasonDB(Base):
     __tablename__ = "seasons"
 
     id = Column(String, primary_key=True)  # {provider_id}_{series_id}_s{season_num} (provider-scoped)
-    series_id = Column(String, nullable=False, index=True)  # Links to ChannelDB.id
+    series_id = Column(String, nullable=False, index=True)  # ChannelDB.source_id, NOT .id (D52)
     provider_id = Column(String, nullable=False, index=True)
 
     season_number = Column(Integer, nullable=False, index=True)
@@ -533,7 +533,7 @@ class EpisodeDB(Base):
     
     id = Column(String, primary_key=True)  # {provider_id}_{episode_id}
     season_id = Column(String, nullable=False, index=True)  # Links to SeasonDB.id
-    series_id = Column(String, nullable=False, index=True)  # Links to ChannelDB.id
+    series_id = Column(String, nullable=False, index=True)  # ChannelDB.source_id, NOT .id (D52)
     provider_id = Column(String, nullable=False, index=True)
     
     episode_id = Column(String, nullable=False)  # From API
