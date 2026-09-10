@@ -262,7 +262,12 @@ def test_populating_a_section_fits_its_rows(qapp, config):
 
     calls = []
 
-    class _Wired(_Section):
+    # Composes the mixin rather than borrowing one unbound method off it: a
+    # double that reimplements part of a contract goes stale the moment the
+    # contract grows, and this one did — _on_data_ready gained a
+    # cancel_pending_build() call and the borrowed method had nothing to
+    # resolve it against (CLAUDE.md: run the real one, don't copy it).
+    class _Wired(BackgroundRefreshMixin, _Section):
         def budgeted_list(self):
             return self.list
 
@@ -278,7 +283,7 @@ def test_populating_a_section_fits_its_rows(qapp, config):
 
     section = _Wired(config)
     section._capture_scroll(section.list)
-    BackgroundRefreshMixin._on_data_ready(section, 30)
+    section._on_data_ready(30)
     qapp.processEvents()
     assert calls, (
         "populating a section never fit its rows — apply_row_budget is not "
