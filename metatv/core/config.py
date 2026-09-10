@@ -1806,6 +1806,58 @@ class Config(BaseModel):
         self.vod_watch_alerts = updated
         self.save()
 
+    def baseline_vod_alert_matches(self, rule_created: str, channel_ids: list) -> int:
+        """Record *channel_ids* as matches the user has ALREADY seen — one save.
+
+        A watch-for rule is forward-looking: the dialog that creates it is
+        headed "Watch for new content" and promises an alert "when matching
+        content ... APPEARS on any of your sources". Everything already in the
+        catalogue when the rule is written is not news, so it is written into
+        both ``alerted_ids`` (the dedup set — it must never re-alert) and
+        ``viewed_ids`` (the unviewed/green set — it must not badge). The rule
+        then fires only on titles that turn up later.
+
+        The backlog stays one click away: a rule's own "View matches" action
+        already searches the catalogue for its keyword, so baselining hides
+        nothing the user cannot ask for.
+
+        Writes both lists and saves ONCE, rather than the per-match
+        record-and-save loop, which cost one full config write per match (102
+        of them for a single "Evil Dead" rule on the owner's library).
+
+        Args:
+            rule_created: The rule's ``created`` id.
+            channel_ids: Every channel currently matching the rule.
+
+        Returns:
+            The number of ids baselined.
+        """
+        ids = list(dict.fromkeys(channel_ids))
+        if not ids:
+            return 0
+        updated = []
+        n = 0
+        for r in self.vod_watch_alerts:
+            if r.get("created") != rule_created:
+                updated.append(r)
+                continue
+            merged = dict(r)
+            alerted = list(merged.get("alerted_ids") or [])
+            viewed = list(merged.get("viewed_ids") or [])
+            for cid in ids:
+                if cid not in alerted:
+                    alerted.append(cid)
+                if cid not in viewed:
+                    viewed.append(cid)
+            merged["alerted_ids"] = alerted
+            merged["viewed_ids"] = viewed
+            n = len(ids)
+            updated.append(merged)
+        self.vod_watch_alerts = updated
+        if n:
+            self.save()
+        return n
+
     def get_vod_alert_matches(self, rule_created: str) -> list[str]:
         """Return the list of alerted channel ids for a given rule."""
         for r in self.vod_watch_alerts:

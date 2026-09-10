@@ -71,6 +71,12 @@ class VodWatchAlertManager(QObject):
         Internal signal that marshals a single new match from the worker
         thread to the main thread.
         Args: (rule_created, channel_id, channel_name, rule_text)
+
+    _notify_baseline : private pyqtSignal(str, object)
+        Internal signal carrying a NEW rule's entire existing-match set in one
+        go, so seeding it costs one config write and one refresh instead of one
+        of each per match.
+        Args: (rule_created, list[channel_id])
     """
 
     # Public signal — views connect to this to refresh their display
@@ -78,6 +84,7 @@ class VodWatchAlertManager(QObject):
 
     # Private signal — marshals worker→main thread
     _notify_match = pyqtSignal(str, str, str, str)  # rule_created, channel_id, ch_name, rule_text
+    _notify_baseline = pyqtSignal(str, object)  # rule_created, list[channel_id]
 
     def __init__(
         self,
@@ -95,6 +102,7 @@ class VodWatchAlertManager(QObject):
         )
         # Wire private signal to main-thread slot
         self._notify_match.connect(self._on_new_match)
+        self._notify_baseline.connect(self._on_baseline_ready)
 
     # ------------------------------------------------------------------
     # Public API
@@ -111,6 +119,30 @@ class VodWatchAlertManager(QObject):
         if not rules:
             return
         self._executor.submit(self._worker_check_rules, rules)
+
+    def baseline_rule(self, rule: dict) -> None:
+        """Seed a freshly-added rule with what ALREADY matches, silently.
+
+        A watch-for rule is forward-looking — the dialog that creates it is
+        headed "Watch for new content" and promises an alert when matching
+        content "appears on any of your sources" — so the catalogue as it
+        stands the moment the rule is written is the rule's BASELINE, not a
+        pile of news. Without this a new rule behaved as a perpetual search
+        result: the owner's "Evil Dead" rule alerted on 102 existing rows
+        (roughly eight distinct titles across languages and providers), each
+        one a toast, a full config write and a refresh.
+
+        The monitored-series half of this feature has always worked this way —
+        ``series_monitor.set_baseline()`` is called the moment a series is
+        monitored, so "new episodes" means new SINCE THEN. This is the same
+        step for keyword rules.
+
+        Safe to call from any thread; the scan runs in the executor.
+
+        Args:
+            rule: The rule dict just added to config.
+        """
+        self._executor.submit(self._worker_check_rules, [rule], None, True)
 
     def check_provider(self, provider_id: str) -> None:
         """Check rules against channels belonging to *provider_id* only.
@@ -132,9 +164,20 @@ class VodWatchAlertManager(QObject):
     # ------------------------------------------------------------------
 
     def _worker_check_rules(
-        self, rules: list[dict], provider_id: str | None = None
+        self, rules: list[dict], provider_id: str | None = None,
+        baseline: bool = False,
     ) -> None:
-        """Scan channels against every rule; emit _notify_match for new hits."""
+        """Scan channels against every rule.
+
+        Args:
+            rules: The rules to scan for.
+            provider_id: Restrict the scan to one source, or None for all.
+            baseline: When True the hits are the rule's STARTING state, not
+                news — they are collected and emitted once via
+                ``_notify_baseline`` instead of one ``_notify_match`` per hit,
+                so seeding costs one config write and no notifications. Same
+                query and same matcher either way; only the reporting differs.
+        """
         from metatv.core.database import ChannelDB
         from metatv.core.repositories import RepositoryFactory
 
@@ -174,19 +217,33 @@ class VodWatchAlertManager(QObject):
                 continue
 
             alerted_ids: set[str] = set(rule.get("alerted_ids") or [])
+            baseline_ids: list[str] = []
 
             for (ch_id, ch_name, detected_title, media_type, _pid) in channels:
                 if ch_id in alerted_ids:
                     continue  # already alerted — dedup
-                if _matches_rule(ch_name, detected_title, media_type, rule):
-                    logger.info(
-                        f"vod_watch_alert: new match — rule '{rule.get('text')}' "
-                        f"→ '{ch_name}' ({ch_id})"
-                    )
-                    # Marshal to main thread
-                    self._notify_match.emit(
-                        rule_created, ch_id, ch_name or "", rule.get("text") or ""
-                    )
+                if not _matches_rule(ch_name, detected_title, media_type, rule):
+                    continue
+                if baseline:
+                    baseline_ids.append(ch_id)
+                    continue
+                logger.info(
+                    f"vod_watch_alert: new match — rule '{rule.get('text')}' "
+                    f"→ '{ch_name}' ({ch_id})"
+                )
+                # Marshal to main thread
+                self._notify_match.emit(
+                    rule_created, ch_id, ch_name or "", rule.get("text") or ""
+                )
+
+            if baseline:
+                logger.info(
+                    "vod_watch_alert: baselined rule '{}' with {} existing "
+                    "match(es) — it will alert only on content that appears "
+                    "from now on",
+                    rule.get("text"), len(baseline_ids),
+                )
+                self._notify_baseline.emit(rule_created, baseline_ids)
 
     # ------------------------------------------------------------------
     # Main-thread slot
@@ -211,4 +268,16 @@ class VodWatchAlertManager(QObject):
                 auto_dismiss_ms=7000,
             )
 
+        self.new_matches_found.emit()
+
+    def _on_baseline_ready(self, rule_created: str, channel_ids: object) -> None:
+        """Main-thread slot: seed a new rule's baseline in ONE config write.
+
+        No notification is shown — nothing here is news by definition. The
+        single ``new_matches_found`` emit lets the alert surfaces re-read the
+        rule's (zero) unviewed count once, rather than once per match.
+        """
+        ids = list(channel_ids or [])
+        if ids:
+            self.config.baseline_vod_alert_matches(rule_created, ids)
         self.new_matches_found.emit()
