@@ -168,8 +168,33 @@ class BackgroundRefreshMixin:
             return
         self._data_ready.emit(rows)
 
+    def cancel_pending_build(self) -> None:
+        """Stop any in-flight chunked row build. Default: nothing to stop.
+
+        Overridden by sections that build their rows through ``build_chunked``
+        (``WatchQueueSection``). Named to match ``DiscoverShelf``'s existing
+        method of the same role rather than inventing a second name for it.
+        """
+
     def _on_data_ready(self, rows) -> None:
-        """Main thread: clear, then render rows or a visible failure row."""
+        """Main thread: clear, then render rows or a visible failure row.
+
+        The cancel comes FIRST, and unconditionally. ``lst.clear()`` deletes
+        every ``QListWidgetItem`` the previous build produced, so any batch of
+        that build still scheduled would go on appending into a list that no
+        longer holds its rows and then run its ``on_done`` against deleted C++
+        objects — ``RuntimeError: wrapped C/C++ object of type QListWidgetItem
+        has been deleted``, raised inside a Qt slot, which aborts the process.
+
+        Cancelling only in ``_populate_rows`` was not enough: the ``rows is
+        None`` branch below RETURNS before ever reaching it, so a refresh whose
+        query FAILED left the previous build running against a cleared list.
+        That is the crash the owner hit (2026-09-09, SIGABRT) — a failing query
+        is ordinary under the SQLite write contention the same log shows, and
+        the overlapping refreshes that make a build in-flight at the time were
+        constant before the enrichment-settle floor landed.
+        """
+        self.cancel_pending_build()
         lst = self._refresh_list()
         lst.clear()
         if rows is None:
