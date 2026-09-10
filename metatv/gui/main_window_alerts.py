@@ -160,9 +160,16 @@ class _AlertsMixin:
 
         def _on_rule_added(rule: dict) -> None:
             self.config.add_vod_watch_alert(rule)
-            self._refresh_vod_alerts_section()
-            # Immediately scan the corpus so the user gets any instant matches
-            self.vod_watch_alert_manager.check_all()
+            # Seed the rule with what already matches, recorded as ALREADY SEEN
+            # (see VodWatchAlertManager.baseline_rule): this dialog is headed
+            # "Watch for new content" and promises an alert when matching
+            # content "appears on any of your sources", so the catalogue as it
+            # stands right now is the rule's starting point, not 102 pieces of
+            # news. The backlog stays one click away via the rule's own "View
+            # matches". baseline_rule emits new_matches_found when it lands,
+            # which runs the composite refresh.
+            self.vod_watch_alert_manager.baseline_rule(rule)
+            self._refresh_alert_visibility()
 
         dlg.rule_added.connect(_on_rule_added)
         dlg.exec()
@@ -171,7 +178,10 @@ class _AlertsMixin:
         """Open the manage-rules dialog (see-all + remove)."""
         from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
         dlg = ManageVodAlertsDialog(self.config, self)
-        dlg.changed.connect(self._refresh_vod_alerts_section)
+        # ``changed`` fires from _finalize_pending_removals — i.e. rules and
+        # monitored series were DELETED, taking their matches with them, so
+        # every alert-visibility surface has to re-read (not just this section).
+        dlg.changed.connect(self._refresh_alert_visibility)
         dlg.view_matches_requested.connect(self._on_vod_rule_view_matches)
         dlg.exec()
 

@@ -1059,8 +1059,11 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
                 self._refresh_alert_visibility
             )
             # A newly-detected episode recolors/pins the series row in Movies & Series.
+            # unseen_new going above 0 is exactly what the Watch Queue's
+            # matched-series group filters on, so this needs the composite
+            # refresh, not the Alerts-section-only one.
             self.series_monitor.new_episodes_found.connect(
-                lambda _cid, _n: self._refresh_vod_alerts_section()
+                lambda _cid, _n: self._refresh_alert_visibility()
             )
             # Subtle "checking…" hint on the Movies & Series header while a monitor
             # check (startup / recurring timer / post-refresh) is in flight.
@@ -1203,9 +1206,15 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             self.drill_into_series(channel)
 
     def _unmonitor_series(self, channel_id: str) -> None:
-        """Stop the new-episode alert for a series."""
+        """Stop the new-episode alert for a series, clearing its matched rows too.
+
+        Composite chokepoint for the same reason as ``_on_vod_rule_remove``: the
+        Watch Queue's matched-series group is built from
+        ``config.get_monitored_series()``, so the narrow refresh left a stopped
+        series still listed there with its unseen badge.
+        """
         self.config.remove_monitored_series(channel_id)
-        self._refresh_vod_alerts_section()
+        self._refresh_alert_visibility()
 
     # ------------------------------------------------------------------
     # VOD watch-alert helpers
@@ -1278,11 +1287,20 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self._on_vod_rule_view_matches(text, match_type)
 
     def _on_vod_rule_remove(self, rule_created: str) -> None:
-        """Remove a VOD watch-for rule from config and refresh the section."""
+        """Remove a VOD watch-for rule and clear every surface showing its matches.
+
+        Deleting a rule deletes its ``alerted_ids`` with it, so the composite
+        ``_refresh_alert_visibility`` chokepoint is required, not the narrower
+        ``_refresh_vod_alerts_section``: the removed rule's matches are also on
+        the Watch Queue's "Alerts Matched" rows and pinned count, the
+        channel-list row badges, and the details-pane Alert button. Refreshing
+        only the Alerts section left the rule gone but its matches still
+        showing everywhere else (owner report, 2026-09-09).
+        """
         self.config.remove_vod_watch_alert(rule_created)
         _cfgsave.save_soon(self)
         logger.info("Removed VOD watch-for rule via sidebar context menu: {}", rule_created)
-        self._refresh_vod_alerts_section()
+        self._refresh_alert_visibility()
 
     def _prompt_track_from_list(self, channel_name: str) -> None:
         from PyQt6.QtWidgets import QInputDialog

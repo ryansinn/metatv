@@ -924,7 +924,9 @@ class _SeriesMixin:
 
         self.config.add_monitored_series(entry)
         self.series_monitor.set_baseline(channel_id)
-        self._refresh_vod_alerts_section()
+        # Composite: the Watch Queue's matched-series group reads the same
+        # monitored-series list this just grew.
+        self._refresh_alert_visibility()
 
     def _on_details_monitor_toggled(self, channel_id: str) -> None:
         """Toggle the new-episode alert from the details-pane Alert button."""
