@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=669,
+    id=670,
     version="0.121.0",
     date="2026-09-11",
     title="\"Building channel indexes\" no longer runs on every launch",
