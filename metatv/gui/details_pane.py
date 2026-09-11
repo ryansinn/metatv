@@ -116,6 +116,21 @@ class DetailsPaneWidget(QWidget):
     def set_provider_map(self, provider_map: dict) -> None:
         self._provider_map = provider_map
 
+    def provider_name(self, provider_id: str) -> str:
+        """Display name for *provider_id* from the current provider map —
+        the SAME lookup ``_MetadataSection.load_basic`` uses to build the
+        "Source:" chip (VERS-1's source-notice text reuses it rather than
+        re-deriving provider naming). Falls back to the raw id when the
+        provider map has nothing for it (e.g. an orphaned provider row).
+        """
+        info = self._provider_map.get(provider_id)
+        return (info or {}).get("name") or provider_id
+
+    def set_source_notice(self, text: "str | None") -> None:
+        """The dim line under the Source chip explaining a live-copy redirect
+        (VERS-1) — ``None`` hides it."""
+        self._meta.set_source_notice(text)
+
     def set_versions(self, versions: list[ChannelVersion]) -> None:
         self._versions.load(versions, provider_map=self._provider_map)
 

@@ -629,14 +629,14 @@ class _FavoritesMixin:
             self.play_channel_by_id(channel_db_id)
 
     def _on_alert_channel_details(self, channel_db_id: str) -> None:
-        """Show channel details in the right pane when a watch alert row is single-clicked."""
-        if not channel_db_id:
-            return
-        channel = None
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_playable_dto(channel_db_id)
-        if channel:
-            self.details_pane.show_channel(channel)
+        """Show channel details when a watch alert row is single-clicked.
+
+        VERS-1: an alert row can point at a dead source, so this routes
+        through show_channel_details_by_id() (redirects to a live sibling
+        via resolve_live_copy()), also fixing a latent main-thread DB read.
+        """
+        if channel_db_id:
+            self.show_channel_details_by_id(channel_db_id)
 
     def load_favorites(self):
         """Load favorites into sidebar"""
