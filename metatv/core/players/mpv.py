@@ -18,20 +18,27 @@ from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
-# Always-on reconnect for transient live-stream drops (stable ffmpeg/libavformat options; no
-# --hls-use-mpegts or other build-varying opts). reconnect_on_http_error=5xx covers a stream that
-# got an HTTP error back; reconnect_on_network_error covers one that got NO response at all — a
-# one-connection source holding a socket open with zero bytes (PLAY-12), which the other three
-# never see. rw_timeout (10s, µs) bounds that hang so it errors into the backoff below instead of
-# sitting on ffmpeg's own uncapped connect/read timeout. 4xx stays excluded — told no must still
-# fail fast (rationale: ConnectionAccountant.PROVIDER_COOLDOWN_S). reconnect_delay_max=8
-# (PLAY-10, was 30) is the PER-ATTEMPT cap — ffmpeg's uncapped backoff is 1,2,4,8,16s, so
-# attempts land at +1,+3,+7,+15,+23s: a held connection now retries about every 10s until the
-# panel frees the slot (14-26s per #635, up to ~40s in the 2026-09-07 log) instead of hanging
-# indefinitely.
+# Always-on reconnect for transient drops and a HELD connection answering nothing (PLAY-12: the
+# owner's one-connection panel holds a new connection while counting the previous stream — #635
+# measured 14-26s, up to ~40s on 2026-09-07). reconnect_on_http_error=5xx covers a 5xx reply;
+# reconnect_on_network_error covers no reply at all. 4xx excluded — told no must still fail fast
+# (ConnectionAccountant.PROVIDER_COOLDOWN_S). ffmpeg's backoff (delay=0, then delay=1+2*delay per
+# failure, stopping once the next delay exceeds reconnect_delay_max) measured 2026-09-11 against an
+# always-5xx server: max=8 -> +0,+0,+1,+4,+11s (11s, PLAY-10's old value — short); max=30 ->
+# +0,+0,+1,+4,+11,+26s (26s — still short of the panel's ~40s); max=60 -> +0,+0,+1,+4,+11,+26,+57s
+# (57s — covers it). rw_timeout measured a NO-OP on a silent socket (mpv hung >60s, never
+# reconnected); timeout= is the tcp protocol's own socket-I/O timeout and DOES fire ("Connection
+# timed out" into the backoff above). 20s not 10: the panel's own first reply ranges 5-27s in the
+# owner's logs, and a timeout shorter than its slow answers turns "slow" into "never".
+# playback_start_watch.OPENING_AFTER_TICKS fires its own verdict at 40s, inside this 57s window on
+# purpose: it tells the user while mpv keeps retrying, and progress clears both.
+RECONNECT_DELAY_MAX_S = 60
+STREAM_IO_TIMEOUT_S = 20
 RECONNECT_FLAG = (
-    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=8,"
-    "reconnect_on_http_error=5xx,reconnect_on_network_error=1,rw_timeout=10000000"
+    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
+    f"reconnect_delay_max={RECONNECT_DELAY_MAX_S},"
+    "reconnect_on_http_error=5xx,reconnect_on_network_error=1,"
+    f"timeout={STREAM_IO_TIMEOUT_S * 1_000_000}"
 )
 
 # Constant instance key used when split_streams_by_source is False.
@@ -92,10 +99,9 @@ def _resolve_mpv_binary() -> str:
     return _MPV_BINARY_CACHE
 
 # Open-ended disk-backed cache flags — single source of truth shared by
-# _buffer_profile_args('open_ended') and _compose_open_ended_buffer_args().
-# Buffers as far ahead as the stream allows, up to a 2 GiB disk-backed cap
-# and a 3600-second readahead window.  Used both as a persistent default
-# profile and as the per-play relaunch args for the per-play action.
+# _buffer_profile_args('open_ended') and _compose_open_ended_buffer_args(). Buffers as far ahead as
+# the stream allows, up to a 2 GiB disk-backed cap and a 3600-second readahead window.  Used both
+# as a persistent default profile and as the per-play relaunch args for the per-play action.
 _OPEN_ENDED_BUFFER_ARGS: list[str] = [
     "--cache=yes",
     "--cache-on-disk=yes",
@@ -110,10 +116,9 @@ class _Inst:
 
     process: Optional[subprocess.Popen] = None
     socket_path: str = ""
-    # Deep-cache --stream-record file this instance was launched with, if any
-    # ("" for a normal/open-ended launch). Purged wherever the socket is
-    # unlinked (_relaunch_instance, cleanup()) and in stop() — see
-    # MPVPlayer._purge_deep_cache_file.
+    # Deep-cache --stream-record file this instance was launched with, if any ("" for a
+    # normal/open-ended launch). Purged wherever the socket is unlinked (_relaunch_instance,
+    # cleanup()) and in stop() — see MPVPlayer._purge_deep_cache_file.
     record_path: str = ""
 
     def is_running(self) -> bool:
@@ -669,26 +674,22 @@ class MPVPlayer(PlayerPlugin):
                         deep_buffer=True, record_path=record_path,
                     )
 
-            # multiple-instances mode — no IPC; spawn a plain standalone process.
-            # NOTE: standalone (multi-instance) launches aren't tracked in
-            # _instances at all (pre-existing gap, same as open-ended buffer),
-            # so this file relies on the startup sweep for cleanup rather than
-            # a symmetric stop()/cleanup() purge.
+            # multiple-instances mode — no IPC; spawn a plain standalone process. NOTE: standalone
+            # (multi-instance) launches aren't tracked in _instances at all (pre-existing gap, same
+            # as open-ended buffer), so this file relies on the startup sweep for cleanup rather
+            # than a symmetric stop()/cleanup() purge.
             return self._launch_new_instance(
                 url, title, start_seconds=start_seconds,
                 deep_buffer=True, record_path=record_path,
             )
 
-        # Open-ended buffer requires baking the large cache args in at process start —
-        # mpv's cache settings cannot be patched via IPC loadfile per-file options.
-        #
-        # In single-instance mode: relaunch the SAME key's instance with the open-ended
-        # args, then send ``loadfile`` over IPC exactly as a normal play does.  This keeps
-        # the window in the same mpv instance slot so the playback-health readout (which
-        # polls by key) continues to work, and avoids spawning a separate orphan window.
-        #
-        # In multiple-instances mode (no IPC/keying): fall through to the standalone-
-        # process path below (same as before).
+        # Open-ended buffer requires baking the large cache args in at process start — mpv's cache
+        # settings cannot be patched via IPC loadfile per-file options. In single-instance mode:
+        # relaunch the SAME key's instance with the open-ended args, then send ``loadfile`` over
+        # IPC exactly as a normal play does.  This keeps the window in the same mpv instance slot
+        # so the playback-health readout (which polls by key) continues to work, and avoids
+        # spawning a separate orphan window. In multiple-instances mode (no IPC/keying): fall
+        # through to the standalone-process path below (same as before).
         if open_ended_buffer and self.single_instance:
             if not self._relaunch_instance(instance_key, self._compose_open_ended_buffer_args()):
                 logger.warning(
@@ -925,12 +926,11 @@ class MPVPlayer(PlayerPlugin):
             command = {"command": ["quit"], "request_id": 1}
             result = self._send_ipc_command(command, resolved)
 
-        # Deep-cache recordings are safe to unlink even while mpv's "quit" is
-        # still in flight — on POSIX, removing the directory entry doesn't
-        # affect a process that still holds the file open; the space is
-        # reclaimed once mpv actually closes it on exit. That lets this purge
-        # happen synchronously here rather than needing to wait for the
-        # process to actually die (stop() has no such synchronous signal).
+        # Deep-cache recordings are safe to unlink even while mpv's "quit" is still in flight — on
+        # POSIX, removing the directory entry doesn't affect a process that still holds the file
+        # open; the space is reclaimed once mpv actually closes it on exit. That lets this purge
+        # happen synchronously here rather than needing to wait for the process to actually die
+        # (stop() has no such synchronous signal).
         if inst is not None and inst.record_path:
             self._purge_deep_cache_file(inst.record_path)
             inst.record_path = ""
