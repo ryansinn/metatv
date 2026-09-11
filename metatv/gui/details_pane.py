@@ -21,7 +21,7 @@ from metatv.gui.details_sections import (
     _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
     _TagsSection, _no_width_force,
 )
-from metatv.gui.details_actions import ChannelActionState, _ActionBar
+from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
@@ -163,11 +163,12 @@ class DetailsPaneWidget(QWidget):
         self._action_bar.load(state)
 
     def apply_episode_action_state(
-        self, episode_id: str, in_queue: bool, is_favorite: bool
+        self, episode_id: str, in_queue: bool, is_favorite: bool, watch_progress: int = 0, watch_completed: bool = False
     ) -> None:
         """Called from main_window when the async per-EPISODE action-state load
         completes (Slice 2B) — queue/favorite state for the episode shown in
         episode mode, kept separate from the series-level ``apply_action_state``.
+        Episodes can also have saved watch progress and completion state.
         """
         if (
             not self._in_episode_mode
@@ -176,6 +177,7 @@ class DetailsPaneWidget(QWidget):
         ):
             return  # stale response — user already moved on, or left episode mode
         self._action_bar.set_episode_queue_favorite(in_queue, is_favorite)
+        self._action_bar.set_resume(watch_progress > 0 and not watch_completed, watch_progress)
 
     def apply_channel_tags(self, channel_id: str, tags: list) -> None:
         """Called from main_window when the async tag load completes.
@@ -263,11 +265,14 @@ class DetailsPaneWidget(QWidget):
         _has_match = bool(_unviewed(channel.id)) if callable(_unviewed) else False
         self._action_bar.set_new_match(_has_match)
 
-        # Resume button — movies with a saved, incomplete position only.
-        _is_movie = getattr(channel, "media_type", None) == MediaType.MOVIE
-        _progress = int(getattr(channel, "watch_progress", 0) or 0)
+        # Resume button — movies with a saved, incomplete position only; the
+        # same predicate the bus re-read applies in _ActionBar.load (RESUME-1).
         _completed = bool(getattr(channel, "watch_completed", False))
-        self._action_bar.set_resume(_is_movie and _progress > 0 and not _completed, _progress)
+        self._action_bar.set_resume(*resume_state(
+            getattr(channel, "media_type", None),
+            getattr(channel, "watch_progress", 0),
+            _completed,
+        ))
 
         # Watched badge (VOD only) — reflect the stored watch_completed flag on the
         # clickable poster badge.  (For live, set_mode already hides the badge.)

@@ -113,6 +113,9 @@ class _MetadataMixin:
                     state.is_suppressed = bool(ch.is_rec_suppressed)
                     state.is_hidden = bool(ch.is_hidden)
                     state.is_favorite = bool(ch.is_favorite)
+                    state.media_type = str(getattr(ch.media_type, "value", ch.media_type) or "")
+                    state.watch_progress = int(ch.watch_progress or 0)
+                    state.watch_completed = bool(ch.watch_completed)
                 state.epg_link_blocked = channel_id in (self.config.epg_link_blocklist or [])
         except Exception:
             logger.exception("Failed to fetch action state for %s", channel_id)
@@ -135,15 +138,17 @@ class _MetadataMixin:
                 in_queue = repos.queue.is_episode_queued(episode_id)
                 ep = session.get(EpisodeDB, episode_id)
                 is_favorite = bool(ep.is_favorite) if ep else False
+                watch_progress = int(ep.watch_progress or 0) if ep else 0
+                watch_completed = bool(ep.watch_completed) if ep else False
         except Exception:
             logger.exception(f"Failed to fetch episode action state for {episode_id}")
             return
-        self._episode_action_state_loaded.emit(episode_id, in_queue, is_favorite)
+        self._episode_action_state_loaded.emit(episode_id, in_queue, is_favorite, watch_progress, watch_completed)
 
     def _on_episode_action_state_loaded(
-        self, episode_id: str, in_queue: bool, is_favorite: bool
+        self, episode_id: str, in_queue: bool, is_favorite: bool, watch_progress: int = 0, watch_completed: bool = False
     ) -> None:
-        self.details_pane.apply_episode_action_state(episode_id, in_queue, is_favorite)
+        self.details_pane.apply_episode_action_state(episode_id, in_queue, is_favorite, watch_progress, watch_completed)
 
     # ── Other Versions / Other Sources ─────────────────────────────────────
 

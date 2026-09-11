@@ -156,8 +156,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
     _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
-    # episode_id, in_queue, is_favorite — episode-mode action state worker → main thread (Slice 2B)
-    _episode_action_state_loaded = pyqtSignal(str, bool, bool)
+    # episode_id, in_queue, is_favorite, watch_progress, watch_completed — episode-mode action state worker → main thread (Slice 2B)
+    _episode_action_state_loaded = pyqtSignal(str, bool, bool, int, bool)
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     # notif_id, url, title, queue_episodes, provider_id, start_seconds, episode_id, series_id, media_type
