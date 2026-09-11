@@ -57,6 +57,40 @@ class PlayableChannelDTO:
 
 
 @dataclass(frozen=True)
+class LiveCopy:
+    """The copy of a title ``resolve_live_copy()`` (``channel_live_copy.py``)
+    says the details pane should actually show — VERS-1 (2026-09-11).
+
+    Built inside a session_scope() by ``resolve_live_copy()``; every field is
+    a ``PlayableChannelDTO`` or plain string, so nothing here outlives the
+    session that built it.
+
+    Fields:
+        dto: The copy to render as primary. Always set (except for an
+            unknown channel_id, where the resolver returns None outright) —
+            an engaged row (History/Favorites/Queue/Alerts) must still open
+            even when its own copy is the only one left.
+        redirected_from: The originally-requested copy, set only when *dto*
+            is a DIFFERENT, live sibling — i.e. a redirect actually happened.
+            None when the requested copy was already live, and None when no
+            live sibling exists (the dead copy IS what's shown — nothing to
+            redirect FROM).
+        dead_source_name: The display name of the hidden source the caller
+            asked for, set whenever the requested copy's provider is hidden
+            (redirected or not). None when the requested copy was already
+            live.
+        dead_source_state: "expired" / "disabled" / "gone" (orphaned — the
+            provider row itself no longer exists), mirroring the same axes
+            ``ProviderRepository.get_hidden_provider_ids()`` unions. None
+            alongside ``dead_source_name`` being None.
+    """
+    dto: "Optional[PlayableChannelDTO]"
+    redirected_from: "Optional[PlayableChannelDTO]"
+    dead_source_name: "Optional[str]"
+    dead_source_state: "Optional[str]" = None
+
+
+@dataclass(frozen=True)
 class PlayableEpisodeDTO:
     """Fields from EpisodeDB consumed by play_episode() and play_from_history_id().
 

@@ -16,6 +16,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.channel_live_copy import resolve_live_copy
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.gui.details_actions import ChannelActionState
 from metatv.gui.details_versions import ChannelVersion
@@ -40,6 +41,30 @@ from metatv.gui import deferred_config_save as _cfgsave
 # reopen the click-again-to-refresh escape hatch on an already-settled title
 # — a human re-click is comfortably "seconds", not 2.
 _RERENDER_DEBOUNCE_S = 2.0
+
+
+def _source_notice_text(live_copy, details_pane) -> "str | None":
+    """The dim line under the details pane's Source chip (VERS-1) — describes
+    a redirect away from a dead source, or that the shown copy is dead with
+    nothing to redirect to. None when the shown copy was already live.
+
+    ``details_pane`` supplies the live copy's display name via its own
+    provider map (``DetailsPaneWidget.provider_name`` — the SAME lookup the
+    "Source:" chip itself reads), so this never re-derives provider naming.
+    """
+    if live_copy.dead_source_name is None:
+        return None
+    state = live_copy.dead_source_state or "unavailable"
+    if live_copy.redirected_from is not None:
+        live_name = details_pane.provider_name(live_copy.dto.provider_id)
+        return (
+            f"Shown from {live_name} — your {live_copy.dead_source_name} "
+            f"copy is {state}"
+        )
+    return (
+        f"{live_copy.dead_source_name} is {state} — no other source "
+        "carries this title"
+    )
 
 
 class _MetadataMixin:
@@ -535,10 +560,23 @@ class _MetadataMixin:
     def show_channel_details_by_id(self, channel_id: str, on_shown=None) -> None:
         """Show channel details in details pane (for sidebar selections).
 
-        UI-11: the DTO read (previously a synchronous session_scope() +
-        get_playable_dto() on the main thread) now runs off-thread through
-        the ``_run_query`` seam — this call is fire-and-forget; the pane
-        updates whenever the result lands, not before this returns.
+        VERS-1 (2026-09-11): routes through ``resolve_live_copy()``
+        (``core/repositories/channel_live_copy.py``) rather than a bare
+        ``repos.channels.get_playable_dto()`` — an engaged view (History /
+        Favorites / Queue / Alerts) may legitimately hand this a channel id
+        whose source has since gone inactive/expired/orphaned, and the pane
+        must show a LIVE copy as primary when one exists rather than the
+        dead one it was asked for (owner report: a "President Curtis" copy
+        on an expired source rendered as primary — Play, poster, Source chip
+        — while the only playable copy sat collapsed under "Also
+        Available"). ``resolve_live_copy()`` still calls
+        ``get_playable_dto()`` internally for both the shown copy and (on a
+        redirect) the originally-requested one, so no ORM object crosses the
+        session boundary — only ``PlayableChannelDTO``s, same as before.
+
+        UI-11: the read still runs off-thread through the ``_run_query``
+        seam — this call is fire-and-forget; the pane updates whenever the
+        result lands, not before this returns.
 
         Args:
             channel_id: Channel to display.
@@ -549,12 +587,31 @@ class _MetadataMixin:
                 otherwise clear if set beforehand). Not called when the
                 channel no longer exists.
         """
+        # self.__dict__.get, not self.config directly: a stripped test host
+        # (e.g. test_session_scope_migration.py's _MetaHost) may carry no
+        # config attribute at all. resolve_live_copy() treats a missing
+        # config as "don't rank siblings by version preference" (still
+        # correct, just unranked) rather than raising off the main thread.
+        config = self.__dict__.get("config")
         self._run_query(
-            lambda repos: repos.channels.get_playable_dto(channel_id),
-            lambda channel: self._on_details_channel_loaded(channel, on_shown),
+            lambda repos: resolve_live_copy(repos, channel_id, config=config),
+            lambda live_copy: self._on_details_live_copy_loaded(live_copy, on_shown),
             token_ref=self._details_channel_token,
             on_error=self._on_details_load_failed,
         )
+
+    def _on_details_live_copy_loaded(self, live_copy, on_shown=None) -> None:
+        """Main-thread slot for show_channel_details_by_id (VERS-1): render the
+        resolved live copy — never the dead one an engaged view may have asked
+        for — and set the pane's source notice describing any redirect.
+
+        The notice is set on EVERY call (including ``None`` to clear it), so a
+        redirect notice from one title never lingers onto the next.
+        """
+        if live_copy is None or live_copy.dto is None:
+            return
+        self._on_details_channel_loaded(live_copy.dto, on_shown)
+        self.details_pane.set_source_notice(_source_notice_text(live_copy, self.details_pane))
 
     def _on_details_channel_loaded(self, channel, on_shown=None) -> None:
         """Main-thread slot: render the DTO loaded by show_channel_details_by_id
