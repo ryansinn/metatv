@@ -19,6 +19,7 @@ from metatv.gui.sidebar.base import GroupHeading
 from metatv.gui.sidebar.alerts_common import (
     _ROLE_KIND,
     _ROLE_SERIES_ID,
+    _ROLE_SERIES_OPEN_ID,
     _vod_count_label,
 )
 
@@ -56,7 +57,7 @@ class MoviesSeriesMixin:
             spinner.setVisible(busy)
         self._update_vod_toggle_label(self._vod_list.count())
 
-    def _series_display_entries(self) -> list[dict]:
+    def _series_display_entries(self, series_visibility: "dict | None" = None) -> list[dict]:
         """Monitored-series rows for render: cleaned title + unseen count, sorted.
 
         New-episode series (``unseen_new > 0``) are pinned to the top, then idle
@@ -71,18 +72,32 @@ class MoviesSeriesMixin:
         disambiguator, non-empty ONLY when two entries share a cleaned title (the
         "two Fallout" case).  All identity data is read from stored fields; nothing
         re-parses the raw name at render.
+
+        Args:
+            series_visibility: ``{series_channel_id: (count, open_channel_id)}``
+                from :meth:`_compute_alert_availability` (ALERT-2) — ``unseen``
+                and the row's ``open_cid`` (what a click/"Open series" opens)
+                come from here when present, gated to live sources; a missing
+                entry (no DB wired) falls back to the raw config field / *cid*
+                itself, same as before this change.
         """
+        series_visibility = series_visibility or {}
         entries = getattr(self.config, "get_monitored_series", lambda: [])()
         # Pair each display dict with its raw config entry so the shared
         # disambiguation helper (which reads the raw stored fields) can run on the
         # SORTED order and align 1:1 back onto the rows.
         pairs: list[tuple[dict, dict]] = []
         for e in entries:
+            cid = e.get("series_channel_id", "")
+            visible = series_visibility.get(cid)
+            unseen = visible[0] if visible is not None else (e.get("unseen_new") or 0)
+            open_cid = visible[1] if visible is not None else cid
             pairs.append((
                 {
-                    "cid": e.get("series_channel_id", ""),
+                    "cid": cid,
+                    "open_cid": open_cid or cid,
                     "title": e.get("display_title") or e.get("title") or "Unknown series",
-                    "unseen": e.get("unseen_new") or 0,
+                    "unseen": unseen,
                     "language": (e.get("language") or "").strip(),
                     "region": (e.get("region") or "").strip(),
                     "source": (e.get("source") or "").strip(),
@@ -107,23 +122,43 @@ class MoviesSeriesMixin:
     def _compute_alert_availability(self):
         """Re-validate stored matches against live source state (one bounded query).
 
-        Returns an :class:`AlertAvailability`, or ``None`` when no DB is wired (test
-        stubs / early init) so callers fall back to the raw config counts.
+        Returns ``(AlertAvailability, series_visibility)``, or ``(None, {})``
+        when no DB is wired (test stubs / early init) so callers fall back to
+        the raw config counts. ``series_visibility`` is ``{series_channel_id:
+        (count, open_channel_id)}`` (ALERT-2) — built in the SAME session as the
+        bounded query above, via ``series_monitor_visibility.visible_unseen`` +
+        ``resolve_open_channel_id``, so the Series list's counts/click-targets
+        never differ from Watch Queue's Alerts Matched group.
         """
         # Read the instance dict directly: getattr() on a __new__'d QObject stub
         # (tests) whose C++ super-init never ran raises RuntimeError instead of
         # returning the default, so a plain getattr(self, "db", None) would crash.
         db = self.__dict__.get("db")
         if db is None:
-            return None
+            return None, {}
         try:
             from metatv.core.repositories import RepositoryFactory
             from metatv.core.vod_alert_availability import compute_alert_availability
+            from metatv.core.series_monitor_visibility import (
+                resolve_open_channel_id, visible_unseen,
+            )
             with db.session_scope(commit=False) as session:
-                return compute_alert_availability(self.config, RepositoryFactory(session))
+                repos = RepositoryFactory(session)
+                avail = compute_alert_availability(self.config, repos)
+                visibility = {}
+                for e in getattr(self.config, "get_monitored_series", lambda: [])():
+                    cid = e.get("series_channel_id")
+                    if not cid:
+                        continue
+                    count, open_key = visible_unseen(e, avail.excluded_provider_ids)
+                    open_cid = (
+                        resolve_open_channel_id(repos, open_key, cid) if count > 0 else cid
+                    )
+                    visibility[cid] = (count, open_cid)
+                return avail, visibility
         except Exception:  # noqa: BLE001
             logger.exception("Alert availability re-validation failed; using raw counts")
-            return None
+            return None, {}
 
     def _toggle_series_group(self) -> None:
         """Collapse/expand the monitored-series group."""
@@ -226,13 +261,15 @@ class MoviesSeriesMixin:
         """
 
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
-        series = self._series_display_entries()
         self._vod_list.clear()
 
         # Re-validate every count against LIVE source state (once, one bounded query):
         # matches on disabled/expired sources never count or show — anywhere.  When no
         # DB is wired (test stubs) avail is None → fall back to the raw config counts.
-        avail = self._compute_alert_availability()
+        # series_visibility (ALERT-2) is built in that same query — computed first so
+        # _series_display_entries can gate each row's count/open-target from it.
+        avail, series_visibility = self._compute_alert_availability()
+        series = self._series_display_entries(series_visibility)
 
         # Header glance = number of ALERTS (rules) currently firing (AVAILABLE-only),
         # NOT the total matched-item count.  The item count feeds only the tooltip.
@@ -374,6 +411,9 @@ class MoviesSeriesMixin:
                     item = QListWidgetItem()
                     item.setData(_ROLE_KIND, "series")
                     item.setData(_ROLE_SERIES_ID, cid)
+                    # ALERT-2: what click/double-click/"Open series" opens — the
+                    # live mirror when cid's primary source is hidden, else cid.
+                    item.setData(_ROLE_SERIES_OPEN_ID, s.get("open_cid") or cid)
                     # Always-on identity tooltip (Language/Region/Source) so any
                     # series is fully identifiable on hover, even when two share a
                     # cleaned title.
@@ -482,7 +522,9 @@ class MoviesSeriesMixin:
         # GroupHeading widget emits its own clicked signal (see
         # _add_group_heading), so an unselectable item cannot reach this handler.
         if kind == "series":
-            cid = item.data(_ROLE_SERIES_ID)
+            # ALERT-2: the OPEN target, not the entry's raw identity — a live
+            # mirror when the primary source is hidden.
+            cid = item.data(_ROLE_SERIES_OPEN_ID)
             if cid:
                 self.seriesClicked.emit(cid)
             return
@@ -501,7 +543,7 @@ class MoviesSeriesMixin:
         """
         kind = item.data(_ROLE_KIND)
         if kind == "series":
-            cid = item.data(_ROLE_SERIES_ID)
+            cid = item.data(_ROLE_SERIES_OPEN_ID)  # ALERT-2: open target
             if cid:
                 self.seriesActivated.emit(cid)
             return
@@ -565,27 +607,32 @@ class MoviesSeriesMixin:
         cid = item.data(_ROLE_SERIES_ID)
         if not cid:
             return
-        menu = self._build_series_context_menu(cid)
+        open_cid = item.data(_ROLE_SERIES_OPEN_ID) or cid  # ALERT-2
+        menu = self._build_series_context_menu(cid, open_cid)
         menu.exec(self._vod_list.viewport().mapToGlobal(pos))
 
-    def _build_series_context_menu(self, cid: str) -> QMenu:
+    def _build_series_context_menu(self, cid: str, open_cid: "str | None" = None) -> QMenu:
         """Build (does not exec) a monitored-series row's right-click menu.
 
         The registry's "alerts_series" surface — a monitored-series entry is a
         config-only aggregate, not a ChannelDB row, so ``channel_ids`` carries
         *cid* only as an id for the menu's own bookkeeping (is_single); every
-        handler below closes over *cid* directly rather than reading
+        handler below closes over *cid*/*open_cid* directly rather than reading
         ``ctx.channel_id``. "Open series" reuses the SAME drill chokepoint as
         double-click (``seriesActivated``) — never the details-only
         ``seriesClicked`` (that was the owner-reported bug: right-click "Open
-        series" only loaded the details pane instead of browsing in). Building
-        the menu never mutates/navigates anything — only a triggered action
-        does, and splitting build from exec lets tests trigger an action
+        series" only loaded the details pane instead of browsing in), and opens
+        on *open_cid* (ALERT-2: the live mirror when *cid*'s primary source is
+        hidden, defaulting to *cid*) — "Mark seen"/"Stop alerts" always key on
+        *cid* itself, the entry's own identity, never a redirected mirror.
+        Building the menu never mutates/navigates anything — only a triggered
+        action does, and splitting build from exec lets tests trigger an action
         without a blocking ``exec()``. Sibling: queue.py's
         ``_build_matched_series_menu`` (#365) reuses the same surface.
         """
         from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
+        open_cid = open_cid or cid
         unseen = 0
         for e in getattr(self.config, "get_monitored_series", lambda: [])():
             if e.get("series_channel_id") == cid:
@@ -601,7 +648,7 @@ class MoviesSeriesMixin:
             has_unviewed_match=unseen > 0,
         )
         handlers = {
-            "browse_series": lambda: self.seriesActivated.emit(cid),
+            "browse_series": lambda: self.seriesActivated.emit(open_cid),
             "mark_seen": lambda: self.seriesMarkSeenRequested.emit(cid),
             "monitor_series": lambda: self.seriesStopRequested.emit(cid),
             "manage_alerts": self.manageWatchForClicked.emit,

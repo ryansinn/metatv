@@ -1533,6 +1533,23 @@ class Config(BaseModel):
     #                                   # Build keys via series_monitor.mirror_key.
     #    "unseen_new": int,          # new episodes since last cleared (summed
     #                                 # across every provider that grew)
+    #    "unseen_by_mirror": dict[str, int],  # {"provider_id|source_id": unseen}
+    #                                   # — ALERT-2: unseen_new's own per-mirror
+    #                                   # breakdown, maintained alongside it (same
+    #                                   # writers: SeriesMonitorManager._on_new_
+    #                                   # episodes merges each pass's delta in;
+    #                                   # Config.clear_unseen / zero_out_inflated_
+    #                                   # unseen_new / a zeroing clamp clear it
+    #                                   # with unseen_new).  Lets series_monitor_
+    #                                   # visibility.visible_unseen() exclude a
+    #                                   # mirror's share once its provider is
+    #                                   # hidden (inactive/expired) instead of
+    #                                   # leaving it stuck in the total forever.
+    #                                   # An entry written before this field
+    #                                   # existed has none — visible_unseen()
+    #                                   # attributes its whole unseen_new to the
+    #                                   # PRIMARY mirror, the only one it could
+    #                                   # have come from.
     #    "growth_providers": list[str],  # display names credited for the most
     #                                     # recent unseen growth (toast + row
     #                                     # tooltip attribution); cleared
@@ -1754,12 +1771,15 @@ class Config(BaseModel):
         self.save()
 
     def clear_unseen(self, series_channel_id: str) -> None:
-        """Reset unseen_new to 0 (and its provider attribution) for the given series.
+        """Reset unseen_new (+ its per-mirror breakdown and provider attribution)
+        to 0 for the given series.
 
         Called both by the explicit "Mark seen" action and by drilling into the
         series' season/episode tree (opening it is itself an acknowledgment).
         """
-        self.update_monitored_series(series_channel_id, unseen_new=0, growth_providers=[])
+        self.update_monitored_series(
+            series_channel_id, unseen_new=0, unseen_by_mirror={}, growth_providers=[]
+        )
 
     # ── VOD Watch Alert helpers ───────────────────────────────────────────────
 

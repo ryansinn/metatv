@@ -27,6 +27,10 @@ from metatv.gui import deferred_config_save as _cfgsave
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
+# matched_series rows only: series_channel_id, mark-seen's key — kept OFF the
+# harmonized payload below since its "channel_id" is the OPEN target (ALERT-2:
+# a live mirror when the primary source is hidden), never mark-seen's id.
+_ROLE_SERIES_IDENTITY = Qt.ItemDataRole.UserRole + 3
 # Every row (plain queue entry OR Alerts Matched) carries the SAME harmonized
 # UserRole payload shape: a dict keyed by "grain" —
 #   "channel"        -> {"grain": "channel", "channel_id": ...}
@@ -322,6 +326,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.core.vod_alert_availability import (
             compute_alert_availability, get_unviewed_matched_entries,
         )
+        from metatv.core.series_monitor_visibility import (
+            resolve_open_channel_id, visible_unseen,
+        )
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             hidden = set(repos.providers.get_hidden_provider_ids())
@@ -346,12 +353,22 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             except Exception:  # noqa: BLE001
                 logger.exception("WatchQueueSection: alerts-matched load failed")
                 self._alerts_matched = []
+            # ALERT-2: gated to LIVE sources via `hidden` (already computed
+            # above) — see visible_unseen's docstring for the fallback order.
             try:
-                self._alerts_matched_series = [
-                    s for s in self.config.get_monitored_series()
-                    if (s.get("unseen_new") or 0) > 0
-                ]
-            except Exception:  # silent: no monitored series is a valid empty state
+                self._alerts_matched_series = []
+                for s in self.config.get_monitored_series():
+                    count, open_key = visible_unseen(s, hidden)
+                    if count <= 0:
+                        continue
+                    entry = dict(s)
+                    entry["unseen_new"] = count
+                    entry["_open_channel_id"] = resolve_open_channel_id(
+                        repos, open_key, s.get("series_channel_id", "")
+                    )
+                    self._alerts_matched_series.append(entry)
+            except Exception:
+                logger.exception("WatchQueueSection: matched-series gating failed")
                 self._alerts_matched_series = []
             return entries
 
@@ -769,15 +786,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return item
 
     def _add_matched_series_item(self, entry: dict) -> QListWidgetItem:
-        """One monitored-series-with-new-episodes row.
-
-        Built by the SHARED row builder, like every other row in this section.
-        It used to be a ``_VodAlertRow`` — a second widget for the same visual
-        row, carrying an emoji type icon and an emoji "NEW" badge — so it sat
-        out every change made to the real rows around it and ended up the only
-        row in the sidebar still wearing the old look.
+        """One monitored-series-with-new-episodes row, built by the SHARED row
+        builder like every other row here (it used to be a second widget,
+        ``_VodAlertRow``, that sat out every change made to the real rows).
         """
         cid = entry.get("series_channel_id", "")
+        open_cid = entry.get("_open_channel_id") or cid  # ALERT-2: click target
         title = entry.get("display_title") or entry.get("title") or "Unknown series"
         unseen = entry.get("unseen_new") or 0
         ep_word = "ep" if unseen == 1 else "eps"
@@ -785,8 +799,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, {
             "grain": "matched_series",
-            "channel_id": cid,
+            "channel_id": open_cid,
         })
+        item.setData(_ROLE_SERIES_IDENTITY, cid)
         item.setToolTip(
             f"{title}: +{unseen} new {ep_word} — double-click to browse the series"
         )
@@ -839,11 +854,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         and Watch Alerts draw theirs: a muted small-caps label with the count
         carrying the emphasis, because the label is the constant and the count
         is the variable. The count rides on the heading because a group's size
-        is context for the rows under it, not news about them.
-
-        Returns:
-            The ``QListWidgetItem`` (what the filter hides) and the
-            ``GroupHeading`` on it (what the filter retitles).
+        is context for the rows under it, not news about them. Returns the
+        ``QListWidgetItem`` (what the filter hides) and the ``GroupHeading`` on
+        it (what the filter retitles).
         """
         item = QListWidgetItem(self._list)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -856,16 +869,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """Route a DOUBLE click. Series (layered) items navigate; leaf items play.
 
         - matched_channel: ack the match (same as single-click) THEN navigate/play
-          through the same chokepoint a plain queue row double-click already uses
-          (``itemDoubleClicked`` → host's ``play_queue_item_id``, which resolves
-          the channel's media_type and drills into a series or plays a movie/live
-          leaf) — never a parallel play/drill path.
-        - matched_series: navigate only. Drilling in IS the "seen" ack (the host's
-          ``on_series_loaded`` clears ``unseen_new`` on a successful open), so no
-          separate mark-viewed emission is needed here.
-        - episode / channel (plain queue rows): unchanged — episodes play
-          directly; channel rows already resolve series-vs-leaf the same way via
-          ``itemDoubleClicked``.
+          through the plain queue row's own chokepoint (``itemDoubleClicked`` ->
+          host's ``play_queue_item_id``, which resolves media_type and drills
+          into a series or plays a movie/live leaf) — never a parallel path.
+        - matched_series: navigate only. Drilling in IS the "seen" ack (host's
+          ``on_series_loaded`` clears ``unseen_new`` on a successful open).
+        - episode / channel (plain queue rows): unchanged.
         """
         payload = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(payload, dict):
@@ -923,20 +932,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 # only — same surface as sidebar/alerts_vod.py's monitored-series
                 # menu, #365; this site has no handler for Stop alerts/Manage…,
                 # so the registry silently skips them).
-                cid = payload.get("channel_id")
+                cid = payload.get("channel_id")          # open target
+                series_cid = item.data(_ROLE_SERIES_IDENTITY) or cid  # mark-seen key
                 if cid:
-                    self._build_matched_series_menu(cid).exec(gp)
+                    self._build_matched_series_menu(cid, series_cid).exec(gp)
                 return
 
             channel_id = payload.get("channel_id") if payload else None
             if channel_id:
-                # Emit signal so main_window builds the per-item context menu,
-                # which will also append "Clear Unavailable" (see main_window_favorites.py).
-                # Episode-grain rows target the PARENT SERIES' channel menu here —
-                # channel_menu.py's registry is ChannelDB-only today (episode
-                # favorite/queue actions live in the series-tree's own menu instead).
-                # matched_channel rows reuse this exact same "queue" surface —
-                # previously these rows had NO context menu at all.
+                # Emit signal so main_window builds the per-item context menu
+                # (also appends "Clear Unavailable", main_window_favorites.py).
+                # Episode-grain rows target the PARENT SERIES' menu here
+                # (channel_menu.py's registry is ChannelDB-only; episode actions
+                # live in the series-tree's own menu). matched_channel rows
+                # reuse this exact surface (previously had none).
                 self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
                 return
 
@@ -953,7 +962,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         menu.addAction(clear_act)
         menu.exec(QPoint(gp.x(), gp.y()))
 
-    def _build_matched_series_menu(self, cid: str) -> "QMenu":
+    def _build_matched_series_menu(self, cid: str, series_cid: "str | None" = None) -> "QMenu":
         """Build (does not exec) the Alerts-Matched series row's right-click menu.
 
         The registry's "alerts_series" surface, wired with only two of its four
@@ -964,9 +973,15 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         (``itemDoubleClicked`` — drilling in is itself the "seen" ack). Building
         the menu never mutates anything — only a triggered action does, so
         opening the menu is never a mark-viewed side effect.
+
+        *cid* is the OPEN target ("browse_series" — ALERT-2: the live mirror
+        when the primary source is hidden, else the primary); *series_cid* is
+        the entry's OWN identity ("mark_seen"'s ``Config.clear_unseen`` key),
+        defaulting to *cid* when the two never diverge.
         """
         from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 
+        series_cid = series_cid or cid
         ctx = ChannelMenuContext(
             channel_ids=[cid],
             surface="alerts_series",
@@ -980,6 +995,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         )
         handlers = {
             "browse_series": lambda: self.itemDoubleClicked.emit(cid),
-            "mark_seen": lambda: self.alertsMatchedSeriesMarkSeenRequested.emit(cid),
+            "mark_seen": lambda: self.alertsMatchedSeriesMarkSeenRequested.emit(series_cid),
         }
         return build_channel_menu(ctx, handlers, parent=self._list)
