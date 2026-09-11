@@ -511,7 +511,7 @@ class _FakePlayerManagerWithExit(_FakePlayerManager):
         return self._reason
 
 
-def _gone_host(reason, *, retry_attempt=False):
+def _gone_host(reason, *, retry_attempt=False, progressed=False):
     from metatv.gui import playback_start_watch as watch
     host = MainWindow.__new__(MainWindow)
     host._playback_health_label = _FakeLabel()
@@ -526,7 +526,13 @@ def _gone_host(reason, *, retry_attempt=False):
     host.stream_retry_manager = MagicMock()
     watch.arm(host, watch.PlayAttempt("ch-1", "Title", "http://x/1.mkv", retry=retry_attempt))
     watch.on_playing(host)
-    watch.on_loaded_tick(host, None, False, cache_duration=None)   # loaded, OPENING
+    if progressed:
+        # PLAY-17: real video arrived, then the source dropped it far short
+        # of its own known duration.
+        watch.on_loaded_tick(host, 0.0, False, duration=5400)
+        watch.on_loaded_tick(host, 300.0, False, duration=5400)
+    else:
+        watch.on_loaded_tick(host, None, False, cache_duration=None)   # loaded, OPENING
     return host
 
 
@@ -555,3 +561,18 @@ def test_tick_does_not_retry_a_user_close():
         MainWindow._playback_health_tick(host)
     shot.assert_not_called()
     host.notification_manager.show.assert_not_called()
+
+
+# ── PLAY-17: a mid-play drop resumes instead of falling into the never- ─────
+# started retry — same tick, different verdict, once progress is on record.
+
+def test_tick_resumes_a_mid_play_drop_instead_of_the_never_started_retry():
+    host = _gone_host("End of file", progressed=True)
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        MainWindow._playback_health_tick(host)
+    shot.assert_called_once()
+    never_started = [
+        c for c in host.notification_manager.show.call_args_list
+        if c.kwargs.get("title") == "Stream did not start"
+    ]
+    assert not never_started, "the drop must not also read as a never-started play"

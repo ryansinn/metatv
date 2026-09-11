@@ -296,7 +296,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         open_ended_buffer: bool = False,
         deep_buffer: bool = False,
         start_override: int | None = None,
-        skip_probe: bool = False,
+        skip_probe: bool = False, drop_resumes: int = 0,
     ):
         """Play a media item (live stream or movie) in external player.
 
@@ -318,6 +318,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             start_override: Forces the seek position regardless of
                 ``config.playback_resume_mode``/saved progress — ``0`` = from
                 the start, a positive int = that second, ``None`` = default.
+            drop_resumes: PLAY-17 — resumes already used by this play's lineage.
         """
         channel_id = channel.id
 
@@ -407,7 +408,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             start_seconds,
             open_ended_buffer,
             deep_buffer, getattr(channel, "event_start_time", None),
-            switch_ctx,
+            switch_ctx, drop_resumes,
         )
 
     # ── Auth/gating HTTP codes that are treated as uncertain (advisory, not hard) ──
@@ -450,7 +451,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         open_ended_buffer: bool = False,
         deep_buffer: bool = False,
         event_start_time=None,   # the channel's event_start_time, or None
-        switch_context: "_stream_switch.SwitchContext | None" = None,
+        switch_context: "_stream_switch.SwitchContext | None" = None, drop_resumes: int = 0,
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
@@ -491,7 +492,7 @@ class _StreamingMixin(_WatchCaptureMixin):
                 "force_new_window": force_new_window, "start_seconds": start_seconds,
                 "open_ended_buffer": open_ended_buffer, "deep_buffer": deep_buffer,
                 "siblings": [], "event_start_time": event_start_time,
-                "probe_skipped": True, "retry": switch_context.retry,
+                "probe_skipped": True, "retry": switch_context.retry, "drop_resumes": drop_resumes,
             })
             return
 
@@ -733,7 +734,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             # clears the pending record, _record_play below fills it.
             self._start_playback_health(_startwatch.PlayAttempt(
                 channel_id, channel_name, final_url, start_seconds, data.get("event_start_time"),
-                retry=bool(data.get("retry")), provider_id=data.get("provider_id")))
+                retry=bool(data.get("retry")), provider_id=data.get("provider_id"),
+                drop_resumes=data.get("drop_resumes", 0)))
             # Record playback through the one helper, so this path and the
             # escape hatches (Play Anyway, "Try <source>") cannot drift on what
             # a play is worth recording.
@@ -1225,7 +1227,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         try:
             props = self.player_manager.get_properties(
                 ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count",
-                 "time-pos", "pause"],
+                 "time-pos", "pause", "duration"],
                 key=key,
             )
         except Exception as e:
@@ -1287,13 +1289,11 @@ class _StreamingMixin(_WatchCaptureMixin):
 
         if _startwatch.on_playing(self) and (att := self.__dict__.get("_health_attempt")):
             self.status(f"Playing: {att.channel_name}", ms=0)
+        cache_dur = props.get("demuxer-cache-duration")
         _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")),
-                                   cache_duration=props.get("demuxer-cache-duration"))
+                                   cache_duration=cache_dur, duration=props.get("duration"))
         text = format_playback_health(
-            props.get("demuxer-cache-duration"),
-            props.get("cache-speed"),
-            props.get("frame-drop-count"),
-        )
+            cache_dur, props.get("cache-speed"), props.get("frame-drop-count"))
 
         # Resolve which window this reading belongs to.
         shown_key = key
