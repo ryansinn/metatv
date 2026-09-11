@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import QWidget, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
+from metatv.core.models import MediaType
+
 from metatv.gui import cursor_affordance as _cursor
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -20,6 +22,36 @@ def _fmt_elapsed(total_seconds: float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
+def resume_state(
+    media_type: str | None, watch_progress: int | None, watch_completed: bool | None
+) -> tuple[bool, int]:
+    """Determine whether the Resume button should be shown and at what position.
+
+    The one predicate for "offer Resume" — used by both `show_channel` and
+    `_ActionBar.load()` so they cannot disagree. RESUME-1: Resume follows the
+    bus re-read, so a position written after the pane rendered still reaches
+    the button.
+
+    Args:
+        media_type: The channel's media type (a string or MediaType enum value),
+            or None.
+        watch_progress: Playback position in seconds, or None.
+        watch_completed: Whether playback is fully watched, or None.
+
+    Returns:
+        (can_resume, position_s): Whether to show Resume, and at what second to
+        resume from.
+    """
+    progress = int(watch_progress or 0)
+    # Resume is available for movies with a saved, incomplete position.
+    can_resume = (
+        str(media_type) == str(MediaType.MOVIE) and
+        progress > 0 and
+        not bool(watch_completed)
+    )
+    return (can_resume, progress)
+
+
 @dataclass
 class ChannelActionState:
     """All per-channel DB state needed by the action bar. Loaded asynchronously."""
@@ -30,6 +62,9 @@ class ChannelActionState:
     is_hidden: bool = False
     epg_link_blocked: bool = False  # channel_id in config.epg_link_blocklist
     is_favorite: bool = False
+    media_type: str = ""
+    watch_progress: int = 0
+    watch_completed: bool = False
 
 
 class _SteppedLabelButton(QPushButton):
@@ -313,7 +348,9 @@ class _ActionBar(QWidget):
         fetch (the two async requests race; either can resolve last) must not
         clobber either one. Rating/suppressed/hidden stay series-scoped even in
         episode mode by design (see enter_episode_mode /
-        _refresh_series_scope_tooltips), so those always apply.
+        _refresh_series_scope_tooltips), so those always apply. RESUME-1: Resume
+        follows the bus re-read, so a position written after the pane rendered
+        still reaches the button.
         """
         if self._primary_mode != "episode":
             self._in_queue = state.in_queue
@@ -322,6 +359,7 @@ class _ActionBar(QWidget):
         self._suppressed = state.is_suppressed
         self._is_hidden = state.is_hidden
         self.set_epg_link_blocked(state.epg_link_blocked)
+        self.set_resume(*resume_state(state.media_type, state.watch_progress, state.watch_completed))
         self._sync_all()
 
     def set_trailer(self, has_trailer: bool) -> None:
