@@ -214,8 +214,8 @@ class _NavMixin:
         # only what series view needs.
         self.series_tree.setVisible(True)
         self.show_series_nav(self.current_series.name)
-        self.search_input.setEnabled(False)
-        self.search_input.setPlaceholderText("Search not available in series view")
+        # SEARCH-11: stays live here too — see _sync_header_search_visibility.
+        self._sync_header_search_visibility(False)
         self.populate_series_tree()
         self.status(f"Viewing series: {self.current_series.name}", ms=0)
 

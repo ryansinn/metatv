@@ -146,10 +146,10 @@ class _ChannelListMixin:
         if not text:
             return
         # switch_to_list_view already hides the other views, deactivates their
-        # chips and enables Search — reuse it rather than re-implementing the
-        # half of it this needs, so the two cannot disagree about what
-        # switching entails.
-        if not self.search_chip.is_enabled():
+        # chips and enables Search — isHidden(), not isVisible() (False for
+        # any child of an unshown window), since every content view, series
+        # tree included, hides the list via setVisible(False).
+        if not self.search_chip.is_enabled() or self.channels_list.isHidden():
             self.switch_to_list_view()
         # Run it now rather than waiting out the keystroke debounce — pressing
         # Enter says "this one, now".

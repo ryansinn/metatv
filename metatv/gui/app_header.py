@@ -188,8 +188,8 @@ class _AppHeaderMixin:
 
         # Search moves here from the content area's controls row. It keeps its
         # existing behaviour (it filters the channel list) and its existing
-        # signal; only its home and its placeholder change. Visibility still
-        # follows the Search view — see ``_sync_header_search_visibility``.
+        # signal; only its home and its placeholder change. Always visible
+        # AND always enabled now — see ``_sync_header_search_visibility``.
         #
         # SEARCH-10: adopts ScopedFilterBox for its input shape (clear button,
         # Escape-to-clear) — debounce_ms=0 because main_window_channels.py
@@ -197,8 +197,12 @@ class _AppHeaderMixin:
         # stays wired exactly as it was. The header keeps its own distinctive
         # "surface" look (_search_sheet) rather than the shared
         # SCOPED_FILTER_BOX role every other adopter takes.
+        #
+        # SEARCH-11: select_all_on_click is the mouse twin of the keyboard
+        # shortcut's own selectAll() (``_shortcut_focus_search``) — a click
+        # that returns focus here should start a clean search too.
         self.search_input = ScopedFilterBox(
-            "Search titles — name, category…", debounce_ms=0
+            "Search titles — name, category…", debounce_ms=0, select_all_on_click=True
         )
         self.search_input.setMinimumWidth(240)
         self.search_input.setMaximumWidth(460)
@@ -295,9 +299,17 @@ class _AppHeaderMixin:
           view rather than a filter that only works once you are already in it.
 
         The parameter is kept so the three nav call sites need no edit and the
-        signature stays honest about what they are asking for; the enabled
-        state still follows it, so the box reads as inert where it does not
-        filter, without moving anything.
+        signature stays honest about what they are asking for, but it no
+        longer decides the enabled state (SEARCH-11): the box is ALWAYS
+        typeable, on every view, because Enter is how you get INTO Search
+        from anywhere, not just a filter you can only reach once already
+        there. The series view used to be the one place that disabled it
+        directly (``switch_to_series_view``) — and because every other view
+        switch routed only through this method, which never touched
+        ``setEnabled``, nothing downstream ever turned it back on. Asserting
+        ``setEnabled(True)`` here on every call makes that invariant
+        mechanical: every view switch re-asserts it, so no single call site
+        can leave it stuck off again.
         """
         # ``self.__dict__.get``, never ``hasattr``: PyQt raises RuntimeError —
         # not AttributeError — for attribute access on a ``__new__``'d
@@ -306,6 +318,7 @@ class _AppHeaderMixin:
         search = self.__dict__.get("search_input")
         if search is not None:
             search.setVisible(True)
+            search.setEnabled(True)
             search.setPlaceholderText(
                 "Search titles — name, category…" if visible
                 else "Search titles — press Enter to search"

@@ -343,3 +343,98 @@ def test_clicking_the_playback_health_readout_reaches_its_slot(window):
 
     label.mousePressEvent(_press(Qt.MouseButton.RightButton))
     assert fired == [1], "right click emitted clicked; the button test is dead"
+
+
+# ---------------------------------------------------------------------------
+# 6. SEARCH-11: the header search box is always live.
+# ---------------------------------------------------------------------------
+
+def test_the_search_box_is_enabled_after_the_series_view(window):
+    """The series view used to be the one place that disabled the header
+    search box directly, and because every OTHER view switch only ever set
+    visibility/placeholder (never touched ``setEnabled``), nothing turned it
+    back on until the user returned to the channel list — "inaccessible
+    unless the search view is selected". ``_sync_header_search_visibility``
+    now asserts ``setEnabled(True)`` on every call, so the very next view
+    switch (any of them, not just the list) re-enables it.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    window.current_series = SimpleNamespace(id="s", name="S", provider_id="p")
+    real_populate = window.populate_series_tree
+    real_show_nav = window.show_series_nav
+    window.populate_series_tree = MagicMock()
+    window.show_series_nav = MagicMock()
+    try:
+        window.switch_to_series_view()
+        assert window.search_input.isEnabled(), (
+            "the header search box was left disabled by the series view"
+        )
+
+        # Any other view switch shares _hide_all_content_views(), the seam
+        # that re-asserts the enabled state — drive it directly rather than
+        # switch_to_discover_view(), which would also touch the (empty but
+        # real) DB via discover_view.on_activate().
+        window._hide_all_content_views()
+        assert window.search_input.isEnabled(), (
+            "leaving series view for another view left the box disabled"
+        )
+    finally:
+        window.populate_series_tree = real_populate
+        window.show_series_nav = real_show_nav
+        window.switch_to_list_view()
+
+
+def test_enter_from_a_non_list_view_switches_to_the_list_and_searches(window):
+    """Enter used to only switch views when the search CHIP was disabled, but
+    the series view can leave the chip enabled while the list itself is
+    hidden — so Enter ran ``load_channels()`` into a view nobody could see.
+    ``_on_search_submitted`` now also checks ``channels_list.isHidden()``,
+    which every content view (series tree included) sets via an explicit
+    ``setVisible(False)``.
+    """
+    from unittest.mock import MagicMock
+
+    window.channels_list.setVisible(False)
+    window.search_input.setText("batman")
+
+    real_switch = window.switch_to_list_view
+    real_load = window.load_channels
+    window.switch_to_list_view = MagicMock()
+    window.load_channels = MagicMock()
+    real_debounce_stop = window._search_debounce.stop
+    stopped = []
+    window._search_debounce.stop = lambda: (stopped.append(1), real_debounce_stop())
+    try:
+        window._on_search_submitted()
+        window.switch_to_list_view.assert_called_once()
+        window.load_channels.assert_called_once()
+        assert stopped, "Enter must stop the pending debounce, not wait it out"
+    finally:
+        window.switch_to_list_view = real_switch
+        window.load_channels = real_load
+        window._search_debounce.stop = real_debounce_stop
+        window.channels_list.setVisible(True)
+
+
+def test_enter_on_an_empty_box_does_nothing(window):
+    """Enter on an empty box must not yank the user out of whatever view they
+    were reading, having asked for nothing."""
+    from unittest.mock import MagicMock
+
+    window.channels_list.setVisible(False)
+    window.search_input.setText("")
+
+    real_switch = window.switch_to_list_view
+    real_load = window.load_channels
+    window.switch_to_list_view = MagicMock()
+    window.load_channels = MagicMock()
+    try:
+        window._on_search_submitted()
+        window.switch_to_list_view.assert_not_called()
+        window.load_channels.assert_not_called()
+    finally:
+        window.switch_to_list_view = real_switch
+        window.load_channels = real_load
+        window.channels_list.setVisible(True)
