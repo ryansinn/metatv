@@ -86,11 +86,14 @@ STALLED_AFTER_TICKS = 8
 #: Consecutive loaded-but-still-OPENING probes (no ``time-pos``, no
 #: ``demuxer-cache-duration`` — no demuxer data has arrived at all) before a
 #: play is declared failed. ~40s at POLL_MS: a same-provider switch on a
-#: one-connection source (PLAY-10) retries the open at roughly +1, +3, +7,
-#: +15, +23s while the provider's reaper frees the old connection (#635
-#: measured 14-26s), so this must clear that whole window rather than the 8
-#: ticks (~16s) that used to be shared with FROZEN below — the exact
-#: conflation that made a busy-but-recovering source read as a dead one.
+#: one-connection source (PLAY-10) retries the open on ffmpeg's own schedule
+#: — +0,+0,+1,+4,+11,+26,+57s (PLAY-14, measured 2026-09-11) — while the
+#: provider's reaper frees the old connection (#635 measured 14-26s, up to
+#: ~40s on 2026-09-07), so this must clear that whole window rather than the
+#: 8 ticks (~16s) that used to be shared with FROZEN below — the exact
+#: conflation that made a busy-but-recovering source read as a dead one. This
+#: verdict is deliberately INSIDE mpv's own 57s reconnect window: the verdict
+#: tells the user, mpv keeps trying underneath it, and progress clears both.
 OPENING_AFTER_TICKS = 20
 
 #: Minimum time-pos increase (seconds) that counts as real progress — guards
@@ -323,7 +326,19 @@ def schedule_retry(host: Any) -> bool:
 
 
 def replay(host: Any, attempt: PlayAttempt) -> None:
-    """The scheduled retry: re-read the title off-thread, then play it probe-free."""
+    """The scheduled retry: re-read the title off-thread, then play it probe-free.
+
+    Skipped if ``attempt`` is no longer the play the host is watching — the 20s
+    delay is long enough for the user to have started something else, and a
+    stale retry must not replace it (2026-09-11 02:12: title A's scheduled
+    retry fired at 02:12:41 and replaced title B, which the user had played at
+    02:12:26, six seconds after A's retry was scheduled).
+    """
+    current = host.__dict__.get("_health_attempt")
+    if current is not attempt:
+        logger.info("retry for {!r} skipped — {!r} has been played since",
+                    attempt.channel_name, getattr(current, "channel_name", "another title"))
+        return
     logger.info("retrying {!r} once after the player exited while opening", attempt.channel_name)
     host._run_query(
         lambda repos: repos.channels.get_playable_dto(attempt.channel_id),

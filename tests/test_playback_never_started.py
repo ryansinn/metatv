@@ -451,11 +451,13 @@ def test_stalled_then_player_gone_reports_once_total():
 
 # ── the fifth shape: loaded but still OPENING (PLAY-10) ─────────────────────
 #
-# A same-provider switch on a one-connection source retries the open for up
-# to ~23s (RECONNECT_FLAG's reconnect_delay_max=8) while mpv reports a loaded
-# ``path`` but NO demuxer data at all — no time-pos, no cache-duration. Before
-# this shape existed that read exactly like FROZEN and reported at 16s, mid
-# retry. OPENING gets its own, longer counter.
+# A same-provider switch on a one-connection source retries the open on
+# ffmpeg's own schedule — +0,+0,+1,+4,+11,+26,+57s (PLAY-14, measured
+# 2026-09-11) — while mpv reports a loaded ``path`` but NO demuxer data at
+# all — no time-pos, no cache-duration. Before this shape existed that read
+# exactly like FROZEN and reported at 16s, mid retry. OPENING gets its own,
+# longer counter, itself shorter than mpv's own 57s reconnect window on
+# purpose (the verdict tells the user while mpv keeps trying underneath it).
 
 def test_opening_reports_nothing_at_the_frozen_threshold():
     """No demuxer data at all for 8 ticks (~16s) must stay silent — that's
@@ -717,3 +719,38 @@ def test_arming_over_an_unplayed_attempt_is_logged_not_toasted(caplog):
         _loguru.remove(hid)
     assert any("previous play 'Some Title' never progressed" in ln for ln in lines)
     host.notification_manager.show.assert_not_called()
+
+
+# ── PLAY-14: a scheduled retry must not replace what the user played since ──
+#
+# 2026-09-11 02:12 log: title A's scheduled retry fired at 02:12:41 and
+# replaced title B, which the user had played at 02:12:26 — six seconds after
+# A's retry was scheduled at 02:12:20. ``replay()`` never checked that the
+# attempt it holds is still the one in flight; identity on the host's current
+# ``PlayAttempt`` is the right check, since a fresh object is built per play.
+
+def test_a_scheduled_retry_is_skipped_once_the_user_played_something_else():
+    host = _host()
+    host.play_media = MagicMock()
+    host._run_query = MagicMock()
+    att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
+    att_b = watch.PlayAttempt("ch-b", "B", "http://x/b")
+    watch.arm(host, att_a)
+    watch.arm(host, att_b)
+
+    watch.replay(host, att_a)
+
+    host._run_query.assert_not_called()
+    host.play_media.assert_not_called()
+
+
+def test_a_scheduled_retry_still_runs_when_nothing_else_was_played():
+    host = _host()
+    host.play_media = MagicMock()
+    host._run_query = MagicMock()
+    att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
+    watch.arm(host, att_a)
+
+    watch.replay(host, att_a)
+
+    host._run_query.assert_called_once()
