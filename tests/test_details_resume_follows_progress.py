@@ -11,11 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from metatv.core.database import ChannelDB
 from metatv.core.models import MediaType
-from metatv.core.repositories import RepositoryFactory
-from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
-from tests.conftest import wire_details_action_buttons
+from metatv.gui.details_actions import ChannelActionState, resume_state
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +60,7 @@ def _stub_channel(**kw):
 def test_load_sets_resume_with_movie_progress():
     """When load() receives watch_progress > 0 for a movie, set_resume is called."""
     from metatv.gui.details_actions import _ActionBar
-    from unittest.mock import MagicMock, call
+    from unittest.mock import MagicMock
 
     ab = _ActionBar(_make_config())
     ab.set_resume = MagicMock()
