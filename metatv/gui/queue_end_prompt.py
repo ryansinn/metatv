@@ -110,17 +110,32 @@ class _QueueEndPromptMixin:
         the same coherent field write the context menu's "Mark unwatched" makes,
         through the same repository chokepoint.
 
+        QUEUE-1: "No" must take back only what the QUEUE itself marked — an
+        episode still in progress (a saved resume position, never completed)
+        or never played has nothing the queue wrote, so clearing it would
+        erase a real position rather than undo an auto-mark.
+
         Args:
             episode_ids: DB ids of the episodes to unmark.
         """
         try:
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
-                updated = repos.episodes.mark_watched_bulk(episode_ids, False)
+                to_clear = []
+                skipped = 0
+                for episode_id in episode_ids:
+                    ep = repos.episodes.get_by_id(episode_id)
+                    if ep is not None and ep.watch_completed and ep.last_played_via == "queue":
+                        to_clear.append(episode_id)
+                    else:
+                        skipped += 1
+                updated = repos.episodes.mark_watched_bulk(to_clear, False)
                 logger.info(
-                    f"Unmarked {updated}/{len(episode_ids)} queue-watched episode(s) — "
+                    f"Unmarked {updated}/{len(to_clear)} queue-watched episode(s) — "
                     "user answered No to the queue-end prompt"
                 )
+                if skipped:
+                    logger.info(f"{skipped} left alone: not marked by the queue")
         except Exception as exc:
             logger.warning(f"Failed to unmark queue-watched episodes: {exc}")
         self._episode_watch_state_changed.emit(list(episode_ids))
