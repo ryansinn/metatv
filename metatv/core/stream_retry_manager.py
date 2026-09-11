@@ -46,6 +46,7 @@ class StreamRetryManager(QObject):
         db: "Database",
         validate_fn: Callable[[str], tuple[bool, str | None]],
         parent: QObject | None = None,
+        player_is_running: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self._db = db
@@ -54,6 +55,12 @@ class StreamRetryManager(QObject):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._check_due)
         self._busy = False
+        # The probe below is a REAL stream connection (validate_fn); on a
+        # one-connection source (#635) it is the second connection the panel
+        # then refuses the user's own stream for. So it never runs while a
+        # player window is open — check_all_now (the user's explicit "check
+        # now") is NOT gated, since that click is the user asking for it now.
+        self._player_is_running = player_is_running
 
     def start(self) -> None:
         self._timer.start(self._POLL_MS)
@@ -165,6 +172,9 @@ class StreamRetryManager(QObject):
 
     def _check_due(self) -> None:
         if self._busy:
+            return
+        if self._player_is_running is not None and self._player_is_running():
+            logger.debug("StreamRetry: player running — probe deferred")
             return
         self._busy = True
         self._executor.submit(self._run_checks, force_all=False)

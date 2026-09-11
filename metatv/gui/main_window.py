@@ -379,7 +379,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
 
         # Stream retry manager — must exist before setup_ui() which wires sidebar signals
         from metatv.core.stream_retry_manager import StreamRetryManager
-        self.stream_retry_manager = StreamRetryManager(self.db, self.validate_stream_url, parent=self)
+        self.stream_retry_manager = StreamRetryManager(
+            self.db, self.validate_stream_url, parent=self,
+            player_is_running=lambda: bool(self.player_manager.active_keys()))
         self._register_cleanable("stream_retry_manager", self.stream_retry_manager.stop)
 
         # Series monitor — checks monitored series for new episodes after each provider refresh
