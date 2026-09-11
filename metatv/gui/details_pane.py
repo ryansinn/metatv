@@ -21,7 +21,7 @@ from metatv.gui.details_sections import (
     _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
     _TagsSection, _no_width_force,
 )
-from metatv.gui.details_actions import ChannelActionState, _ActionBar
+from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
@@ -265,8 +265,8 @@ class DetailsPaneWidget(QWidget):
         _has_match = bool(_unviewed(channel.id)) if callable(_unviewed) else False
         self._action_bar.set_new_match(_has_match)
 
-        # Resume button — movies with a saved, incomplete position only.
-        from metatv.gui.details_actions import resume_state
+        # Resume button — movies with a saved, incomplete position only; the
+        # same predicate the bus re-read applies in _ActionBar.load (RESUME-1).
         _completed = bool(getattr(channel, "watch_completed", False))
         self._action_bar.set_resume(*resume_state(
             getattr(channel, "media_type", None),

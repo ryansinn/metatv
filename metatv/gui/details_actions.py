@@ -355,11 +355,14 @@ class _ActionBar(QWidget):
         if self._primary_mode != "episode":
             self._in_queue = state.in_queue
             self.update_favorite(state.is_favorite)
+            # Resume is per-EPISODE in episode mode (apply_episode_action_state
+            # owns it there); a late series-level fetch must not clobber it.
+            self.set_resume(*resume_state(
+                state.media_type, state.watch_progress, state.watch_completed))
         self._rating = state.rating
         self._suppressed = state.is_suppressed
         self._is_hidden = state.is_hidden
         self.set_epg_link_blocked(state.epg_link_blocked)
-        self.set_resume(*resume_state(state.media_type, state.watch_progress, state.watch_completed))
         self._sync_all()
 
     def set_trailer(self, has_trailer: bool) -> None:
