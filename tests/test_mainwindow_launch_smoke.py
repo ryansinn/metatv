@@ -30,7 +30,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # Constructs the full window with only the mpv player + async pool stubbed, then
 # asserts setup_ui() completed (both trail-maps wired — the exact crash point).
 _CHILD = r"""
-import os
+import os, sys
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -94,6 +94,20 @@ win.close()
 app.processEvents()
 
 print("SMOKE_OK")
+sys.stdout.flush()
+
+# Everything this file asserts has now happened: the window built, every lazy
+# overlay built, closeEvent ran to completion. What follows in a normal exit is
+# CPython's interpreter finalization, where sip tears down Qt wrappers in
+# whatever order the GC finds them — and 2026-09-11 that segfaulted (rc=-11,
+# no Python frame, inside sip/QtCore) on 2 of 6 identical runs of this exact
+# child on one tree and 1 of 4 on another, AFTER the marker had printed. That
+# crash is real and is tracked on its own (GUARD-7 in docs/REFACTOR_PLAN.md);
+# it is not a launch failure, and letting it fail THIS test turned a launch
+# guard into a coin flip that blocked pushes and CI on diffs that never
+# touched teardown. Ending the process here keeps the guard's verdict about
+# the things it actually checked.
+os._exit(0)
 """
 
 
