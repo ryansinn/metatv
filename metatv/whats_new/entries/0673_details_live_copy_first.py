@@ -1,8 +1,8 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=672,
-    version="0.122.0",
+    id=673,
+    version="0.123.0",
     date="2026-09-11",
     title="The details pane shows a copy you can play",
     items=(
