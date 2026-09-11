@@ -39,6 +39,16 @@ from metatv.gui.scoped_filter_box import ScopedFilterBox
 # which a plain setStyleSheet would not: Qt caches the RENDERED string.
 
 
+#: The header search box's copy — ONE definition, three call sites (the box,
+#: its placeholder on the Search view, its placeholder everywhere else; every
+#: view switch routes through _sync_header_search_visibility). "Search titles" was wrong: the
+#: ladder (core/repositories/search_ranking.py) also matches cast and director,
+#: and the box filters by category too (owner, 2026-09-11: "very inaccurate").
+SEARCH_PLACEHOLDER_ON_VIEW = "Search content — name, category, cast…"
+SEARCH_PLACEHOLDER_OFF_VIEW = "Search content — press Enter to search"
+SEARCH_TOOLTIP = "Search every source — titles, categories, cast and crew"
+
+
 def _header_sheet() -> str:
     return (f"#appHeader {{ background: {_theme.COLOR_BG_BAR};"
             f" border-bottom: 1px solid {_theme.COLOR_LINE}; }}")
@@ -202,14 +212,14 @@ class _AppHeaderMixin:
         # shortcut's own selectAll() (``_shortcut_focus_search``) — a click
         # that returns focus here should start a clean search too.
         self.search_input = ScopedFilterBox(
-            "Search titles — name, category…", debounce_ms=0, select_all_on_click=True
+            SEARCH_PLACEHOLDER_ON_VIEW, debounce_ms=0, select_all_on_click=True
         )
         self.search_input.setMinimumWidth(240)
         self.search_input.setMaximumWidth(460)
         # A tooltip of its own, so shortcuts.annotate_tooltips has something to
         # append its key to — the placeholder is not a tooltip and disappears
         # the moment there is text in the box.
-        self.search_input.setToolTip("Search every source by name or category")
+        self.search_input.setToolTip(SEARCH_TOOLTIP)
         _theme.style_fn(self.search_input, _search_sheet)
         self.search_input.textChanged.connect(self._on_search_text_changed)
         self.search_input.returnPressed.connect(self._on_search_submitted)
@@ -320,6 +330,5 @@ class _AppHeaderMixin:
             search.setVisible(True)
             search.setEnabled(True)
             search.setPlaceholderText(
-                "Search titles — name, category…" if visible
-                else "Search titles — press Enter to search"
+                SEARCH_PLACEHOLDER_ON_VIEW if visible else SEARCH_PLACEHOLDER_OFF_VIEW
             )

@@ -243,8 +243,6 @@ class _NavMixin:
             # and forcing it here would re-open it on every return to the list.
             # _apply_filter_ui_mode is the only thing that decides.
             self._apply_filter_ui_mode()
-        self.search_input.setEnabled(True)
-        self.search_input.setPlaceholderText("Filter channels by name, category...")
 
         if hasattr(self, 'channel_model') and self.channel_model.loaded_count() > 0:
             # loaded_count(), NOT rowCount(): the latter is the DISPLAY count and

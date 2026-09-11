@@ -233,6 +233,23 @@ def test_the_search_placeholder_says_enter_searches_off_the_search_view(window):
     assert "Enter" not in window.search_input.placeholderText()
 
 
+def test_the_search_copy_names_what_it_searches(window):
+    """"Search titles" undersold it — the ladder matches cast/director too and
+    the box filters by category (owner, 2026-09-11: "very inaccurate"). One
+    constant feeds the box, both placeholders and the list view's return."""
+    from metatv.gui import app_header as _hdr
+
+    for text in (_hdr.SEARCH_PLACEHOLDER_ON_VIEW, _hdr.SEARCH_PLACEHOLDER_OFF_VIEW):
+        assert "title" not in text.lower(), text
+        assert "content" in text.lower(), text
+    assert "cast" in _hdr.SEARCH_TOOLTIP.lower()
+    window._sync_header_search_visibility(True)
+    assert window.search_input.placeholderText() == _hdr.SEARCH_PLACEHOLDER_ON_VIEW
+    window.switch_to_list_view()
+    assert window.search_input.placeholderText() == _hdr.SEARCH_PLACEHOLDER_ON_VIEW
+    assert window.search_input.isEnabled()
+
+
 # ---------------------------------------------------------------------------
 # 4. Nothing was orphaned by deleting the bottom bar.
 # ---------------------------------------------------------------------------
