@@ -1069,9 +1069,9 @@ class Database:
                 except OperationalError:
                     pass  # silent: "duplicate column name" — the migration already ran
 
-            # Building every declared-but-missing index is QueryIndexTask's job
-            # now (DB-6, metatv/core/migrations/query_indexes.py) — it derives
-            # the full set from Base.metadata instead of a hand list here.
+            legacy_channel_drops = channel_index_policy.legacy_index_drop_sql(conn)  # DB-11
+            if legacy_channel_drops:
+                logger.info(f"Migration: dropping legacy channel index(es): {legacy_channel_drops}")
             index_migrations = [
                 # Redundant single-column indexes on content_tags — each a strict
                 # left-prefix of an index that already exists. 221 MB on the
@@ -1083,7 +1083,7 @@ class Database:
                 # recreate exactly what this removes.
                 "DROP INDEX IF EXISTS ix_content_tags_channel_id",
                 "DROP INDEX IF EXISTS ix_content_tags_tag_id",
-            ] + channel_index_policy.CHANNEL_DROP_INDEX_SQL  # STORAGE-1a
+            ] + legacy_channel_drops  # STORAGE-1a; shape-conditional, DB-11
             for idx_sql in index_migrations:
                 try:
                     conn.execute(text(idx_sql))

@@ -3,11 +3,12 @@ which get rebuilt as PARTIAL instead of FULL.
 
 Pure declarative data, no dependencies — ``database.py``'s ``ChannelDB``
 imports :data:`CHANNEL_PARTIAL_INDEX_SPECS` for its ``__table_args__`` and
-``Database._migrate()`` imports both constants below for its ``DROP INDEX``
-list, so the drop names and their replacement shapes can never drift apart
-into two hand-typed lists that silently disagree (docs/REFACTOR_PLAN.md
-D55/D56/D58 has the full measured case; core/migrations/query_indexes.py has
-the mechanism — ``QueryIndexTask`` — these drive).
+``Database._migrate()`` calls :func:`legacy_index_drop_sql` for its
+``DROP INDEX`` list, so the drop names and their replacement shapes can never
+drift apart into two hand-typed lists that silently disagree
+(docs/REFACTOR_PLAN.md D55/D56/D58 has the full measured case;
+core/migrations/query_indexes.py has the mechanism — ``QueryIndexTask`` —
+these drive).
 
 ``is_favorite`` is deliberately NOT one of the 24 partial conversions below,
 even though it looked like an obvious one — see :data:`CHANNEL_DEAD_INDEX_NAMES`'s
@@ -38,18 +39,32 @@ partial or not — ever served anyway.
 The naming trap (#616)
 ------------------------
 Each partial index's NAME is unchanged from its old ``ix_channels_<col>``
-form, on purpose: ``Database._migrate()`` drops the OLD full-shape index by
-that name, and ``QueryIndexTask`` (core/migrations/query_indexes.py) then
-builds the declared-but-missing index in ITS new partial shape — the same
-DB-6 mechanism every other declared index already uses, no new machinery.
-A column here must NEVER also carry ``index=True`` on its ``Column(...)``
-declaration in ``database.py``, or the generated sweep recreates exactly the
-full shape ``_migrate()`` just removed.
+form, on purpose: :func:`legacy_index_drop_sql` drops the OLD full-shape
+index by that name, and ``QueryIndexTask`` (core/migrations/query_indexes.py)
+then builds the declared-but-missing index in ITS new partial shape — the
+same DB-6 mechanism every other declared index already uses, no new
+machinery. A column here must NEVER also carry ``index=True`` on its
+``Column(...)`` declaration in ``database.py``, or the generated sweep
+recreates exactly the full shape the drop just removed.
+
+The drop runs SHAPE-conditional, not name-conditional (#831/DB-11): it fires
+only for an index whose ``sqlite_master`` definition carries no ``WHERE`` —
+the old full shape. Dropping unconditionally by name shipped for two days
+and re-dropped the PARTIAL index ``QueryIndexTask`` had just rebuilt on the
+PREVIOUS launch — the drop and the rebuild share a name — so every single
+launch rebuilt all 23 conversions plus a full ``ANALYZE`` (~12-15s on the
+owner's 786k-row table). Checking the stored shape first means the drop
+fires once per upgrading library and never again once a column is partial.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Index, text
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 #: (column, sqlite_where) for the 24 columns converted from a FULL
 #: ``index=True`` index to a PARTIAL one — see the module docstring for the
@@ -140,14 +155,51 @@ CHANNEL_PARTIAL_INDEXES: tuple[Index, ...] = tuple(
 )
 
 #: All 27 STORAGE-1a drop names — the 3 dead ones plus each partial
-#: conversion's old full-index name.
+#: conversion's old full-index name. Kept for reference/other readers even
+#: though :func:`legacy_index_drop_sql` (below) is what ``_migrate()`` calls —
+#: that name set is exactly the population it checks the SHAPE of before
+#: acting (DB-11: an unconditional-by-name drop of this same set is the bug).
 CHANNEL_DROPPED_INDEX_NAMES: tuple[str, ...] = CHANNEL_DEAD_INDEX_NAMES + tuple(
     f"ix_channels_{col}" for col, _where in CHANNEL_PARTIAL_INDEX_SPECS
 )
 
-#: The same 27, as ready-to-run ``DROP INDEX IF EXISTS`` statements. A LIST,
-#: not a tuple like its siblings above: it exists specifically to extend
-#: ``Database._migrate()``'s ``index_migrations`` list literal via ``+``.
-CHANNEL_DROP_INDEX_SQL: list[str] = [
-    f"DROP INDEX IF EXISTS {name}" for name in CHANNEL_DROPPED_INDEX_NAMES
-]
+
+def legacy_index_drop_sql(conn: "Connection") -> list[str]:
+    """``DROP INDEX`` statements for ``channels`` indexes still in their OLD shape.
+
+    Reads ``sqlite_master`` once (``name``, ``sql`` for every index on
+    ``channels``) and returns a drop ONLY for an index that currently exists
+    in the shape the drop exists to remove:
+
+    * a name in :data:`CHANNEL_DEAD_INDEX_NAMES`, present at all — these have
+      no replacement, so existing is the only test; or
+    * a partial-conversion name (``ix_channels_<col>`` for a column in
+      :data:`CHANNEL_PARTIAL_INDEX_SPECS`) whose stored ``sql`` carries no
+      ``WHERE`` — the pre-STORAGE-1a FULL shape.
+
+    An index already in its PARTIAL shape (its ``sql`` has a ``WHERE``) is
+    left alone, and a name that does not exist at all is left alone too — so
+    a fresh install, where ``create_all()`` already built the partial shape,
+    returns an empty list. See "The naming trap" above for why the dropped
+    and rebuilt names are identical, and why that makes the shape check (not
+    a name check) the thing that stops this from firing on every launch.
+    """
+    existing = {
+        row[0]: (row[1] or "")
+        for row in conn.execute(text(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type = 'index' AND tbl_name = 'channels'"
+        ))
+    }
+    drops = [
+        f"DROP INDEX IF EXISTS {name}"
+        for name in CHANNEL_DEAD_INDEX_NAMES
+        if name in existing
+    ]
+    drops += [
+        f"DROP INDEX IF EXISTS ix_channels_{col}"
+        for col, _where in CHANNEL_PARTIAL_INDEX_SPECS
+        if f"ix_channels_{col}" in existing
+        and "WHERE" not in existing[f"ix_channels_{col}"].upper()
+    ]
+    return drops
