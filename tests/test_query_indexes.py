@@ -17,6 +17,8 @@ from datetime import datetime
 import pytest
 from sqlalchemy import text
 
+from metatv.core import channel_index_policy
+from metatv.core.channel_index_policy import CHANNEL_PARTIAL_INDEX_SPECS
 from metatv.core.database import Base, ChannelDB, Database
 from metatv.core.migrations.query_indexes import QueryIndexTask, _all_declared_indexes
 
@@ -396,7 +398,7 @@ def test_the_four_free_drops_are_removed_and_never_rebuilt(tmp_path):
         assert dropped not in names, f"{dropped} was rebuilt — index=True must be gone"
 
 
-def test_a_legacy_full_index_is_dropped_and_rebuilt_partial(tmp_path):
+def test_a_legacy_full_index_is_still_dropped(tmp_path):
     """The core DB-6 trap: a dropped index must not keep ``index=True``.
 
     Simulates a pre-STORAGE-1a library where ``ix_channels_last_played`` is a
@@ -406,16 +408,16 @@ def test_a_legacy_full_index_is_dropped_and_rebuilt_partial(tmp_path):
     already present and leaving the old full shape in place.
     """
     database = Database(f"sqlite:///{tmp_path}/legacy_partial.db")
-    # create_tables() itself already runs _migrate(), whose DROP INDEX list
-    # removes ix_channels_last_played right after create_all() builds it — so
-    # by the time this returns, the name is free to recreate in the OLD shape
-    # below (exactly what a real pre-STORAGE-1a-upgrade launch does: drop,
-    # then QueryIndexTask fills the gap back in on the declared shape).
+    # create_tables() builds the CURRENT (post-diet) declared shape, so
+    # ix_channels_last_played already exists as a PARTIAL index. DB-11 made
+    # the drop SHAPE-conditional, so _migrate() leaves that alone — a legacy
+    # library is simulated by dropping it and recreating it in the OLD, FULL
+    # shape (no WHERE clause) under the same declared name, exactly what a
+    # real pre-STORAGE-1a-upgrade library has sitting on disk.
     database.create_tables()
 
-    # Simulate a pre-STORAGE-1a library: the index exists in its OLD, FULL
-    # shape (no WHERE clause) under the declared name.
     with database.engine.connect() as conn:
+        conn.execute(text("DROP INDEX ix_channels_last_played"))
         conn.execute(text(
             "CREATE INDEX ix_channels_last_played ON channels (last_played)"
         ))
@@ -433,6 +435,45 @@ def test_a_legacy_full_index_is_dropped_and_rebuilt_partial(tmp_path):
     assert rebuilt_sql is not None, "the index must be rebuilt, not left dropped"
     assert "WHERE" in rebuilt_sql.upper() and "IS NOT NULL" in rebuilt_sql.upper(), (
         f"rebuilt index is not partial: {rebuilt_sql}"
+    )
+
+
+def test_a_legacy_full_index_leaves_an_already_partial_one_alone(tmp_path):
+    """Mixed upgrade state: one column legacy-full, another already partial.
+
+    ``_migrate()`` must drop only the full-shape index; a column that was
+    already converted (as every column is, right after ``create_all()``) must
+    come out byte-identical. This is the shape check itself: DB-11 fixed a
+    bug where an unconditional-by-name drop rebuilt every partial index —
+    ``detected_genre`` included — on every single launch.
+    """
+    database = Database(f"sqlite:///{tmp_path}/mixed_shapes.db")
+    database.create_tables()
+
+    with database.engine.connect() as conn:
+        # Already partial: leave it exactly as create_all() built it.
+        already_partial_sql = _index_sql(conn, "ix_channels_detected_genre")
+        assert already_partial_sql and "WHERE" in already_partial_sql.upper()
+
+        # Legacy full: simulate a pre-STORAGE-1a shape for a second column.
+        conn.execute(text("DROP INDEX ix_channels_last_played"))
+        conn.execute(text(
+            "CREATE INDEX ix_channels_last_played ON channels (last_played)"
+        ))
+        conn.commit()
+
+    database._migrate()
+    _run(QueryIndexTask(database))
+
+    with database.engine.connect() as conn:
+        rebuilt_sql = _index_sql(conn, "ix_channels_last_played")
+        partial_sql_after = _index_sql(conn, "ix_channels_detected_genre")
+
+    assert rebuilt_sql is not None and "WHERE" in rebuilt_sql.upper(), (
+        f"legacy full index was not converted to partial: {rebuilt_sql}"
+    )
+    assert partial_sql_after == already_partial_sql, (
+        "an already-partial index was touched by the shape-conditional drop"
     )
 
 
@@ -532,4 +573,87 @@ def test_needs_run_stays_false_for_ordinary_catalog_growth(db):
 
     assert task.needs_run(None) is False, (
         "a 5% catalog change re-triggered ANALYZE — the tolerance is too tight"
+    )
+
+
+# ---------------------------------------------------------------------------
+# DB-11 — the STORAGE-1a drop must run once, not on every launch. An
+# unconditional-by-name drop shipped for two days and re-dropped the PARTIAL
+# index QueryIndexTask had just rebuilt on the PREVIOUS launch (the drop and
+# the rebuild share a name), so "Building channel indexes" ran every start.
+# ---------------------------------------------------------------------------
+
+
+def test_a_second_launch_does_no_index_work(db):
+    """The bug itself: a second launch must find nothing to rebuild.
+
+    ``db`` (create_tables() + 3,000 rows) gives ANALYZE something real to
+    record — an empty table writes no ``sqlite_stat1`` row at all, which
+    would make ``needs_run()`` True for an unrelated reason and hide the bug
+    this test targets.
+
+    A first launch (``create_tables()`` + ``QueryIndexTask``) leaves every
+    partial index in its final PARTIAL shape. Simulating the NEXT launch's
+    ``_migrate()`` call alone (no ``QueryIndexTask`` run after it, exactly
+    like the real startup sequence) must leave ``needs_run()`` False and every
+    partial index byte-identical. Fails on today's main, where ``_migrate()``
+    drops these unconditionally by name every time, regardless of shape.
+    """
+    _run(QueryIndexTask(db))
+
+    with db.engine.connect() as conn:
+        before = {
+            f"ix_channels_{col}": _index_sql(conn, f"ix_channels_{col}")
+            for col, _where in CHANNEL_PARTIAL_INDEX_SPECS
+        }
+    assert all(sql and "WHERE" in sql.upper() for sql in before.values()), (
+        "test setup failed to leave every partial index built"
+    )
+    assert QueryIndexTask(db).needs_run(config=None) is False, (
+        "test setup did not settle needs_run to False before the relaunch"
+    )
+
+    db._migrate()  # simulates the next launch, alone — no rebuild after it
+
+    assert QueryIndexTask(db).needs_run(config=None) is False, (
+        "a second launch found index work to do — the unconditional drop fired again"
+    )
+    with db.engine.connect() as conn:
+        after = {
+            f"ix_channels_{col}": _index_sql(conn, f"ix_channels_{col}")
+            for col, _where in CHANNEL_PARTIAL_INDEX_SPECS
+        }
+    assert before == after, "a partial index was dropped and rebuilt on relaunch"
+
+
+def test_the_dead_indexes_are_still_dropped_once(tmp_path):
+    """A dead-named index is still dropped — but the drop list empties out after.
+
+    Simulates a legacy library carrying one of the three-dead-plus-one
+    STORAGE-1a orphans. ``_migrate()`` must remove it; a second pass must find
+    nothing left to do, proven directly against
+    :func:`channel_index_policy.legacy_index_drop_sql`'s own return value
+    rather than by inference.
+    """
+    database = Database(f"sqlite:///{tmp_path}/dead.db")
+    database.create_tables()
+
+    dead_name = channel_index_policy.CHANNEL_DEAD_INDEX_NAMES[0]
+    with database.engine.connect() as conn:
+        conn.execute(text(f"CREATE INDEX {dead_name} ON channels (id)"))
+        conn.commit()
+        first_drops = channel_index_policy.legacy_index_drop_sql(conn)
+    assert any(dead_name in sql for sql in first_drops), (
+        f"legacy_index_drop_sql did not see the dead index it should drop: {first_drops}"
+    )
+
+    database._migrate()
+
+    with database.engine.connect() as conn:
+        names = _index_names(conn, "channels")
+        assert dead_name not in names, "the dead-named index was not dropped"
+
+        second_drops = channel_index_policy.legacy_index_drop_sql(conn)
+    assert second_drops == [], (
+        f"a second migration pass found drop work when there was none: {second_drops}"
     )
