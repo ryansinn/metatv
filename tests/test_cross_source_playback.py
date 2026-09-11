@@ -172,8 +172,9 @@ def test_siblings_ranks_active_before_inactive(tmp_path):
 def _make_mixin():
     """Build a bare _StreamingMixin with enough mocked state for unit tests."""
     from metatv.gui.main_window_streaming import _StreamingMixin
-    from tests.conftest import wire_status_method
+    from tests.conftest import wire_playback_health_stub, wire_status_method
     obj = _StreamingMixin.__new__(_StreamingMixin)
+    wire_playback_health_stub(obj)   # PLAY-15: every launch path arms the watch
     obj.loading_channels = set()
     obj.db = MagicMock()
     obj.executor = MagicMock()
@@ -607,6 +608,7 @@ def test_reactivate_and_play_sibling_refreshes_dependent_views(tmp_path):
     """
     from metatv.gui.main_window_streaming import _StreamingMixin
     from metatv.core.repositories import RepositoryFactory
+    from tests.conftest import wire_playback_health_stub
 
     db = _make_db(tmp_path)
     pid = "prov-inactive"
@@ -614,6 +616,7 @@ def test_reactivate_and_play_sibling_refreshes_dependent_views(tmp_path):
         _insert_provider(session, pid, "Disabled Source", is_active=False)
 
     host = _StreamingMixin.__new__(_StreamingMixin)
+    wire_playback_health_stub(host)   # PLAY-15: _play_and_record arms the watch
     host.db = db
     host.player_manager = MagicMock()
     host._refresh_provider_dependent_views = MagicMock()
