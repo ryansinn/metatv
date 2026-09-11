@@ -146,3 +146,95 @@ def test_the_role_sheet_is_applied_through_the_registry(qapp):
         "constructing a ScopedFilterBox must register exactly one live style"
     )
     assert box.styleSheet() == _theme.SCOPED_FILTER_BOX
+
+
+# ---------------------------------------------------------------------------
+# select_all_on_click (SEARCH-11) — a click that RETURNS focus to the box
+# selects its text, mirroring the keyboard shortcut's own selectAll().
+# ---------------------------------------------------------------------------
+
+def _build_focus_pair(qtbot):
+    """A shown container with an ``other`` QLineEdit above a ScopedFilterBox
+    placeholder — the shared fixture shape for the two tests below."""
+    from PyQt6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
+
+    w = QWidget()
+    layout = QVBoxLayout(w)
+    other = QLineEdit()
+    layout.addWidget(other)
+    qtbot.addWidget(w)
+    return w, layout, other
+
+
+def _focus_other_first(w, other, qtbot) -> None:
+    """Get real focus onto *other* so a later click on the box is a genuine
+    focus RETURN, falling back to ``activateWindow()`` when the offscreen
+    platform doesn't hand out focus on ``show()`` alone."""
+    w.show()
+    qtbot.waitExposed(w)
+    other.setFocus()
+    try:
+        qtbot.waitUntil(other.hasFocus, timeout=500)
+    except Exception:
+        QApplication.setActiveWindow(w)
+        w.activateWindow()
+        other.setFocus()
+        qtbot.waitUntil(other.hasFocus, timeout=500)
+
+
+def _click_box_letting_focus_land(box, qtbot) -> None:
+    """Click *box* and make sure it ends up focused, even on an offscreen
+    platform that doesn't always hand out a real WM focus transition on a
+    plain ``mouseClick``. Falls back to driving the Qt events directly, which
+    still exercises the mechanism under test (``focusInEvent`` arms the
+    pending flag, ``mousePressEvent`` consumes it)."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QFocusEvent
+
+    qtbot.mouseClick(box, Qt.MouseButton.LeftButton)
+    if not box.hasFocus():
+        box.focusInEvent(
+            QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason)
+        )
+        qtbot.mouseClick(box, Qt.MouseButton.LeftButton)
+
+
+def test_click_into_an_unfocused_box_selects_its_text(qapp, qtbot):
+    """A click that RETURNS focus to the box selects its previous text
+    (SEARCH-11) — the mouse twin of the keyboard shortcut's own
+    ``selectAll()`` (``_shortcut_focus_search``): reached to start a NEW
+    search far more often than to extend the last one. A second click while
+    already focused only places the caret."""
+    from PyQt6.QtCore import QPoint
+
+    w, layout, other = _build_focus_pair(qtbot)
+    box = ScopedFilterBox("p", select_all_on_click=True)
+    layout.addWidget(box)
+    _focus_other_first(w, other, qtbot)
+
+    box.setText("batman")
+    _click_box_letting_focus_land(box, qtbot)
+
+    assert box.hasFocus()
+    assert box.selectedText() == "batman"
+
+    # Already focused: a second click only places the caret, it does not
+    # re-select.
+    qtbot.mouseClick(
+        box, Qt.MouseButton.LeftButton, pos=QPoint(4, box.height() // 2)
+    )
+    assert box.selectedText() == ""
+
+
+def test_a_default_box_click_does_not_select_all(qapp, qtbot):
+    """Every other adopter keeps the default (``select_all_on_click=False``):
+    a click just places the caret, same as any plain QLineEdit."""
+    w, layout, other = _build_focus_pair(qtbot)
+    box = ScopedFilterBox("p")
+    layout.addWidget(box)
+    _focus_other_first(w, other, qtbot)
+
+    box.setText("batman")
+    _click_box_letting_focus_land(box, qtbot)
+
+    assert box.selectedText() == ""

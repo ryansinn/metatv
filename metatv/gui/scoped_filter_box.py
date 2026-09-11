@@ -39,7 +39,7 @@ rather than found by grep in six months.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QLineEdit, QWidget
 
 from metatv.gui import theme as _theme
@@ -77,6 +77,7 @@ class ScopedFilterBox(QLineEdit):
         *,
         debounce_ms: int = 150,
         parent: QWidget | None = None,
+        select_all_on_click: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
@@ -89,6 +90,16 @@ class ScopedFilterBox(QLineEdit):
         self._debounce.timeout.connect(self._emit_filter_changed)
 
         self.textChanged.connect(self._on_text_changed)
+
+        # SEARCH-11: a click that RETURNS focus to the box (not one that types
+        # into it) selects the previous query, so the next keystroke starts a
+        # clean search instead of editing in the middle of the old one — the
+        # mouse twin of ``_shortcut_focus_search``'s keyboard binding, and for
+        # the same reason: reached to start a NEW search far more often than
+        # to extend the last one. Only the header box opts in; every other
+        # adopter keeps a plain click-to-place-caret.
+        self._select_all_on_click = select_all_on_click
+        self._select_all_pending = False
 
     # ── public ────────────────────────────────────────────────────────────
 
@@ -117,6 +128,26 @@ class ScopedFilterBox(QLineEdit):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def focusInEvent(self, event: QFocusEvent) -> None:  # type: ignore[override]
+        super().focusInEvent(event)
+        # Only arm on a MOUSE-driven focus — a click is how you "return" to
+        # the box, whereas Tab or programmatic focus (the keyboard shortcut
+        # already calls selectAll() itself) shouldn't be second-guessed here.
+        if (
+            self._select_all_on_click
+            and event.reason() == Qt.FocusReason.MouseFocusReason
+        ):
+            self._select_all_pending = True
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        super().mousePressEvent(event)
+        # Qt grants focus on the press, before this handler runs, so the flag
+        # ``focusInEvent`` just set is consumed by that SAME click — a click on
+        # an already-focused box (the flag unset) only places the caret.
+        if self._select_all_pending:
+            self._select_all_pending = False
+            self.selectAll()
 
     # ── private ──────────────────────────────────────────────────────────
 
