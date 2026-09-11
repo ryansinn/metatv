@@ -140,6 +140,9 @@ def test_a_locked_database_does_not_kill_the_app(monkeypatch):
         obj.play_episode(_Episode())
         obj.launch_player_for_episode.assert_called_once()
         _drive_do_launch_episode(obj)  # must not raise
+        # PLAY-15: the write itself is now deferred to _pending_play_record —
+        # invoke it here, where the failure actually happens.
+        obj._pending_play_record()  # must not raise
 
 
 def test_the_episode_still_plays_when_bookkeeping_fails(monkeypatch):
@@ -164,6 +167,8 @@ def test_the_context_manager_still_exits_when_bookkeeping_fails():
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
         _drive_do_launch_episode(obj)
+        # PLAY-15: session_scope() isn't entered until the deferred write runs.
+        obj._pending_play_record()
 
     obj.db.session_scope.return_value.__exit__.assert_called_once()
 
@@ -184,6 +189,8 @@ def test_the_failure_is_logged_not_swallowed():
             patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
         _drive_do_launch_episode(obj)
+        # PLAY-15: the write — and its try/except — only run once deferred.
+        obj._pending_play_record()
 
     assert logged, "the failure was swallowed with no record at all"
 
@@ -205,6 +212,7 @@ def test_any_bookkeeping_failure_is_survivable(failure):
     with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
         obj.play_episode(_Episode())
         _drive_do_launch_episode(obj)  # must not raise
+        obj._pending_play_record()  # must not raise (PLAY-15: the deferred write)
 
     obj.launch_player_for_episode.assert_called_once()
 
@@ -217,6 +225,21 @@ def test_the_normal_path_is_unchanged():
         obj.play_episode(_Episode())
         obj.launch_player_for_episode.assert_called_once()
         _drive_do_launch_episode(obj)
+        obj._pending_play_record()  # PLAY-15: the write itself is deferred
 
     repos.episodes.mark_played.assert_called_once_with("e1")
     obj.db.session_scope.return_value.__exit__.assert_called_once()
+
+
+def test_the_episode_write_waits_for_progress():
+    """The owner's exact defect, at the episode layer: nothing is recorded
+    just because mpv accepted the file — only once the deferred write runs."""
+    obj, repos, _session = _host()
+
+    with patch("metatv.gui.main_window_series_playback.RepositoryFactory", return_value=repos):
+        obj.play_episode(_Episode())
+        _drive_do_launch_episode(obj)
+        repos.episodes.mark_played.assert_not_called()
+        obj._pending_play_record()
+
+    repos.episodes.mark_played.assert_called_once_with("e1")

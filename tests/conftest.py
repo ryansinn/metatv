@@ -1779,6 +1779,26 @@ def wire_status_method(host) -> None:
     host.status = status
 
 
+def wire_playback_health_stub(host) -> None:
+    """Give a non-QObject skeleton a ``_start_playback_health`` that records, not polls.
+
+    The real one (``_StreamingMixin._start_playback_health``) hands the host to
+    ``playback_start_watch.start_polling``, which lazily builds ``QTimer(host)``
+    — so a ``_StreamingMixin.__new__`` / ``SimpleNamespace`` double that is not
+    a ``QObject`` raises ``TypeError`` the first time any launch path arms the
+    watch. Since PLAY-15 EVERY channel launch arms it (``_on_stream_ready`` and
+    the escape hatches via ``_play_and_record``), so every such double needs
+    this; a ``MainWindow.__new__`` skeleton does not (it IS a QObject). The
+    stub is a ``MagicMock`` so a test can still assert what was armed.
+
+    Args:
+        host: A skeleton test double standing in for ``_StreamingMixin``.
+    """
+    from unittest.mock import MagicMock
+
+    host._start_playback_health = MagicMock()
+
+
 def wire_header_search_sync(host) -> None:
     """Give a skeleton nav host ``_sync_header_search_visibility``.
 

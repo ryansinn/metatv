@@ -21,6 +21,11 @@ was only 2 of 4 true at the time — Play Anyway and "Try <source>" called
 ``TestReactivateAndPlayRecords`` below closes that gap. Episode playback is
 covered separately in ``tests/test_episode_watch_tracking.py`` (it had the
 mirror-image bug — recording BEFORE preflight validated, not never).
+
+PLAY-15 (2026-09-11): the DB write ``_record_play`` used to submit
+immediately is now deferred to ``host._pending_play_record``, committed only
+once the playback-health watch sees the stream actually advance — see
+``tests/test_play_count_needs_progress.py`` for that half.
 """
 
 from __future__ import annotations
@@ -45,6 +50,10 @@ def _host():
     h.executor = MagicMock()
     h._start_watch_capture = MagicMock()
     h.load_history = MagicMock()
+    # PLAY-15: _play_and_record (routed through by the reactivate-and-play
+    # escape hatch) arms the health watch — the real _start_playback_health
+    # would build a QTimer(host) against this non-QObject double and raise.
+    h._start_playback_health = MagicMock()
     return h
 
 
@@ -55,9 +64,16 @@ class TestEscapeHatchPlaysAreRecorded:
         h = _host()
         _StreamingMixin._record_play(h, "prov_123", "prov", False)
 
-        assert h.executor.submit.call_count == 1, (
+        # PLAY-15: the write is deferred until the health watch sees the
+        # stream actually advance — it must NOT submit immediately.
+        assert h.executor.submit.call_count == 0, (
+            "the write ran immediately — a stream that never starts would "
+            "still be counted as played")
+        assert callable(h._pending_play_record), (
             "the play was never recorded — this is the Play Anyway that "
             "vanished from History")
+        h._pending_play_record()
+        assert h.executor.submit.call_count == 1
         args = h.executor.submit.call_args[0]
         assert args[1] == "prov_123", "recorded the wrong channel"
         # History itself now refreshes off the _bg_mark_played → notifier →
@@ -86,6 +102,7 @@ class TestEscapeHatchPlaysAreRecorded:
         _StreamingMixin._record_play(h, "", "prov", False)
         assert h.executor.submit.call_count == 0
         assert h.load_history.call_count == 0
+        assert "_pending_play_record" not in h.__dict__
 
     def test_a_failure_never_costs_the_user_the_stream(self, qapp):
         """Bookkeeping must not raise into a play the user just started."""
@@ -126,10 +143,16 @@ class TestReactivateAndPlayRecords:
         assert kwargs.get("channel_id") == "chan_sib_1", (
             "channel_id not threaded to _play_checked"
         )
-        assert h.executor.submit.call_count == 1, (
+        # PLAY-15: deferred, not immediate — but a launch that succeeded must
+        # arm the watch, so the deferred record CAN eventually commit.
+        h._start_playback_health.assert_called_once()
+        assert h.executor.submit.call_count == 0
+        assert callable(h._pending_play_record), (
             "reactivate-and-play launched mpv but never recorded the play — "
             "this is the gap the docstring claimed was already closed"
         )
+        h._pending_play_record()
+        assert h.executor.submit.call_count == 1
         args = h.executor.submit.call_args[0]
         assert args[1] == "chan_sib_1", "recorded the wrong channel"
 

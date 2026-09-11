@@ -631,14 +631,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             _cid = channel_id
             actions.append((
                 "Play Anyway",
-                lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw,
-                       _c=_cid:
-                    self._play_checked(
-                        _url, _name,
-                        provider_id=_p,
-                        force_new_window=_fnw,
-                        channel_id=_c,
-                    ) and self._record_play(_c, _p, _fnw)
+                lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw, _c=_cid:
+                    self._play_and_record(_url, _name, _p, _fnw, _c)
             ))
 
             # Active sibling sources — each gets an "Also on X" action (up to 3)
@@ -653,14 +647,8 @@ class _StreamingMixin(_WatchCaptureMixin):
                 _sib_cid = sib.get("id") or ""
                 actions.append((
                     sib_label,
-                    lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw,
-                           _c=_sib_cid:
-                        self._play_checked(
-                            _u, _n,
-                            provider_id=_p,
-                            force_new_window=_fnw,
-                            channel_id=_c,
-                        ) and self._record_play(_c, _p, _fnw)
+                    lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw, _c=_sib_cid:
+                        self._play_and_record(_u, _n, _p, _fnw, _c)
                 ))
 
             # Inactive sibling sources (offer reactivate + play)
@@ -741,6 +729,11 @@ class _StreamingMixin(_WatchCaptureMixin):
             deep_buffer=deep_buffer,
             channel_id=channel_id,
         ):
+            # Playback-health readout; order load-bearing (PLAY-15): arm
+            # clears the pending record, _record_play below fills it.
+            self._start_playback_health(_startwatch.PlayAttempt(
+                channel_id, channel_name, final_url, start_seconds, data.get("event_start_time"),
+                retry=bool(data.get("retry")), provider_id=data.get("provider_id")))
             # Record playback through the one helper, so this path and the
             # escape hatches (Play Anyway, "Try <source>") cannot drift on what
             # a play is worth recording.
@@ -766,13 +759,6 @@ class _StreamingMixin(_WatchCaptureMixin):
             pid = data.get("provider_id")
             if pid and pid not in self._provider_icons:
                 self._provider_icons[pid] = self._lookup_provider_icon(pid)
-
-            # Begin polling mpv for the live playback-health readout (main thread).
-            # "Playing:" comes from that probe seeing a loaded file, not from
-            # a 2s timer — see gui/playback_start_watch.py.
-            self._start_playback_health(_startwatch.PlayAttempt(
-                channel_id, channel_name, final_url, start_seconds, data.get("event_start_time"),
-                retry=bool(data.get("retry")), provider_id=data.get("provider_id")))
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status(f"Error playing: {channel_name}", ms=0, level="error")
@@ -796,22 +782,22 @@ class _StreamingMixin(_WatchCaptureMixin):
         """Record a play: the DB write, watch capture, and History.
 
         ONE copy of this sequence for CHANNEL-shaped plays (any ``ChannelDB``
-        row). Lived inline in ``_on_stream_ready`` (the validated path); four
-        other call sites launch mpv without it: "Play Anyway" and
-        "Try <source>" call this directly; reactivate-and-play now does too
-        (PLAY-13 — it used to carry no ``channel_id``, so it could not).
-        Episode playback records via the analogous ``_record_episode_play``
-        (``main_window_series_playback.py``); Play-All records through both,
-        per item, via ``record_only`` below. Records the same two things
-        ``_on_stream_ready`` does — DB write off-thread, History refresh —
-        not the health/status chrome (the validated path's job).
+        row); "Play Anyway"/"Try <source>"/reactivate-and-play route through
+        ``_play_and_record`` (never standalone). Episode playback's analogue
+        is ``_record_episode_play`` (``main_window_series_playback.py``);
+        Play-All records both, per item, via ``record_only`` below.
+
+        PLAY-15: unless ``record_only``, the write is deferred to
+        ``host._pending_play_record``, committed once the watch sees
+        progress (``on_loaded_tick``) — never counted however many retries.
 
         Args:
             channel_id: Channel actually launched. No-op when empty.
             provider_id: Its provider, for resolving the player-instance key.
             force_new_window: Whether a second window was opened.
-            record_only: D53 — Play-All already owns ``_watch_tracking`` for
-                this key; passes ``key=None`` so the write below skips it.
+            record_only: D53 — Play-All owns ``_watch_tracking`` for this key
+                and records immediately (its launch confirmation IS the
+                progress signal); ``key=None`` skips per-entry tracking.
         """
         if not channel_id:
             return
@@ -820,19 +806,41 @@ class _StreamingMixin(_WatchCaptureMixin):
                 self._watch_tracking = {}
             key = self.player_manager.resolve_key(provider_id, force_new_window)
             # The notifier _bg_mark_played emits on must exist before the
-            # worker can emit into it — arm watch-capture (and its notifier)
-            # BEFORE submitting the write. History no longer refreshes here
-            # synchronously (HIST-1): the old load_history() call ran before
-            # the write it was meant to reflect — _on_history_changed now
-            # does that refresh only after the write actually commits.
+            # worker can emit into it — arm watch-capture BEFORE submitting/
+            # deferring the write. History refreshes only after the write
+            # commits (HIST-1's _on_history_changed), never synchronously here.
             self._start_watch_capture()
-            self.executor.submit(self._bg_mark_played, channel_id, None if record_only else key)
+            if record_only:
+                self.executor.submit(self._bg_mark_played, channel_id, None)
+            else:
+                self._pending_play_record = lambda: self.executor.submit(
+                    self._bg_mark_played, channel_id, key)
             if "_playing_channels" not in self.__dict__:
                 self._playing_channels: dict[str, str] = {}
             self._playing_channels[key] = channel_id
         except Exception:
             # Never let bookkeeping cost the user the stream they just started.
             logger.exception("could not record play for {}", channel_id)
+
+    def _play_and_record(
+        self, url: str, name: str, provider_id: str | None,
+        force_new_window: bool, channel_id: str,
+    ) -> bool:
+        """The escape hatches' one launch-and-record seam — none of them go
+        through ``_on_stream_ready``, so none arm the watch on their own, and
+        PLAY-15 defers ``_record_play``'s write until it does. Also gives
+        "Play Anyway" the never-started report it never had. Returns launch
+        success (same contract as ``_play_checked``).
+        """
+        ok = self._play_checked(
+            url, name, provider_id=provider_id,
+            force_new_window=force_new_window, channel_id=channel_id,
+        )
+        if ok:
+            self._start_playback_health(_startwatch.PlayAttempt(
+                channel_id, name, url, provider_id=provider_id))
+            self._record_play(channel_id, provider_id, force_new_window)
+        return ok
 
     def _reactivate_and_play_sibling(
         self,
@@ -848,14 +856,14 @@ class _StreamingMixin(_WatchCaptureMixin):
         explicitly opts into an inactive-source variant (mirror-not-cage: we surfaced
         the option; they chose it).  The provider is re-activated then the URL is
         passed directly to player_manager (no extra validation — already consented).
-        PLAY-13: used to carry no ``channel_id`` — fixed via ``_record_play``.
+        PLAY-13: used to carry no ``channel_id`` — fixed via ``_play_and_record``.
 
         Args:
             provider_id: The inactive provider to reactivate.
             stream_url: The sibling channel's stream URL to play immediately after.
             channel_name: Display name for the player window.
             force_new_window: When True, open/replace a separate per-source window.
-            channel_id: The sibling channel's DB id, for ``_record_play``
+            channel_id: The sibling channel's DB id, for ``_play_and_record``
                 (empty is a no-op there; the caller always supplies it).
         """
         reactivated = False
@@ -868,20 +876,12 @@ class _StreamingMixin(_WatchCaptureMixin):
                     reactivated = True
         except Exception as exc:
             logger.warning(f"_reactivate_and_play_sibling: failed to reactivate {provider_id}: {exc}")
-        # Provider mutation → route through the canonical refresh so the sidebar
-        # Sources / channel list / Discover reflect the now-active source (matches
-        # toggle_provider_active). Without this the stream plays but those views
-        # stay stale until the next refresh trigger.
+        # Canonical refresh (matches toggle_provider_active) — else the sidebar/
+        # channel list/Discover stay stale even though the stream plays.
         if reactivated:
             self._refresh_provider_dependent_views()
-        if self._play_checked(
-            stream_url, channel_name,
-            provider_id=provider_id,
-            force_new_window=force_new_window,
-            channel_id=channel_id,
-        ):
-            # Same recording seam as the other escape hatches above.
-            self._record_play(channel_id, provider_id, force_new_window)
+        # Same seam as the other escape hatches — also arms the watch (PLAY-15).
+        self._play_and_record(stream_url, channel_name, provider_id, force_new_window, channel_id)
 
     def _bg_mark_played(self, channel_id: str, key: str | None = None) -> None:
         """Worker: write play-count + last-played to DB (off main thread).

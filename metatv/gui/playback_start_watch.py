@@ -36,6 +36,18 @@ stream sits paused with no position for the first several seconds; ``path`` is
 set the moment ``loadfile`` is accepted. Judging on position would call every
 slow-opening stream a failure — the false positive that would make this feature
 worse than the silence it replaces.
+
+**Deferred play recording (PLAY-15).** A play used to be recorded — play
+count, last-played, History — the moment mpv accepted the ``loadfile``, so a
+title that never produced a frame still counted, once per retry (owner,
+2026-09-11: six failed attempts logged "count: 1" through "count: 6"). The
+caller now hands the DB-write closure to ``host._pending_play_record`` instead
+of running it: :func:`arm` clears it along with the rest of the play's state
+(a play that never progressed never gets recorded, matching the "previous
+play … never progressed" log line above), and :func:`on_loaded_tick` pops and
+calls it the moment ``_health_ever_progressed`` first becomes True — wrapped
+in its own try/except, since a bookkeeping failure here must not take out the
+poll that just found the progress.
 """
 
 from __future__ import annotations
@@ -153,6 +165,9 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     host._health_stalled_ticks = 0
     host._health_opening_ticks = 0
     host._health_ever_progressed = False
+    # PLAY-15: the previous play's DB-write closure, if any, is dropped here —
+    # it never progressed, so it must never be recorded.
+    host._pending_play_record = None
 
 
 def on_playing(host: Any) -> bool:
@@ -249,6 +264,15 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
                 host.status_bar.clearMessage()   # progress seen — the wait is over
             except Exception:                                    # pragma: no cover
                 logger.exception("could not clear the status bar")
+            # PLAY-15: only now — playback actually advanced — does the play
+            # get recorded. host.__dict__ (this module's idiom) so a double
+            # that never set the attribute is treated as "nothing pending".
+            commit = host.__dict__.pop("_pending_play_record", None)
+            if commit is not None:
+                try:
+                    commit()
+                except Exception:
+                    logger.exception("could not record the play")
             return
         host._health_last_time_pos = float(time_pos)
     if paused:
