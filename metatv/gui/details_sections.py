@@ -945,15 +945,6 @@ class _MetadataSection(QWidget):
         badge_row.addWidget(self.adult_indicator)
         layout.addWidget(self._badge_row_w)
 
-        # Source-notice line (VERS-1): dim LABEL_MUTED note under the Source
-        # chip, describing a live-copy redirect. Hidden until set.
-        self._source_notice_lbl = QLabel()
-        self._source_notice_lbl.setWordWrap(True)
-        _theme.style(self._source_notice_lbl, "LABEL_MUTED")
-        _no_width_force(self._source_notice_lbl)
-        self._source_notice_lbl.hide()
-        layout.addWidget(self._source_notice_lbl)
-
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
@@ -1262,11 +1253,6 @@ class _MetadataSection(QWidget):
         else:
             self.rec_reason_label.hide()
 
-    def set_source_notice(self, text: str | None) -> None:
-        """VERS-1: the dim line under the Source chip; ``None`` hides it."""
-        self._source_notice_lbl.setText(text or "")
-        self._source_notice_lbl.setVisible(bool(text))
-
     def clear(self) -> None:
         self.title_label.clear()
         self._prefix_chip.hide()
@@ -1288,7 +1274,6 @@ class _MetadataSection(QWidget):
         self.source_label.hide()
         self.adult_indicator.hide()
         self.rec_reason_label.hide()
-        self._source_notice_lbl.hide()
 
     # ------------------------------------------------------------------ #
     # Genre chips — private helpers                                        #

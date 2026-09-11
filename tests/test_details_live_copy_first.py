@@ -226,8 +226,8 @@ def _pane(owned_widgets):
 def test_set_source_notice_shows_and_hides_the_line(qtbot, owned_widgets):
     pane = _pane(owned_widgets)
     pane.set_source_notice("Shown from ProSat — your TREX Shared copy is disabled")
-    assert not pane._meta._source_notice_lbl.isHidden()
-    assert "ProSat" in pane._meta._source_notice_lbl.text()
+    assert not pane._source_notice_lbl.isHidden()
+    assert "ProSat" in pane._source_notice_lbl.text()
 
     pane.set_source_notice(None)
-    assert pane._meta._source_notice_lbl.isHidden()
+    assert pane._source_notice_lbl.isHidden()

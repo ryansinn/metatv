@@ -128,8 +128,9 @@ class DetailsPaneWidget(QWidget):
 
     def set_source_notice(self, text: "str | None") -> None:
         """The dim line under the Source chip explaining a live-copy redirect
-        (VERS-1) — ``None`` hides it."""
-        self._meta.set_source_notice(text)
+        (VERS-1) — ``None`` hides it. Owned by the pane, like ``_byline``."""
+        self._source_notice_lbl.setText(text or "")
+        self._source_notice_lbl.setVisible(bool(text))
 
     def set_versions(self, versions: list[ChannelVersion]) -> None:
         self._versions.load(versions, provider_map=self._provider_map)
@@ -255,6 +256,7 @@ class DetailsPaneWidget(QWidget):
         self._trailer_url = ""
         self._trailer_title = ""
         self._byline.hide()
+        self._source_notice_lbl.hide()   # a new title starts with no redirect note
         self._episode_rating_lbl.hide()
         self._episode_air_date_lbl.hide()
         self._episode_meta_row.hide()
@@ -476,6 +478,14 @@ class DetailsPaneWidget(QWidget):
         _no_width_force(self._byline)
         self._byline.hide()
 
+        # Source notice (VERS-1) — "Shown from ProSat — your TREX copy is
+        # expired". Same shape as the byline: wraps, never drives the width.
+        self._source_notice_lbl = QLabel()
+        self._source_notice_lbl.setWordWrap(True)
+        _theme.style(self._source_notice_lbl, "LABEL_MUTED")
+        _no_width_force(self._source_notice_lbl)
+        self._source_notice_lbl.hide()
+
         # Episode meta row — rating (stars, matching the series-level treatment in
         # _MetadataSection.rating_label) + air date, shown only alongside the byline
         # in episode mode.  A plain QHBoxLayout is fine here (mirrors the badge_row
@@ -520,7 +530,8 @@ class DetailsPaneWidget(QWidget):
         # the logical owner of the action buttons, which are reparented into the
         # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._byline, self._episode_meta_row, self._versions,
+            self._poster, self._meta, self._source_notice_lbl, self._byline,
+            self._episode_meta_row, self._versions,
             self._plot, self._cast, self._tech, self._tags, self._similar,
         ):
             self._content_layout.addWidget(widget)
