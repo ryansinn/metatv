@@ -48,6 +48,18 @@ play … never progressed" log line above), and :func:`on_loaded_tick` pops and
 calls it the moment ``_health_ever_progressed`` first becomes True — wrapped
 in its own try/except, since a bookkeeping failure here must not take out the
 poll that just found the progress.
+
+**A drop mid-play is not the film ending (PLAY-17).** Owner's log, 2026-09-11
+04:02-04:05: a movie played from 04:03:35, the origin closed the connection at
+04:04:01, ffmpeg's reconnects were all refused for 60s, the buffer ran dry,
+and mpv hit EOF and exited — with ``--idle=once`` — 157s into a feature-length
+file. The app read that exactly like the film ending: no report, no resume,
+window gone. :func:`on_loaded_tick` now tracks the last known ``time-pos`` and
+``duration`` for the whole play, even after it has progressed, and
+:func:`resume_after_drop` compares them: a play that ends more than
+:data:`DROP_END_MARGIN_S` short of its own duration did not finish — it
+dropped — and gets replayed from a few seconds before the cut, up to
+:data:`MAX_DROP_RESUMES` times, before the user is told and left in control.
 """
 
 from __future__ import annotations
@@ -137,6 +149,18 @@ OPENING_AFTER_TICKS = (
 #: against float jitter between two probes of a genuinely frozen position.
 _PROGRESS_EPSILON = 0.25
 
+#: How far short of the file's own ``duration`` a play can end and still count
+#: as the film genuinely finishing rather than the source dropping it. See
+#: :func:`dropped_mid_stream`. A live stream has no duration and never trips
+#: this; a resume past the real end ends the file at once and also never
+#: trips it (duration - last_pos is then <= 0).
+DROP_END_MARGIN_S = 60
+
+#: Automatic mid-stream resumes (see :func:`resume_after_drop`) one play's
+#: lineage gets before the app stops retrying on its own and tells the user
+#: instead. A source that drops every minute gets three tries, not infinite.
+MAX_DROP_RESUMES = 3
+
 
 class PlayAttempt(NamedTuple):
     """What a failure report needs to name the thing that did not play."""
@@ -159,6 +183,9 @@ class PlayAttempt(NamedTuple):
     #: name which source it's waiting on via ``host._provider_display_name``.
     #: None for callers with no provider to hand (falls back to a generic noun).
     provider_id: "str | None" = None
+    #: How many automatic mid-stream drop-resumes (:func:`resume_after_drop`)
+    #: this play's lineage has already used — capped at :data:`MAX_DROP_RESUMES`.
+    drop_resumes: int = 0
 
 
 #: How long the retry waits after the player exited while opening. The
@@ -190,6 +217,10 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     host._health_stalled_ticks = 0
     host._health_opening_ticks = 0
     host._health_ever_progressed = False
+    host._health_last_duration = None
+    # PLAY-17: a stale scheduled-replay identity must not survive onto a new
+    # play — see :func:`replay`.
+    host._scheduled_replay = None
     # PLAY-15: the previous play's DB-write closure, if any, is dropped here —
     # it never progressed, so it must never be recorded.
     host._pending_play_record = None
@@ -233,7 +264,8 @@ def _push_waiting_line(host: Any, ticks: int) -> None:
         logger.exception("could not update the status bar")
 
 
-def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any = None) -> None:
+def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any = None,
+                    duration: Any = None) -> None:
     """Judge whether a LOADED file is actually OPENING, progressing, or frozen.
 
     Called on every probe tick that carries a loaded ``path`` (the same ticks
@@ -278,13 +310,27 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
         cache_duration: mpv's ``demuxer-cache-duration`` property from the
             same probe tick — the signal that distinguishes OPENING (None)
             from "data is arriving, position just isn't set yet" (present).
+        duration: mpv's ``duration`` property (the file's total length, or
+            None for a live stream) from the same probe tick. Tracked in
+            ``host._health_last_duration`` alongside ``time_pos`` on every
+            numeric reading — including after this play has progressed, when
+            the rest of this function is a no-op — so :func:`resume_after_drop`
+            always has the position and duration as of the last live tick,
+            whenever the player later vanishes (PLAY-17).
     """
     if host.__dict__.get("_health_ever_progressed"):
+        if isinstance(time_pos, (int, float)):
+            host._health_last_time_pos = float(time_pos)
+            host._health_last_duration = (
+                float(duration) if isinstance(duration, (int, float)) else None)
         return
     last = host.__dict__.get("_health_last_time_pos")
     if isinstance(time_pos, (int, float)):
         if last is not None and time_pos > last + _PROGRESS_EPSILON:
             host._health_ever_progressed = True
+            host._health_last_time_pos = float(time_pos)
+            host._health_last_duration = (
+                float(duration) if isinstance(duration, (int, float)) else None)
             try:
                 host.status_bar.clearMessage()   # progress seen — the wait is over
             except Exception:                                    # pragma: no cover
@@ -312,6 +358,8 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
                     logger.exception("could not clear the failure record")
             return
         host._health_last_time_pos = float(time_pos)
+        host._health_last_duration = (
+            float(duration) if isinstance(duration, (int, float)) else None)
     if paused:
         return
 
@@ -330,6 +378,96 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
     _push_waiting_line(host, ticks)
     if ticks == STALLED_AFTER_TICKS:
         _report_never_started(host, stalled=True)
+
+
+def dropped_mid_stream(last_pos: Any, duration: Any, margin: int = DROP_END_MARGIN_S) -> bool:
+    """True when a play ended more than *margin* seconds short of its own
+    duration — evidence the SOURCE dropped it, not that the file finished.
+
+    Both must be numeric: a live stream carries no ``duration`` (always
+    False), and a resume position past the real end makes ``duration -
+    last_pos`` zero or negative (also False) — that shape is the OTHER known
+    cause of an instant exit and already has its own message.
+
+    Args:
+        last_pos: The play's last known ``time-pos``, or None/absent.
+        duration: The file's total length, or None/absent for live.
+        margin: How many seconds short of *duration* still counts as
+            "finished" rather than "dropped". Defaults to
+            :data:`DROP_END_MARGIN_S`.
+    """
+    if not isinstance(last_pos, (int, float)) or not isinstance(duration, (int, float)):
+        return False
+    return duration - last_pos > margin
+
+
+def resume_after_drop(host: Any, exit_reason: "str | None" = None) -> bool:
+    """A progressed play whose stream dropped: replay from just before the cut.
+
+    Owner's log, 2026-09-11 04:02-04:05: mpv played a movie for 86s, the
+    origin closed the connection, ffmpeg's reconnects were all refused for
+    60s, the buffer ran dry, and mpv exited on EOF 157s into a feature-length
+    film — read by the rest of this module as the film ending. This is the
+    fix: a progressed play (:func:`on_loaded_tick` proved video actually
+    arrived) that exits on the stream-ended signature
+    (``STREAM_EXIT_REASONS``) far short of its own known ``duration``
+    (:func:`dropped_mid_stream`) gets replayed automatically, from five
+    seconds before the last position seen, up to :data:`MAX_DROP_RESUMES`
+    times per play lineage — then the user is told and left in control.
+
+    Called from :func:`on_player_gone` (a real process exit) and from
+    :func:`on_idle_tick`'s first tick after a progressed play (``--idle=yes``
+    keeps mpv open with nothing loaded instead of exiting, so there is no
+    process-gone event to hook there).
+
+    Returns:
+        True when a resume was scheduled (the caller's own report/retry logic
+        must not also run); False when this play never progressed, the exit
+        wasn't the stream-ended signature, the gap is within *margin* of the
+        real end (a live stream, or a genuine finish), or the automatic-resume
+        cap has already been used up for this lineage.
+    """
+    if not host.__dict__.get("_health_ever_progressed"):
+        return False
+    if exit_reason not in STREAM_EXIT_REASONS:
+        return False
+    last_pos = host.__dict__.get("_health_last_time_pos")
+    if not dropped_mid_stream(last_pos, host.__dict__.get("_health_last_duration")):
+        return False
+    att = host.__dict__.get("_health_attempt")
+    if att is None:
+        return False   # nothing to name or re-read — episode playback, no identity
+    pos = max(0, int(last_pos) - 5)
+    m, ss = pos // 60, f"{pos % 60:02d}"
+    if att.drop_resumes >= MAX_DROP_RESUMES:
+        host.status(
+            f"{att.channel_name}: the stream dropped again at {m}:{ss} — not "
+            f"resuming automatically ({MAX_DROP_RESUMES} times already); play it "
+            "to pick up from there", ms=0, level="warn")
+        logger.warning("stream dropped mid-play for {!r} at {}s of {}s ({}) — "
+                       "{} automatic resumes already used, giving up", att.channel_name,
+                       last_pos, host._health_last_duration, exit_reason, att.drop_resumes)
+        try:
+            host.notification_manager.show(
+                title="Stream keeps dropping",
+                message=(f"{att.channel_name} dropped again at {m}:{ss}. It has been "
+                         f"resumed automatically {MAX_DROP_RESUMES} times already — play "
+                         "it again to pick up from there."),
+                type="warning",
+                auto_dismiss_ms=8000,
+            )
+        except Exception:                                    # pragma: no cover
+            logger.exception("could not show the drop-cap notification")
+        return False
+    host.status(
+        f"{att.channel_name}: the stream dropped at {m}:{ss} — resuming in "
+        f"{RETRY_AFTER_EXIT_MS // 1000}s", ms=0, level="warn")
+    logger.warning("stream dropped mid-play for {!r} at {}s of {}s ({}) — resuming",
+                   att.channel_name, last_pos, host._health_last_duration, exit_reason)
+    resumed = att._replace(resume_seconds=pos, drop_resumes=att.drop_resumes + 1)
+    host._scheduled_replay = resumed
+    QTimer.singleShot(RETRY_AFTER_EXIT_MS, lambda: replay(host, resumed))
+    return True
 
 
 def on_player_gone(host: Any, exit_reason: "str | None" = None) -> bool:
@@ -359,7 +497,17 @@ def on_player_gone(host: Any, exit_reason: "str | None" = None) -> bool:
     (The slow-server theory was tested at the same time and is NOT this: with
     ``--cache-pause-initial=yes --cache-pause-wait=10`` a 20 KB/s stream starts
     inside three seconds.)
+
+    Checked FIRST, ahead of every branch below (PLAY-17): a progressed play
+    that dropped mid-stream is neither "the user closed it" nor "never
+    started" — see :func:`resume_after_drop`. When it schedules a resume this
+    returns True so the caller's own retry logic does not ALSO fire (its own
+    ``retry_candidate`` requires ``_health_stream_exit``, which a progressed
+    play never sets, so it is harmless either way — this just keeps the two
+    paths explicit rather than relying on that).
     """
+    if resume_after_drop(host, exit_reason):
+        return True
     if host.__dict__.get("_health_ever_progressed"):
         return False               # it played, then the user closed it
     if (host.__dict__.get("_health_ever_played")
@@ -382,6 +530,7 @@ def schedule_retry(host: Any) -> bool:
     host.status(
         f"{att.channel_name}: the stream closed before it started — retrying in "
         f"{RETRY_AFTER_EXIT_MS // 1000}s", ms=0, level="warn")
+    host._scheduled_replay = att
     QTimer.singleShot(RETRY_AFTER_EXIT_MS, lambda: replay(host, att))
     return True
 
@@ -389,14 +538,22 @@ def schedule_retry(host: Any) -> bool:
 def replay(host: Any, attempt: PlayAttempt) -> None:
     """The scheduled retry: re-read the title off-thread, then play it probe-free.
 
-    Skipped if ``attempt`` is no longer the play the host is watching — the 20s
-    delay is long enough for the user to have started something else, and a
+    Skipped unless ``attempt`` is BOTH the exact object the retry was
+    scheduled for (``host._scheduled_replay``) AND still names the play the
+    host is watching (by ``channel_id`` — PLAY-17's drop-resume schedules a
+    ``_replace()``d COPY of the live ``PlayAttempt``, never the original
+    object, so an object-identity check against ``host._health_attempt``
+    alone would reject every legitimate drop-resume). The 20s delay is long
+    enough for the user to have started something else in the meantime, and a
     stale retry must not replace it (2026-09-11 02:12: title A's scheduled
     retry fired at 02:12:41 and replaced title B, which the user had played at
-    02:12:26, six seconds after A's retry was scheduled).
+    02:12:26, six seconds after A's retry was scheduled). :func:`arm` clears
+    ``_scheduled_replay`` on every new play, which is what makes the skip work.
     """
     current = host.__dict__.get("_health_attempt")
-    if current is not attempt:
+    scheduled = host.__dict__.get("_scheduled_replay")
+    if (scheduled is not attempt or current is None
+            or current.channel_id != attempt.channel_id):
         logger.info("retry for {!r} skipped — {!r} has been played since",
                     attempt.channel_name, getattr(current, "channel_name", "another title"))
         return
@@ -404,7 +561,8 @@ def replay(host: Any, attempt: PlayAttempt) -> None:
     host._run_query(
         lambda repos: repos.channels.get_playable_dto(attempt.channel_id),
         lambda ch: ch is not None and host.play_media(
-            ch, start_override=attempt.resume_seconds or None, skip_probe=True),
+            ch, start_override=attempt.resume_seconds or None, skip_probe=True,
+            drop_resumes=attempt.drop_resumes),
         on_error=lambda e: _on_replay_failed(host, attempt, e),
     )
 
@@ -432,9 +590,22 @@ def on_idle_tick(host: Any) -> bool:
 
     Reports the failure exactly once, on the tick that crosses the threshold —
     a report every 2s for as long as the window sits there would be its own bug.
+
+    PLAY-17: with ``--idle=yes`` (``close_player_when_finished`` off) mpv
+    stays running with nothing loaded after EOF instead of exiting, so
+    :func:`on_player_gone` — which needs a vanished PROCESS — never fires for
+    a drop. The FIRST idle tick after a progressed play is the equivalent
+    event here; ``exit_reason`` is synthesised as ``"End of file"`` (the drop
+    signature :func:`resume_after_drop` keys on) because there is no real exit
+    line to read — mpv's own idle state, right after a play that was
+    genuinely advancing with no user action in between, is itself the
+    evidence.
     """
     ticks = host.__dict__.get("_health_idle_ticks", 0) + 1
     host._health_idle_ticks = ticks
+
+    if ticks == 1 and host.__dict__.get("_health_ever_progressed"):
+        resume_after_drop(host, "End of file")
 
     if ticks == FAILED_AFTER_TICKS and not host.__dict__.get("_health_ever_played"):
         _report_never_started(host)

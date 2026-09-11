@@ -23,7 +23,7 @@ from __future__ import annotations
 import pathlib
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -731,6 +731,13 @@ def test_arming_over_an_unplayed_attempt_is_logged_not_toasted(caplog):
 # A's retry was scheduled at 02:12:20. ``replay()`` never checked that the
 # attempt it holds is still the one in flight; identity on the host's current
 # ``PlayAttempt`` is the right check, since a fresh object is built per play.
+#
+# PLAY-17: object identity on ``_health_attempt`` alone stopped being enough
+# once ``resume_after_drop`` started scheduling a ``_replace()``d COPY of the
+# live attempt — so the check moved to ``host._scheduled_replay`` (stashed by
+# whichever of ``schedule_retry``/``resume_after_drop`` did the scheduling,
+# cleared by :func:`arm` on every new play). These two tests now set it up
+# the way the real schedulers do, rather than relying on object identity.
 
 def test_a_scheduled_retry_is_skipped_once_the_user_played_something_else():
     host = _host()
@@ -739,7 +746,8 @@ def test_a_scheduled_retry_is_skipped_once_the_user_played_something_else():
     att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
     att_b = watch.PlayAttempt("ch-b", "B", "http://x/b")
     watch.arm(host, att_a)
-    watch.arm(host, att_b)
+    host._scheduled_replay = att_a   # what schedule_retry would have stashed
+    watch.arm(host, att_b)           # arming clears _scheduled_replay
 
     watch.replay(host, att_a)
 
@@ -753,10 +761,120 @@ def test_a_scheduled_retry_still_runs_when_nothing_else_was_played():
     host._run_query = MagicMock()
     att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
     watch.arm(host, att_a)
+    host._scheduled_replay = att_a   # what schedule_retry would have stashed
 
     watch.replay(host, att_a)
 
     host._run_query.assert_called_once()
+
+
+# ── PLAY-17: a drop mid-play resumes near the cut, not "the film ended" ─────
+#
+# Owner's log, 2026-09-11 04:02-04:05: mpv played a movie from 04:03:35, the
+# origin closed the connection at 04:04:01, ffmpeg's reconnects were all
+# refused for 60s, the buffer ran dry, and mpv exited on EOF 157s in — read
+# by the app exactly like the film ending. No report, no resume, window gone.
+
+def _dropped_host():
+    """A play that genuinely progressed (real video arrived), then a source
+    drop far short of its own known duration."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, 0.0, False, duration=5400)
+    watch.on_loaded_tick(host, 10.0, False, duration=5400)
+    watch.on_loaded_tick(host, 272.0, False, duration=5400)
+    return host
+
+
+def test_a_stream_that_drops_mid_play_schedules_a_resume():
+    host = _dropped_host()
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, "End of file") is True
+
+    shot.assert_called_once()
+    delay, callback = shot.call_args[0]
+    assert delay == watch.RETRY_AFTER_EXIT_MS
+    msg = host.status_bar.showMessage.call_args[0][0]
+    assert "dropped at 4:27" in msg and "resuming" in msg
+
+    # Run the captured callback — _run_query stubbed to call its success arg
+    # with a DTO, the way the real off-thread read would.
+    dto = SimpleNamespace(id=ATTEMPT.channel_id)
+    host.play_media = MagicMock()
+    host._run_query = MagicMock(
+        side_effect=lambda query_fn, on_success, on_error=None: on_success(dto))
+
+    callback()
+
+    host.play_media.assert_called_once_with(
+        dto, start_override=267, skip_probe=True, drop_resumes=1)
+
+
+def test_a_film_that_ends_is_not_a_drop():
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, 0.0, False, duration=5400)
+    watch.on_loaded_tick(host, 5350.0, False, duration=5400)   # 50s short — within margin
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, "End of file") is False
+    shot.assert_not_called()
+    host.status_bar.showMessage.assert_not_called()
+
+
+def test_a_live_stream_has_no_duration_and_is_not_resumed_here():
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, 0.0, False)          # no duration — live channel
+    watch.on_loaded_tick(host, 30.0, False)
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, "End of file") is False
+    shot.assert_not_called()
+
+
+def test_the_user_closing_the_window_is_not_a_drop():
+    host = _dropped_host()
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, "Quit") is False
+    shot.assert_not_called()
+
+
+def test_the_third_drop_resume_is_the_last():
+    host = _host()
+    watch.arm(host, ATTEMPT._replace(drop_resumes=3))
+    watch.on_playing(host)
+    watch.on_loaded_tick(host, 0.0, False, duration=5400)
+    watch.on_loaded_tick(host, 300.0, False, duration=5400)
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, "End of file") is False
+    shot.assert_not_called()
+    host.notification_manager.show.assert_called_once()
+    assert host.notification_manager.show.call_args.kwargs["title"] == "Stream keeps dropping"
+
+
+def test_the_idle_window_resumes_too():
+    """``--idle=yes`` keeps mpv open with nothing loaded after EOF instead of
+    exiting, so ``on_player_gone`` never fires — the idle tick is the
+    equivalent event there."""
+    host = _dropped_host()
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        watch.on_idle_tick(host)
+    shot.assert_called_once()
+
+
+def test_dropped_mid_stream_is_the_one_predicate():
+    assert watch.dropped_mid_stream(300, 5400) is True            # numeric + numeric + past margin
+    assert watch.dropped_mid_stream(300, None) is False           # live — no duration
+    assert watch.dropped_mid_stream(None, 5400) is False          # no last position
+    assert watch.dropped_mid_stream(5350, 5400) is False          # within margin — genuine finish
 
 
 # ── PLAY-16: the verdict waits out mpv's own retry window ───────────────────
