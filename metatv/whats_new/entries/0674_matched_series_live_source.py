@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=673,
+    id=674,
     version="0.123.0",
     date="2026-09-11",
     title="New-episode alerts count only live sources, and open on one",
