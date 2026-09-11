@@ -33,6 +33,11 @@ _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series row
 # survives the tree being rebuilt on every refresh. The QTreeWidgetItem does not:
 # it is destroyed and recreated, taking its expanded state with it.
 _ROLE_GROUP_KEY = Qt.ItemDataRole.UserRole + 7   # programme title (EPG group rows)
+# ALERT-2: what a series row's click/double-click/"Open series" opens — the
+# live mirror when _ROLE_SERIES_ID's primary source is hidden, else the same
+# id. Kept separate from _ROLE_SERIES_ID because mark_seen/Stop alerts must
+# always key on the entry's OWN identity, never a redirected mirror.
+_ROLE_SERIES_OPEN_ID = Qt.ItemDataRole.UserRole + 8
 
 
 def _quality(airing) -> str:

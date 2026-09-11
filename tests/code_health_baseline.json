@@ -11,7 +11,7 @@
     "metatv/core/repositories/channel.py": 1739,
     "metatv/core/repositories/channel_ingestion.py": 1327,
     "metatv/core/repositories/tag.py": 1400,
-    "metatv/core/series_monitor.py": 1038,
+    "metatv/core/series_monitor.py": 1035,
     "metatv/gui/details_sections.py": 1811,
     "metatv/gui/discover_view.py": 1016,
     "metatv/gui/epg_watchlist_mixin.py": 1136,

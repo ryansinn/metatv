@@ -85,7 +85,11 @@ class _FakeConfig:
         self.monitored_series = updated
 
     def clear_unseen(self, series_channel_id: str) -> None:
-        self.update_monitored_series(series_channel_id, unseen_new=0)
+        # Mirrors Config.clear_unseen (ALERT-2): unseen_by_mirror clears with
+        # unseen_new, or a mark-seen after a redirect would leave stale shares.
+        self.update_monitored_series(
+            series_channel_id, unseen_new=0, unseen_by_mirror={}
+        )
 
 
 # ===========================================================================

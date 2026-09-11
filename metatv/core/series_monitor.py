@@ -115,6 +115,12 @@ def provider_of(key: str) -> str:
     return key.split(_MIRROR_SEP, 1)[0]
 
 
+def mirror_parts(key: str) -> tuple[str, str]:
+    """Split a mirror key into ``(provider_id, source_id)`` — inverse of :func:`mirror_key`."""
+    provider_id, _, source_id = key.partition(_MIRROR_SEP)
+    return provider_id, source_id
+
+
 def normalize_monitored_entry(entry: dict) -> dict:
     """Return *entry* with a per-MIRROR ``baselines`` dict.
 
@@ -186,6 +192,7 @@ def normalize_monitored_entry(entry: dict) -> dict:
             f"provider-keyed baseline collision, proven corrupt)"
         )
     migrated["unseen_new"] = 0
+    migrated["unseen_by_mirror"] = {}
     migrated["growth_providers"] = []
     return migrated
 
@@ -235,20 +242,12 @@ def zero_out_inflated_unseen_new(entry: dict) -> dict:
     ``clamp_unseen_new_to_baseline_total`` (a fresh write isn't proven
     corrupt, just implausible, so it's clamped rather than discarded).
 
-    Pure and side-effect-free — the caller decides whether/how to persist
-    the result. Idempotent: once ``unseen_new`` is 0 (or otherwise within
-    the sane range, or there's no baseline data to check it against), a
-    second call is a no-op and returns ``entry`` UNCHANGED (same object).
-
-    Args:
-        entry: A monitored-series config dict. Expected to already carry a
-            ``baselines`` dict — call ``normalize_monitored_entry`` first for
-            legacy entries.
-
-    Returns:
-        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
-        absent, or there's no usable baseline data to validate against;
-        otherwise a NEW dict with ``unseen_new`` reset to ``0``.
+    Pure and side-effect-free — the caller decides whether/how to persist the
+    result. Idempotent: once ``unseen_new`` is sane (or there's no baseline
+    data to check it against), a second call is a no-op and returns ``entry``
+    UNCHANGED (same object); otherwise a NEW dict with ``unseen_new`` reset to
+    ``0`` and ``unseen_by_mirror`` cleared alongside it (same corruption,
+    same reset).
     """
     check = _inflated_unseen(entry)
     if check is None:
@@ -261,6 +260,7 @@ def zero_out_inflated_unseen_new(entry: dict) -> dict:
     )
     migrated = dict(entry)
     migrated["unseen_new"] = 0
+    migrated["unseen_by_mirror"] = {}
     return migrated
 
 
@@ -280,21 +280,14 @@ def clamp_unseen_new_to_baseline_total(entry: dict) -> dict:
     ``zero_out_inflated_unseen_new`` (resets to 0, not the sum) — see its
     docstring for why the two calls make different corrections.
 
-    Pure and side-effect-free — the caller decides whether/how to persist
-    the result. Idempotent: once ``unseen_new`` is within the sane range (or
+    Pure and side-effect-free — the caller decides whether/how to persist the
+    result. Idempotent: once ``unseen_new`` is within the sane range (or
     there's no baseline data to check it against), a second call is a no-op
-    and returns ``entry`` UNCHANGED (same object).
-
-    Args:
-        entry: A monitored-series config dict. Expected to already carry a
-            ``baselines`` dict — call ``normalize_monitored_entry`` first for
-            legacy entries.
-
-    Returns:
-        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
-        absent, or there's no usable baseline data to validate against;
-        otherwise a NEW dict with ``unseen_new`` clamped to
-        ``sum(baselines.values())``.
+    and returns ``entry`` UNCHANGED (same object); otherwise a NEW dict with
+    ``unseen_new`` clamped to ``sum(baselines.values())``. ``unseen_by_mirror``
+    is left as-is UNLESS the clamp lands on exactly 0 (baselines summed to
+    nothing), in which case it is cleared too — a non-zero clamp is a
+    plausibility cap, not proof the per-mirror breakdown itself is wrong.
     """
     check = _inflated_unseen(entry)
     if check is None:
@@ -307,6 +300,8 @@ def clamp_unseen_new_to_baseline_total(entry: dict) -> dict:
     )
     migrated = dict(entry)
     migrated["unseen_new"] = sane_max
+    if sane_max == 0:
+        migrated["unseen_by_mirror"] = {}
     return migrated
 
 
@@ -507,12 +502,8 @@ class SeriesMonitorManager(QObject):
             self._check_batch_done.emit()
 
     def _update_series_deferring_save(self, series_channel_id: str, **fields) -> None:
-        """Apply an entry update now; leave the file write to the pass boundary.
-
-        Args:
-            series_channel_id: Entry to update.
-            **fields: Fields to merge onto it.
-        """
+        """Apply an entry update (**fields, merged onto it) now; leave the file
+        write to the pass boundary."""
         self.config.update_monitored_series(series_channel_id, save=False, **fields)
         self._config_dirty = True
 
@@ -621,16 +612,10 @@ class SeriesMonitorManager(QObject):
 
         The PRIMARY mirror is always included, whatever the rotation: it is the
         one the user actually chose, and the one whose episode list the details
-        pane shows.
-
-        Args:
-            mirrors: Every (provider_id, source_id) carrying this series.
-            cid: The series channel id, so each series rotates independently.
-            primary_provider_id: The entry's own provider.
-            primary_source_id: The entry's own source id.
-
-        Returns:
-            At most :attr:`MIRRORS_PER_PASS` mirrors, primary first.
+        pane shows. Returns at most :attr:`MIRRORS_PER_PASS` of *mirrors*
+        (every ``(provider_id, source_id)`` carrying this series), primary
+        first; *cid* seeds the rotation offset so each series rotates
+        independently.
         """
         if len(mirrors) <= self.MIRRORS_PER_PASS:
             return mirrors
@@ -653,14 +638,8 @@ class SeriesMonitorManager(QObject):
         """Take a connection slot for one mirror fetch; False if none is free.
 
         No accountant means nothing to arbitrate, so the fetch proceeds —
-        enrolment must not turn an un-wired monitor into a dead one.
-
-        Args:
-            provider_id: Provider whose connection capacity is consumed.
-            holder_id: Unique id, released in the caller's ``finally``.
-
-        Returns:
-            True if the fetch may proceed.
+        enrolment must not turn an un-wired monitor into a dead one. *holder_id*
+        is a unique id, released in the caller's ``finally``.
         """
         return acquire_or_proceed(
             self._accountant, provider_id, MONITOR_KIND, holder_id,
@@ -859,6 +838,11 @@ class SeriesMonitorManager(QObject):
                 "grown_provider_names": list(dict.fromkeys(
                     grown_names[k] for k in grown
                 )),
+                # Per-mirror delta (ALERT-2) — merged onto the entry's running
+                # unseen_by_mirror in _on_new_episodes, so a mirror that later
+                # goes hidden can be excluded from the count/click-target
+                # without losing which mirror actually contributed it.
+                "unseen_delta_by_mirror": grown,
             }
             self._notify_new.emit(cid, total_delta, title, payload)
 
@@ -974,28 +958,39 @@ class SeriesMonitorManager(QObject):
     ) -> None:
         """Main-thread handler: update config and fire notification.
 
-        ``payload`` is ``{"baselines": {provider_id: count}, "grown_provider_names":
-        [str]}`` — the FULL per-provider baseline snapshot from this check (merged
-        over any baseline for a provider not covered by this check, so a provider
-        that dropped out never silently loses its recorded baseline) plus the
-        display names of the provider(s) that grew, for toast/tooltip attribution.
+        ``payload`` is ``{"baselines": {...}, "grown_provider_names": [...],
+        "unseen_delta_by_mirror": {mirror_key: delta}}`` — the FULL per-provider
+        baseline snapshot from this check (merged over any baseline for a
+        provider not covered by this check, so a provider that dropped out never
+        silently loses its recorded baseline), the display names of the
+        provider(s) that grew, and each grown mirror's OWN delta, merged onto
+        the entry's running ``unseen_by_mirror`` (ALERT-2) — the per-mirror
+        breakdown ``visible_unseen`` gates on so a mirror going hidden later
+        drops its share instead of inflating the total forever.
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         payload = payload or {}
         checked_baselines = payload.get("baselines") or {}
         grown_names = payload.get("grown_provider_names") or []
+        checked_delta_by_mirror = payload.get("unseen_delta_by_mirror") or {}
 
         existing_unseen = 0
         existing_baselines: dict = {}
+        existing_by_mirror: dict = {}
         for e in self.config.get_monitored_series():
             if e.get("series_channel_id") == series_channel_id:
                 existing_unseen = e.get("unseen_new", 0)
                 existing_baselines = dict(e.get("baselines") or {})
+                existing_by_mirror = dict(e.get("unseen_by_mirror") or {})
                 break
 
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
+            merged_by_mirror = dict(existing_by_mirror)
+            for mkey, mdelta in checked_delta_by_mirror.items():
+                merged_by_mirror[mkey] = merged_by_mirror.get(mkey, 0) + mdelta
+
             # Ongoing belt-and-braces guard: unseen_new can never legitimately
             # exceed the total episode count currently believed across every
             # provider baseline. This value is NOT proven corrupt (unlike the
@@ -1006,6 +1001,7 @@ class SeriesMonitorManager(QObject):
             clamped = clamp_unseen_new_to_baseline_total({
                 "baselines": merged_baselines,
                 "unseen_new": existing_unseen + delta,
+                "unseen_by_mirror": merged_by_mirror,
             })
             total_unseen = clamped["unseen_new"]
 
@@ -1013,6 +1009,7 @@ class SeriesMonitorManager(QObject):
                 series_channel_id,
                 baselines=merged_baselines,
                 unseen_new=total_unseen,
+                unseen_by_mirror=clamped.get("unseen_by_mirror", merged_by_mirror),
                 growth_providers=grown_names,
                 last_checked=now_iso,
             )

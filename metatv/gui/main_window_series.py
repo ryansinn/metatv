@@ -918,6 +918,7 @@ class _SeriesMixin:
                 # check_all()/timer pass.
                 "baselines": {},
                 "unseen_new": 0,
+                "unseen_by_mirror": {},
                 "growth_providers": [],
                 "last_checked": None,
             }
