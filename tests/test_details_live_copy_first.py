@@ -58,12 +58,12 @@ def _config(**overrides) -> SimpleNamespace:
     """Minimal duck-typed Config for ``preference_engine.version_score`` (and,
     for the show_channel_details_by_id test, ``update_details_pane_for_channel``'s
     ``metadata_auto_fetch`` gate)."""
-    base = dict(
-        preferred_version_prefixes=[],
-        preferred_version_provider_ids=[],
-        preferred_version_quality="",
-        metadata_auto_fetch=False,
-    )
+    base = {
+        "preferred_version_prefixes": [],
+        "preferred_version_provider_ids": [],
+        "preferred_version_quality": "",
+        "metadata_auto_fetch": False,
+    }
     base.update(overrides)
     return SimpleNamespace(**base)
 
