@@ -69,6 +69,17 @@ def _read_episode_fields(db, ep_id: str) -> dict:
         }
 
 
+def _pre_record(db, ep_id: str, pos_s: float, dur_s: float, via: str = "manual") -> None:
+    """Record a prior tick's progress for *ep_id* — QUEUE-1's ``require_seen``
+    only finalises an episode the player is proven to have actually opened,
+    so these advance-past tests must first seed the "earlier tick already
+    saw it playing" evidence a real run would have written before the
+    playlist ever advanced past it."""
+    with db.session_scope() as session:
+        from metatv.core.repositories import RepositoryFactory
+        RepositoryFactory(session).episodes.record_watch_progress(ep_id, pos_s, dur_s, 0.9, via)
+
+
 # ---------------------------------------------------------------------------
 # 1. play_episode stores queue list in _watch_tracking
 # ---------------------------------------------------------------------------
@@ -277,6 +288,7 @@ def _make_queue_info(ep_ids: list[str], last_seen_pos: int = 0) -> dict:
 def test_capture_records_progress_against_current_playlist_pos(db):
     """When playlist-pos=1, progress goes to e2 (not e1)."""
     _seed_episodes(db, ["e1", "e2", "e3"])
+    _pre_record(db, "e1", 1400, 1500, "manual")  # earlier tick already saw e1 playing
     host = _make_streaming_host(db)
     host._watch_tracking["k"] = _make_queue_info(["e1", "e2", "e3"], last_seen_pos=0)
 
@@ -302,6 +314,10 @@ def test_capture_records_progress_against_current_playlist_pos(db):
 def test_capture_finalises_auto_advanced_episodes(db):
     """Advancing from pos 0 to pos 2 finalises e1 and e2 as watch_completed=True."""
     _seed_episodes(db, ["e1", "e2", "e3"])
+    # Earlier ticks already saw both e1 and e2 playing — this is a real
+    # advance (both were watched), not a skip (QUEUE-1's require_seen).
+    _pre_record(db, "e1", 2600, 2700, "manual")
+    _pre_record(db, "e2", 2600, 2700, "queue")
     host = _make_streaming_host(db)
     host._watch_tracking["k"] = _make_queue_info(["e1", "e2", "e3"], last_seen_pos=0)
 
@@ -327,6 +343,7 @@ def test_capture_finalises_auto_advanced_episodes(db):
 def test_capture_played_via_manual_for_first_episode(db):
     """The started episode (index 0 → index 1 advance) is finalised as 'manual'."""
     _seed_episodes(db, ["e1", "e2"])
+    _pre_record(db, "e1", 1400, 1500, "manual")  # earlier tick already saw e1 playing
     host = _make_streaming_host(db)
     host._watch_tracking["k"] = _make_queue_info(["e1", "e2"], last_seen_pos=0)
 
@@ -350,6 +367,7 @@ def test_capture_played_via_manual_for_first_episode(db):
 def test_capture_played_via_queue_for_auto_advanced(db):
     """Episodes auto-advanced past index 1+ are recorded as last_played_via='queue'."""
     _seed_episodes(db, ["e1", "e2", "e3"])
+    _pre_record(db, "e2", 1400, 1500, "queue")  # earlier tick already saw e2 playing
     host = _make_streaming_host(db)
     # Start at pos 1 already (e1 was already finalised last tick); e2 gets advanced.
     host._watch_tracking["k"] = _make_queue_info(["e1", "e2", "e3"], last_seen_pos=1)
@@ -424,9 +442,11 @@ def test_checkpoint_tick_finalises_current_on_window_close(db):
         }
     }
 
-    # player_manager reports no active keys (window closed)
+    # player_manager reports no active keys (window closed); the playlist
+    # itself ran out (QUEUE-1: only "End of file" finalises the close branch).
     host.player_manager = MagicMock()
     host.player_manager.active_keys.return_value = []
+    host.player_manager.last_exit_reason.return_value = "End of file"
 
     host._watch_checkpoint_tick()
 
@@ -440,6 +460,7 @@ def test_checkpoint_tick_finalises_current_on_window_close(db):
     submitted_via = finalise_calls[0][0][2]
     assert submitted_ep_id == "e2", f"expected e2, got {submitted_ep_id}"
     assert submitted_via == "queue", f"expected 'queue', got {submitted_via}"
+    assert finalise_calls[0][1].get("require_seen") is True
 
     # The tracking entry should be removed
     assert "k" not in host._watch_tracking

@@ -34,6 +34,18 @@ sampled position never persisted, and a >=90% watch never promoted to
 completed. ``_update_last_sample`` now records the last sampled
 position/duration on every ``_bg_capture_watch`` tick for non-queued tracks;
 the close branch finalises it via ``_bg_finalise_progress``.
+
+QUEUE-1 (2026-09-11): "advanced past" is not "played to the end" — mpv also
+advances past a file that FAILED TO OPEN (a busy source refusing the next
+connection). The advance-past loop in ``_bg_capture_watch`` now finalises
+with ``require_seen=True``, which refuses the write when the episode's own
+progress columns show it never played. And the queue's close branch used to
+force-complete whatever was at ``last_seen_pos`` unconditionally, replacing a
+real in-progress position with 100% even when mpv exited mid-episode (a
+stream error, or the user closing the window) — it now only finalises when
+``PlayerManager.last_exit_reason`` says the playlist actually ran out
+(``"End of file"``); any other reason leaves the per-tick-written position
+alone.
 """
 
 from __future__ import annotations
@@ -114,16 +126,29 @@ class _WatchCaptureMixin:
             if k not in keys:
                 info = tracking.pop(k, None)
                 if info and info.get("media_type") == "episode" and info.get("queue"):
-                    # Instance disappeared — finalise the episode that was playing
-                    # at last_seen_pos so its progress isn't lost between ticks.
+                    # Instance disappeared. QUEUE-1: this used to force-finalise
+                    # whatever was at last_seen_pos unconditionally — mpv exiting
+                    # mid-episode (a stream error, or the user closing the window)
+                    # replaced a real, partway resume position with a 100%-complete
+                    # write. Only the playlist genuinely running out ("End of file")
+                    # means that episode played to the end; any other exit leaves the
+                    # per-tick write (<=20s stale) as the episode's position.
                     pos = info.get("last_seen_pos", 0)
                     queue = info["queue"]
                     if 0 <= pos < len(queue):
-                        self.executor.submit(
-                            self._bg_finalise_episode,
-                            queue[pos]["content_id"],
-                            "queue" if pos > 0 else info.get("played_via", "manual"),
-                        )
+                        reason = self.player_manager.last_exit_reason(k)
+                        if reason == "End of file":
+                            self.executor.submit(
+                                self._bg_finalise_episode,
+                                queue[pos]["content_id"],
+                                "queue" if pos > 0 else info.get("played_via", "manual"),
+                                require_seen=True,
+                            )
+                        else:
+                            logger.info(
+                                "player closed mid-episode ({}) — keeping the position of {!r}",
+                                reason, queue[pos]["content_id"],
+                            )
                     # If the queue advanced past the first episode, emit the
                     # queue-end signal so the main thread can show "Still here?".
                     # Episodes at indices 1..pos (inclusive) were auto-advanced;
@@ -151,7 +176,9 @@ class _WatchCaptureMixin:
             if info:
                 self.executor.submit(self._bg_capture_watch, key, dict(info))
 
-    def _bg_finalise_episode(self, content_id: str, played_via: str) -> None:
+    def _bg_finalise_episode(
+        self, content_id: str, played_via: str, *, require_seen: bool = False
+    ) -> None:
         """Worker: mark an episode 100% complete when it is auto-advanced past.
 
         Called when mpv's playlist-pos advances beyond an episode (meaning mpv
@@ -160,15 +187,36 @@ class _WatchCaptureMixin:
         sticky-completion rule in the repository — a later rewatch can still
         update the resume point without un-completing.
 
+        QUEUE-1: mpv also advances *past* an episode that FAILED TO OPEN (a
+        busy source refusing the next connection) — that is not "played to the
+        end". ``require_seen=True`` checks the episode's own progress columns
+        first and refuses to write if nothing was ever recorded for it.
+
         Args:
             content_id: The episode DB id to finalise.
             played_via: ``"manual"`` for the user-started episode, ``"queue"``
                 for every auto-advanced one.
+            require_seen: When True, skip the write (and the notify) if the
+                episode has no recorded progress at all — mpv skipped it
+                rather than playing it.
         """
         try:
             threshold = getattr(self.config, "watch_complete_threshold", 0.9)
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
+                if require_seen:
+                    ep = repos.episodes.get_by_id(content_id)
+                    if (
+                        ep is not None
+                        and int(ep.watch_percent or 0) == 0
+                        and int(ep.watch_progress or 0) == 0
+                        and not ep.watch_completed
+                    ):
+                        logger.info(
+                            "queued episode {!r} was skipped by the player "
+                            "(never played) — not marked watched", ep.title,
+                        )
+                        return
                 # Synthesise a 100%-complete read so record_watch_progress sets
                 # watch_completed=True (any dur > 0 with pos==dur crosses threshold).
                 repos.episodes.record_watch_progress(
@@ -274,7 +322,11 @@ class _WatchCaptureMixin:
                         via = "manual" if passed_idx == 0 else "queue"
                         # Schedule the finalise in this same worker call — we're
                         # already off the main thread so direct call is fine.
-                        self._bg_finalise_episode(passed["content_id"], via)
+                        # QUEUE-1: mpv also "advances past" an episode that FAILED
+                        # TO OPEN (a busy source), so require_seen=True refuses the
+                        # write unless the episode's own progress columns show it
+                        # actually played.
+                        self._bg_finalise_episode(passed["content_id"], via, require_seen=True)
                     # Update last_seen_pos in the LIVE tracking dict so the next
                     # tick doesn't re-finalise the same episodes.
                     self._update_last_seen_pos(key, pl_pos)
