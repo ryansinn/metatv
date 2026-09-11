@@ -451,6 +451,8 @@ class _SeriesPlaybackMixin:
         if self._play_checked(stream_url, title, provider_id=provider_id, start_seconds=start_seconds):
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
+            # Order is load-bearing (PLAY-15): arm clears the pending record,
+            # _record_episode_play below fills it.
             self._start_playback_health()
 
             if media_type:
@@ -563,6 +565,11 @@ class _SeriesPlaybackMixin:
         SIGABRT this module's docstring already recorded once for this exact
         write.
 
+        PLAY-15: unless ``record_only``, the write is wrapped into a closure
+        and handed to ``host._pending_play_record`` rather than run here —
+        committed only once ``playback_start_watch.on_loaded_tick`` sees the
+        episode actually advance, the same deferral ``_record_play`` applies.
+
         Args:
             episode_id: The started episode's DB id.
             series_id: Its parent series id — used to also bump the parent
@@ -582,27 +589,33 @@ class _SeriesPlaybackMixin:
                 a per-item call here can't clobber that shared entry or spam
                 redundant UI refreshes once per queued item.
         """
-        try:
-            with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                repos.episodes.mark_played(episode_id)
-                parent_channel = repos.channels.get_by_source_id(
-                    provider_id=provider_id, source_id=series_id
-                )
-                if parent_channel:
-                    repos.channels.mark_played(parent_channel.id)
-                else:
-                    logger.warning(
-                        f"Could not find parent channel for episode. "
-                        f"series_id={series_id}, provider_id={provider_id}"
+        def _write() -> None:
+            try:
+                with self.db.session_scope() as session:
+                    repos = RepositoryFactory(session)
+                    repos.episodes.mark_played(episode_id)
+                    parent_channel = repos.channels.get_by_source_id(
+                        provider_id=provider_id, source_id=series_id
                     )
-        except Exception:
-            # BOOKKEEPING MUST NOT COST THE USER THE EPISODE THEY JUST
-            # STARTED — mpv is already playing by the time we get here.
-            logger.exception("could not record episode play for {}", episode_id)
+                    if parent_channel:
+                        repos.channels.mark_played(parent_channel.id)
+                    else:
+                        logger.warning(
+                            f"Could not find parent channel for episode. "
+                            f"series_id={series_id}, provider_id={provider_id}"
+                        )
+            except Exception:
+                # BOOKKEEPING MUST NOT COST THE USER THE EPISODE THEY JUST
+                # STARTED — mpv is already playing by the time we get here.
+                logger.exception("could not record episode play for {}", episode_id)
 
         if record_only:
+            _write()
             return
+
+        # PLAY-15: deferred until the health watch sees playback actually
+        # advance — see playback_start_watch.on_loaded_tick.
+        self._pending_play_record = _write
 
         # Register this episode for watch-progress capture (same seam as
         # movies). When subsequent episodes are queued, the tracking entry
