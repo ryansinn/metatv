@@ -45,17 +45,24 @@ from metatv.core.players.mpv import (
     RECONNECT_FLAG,
     STREAM_IO_TIMEOUT_S,
 )
+from metatv.gui.playback_start_watch import ffmpeg_retry_window_s
 
 
 def test_ffmpeg_retry_window_covers_the_measured_slot_lag():
     """Floor + the property that would break: 8 gives 11s and fails, 30 gives
     26s and fails, 60 gives 57s and passes — the panel takes up to ~40s."""
-    d = 0
-    total = 0
-    while d <= RECONNECT_DELAY_MAX_S:
-        total += d
-        d = 1 + 2 * d
+    total = ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S)
     assert total >= 40, f"mpv gives up after {total}s; the panel takes up to ~40s to free a slot"
+
+
+def test_the_schedule_helper_matches_the_measurements():
+    """The three ``reconnect_delay_max`` values measured 2026-09-11 (see the
+    module docstring): 8 -> 11s, 30 -> 26s, 60 -> 57s. PLAY-16 derives
+    ``OPENING_AFTER_TICKS`` from this same helper — pinned here so a change to
+    the formula shows up against the real measurements, not just itself."""
+    assert ffmpeg_retry_window_s(8) == 11
+    assert ffmpeg_retry_window_s(30) == 26
+    assert ffmpeg_retry_window_s(60) == 57
 
 
 def test_the_flag_is_composed_from_the_constants():

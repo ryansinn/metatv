@@ -66,6 +66,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
+from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, STREAM_IO_TIMEOUT_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS
 
 #: How often the health probe runs. The two thresholds below are counted in
@@ -95,18 +96,42 @@ STOP_POLLING_AFTER_TICKS = 8
 #: three seconds under these flags, so 16s of zero progress is not "slow".
 STALLED_AFTER_TICKS = 8
 
+
+def ffmpeg_retry_window_s(delay_max: int) -> int:
+    """How long ffmpeg's own ``reconnect_delay_max`` backoff runs before it
+    gives up, in seconds.
+
+    ffmpeg's rule (measured 2026-09-11, see tests/test_reconnect_window.py):
+    the delay starts at 0, after each failed attempt ``delay = 1 + 2*delay``,
+    and it stops once that next delay would exceed ``delay_max``. The total is
+    the sum of every attempt's delay actually taken.
+    """
+    d, total = 0, 0
+    while d <= delay_max:
+        total += d
+        d = 1 + 2 * d
+    return total
+
+
 #: Consecutive loaded-but-still-OPENING probes (no ``time-pos``, no
 #: ``demuxer-cache-duration`` — no demuxer data has arrived at all) before a
-#: play is declared failed. ~40s at POLL_MS: a same-provider switch on a
-#: one-connection source (PLAY-10) retries the open on ffmpeg's own schedule
-#: — +0,+0,+1,+4,+11,+26,+57s (PLAY-14, measured 2026-09-11) — while the
-#: provider's reaper frees the old connection (#635 measured 14-26s, up to
-#: ~40s on 2026-09-07), so this must clear that whole window rather than the
-#: 8 ticks (~16s) that used to be shared with FROZEN below — the exact
-#: conflation that made a busy-but-recovering source read as a dead one. This
-#: verdict is deliberately INSIDE mpv's own 57s reconnect window: the verdict
-#: tells the user, mpv keeps trying underneath it, and progress clears both.
-OPENING_AFTER_TICKS = 20
+#: play is declared failed.
+#:
+#: This verdict used to land at 20 ticks (40s) — INSIDE mpv's own retry
+#: window — on the theory that the verdict could tell the user while mpv kept
+#: trying underneath it. It doesn't work that way in practice: owner's log,
+#: 2026-09-11 03:45 — mpv connected at 03:47:11 after retrying at
+#: :39/:59/03:46:21/:44 (PLAY-14's own +0,+0,+1,+4,+11,+26,+57s schedule), but
+#: the 40s verdict fired at 03:45:56, called it "never started", showed the
+#: failure toast, and logged a play failure — for a stream that then played.
+#: The verdict must land AFTER mpv has actually given up: mpv's scheduled
+#: retries (:func:`ffmpeg_retry_window_s`) plus one more full socket timeout
+#: for whichever attempt was in flight when the schedule ended, plus 10s
+#: slack, in ticks.
+OPENING_AFTER_TICKS = (
+    (ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S) + STREAM_IO_TIMEOUT_S + 10)
+    // (POLL_MS // 1000)
+)
 
 #: Minimum time-pos increase (seconds) that counts as real progress — guards
 #: against float jitter between two probes of a genuinely frozen position.
@@ -189,10 +214,10 @@ def _push_waiting_line(host: Any, ticks: int) -> None:
     From the 2nd tick (4s) onward — before that, a fast-opening stream would
     flash a line it never needed. Stops once the tick's own failure verdict
     has reported (:func:`_report_never_started` sets ``_health_reported`` and
-    owns the status bar from there). The 40s/16s reports at
-    :data:`OPENING_AFTER_TICKS`/:data:`STALLED_AFTER_TICKS` are unchanged —
-    this only fills the silent gap before them, which is the delay the owner
-    saw as an unexplained spinner.
+    owns the status bar from there). The :data:`OPENING_AFTER_TICKS`/
+    :data:`STALLED_AFTER_TICKS` reports are unchanged — this only fills the
+    silent gap before them, which is the delay the owner saw as an
+    unexplained spinner.
     """
     if ticks < 2 or host.__dict__.get("_health_reported"):
         return
@@ -273,6 +298,18 @@ def on_loaded_tick(host: Any, time_pos: Any, paused: bool, cache_duration: Any =
                     commit()
                 except Exception:
                     logger.exception("could not record the play")
+            # A stream that PLAYED is stronger evidence than a probe's "back
+            # online" — it must not stay flagged/degraded/dead in the retry
+            # ledger, whatever the verdict said up to 60s earlier.
+            # _report_never_started may already have fired for THIS play (a
+            # FROZEN/STALLED report can precede progress) — this is exactly
+            # the case that must clear.
+            att = host.__dict__.get("_health_attempt")
+            if att is not None:
+                try:
+                    host.stream_retry_manager.remove_by_channel(att.channel_id)
+                except Exception:
+                    logger.exception("could not clear the failure record")
             return
         host._health_last_time_pos = float(time_pos)
     if paused:

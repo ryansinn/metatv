@@ -27,13 +27,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, STREAM_IO_TIMEOUT_S
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,
     OPENING_AFTER_TICKS,
+    POLL_MS,
     STALLED_AFTER_TICKS,
     STOP_POLLING_AFTER_TICKS,
     PlayAttempt,
+    ffmpeg_retry_window_s,
 )
 
 
@@ -754,3 +757,48 @@ def test_a_scheduled_retry_still_runs_when_nothing_else_was_played():
     watch.replay(host, att_a)
 
     host._run_query.assert_called_once()
+
+
+# ── PLAY-16: the verdict waits out mpv's own retry window ───────────────────
+# Owner's log, 2026-09-11 03:45: the OPENING verdict used to fire at 40s
+# (20 ticks) — INSIDE PLAY-14's 57s mpv reconnect window — and reported
+# "never started" for a stream that then played at 03:47:11. The threshold
+# now derives from mpv's own schedule instead of a bare literal.
+
+def test_the_opening_verdict_lands_after_mpv_has_stopped_trying():
+    """Floor + the property that would break: the old 20-tick/40s threshold
+    sat INSIDE mpv's 57s reconnect window and fails this; the derived value
+    covers mpv's whole scheduled backoff plus one more socket timeout."""
+    mpv_window_s = ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S) + STREAM_IO_TIMEOUT_S
+    assert OPENING_AFTER_TICKS * (POLL_MS // 1000) > mpv_window_s
+
+
+def test_progress_clears_the_channel_s_failure_record():
+    """A stream that PLAYED is stronger evidence than any probe's "back
+    online" — it must not sit flagged/degraded/dead in the retry ledger."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    watch.on_loaded_tick(host, 0.0, False, 3.0)
+    host.stream_retry_manager.remove_by_channel.assert_not_called()
+    watch.on_loaded_tick(host, 1.0, False, 3.0)
+    host.stream_retry_manager.remove_by_channel.assert_called_once_with(ATTEMPT.channel_id)
+
+
+def test_no_progress_clears_nothing():
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    for _ in range(20):
+        watch.on_loaded_tick(host, None, False, cache_duration=None)
+    host.stream_retry_manager.remove_by_channel.assert_not_called()
+
+
+def test_a_failing_ledger_clear_does_not_take_out_the_poll():
+    """Bookkeeping must never cost the user the progress the poll just found."""
+    host = _host()
+    watch.arm(host, ATTEMPT)
+    host.stream_retry_manager.remove_by_channel.side_effect = RuntimeError("boom")
+
+    watch.on_loaded_tick(host, 0.0, False, 3.0)
+    watch.on_loaded_tick(host, 1.0, False, 3.0)   # must not raise
+
+    assert host._health_ever_progressed is True
