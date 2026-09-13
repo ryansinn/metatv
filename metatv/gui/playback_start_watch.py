@@ -78,7 +78,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, STREAM_IO_TIMEOUT_S
+from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS
 
 #: How often the health probe runs. The two thresholds below are counted in
@@ -137,12 +137,12 @@ def ffmpeg_retry_window_s(delay_max: int) -> int:
 #: the 40s verdict fired at 03:45:56, called it "never started", showed the
 #: failure toast, and logged a play failure — for a stream that then played.
 #: The verdict must land AFTER mpv has actually given up: mpv's scheduled
-#: retries (:func:`ffmpeg_retry_window_s`) plus one more full socket timeout
-#: for whichever attempt was in flight when the schedule ended, plus 10s
-#: slack, in ticks.
+#: retries (:func:`ffmpeg_retry_window_s`) plus 30s slack for the attempt in
+#: flight when the schedule ended, in ticks. There is no socket read timeout
+#: to add any more (PLAY-18): a held open now waits on the kernel's own TCP
+#: timeout, so the verdict is what tells the user, and mpv keeps trying.
 OPENING_AFTER_TICKS = (
-    (ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S) + STREAM_IO_TIMEOUT_S + 10)
-    // (POLL_MS // 1000)
+    (ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S) + 30) // (POLL_MS // 1000)
 )
 
 #: Minimum time-pos increase (seconds) that counts as real progress — guards

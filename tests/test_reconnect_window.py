@@ -27,23 +27,17 @@ tcp protocol's socket-I/O timeout, which lavf options pass through to the tcp
 layer) ffmpeg logged ``Error reading HTTP response: Connection timed out``
 every 10s and entered the reconnect schedule. So PLAY-12's ``rw_timeout``
 never worked and the held-socket case was an indefinite hang; ``timeout=`` is
-the option that fires — see :func:`test_a_held_socket_times_out_into_the_reconnect_schedule`.
+the option that fires — and PLAY-18 removed it again, because on the owner's source a reconnect
+is worse than a stall (see :func:`test_there_is_no_socket_read_timeout_on_purpose`).
 """
 
 from __future__ import annotations
 
-import shutil
-import socket
-import subprocess
-import threading
-import time
 
-import pytest
 
 from metatv.core.players.mpv import (
     RECONNECT_DELAY_MAX_S,
     RECONNECT_FLAG,
-    STREAM_IO_TIMEOUT_S,
 )
 from metatv.gui.playback_start_watch import ffmpeg_retry_window_s
 
@@ -67,81 +61,16 @@ def test_the_schedule_helper_matches_the_measurements():
 
 def test_the_flag_is_composed_from_the_constants():
     assert f"reconnect_delay_max={RECONNECT_DELAY_MAX_S}" in RECONNECT_FLAG
-    assert f"timeout={STREAM_IO_TIMEOUT_S * 1_000_000}" in RECONNECT_FLAG
     assert "rw_timeout" not in RECONNECT_FLAG
 
 
-@pytest.mark.skipif(shutil.which("mpv") is None, reason="needs a real mpv")
-def test_a_held_socket_times_out_into_the_reconnect_schedule():
-    """The test that would have caught ``rw_timeout`` being a no-op (PLAY-12).
-
-    A raw TCP server accepts the connection, reads the request once, and then
-    never answers — exactly the owner's one-connection panel holding a second
-    connection open with zero bytes. mpv must give up on the silent socket via
-    ``timeout=`` rather than hanging indefinitely (measured >60s pre-fix).
-    Takes ~STREAM_IO_TIMEOUT_S locally; skipped on CI (no mpv there).
-    """
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(("127.0.0.1", 0))
-    server_sock.listen(1)
-    port = server_sock.getsockname()[1]
-
-    def _serve() -> None:
-        try:
-            conn, _ = server_sock.accept()
-        except OSError:
-            return
-        try:
-            conn.recv(4096)
-            # Never reply — hold the connection open. A blocking recv() here
-            # doubles as "sleep until the client closes": mpv (or our own
-            # kill()) closing the socket is what unblocks it.
-            while conn.recv(4096):
-                pass
-        except OSError:
-            pass
-        finally:
-            conn.close()
-
-    threading.Thread(target=_serve, daemon=True).start()
-
-    mpv_bin = shutil.which("mpv")
-    launched_at = time.monotonic()
-    proc = subprocess.Popen(
-        [mpv_bin, "--no-config", "--vo=null", "--ao=null", "--ytdl=no",
-         "--msg-level=all=warn", "--idle=once", RECONNECT_FLAG,
-         f"http://127.0.0.1:{port}/x.mp4"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
-
-    lines: list[str] = []
-    found = threading.Event()
-
-    def _read_output() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            lines.append(line)
-            if "Connection timed out" in line:
-                found.set()
-                return
-
-    threading.Thread(target=_read_output, daemon=True).start()
-
-    try:
-        found.wait(STREAM_IO_TIMEOUT_S + 15)
-        elapsed = time.monotonic() - launched_at
-        assert found.is_set(), (
-            f"'Connection timed out' never appeared in mpv output within "
-            f"{STREAM_IO_TIMEOUT_S + 15}s — a rw_timeout-style no-op regression?\n"
-            + "".join(lines))
-        assert elapsed <= STREAM_IO_TIMEOUT_S + 10, (
-            f"the timeout fired at {elapsed:.1f}s, later than the "
-            f"STREAM_IO_TIMEOUT_S+10={STREAM_IO_TIMEOUT_S + 10}s budget")
-    finally:
-        proc.kill()
-        proc.wait()
-        try:
-            server_sock.close()
-        except OSError:
-            pass
+def test_there_is_no_socket_read_timeout_on_purpose():
+    """PLAY-18. A read timeout (PLAY-14's ``timeout=20s``) turned a stalled
+    origin into a reconnect, and on the owner's source every reconnect was
+    held unanswered — "it only plays the first 2 minutes of anything"
+    (2026-09-13 14:46-14:49: burst to 46 MB, 20s stall, six held reconnects).
+    With no read timeout the same source played a 2.6-hour queue with zero
+    reconnects (2026-09-10 00:23-03:00). Neither spelling may come back:
+    ``rw_timeout`` was a no-op, ``timeout`` was the regression."""
+    opts = RECONNECT_FLAG.split("=", 1)[1].split(",")
+    assert not any(o.startswith(("timeout=", "rw_timeout=")) for o in opts), opts

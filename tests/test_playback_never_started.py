@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, STREAM_IO_TIMEOUT_S
+from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,
@@ -887,7 +887,7 @@ def test_the_opening_verdict_lands_after_mpv_has_stopped_trying():
     """Floor + the property that would break: the old 20-tick/40s threshold
     sat INSIDE mpv's 57s reconnect window and fails this; the derived value
     covers mpv's whole scheduled backoff plus one more socket timeout."""
-    mpv_window_s = ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S) + STREAM_IO_TIMEOUT_S
+    mpv_window_s = ffmpeg_retry_window_s(RECONNECT_DELAY_MAX_S)
     assert OPENING_AFTER_TICKS * (POLL_MS // 1000) > mpv_window_s
 
 
