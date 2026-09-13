@@ -196,7 +196,7 @@ _KNOWN_SLACK: dict[str, int] = {
     "metatv/gui/epg_watchlist_mixin.py": 1,
     "metatv/gui/global_filter_dialog.py": 3,
     "metatv/gui/main_window.py": 98,
-    "metatv/gui/main_window_streaming.py": 1,
+    "metatv/gui/main_window_streaming.py": 11,
     "metatv/gui/provider_editor.py": 45,
     "metatv/gui/settings_dialog_tabs.py": 1,
     "metatv/gui/sidebar/base.py": 26,

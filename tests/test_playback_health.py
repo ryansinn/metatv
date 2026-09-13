@@ -497,7 +497,10 @@ def test_on_playback_health_ready_calls_on_loaded_tick():
         assert call_args[0][2] is False  # pause
 
 
-# ── 2026-09-06: an mpv that exited while opening is retried once ────────────
+# ── PLAY-19: an mpv that exited (opening or mid-play) is reported, never ────
+# restarted. Owner, 2026-09-13: "if a channel fails to play, it shouldn't be
+# automatically started again, you're just making more problems." This
+# replaces the retry/drop-resume scheduling this tick used to trigger.
 
 from unittest.mock import MagicMock, patch  # noqa: E402 — local to this section
 from tests.conftest import wire_status_method
@@ -511,7 +514,7 @@ class _FakePlayerManagerWithExit(_FakePlayerManager):
         return self._reason
 
 
-def _gone_host(reason, *, retry_attempt=False, progressed=False):
+def _gone_host(reason, *, progressed=False):
     from metatv.gui import playback_start_watch as watch
     host = MainWindow.__new__(MainWindow)
     host._playback_health_label = _FakeLabel()
@@ -524,7 +527,7 @@ def _gone_host(reason, *, retry_attempt=False, progressed=False):
     wire_status_method(host)
     host.notification_manager = MagicMock()
     host.stream_retry_manager = MagicMock()
-    watch.arm(host, watch.PlayAttempt("ch-1", "Title", "http://x/1.mkv", retry=retry_attempt))
+    watch.arm(host, watch.PlayAttempt("ch-1", "Title", "http://x/1.mkv"))
     watch.on_playing(host)
     if progressed:
         # PLAY-17: real video arrived, then the source dropped it far short
@@ -536,26 +539,16 @@ def _gone_host(reason, *, retry_attempt=False, progressed=False):
     return host
 
 
-def test_tick_schedules_one_retry_when_the_stream_ended_the_player():
+def test_tick_reports_a_never_started_exit_without_scheduling_a_replay():
     host = _gone_host("End of file")
     with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
         MainWindow._playback_health_tick(host)
-    shot.assert_called_once()
-    delay, _cb = shot.call_args[0]
-    assert delay >= 10_000, "the retry must wait out the source's connection lag"
-    host.status_bar.showMessage.assert_called()
-    assert "retrying" in host.status_bar.showMessage.call_args[0][0]
-
-
-def test_tick_does_not_retry_a_retry():
-    host = _gone_host("End of file", retry_attempt=True)
-    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
-        MainWindow._playback_health_tick(host)
     shot.assert_not_called()
-    host.notification_manager.show.assert_called_once()   # still reported
+    host.notification_manager.show.assert_called_once()
+    assert host.notification_manager.show.call_args.kwargs["title"] == "Stream did not start"
 
 
-def test_tick_does_not_retry_a_user_close():
+def test_tick_reports_nothing_for_a_user_close():
     host = _gone_host("Quit")
     with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
         MainWindow._playback_health_tick(host)
@@ -563,16 +556,10 @@ def test_tick_does_not_retry_a_user_close():
     host.notification_manager.show.assert_not_called()
 
 
-# ── PLAY-17: a mid-play drop resumes instead of falling into the never- ─────
-# started retry — same tick, different verdict, once progress is on record.
-
-def test_tick_resumes_a_mid_play_drop_instead_of_the_never_started_retry():
+def test_tick_reports_a_mid_play_drop_without_scheduling_a_replay():
     host = _gone_host("End of file", progressed=True)
     with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
         MainWindow._playback_health_tick(host)
-    shot.assert_called_once()
-    never_started = [
-        c for c in host.notification_manager.show.call_args_list
-        if c.kwargs.get("title") == "Stream did not start"
-    ]
-    assert not never_started, "the drop must not also read as a never-started play"
+    shot.assert_not_called()
+    host.notification_manager.show.assert_called_once()
+    assert host.notification_manager.show.call_args.kwargs["title"] == "Stream dropped"

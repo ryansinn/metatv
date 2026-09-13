@@ -666,7 +666,8 @@ def test_a_loaded_file_whose_stream_ended_the_process_is_reported():
     assert watch.on_player_gone(host, exit_reason="End of file") is True
     host.notification_manager.show.assert_called_once()
     msg = host.notification_manager.show.call_args.kwargs["message"]
-    assert "exited while still opening" in msg and "Retrying once" in msg
+    assert "exited while still opening" in msg
+    assert "retry" not in msg.lower(), "playback must never promise an automatic retry"
     host.stream_retry_manager.add_failure.assert_called_once()
 
 
@@ -690,27 +691,6 @@ def test_a_play_that_progressed_is_silent_whatever_the_reason():
     host.notification_manager.show.assert_not_called()
 
 
-def test_the_retry_candidate_is_the_reported_attempt_exactly_once():
-    host = _loaded_but_never_progressed()
-    assert watch.retry_candidate(host) is None, "nothing reported yet"
-    watch.on_player_gone(host, exit_reason="End of file")
-    att = watch.retry_candidate(host)
-    assert att is not None and att.channel_id == "ch-1"
-    # The retry itself arms as retry=True and, exiting the same way, is
-    # reported but never retried again.
-    watch.arm(host, watch.PlayAttempt("ch-1", "Some Title", "http://x/1.mkv", retry=True))
-    watch.on_playing(host)
-    watch.on_loaded_tick(host, None, False, cache_duration=None)
-    assert watch.on_player_gone(host, exit_reason="End of file") is True
-    assert watch.retry_candidate(host) is None
-
-
-def test_a_user_close_is_never_a_retry_candidate():
-    host = _loaded_but_never_progressed()
-    watch.on_player_gone(host, exit_reason="Quit")
-    assert watch.retry_candidate(host) is None
-
-
 def test_arming_over_an_unplayed_attempt_is_logged_not_toasted(caplog):
     from loguru import logger as _loguru
     host = _loaded_but_never_progressed()
@@ -724,56 +704,19 @@ def test_arming_over_an_unplayed_attempt_is_logged_not_toasted(caplog):
     host.notification_manager.show.assert_not_called()
 
 
-# ── PLAY-14: a scheduled retry must not replace what the user played since ──
-#
-# 2026-09-11 02:12 log: title A's scheduled retry fired at 02:12:41 and
-# replaced title B, which the user had played at 02:12:26 — six seconds after
-# A's retry was scheduled at 02:12:20. ``replay()`` never checked that the
-# attempt it holds is still the one in flight; identity on the host's current
-# ``PlayAttempt`` is the right check, since a fresh object is built per play.
-#
-# PLAY-17: object identity on ``_health_attempt`` alone stopped being enough
-# once ``resume_after_drop`` started scheduling a ``_replace()``d COPY of the
-# live attempt — so the check moved to ``host._scheduled_replay`` (stashed by
-# whichever of ``schedule_retry``/``resume_after_drop`` did the scheduling,
-# cleared by :func:`arm` on every new play). These two tests now set it up
-# the way the real schedulers do, rather than relying on object identity.
-
-def test_a_scheduled_retry_is_skipped_once_the_user_played_something_else():
-    host = _host()
-    host.play_media = MagicMock()
-    host._run_query = MagicMock()
-    att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
-    att_b = watch.PlayAttempt("ch-b", "B", "http://x/b")
-    watch.arm(host, att_a)
-    host._scheduled_replay = att_a   # what schedule_retry would have stashed
-    watch.arm(host, att_b)           # arming clears _scheduled_replay
-
-    watch.replay(host, att_a)
-
-    host._run_query.assert_not_called()
-    host.play_media.assert_not_called()
-
-
-def test_a_scheduled_retry_still_runs_when_nothing_else_was_played():
-    host = _host()
-    host.play_media = MagicMock()
-    host._run_query = MagicMock()
-    att_a = watch.PlayAttempt("ch-a", "A", "http://x/a")
-    watch.arm(host, att_a)
-    host._scheduled_replay = att_a   # what schedule_retry would have stashed
-
-    watch.replay(host, att_a)
-
-    host._run_query.assert_called_once()
-
-
-# ── PLAY-17: a drop mid-play resumes near the cut, not "the film ended" ─────
+# ── PLAY-17, then PLAY-19: a drop mid-play is reported, never replayed ──────
 #
 # Owner's log, 2026-09-11 04:02-04:05: mpv played a movie from 04:03:35, the
 # origin closed the connection at 04:04:01, ffmpeg's reconnects were all
 # refused for 60s, the buffer ran dry, and mpv exited on EOF 157s in — read
-# by the app exactly like the film ending. No report, no resume, window gone.
+# by the app exactly like the film ending. No report, window gone. PLAY-17
+# fixed that by reporting AND replaying automatically from a few seconds
+# before the cut. Owner, 2026-09-13, after that shipped: *"these new playback
+# features are fucking dumb. if a channel fails to play, it shouldn't be
+# automatically started again, you're just making more problems."* PLAY-19
+# removes the replay; the report (and the position already on record via the
+# watch-capture path, PLAY-9/RESUME-1, for the details pane's own Resume)
+# stays.
 
 def _dropped_host():
     """A play that genuinely progressed (real video arrived), then a source
@@ -787,29 +730,21 @@ def _dropped_host():
     return host
 
 
-def test_a_stream_that_drops_mid_play_schedules_a_resume():
+def test_a_mid_play_drop_is_reported_and_nothing_is_replayed():
     host = _dropped_host()
+    host.play_media = MagicMock()
+    host._run_query = MagicMock()
 
     with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
         assert watch.on_player_gone(host, "End of file") is True
+    shot.assert_not_called()
 
-    shot.assert_called_once()
-    delay, callback = shot.call_args[0]
-    assert delay == watch.RETRY_AFTER_EXIT_MS
     msg = host.status_bar.showMessage.call_args[0][0]
-    assert "dropped at 4:27" in msg and "resuming" in msg
-
-    # Run the captured callback — _run_query stubbed to call its success arg
-    # with a DTO, the way the real off-thread read would.
-    dto = SimpleNamespace(id=ATTEMPT.channel_id)
-    host.play_media = MagicMock()
-    host._run_query = MagicMock(
-        side_effect=lambda query_fn, on_success, on_error=None: on_success(dto))
-
-    callback()
-
-    host.play_media.assert_called_once_with(
-        dto, start_override=267, skip_probe=True, drop_resumes=1)
+    assert "dropped at 4:27" in msg and "Resume" in msg
+    host.notification_manager.show.assert_called_once()
+    assert host.notification_manager.show.call_args.kwargs["title"] == "Stream dropped"
+    host.play_media.assert_not_called()
+    host._run_query.assert_not_called()
 
 
 def test_a_film_that_ends_is_not_a_drop():
@@ -843,31 +778,6 @@ def test_the_user_closing_the_window_is_not_a_drop():
     with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
         assert watch.on_player_gone(host, "Quit") is False
     shot.assert_not_called()
-
-
-def test_the_third_drop_resume_is_the_last():
-    host = _host()
-    watch.arm(host, ATTEMPT._replace(drop_resumes=3))
-    watch.on_playing(host)
-    watch.on_loaded_tick(host, 0.0, False, duration=5400)
-    watch.on_loaded_tick(host, 300.0, False, duration=5400)
-
-    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
-        assert watch.on_player_gone(host, "End of file") is False
-    shot.assert_not_called()
-    host.notification_manager.show.assert_called_once()
-    assert host.notification_manager.show.call_args.kwargs["title"] == "Stream keeps dropping"
-
-
-def test_the_idle_window_resumes_too():
-    """``--idle=yes`` keeps mpv open with nothing loaded after EOF instead of
-    exiting, so ``on_player_gone`` never fires — the idle tick is the
-    equivalent event there."""
-    host = _dropped_host()
-
-    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
-        watch.on_idle_tick(host)
-    shot.assert_called_once()
 
 
 def test_dropped_mid_stream_is_the_one_predicate():
@@ -920,3 +830,37 @@ def test_a_failing_ledger_clear_does_not_take_out_the_poll():
     watch.on_loaded_tick(host, 1.0, False, 3.0)   # must not raise
 
     assert host._health_ever_progressed is True
+
+
+# ── PLAY-19: playback is never restarted automatically ──────────────────────
+#
+# Owner, 2026-09-13: *"these new playback features are fucking dumb. if a
+# channel fails to play, it shouldn't be automatically started again, you're
+# just making more problems."* Both automatic-replay mechanisms (the
+# never-started retry and the mid-play drop resume) are gone; every report
+# path stays, and nothing this module does ever calls back into playback.
+
+def test_a_never_started_exit_is_reported_and_nothing_is_replayed():
+    host = _loaded_but_never_progressed()   # loaded, but never got past OPENING
+    host.play_media = MagicMock()
+    host._run_query = MagicMock()
+
+    with patch("metatv.gui.playback_start_watch.QTimer.singleShot") as shot:
+        assert watch.on_player_gone(host, exit_reason="End of file") is True
+    shot.assert_not_called()
+
+    host.notification_manager.show.assert_called_once()
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    status = host.status_bar.showMessage.call_args[0][0]
+    assert "retry" not in msg.lower() and "retry" not in status.lower()
+    host.play_media.assert_not_called()
+    host._run_query.assert_not_called()
+
+
+def test_no_replay_machinery_remains():
+    """The guard that keeps this from growing back."""
+    for name in ("schedule_retry", "replay", "retry_candidate",
+                 "resume_after_drop", "RETRY_AFTER_EXIT_MS", "MAX_DROP_RESUMES"):
+        assert not hasattr(watch, name), f"playback_start_watch.{name} should be gone"
+    assert "retry" not in PlayAttempt._fields
+    assert "drop_resumes" not in PlayAttempt._fields
