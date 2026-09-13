@@ -269,12 +269,12 @@ def test_mpv_errors_out_of_a_held_connection_instead_of_hanging_on_it():
     into the reconnect_delay_max backoff instead of sitting on ffmpeg's own
     uncapped (effectively infinite) connect/read timeout.
     """
-    from metatv.core.players.mpv import (
-        RECONNECT_DELAY_MAX_S, RECONNECT_FLAG, STREAM_IO_TIMEOUT_S)
+    from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, RECONNECT_FLAG
 
     assert "reconnect_on_network_error=1" in RECONNECT_FLAG
-    assert f"timeout={STREAM_IO_TIMEOUT_S * 1_000_000}" in RECONNECT_FLAG
-    # measured a no-op 2026-09-11: mpv hung >60s on a silent socket
+    # PLAY-18: no socket read timeout at all — rw_timeout was a no-op, and
+    # timeout=20s cut every stalled stream at ~2 minutes (see
+    # tests/test_reconnect_window.py::test_there_is_no_socket_read_timeout_on_purpose).
     assert "rw_timeout" not in RECONNECT_FLAG
     # The PLAY-10 options must survive alongside the new ones.
     for opt in ("reconnect=1", "reconnect_streamed=1",

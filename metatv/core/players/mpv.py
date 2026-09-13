@@ -18,27 +18,27 @@ from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
-# Always-on reconnect for transient drops and a HELD connection answering nothing (PLAY-12: the
-# owner's one-connection panel holds a new connection while counting the previous stream — #635
-# measured 14-26s, up to ~40s on 2026-09-07). reconnect_on_http_error=5xx covers a 5xx reply;
-# reconnect_on_network_error covers no reply at all. 4xx excluded — told no must still fail fast
-# (ConnectionAccountant.PROVIDER_COOLDOWN_S). ffmpeg's backoff (delay=0, then delay=1+2*delay per
-# failure, stopping once the next delay exceeds reconnect_delay_max) measured 2026-09-11 against an
-# always-5xx server: max=8 -> +0,+0,+1,+4,+11s (11s, PLAY-10's old value — short); max=30 ->
-# +0,+0,+1,+4,+11,+26s (26s — still short of the panel's ~40s); max=60 -> +0,+0,+1,+4,+11,+26,+57s
-# (57s — covers it). rw_timeout measured a NO-OP on a silent socket (mpv hung >60s, never
-# reconnected); timeout= is the tcp protocol's own socket-I/O timeout and DOES fire ("Connection
-# timed out" into the backoff above). 20s not 10: the panel's own first reply ranges 5-27s in the
-# owner's logs, and a timeout shorter than its slow answers turns "slow" into "never".
-# playback_start_watch.OPENING_AFTER_TICKS fires its own verdict at 40s, inside this 57s window on
-# purpose: it tells the user while mpv keeps retrying, and progress clears both.
+# Always-on reconnect for transient drops (PLAY-12: the owner's one-connection panel holds a new
+# connection while counting the previous stream — #635 measured 14-26s, up to ~40s on 2026-09-07).
+# reconnect_on_http_error=5xx covers a 5xx reply; reconnect_on_network_error covers no reply at
+# all. 4xx excluded — told no must still fail fast (ConnectionAccountant.PROVIDER_COOLDOWN_S).
+# ffmpeg's backoff (delay=0, then delay=1+2*delay per failure, stopping once the next delay exceeds
+# reconnect_delay_max) measured 2026-09-11 against an always-5xx server: max=8 -> +0,+0,+1,+4,+11s
+# (11s, PLAY-10's old value — short); max=30 -> 26s (still short of the panel's ~40s); max=60 ->
+# +0,+0,+1,+4,+11,+26,+57s (57s — covers it).
+# NO socket read timeout, on purpose (PLAY-18). PLAY-12's rw_timeout measured a no-op; PLAY-14
+# replaced it with timeout=20s, which DOES fire — and on the owner's source that was the
+# regression "it only plays the first 2 minutes of anything": the origin bursts ~46 MB then
+# stalls, a 20s stall became a reconnect, and every reconnect was held unanswered for 20s each
+# (2026-09-13 14:46-14:49). With no read timeout the same source played a 2.6-hour episode queue
+# to the end with zero reconnects (2026-09-10 00:23-03:00): a stalled connection that resumes
+# beats a reconnect that is refused. A truly dead socket still ends via the kernel's own TCP
+# timeout (~2 min) into the backoff above; playback_start_watch's verdict names the wait.
 RECONNECT_DELAY_MAX_S = 60
-STREAM_IO_TIMEOUT_S = 20
 RECONNECT_FLAG = (
     "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
     f"reconnect_delay_max={RECONNECT_DELAY_MAX_S},"
-    "reconnect_on_http_error=5xx,reconnect_on_network_error=1,"
-    f"timeout={STREAM_IO_TIMEOUT_S * 1_000_000}"
+    "reconnect_on_http_error=5xx,reconnect_on_network_error=1"
 )
 
 # Constant instance key used when split_streams_by_source is False.
