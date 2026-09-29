@@ -574,6 +574,19 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             "main_thread_watchdog", self._main_thread_watchdog.stop
         )
 
+        # PyQt6 leaks a reference on None per call; after days of uptime None
+        # turns mortal and every thread fails at once. Reset it on a timer.
+        from metatv.core import immortal_refcount_guard as _irg
+
+        self._immortal_guard = _irg.ImmortalRefcountGuard()
+        if self._immortal_guard.active:
+            self._immortal_guard_timer = QTimer(self)
+            self._immortal_guard_timer.timeout.connect(self._immortal_guard.check)
+            self._immortal_guard_timer.start(_irg.CHECK_INTERVAL_MS)
+            self._register_cleanable(
+                "immortal_guard_timer", self._immortal_guard_timer.stop
+            )
+
         # The deferred filter reload must not fire into a closing window.
         self._register_cleanable(
             "filter_reload_timer", self.stop_filter_reload_timer
