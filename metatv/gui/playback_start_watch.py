@@ -538,6 +538,7 @@ def _http_refusal(host: Any, attempt: "Optional[PlayAttempt]") -> "int | None":
         key = host.player_manager.resolve_key(attempt.provider_id)
         return last_http_error(key, host.__dict__.get("_health_armed_at", 0.0))
     except Exception:
+        logger.opt(exception=True).debug("could not look up the HTTP refusal for this play")
         return None
 
 
