@@ -44,13 +44,23 @@ class ExitRecord(NamedTuple):
 #: ``Exiting... (End of file)`` → ``End of file``.
 _EXIT_RE = re.compile(r"Exiting\.\.\. \((?P<reason>[^)]*)\)")
 
+#: ``[ffmpeg] http: HTTP error 509`` → ``509``. This is ffmpeg's own line for
+#: any non-2xx HTTP response on the stream's own connection — 509 in
+#: particular is an Xtream provider refusing because the account is already
+#: at its connection limit (PLAY-21), but the pattern matches any status.
+_HTTP_ERR_RE = re.compile(r"HTTP error (?P<code>\d{3})")
+
 #: Reasons that mean the STREAM ended the process, not the user.
 STREAM_EXIT_REASONS: frozenset[str] = frozenset({
     "End of file", "Errors when loading file", "Some errors happened",
 })
 
 _exits: dict[str, ExitRecord] = {}
-_exits_lock = threading.Lock()
+#: Last HTTP status code ffmpeg reported for *key*, with the monotonic time it
+#: was tapped — the timestamp is what lets a reader tell "this play's own
+#: error" from "a previous file's error in the same long-lived mpv instance".
+_http_errors: dict[str, tuple[int, float]] = {}
+_exits_lock = threading.Lock()   # one lock for the tap's shared state
 
 
 def last_exit(key: str) -> "ExitRecord | None":
@@ -59,10 +69,27 @@ def last_exit(key: str) -> "ExitRecord | None":
         return _exits.get(key)
 
 
+def last_http_error(key: str, since: float) -> "int | None":
+    """The most recent HTTP status ffmpeg reported for *key*, if recent enough.
+
+    Returns the code only when its tapped timestamp is ``>= since``; otherwise
+    (including when no HTTP error line has been tapped for this key at all)
+    returns None. The timestamp filter is what keeps a previous file's 509 in
+    the same long-lived mpv instance from being blamed on this play.
+    """
+    with _exits_lock:
+        rec = _http_errors.get(key)
+    if rec is None:
+        return None
+    code, ts = rec
+    return code if ts >= since else None
+
+
 def clear_exit(key: str) -> None:
     """Forget *key*'s previous exit — called by the launch sites before Popen."""
     with _exits_lock:
         _exits.pop(key, None)
+        _http_errors.pop(key, None)
 
 #: Substrings (case-insensitive) that escalate a tapped line to WARNING —
 #: mpv/ffmpeg's own trouble signals, not routine playback chatter. Deliberately
@@ -149,6 +176,10 @@ def start_log_tap(proc: "subprocess.Popen", key: str) -> threading.Thread:
                 m = _EXIT_RE.search(line)
                 if m:
                     reason = m.group("reason")
+                http_m = _HTTP_ERR_RE.search(line)
+                if http_m:
+                    with _exits_lock:
+                        _http_errors[key] = (int(http_m.group("code")), time.monotonic())
                 if any(marker in line.lower() for marker in _WARNING_MARKERS):
                     logger.warning("mpv[{}] {}", key, line)
                 else:

@@ -107,6 +107,32 @@ def test_do_launch_episode_does_not_arm_when_play_fails(qapp):
     win._start_playback_health.assert_not_called()
 
 
+def test_do_launch_episode_passes_a_play_attempt_named_for_the_episode(qapp):
+    """PLAY-21: episode playback used to arm with no PlayAttempt at all, so a
+    failure report said "that channel" instead of naming the episode, and
+    (had one been passed) would have poisoned the channel-keyed retry ledger
+    with an episode id. Now it passes one, with record_failure=False —
+    episode_id is not a channel id."""
+    from metatv.gui import playback_start_watch as _startwatch
+
+    win = _bare_window(qapp)
+
+    win._do_launch_episode(
+        "n1", "http://host/ep1.ts", "Show S01E01", queue_episodes=None,
+        provider_id="p1", start_seconds=30, episode_id="ep-9",
+    )
+
+    win._start_playback_health.assert_called_once()
+    attempt = win._start_playback_health.call_args[0][0]
+    assert isinstance(attempt, _startwatch.PlayAttempt)
+    assert attempt.channel_id == "ep-9"
+    assert attempt.channel_name == "Show S01E01"
+    assert attempt.stream_url == "http://host/ep1.ts"
+    assert attempt.resume_seconds == 30
+    assert attempt.provider_id == "p1"
+    assert attempt.record_failure is False
+
+
 def test_play_special_event_is_gone():
     """The legacy duplicate path is removed — EPG must route through play_media."""
     from metatv.gui.main_window import MainWindow
