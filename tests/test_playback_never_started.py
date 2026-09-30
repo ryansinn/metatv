@@ -20,6 +20,7 @@ the player would be worse than the silence it replaces.
 
 from __future__ import annotations
 
+import io
 import pathlib
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metatv.core.players import mpv_log_tap
 from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
@@ -864,3 +866,105 @@ def test_no_replay_machinery_remains():
         assert not hasattr(watch, name), f"playback_start_watch.{name} should be gone"
     assert "retry" not in PlayAttempt._fields
     assert "drop_resumes" not in PlayAttempt._fields
+
+
+# ── PLAY-21: the real cause (mpv's own HTTP status) names itself, and an
+# episode's failure report no longer poisons the channel-keyed retry ledger ──
+#
+# owner's log: "[ffmpeg] http: HTTP error 509" — the IPTV source refusing
+# because the account is already at its connection limit — sat in mpv's own
+# tapped output (core/players/mpv_log_tap.py) the whole time, while the toast
+# said only "the source may be busy or the stream dead."
+
+def _tap_http_error(key: str, code: int) -> None:
+    """Feed a synthetic HTTP error line through the REAL tap so *key* picks up
+    a genuine, monotonic-timestamped recorded error — exercises the real
+    since-filter in mpv_log_tap.last_http_error rather than poking private
+    module state directly."""
+    proc = MagicMock()
+    proc.stdout = io.BytesIO(f"[ffmpeg] http: HTTP error {code} \n".encode())
+    proc.stderr = None
+    proc.wait.return_value = 0
+    thread = mpv_log_tap.start_log_tap(proc, key)
+    thread.join(timeout=5)
+
+
+def test_a_509_recorded_after_arm_names_the_connection_limit():
+    host = _host()
+    host.player_manager = MagicMock()
+    host.player_manager.resolve_key.return_value = "prov-509-key"
+    mpv_log_tap.clear_exit("prov-509-key")
+    attempt = PlayAttempt("p1", "Mariners at Red Sox", "http://x/1.ts",
+                           provider_id="prov-509-key")
+    watch.arm(host, attempt)
+    _tap_http_error("prov-509-key", 509)   # recorded AFTER arm — this play's own error
+
+    assert watch.on_player_gone(host) is True
+
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    status = host.status_bar.showMessage.call_args[0][0]
+    assert "HTTP 509" in msg
+    assert "connection" in msg
+    assert "connection limit" in status
+    mpv_log_tap.clear_exit("prov-509-key")
+
+
+def test_a_stale_509_recorded_before_arm_is_ignored():
+    """A 509 tapped from the PREVIOUS file in the same long-lived mpv
+    instance must not be blamed on this play — the old generic detail
+    stands, exactly as if nothing had been tapped at all."""
+    host = _host()
+    host.player_manager = MagicMock()
+    host.player_manager.resolve_key.return_value = "prov-509-stale"
+    mpv_log_tap.clear_exit("prov-509-stale")
+    _tap_http_error("prov-509-stale", 509)   # recorded BEFORE arm — stale
+
+    attempt = PlayAttempt("p1", "Some Channel", "http://x/1.ts",
+                           provider_id="prov-509-stale")
+    watch.arm(host, attempt)
+    assert watch.on_player_gone(host) is True
+
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    status = host.status_bar.showMessage.call_args[0][0]
+    assert "HTTP 509" not in msg
+    assert "busy or the stream dead" in msg
+    assert "connection limit" not in status
+    mpv_log_tap.clear_exit("prov-509-stale")
+
+
+def test_no_509_leaves_the_old_message_unchanged():
+    host = _host()
+    host.player_manager = MagicMock()
+    host.player_manager.resolve_key.return_value = "prov-clean"
+    mpv_log_tap.clear_exit("prov-clean")
+    attempt = PlayAttempt("p1", "Some Channel", "http://x/1.ts", provider_id="prov-clean")
+    watch.arm(host, attempt)
+
+    assert watch.on_player_gone(host) is True
+
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    status = host.status_bar.showMessage.call_args[0][0]
+    assert "HTTP" not in msg
+    assert "connection limit" not in status
+    assert "busy or the stream dead" in msg
+
+
+def test_record_failure_false_skips_the_retry_ledger_but_still_reports():
+    """Episode playback's attempt (record_failure=False, since episode_id is
+    not a channel id): the report still fires, but nothing is added to the
+    channel-keyed retry ledger."""
+    host = _host()
+    attempt = PlayAttempt("ep-1", "Show S01E01", "http://x/1.ts", record_failure=False)
+    watch.arm(host, attempt)
+    for _ in range(FAILED_AFTER_TICKS):
+        watch.on_idle_tick(host)
+    host.notification_manager.show.assert_called_once()
+    msg = host.notification_manager.show.call_args.kwargs["message"]
+    assert "Show S01E01" in msg
+    host.stream_retry_manager.add_failure.assert_not_called()
+
+
+def test_record_failure_defaults_true_for_backward_compatibility():
+    """Every existing PlayAttempt() call site (positional args, no
+    record_failure kwarg) must keep recording into the ledger."""
+    assert PlayAttempt("p", "n", "u").record_failure is True

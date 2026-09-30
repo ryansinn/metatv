@@ -221,3 +221,53 @@ def test_an_end_of_file_exit_on_the_merged_stdout_stream_is_parsed():
     rec = last_exit("prov-13")
     assert rec is not None and rec.reason in STREAM_EXIT_REASONS
     clear_exit("prov-13")
+
+
+# ── PLAY-21: the last HTTP status ffmpeg reported per key ────────────────────
+
+def test_a_tapped_509_line_is_read_back_by_last_http_error():
+    import time as _time
+
+    from metatv.core.players.mpv_log_tap import clear_exit, last_http_error
+    clear_exit("prov-509")
+    before = _time.monotonic()
+    proc = _fake_process([b"[ffmpeg] http: HTTP error 509 \n"], stream="stdout")
+    thread = start_log_tap(proc, "prov-509")
+    thread.join(timeout=5)
+    assert last_http_error("prov-509", since=before) == 509
+    clear_exit("prov-509")
+
+
+def test_last_http_error_is_none_when_since_is_after_the_tapped_line():
+    """A previous file's error in the same long-lived mpv instance must not
+    be blamed on a later play — the whole point of the timestamp filter."""
+    import time as _time
+
+    from metatv.core.players.mpv_log_tap import clear_exit, last_http_error
+    clear_exit("prov-510")
+    proc = _fake_process([b"[ffmpeg] http: HTTP error 509 \n"], stream="stdout")
+    thread = start_log_tap(proc, "prov-510")
+    thread.join(timeout=5)
+    after = _time.monotonic() + 1.0   # comfortably after the tapped timestamp
+    assert last_http_error("prov-510", since=after) is None
+    clear_exit("prov-510")
+
+
+def test_clear_exit_also_clears_the_recorded_http_error():
+    from metatv.core.players.mpv_log_tap import clear_exit, last_http_error
+    clear_exit("prov-511")
+    proc = _fake_process([b"[ffmpeg] http: HTTP error 509 \n"], stream="stdout")
+    thread = start_log_tap(proc, "prov-511")
+    thread.join(timeout=5)
+    assert last_http_error("prov-511", since=0) == 509
+    clear_exit("prov-511")
+    assert last_http_error("prov-511", since=0) is None
+
+
+def test_no_http_error_line_means_no_recorded_code():
+    from metatv.core.players.mpv_log_tap import clear_exit, last_http_error
+    clear_exit("prov-512")
+    proc = _fake_process([b"opening stream\n"], stream="stdout")
+    thread = start_log_tap(proc, "prov-512")
+    thread.join(timeout=5)
+    assert last_http_error("prov-512", since=0) is None

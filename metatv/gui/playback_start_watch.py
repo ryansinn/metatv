@@ -69,6 +69,7 @@ this module's job stops at telling the user.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Any, NamedTuple, Optional
 
@@ -84,7 +85,7 @@ from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
 from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
-from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS
+from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, last_http_error
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -180,6 +181,10 @@ class PlayAttempt(NamedTuple):
     #: name which source it's waiting on via ``host._provider_display_name``.
     #: None for callers with no provider to hand (falls back to a generic noun).
     provider_id: "str | None" = None
+    #: False for plays whose id is not a channel id (episodes) — the retry
+    #: ledger keys on channel ids, so an episode's own id must never be
+    #: recorded into it (PLAY-21).
+    record_failure: bool = True
 
 
 def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
@@ -206,6 +211,10 @@ def arm(host: Any, attempt: "Optional[PlayAttempt]" = None) -> None:
     host._health_opening_ticks = 0
     host._health_ever_progressed = False
     host._health_last_duration = None
+    # PLAY-21: when this play was armed — an HTTP error tapped for this key
+    # BEFORE this timestamp belongs to a previous file in the same long-lived
+    # mpv instance, not this play; see _http_refusal.
+    host._health_armed_at = time.monotonic()
     # PLAY-15: the previous play's DB-write closure, if any, is dropped here —
     # it never progressed, so it must never be recorded.
     host._pending_play_record = None
@@ -512,6 +521,27 @@ def prestart_detail(event_start: "datetime | None", now: "datetime") -> "str | N
     return f"This event hasn't started — scheduled for {start_local:%H:%M}."
 
 
+def _http_refusal(host: Any, attempt: "Optional[PlayAttempt]") -> "int | None":
+    """The HTTP status mpv's own output blamed for THIS play, if any (PLAY-21).
+
+    ``mpv_log_tap`` already reads mpv's stderr/stdout line by line and now
+    keeps the last HTTP error code per instance key; this resolves this
+    play's key and asks it, filtered to since this play was armed (a previous
+    file's error in the same long-lived mpv instance must not be blamed on a
+    later, unrelated play). None for a play with no identity to resolve a key
+    from, and on any lookup failure — a report must never fail because of
+    this.
+    """
+    if attempt is None:
+        return None
+    try:
+        key = host.player_manager.resolve_key(attempt.provider_id)
+        return last_http_error(key, host.__dict__.get("_health_armed_at", 0.0))
+    except Exception:
+        logger.opt(exception=True).debug("could not look up the HTTP refusal for this play")
+        return None
+
+
 def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = False,
                            opening: bool = False, exit_reason: "str | None" = None) -> bool:
     """Tell the user, and put it in the retry ledger. Returns whether it did.
@@ -529,22 +559,27 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
     name = attempt.channel_name if attempt else "that channel"
     resume = getattr(attempt, "resume_seconds", 0) or 0
     stream_exit = exited and exit_reason in STREAM_EXIT_REASONS
+    refused = _http_refusal(host, attempt)
     if exited:
         logger.warning("playback never started for {!r} — the player exited "
-                       "without playing anything (reason={!r}, resume={}s)",
-                       name, exit_reason, resume)
+                       "without playing anything (reason={!r}, resume={}s, refused={})",
+                       name, exit_reason, resume, refused)
     elif stalled:
         logger.warning("playback never started for {!r} — a file loaded but playback "
-                       "never advanced within {}s (resume={}s)", name, STALLED_AFTER_TICKS * 2, resume)
+                       "never advanced within {}s (resume={}s, refused={})",
+                       name, STALLED_AFTER_TICKS * 2, resume, refused)
     elif opening:
         logger.warning("playback never started for {!r} — mpv never received any "
-                       "demuxer data within {}s (resume={}s)", name, OPENING_AFTER_TICKS * 2, resume)
+                       "demuxer data within {}s (resume={}s, refused={})",
+                       name, OPENING_AFTER_TICKS * 2, resume, refused)
     else:
         logger.warning(
             "playback never started for {!r} — mpv accepted the file and loaded "
-            "nothing within {}s", name, FAILED_AFTER_TICKS * 2)
+            "nothing within {}s (refused={})", name, FAILED_AFTER_TICKS * 2, refused)
     try:
-        host.status(f"Nothing is playing: {name}", ms=0, level="warn")
+        status_text = (f"Nothing is playing: {name} — the source is at its connection limit"
+                       if refused == 509 else f"Nothing is playing: {name}")
+        host.status(status_text, ms=0, level="warn")
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
     try:
@@ -561,6 +596,12 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         # past the real end of the file ends it instantly, which is the one
         # cause of this the USER can do something about (play from the start).
         detail = (
+            "The source refused the connection (HTTP 509): this account is "
+            "already using all of its connections. Another device may be "
+            "watching on it; closing the player releases this app's own."
+            if refused == 509 else
+            f"The source refused the connection (HTTP {refused})."
+            if refused is not None and refused >= 400 else
             f"The player exited while still opening the stream ({exit_reason}); "
             "the source did not answer."
             if stream_exit else
@@ -583,7 +624,7 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         )
     except Exception:                                    # pragma: no cover
         logger.exception("could not show the failure notification")
-    if attempt is None:
+    if attempt is None or not attempt.record_failure:
         return True
     try:
         host.stream_retry_manager.add_failure(

@@ -35,6 +35,7 @@ from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import EpisodeDTO
+from metatv.gui import playback_start_watch as _startwatch
 
 
 @dataclass(frozen=True)
@@ -452,8 +453,15 @@ class _SeriesPlaybackMixin:
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
             # Order is load-bearing (PLAY-15): arm clears the pending record,
-            # _record_episode_play below fills it.
-            self._start_playback_health()
+            # _record_episode_play below fills it. PLAY-21: this used to arm
+            # with no PlayAttempt at all, so a failed episode play reported
+            # "that channel" and skipped the retry ledger silently rather than
+            # on purpose; record_failure=False because episode_id is not a
+            # channel id — the ledger keys on channel ids.
+            self._start_playback_health(_startwatch.PlayAttempt(
+                channel_id=str(episode_id), channel_name=title, stream_url=stream_url,
+                resume_seconds=int(start_seconds or 0), provider_id=provider_id,
+                record_failure=False))
 
             if media_type:
                 # Play-All launch: build the queue-shaped _watch_tracking entry
