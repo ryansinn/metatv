@@ -26,7 +26,7 @@ from metatv.core.runtime_env import is_frozen, bundle_resource_path
 # reconnect_delay_max) measured 2026-09-11 against an always-5xx server: max=8 -> +0,+0,+1,+4,+11s
 # (11s, PLAY-10's old value — short); max=30 -> 26s (still short of the panel's ~40s); max=60 ->
 # +0,+0,+1,+4,+11,+26,+57s (57s — covers it).
-# NO socket read timeout, on purpose (PLAY-18). PLAY-12's rw_timeout measured a no-op; PLAY-14
+# NO socket read timeout, on purpose (PLAY-18; mpv's own default closed by PLAY-20 — see NO_READ_TIMEOUT_FLAG). PLAY-12's rw_timeout measured a no-op; PLAY-14
 # replaced it with timeout=20s, which DOES fire — and on the owner's source that was the
 # regression "it only plays the first 2 minutes of anything": the origin bursts ~46 MB then
 # stalls, a 20s stall became a reconnect, and every reconnect was held unanswered for 20s each
@@ -40,6 +40,20 @@ RECONNECT_FLAG = (
     f"reconnect_delay_max={RECONNECT_DELAY_MAX_S},"
     "reconnect_on_http_error=5xx,reconnect_on_network_error=1"
 )
+
+# mpv's own --network-timeout defaults to 60 s and IS a socket read timeout — PLAY-18 removed
+# ffmpeg's timeout= but this one still cut stalled connections. On a one-connection source that
+# is fatal: ffmpeg reconnects while still holding the stalled socket, the source counts two, and
+# every reconnect is refused 509 until mpv is killed (PLAY-20, reproduced 2026-09-29 against a
+# one-connection server; with 0 the stall resumed on the original connection). 0 = FFmpeg's
+# default = no read timeout.
+NO_READ_TIMEOUT_FLAG = "--network-timeout=0"
+
+
+def _base_stream_args() -> list[str]:
+    """UA + reconnect + no-read-timeout — the flags every composed launch carries."""
+    return [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG]
+
 
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"
@@ -1046,7 +1060,7 @@ class MPVPlayer(PlayerPlugin):
 
         # Canonical User-Agent must come first; user's own --user-agent in user_args
         # appears later and wins (mpv honours the last value).
-        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
+        base_args = _base_stream_args()
 
         byte_size = self._to_mpv_bytesize(size) if (size and size != "auto") else None
 
@@ -1140,7 +1154,7 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
+        base_args = _base_stream_args()
         # Reuse the module-level constant — single source of truth shared with
         # _buffer_profile_args('open_ended') so both paths always match.
         buffer_args = list(_OPEN_ENDED_BUFFER_ARGS)
@@ -1182,7 +1196,7 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
+        base_args = _base_stream_args()
         buffer_args = self._buffer_profile_args("deep")
         record_args = [f"--stream-record={record_path}"]
 
