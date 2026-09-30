@@ -26,14 +26,11 @@ from metatv.core.runtime_env import is_frozen, bundle_resource_path
 # reconnect_delay_max) measured 2026-09-11 against an always-5xx server: max=8 -> +0,+0,+1,+4,+11s
 # (11s, PLAY-10's old value — short); max=30 -> 26s (still short of the panel's ~40s); max=60 ->
 # +0,+0,+1,+4,+11,+26,+57s (57s — covers it).
-# NO socket read timeout, on purpose (PLAY-18; mpv's own default closed by PLAY-20 — see NO_READ_TIMEOUT_FLAG). PLAY-12's rw_timeout measured a no-op; PLAY-14
-# replaced it with timeout=20s, which DOES fire — and on the owner's source that was the
-# regression "it only plays the first 2 minutes of anything": the origin bursts ~46 MB then
-# stalls, a 20s stall became a reconnect, and every reconnect was held unanswered for 20s each
-# (2026-09-13 14:46-14:49). With no read timeout the same source played a 2.6-hour episode queue
-# to the end with zero reconnects (2026-09-10 00:23-03:00): a stalled connection that resumes
-# beats a reconnect that is refused. A truly dead socket still ends via the kernel's own TCP
-# timeout (~2 min) into the backoff above; playback_start_watch's verdict names the wait.
+# NO socket read timeout (PLAY-18): on the owner's source a stalled connection that resumes beats
+# a reconnect — PLAY-14's timeout=20s turned every stall into refused reconnects ("it only plays
+# the first 2 minutes"). mpv's own --network-timeout (default 60s) is a read timeout too, and on a
+# one-connection source worse: ffmpeg reconnects while STILL holding the stalled socket, the source
+# counts two, and every reconnect gets 509 until mpv is killed (PLAY-20, reproduced 2026-09-29).
 RECONNECT_DELAY_MAX_S = 60
 RECONNECT_FLAG = (
     "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
@@ -41,13 +38,7 @@ RECONNECT_FLAG = (
     "reconnect_on_http_error=5xx,reconnect_on_network_error=1"
 )
 
-# mpv's own --network-timeout defaults to 60 s and IS a socket read timeout — PLAY-18 removed
-# ffmpeg's timeout= but this one still cut stalled connections. On a one-connection source that
-# is fatal: ffmpeg reconnects while still holding the stalled socket, the source counts two, and
-# every reconnect is refused 509 until mpv is killed (PLAY-20, reproduced 2026-09-29 against a
-# one-connection server; with 0 the stall resumed on the original connection). 0 = FFmpeg's
-# default = no read timeout.
-NO_READ_TIMEOUT_FLAG = "--network-timeout=0"
+NO_READ_TIMEOUT_FLAG = "--network-timeout=0"  # 0 = FFmpeg default: no read timeout
 
 
 def _base_stream_args() -> list[str]:
@@ -1135,7 +1126,7 @@ class MPVPlayer(PlayerPlugin):
         the user build a large buffer lead to ride out an unstable stream.
 
         Composition (same shape as ``_compose_extra_args``):
-        * Canonical UA + always-on reconnect flag (same as normal path).
+        * ``_base_stream_args()`` — UA, reconnect, no read timeout (same as normal path).
         * Open-ended cache flags INSTEAD of the configured buffer profile:
           ``--cache=yes --cache-on-disk=yes --demuxer-readahead-secs=3600
           --demuxer-max-bytes=2GiB``
@@ -1154,12 +1145,8 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        base_args = _base_stream_args()
-        # Reuse the module-level constant — single source of truth shared with
-        # _buffer_profile_args('open_ended') so both paths always match.
-        buffer_args = list(_OPEN_ENDED_BUFFER_ARGS)
-
-        return base_args + buffer_args + user_args
+        # _OPEN_ENDED_BUFFER_ARGS is shared with _buffer_profile_args('open_ended').
+        return _base_stream_args() + list(_OPEN_ENDED_BUFFER_ARGS) + user_args
 
     def _compose_deep_cache_args(self, record_path: str) -> list[str]:
         """Build mpv args for deep-cache ("Buffer without limit") VOD pre-loading.
@@ -1196,11 +1183,8 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        base_args = _base_stream_args()
-        buffer_args = self._buffer_profile_args("deep")
-        record_args = [f"--stream-record={record_path}"]
-
-        return base_args + buffer_args + record_args + user_args
+        return (_base_stream_args() + self._buffer_profile_args("deep")
+                + [f"--stream-record={record_path}"] + user_args)
 
     # ── Deep cache ("Buffer without limit", VOD-only, ephemeral) ────────────
 
