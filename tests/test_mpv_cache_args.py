@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, _OPEN_ENDED_BUFFER_ARGS
+from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG, _OPEN_ENDED_BUFFER_ARGS
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -367,11 +367,11 @@ def test_open_ended_profile_args_match_compose_open_ended_buffer_args():
     This is the regression guard: if the two paths diverge, this test catches it.
     """
     p = _player("auto", [], "open_ended")
-    # Extract only the buffer-specific flags (strip UA and RECONNECT_FLAG)
+    # Extract only the buffer-specific flags (strip UA, RECONNECT_FLAG, and NO_READ_TIMEOUT_FLAG)
     profile_buffer = MPVPlayer._buffer_profile_args("open_ended")
     open_ended_buffer = [
         a for a in p._compose_open_ended_buffer_args()
-        if not a.startswith("--user-agent=") and a != RECONNECT_FLAG
+        if not a.startswith("--user-agent=") and a != RECONNECT_FLAG and a != NO_READ_TIMEOUT_FLAG
     ]
     assert sorted(profile_buffer) == sorted(open_ended_buffer), (
         "open_ended profile args and _compose_open_ended_buffer_args diverged — "
