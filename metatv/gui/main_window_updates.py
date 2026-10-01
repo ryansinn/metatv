@@ -17,6 +17,8 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from loguru import logger
 
+from metatv.core.runtime_env import flatpak_app_id
+
 _RELEASES_PAGE = "https://github.com/ryansinn/metatv/releases/latest"
 
 
@@ -113,6 +115,16 @@ class _UpdatesMixin:
 
     def _manual_update_check(self) -> None:
         """Run a manual check (bypasses the enable/throttle/skip gates)."""
+        if flatpak_app_id():
+            # The checker only knows .dmg assets; a Flatpak updates by bundle.
+            self.notification_manager.show(
+                title="This is the Flatpak build",
+                message=("Update it by installing the newest MetaTV.flatpak from the "
+                         "rolling release: flatpak install --user MetaTV.flatpak"),
+                type="info",
+                auto_dismiss_ms=10000,
+            )
+            return
         self.notification_manager.show(
             title="Checking for updates…",
             type="info",

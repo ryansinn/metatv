@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MetaTV
+GenericName=IPTV Player
+Comment=Browse and watch your IPTV sources
+Exec=metatv
+Icon=io.github.ryansinn.MetaTV
+Terminal=false
+Categories=AudioVideo;Video;Player;TV;
+Keywords=iptv;tv;xtream;epg;
+StartupWMClass=MetaTV

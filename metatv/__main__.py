@@ -7,7 +7,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
-from metatv.core.runtime_env import bundle_resource_path
+from metatv.core.runtime_env import bundle_resource_path, flatpak_app_id
 from metatv.core.stream_diagnostics import _redact
 
 from metatv.gui import cursor_affordance
@@ -113,6 +113,10 @@ def main():
         logger.warning("App icon missing at {} — falling back to the system default", _icon)
     app.setApplicationName("MetaTV")
     app.setOrganizationName("MetaTV")
+    # Inside the Flatpak, name the exported desktop file so Wayland compositors
+    # match the window to MetaTV's icon instead of a generic one.
+    if flatpak_app_id():
+        app.setDesktopFileName(flatpak_app_id())
 
     # Bundled typefaces (metatv/assets/fonts) — registered before the theme and
     # before any widget, because the type scale sets SIZES and inherits the

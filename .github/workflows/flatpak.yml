@@ -1,0 +1,130 @@
+name: Flatpak (Linux)
+
+# Builds MetaTV.flatpak from packaging/flatpak/io.github.ryansinn.MetaTV.yml in
+# the Flatpak builder container, then launches the result headless.
+#
+#   * push to main     → attach MetaTV.flatpak to the `rolling` release beside
+#                        the macOS .dmg (asset upload only; the macOS workflow
+#                        owns the release's tag and notes).
+#   * pull request     → only when the Flatpak packaging changes; the bundle is
+#                        kept as a workflow artifact for testing, never released.
+#   * workflow_dispatch → a test build of any ref, artifact only.
+#
+# Separate from release.yml on purpose: a Flatpak failure must never hold back
+# the .dmg, and vice versa.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - packaging/flatpak/**
+      - .github/workflows/flatpak.yml
+  workflow_dispatch:
+
+# Newest push wins, as in release.yml — two main pushes racing to upload would
+# otherwise let the slower (possibly older) build overwrite the newer one.
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # upload the asset to the rolling release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stamp the build id
+        run: |
+          set -eu
+          # Same format as release.yml's rolling id, so a Flatpak and a .dmg
+          # built from one commit name it identically in the title bar.
+          VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' metatv/__init__.py)"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          STAMP="${VERSION}+$(date -u +%Y%m%d).${SHORT_SHA}"
+          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
+          echo "Stamped build id: $STAMP"
+
+      - name: Build the bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: MetaTV.flatpak
+          manifest-path: packaging/flatpak/io.github.ryansinn.MetaTV.yml
+          # mpv + ffmpeg dominate the build; key the cache on the manifest so
+          # an app-only change reuses them.
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.ryansinn.MetaTV.yml') }}
+          upload-artifact: false
+
+      - name: Smoke test — the bundle must install, launch and play-ready
+        # The macOS job learned this the hard way: every packaging bug so far
+        # was a MISSING FILE the test suite cannot see, because tests run from
+        # a checkout where every file exists. So install the real bundle and
+        # start it.
+        run: |
+          set -u
+          flatpak install -y --noninteractive ./MetaTV.flatpak
+
+          # 1. The bundled mpv runs — playback depends on nothing else.
+          flatpak run --command=mpv io.github.ryansinn.MetaTV --version \
+            || { echo "::error::bundled mpv failed to run"; exit 1; }
+
+          # 2. The app boots headless with a fresh HOME and stays up.
+          export HOME="$RUNNER_TEMP/smoke-home"; mkdir -p "$HOME"
+          LOG="$RUNNER_TEMP/metatv-smoke.log"
+          QT_QPA_PLATFORM=offscreen flatpak run --env=QT_QPA_PLATFORM=offscreen \
+            io.github.ryansinn.MetaTV >"$LOG" 2>&1 &
+          APP_PID=$!
+          for _ in $(seq 1 25); do
+            sleep 1
+            kill -0 "$APP_PID" 2>/dev/null || break
+          done
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            kill "$APP_PID" 2>/dev/null || true
+            wait "$APP_PID" 2>/dev/null || true
+            echo "App stayed up — launch OK."
+          else
+            echo "::error::MetaTV exited during launch inside the Flatpak."
+            cat "$LOG"; exit 1
+          fi
+          if grep -qE "Traceback \(most recent call last\)|ModuleNotFoundError|FileNotFoundError" "$LOG"; then
+            echo "::error::Exception during launch — see the log below."
+            cat "$LOG"; exit 1
+          fi
+          tail -30 "$LOG" || true
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: MetaTV-flatpak
+          path: MetaTV.flatpak
+          if-no-files-found: error
+
+  publish:
+    # Attach to `rolling` only from main. The release itself (tag, title,
+    # notes) is created and moved by release.yml; this job only adds or
+    # replaces its own asset under a stable, version-free name.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MetaTV-flatpak
+
+      - name: Upload MetaTV.flatpak to the rolling release
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            gh release view rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "rolling release not there yet — waiting for release.yml"; sleep 20
+          done
+          gh release upload rolling MetaTV.flatpak --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
