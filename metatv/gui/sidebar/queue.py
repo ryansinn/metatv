@@ -400,9 +400,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         except (AttributeError, RuntimeError):
             pass
         self._has_unavailable = any(not e.available for e in entries) if entries else False
-        # The list was cleared before this call, so every recorded item is gone.
-        self._groups = []
-        self._no_match_item = None
 
         # Alerts Matched (topmost group) — set by _load_rows (worker thread) as a
         # side-channel attribute; a direct/legacy caller of _populate_rows that never
@@ -500,16 +497,19 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def cancel_pending_build(self) -> None:
         """Stop the in-flight chunked row build, if any (BackgroundRefreshMixin hook).
 
-        Called by ``_on_data_ready`` before it clears the list — on the failure
+        Called by ``_clear_for_refresh`` before every list clear — on the failure
         path as well as the success one — and by ``_populate_rows`` when a
         refresh re-enters mid-build. Reads the instance dict directly: on a
         ``__new__``'d test double whose Qt super-init never ran, ``getattr``
-        raises ``RuntimeError`` rather than returning a default.
+        raises ``RuntimeError`` rather than returning a default. Also forgets the
+        groups: every caller clears the list next, deleting their items, and a
+        filter keystroke while "Loading…" shows must not walk them (2026-10-01).
         """
         handle = self.__dict__.get("_build_handle")
         if handle is not None:
             handle.cancel()
         self._build_handle = None
+        self._groups, self._no_match_item = [], None
 
     def _on_queue_build_done(self) -> None:
         """``build_chunked``'s completion callback: re-apply whatever the user
