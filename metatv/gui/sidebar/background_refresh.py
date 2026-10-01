@@ -123,7 +123,7 @@ class BackgroundRefreshMixin:
             return
         lst = self._refresh_list()
         self._capture_scroll(lst)
-        lst.clear()
+        self._clear_for_refresh(lst)
         self.show_loading(lst, self._loading_message())
         self._executor.submit(self._bg_refresh)
 
@@ -168,6 +168,17 @@ class BackgroundRefreshMixin:
             return
         self._data_ready.emit(rows)
 
+    def _clear_for_refresh(self, lst) -> None:
+        """The ONE way this mixin clears its list: cancel the in-flight build first.
+
+        ``lst.clear()`` deletes every item a chunked build made; a build left
+        running then touches them and aborts the process. #838 put the cancel in
+        ``_on_data_ready`` and missed :meth:`refresh`'s own clear — the 2026-10-01
+        SIGABRT, a refresh landing mid-build. Both sites now route through here.
+        """
+        self.cancel_pending_build()
+        lst.clear()
+
     def cancel_pending_build(self) -> None:
         """Stop any in-flight chunked row build. Default: nothing to stop.
 
@@ -179,7 +190,7 @@ class BackgroundRefreshMixin:
     def _on_data_ready(self, rows) -> None:
         """Main thread: clear, then render rows or a visible failure row.
 
-        The cancel comes FIRST, and unconditionally. ``lst.clear()`` deletes
+        The cancel comes FIRST (``_clear_for_refresh``). ``lst.clear()`` deletes
         every ``QListWidgetItem`` the previous build produced, so any batch of
         that build still scheduled would go on appending into a list that no
         longer holds its rows and then run its ``on_done`` against deleted C++
@@ -194,9 +205,8 @@ class BackgroundRefreshMixin:
         the overlapping refreshes that make a build in-flight at the time were
         constant before the enrichment-settle floor landed.
         """
-        self.cancel_pending_build()
         lst = self._refresh_list()
-        lst.clear()
+        self._clear_for_refresh(lst)
         if rows is None:
             self.show_load_error(lst, self._load_error_message())
             # Drop the saved offset: an error row is a different, much shorter
