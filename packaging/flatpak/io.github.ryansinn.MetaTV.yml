@@ -44,6 +44,15 @@ cleanup:
 
 modules:
   # ── mpv and the libraries it needs that the runtime does not ship ──────────
+  - name: libXpresent
+    # mpv's X11 output requires it; the KDE runtime does not ship it.
+    buildsystem: autotools
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/xorg/lib/libxpresent.git
+        tag: libXpresent-1.0.2
+        commit: 4d92149372461bf575e8a09b1064a2884c38c3aa
+
   - name: luajit
     no-autogen: true
     make-args:
