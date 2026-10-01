@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ryansinn.MetaTV</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>MetaTV</name>
+  <summary>Browse and watch your IPTV sources</summary>
+  <description>
+    <p>MetaTV connects to Xtream-compatible IPTV providers, keeps their channel,
+    film and series catalogues in a local library with programme guide data,
+    and plays streams through mpv.</p>
+  </description>
+  <launchable type="desktop-id">io.github.ryansinn.MetaTV.desktop</launchable>
+  <url type="homepage">https://github.com/ryansinn/metatv</url>
+  <developer id="io.github.ryansinn">
+    <name>Ryan Sinn</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>
