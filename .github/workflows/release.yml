@@ -78,8 +78,12 @@ jobs:
           # The macos-15 image ships openssl@1.1 linked at /opt/homebrew/bin/openssl,
           # so linking the openssl@3 that mpv's dependency chain pulls in conflicts
           # and `brew install` exits 1 ("The `brew link` step did not complete
-          # successfully"). Nothing here uses 1.1; unlink it first.
-          brew unlink openssl@1.1 2>/dev/null || true
+          # successfully"). `brew unlink openssl@1.1` removes nothing ("0 symlinks
+          # removed") because brew does not consider those links its own, so
+          # delete every symlink in the prefix that points into the 1.1 keg.
+          # Nothing here uses 1.1, and the runner is thrown away after the job.
+          find "$(brew --prefix)"/{bin,lib,include,share} -maxdepth 2 \
+            -lname '*openssl@1.1*' -print -delete 2>/dev/null || true
           brew install mpv dylibbundler create-dmg
 
       - name: Resolve version and release metadata
