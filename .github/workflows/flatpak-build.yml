@@ -1,0 +1,85 @@
+name: Flatpak build (reusable)
+
+# The ONE definition of how MetaTV.flatpak is built and smoke-tested. Called by
+# flatpak.yml (pull requests: build only) and flatpak-rolling.yml (main: build,
+# then attach to the rolling release). Split so a PR never shows a publish job
+# that is always SKIPPED there — scripts/merge_pr.sh merges only when every
+# check is SUCCESS, and a by-design skip would block it forever.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stamp the build id
+        run: |
+          set -eu
+          # Same format as release.yml's rolling id, so a Flatpak and a .dmg
+          # built from one commit name it identically in the title bar.
+          VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' metatv/__init__.py)"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          STAMP="${VERSION}+$(date -u +%Y%m%d).${SHORT_SHA}"
+          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
+          echo "Stamped build id: $STAMP"
+
+      - name: Build the bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: MetaTV.flatpak
+          manifest-path: packaging/flatpak/io.github.ryansinn.MetaTV.yml
+          # mpv + ffmpeg dominate the build; key the cache on the manifest so
+          # an app-only change reuses them.
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.ryansinn.MetaTV.yml') }}
+          upload-artifact: false
+
+      - name: Smoke test — the bundle must install, launch and play-ready
+        # The macOS job learned this the hard way: every packaging bug so far
+        # was a MISSING FILE the test suite cannot see, because tests run from
+        # a checkout where every file exists. So install the real bundle and
+        # start it.
+        run: |
+          set -u
+          flatpak install -y --noninteractive ./MetaTV.flatpak
+
+          # 1. The bundled mpv runs — playback depends on nothing else.
+          flatpak run --command=mpv io.github.ryansinn.MetaTV --version \
+            || { echo "::error::bundled mpv failed to run"; exit 1; }
+
+          # 2. The app boots headless with a fresh HOME and stays up.
+          export HOME="$RUNNER_TEMP/smoke-home"; mkdir -p "$HOME"
+          LOG="$RUNNER_TEMP/metatv-smoke.log"
+          QT_QPA_PLATFORM=offscreen flatpak run --env=QT_QPA_PLATFORM=offscreen \
+            io.github.ryansinn.MetaTV >"$LOG" 2>&1 &
+          APP_PID=$!
+          for _ in $(seq 1 25); do
+            sleep 1
+            kill -0 "$APP_PID" 2>/dev/null || break
+          done
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            kill "$APP_PID" 2>/dev/null || true
+            wait "$APP_PID" 2>/dev/null || true
+            echo "App stayed up — launch OK."
+          else
+            echo "::error::MetaTV exited during launch inside the Flatpak."
+            cat "$LOG"; exit 1
+          fi
+          if grep -qE "Traceback \(most recent call last\)|ModuleNotFoundError|FileNotFoundError" "$LOG"; then
+            echo "::error::Exception during launch — see the log below."
+            cat "$LOG"; exit 1
+          fi
+          tail -30 "$LOG" || true
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: MetaTV-flatpak
+          path: MetaTV.flatpak
+          if-no-files-found: error
+

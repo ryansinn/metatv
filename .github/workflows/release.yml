@@ -352,7 +352,7 @@ jobs:
           > **Built** stamp above and the asset's own timestamp are current.
 
           **Linux:** \`MetaTV.flatpak\` — install with
-          \`flatpak install --user MetaTV.flatpak\` (attached by flatpak.yml).
+          \`flatpak install --user MetaTV.flatpak\` (attached by flatpak-rolling.yml).
 
           This release always points at the newest code. Re-download to update —
           there is no in-app updater yet. See the in-app What's New for what
