@@ -14,7 +14,10 @@ name: Release (macOS)
 #   * x86_64 build (macos-15-intel) → runs on macOS 15 (Intel). GitHub retired the
 #     macos-13 Intel image on 2025-12-04 (jobs targeting it hang queued forever);
 #     macos-15-intel is GitHub's Intel/x86_64 label, available through Aug 2027.
-#   * arm64  build (macos-14)       → runs on macOS 14+ (Apple Silicon)
+#   * arm64  build (macos-15)       → runs on macOS 15+ (Apple Silicon). Moved
+#     from macos-14 on 2026-10-06: Homebrew stopped shipping a macos-14 bottle
+#     for mpv's vapoursynth dependency, its source build failed, and no .dmg
+#     was produced from 2026-09-13 on. Owner accepted the macOS 15 floor.
 on:
   push:
     branches:
@@ -51,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14   # Apple Silicon runner
+          - runner: macos-15   # Apple Silicon runner (macOS 15+ floor)
             arch: arm64
           # Intel/x86_64 dropped 2026-07-31 (v0.13.1): Sequoia is the last macOS for
           # Intel Macs and demand is negligible — arm64-only going forward.
@@ -72,6 +75,15 @@ jobs:
       - name: Install mpv + packaging tools (Homebrew)
         run: |
           brew update
+          # The macos-15 image ships openssl@1.1 linked at /opt/homebrew/bin/openssl,
+          # so linking the openssl@3 that mpv's dependency chain pulls in conflicts
+          # and `brew install` exits 1 ("The `brew link` step did not complete
+          # successfully"). `brew unlink openssl@1.1` removes nothing ("0 symlinks
+          # removed") because brew does not consider those links its own, so
+          # delete every symlink in the prefix that points into the 1.1 keg.
+          # Nothing here uses 1.1, and the runner is thrown away after the job.
+          find "$(brew --prefix)"/{bin,lib,include,share} -maxdepth 2 \
+            -lname '*openssl@1.1*' -print -delete 2>/dev/null || true
           brew install mpv dylibbundler create-dmg
 
       - name: Resolve version and release metadata
