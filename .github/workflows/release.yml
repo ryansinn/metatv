@@ -75,6 +75,11 @@ jobs:
       - name: Install mpv + packaging tools (Homebrew)
         run: |
           brew update
+          # The macos-15 image ships openssl@1.1 linked at /opt/homebrew/bin/openssl,
+          # so linking the openssl@3 that mpv's dependency chain pulls in conflicts
+          # and `brew install` exits 1 ("The `brew link` step did not complete
+          # successfully"). Nothing here uses 1.1; unlink it first.
+          brew unlink openssl@1.1 2>/dev/null || true
           brew install mpv dylibbundler create-dmg
 
       - name: Resolve version and release metadata
