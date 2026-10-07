@@ -1,0 +1,205 @@
+# MetaTV as a Flatpak — built by .github/workflows/flatpak.yml, attached to the
+# `rolling` release as MetaTV.flatpak. Not a Flathub manifest: the Python
+# dependencies are pip-installed with network access during the build
+# (build-args --share=network), which Flathub forbids but a self-published
+# bundle does not need to avoid. Revisit only if Flathub becomes a goal.
+#
+# Qt and PyQt6 come from Riverbank's PyQt BaseApp, whose branch must match the
+# KDE runtime version. mpv is built here (the sandbox cannot run the host's
+# /usr/bin/mpv) from a trimmed copy of Flathub's io.mpv.Mpv manifest: playback
+# essentials only — no DVD/Blu-ray/CD, yt-dlp, encoders or scripting beyond the
+# LuaJIT its on-screen controller needs.
+#
+# Data: the app reads ~/.config/metatv, ~/.local/share/metatv and
+# ~/.cache/metatv directly (Path.home(), not $XDG_*), so the finish-args grant
+# exactly those folders — the Flatpak and ./run.sh share one library. Don't run
+# both at once. Downloads and recordings land under ~/Videos/MetaTV.
+app-id: io.github.ryansinn.MetaTV
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+base: com.riverbankcomputing.PyQt.BaseApp
+base-version: '6.11'
+command: metatv
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=xdg-config/metatv:create
+  - --filesystem=xdg-data/metatv:create
+  - --filesystem=xdg-cache/metatv:create
+  - --filesystem=xdg-videos/MetaTV:create
+  - --env=LC_NUMERIC=C
+
+cleanup:
+  - '*.la'
+  - '*.a'
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+
+modules:
+  # ── mpv and the libraries it needs that the runtime does not ship ──────────
+  - name: libXpresent
+    # mpv's X11 output requires it; the KDE runtime does not ship it.
+    buildsystem: autotools
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/xorg/lib/libxpresent.git
+        tag: libXpresent-1.0.2
+        commit: 4d92149372461bf575e8a09b1064a2884c38c3aa
+
+  - name: luajit
+    no-autogen: true
+    make-args:
+      - BUILDMODE=dynamic
+      - PREFIX=${FLATPAK_DEST}
+    make-install-args:
+      - PREFIX=${FLATPAK_DEST}
+    cleanup:
+      - /bin
+    sources:
+      - type: git
+        url: https://github.com/openresty/luajit2.git
+        tag: v2.1-20260724
+        commit: 982cd8323eafd8604a9e5f2a916aa50b9f67d9ed
+
+  - name: libass
+    config-opts:
+      - --disable-static
+      - --enable-asm
+      - --enable-harfbuzz
+      - --enable-fontconfig
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.5
+        commit: 4a05d8127f525943ebf45fdc6497c9e665947f0d
+
+  - name: ffmpeg
+    config-opts:
+      - --disable-debug
+      - --disable-doc
+      - --disable-static
+      - --disable-programs
+      - --enable-shared
+      - --enable-gpl
+      - --enable-version3
+      - --enable-gnutls
+      - --enable-libdav1d
+      - --enable-libopus
+      - --enable-libvorbis
+      - --enable-libdrm
+      - --enable-vaapi
+      - --enable-vulkan
+      # Playback only: mpv decodes, it never encodes — except screenshots.
+      - --disable-encoders
+      - --enable-encoder=png,mjpeg
+    sources:
+      - type: git
+        url: https://github.com/FFmpeg/FFmpeg.git
+        tag: n9.0.1
+        commit: bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Dvulkan=enabled
+      - -Dshaderc=enabled
+    sources:
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+
+  - name: hwdata
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://github.com/vcrhonek/hwdata/archive/refs/tags/v0.394.tar.gz
+        sha256: b7c3fd7214a3b7c49d2661db127a712dc11cffd1799f793947aa1cb20aaf3298
+
+  - name: libdisplay-info
+    buildsystem: meson
+    sources:
+      - type: archive
+        url: https://gitlab.freedesktop.org/emersion/libdisplay-info/-/archive/0.2.0/libdisplay-info-0.2.0.tar.gz
+        sha256: f7331fcaf5527251b84c8fb84238d06cd2f458422ce950c80e86c72927aa8c2b
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-date=false
+      - -Dcplayer=true
+      - -Dlibmpv=false
+      - -Dmanpage-build=disabled
+      - -Dwerror=false
+      - -Dlua=enabled
+      - -Djavascript=disabled
+      - -Dcdda=disabled
+      - -Ddvdnav=disabled
+      - -Dlibbluray=disabled
+      - -Drubberband=disabled
+      - -Dvapoursynth=disabled
+      - -Dzimg=disabled
+      - -Duchardet=disabled
+      - -Dcuda-hwaccel=disabled
+      - -Dcuda-interop=disabled
+      - -Dalsa=enabled
+      - -Dpulse=enabled
+      - -Dpipewire=enabled
+      - -Dwayland=enabled
+      - -Dx11=enabled
+      - -Dgl=enabled
+      - -Degl=enabled
+      - -Dvulkan=enabled
+      - -Dvaapi=enabled
+      - -Ddrm=enabled
+      - -Dlcms2=enabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+        commit: 41f6a645068483470267271e1d09966ca3b9f413
+
+  # ── Python dependencies (PyQt6 itself comes from the BaseApp) ──────────────
+  - name: python-deps
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} --no-cache-dir --no-build-isolation
+        qtawesome SQLAlchemy aiohttp requests pydantic python-dateutil loguru PyYAML
+
+  # ── MetaTV itself ──────────────────────────────────────────────────────────
+  - name: metatv
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - venv
+          - tests
+          - .flatpak-builder
+          - flatpak_app
+    build-commands:
+      # Run from source, the same tree layout as a checkout: runtime_env's
+      # bundle_resource_path() resolves packaging/icon/* two parents above
+      # metatv/core, so both directories go side by side.
+      - mkdir -p ${FLATPAK_DEST}/share/metatv
+      - cp -r metatv packaging ${FLATPAK_DEST}/share/metatv/
+      - install -Dm755 packaging/flatpak/metatv.sh ${FLATPAK_DEST}/bin/metatv
+      - install -Dm644 packaging/flatpak/io.github.ryansinn.MetaTV.desktop
+        ${FLATPAK_DEST}/share/applications/io.github.ryansinn.MetaTV.desktop
+      - install -Dm644 packaging/flatpak/io.github.ryansinn.MetaTV.metainfo.xml
+        ${FLATPAK_DEST}/share/metainfo/io.github.ryansinn.MetaTV.metainfo.xml
+      - install -Dm644 packaging/icon/metatv.svg
+        ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.ryansinn.MetaTV.svg
+      - for s in 16 32 64 128 256 512; do install -Dm644 packaging/icon/metatv-${s}.png
+        ${FLATPAK_DEST}/share/icons/hicolor/${s}x${s}/apps/io.github.ryansinn.MetaTV.png; done

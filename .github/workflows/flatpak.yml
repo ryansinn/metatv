@@ -1,0 +1,19 @@
+name: Flatpak (Linux)
+
+# Pull requests that change the Flatpak packaging build MetaTV.flatpak and keep
+# it as a workflow artifact for testing — never released. The build itself is
+# defined once in flatpak-build.yml; publishing lives in flatpak-rolling.yml.
+on:
+  pull_request:
+    paths:
+      - packaging/flatpak/**
+      - .github/workflows/flatpak*.yml
+  workflow_dispatch:
+
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/flatpak-build.yml

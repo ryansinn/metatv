@@ -12,6 +12,7 @@ frozen-vs-dev branching logic exists once, not copy-pasted per consumer.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,16 @@ def is_frozen() -> bool:
     normal source checkout leaves the attribute absent.
     """
     return bool(getattr(sys, "frozen", False))
+
+
+def flatpak_app_id() -> "str | None":
+    """The Flatpak app id when running inside one, else ``None``.
+
+    Flatpak sets ``FLATPAK_ID`` in every sandboxed process. Inside the sandbox
+    the app updates through Flatpak, not the in-app ``.dmg`` updater, and its
+    windows must name the exported desktop file so Wayland shows the right icon.
+    """
+    return os.environ.get("FLATPAK_ID") or None
 
 
 def bundle_resource_path(rel: str) -> Path:
