@@ -24,7 +24,7 @@ from metatv.core.config import Config
 from metatv.core.database import ChannelDB, ContentTagDB, Database, TagDB
 from metatv.core.migrations.tag_backfill import (
     CURRENT_TAG_BACKFILL_VERSION,
-    _TARGETED_GENRE_GAP_FLOOR,
+    _TARGETED_REGION_LANGUAGE_FLOOR,
     TagBackfillTask,
     _collect_tags,
 )
@@ -772,18 +772,31 @@ class TestBatchPathBehavior:
 # but recognized_genre() is also the provider_category feeder's genre pass
 # here, and content_tags was never re-decomposed. A library already at
 # tag_backfill_version == _TARGETED_GENRE_GAP_FLOOR (10, the version this gap
-# shipped under) only needs THOSE channels re-run -- a library resuming from
-# further behind still gets the full corpus pass, which also closes this gap
-# as a side effect because _collect_tags always runs today's feeder code.
+# shipped under) only needed THOSE channels re-run.
+#
+# LANG-1 (version 12) superseded this at the run()-dispatch level: run() now
+# gates on _TARGETED_REGION_LANGUAGE_FLOOR (11) instead, so a library sitting
+# at the OLD floor (10) now takes the full-corpus pass, which also closes
+# this gap as a side effect because _collect_tags always runs today's feeder
+# code (see "Targeted vs. full scan" in tag_backfill.py's module docstring).
+# The genre-gap collector itself is unchanged and still correct, so the first
+# test below now calls it directly instead of going through run()'s version
+# dispatch; the dispatch-level tests (targeted vs. full scan) moved to
+# TestRegionLanguageTargetedDispatch below, which exercises the CURRENT
+# (version-12) floor.
 # ---------------------------------------------------------------------------
 
 class TestGenreGapTargetedRerun:
     def test_channel_missing_genre_tag_gets_one_agreeing_sibling_untouched(
-        self, file_db, cfg, monkeypatch
+        self, file_db, cfg
     ):
-        """A channel whose detected_genres disagrees with content_tags gets the
-        missing genre tag; a sibling channel whose tags already agree is left
-        completely alone by the targeted pass.
+        """_collect_channel_ids_genre_gap + _process_batch -- the same two
+        calls run() used to make when _TARGETED_GENRE_GAP_FLOOR was the
+        current dispatch floor -- still re-decompose exactly the mismatched
+        channel and leave an agreeing sibling alone. Exercised directly
+        (not via run()) because run()'s own floor check has since moved to
+        _TARGETED_REGION_LANGUAGE_FLOOR (LANG-1); the collector itself is
+        unchanged.
         """
         # Affected: detected_genres already reflects the post-W-1 recognized_genre()
         # cross-walk (as if DetectedGenreBackfillTask v3 already ran), but
@@ -814,29 +827,12 @@ class TestGenreGapTargetedRerun:
             (t, v) for t, v, _s, _f in _tags_for(file_db, agreeing)
         }
 
-        # Library already caught up through the immediately-prior version --
-        # the realistic production state (everyone was on 10 before TAG-1).
-        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR
-        assert TagBackfillTask(file_db, config=cfg).needs_run(cfg) is True
+        task = TagBackfillTask(file_db, config=cfg)
+        channel_ids = task._collect_channel_ids_genre_gap()
+        assert affected in channel_ids, "the affected channel must be selected"
+        assert agreeing not in channel_ids, "an already-agreeing channel must be left alone"
 
-        # Track exactly which channel ids get re-decomposed.
-        import metatv.core.repositories.tag as _tag_repo_module
-
-        touched: list[str] = []
-        original = _tag_repo_module.TagRepository.delete_generated_for_channels
-
-        def _tracking(self_repo, channel_ids):
-            touched.extend(channel_ids)
-            return original(self_repo, channel_ids)
-
-        monkeypatch.setattr(
-            _tag_repo_module.TagRepository, "delete_generated_for_channels", _tracking
-        )
-
-        _run_backfill(file_db, cfg)
-
-        assert affected in touched, "the affected channel must be re-decomposed"
-        assert agreeing not in touched, "an already-agreeing channel must be left alone"
+        task._process_batch(channel_ids, cfg)
 
         affected_tags = {(t, v) for t, v, _s, _f in _tags_for(file_db, affected)}
         assert ("genre", "Documentary") in affected_tags, (
@@ -845,51 +841,6 @@ class TestGenreGapTargetedRerun:
 
         agreeing_tags_after = _tags_for(file_db, agreeing)
         assert len(agreeing_tags_after) == 1, "the agreeing channel's tags must be unchanged"
-
-    def test_targeted_path_used_when_library_at_floor(self, file_db, cfg, monkeypatch):
-        """A library already at _TARGETED_GENRE_GAP_FLOOR uses the cheap targeted
-        query, never the full-corpus scan."""
-        _add_channel(file_db, category="USA")
-        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR
-
-        calls: list[str] = []
-        monkeypatch.setattr(
-            TagBackfillTask,
-            "_collect_channel_ids_genre_gap",
-            lambda self: calls.append("targeted") or [],
-        )
-        monkeypatch.setattr(
-            TagBackfillTask,
-            "_collect_channel_ids",
-            lambda self: calls.append("full") or [],
-        )
-
-        _run_backfill(file_db, cfg)
-
-        assert calls == ["targeted"]
-
-    def test_full_scan_used_when_library_behind_floor(self, file_db, cfg, monkeypatch):
-        """A library behind _TARGETED_GENRE_GAP_FLOOR (catching up across several
-        pending versions at once) still gets the full corpus scan, not the
-        narrow genre-gap query."""
-        _add_channel(file_db, category="USA")
-        cfg.tag_backfill_version = _TARGETED_GENRE_GAP_FLOOR - 1
-
-        calls: list[str] = []
-        monkeypatch.setattr(
-            TagBackfillTask,
-            "_collect_channel_ids_genre_gap",
-            lambda self: calls.append("targeted") or [],
-        )
-        monkeypatch.setattr(
-            TagBackfillTask,
-            "_collect_channel_ids",
-            lambda self: calls.append("full") or [],
-        )
-
-        _run_backfill(file_db, cfg)
-
-        assert calls == ["full"]
 
     def test_collector_finds_only_channels_with_a_genre_mismatch(self, file_db, cfg):
         """_collect_channel_ids_genre_gap returns exactly the channels whose
@@ -918,3 +869,55 @@ class TestGenreGapTargetedRerun:
         assert found == {mismatched}
         assert no_genre not in found
         assert agreeing not in found
+
+
+# ---------------------------------------------------------------------------
+# LANG-1 (version 12): run()'s own targeted-vs-full dispatch, now gated on
+# _TARGETED_REGION_LANGUAGE_FLOOR instead of _TARGETED_GENRE_GAP_FLOOR.
+# ---------------------------------------------------------------------------
+
+class TestRegionLanguageTargetedDispatch:
+    def test_targeted_path_used_when_library_at_floor(self, file_db, cfg, monkeypatch):
+        """A library already at _TARGETED_REGION_LANGUAGE_FLOOR uses the cheap
+        targeted region-language query, never the full-corpus scan."""
+        _add_channel(file_db, category="USA")
+        cfg.tag_backfill_version = _TARGETED_REGION_LANGUAGE_FLOOR
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids_region_language",
+            lambda self: calls.append("targeted") or [],
+        )
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids",
+            lambda self: calls.append("full") or [],
+        )
+
+        _run_backfill(file_db, cfg)
+
+        assert calls == ["targeted"]
+
+    def test_full_scan_used_when_library_behind_floor(self, file_db, cfg, monkeypatch):
+        """A library behind _TARGETED_REGION_LANGUAGE_FLOOR (catching up across
+        several pending versions at once) still gets the full corpus scan, not
+        the narrow region-language query."""
+        _add_channel(file_db, category="USA")
+        cfg.tag_backfill_version = _TARGETED_REGION_LANGUAGE_FLOOR - 1
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids_region_language",
+            lambda self: calls.append("targeted") or [],
+        )
+        monkeypatch.setattr(
+            TagBackfillTask,
+            "_collect_channel_ids",
+            lambda self: calls.append("full") or [],
+        )
+
+        _run_backfill(file_db, cfg)
+
+        assert calls == ["full"]

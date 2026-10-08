@@ -808,10 +808,10 @@ class ContentTagDB(Base):
     ``TagSourceType``). ``feeders`` is a list of feeder names that each
     independently asserted this tag; multiple feeders raise confidence.
 
-    Confidence (v1): ``min(1.0, len(distinct_feeders) / 3)`` — one feeder ->
-    0.33, two -> 0.67, three+ -> 1.0. DB-9 dropped the stored ``confidence``
-    column — a pure function of ``feeders`` (verified against all 15 distinct
-    real values) — computed at read time (``TagRepository._compute_confidence``).
+    Confidence (v1, LANG-1 weighted): ``min(1.0, sum(weight(f) for f in
+    distinct_feeders) / 3)`` — 1.0/feeder except ``region_inference`` (0.3,
+    see ``tag_content_tags._FEEDER_WEIGHTS``). DB-9 dropped the stored
+    ``confidence`` column — computed at read time (``TagRepository._compute_confidence``).
 
     DB-9 also rebuilt this table on an integer ``channel_key`` (FK to
     ``ChannelDB.channel_key``, zero readers outside this join table) instead
