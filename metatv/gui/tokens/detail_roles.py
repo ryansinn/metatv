@@ -147,24 +147,14 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
             f"color: {text}; font-size: {font_sm}; background: transparent;"
         ),
         # ── DETAILS-3a: chip toolkit + fact-provenance groups ────────────
-        # The key column label for a "Available in" / Facts / Cast row
-        # ("Available", "Director", "Language"…) — quiet TEXT, never the
-        # bright ramp, so the VALUE chips beside it carry the emphasis.
-        "DETAIL_KEY": (
-            f"color: {text}; font-size: {font_sm}; background: transparent;"
-        ),
+        # Key-column labels reuse DETAIL_SECTION_SUMMARY (identical sheet — a
+        # twin role here is what test_theme_role_duplication refuses).
         # A provenance band heading ("SEEN IN THE FILE", "FROM TMDB"…) —
         # small-caps-by-convention (the caller upper-cases the text), letter-
         # spaced so it reads as a section label rather than another fact.
         "DETAIL_GROUP_HEADING": (
             f"color: {text}; font-size: {font_xs}; font-weight: bold;"
             f" letter-spacing: 1px;"
-        ),
-        # The "X.X" in "X.X / 10" — size only. The gold/plain colours are
-        # painted inline as rich-text spans (the number is gold, the "/ 10"
-        # is body text), so this role carries no colour of its own.
-        "DETAIL_RATING": (
-            f"font-size: {font_md};"
         ),
         # The short "why" beside a guessed (inference) fact — "from the
         # name", "from region Sweden (SE)". Quiet TEXT at the small size, the

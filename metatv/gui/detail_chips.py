@@ -126,11 +126,12 @@ def make_key(text: str) -> QLabel:
         text: The key label text.
 
     Returns:
-        A ``QLabel`` styled ``DETAIL_KEY``, fixed to a chip's height.
+        A ``QLabel`` styled ``DETAIL_SECTION_SUMMARY`` (the same quiet label a
+        section header's count uses — no twin role), fixed to a chip's height.
     """
     key = QLabel(text)
     key.setFixedHeight(make_chip("x").sizeHint().height())
-    theme.style(key, "DETAIL_KEY")
+    theme.style(key, "DETAIL_SECTION_SUMMARY")
     return key
 
 
