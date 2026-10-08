@@ -33,23 +33,31 @@ Targeted vs. full scan
 -----------------------
 Most version bumps re-run every channel because a feeder's algorithm changed
 and there is no way to tell which rows it affects without re-running it.
-Version 11 (TAG-1) is different: the affected population is fully computable
-in SQL (see ``_collect_channel_ids_genre_gap``), so ``run()`` uses that cheap
-targeted query when the library is already at ``_TARGETED_GENRE_GAP_FLOOR``
-and falls back to the usual full-corpus scan (``_collect_channel_ids``) for a
-library resuming from further behind, which needs the other pending
-versions' fixes applied everywhere too. Either way, the actual re-decompose
-(``_process_batch``) is the same code — only the ``channel_ids`` it is given
-differs.
+Version 11 (TAG-1) was the first exception: its affected population is fully
+computable in SQL (``_collect_channel_ids_genre_gap``, gated on
+``_TARGETED_GENRE_GAP_FLOOR``). Version 12 (LANG-1) is the same shape one
+version later: its population is also fully computable in SQL
+(``_collect_channel_ids_region_language``, gated on
+``_TARGETED_REGION_LANGUAGE_FLOOR`` — the version in force immediately before
+the LANG-1 bump), so ``run()`` now dispatches on THAT floor: a library already
+at version 11 gets only the narrow region-language re-tag; a library resuming
+from further behind falls back to the full-corpus scan (``_collect_channel_ids``),
+which also closes the version-11 genre gap as a side effect because it runs
+today's (already-fixed) ``_collect_tags`` — so the superseded
+``_collect_channel_ids_genre_gap``/``_TARGETED_GENRE_GAP_FLOOR`` pair is kept
+only as a directly-tested, standalone collector, not reachable from ``run()``
+any more. Either way, the actual re-decompose (``_process_batch``) is the same
+code — only the ``channel_ids`` it is given differs.
 
 Confidence
 ----------
 Each ``(type, value)`` pair accumulates the feeder name(s) that independently
 produced it.  The v1 confidence formula in
-:func:`~metatv.core.repositories.tag._compute_confidence` maps feeder count →
-confidence: one feeder → ~0.33, two → ~0.67, three or more → 1.0.  More
-independent feeders corroborating the same tag raises confidence without any
-manual weighting.
+:func:`~metatv.core.repositories.tag_content_tags._compute_confidence` sums a
+per-feeder weight (1.0 for most feeders; LANG-1's ``region_inference`` weighs
+only 0.3) and maps it to confidence: one full-weight feeder → ~0.33, two →
+~0.67, three or more → 1.0.  More independent feeders corroborating the same
+tag raises confidence; a feeder in ``_FEEDER_WEIGHTS`` raises it less.
 """
 
 from __future__ import annotations
@@ -191,17 +199,51 @@ def _set_backfill_active(active: bool) -> None:
 #       run gets it applied — and committed — before this task's query ever
 #       reads ``detected_genres``, so the targeted anti-join always sees
 #       current data even when both migrations land on the same launch.
-CURRENT_TAG_BACKFILL_VERSION = 11
+#  12 — LANG-1 (2026-10-08, owner-confirmed): a provider's regional CATALOGUE
+#       prefix/category code (e.g. ``SE``) says only which shelf a FILM or
+#       SERIES is filed under, never what language it is spoken in — but
+#       CODE_FACETS' dual-facet entries read it as BOTH, so every one of the
+#       1,750 titles in provider category "|SE| FILM 1900 - 2018" (English-
+#       language films such as "SE - 3 Days To Kill") was tagged
+#       language:Swedish at full CONF_DENOTED confidence. ``_collect_tags``
+#       now runs ``reattribute_region_languages`` right after
+#       ``remap_content_descriptor_facets``: for movie/series rows it demotes
+#       any language: tag a region code in the same row implies down to the
+#       ``region_inference`` feeder, which ``tag_content_tags._FEEDER_WEIGHTS``
+#       weighs at 0.3 instead of 1.0 — low enough that any feeder which
+#       actually STATES the language (audio_annotation, and TMDb original-
+#       language / observed-playback-track evidence in later slices) outranks
+#       it, while the title stays findable under "Swedish" (tag-value search
+#       matches the region tag's own "SE" value too). Live channels are
+#       unaffected (a live prefix routinely IS the broadcast language) and no
+#       subtitle inference is ever made from a region. Targeted, not full:
+#       see ``_collect_channel_ids_region_language``/
+#       ``_TARGETED_REGION_LANGUAGE_FLOOR`` below — a library already at
+#       version 11 only needs its movie/series rows carrying a region tag
+#       re-run; a library resuming from further behind still gets the
+#       unconditional full pass, which runs today's (already-fixed)
+#       ``_collect_tags`` and so closes this same gap as a side effect.
+CURRENT_TAG_BACKFILL_VERSION = 12
 
 # The tag_backfill_version a library must already be AT (not behind) for the
-# version-11 run to use the cheap targeted genre-gap query instead of the
-# full corpus scan. Set to the CURRENT_TAG_BACKFILL_VERSION that was in force
-# immediately before the TAG-1 bump: a library already there has a full-corpus
-# pass reflecting every feeder fix through version 10 on file, so only the
-# isolated genre gap remains. A library behind this floor (catching up across
-# several versions at once) needs the general full-corpus catch-up instead —
-# using the targeted query there would silently skip versions 4-10's other
-# fixes for every channel outside the narrow genre-gap set.
+# version-12 run to use the cheap targeted region-language query instead of
+# the full corpus scan. Set to the CURRENT_TAG_BACKFILL_VERSION that was in
+# force immediately before the LANG-1 bump (same convention as
+# ``_TARGETED_GENRE_GAP_FLOOR`` below): a library already there has a full-
+# corpus pass reflecting every feeder fix through version 11 on file, so only
+# the isolated region→language gap remains. A library behind this floor
+# (catching up across several versions at once) needs the general full-corpus
+# catch-up instead — using the targeted query there would silently skip
+# versions 4-11's other fixes for every channel outside the narrow
+# region-language set. ``run()`` now gates on THIS floor, not
+# ``_TARGETED_GENRE_GAP_FLOOR``: see "Targeted vs. full scan" above.
+_TARGETED_REGION_LANGUAGE_FLOOR: int = 11
+
+# Superseded by ``_TARGETED_REGION_LANGUAGE_FLOOR`` above as of the LANG-1
+# (version 12) bump — ``run()`` no longer gates on this constant. Kept only
+# because ``_collect_channel_ids_genre_gap`` is still correct and still
+# directly unit-tested as a standalone collector (see "Targeted vs. full
+# scan" above for why it is no longer reachable from ``run()``).
 _TARGETED_GENRE_GAP_FLOOR: int = 10
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
@@ -280,13 +322,13 @@ class TagBackfillTask:
         _set_backfill_active(True)
         try:
             stored_version = getattr(config, "tag_backfill_version", 0)
-            if stored_version >= _TARGETED_GENRE_GAP_FLOOR:
+            if stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR:
                 logger.info(
                     "TagBackfillTask: library already at version {} — targeted "
-                    "genre-gap re-tag only (TAG-1)",
+                    "region-language re-tag only (LANG-1)",
                     stored_version,
                 )
-                channel_ids = self._collect_channel_ids_genre_gap()
+                channel_ids = self._collect_channel_ids_region_language()
             else:
                 logger.info(
                     "TagBackfillTask: library at version {} — full corpus pass",
@@ -388,6 +430,36 @@ class TagBackfillTask:
                 "    WHERE ct.channel_key = c.channel_key "
                 "      AND t.type = 'genre' AND t.value = je.value"
                 "  )"
+            )).all()
+        return [r[0] for r in rows]
+
+    def _collect_channel_ids_region_language(self) -> list[str]:
+        """Return movie/series channel IDs carrying at least one ``region`` tag.
+
+        LANG-1 (version 12, see the module docstring): the affected population
+        is exactly every movie/series channel whose ``content_tags`` include a
+        ``region:`` row — the only rows :func:`~metatv.core.tag_decomposer.
+        reattribute_region_languages` can change, since a channel with no
+        region tag has nothing to reattribute. A single indexed JOIN
+        (``channels`` → ``content_tags`` → ``tags`` via ``channel_key``) — no
+        per-channel decomposition needed just to pick which rows are
+        affected; re-decomposition itself still goes through the normal
+        ``_process_batch`` pipeline once this returns.
+
+        Read-only — matches the column-only-projection contract of
+        ``_collect_channel_ids`` (no full ORM objects).
+
+        Returns:
+            List of ``ChannelDB.id`` strings needing re-decomposition.
+        """
+        with self._db.session_scope(commit=False) as session:
+            rows = session.execute(text(
+                "SELECT DISTINCT c.id "
+                "FROM channels c "
+                "JOIN content_tags ct ON ct.channel_key = c.channel_key "
+                "JOIN tags t ON t.id = ct.tag_id "
+                "WHERE c.media_type IN ('movie', 'series') "
+                "  AND t.type = 'region'"
             )).all()
         return [r[0] for r in rows]
 
@@ -587,6 +659,7 @@ def _collect_tags(
         decompose_audio,
         decompose_name_cast,
         decompose_name_parse,
+        reattribute_region_languages,
         remap_content_descriptor_facets,
     )
 
@@ -673,9 +746,17 @@ def _collect_tags(
     # a content KIND.  Route them: category: for live, genre: for everything else.
     remap_content_descriptor_facets(feeder_map, media_type)
 
+    # LANG-1: a region/catalogue code (e.g. "SE") is not a statement of the
+    # spoken language for a FILM or SERIES — demote any language: tag that
+    # code's own region reading implies down to the low-confidence
+    # "region_inference" feeder so real language evidence always outranks it.
+    # No-op for live (and for any language no region in this row implies).
+    reattribute_region_languages(feeder_map, media_type, config)
+
     # Flatten: each (type, value) pair is emitted once per contributing feeder.
     # TagRepository.set_content_tags will merge feeders on the link and compute
-    # confidence as min(1.0, len(distinct_feeders) / 3).
+    # confidence as min(1.0, sum(weight(f) for f in distinct_feeders) / 3) —
+    # 1.0 per feeder except the low weight on "region_inference" (LANG-1).
     result: list[tuple[str, str, str]] = []
     for (tag_type, tag_value), feeders in feeder_map.items():
         for feeder in sorted(feeders):  # sorted for deterministic ordering

@@ -475,6 +475,80 @@ def remap_content_descriptor_facets(
     return feeder_map
 
 
+#: Feeders whose ``language:`` reading comes from a prefix/category CODE, not
+#: from anything that states the spoken language.
+_CODE_FEEDERS = frozenset({"name_parse", "provider_category", "header"})
+
+
+def reattribute_region_languages(
+    feeder_map: dict[tuple[str, str], set[str]],
+    media_type: str | None,
+    config,
+) -> None:
+    """Demote a region-implied ``language:`` tag to region-inference confidence.
+
+    Owner rule (LANG-1, 2026-10-08): a provider's regional CATALOGUE (the
+    ``|SE|``/``FR``/etc. prefix or provider-category code) says only which
+    shelf the title is filed under — never what language it is spoken in.
+    Example: the 1,750 titles in provider category ``|SE| FILM 1900 - 2018``
+    (e.g. ``"SE - 3 Days To Kill"``, an English-language film) were all tagged
+    ``language:Swedish`` at :data:`~metatv.core.channel_name_utils.CONF_DENOTED`
+    confidence purely because ``SE`` denotes Swedish in
+    :data:`~metatv.core.channel_name_utils.CODE_FACETS` — a region guess, not a
+    language statement, when the content is a FILM or SERIES.
+
+    For ``media_type in ("movie", "series")`` only — a live channel's prefix
+    routinely IS its broadcast language, so live is left untouched — this
+    collects every ``region`` code already present in *feeder_map*, asks
+    :func:`_classify_prefix_token` which language(s) that same code implies
+    (e.g. ``SE`` → Swedish), and for each such ``language:`` tag already in
+    *feeder_map* strips the CODE feeders (:data:`_CODE_FEEDERS`) from its
+    feeder set and replaces them with a single ``"region_inference"`` feeder.
+    That feeder is weighted low
+    (:data:`~metatv.core.repositories.tag_content_tags._FEEDER_WEIGHTS`) so the
+    title stays findable under "Swedish" (tag-value search also matches the
+    region tag's own "SE" value) while any feeder that actually STATES the
+    spoken language (e.g. ``audio_annotation``) still outranks it. Evidence
+    feeders already on the tag (anything not in ``_CODE_FEEDERS``) are kept,
+    never dropped. A language implied by NO region code in *feeder_map* (e.g.
+    ``language:English`` when no region reads as English) is left completely
+    untouched — this never suppresses or invents evidence, only re-labels the
+    provenance of a reading that was never more than the region's own guess.
+    No subtitle inference is ever made here.
+
+    Mutates *feeder_map* in place. Pure otherwise — no DB, no Qt.
+
+    Args:
+        feeder_map: ``{(tag_type, tag_value): set_of_feeders}`` as built by
+            ``_collect_tags``, after :func:`remap_content_descriptor_facets`
+            has run.
+        media_type: The channel's ``ChannelDB.media_type`` — only
+            ``"movie"``/``"series"`` are affected; ``"live"`` and anything
+            else return immediately, unchanged.
+        config: Live ``Config`` instance (forwarded to
+            :func:`_classify_prefix_token`).
+    """
+    if media_type not in ("movie", "series"):
+        return
+
+    region_codes = {value for (tag_type, value) in feeder_map if tag_type == "region"}
+    if not region_codes:
+        return
+
+    implied_languages: set[str] = set()
+    for code in region_codes:
+        for tag_type, value, _conf in _classify_prefix_token(code, config):
+            if tag_type == "language":
+                implied_languages.add(value)
+    if not implied_languages:
+        return
+
+    for key in list(feeder_map.keys()):
+        tag_type, value = key
+        if tag_type == "language" and value in implied_languages:
+            feeder_map[key] = (feeder_map[key] - _CODE_FEEDERS) | {"region_inference"}
+
+
 # --------------------------------------------------------------------------- #
 #  Per-feeder decomposers (private)                                            #
 # --------------------------------------------------------------------------- #

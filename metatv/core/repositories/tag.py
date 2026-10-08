@@ -4,12 +4,12 @@ Provides ``get_or_create_tag``, ``set_content_tags`` (upsert + feeder merge),
 ``tags_for``, ``channels_for_tag``, ``reprocess_delete_generated``, and
 ``get_channel_ids_by_tag_facets`` (faceted filter engine).
 
-Confidence formula (v1):
-    confidence = min(1.0, len(distinct_feeders) / 3)
+Confidence formula (v1, LANG-1 weighted):
+    confidence = min(1.0, sum(weight(f) for f in distinct_feeders) / 3)
 
-One feeder asserts a tag  → 0.33.
-Two feeders assert it     → 0.67.
-Three or more feeders     → 1.0 (capped).
+Every feeder weighs 1.0 except ``tag_content_tags._FEEDER_WEIGHTS`` entries
+(``region_inference`` = 0.3, a region-guessed language, not a stated one).
+Unweighted: one feeder → 0.33, two → 0.67, three+ → 1.0 (capped).
 
 This is deliberately coarse; a future slice may replace it with a signal-
 weighted blend once real feeder data is available.

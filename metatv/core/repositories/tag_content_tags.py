@@ -22,21 +22,37 @@ from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 #: Confidence denominator — three independent feeders → full confidence.
 _FEEDER_DENOMINATOR: int = 3
 
+#: Per-feeder weight in the confidence sum. A feeder not listed weighs 1.
+#: ``region_inference`` is a language GUESSED from a region code on a film or
+#: series (LANG-1): kept so the title stays findable, weighted so any real
+#: evidence outranks it — alone it reads 0.1, never "confirmed".
+_FEEDER_WEIGHTS: dict[str, float] = {"region_inference": 0.3}
+
 
 def _compute_confidence(feeders: List[str]) -> float:
-    """Confidence v1 formula: ``min(1.0, len(distinct_feeders) / 3)``.
+    """Confidence v1 formula (LANG-1 weighted): ``min(1.0, sum(weight(f) for f
+    in distinct_feeders) / 3)``.
+
+    Every feeder weighs ``1.0`` unless listed in :data:`_FEEDER_WEIGHTS` — a
+    ``region_inference`` feeder (a language guessed from a region/catalogue
+    code, never a statement of the spoken language) weighs ``0.3`` so it reads
+    as a low-confidence hint rather than corroborated fact, while any feeder
+    that actually asserts the language (e.g. ``audio_annotation``) still
+    outranks it. With no weighted feeders this is exactly the old pure-count
+    formula: one feeder → 0.33, two → 0.67, three+ → 1.0 (capped).
 
     Args:
         feeders: List of feeder names (may contain duplicates; only distinct
             values are counted).
 
     Returns:
-        Float in ``[0.33, 1.0]`` for non-empty lists; ``0.0`` for empty.
+        Float in ``[0.0, 1.0]``; ``0.0`` for an empty list.
     """
-    distinct = len(set(feeders))
-    if distinct == 0:
+    distinct = set(feeders)
+    if not distinct:
         return 0.0
-    return min(1.0, distinct / _FEEDER_DENOMINATOR)
+    weighted_sum = sum(_FEEDER_WEIGHTS.get(f, 1.0) for f in distinct)
+    return min(1.0, weighted_sum / _FEEDER_DENOMINATOR)
 
 
 class ContentTagCrudMixin:
