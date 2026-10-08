@@ -12,6 +12,28 @@ from __future__ import annotations
 from typing import Mapping
 
 
+def chip_geometry(font_md: str, radius_sm: str) -> str:
+    """The metrics every outlined details-pane chip shares.
+
+    Border WIDTH and COLOUR vary per chip (selected/dashed/hover state), so
+    only the part that never varies lives here: radius, padding, font size.
+    Composed into ``DETAIL_REGION_CHIP`` below AND into
+    ``metatv.gui.detail_chips.chip_sheet`` — the pane's one outlined-chip
+    builder — so a padding or radius change moves both instead of drifting
+    into two near-identical literals the way the region grid and the
+    chip toolkit were about to.
+
+    Args:
+        font_md: The resolved ``FONT_MD`` token value.
+        radius_sm: The resolved ``RADIUS_SM`` token value.
+
+    Returns:
+        The shared declaration fragment (no enclosing braces, no border or
+        colour) — splice it between those in the caller's own sheet.
+    """
+    return f"border-radius: {radius_sm}; padding: 2px 8px; font-size: {font_md};"
+
+
 def build(t: Mapping[str, object]) -> dict[str, str]:
     """Compose the details-pane region roles from the bound token values."""
     def _(name: str) -> str:
@@ -32,6 +54,7 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
     font_sm   = _("FONT_SM")
     font_xs   = _("FONT_XS")
     ok        = _("COLOR_OK")
+    geometry  = chip_geometry(font_md, radius_sm)
 
     return {
         # A region chip is a COUNT, and counts read as a grid — so every chip is
@@ -40,8 +63,7 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         # tier each, which is why sixty-five of them were unreadable.
         "DETAIL_REGION_CHIP": (
             f"QPushButton {{ background: {bg_card}; color: {text_hi};"
-            f" border: 1px solid {border}; border-radius: {radius_sm};"
-            f" font-size: {font_md}; padding: 2px 8px; text-align: left; }}"
+            f" border: 1px solid {border}; {geometry} text-align: left; }}"
             f"QPushButton:hover {{ border-color: {accent}; }}"
         ),
         # "+ 7 more" and "‹ All regions" — navigation, not data, so they read as
@@ -123,5 +145,32 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         ),
         "DETAIL_SECTION_SUMMARY": (
             f"color: {text}; font-size: {font_sm}; background: transparent;"
+        ),
+        # ── DETAILS-3a: chip toolkit + fact-provenance groups ────────────
+        # The key column label for a "Available in" / Facts / Cast row
+        # ("Available", "Director", "Language"…) — quiet TEXT, never the
+        # bright ramp, so the VALUE chips beside it carry the emphasis.
+        "DETAIL_KEY": (
+            f"color: {text}; font-size: {font_sm}; background: transparent;"
+        ),
+        # A provenance band heading ("SEEN IN THE FILE", "FROM TMDB"…) —
+        # small-caps-by-convention (the caller upper-cases the text), letter-
+        # spaced so it reads as a section label rather than another fact.
+        "DETAIL_GROUP_HEADING": (
+            f"color: {text}; font-size: {font_xs}; font-weight: bold;"
+            f" letter-spacing: 1px;"
+        ),
+        # The "X.X" in "X.X / 10" — size only. The gold/plain colours are
+        # painted inline as rich-text spans (the number is gold, the "/ 10"
+        # is body text), so this role carries no colour of its own.
+        "DETAIL_RATING": (
+            f"font-size: {font_md};"
+        ),
+        # The short "why" beside a guessed (inference) fact — "from the
+        # name", "from region Sweden (SE)". Quiet TEXT at the small size, the
+        # same weight as a Facts key, never facet-tinted: a guess reads at
+        # the body ramp and carries its reason instead of a colour claim.
+        "DETAIL_FACT_REASON": (
+            f"color: {text}; font-size: {font_xs};"
         ),
     }
