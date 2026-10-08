@@ -91,7 +91,7 @@ CHIP_LANG = "lang"
 CHIP_NEWS = "news"
 CHIP_ACTION = "action"
 #: Quality and news are absent on purpose: both sheets are COMPOSED at build
-#: time — quality per tier (see :func:`_quality_chip_style`), news from
+#: time — quality per tier (see :func:`quality_chip_style`), news from
 #: ``theme.on_fill`` (:func:`_news_chip_style`) — so neither has a single
 #: static role.
 _CHIP_ROLES = {
@@ -330,8 +330,12 @@ def _news_dot() -> QLabel:
     return label
 
 
-def _quality_chip_style(text: str) -> str:
+def quality_chip_style(text: str) -> str:
     """The quality chip's sheet: tier-coloured text on the NEUTRAL hairline.
+
+    Public: the details-pane quality badge (``detail_chips.add_quality_badge``)
+    builds its badge from this exact sheet via :func:`chip_widget` — the ONE
+    quality-chip look, rather than a second ring-style sheet.
 
     Two things were wrong with the flat role this replaced. It painted every
     tier one ``COLOR_WARN``, discarding the per-tier hue the ``quality`` tokens
@@ -415,7 +419,7 @@ def chip_widget(kind: str, text: str) -> QWidget:
         # quality→colour. style_fn (not style) because the sheet is composed
         # from a runtime value, so it must be REBUILT on a palette switch;
         # a rendered string would go stale.
-        _theme.style_fn(chip, lambda: _quality_chip_style(text))
+        _theme.style_fn(chip, lambda: quality_chip_style(text))
     else:
         _theme.style(chip, _CHIP_ROLES[kind])
     return chip
