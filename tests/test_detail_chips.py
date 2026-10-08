@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import QApplication, QLabel, QPushButton
 
 from metatv.gui import theme
 from metatv.gui.badge_utils import quality_outline_color
-from metatv.gui.chip_row import CHIP_QUALITY, quality_chip_style
+from metatv.gui.chip_row import quality_chip_style
 from metatv.gui.detail_chips import (
     KEY_COL,
     SECTION_INDENT,
