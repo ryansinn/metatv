@@ -156,19 +156,23 @@ class _MetadataSection(QWidget):
 
         self._tmdb_chip = make_chip("TMDb")
         self._tmdb_chip.hide()
-        self._tmdb_chip.clicked.connect(lambda: self._on_id_chip_clicked("tmdb"))
+        # Bound slots + a property, never a lambda over ``self``: a closure that
+        # captures the widget it is connected on is a reference cycle the
+        # top-level-widget leak guard (tests/conftest.py) rightly reports.
+        self._tmdb_chip.setProperty("id_kind", "tmdb")
+        self._tmdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
         self._tmdb_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._tmdb_chip.customContextMenuRequested.connect(
-            lambda pos: self._show_id_chip_menu("tmdb", pos)
-        )
+        self._tmdb_chip.customContextMenuRequested.connect(self._on_id_chip_menu_requested)
 
         self._imdb_chip = make_chip("IMDb")
         self._imdb_chip.hide()
-        self._imdb_chip.clicked.connect(lambda: self._on_id_chip_clicked("imdb"))
+        # Bound slots + a property, never a lambda over ``self``: a closure that
+        # captures the widget it is connected on is a reference cycle the
+        # top-level-widget leak guard (tests/conftest.py) rightly reports.
+        self._imdb_chip.setProperty("id_kind", "imdb")
+        self._imdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
         self._imdb_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._imdb_chip.customContextMenuRequested.connect(
-            lambda pos: self._show_id_chip_menu("imdb", pos)
-        )
+        self._imdb_chip.customContextMenuRequested.connect(self._on_id_chip_menu_requested)
 
         self._rating_row_w = make_flow([self.rating_label, self._tmdb_chip, self._imdb_chip])
         self._rating_row_w.hide()
@@ -469,7 +473,8 @@ class _MetadataSection(QWidget):
         for g in genres:
             chip = make_chip(g, "COLOR_FACET_GENRE")
             chip.setToolTip(f"Filter by genre: {g}")
-            chip.clicked.connect(lambda _checked=False, _g=g: self.genre_clicked.emit(_g))
+            chip.setProperty("genre", g)
+            chip.clicked.connect(self._on_genre_chip_clicked)
             self._genres_layout.addWidget(chip)
         self._genres_container.updateGeometry()
         self._genres_container.show()
@@ -497,7 +502,8 @@ class _MetadataSection(QWidget):
             if guessed:
                 tip = f"Guessed {guess_reason(tag.feeders, [])} — {tip}"
             chip.setToolTip(tip)
-            chip.clicked.connect(lambda _checked=False, _g=tag.value: self.genre_clicked.emit(_g))
+            chip.setProperty("genre", tag.value)
+            chip.clicked.connect(self._on_genre_chip_clicked)
             self._genres_layout.addWidget(chip)
         self._genres_loading_lbl.hide()
         self._genres_container.setVisible(self._genres_layout.count() > 0)
@@ -533,6 +539,7 @@ class _MetadataSection(QWidget):
         menu = QMenu(self._source_chip)
         menu.addAction("Copy channel id").triggered.connect(self._copy_source_channel_id)
         menu.exec(self._source_chip.mapToGlobal(pos))
+        menu.deleteLater()
 
     def _copy_source_channel_id(self) -> None:
         if self._source_channel_id:
@@ -545,6 +552,22 @@ class _MetadataSection(QWidget):
     # ------------------------------------------------------------------ #
     # Rating / TMDb / IMDb chips — private helpers                         #
     # ------------------------------------------------------------------ #
+
+    def _on_genre_chip_clicked(self) -> None:
+        """One slot for every genre chip; the chip carries its genre as a property."""
+        genre = self.sender().property("genre") if self.sender() else None
+        if genre:
+            self.genre_clicked.emit(str(genre))
+
+    def _on_id_chip_sender_clicked(self) -> None:
+        kind = self.sender().property("id_kind") if self.sender() else None
+        if kind:
+            self._on_id_chip_clicked(str(kind))
+
+    def _on_id_chip_menu_requested(self, pos) -> None:
+        kind = self.sender().property("id_kind") if self.sender() else None
+        if kind:
+            self._show_id_chip_menu(str(kind), pos)
 
     def _on_id_chip_clicked(self, kind: str) -> None:
         ident = self._tmdb_id if kind == "tmdb" else self._imdb_id
@@ -568,6 +591,7 @@ class _MetadataSection(QWidget):
             lambda: self._open_id_on_web(kind)
         )
         menu.exec(chip.mapToGlobal(pos))
+        menu.deleteLater()      # its action lambdas die with it — no lingering cycle
 
     def _open_id_on_web(self, kind: str) -> None:
         if kind == "tmdb" and self._tmdb_id:
