@@ -71,6 +71,7 @@ def resolve_scope(session, config, *, excluded_provider_ids=(),
         A fully-resolved ``VisibilityScope``.
     """
     from metatv.core.channel_visibility import VisibilityScope
+    from metatv.core.repositories.stream_info import StreamInfoRepository
     from metatv.core.discovery_engine import build_adult_filter
     from metatv.core.filter_utils import (
         get_active_category_filter, global_exclusion_sets,
@@ -93,4 +94,6 @@ def resolve_scope(session, config, *, excluded_provider_ids=(),
         adult_mode=adult_mode,
         force_adult_provider_ids=force_adult_ids or [],
         dead_signal_streak_floor=dead_signal_streak_floor(config),
+        exclusion_exempt_ids=(
+            StreamInfoRepository(session).prefix_exempt_ids(prefixes) if prefixes else set()),
     )

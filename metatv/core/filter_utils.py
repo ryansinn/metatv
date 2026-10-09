@@ -264,7 +264,7 @@ def global_exclusion_set(config) -> set[str]:
     return set(cat_excluded or []) | get_excluded_prefixes(config)
 
 
-def channel_exclusion_criterion(excluded: set[str], channel_cls):
+def channel_exclusion_criterion(excluded: set[str], channel_cls, keep_ids=None):
     """Return the SQLAlchemy KEEP criterion for the Global-Exclusion rule.
 
     The SQL twin of :func:`is_channel_excluded`: a boolean clause usable in
@@ -312,10 +312,13 @@ def channel_exclusion_criterion(excluded: set[str], channel_cls):
     no_prefix = or_(prefix.is_(None), prefix == "")
     # HAS prefix → judged by prefix alone (language wins over region).
     # NO prefix  → region fallback (NULL/'' region is never a match).
-    return or_(
+    keep = or_(
         and_(has_prefix, prefix.notin_(values)),
         and_(no_prefix, or_(region.is_(None), region == "", region.notin_(values))),
     )
+    # keep_ids: copies whose measured audio contradicts their excluded prefix
+    # (StreamInfoRepository.prefix_exempt_ids) — a verified fact beats the guess.
+    return or_(keep, channel_cls.id.in_(list(keep_ids))) if keep_ids else keep
 
 
 # ---------------------------------------------------------------------------

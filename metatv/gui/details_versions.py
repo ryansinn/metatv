@@ -11,9 +11,9 @@ from PyQt6.QtGui import QCursor
 
 
 from metatv.core.channel_name_utils import (
-    CODE_FACETS, normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
+    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
-from metatv.core.stream_info import measured_quality
+from metatv.core.stream_info import audio_contradicts_prefix, measured_quality
 from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
@@ -556,11 +556,7 @@ class _VersionSection(QWidget):
         copy's own code denotes (a |SE| copy that is really English); "" when
         it agrees, when the code denotes no language, or when never measured."""
         audio = (v.measured or {}).get("audio") or ()
-        if not audio or not v.detected_prefix:
-            return ""
-        denoted = {val for kind, val, _c in CODE_FACETS.get(v.detected_prefix.upper(), ())
-                   if kind == "language"}
-        if not denoted or denoted & set(audio):
+        if not audio_contradicts_prefix(audio, v.detected_prefix):
             return ""
         return f"{' / '.join(audio)} audio"
 

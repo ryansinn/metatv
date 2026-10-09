@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from metatv.core.channel_name_utils import AUDIO_LANG_WORD_MAP
+from metatv.core.channel_name_utils import AUDIO_LANG_WORD_MAP, CODE_FACETS
 
 #: The mpv properties one capture reads.
 MPV_PROPS: tuple[str, ...] = (
@@ -186,6 +186,21 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
             f"{language_name(s.get('lang'))} {_codec(s.get('codec'))}" if s.get("lang")
             else _codec(s.get("codec")) for s in subs)))
     return rows
+
+
+def audio_contradicts_prefix(heard: "tuple[str, ...] | list[str]", prefix: str | None) -> bool:
+    """True when a copy's measured audio languages exclude the language its
+    prefix code denotes — a |SE| copy that is really English. False when
+    nothing was heard, the code denotes no language, or they agree.
+
+    Args:
+        heard: Language names measured in the stream (``summarize()["audio"]``).
+        prefix: The channel's ``detected_prefix``.
+    """
+    if not heard or not prefix:
+        return False
+    denoted = {val for kind, val, _c in CODE_FACETS.get(prefix.upper(), ()) if kind == "language"}
+    return bool(denoted) and not (denoted & set(heard))
 
 
 def measured_quality(height: Any) -> str | None:
