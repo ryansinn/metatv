@@ -21,7 +21,6 @@ from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import ChannelTagDTO, _SOURCE_GIVEN_FEEDERS
 from metatv.gui import icons as _icons
-from metatv.gui import theme as _theme
 from tests.conftest import make_file_db
 
 
