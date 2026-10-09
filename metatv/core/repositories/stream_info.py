@@ -19,6 +19,14 @@ class StreamInfoRepository:
             return None
         return {"info": row.info, "source": row.source, "measured_at": row.measured_at}
 
+    def get_many(self, channel_ids: list[str]) -> dict[str, dict]:
+        """``{channel_id: record}`` for every channel that has one, in one query."""
+        if not channel_ids:
+            return {}
+        rows = self.session.query(StreamInfoDB).filter(StreamInfoDB.channel_id.in_(channel_ids)).all()
+        return {r.channel_id: {"info": r.info, "source": r.source, "measured_at": r.measured_at}
+                for r in rows}
+
     def upsert(self, channel_id: str, info: dict, source: str = "played") -> None:
         """Replace the channel's record with a fresh measurement."""
         row = self.session.get(StreamInfoDB, channel_id)

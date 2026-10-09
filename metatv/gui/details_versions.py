@@ -11,8 +11,9 @@ from PyQt6.QtGui import QCursor
 
 
 from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
+    CODE_FACETS, normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
+from metatv.core.stream_info import measured_quality
 from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
@@ -89,6 +90,7 @@ class ChannelVersion:
     # the chip's face (that stays display_code(prefix) + quality, see
     # _VersionSection._chip_label).
     collection: str | None = None
+    measured: dict | None = None        # core.stream_info.summarize() of its stored record
 
 
 # ---------------------------------------------------------------------------
@@ -534,12 +536,54 @@ class _VersionSection(QWidget):
         """
         prefix = v.detected_prefix or ""
         name = display_code(prefix, self.config) if prefix else "?"
-        if v.detected_quality:
-            name = f"{name} {v.detected_quality}"
+        # PLAYED-3: what the stream itself said outranks the name's claim.
+        audio_note = self._audio_note(v)
+        if audio_note:
+            name = f"{name} · {audio_note}"
+        quality = v.detected_quality
+        measured_q = measured_quality((v.measured or {}).get("height"))
+        if measured_q:
+            quality = f"{measured_q}{_icons.verified_icon}"   # badge reads "FHD ✓"
+        if quality:
+            name = f"{name} {quality}"
         icon = ""
         if v.provider_id and self._show_source_icons:
             icon = self._provider_map.get(v.provider_id, {}).get("icon", "")
         return f"{icon} {name}" if icon else name
+
+    def _audio_note(self, v: ChannelVersion) -> str:
+        """"English audio" when the measured audio contradicts the language the
+        copy's own code denotes (a |SE| copy that is really English); "" when
+        it agrees, when the code denotes no language, or when never measured."""
+        audio = (v.measured or {}).get("audio") or ()
+        if not audio or not v.detected_prefix:
+            return ""
+        denoted = {val for kind, val, _c in CODE_FACETS.get(v.detected_prefix.upper(), ())
+                   if kind == "language"}
+        if not denoted or denoted & set(audio):
+            return ""
+        return f"{' / '.join(audio)} audio"
+
+    def _measured_lines(self, v: ChannelVersion) -> str:
+        """Tooltip lines for a measured copy: size, audio, subtitles, and the
+        name's claim when the stream contradicts it."""
+        m = v.measured
+        if not m:
+            return ""
+        verb = "Probed" if m.get("source") == "probe" else "Measured when played"
+        when = f" {m['at']:%b} {m['at'].day}" if m.get("at") else ""
+        parts = []
+        if m.get("width") and m.get("height"):
+            parts.append(f"{m['width']}×{m['height']}")
+        if m.get("audio"):
+            parts.append(f"audio: {', '.join(m['audio'])}")
+        parts.append(f"subtitles: {', '.join(m['subs'])}" if m.get("subs") else "no subtitle tracks")
+        lines = [f"{verb}{when}: " + " · ".join(parts)]
+        claim = v.detected_quality
+        mq = measured_quality(m.get("height"))
+        if claim and mq and claim.upper() != mq:
+            lines.append(f"Name says {claim}")
+        return "\n".join(lines)
 
     def _filing_parts(self, v: ChannelVersion) -> list[str]:
         prov = v.provider_name or self._provider_map.get(v.provider_id or "", {}).get("name", "") or ""
@@ -548,7 +592,9 @@ class _VersionSection(QWidget):
     def _chip_tooltip(self, v: ChannelVersion, action: str = "Click to show this copy") -> str:
         """"<collection or category> · <provider>" + the click hint."""
         filing = " · ".join(self._filing_parts(v))
-        return f"{filing}\n{action}" if filing else action
+        measured = self._measured_lines(v)
+        head = "\n".join(p for p in (filing, measured) if p)
+        return f"{head}\n{action}" if head else action
 
     def _menu_entry_text(self, v: ChannelVersion) -> str:
         parts = self._filing_parts(v)
