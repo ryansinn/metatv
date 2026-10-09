@@ -1104,6 +1104,38 @@ AUDIO_LANG_WORD_MAP: dict[str, str] = {
     # Handled separately in extract_audio_annotation; listed here as fallback if seen as tokens.
     "VOSTFR":        "French",   # "Version Originale Sous-Titrée en FRançais"
     "VOSTA":         "Spanish",  # "Version Originale Sous-Titrée en espAgñol" (less common)
+    # ISO 639-2 codes mpv reports for a played stream's tracks (PLAYED-1).
+    # "MAL" stays Malay above (provider usage), not ISO Malayalam.
+    "BEN":           "Bengali",
+    "CAT":           "Catalan",
+    "CES":           "Czech",
+    "DAN":           "Danish",
+    "DEU":           "German",
+    "DUT":           "Dutch",
+    "ELL":           "Greek",
+    "EST":           "Estonian",
+    "FIL":           "Filipino",
+    "FRA":           "French",
+    "ICE":           "Icelandic",
+    "ISL":           "Icelandic",
+    "LAV":           "Latvian",
+    "LIT":           "Lithuanian",
+    "MAY":           "Malay",
+    "MSA":           "Malay",
+    "NLD":           "Dutch",
+    "NOB":           "Norwegian",
+    "PAN":           "Punjabi",
+    "RON":           "Romanian",
+    "RUM":           "Romanian",
+    "SLK":           "Slovak",
+    "SLO":           "Slovak",
+    "SLV":           "Slovenian",
+    "SPA":           "Spanish",
+    "SQI":           "Albanian",
+    "SRP":           "Serbian",
+    "TGL":           "Tagalog",
+    "URD":           "Urdu",
+    "ZHO":           "Chinese",
 }
 
 

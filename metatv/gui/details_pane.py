@@ -238,6 +238,14 @@ class DetailsPaneWidget(QWidget):
         collection_tags = [t for t in tags if t.facet_type == "collection"]
         self._meta.set_collection(collection_tags[0].value if collection_tags else None)
 
+    def apply_stream_info(self, channel_id: str, record: "dict | None") -> None:
+        """Called from main_window when the channel's stored stream record
+        (PLAYED-1) loads — at show time, and again after a fresh measurement."""
+        if not self.current_channel or self.current_channel.id != channel_id:
+            return  # stale response — user already moved on
+        self._details.load_stream_info(
+            record, claimed_quality=getattr(self.current_channel, "detected_quality", None))
+
     def apply_taste_weights(self, channel_id: str, weights) -> None:
         """Called from main_window when the async taste-weight load completes.
 

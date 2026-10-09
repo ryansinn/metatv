@@ -14,6 +14,7 @@ from .epg import EpgRepository
 from .analytics import AnalyticsRepository
 from .tag import TagRepository
 from .stream_retry import StreamRetryRepository
+from .stream_info import StreamInfoRepository
 
 
 class RepositoryFactory:
@@ -33,6 +34,7 @@ class RepositoryFactory:
         self._analytics = None
         self._tags = None
         self._stream_retry = None
+        self._stream_info = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -112,6 +114,13 @@ class RepositoryFactory:
         return self._tags
 
     @property
+    def stream_info(self) -> StreamInfoRepository:
+        """Get the stored stream-measurement repository (PLAYED-1)"""
+        if self._stream_info is None:
+            self._stream_info = StreamInfoRepository(self.session)
+        return self._stream_info
+
+    @property
     def stream_retry(self) -> StreamRetryRepository:
         """Get stream-retry / graduated play-failure-ledger repository"""
         if self._stream_retry is None:
@@ -134,4 +143,5 @@ __all__ = [
     'AnalyticsRepository',
     'TagRepository',
     'StreamRetryRepository',
+    'StreamInfoRepository',
 ]
