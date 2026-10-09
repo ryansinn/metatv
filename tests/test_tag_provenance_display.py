@@ -233,12 +233,6 @@ class TestDetailsSectionRender:
         sec.set_copy(provider_name="TREX", copy_code="EN")
         return sec
 
-    def _headings(self, sec) -> list[str]:
-        from PyQt6.QtWidgets import QLabel
-        lay = sec._content.layout()
-        return [lay.itemAt(i).widget().text() for i in range(lay.count())
-                if isinstance(lay.itemAt(i).widget(), QLabel)]
-
     def test_section_hidden_with_empty_tags(self, qapp, owned_widgets):
         sec = self._make_section(owned_widgets)
         sec.load_tags([])
@@ -276,27 +270,27 @@ class TestDetailsSectionRender:
         facets = {c.property("facet") for c in _collect_chips(sec)}
         assert facets == {"language"}, f"genre/collection must not repeat here: {facets}"
 
-    def test_groups_by_provenance_in_order(self, qapp, owned_widgets):
-        sec = self._make_section(owned_widgets)
-        sec.load_tags([
-            ChannelTagDTO("language", "Swedish", False, 0.1, ("region_inference",)),
-            ChannelTagDTO("region", "SE", True, 0.9, ("provider_category",)),
-        ])
-        assert self._headings(sec) == ["FROM TREX", "GUESSED"]
-
-    def test_a_guess_is_dashed_and_says_why(self, qapp, owned_widgets):
+    def _captions(self, sec) -> list[str]:
         from PyQt6.QtWidgets import QLabel
+        return [w.text() for w in sec.findChildren(QLabel) if w.text().startswith("· ")]
+
+    def test_each_fact_names_its_source(self, qapp, owned_widgets):
+        sec = self._make_section(owned_widgets)
+        sec.load_tags([ChannelTagDTO("region", "SE", True, 0.9, ("provider_category",))])
+        assert self._captions(sec) == ["· TREX"], "a stated fact names the source it came from"
+
+    def test_a_guess_is_italic_and_says_why(self, qapp, owned_widgets):
         sec = self._make_section(owned_widgets)
         sec.load_tags([
             ChannelTagDTO("language", "Swedish", False, 0.1, ("region_inference",)),
             ChannelTagDTO("region", "SE", True, 0.9, ("provider_category",)),
         ])
         guess = [c for c in _collect_chips(sec) if c.property("value") == "Swedish"][0]
-        assert "dashed" in guess.styleSheet(), "a guessed fact must be drawn dashed"
+        assert "italic" in guess.styleSheet(), "a guessed fact must read as a guess"
         fact = [c for c in _collect_chips(sec) if c.property("value") == "SE"][0]
-        assert "dashed" not in fact.styleSheet()
-        reasons = [w.text() for w in sec.findChildren(QLabel) if w.text().startswith("from region")]
-        assert reasons and "(SE)" in reasons[0], f"the guess must say why: {reasons}"
+        assert "italic" not in fact.styleSheet()
+        why = [c for c in self._captions(sec) if c.startswith("· guessed from region")]
+        assert why and "(SE)" in why[0], f"the guess must say why: {self._captions(sec)}"
 
     def test_release_date_is_a_fact(self, qapp, owned_widgets):
         from types import SimpleNamespace
@@ -304,8 +298,8 @@ class TestDetailsSectionRender:
         sec = self._make_section(owned_widgets)
         sec.load_metadata(SimpleNamespace(release_date="2024-12-20", provider_name="TMDb"))
         assert sec.isVisible()
-        assert self._headings(sec) == ["FROM TMDB"]
         assert any(w.text() == "2024-12-20" for w in sec.findChildren(QLabel))
+        assert self._captions(sec) == ["· TMDb"]
 
     def test_clear_hides_section(self, qapp, owned_widgets):
         sec = self._make_section(owned_widgets)
