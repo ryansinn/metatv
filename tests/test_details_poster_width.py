@@ -118,7 +118,7 @@ def _full_pane(qapp, tmp_path):
     cfg = _make_config()
     ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
     pane = DetailsPaneWidget(cfg, ic, None)  # db=None → no EPG agenda
-    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._tech):
+    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._details):
         if hasattr(sec, "set_mode"):
             sec.set_mode(False)
     return pane
@@ -132,9 +132,6 @@ def test_wrapping_labels_opt_out_of_width(qapp, tmp_path):
         pane._plot.plot_label,
         pane._meta._tagline_lbl,
         pane._meta.rec_reason_label,
-        pane._cast.cast_label,
-        pane._cast._director_lbl,
-        pane._tech.tech_details_label,
         pane._poster._country_info_lbl,
     ]
     for lbl in labels:

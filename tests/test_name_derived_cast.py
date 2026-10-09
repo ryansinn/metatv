@@ -122,7 +122,7 @@ class TestItIsLabelledAsAGuess:
 
     def test_the_details_pane_labels_the_provenance(self):
         """"Person" would read as a credit; the label has to say where it came from."""
-        from metatv.gui.details_sections import _FACET_LABELS
+        from metatv.gui.details_facts import _FACET_LABELS
 
         assert "person" in _FACET_LABELS
         label = _FACET_LABELS["person"]

@@ -1,5 +1,4 @@
-"""Content section widgets for the details pane: poster, metadata, plot, technical, cast."""
-import html
+"""Content section widgets for the details pane: poster, plot (Overview), cast."""
 import re
 
 from loguru import logger
@@ -14,12 +13,12 @@ from metatv.core.channel_name_utils import normalize_region_code
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.detail_chips import (
+    KEY_COL, SECTION_INDENT, make_chip, make_flow, make_key, make_label_grid,
+)
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
-from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
-from metatv.gui.qt_text_utils import escape_mnemonic
-from metatv.metadata_providers.base import MetadataResult
 
 
 def _is_stale_polluted_title(clean_title: str, metadata_title: str) -> bool:
@@ -153,17 +152,6 @@ class _WatchedBadge(QPushButton):
     def leaveEvent(self, event) -> None:
         self.hover_changed.emit(False)
         super().leaveEvent(event)
-
-
-def _pref_signal(name: str, weights, attr: str) -> str:
-    """Return HTML indicator for a person based on their preference weight."""
-    d = getattr(weights, attr, {})
-    score = d.get(name, 0.0)
-    if score > 0.3:
-        return f'<span style="color:{_theme.COLOR_OK}">▲ </span>'
-    if score < -0.3:
-        return f'<span style="color:{_theme.COLOR_ERR}">▼ </span>'
-    return ''
 
 
 # ---------------------------------------------------------------------------
@@ -854,7 +842,7 @@ class _PlotSection(CollapsibleMixin, QWidget):
 
         self._content = QWidget()
         content_layout = QVBoxLayout(self._content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(SECTION_INDENT, 0, 0, 0)
         content_layout.setSpacing(2)
         layout.addWidget(self._content)
 
@@ -904,68 +892,16 @@ class _PlotSection(CollapsibleMixin, QWidget):
 
 
 # ---------------------------------------------------------------------------
-# _TechnicalSection
-# ---------------------------------------------------------------------------
-
-class _TechnicalSection(CollapsibleMixin, QWidget):
-    """Collapsible Technical Details section. No set_summary(): 0-or-1 fields (CHV-2)."""
-
-    COLLAPSE_KEY = "technical"
-
-    def __init__(self, config, parent=None):
-        super().__init__(parent)
-        self.config = config
-        self._setup()
-
-    def _setup(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self._header = CollapsibleHeader("Technical Details")
-        self._header_widget = self._header      # kept: existing callers use this name
-        layout.addWidget(self._header)
-
-        # Content
-        self._content = QWidget()
-        content_layout = QVBoxLayout(self._content)
-        content_layout.setContentsMargins(20, 0, 0, 0)
-        self.tech_details_label = QLabel()
-        self.tech_details_label.setWordWrap(True)
-        self.tech_details_label.setTextFormat(Qt.TextFormat.RichText)
-        _theme.style(self.tech_details_label, "DETAIL_TEXT")
-        _no_width_force(self.tech_details_label)
-        content_layout.addWidget(self.tech_details_label)
-        layout.addWidget(self._content)
-        self._wire_header()
-
-    def set_mode(self, is_live: bool) -> None:
-        if is_live:
-            self.hide()
-        else:
-            self._apply_collapsed()
-
-    def load(self, metadata: MetadataResult, weights=None) -> bool:
-        """Populate section. Returns True if there is anything to display."""
-        parts = []
-        if metadata.release_date:
-            parts.append(f"<b>Release Date:</b> {metadata.release_date}")
-        self.tech_details_label.setText("<br>".join(parts))
-        has_content = bool(parts)
-        self.setVisible(has_content)
-        return has_content
-
-    def clear(self) -> None:
-        self.tech_details_label.clear()
-        self.hide()
-
-
-# ---------------------------------------------------------------------------
 # _CastSection
 # ---------------------------------------------------------------------------
 
 class _CastSection(CollapsibleMixin, QWidget):
-    """Collapsible Cast & Crew section."""
+    """Collapsible Cast section: a Director row and a Cast row of person chips.
+
+    A person you have rated work by carries the ▲/▼ taste marker inside the
+    chip, in the palette's positive/negative colour. Clicking a chip emits
+    ``person_clicked(name)`` (the strict context filter).
+    """
 
     COLLAPSE_KEY = "cast"
 
@@ -974,7 +910,6 @@ class _CastSection(CollapsibleMixin, QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self._collapsed: bool = False
         self._is_live: bool = False
         self._has_content: bool = False
         self._setup()
@@ -982,39 +917,17 @@ class _CastSection(CollapsibleMixin, QWidget):
     def _setup(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(2)
 
         self._header = CollapsibleHeader("Cast")
         self._header_widget = self._header
         layout.addWidget(self._header)
 
         self._content = QWidget()
-        content_layout = QVBoxLayout(self._content)
-        content_layout.setContentsMargins(20, 0, 0, 0)
-        content_layout.setSpacing(4)
-
-        self._director_lbl = QLabel()
-        self._director_lbl.setWordWrap(True)
-        self._director_lbl.setTextFormat(Qt.TextFormat.RichText)
-        _theme.style(self._director_lbl, "DETAIL_TEXT")
-        self._director_lbl.setOpenExternalLinks(False)
-        self._director_lbl.linkActivated.connect(
-            lambda url: self.person_clicked.emit(url)
-        )
-        _no_width_force(self._director_lbl)
-        self._director_lbl.hide()
-        content_layout.addWidget(self._director_lbl)
-
-        self.cast_label = QLabel()
-        self.cast_label.setWordWrap(True)
-        self.cast_label.setTextFormat(Qt.TextFormat.RichText)
-        _theme.style(self.cast_label, "DETAIL_TEXT")
-        self.cast_label.setOpenExternalLinks(False)
-        self.cast_label.linkActivated.connect(
-            lambda url: self.person_clicked.emit(url)
-        )
-        _no_width_force(self.cast_label)
-        content_layout.addWidget(self.cast_label)
+        self._content_lay = QVBoxLayout(self._content)
+        self._content_lay.setContentsMargins(SECTION_INDENT, 0, 0, 0)
+        self._content_lay.setSpacing(0)
+        self._grid_w: QWidget | None = None
         layout.addWidget(self._content)
         self._wire_header()
 
@@ -1028,303 +941,73 @@ class _CastSection(CollapsibleMixin, QWidget):
             self._apply_collapsed()
         self._apply_visibility()
 
+    def person_chips(self, role: str) -> list[QPushButton]:
+        """The chips on the ``"director"`` or ``"cast"`` row, in order."""
+        if self._grid_w is None:
+            return []
+        return [c for c in self._grid_w.findChildren(QPushButton) if c.property("role") == role]
+
     def load(self, cast: list, director: str | None = None, weights=None) -> None:
-        link_col = _theme.COLOR_ACCENT_BLUE_2
+        from metatv.core.preference_engine import _split_directors
 
-        if director:
-            from metatv.core.preference_engine import _split_directors
-            names = _split_directors(director)
-            dir_parts = []
-            for d in names:
-                sig = _pref_signal(d, weights, 'directors') if weights else ""
-                href = html.escape(d, quote=True)
-                link = (
-                    f'{sig}<a href="{href}" style="color:{link_col};'
-                    f' text-decoration:none;">{html.escape(d)}</a>'
-                )
-                dir_parts.append(link)
-            self._director_lbl.setText(f"<b>Director:</b> {', '.join(dir_parts)}")
-            self._director_lbl.show()
-        else:
-            self._director_lbl.hide()
+        directors = _split_directors(director) if director else []
+        names = [
+            (a.get("name", "Unknown") if isinstance(a, dict) else str(a)) for a in cast[:10]
+        ]
+        self._clear_grid()
+        if directors or names:
+            self._grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT)
+            row = 0
+            for key, role, people, attr in (("Director", "director", directors, "directors"),
+                                            ("Cast", "cast", names, "actors")):
+                if not people:
+                    continue
+                grid.addWidget(make_key(key), row, 0, Qt.AlignmentFlag.AlignTop)
+                grid.addWidget(make_flow(
+                    [self._person_chip(n, role, weights, attr) for n in people]), row, 1)
+                row += 1
+            self._content_lay.addWidget(self._grid_w)
 
-        if cast:
-            parts = []
-            for actor in cast[:10]:
-                name = actor.get("name", "Unknown") if isinstance(actor, dict) else str(actor)
-                sig = _pref_signal(name, weights, "actors") if weights else ""
-                href = html.escape(name, quote=True)
-                parts.append(
-                    f'{sig}<a href="{href}" style="color:{link_col};'
-                    f' text-decoration:none;">{html.escape(name)}</a>'
-                )
-            self.cast_label.setText(", ".join(parts))
-        else:
-            self.cast_label.clear()
-
-        self._header.set_summary(str(n) if (n := len(cast)) else "", f"{n} cast member{'s'*(n!=1)}")
+        n = len(names)
+        self._header.set_summary(str(n) if n else "", f"{n} cast member{'s' * (n != 1)}")
         # A director alone OR any cast is enough to show the section.
-        self._has_content = bool(director) or bool(cast)
+        self._has_content = bool(directors or names)
         self._apply_visibility()
+
+    def _person_chip(self, name: str, role: str, weights, attr: str) -> QPushButton:
+        score = getattr(weights, attr, {}).get(name, 0.0) if weights else 0.0
+        if score > 0.3:
+            text, token = f"{_icons.pref_liked_icon} {name}", "COLOR_OK"
+        elif score < -0.3:
+            text, token = f"{_icons.pref_disliked_icon} {name}", "COLOR_ERR"
+        else:
+            text, token = name, "COLOR_ACCENT_BLUE_LIGHT"
+        chip = make_chip(text, token)
+        # Properties + one bound slot, never a lambda over self (leak guard).
+        chip.setProperty("person", name)
+        chip.setProperty("role", role)
+        chip.clicked.connect(self._on_person_clicked)
+        chip.setToolTip(f"{name}\nClick: show everything with {name}")
+        return chip
+
+    def _on_person_clicked(self) -> None:
+        name = self.sender().property("person") if self.sender() else None
+        if name:
+            self.person_clicked.emit(str(name))
+
+    def _clear_grid(self) -> None:
+        if self._grid_w is not None:
+            self._content_lay.removeWidget(self._grid_w)
+            self._grid_w.deleteLater()
+            self._grid_w = None
 
     def clear(self) -> None:
         self._header.set_summary("")
-        self._director_lbl.hide()
-        self.cast_label.clear()
+        self._clear_grid()
         self._has_content = False
         self._apply_visibility()
 
     def _apply_visibility(self) -> None:
-        """Hide the whole Cast & Crew section (header + body) when live, or when
-        there is no cast and no crew — so a credit-less title shows no empty box.
-        Re-shown when a reused pane lands on a title that has people."""
+        """Hide the whole section when live, or when there is no cast and no
+        director — so a credit-less title shows no empty box."""
         self.setVisible(not self._is_live and self._has_content)
-
-
-
-# ---------------------------------------------------------------------------
-# _TagsSection
-# ---------------------------------------------------------------------------
-
-# Canonical display order for facet groups in the Tags section.
-# "category" sits immediately before "genre" — both are content descriptors;
-# category is the live-channel variant (Sports/News/Kids…).
-_FACET_DISPLAY_ORDER: list[str] = [
-    "language", "subtitle", "dub", "format",
-    "region", "category", "genre", "platform", "quality", "decade", "collection",
-]
-
-# Human-readable label for each facet type.
-_FACET_LABELS: dict[str, str] = {
-    "language":    "Language",
-    "subtitle":    "Subtitle",
-    "dub":         "Dub",
-    "format":      "Audio Format",
-    "region":      "Region",
-    "category":    "Category",
-    "genre":       "Genre",
-    "platform":    "Platform",
-    "quality":     "Quality",
-    "decade":      "Decade",
-    "collection":  "Collection",
-    "content_type": "Content Type",
-    # Named in the provider's filename, NOT verified credits — the label says so
-    # because this facet sits a few inches from the authoritative Cast & Crew
-    # section and the two must never read as the same claim. A provider typo
-    # ("Denzel Washigton") lands here honestly; it must not look like a credit.
-    "person":      "Named in Title",
-}
-
-# Confidence threshold below which a chip is styled as low-confidence.
-_LOW_CONF_THRESHOLD: float = 0.5
-
-
-class _TagsSection(CollapsibleMixin, QWidget):
-    """Collapsible 'Tags' section showing stored content_tags, grouped by facet.
-
-    Each tag renders as a chip labeled with:
-    - Provenance: solid border = source-given; dashed border = inferred.
-    - Confidence: dimmed chip text for tags with confidence < 0.5.
-    - Tooltip: feeder names + provenance label + confidence value.
-
-    DR-0006: all tags are shown regardless of confidence — confidence is
-    ranking + prune-priority only, never a suppression gate.
-
-    Chips are interactive (clickable Tags/Collections):
-    - **Left-click** → ``tag_filter_clicked(facet_type, value)``: activates the
-      strict context-filter chip for that EXACT tag facet (no hierarchy rollup).
-    - **Right-click** → ``tag_discover_clicked(facet_type, value)``: opens the
-      tag-cloud Recipe view seeded with that one ingredient (poster shelf).
-    The host (MainWindow) resolves the COLLECTION facet specially — see
-    ``_on_tag_filter_requested`` — to the curated provider category membership,
-    not a re-derived query on the lossy 'collection' residual.
-    """
-
-    COLLAPSE_KEY = "tags"
-
-    # (facet_type, value) — left-click: strict exact-tag context filter
-    tag_filter_clicked = pyqtSignal(str, str)
-    # (facet_type, value) — right-click: seed Discover/Recipe with this one tag
-    tag_discover_clicked = pyqtSignal(str, str)
-
-    def __init__(self, config, parent=None):
-        super().__init__(parent)
-        self.config = config
-        self._setup()
-
-    # ------------------------------------------------------------------ #
-    # Setup                                                                #
-    # ------------------------------------------------------------------ #
-
-    def _setup(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Collapsible header
-        self._header = CollapsibleHeader(f"{_icons.tag_section_icon} Tags")
-        self._header_widget = self._header
-        layout.addWidget(self._header)
-
-        # Scrollable content area — chips can wrap into many rows
-        self._content = QWidget()
-        self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(4, 0, 0, 6)
-        self._content_layout.setSpacing(6)
-        layout.addWidget(self._content)
-        self._wire_header()
-
-        # Initially hidden until tags are loaded
-        self.hide()
-
-    # ------------------------------------------------------------------ #
-    # Public API                                                           #
-    # ------------------------------------------------------------------ #
-
-    def load(self, tags: list) -> None:
-        """Populate section from a list of ChannelTagDTO objects.
-
-        Args:
-            tags: List of ``ChannelTagDTO`` — must not be ORM objects.
-                  Renders all tags grouped by facet in display order.
-        """
-        self._clear_content()
-
-        if not tags:
-            self._header.set_summary("")
-            self.hide()
-            return
-
-        # Group by facet type, preserving DR-0006 "capture all" principle.
-        grouped: dict[str, list] = {}
-        for tag in tags:
-            grouped.setdefault(tag.facet_type, []).append(tag)
-
-        # Sort within each facet: source-given first, then by confidence desc, then value.
-        for facet_tags in grouped.values():
-            facet_tags.sort(key=lambda t: (not t.source_given, -t.confidence, t.value))
-
-        # Render in canonical display order; any unknown facets appended at the end.
-        ordered_facets: list[str] = [
-            f for f in _FACET_DISPLAY_ORDER if f in grouped
-        ]
-        ordered_facets.extend(
-            f for f in sorted(grouped) if f not in _FACET_DISPLAY_ORDER
-        )
-
-        for facet in ordered_facets:
-            self._render_facet_group(facet, grouped[facet])
-
-        self._header.set_summary(str(n := len(tags)), f"{n} tag{'s'*(n != 1)}")
-        self._apply_collapsed()
-        self.show()
-
-    def clear(self) -> None:
-        """Clear all chips and hide the section."""
-        self._header.set_summary("")
-        self._clear_content()
-        self.hide()
-
-    # ------------------------------------------------------------------ #
-    # Internal                                                             #
-    # ------------------------------------------------------------------ #
-
-    def _clear_content(self) -> None:
-        """Remove all child widgets from the content layout."""
-        while self._content_layout.count():
-            item = self._content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-    def _render_facet_group(self, facet: str, tags: list) -> None:
-        """Render a labeled chip row for one facet group."""
-        label_text = _FACET_LABELS.get(facet, facet.replace("_", " ").title())
-
-        # Facet label (e.g. "LANGUAGE")
-        lbl = QLabel(label_text.upper())
-        _theme.style(lbl, "TAG_FACET_LABEL")
-        self._content_layout.addWidget(lbl)
-
-        # Chip row — a wrapping FlowLayout, NEVER a QHBoxLayout.  A facet with many
-        # chips (a long GENRE or LANGUAGE list) must wrap onto additional rows at the
-        # panel width; a non-wrapping QHBoxLayout instead crushes every chip below its
-        # text width (center-elided "tion & Adver", "Animatio") to fit one row.  A flow
-        # packs left-to-right and left-aligns on its own, so no trailing stretch.
-        row = QWidget()
-        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        row_layout = FlowLayout(row, h_spacing=4, v_spacing=4)
-
-        for tag in tags:
-            chip = self._make_chip(tag)
-            row_layout.addWidget(chip)
-
-        self._content_layout.addWidget(row)
-
-    def _make_chip(self, tag) -> QPushButton:
-        """Build a single QPushButton chip for a ChannelTagDTO."""
-        # Provenance prefix: ■ = source-given, □ = inferred
-        prov_icon = (
-            _icons.tag_source_given_icon if tag.source_given
-            else _icons.tag_inferred_icon
-        )
-        # content_type values are stored slugs (e.g. "ai_generated"); render the
-        # friendly label via the single display chokepoint.  The click identity
-        # (tag.value) below is unchanged — display only.
-        if tag.facet_type == "content_type":
-            from metatv.core.channel_name_utils import content_type_display
-            display_value = content_type_display(tag.value)
-        else:
-            display_value = tag.value
-        label = f"{prov_icon} {display_value}"
-
-        # Escape "&" for display — a facet value like "Kids & Family" or a
-        # collection name would otherwise render its "&" as a mnemonic
-        # underscore.  tag.value (captured above) stays raw for the emit.
-        chip = QPushButton(escape_mnemonic(label))
-        chip.setFlat(True)
-        chip.setFixedHeight(22)
-
-        # Provenance style: source-given = solid border; inferred = dashed border.
-        # Low-confidence = extra dimming on top of provenance style.
-        if tag.source_given:
-            _theme.style(chip, "TAG_CHIP_SOURCE")
-        else:
-            _theme.style(chip, "TAG_CHIP_INFERRED")
-
-        # Interactivity: left-click → strict context filter for this exact facet;
-        # right-click → seed Discover/Recipe with this one tag.  Default-arg
-        # capture pins each chip's own (facet_type, value).
-        _ftype, _val = tag.facet_type, tag.value
-        chip.clicked.connect(
-            lambda _checked=False, ft=_ftype, v=_val: self.tag_filter_clicked.emit(ft, v)
-        )
-        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        chip.customContextMenuRequested.connect(
-            lambda _pos, ft=_ftype, v=_val: self.tag_discover_clicked.emit(ft, v)
-        )
-
-        # Tooltip: feeder list + provenance label + confidence value + actions.
-        prov_label = "Given by source" if tag.source_given else "Inferred by MetaTV"
-        feeder_str = ", ".join(tag.feeders) if tag.feeders else "unknown"
-        conf_pct = round(tag.confidence * 100)
-        conf_note = "" if tag.confidence >= _LOW_CONF_THRESHOLD else " (low confidence)"
-        if _ftype == "collection":
-            action_hint = (
-                "Click: show this collection's channels  ·  "
-                "Right-click: Discover this collection"
-            )
-        else:
-            action_hint = (
-                "Click: filter to this tag  ·  Right-click: Discover this tag"
-            )
-        chip.setToolTip(
-            f"{tag.facet_type}: {display_value}\n"
-            f"Provenance: {prov_label}\n"
-            f"Feeder(s): {feeder_str}\n"
-            f"Confidence: {conf_pct}%{conf_note}\n"
-            f"{action_hint}"
-        )
-
-        return chip
-
-

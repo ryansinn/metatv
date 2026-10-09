@@ -44,7 +44,7 @@ def _rating_rich_text(rating: float) -> str:
 
     The number is ``COLOR_GOLD`` and bold; the "/ 10" is the plain
     ``COLOR_TEXT`` ramp.  Both are TOKEN references resolved at call time
-    (same convention as ``_pref_signal`` in ``details_sections.py``), not a
+    (the same convention the theme roles use), not a
     hardcoded hex literal — this is rich-text content, not a stylesheet, so
     it is rebuilt on every ``load_basic``/``load_metadata`` call rather than
     re-applied by ``theme.style_fn`` on a palette switch.

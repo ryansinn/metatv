@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, QSize, Qt
 
 from metatv.gui import cursor_affordance
+from metatv.gui.chip_row import MiddleElideLabel
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -224,12 +225,21 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # preview lightbox (non-destructive — keeps the anchor you came from, so you
         # never lose the source title); right-click commits to the full details pane
         # for that title. No separate ⤢ affordance — the row IS the lightbox trigger.
-        name_btn = QPushButton(clean_title)
+        # The button keeps the clicks; the title is painted by the shared
+        # MiddleElideLabel inside it, so a long title elides ("Long ti…tle")
+        # like Favorites/History instead of running under the year.
+        name_btn = QPushButton()
         name_btn.setFlat(True)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        _theme.style_fn(name_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
-            f" font-size: {_theme.FONT_MD}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}")
+        _theme.style_fn(name_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; border: none; }}")
+        name_lbl = MiddleElideLabel(clean_title, color_token="COLOR_TEXT")
+        name_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        name_lbl.setMinimumWidth(0)
+        name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; background: transparent;")
+        name_lay = QHBoxLayout(name_btn)
+        name_lay.setContentsMargins(0, 0, 0, 0)
+        name_lay.addWidget(name_lbl)
         name_btn.setToolTip(
             f"{clean_title}\nClick: preview in lightbox  ·  Right-click: open in details pane"
         )

@@ -401,7 +401,7 @@ def owned_widgets():
     Usage::
 
         def test_x(qapp, owned_widgets):
-            section = owned_widgets.own(_TagsSection(config))
+            section = owned_widgets.own(_DetailsSection(config))
     """
     from types import SimpleNamespace
 

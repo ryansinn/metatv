@@ -45,7 +45,7 @@ def test_all_six_sections_are_collapsible(pane):
     nodeid) — see ``test_overview_and_also_available_gained_the_ability``
     below for the same note.
     """
-    assert len(pane._collapsible_sections) == 5
+    assert len(pane._collapsible_sections) == 4  # Overview, Cast, Details, Similar (DETAILS-3d)
     for section in pane._collapsible_sections:
         assert isinstance(section._header, CollapsibleHeader)
 
@@ -82,7 +82,7 @@ def test_collapsing_a_section_hides_its_body_and_nothing_else(pane, qapp):
     )
 
 
-@pytest.mark.parametrize("index", range(5))
+@pytest.mark.parametrize("index", range(4))
 def test_every_section_actually_hides_its_body(pane, qapp, index):
     """Each section, individually. Not one of them, five times.
 

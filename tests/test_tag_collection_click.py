@@ -67,47 +67,35 @@ def _fake_config():
 
 
 def _collect_chips(section) -> list:
-    """Walk the section's content tree and return every chip QPushButton."""
+    """Every fact chip in the section (the header's own button excluded)."""
     from PyQt6.QtWidgets import QPushButton
-
-    result = []
-    layout = section._content.layout()
-    if layout is None:
-        return result
-    for i in range(layout.count()):
-        w = layout.itemAt(i).widget() if layout.itemAt(i) else None
-        if w is None or w.layout() is None:
-            continue
-        row = w.layout()
-        for j in range(row.count()):
-            sub = row.itemAt(j)
-            if sub and isinstance(sub.widget(), QPushButton):
-                result.append(sub.widget())
-    return result
+    return [c for c in section.findChildren(QPushButton) if c.property("facet")]
 
 
 # ---------------------------------------------------------------------------
-# 1. _TagsSection interactivity
+# 1. _DetailsSection interactivity
 # ---------------------------------------------------------------------------
 
 class TestTagsSectionInteractivity:
     """Tag chips emit filter (left) / discover (right) with the exact facet."""
 
     def _section(self, owned_widgets):
-        from metatv.gui.details_sections import _TagsSection
-        return owned_widgets.own(_TagsSection(_fake_config()))
+        from metatv.gui.details_facts import _DetailsSection
+        sec = owned_widgets.own(_DetailsSection(_fake_config()))
+        sec.set_copy(provider_name="TREX", copy_code="EN")
+        return sec
 
     def test_left_click_emits_tag_filter_clicked(self, qapp, owned_widgets):
         sec = self._section(owned_widgets)
         captured: list[tuple[str, str]] = []
         sec.tag_filter_clicked.connect(lambda ft, v: captured.append((ft, v)))
 
-        sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
+        sec.load_tags([ChannelTagDTO("language", "English", True, 0.9, ("provider_category",))])
         chips = _collect_chips(sec)
         assert len(chips) == 1
         chips[0].click()  # left-click
 
-        assert captured == [("genre", "Drama")], (
+        assert captured == [("language", "English")], (
             "Left-click must emit tag_filter_clicked with the exact (facet, value)"
         )
 
@@ -118,7 +106,7 @@ class TestTagsSectionInteractivity:
         captured: list[tuple[str, str]] = []
         sec.tag_discover_clicked.connect(lambda ft, v: captured.append((ft, v)))
 
-        sec.load([ChannelTagDTO("language", "French", False, 0.4, ("name_parse",))])
+        sec.load_tags([ChannelTagDTO("language", "French", False, 0.4, ("name_parse",))])
         chips = _collect_chips(sec)
         assert len(chips) == 1
         # Right-click → custom context menu request signal.
@@ -128,23 +116,12 @@ class TestTagsSectionInteractivity:
             "Right-click must emit tag_discover_clicked with the exact (facet, value)"
         )
 
-    def test_collection_chip_emits_collection_facet(self, qapp, owned_widgets):
-        sec = self._section(owned_widgets)
-        captured: list[tuple[str, str]] = []
-        sec.tag_filter_clicked.connect(lambda ft, v: captured.append((ft, v)))
-
-        sec.load([ChannelTagDTO("collection", "Wow Action", True, 0.9, ("header",))])
-        chips = _collect_chips(sec)
-        chips[0].click()
-
-        assert captured == [("collection", "Wow Action")]
-
     def test_chip_has_pointing_hand_cursor(self, qapp, owned_widgets):
         from PyQt6.QtCore import QEvent, Qt
         from metatv.gui.cursor_affordance import PointingHandFilter
 
         sec = self._section(owned_widgets)
-        sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
+        sec.load_tags([ChannelTagDTO("language", "English", True, 0.9, ("provider_category",))])
         chip = _collect_chips(sec)[0]
 
         # Chips are QPushButtons — the app-level affordance filter (not a
@@ -154,7 +131,7 @@ class TestTagsSectionInteractivity:
 
     def test_chip_tooltip_mentions_actions(self, qapp, owned_widgets):
         sec = self._section(owned_widgets)
-        sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
+        sec.load_tags([ChannelTagDTO("language", "English", True, 0.9, ("provider_category",))])
         tip = _collect_chips(sec)[0].toolTip()
         assert "Click" in tip and "Right-click" in tip
 

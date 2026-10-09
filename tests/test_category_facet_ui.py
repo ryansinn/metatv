@@ -267,14 +267,14 @@ class TestDetailsSectionsCategoryFacet:
 
     def test_category_in_facet_display_order(self):
         """'category' must be in _FACET_DISPLAY_ORDER."""
-        from metatv.gui.details_sections import _FACET_DISPLAY_ORDER
+        from metatv.gui.details_facts import _FACET_DISPLAY_ORDER
         assert "category" in _FACET_DISPLAY_ORDER, (
             "'category' must be in _FACET_DISPLAY_ORDER"
         )
 
     def test_category_before_genre_in_display_order(self):
         """'category' must appear before 'genre' in _FACET_DISPLAY_ORDER."""
-        from metatv.gui.details_sections import _FACET_DISPLAY_ORDER
+        from metatv.gui.details_facts import _FACET_DISPLAY_ORDER
         cat_idx = _FACET_DISPLAY_ORDER.index("category")
         genre_idx = _FACET_DISPLAY_ORDER.index("genre")
         assert cat_idx < genre_idx, (
@@ -283,7 +283,7 @@ class TestDetailsSectionsCategoryFacet:
 
     def test_category_label_in_facet_labels(self):
         """_FACET_LABELS must map 'category' → 'Category'."""
-        from metatv.gui.details_sections import _FACET_LABELS
+        from metatv.gui.details_facts import _FACET_LABELS
         assert _FACET_LABELS.get("category") == "Category", (
             f"_FACET_LABELS['category'] must be 'Category'; got {_FACET_LABELS.get('category')!r}"
         )

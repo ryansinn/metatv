@@ -18,9 +18,9 @@ from metatv.metadata_providers.base import MetadataResult
 
 # Section widgets
 from metatv.gui.details_sections import (
-    _PosterSection, _PlotSection, _TechnicalSection, _CastSection,
-    _TagsSection, _no_width_force,
+    _PosterSection, _PlotSection, _CastSection, _no_width_force,
 )
+from metatv.gui.details_facts import _DetailsSection
 from metatv.gui.details_title import _MetadataSection
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
@@ -230,7 +230,7 @@ class DetailsPaneWidget(QWidget):
         """
         if not self.current_channel or self.current_channel.id != channel_id:
             return  # stale response — user already moved on
-        self._tags.load(tags)
+        self._details.load_tags(tags)
         # Title block: genre-facet tags fold into the genre row (dashed when
         # guessed); the first collection-facet tag's value feeds the source
         # row's collection chip.
@@ -268,10 +268,9 @@ class DetailsPaneWidget(QWidget):
         self._configure_for(is_live)
 
         # Clear all sections
-        for s in (self._poster, self._meta, self._plot, self._tech,
+        for s in (self._poster, self._meta, self._plot, self._details,
                   self._cast, self._action_bar):
             s.clear()
-        self._tags.clear()
         if metadata is None:
             self._versions.clear()
             self._similar.clear()
@@ -296,6 +295,10 @@ class DetailsPaneWidget(QWidget):
 
         # Tier 1: instant display from channel attributes
         self._meta.load_basic(channel, self._provider_map)
+        self._details.set_copy(
+            provider_name=self.provider_name(channel.provider_id) if channel.provider_id else "",
+            copy_code=getattr(channel, "detected_prefix", None) or "",
+        )
         self._action_bar.update_favorite(channel.is_favorite)
         _is_series = getattr(channel, "media_type", None) == MediaType.SERIES
         # Primary button caption: a SERIES root drills in (🗂 Browse); movies/live
@@ -495,7 +498,9 @@ class DetailsPaneWidget(QWidget):
         # 10+scrollbar reservation read as a too-wide right gap.  Halve it for a tighter,
         # more symmetric inset while still clearing an overlay scrollbar.
         self._content_layout.setContentsMargins(10, 10, (10 + _sb) // 2, 10)
-        self._content_layout.setSpacing(10)
+        # 4px between sections (the design's rhythm); "Available in" adds 8 of
+        # its own on top so the copies row stands 12px clear of the source row.
+        self._content_layout.setSpacing(4)
 
         self._poster   = _PosterSection(self.config, self.image_cache)
         self._meta     = _MetadataSection(self.config)
@@ -541,9 +546,9 @@ class DetailsPaneWidget(QWidget):
         self._versions = _VersionSection(self.config)
         self._action_bar = _ActionBar(self.config)
         self._plot     = _PlotSection()
-        self._tech     = _TechnicalSection(self.config)
+        self._versions.setContentsMargins(0, 8, 0, 0)
         self._cast     = _CastSection(self.config)
-        self._tags     = _TagsSection(self.config)
+        self._details  = _DetailsSection(self.config)
         self._similar  = _SimilarSection(self.config)
 
         # Restore collapse state. Every section that owns a CollapsibleHeader
@@ -555,8 +560,7 @@ class DetailsPaneWidget(QWidget):
         # collapsible — the shared header never applied to it the way it did
         # to the other five.
         self._collapsible_sections = (
-            self._plot, self._cast, self._tech,
-            self._tags, self._similar,
+            self._plot, self._cast, self._details, self._similar,
         )
         for section in self._collapsible_sections:
             section.restore_collapse_state(self.config.details_pane_collapsed_sections)
@@ -567,7 +571,7 @@ class DetailsPaneWidget(QWidget):
         for widget in (
             self._poster, self._meta, self._source_notice_lbl, self._byline,
             self._episode_meta_row, self._versions,
-            self._plot, self._cast, self._tech, self._tags, self._similar,
+            self._plot, self._cast, self._details, self._similar,
         ):
             self._content_layout.addWidget(widget)
 
@@ -660,8 +664,8 @@ class DetailsPaneWidget(QWidget):
         self._cast.person_clicked.connect(self.person_filter_requested)
 
         # Tag / collection chips — left-click filters, right-click opens Discover.
-        self._tags.tag_filter_clicked.connect(self.tag_filter_requested)
-        self._tags.tag_discover_clicked.connect(self.tag_discover_requested)
+        self._details.tag_filter_clicked.connect(self.tag_filter_requested)
+        self._details.tag_discover_clicked.connect(self.tag_discover_requested)
 
         # Similar titles
         s = self._similar
@@ -702,7 +706,7 @@ class DetailsPaneWidget(QWidget):
         self._poster.set_mode(is_live)
         self._meta.set_mode(is_live)
         self._plot.set_mode(is_live)
-        self._tech.set_mode(is_live)
+        self._details.set_mode(is_live)
         self._cast.set_mode(is_live)
         self._action_bar.set_mode(is_live)
 
@@ -731,12 +735,12 @@ class DetailsPaneWidget(QWidget):
         self.weights_requested.emit(self.current_channel.id)
 
     def _render_people(self, metadata: MetadataResult, weights) -> None:
-        """Paint Technical + Cast. ``weights`` adds the ▲/▼ preference markers.
+        """Paint the release date (Details) + Cast. ``weights`` adds the ▲/▼ preference markers.
 
         The one place both sections are rendered, so the first (un-annotated)
         pass and the later annotated one cannot drift apart.
         """
-        self._tech.load(metadata, weights)
+        self._details.load_metadata(metadata)
         self._cast.load(metadata.cast or [], director=metadata.director, weights=weights)
 
     # ------------------------------------------------------------------ #

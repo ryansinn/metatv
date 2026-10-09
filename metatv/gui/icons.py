@@ -245,13 +245,11 @@ notification_info_icon: str = ""
 migration_pending_icon: str = "◻"   # U+25FB WHITE MEDIUM SQUARE — task not yet done
 migration_done_icon: str = "✓"      # U+2713 CHECK MARK — task complete
 
-# Tag provenance indicators (details pane — DR-0006 display)
-# source_given: provider explicitly supplied this value (solid square — asserted fact)
-tag_source_given_icon: str = "■"    # U+25A0 BLACK SQUARE — "provider said so"
-# inferred: MetaTV derived this from a secondary signal (hollow square — estimated)
-tag_inferred_icon: str = "□"        # U+25A1 WHITE SQUARE — "MetaTV guessed this"
-# tags section header
-tag_section_icon: str = "🏷"        # tag/label icon for the Tags collapsible header
+# Taste markers on a details-pane person chip (Cast section): you have liked /
+# disliked work by this person. Their own keys, not move_up/move_down — a
+# reorder arrow and a taste marker must be free to diverge.
+pref_liked_icon: str = "▲"          # U+25B2 BLACK UP-POINTING TRIANGLE
+pref_disliked_icon: str = "▼"       # U+25BC BLACK DOWN-POINTING TRIANGLE
 
 # Tag cloud — state mark prefixes (WeightedTagCloud)
 tag_include_icon: str = "✓"   # U+2713 CHECK MARK — "this facet value is included in filter"

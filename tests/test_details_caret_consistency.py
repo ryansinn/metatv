@@ -45,16 +45,14 @@ def _sections(cfg):
     on plus every sibling, always visible — so it never had the shared header
     to drift away from in the first place.
     """
-    from metatv.gui.details_sections import (
-        _CastSection, _PlotSection, _TagsSection, _TechnicalSection,
-    )
+    from metatv.gui.details_facts import _DetailsSection
+    from metatv.gui.details_sections import _CastSection, _PlotSection
     from metatv.gui.details_similar import _SimilarSection
 
     return {
         "Overview": _PlotSection(),
         "Cast": _CastSection(cfg),
-        "Technical": _TechnicalSection(cfg),
-        "Tags": _TagsSection(cfg),
+        "Details": _DetailsSection(cfg),
         "Similar": _SimilarSection(cfg),
     }
 
