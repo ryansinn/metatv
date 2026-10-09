@@ -38,16 +38,34 @@ def pane(qapp, tmp_path):
 
 
 def test_all_six_sections_are_collapsible(pane):
-    assert len(pane._collapsible_sections) == 6
+    """Five, now — not six. DETAILS-3c made "Available in" (``_versions``)
+    always visible and never collapsible — the copy you are on plus every
+    sibling, not a disclosure — so it dropped out of this tuple. Name kept
+    (nodeid matters for the Qt-widget-leak allowlist, which is keyed by
+    nodeid) — see ``test_overview_and_also_available_gained_the_ability``
+    below for the same note.
+    """
+    assert len(pane._collapsible_sections) == 5
     for section in pane._collapsible_sections:
         assert isinstance(section._header, CollapsibleHeader)
 
 
 def test_overview_and_also_available_gained_the_ability(pane):
-    """The two that previously had no way to fold away."""
+    """Overview, really — "Available in" lost the ability back (DETAILS-3c).
+
+    Test name kept as-is: it is a key into
+    ``tests/top_level_widget_leak_allowlist.json``, and renaming it would
+    orphan that entry for an unrelated, pre-existing widget-lifetime leak in
+    the ``pane`` fixture this file already carried — not something this
+    slice's chip-signal wiring introduced or should paper over with a new
+    allowlist entry.
+    """
     keys = {s.COLLAPSE_KEY for s in pane._collapsible_sections}
     assert "overview" in keys, "Overview still cannot collapse"
-    assert "versions" in keys, "Also available still cannot collapse"
+    assert "versions" not in keys, (
+        "'Available in' must not carry a collapse key — DETAILS-3c made it "
+        "always visible"
+    )
 
 
 def test_collapsing_a_section_hides_its_body_and_nothing_else(pane, qapp):
@@ -64,21 +82,20 @@ def test_collapsing_a_section_hides_its_body_and_nothing_else(pane, qapp):
     )
 
 
-@pytest.mark.parametrize("index", range(6))
+@pytest.mark.parametrize("index", range(5))
 def test_every_section_actually_hides_its_body(pane, qapp, index):
-    """Each section, individually. Not one of them, six times.
+    """Each section, individually. Not one of them, five times.
 
     This is the test that was missing, and the bug it now catches shipped
-    because of the gap: three of the six sections never connected their
-    header's ``toggled`` signal to the code that hides the body, so they
-    flipped their chevron and saved their state while staying open. The
-    original test drove ``pane._plot`` — which happened to be one of the three
-    that WAS wired — and passed.
+    because of the gap: three of the six sections (as they were then) never
+    connected their header's ``toggled`` signal to the code that hides the
+    body, so they flipped their chevron and saved their state while staying
+    open. The original test drove ``pane._plot`` — which happened to be one
+    of the three that WAS wired — and passed.
 
-    The body is shown first because two sections (Also available, Tags) hide
-    themselves entirely until they have content, and a section that is hidden
-    for that reason would report "not visible" and pass without collapsing
-    anything.
+    The body is shown first because Tags hides itself entirely until it has
+    content, and a section that is hidden for that reason would report "not
+    visible" and pass without collapsing anything.
     """
     section = pane._collapsible_sections[index]
     section._header.set_collapsed(False)

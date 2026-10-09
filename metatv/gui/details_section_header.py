@@ -43,7 +43,7 @@ class CollapsibleHeader(QWidget):
     toggled = pyqtSignal(bool)
 
     def __init__(self, title: str, *, collapsed: bool = False,
-                 hint: str = "", nested: bool = False, parent=None):
+                 hint: str = "", parent=None):
         """
         Args:
             title: The section's name — also what its tooltip names, so a
@@ -52,9 +52,6 @@ class CollapsibleHeader(QWidget):
             hint: An explanation appended after the toggle phrase, for a
                 section whose name does not say what is in it ("Offline
                 sources" → "variants on a source you have turned off").
-            nested: This header sits INSIDE another section, so it renders one
-                step down the type scale. Without it a sub-section header is
-                the same size as its parent's and reads as its sibling.
             parent: Qt parent.
         """
         super().__init__(parent)
@@ -77,8 +74,7 @@ class CollapsibleHeader(QWidget):
 
         self._title = QPushButton(title)
         self._title.setFlat(True)
-        _theme.style(self._title,
-                     "DETAIL_SUBSECTION_TITLE" if nested else "DETAIL_SECTION_TITLE")
+        _theme.style(self._title, "DETAIL_SECTION_TITLE")
         cursor_affordance.set_clickable(self._title)
         self._title.clicked.connect(self.toggle)
         row.addWidget(self._title)

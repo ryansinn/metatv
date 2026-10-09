@@ -201,12 +201,12 @@ class TestVersionChipsProviderScoping:
         return obj
 
     def test_disabled_provider_variant_excluded_from_live_versions(self, tmp_path):
-        """A LIVE variant on a disabled provider appears as is_inactive=True in emitted versions.
+        """A LIVE variant on a DISABLED provider never appears at all (DETAILS-3c).
 
-        Source-picker chips show ALL variants (including inactive) so the user can
-        opt into an inactive source explicitly (mirror-not-cage).  Inactive variants
-        are marked is_inactive=True and rendered dimmed with a 'Reactivate & play'
-        affordance rather than hidden entirely.
+        This used to assert the variant was included, merely flagged
+        ``is_inactive=True``. That dimmed-not-dropped treatment is exactly
+        what the absolute gate forbids — a source the user turned off must
+        never appear in a forward-looking view, not even dimmed.
         """
         db = _make_db(tmp_path)
 
@@ -234,12 +234,9 @@ class TestVersionChipsProviderScoping:
         _, versions = obj._emitted[0]
         version_map = {v.channel_id: v for v in versions}
 
-        # Inactive-source variant IS included but flagged is_inactive=True
-        assert "ch-dead" in version_map, (
-            "Inactive-source variant must be included in version chips (dimmed, with reactivate affordance)"
-        )
-        assert version_map["ch-dead"].is_inactive is True, (
-            "Variant on a disabled provider must be marked is_inactive=True"
+        # A disabled provider's variant must never reach the version list at all.
+        assert "ch-dead" not in version_map, (
+            "A disabled source's variant must never appear as a version chip"
         )
         # Active-source variant is not marked inactive
         assert "ch-alt" in version_map, (
@@ -251,12 +248,10 @@ class TestVersionChipsProviderScoping:
         db.close()
 
     def test_disabled_provider_variant_excluded_from_vod_versions(self, tmp_path):
-        """A VOD variant on a disabled provider appears as is_inactive=True in emitted versions.
+        """A VOD variant on a DISABLED provider never appears at all (DETAILS-3c).
 
-        Source-picker chips show ALL variants (including inactive) so the user can
-        opt into an inactive source explicitly (mirror-not-cage).  Inactive variants
-        are marked is_inactive=True and rendered dimmed with a 'Reactivate & play'
-        affordance rather than hidden entirely.
+        Same absolute gate as the live-channel case above: dropped entirely,
+        not merely dimmed.
         """
         db = _make_db(tmp_path)
 
@@ -284,12 +279,9 @@ class TestVersionChipsProviderScoping:
         _, versions = obj._emitted[0]
         version_map = {v.channel_id: v for v in versions}
 
-        # Inactive-source variant IS included but flagged is_inactive=True
-        assert "vod-dead" in version_map, (
-            "Inactive-source variant must be included in version chips (dimmed, with reactivate affordance)"
-        )
-        assert version_map["vod-dead"].is_inactive is True, (
-            "VOD variant on a disabled provider must be marked is_inactive=True"
+        # A disabled provider's VOD variant must never reach the version list.
+        assert "vod-dead" not in version_map, (
+            "A disabled source's VOD variant must never appear as a version chip"
         )
         # Active-source variant is still shown normally
         assert "vod-4k" in version_map, (

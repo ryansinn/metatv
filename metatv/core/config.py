@@ -768,7 +768,6 @@ class Config(BaseModel):
     rec_impression_decay: float | None = None        # score drop per impression
     rec_liked_cap: int | None = None                 # already-liked slots in the list
 
-
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification
     notification_success_icon: str = "✓"  # Success notification
@@ -1270,6 +1269,7 @@ class Config(BaseModel):
     # portrait 2:3 poster fills the card without pillarbox padding — see
     # docs/DETAILS_PANE_DESIGN.md → "Poster sizing")
     details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
+    details_pane_open_copy_buckets: list = Field(default_factory=list)  # Which "Available in" buckets (filtered/offline) are open
 
     # Version preference settings (used in "Other Versions" section of details pane)
     preferred_version_prefixes: list = Field(default_factory=list)

@@ -119,9 +119,28 @@ def _kraven(n_regions=19):
     return out
 
 
+def _active_grid(section):
+    """The grid widget _render() most recently built — row 0, column 1 is
+    the active (current + region/flat) flow; row 0, column 0 is the
+    "Available in" key."""
+    return section._body_layout.itemAt(0).widget().layout()
+
+
+def _available_key(section):
+    return _active_grid(section).itemAtPosition(0, 0).widget()
+
+
+def _active_flow(section):
+    return _active_grid(section).itemAtPosition(0, 1).widget()
+
+
+def _active_chips(section):
+    flow = _active_flow(section).layout()
+    return [flow.itemAt(i).widget() for i in range(flow.count())]
+
+
 def _chip_texts(section):
-    lay = section._chips_layout
-    return [lay.itemAt(i).widget().text() for i in range(lay.count())]
+    return [c.text() for c in _active_chips(section)]
 
 
 def test_sixty_five_versions_render_as_twelve_chips_and_a_tail(section, qapp):
@@ -129,9 +148,9 @@ def test_sixty_five_versions_render_as_twelve_chips_and_a_tail(section, qapp):
     qapp.processEvents()
     texts = _chip_texts(section)
     assert len(texts) == DEFAULT_VISIBLE_REGIONS + 1
-    assert texts[0].startswith("DE")
-    assert texts[-1] == "+ 7 more"
-    assert section._header.summary() == "65 versions · 19 regions"
+    assert texts[0].startswith("Germany (DE)")
+    assert texts[-1] == "+7 more regions"
+    assert _available_key(section).toolTip() == "65 versions · 19 regions"
 
 
 def test_the_chips_are_actually_laid_out_side_by_side(section, qapp):
@@ -142,15 +161,16 @@ def test_the_chips_are_actually_laid_out_side_by_side(section, qapp):
     """
     section.load(_kraven())
     qapp.processEvents()
-    lay = section._chips_layout
-    rects = [lay.itemAt(i).widget().geometry() for i in range(lay.count())]
+    chips = _active_chips(section)
+    flow_widget = _active_flow(section)
+    rects = [c.geometry() for c in chips]
 
     assert len({(r.x(), r.y()) for r in rects}) == len(rects), "chips overlap"
     assert len({r.y() for r in rects}) > 1, "the grid did not wrap onto a second row"
     for rect in rects:
-        assert rect.right() <= section._chips_row.width() + 1, (
+        assert rect.right() <= flow_widget.width() + 1, (
             f"a chip is drawn past the grid's right edge "
-            f"({rect.right()} > {section._chips_row.width()})"
+            f"({rect.right()} > {flow_widget.width()})"
         )
     rows = {}
     for rect in rects:
@@ -164,12 +184,10 @@ def test_the_chips_are_actually_laid_out_side_by_side(section, qapp):
 def test_re_rendering_the_grid_leaves_nothing_behind(section, qapp):
     """The old chips must leave the SCREEN, not just the layout.
 
-    ``deleteLater()`` schedules destruction for the next event-loop pass; until
-    then the widget is still a visible child painting where it was. Removing it
-    from the layout only stops it being positioned. Drilling into a region
-    therefore drew the version chips straight on top of the region chips — and
-    a test that reads layout items cannot see it, because the stale widgets are
-    exactly the ones no longer IN the layout.
+    _render() rebuilds the whole grid widget on every drill/toggle; the OLD
+    grid widget must actually be gone, not merely replaced in the layout —
+    drilling into a region must not draw the version chips on top of the
+    stale region chips.
     """
     from PyQt6.QtWidgets import QPushButton
 
@@ -178,10 +196,8 @@ def test_re_rendering_the_grid_leaves_nothing_behind(section, qapp):
     section._expand_region("DE")
     qapp.processEvents()
 
-    live = [c for c in section._chips_row.findChildren(QPushButton)
-            if c.isVisible()]
-    in_layout = {section._chips_layout.itemAt(i).widget()
-                 for i in range(section._chips_layout.count())}
+    live = [c for c in section._body.findChildren(QPushButton) if c.isVisible()]
+    in_layout = set(_active_chips(section))
     orphans = [c.text() for c in live if c not in in_layout]
     assert not orphans, (
         f"chips left visible after a re-render: {orphans} — they are drawn "
@@ -206,7 +222,19 @@ def test_clicking_a_region_shows_that_regions_versions(section, qapp):
     choosing on the user's behalf. It opens them instead, and every per-version
     interaction (right-click menu, play, favourite) is still there one click in.
     """
-    section.load(_kraven())
+    versions = _kraven()
+    # This fixture never sets detected_prefix, so every DE version's chip
+    # label would otherwise be the SAME "?" placeholder — which the
+    # DETAILS-3c merge rule (identical labels collapse into one "×N" chip)
+    # would legitimately fold into ONE chip. Give them distinct prefixes so
+    # this test still exercises "nine individually reachable chips", which is
+    # the property under test here, not the merge rule.
+    i = 0
+    for v in versions:
+        if v.detected_region == "DE":
+            v.detected_prefix = f"DE{i}"
+            i += 1
+    section.load(versions)
     qapp.processEvents()
     section._expand_region("DE")
     qapp.processEvents()
@@ -235,7 +263,7 @@ def test_a_reload_that_drops_the_open_region_does_not_strand_the_pane(section, q
     qapp.processEvents()
 
     assert section._region_expanded is None, "still drilled into the old title"
-    assert _chip_texts(section)[0].startswith("DE")
+    assert _chip_texts(section)[0].startswith("Germany (DE)")
 
 
 # ── When NOT to group ────────────────────────────────────────────────────────
@@ -246,25 +274,32 @@ def test_a_handful_of_versions_are_not_grouped_at_all(section, qapp):
     Three versions rendered as three region chips costs a click to reach any of
     them and drops the source icon and quality tier from the face — strictly
     worse than the flat list it replaced. So below the threshold nothing
-    changes: the chips are the versions, exactly as before.
+    changes: the chips are the versions, exactly as before (the quality tier
+    now lives in its own badge rather than as literal chip text — see
+    detail_chips.add_quality_badge — but it is still right there on the chip).
     """
+    from PyQt6.QtWidgets import QPushButton
+
     from metatv.gui.details_versions import ChannelVersion
 
     versions = [
         ChannelVersion(channel_id=f"v{i}", name=f"V{i}", in_queue=False,
-                       detected_prefix="US", detected_quality="HD")
-        for i in range(3)
+                       detected_prefix=p, detected_quality="HD")
+        for i, p in enumerate(["US", "GB", "FR"])
     ]
     section.load(versions)
     qapp.processEvents()
 
-    texts = _chip_texts(section)
-    assert len(texts) == 3, "three versions should render as three chips"
-    assert not any(t.startswith("+") for t in texts), "no tail for three chips"
-    assert all("HD" in t for t in texts), (
-        "the flat chip still carries its quality tier — that detail is what "
-        "grouping gives up, and there is no reason to give it up here"
-    )
+    chips = _active_chips(section)
+    assert len(chips) == 3, "three distinct versions should render as three chips"
+    assert not any(c.text().startswith("+") for c in chips), "no tail for three chips"
+    for chip in chips:
+        badges = [w for w in chip.findChildren(QPushButton) if w is not chip]
+        assert any(b.text() == "HD" for b in badges), (
+            "the flat chip still carries its quality tier as a badge — that "
+            "detail is what grouping gives up, and there is no reason to give "
+            "it up here"
+        )
 
 
 def test_the_grid_groups_the_moment_the_flat_list_would_be_a_wall(section, qapp):
@@ -273,8 +308,11 @@ def test_the_grid_groups_the_moment_the_flat_list_would_be_a_wall(section, qapp)
     from metatv.gui.details_versions import ChannelVersion
 
     def _n(count):
+        # detected_prefix is unique per version so the flat (below-threshold)
+        # render's DETAILS-3c merge rule doesn't collapse them into one
+        # "×N" chip; detected_region groups them 4 ways once grouping kicks in.
         return [ChannelVersion(channel_id=f"v{i}", name=f"V{i}", in_queue=False,
-                               detected_region=f"R{i % 4}")
+                               detected_region=f"R{i % 4}", detected_prefix=f"P{i}")
                 for i in range(count)]
 
     section.load(_n(GROUPING_THRESHOLD))

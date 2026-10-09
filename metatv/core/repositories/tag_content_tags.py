@@ -251,6 +251,36 @@ class ContentTagCrudMixin:
         )
         return [(r.type, r.value) for r in rows]
 
+    def collections_for(self, channel_ids: List[str]) -> Dict[str, str]:
+        """Return each channel's stored ``collection`` tag value, in one query.
+
+        The batch form of reading ``facet_type == "collection"`` off
+        :meth:`get_channel_tags_dto`: when a channel carries several, the
+        alphabetically first wins — the same one that single-channel read
+        surfaces (it sorts by type, then value).
+
+        Args:
+            channel_ids: ``ChannelDB.id`` values to look up.
+
+        Returns:
+            ``{channel_id: collection}``; a channel with no collection tag is
+            absent.
+        """
+        if not channel_ids:
+            return {}
+        rows = (
+            self.session.query(ChannelDB.id, TagDB.value)
+            .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
+            .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+            .filter(ChannelDB.id.in_(channel_ids), TagDB.type == "collection")
+            .order_by(TagDB.value)
+            .all()
+        )
+        out: Dict[str, str] = {}
+        for channel_id, value in rows:
+            out.setdefault(channel_id, value)
+        return out
+
     def channels_for_tag(self, type: str, value: str) -> List[str]:
         """Return ``channel_id`` strings for every channel carrying ``(type, value)``.
 

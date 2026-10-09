@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidg
 from metatv.core.channel_name_utils import QUALITY_TOKENS, REGION_FULL_NAMES
 from metatv.gui import chip_row, cursor_affordance
 from metatv.gui import theme
-from metatv.gui.details_versions import resolve_category_name
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.gui.tokens.detail_roles import chip_geometry
@@ -254,6 +253,11 @@ def display_code(code: str, config=None) -> str:
         from the code itself; the bare *code* when no name is known or the
         resolved name equals the code.
     """
+    # Local import: details_versions.py is the one that defines
+    # resolve_category_name and imports THIS module's chip builders (DETAILS-3c)
+    # — a module-level import here would be circular.
+    from metatv.gui.details_versions import resolve_category_name
+
     name = resolve_category_name(code, config) or REGION_FULL_NAMES.get(code, "")
     if name and name != code:
         return f"{name} ({code})"

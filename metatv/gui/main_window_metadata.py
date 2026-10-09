@@ -197,6 +197,21 @@ class _MetadataMixin:
                 queue_ids = repos.queue.get_queued_ids()
                 provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
                 hidden_provider_ids = set(repos.providers.get_hidden_provider_ids())
+                # DETAILS-3c: disabled sources never appear here at all — not
+                # dimmed, not counted, not reachable — the absolute gate
+                # CRITICAL_RULES already states for every forward-looking view.
+                # "Offline" (is_inactive below) then means an ENABLED source
+                # whose account has merely expired. inactive_provider_ids is
+                # the user's own toggle; the orphaned remainder (a deleted
+                # source's leftover channels, hidden_provider_ids minus
+                # inactive minus expired) can never be reactivated either, so
+                # it is disabled too rather than shown as a false "offline".
+                inactive_provider_ids = set(repos.providers.get_inactive_provider_ids())
+                expired_provider_ids = set(repos.providers.get_expired_provider_ids())
+                orphaned_provider_ids = (
+                    hidden_provider_ids - inactive_provider_ids - expired_provider_ids
+                )
+                disabled_provider_ids = inactive_provider_ids | orphaned_provider_ids
                 from metatv.core.filter_utils import (
                     global_exclusion_set, is_channel_excluded, excluded_tag_content_types,
                 )
@@ -293,6 +308,17 @@ class _MetadataMixin:
                         and _version_years_compatible(ch.name, channel.name)
                     ]
 
+                # DETAILS-3c absolute gate: a disabled source's copies are
+                # dropped here, before anything downstream can count, score,
+                # or render them — never merely dimmed like the (still
+                # enabled) expired-source "offline" bucket below.
+                versions_raw = [
+                    ch for ch in versions_raw if ch.provider_id not in disabled_provider_ids
+                ]
+                # How each source files its copy — the stored collection tag,
+                # computed at ingestion; never re-decomposed here.
+                collections = repos.tags.collections_for([ch.id for ch in versions_raw])
+
                 # Score only active-source versions for preferred selection (inactive
                 # sources can't be "preferred" — they're off by user choice)
                 current_score = _version_score(channel, self.config)
@@ -325,6 +351,7 @@ class _MetadataMixin:
                         provider_name=provider_names.get(ch.provider_id),
                         provider_id=ch.provider_id,
                         is_inactive=ch.provider_id in hidden_provider_ids,
+                        collection=collections.get(ch.id),
                     )
                     for ch in versions_raw
                 ]

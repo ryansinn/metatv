@@ -432,13 +432,41 @@ def _make_version_section(qapp):
     config.favorite_icon = "★"
     config.history_icon = "🕒"
     config.category_name_overrides = {}
+    config.details_pane_open_copy_buckets = []
     section = _VersionSection(config)
     return section
 
 
+def _active_row_chips(section):
+    """The "Available in" row's chips for the section's CURRENT render."""
+    grid_widget = section._body_layout.itemAt(0).widget()
+    flow = grid_widget.layout().itemAtPosition(0, 1).widget()
+    lay = flow.layout()
+    return [lay.itemAt(i).widget() for i in range(lay.count())]
+
+
+def _bucket_row_chips(section, word):
+    """The chips in an OPEN bucket's own labelled row ("Filtered"/"Offline")."""
+    grid = section._body_layout.itemAt(0).widget().layout()
+    for row in range(1, grid.rowCount()):
+        key_item = grid.itemAtPosition(row, 0)
+        if key_item and key_item.widget() is not None and key_item.widget().text().lower() == word:
+            flow = grid.itemAtPosition(row, 1).widget()
+            lay = flow.layout()
+            return [lay.itemAt(i).widget() for i in range(lay.count())]
+    return []
+
+
 def test_chip_label_includes_provider_icon(qapp):
-    """Chip label shows source icon from provider_map before the region/prefix."""
+    """Chip label shows source icon from provider_map before the region/prefix.
+
+    DETAILS-3c: the icon shows only when more than one source is ENABLED
+    (``_show_source_icons``, set by ``load()`` from ``provider_map``'s
+    "enabled" flag) — a single-source provider_map with no "enabled" key
+    defaults True, so two distinct providers here still trips it.
+    """
     from metatv.gui.details_versions import ChannelVersion, _VersionSection
+    from tests.conftest import destroy_widget
 
     config = MagicMock()
     config.preferred_version_icon = "🎯"
@@ -448,7 +476,10 @@ def test_chip_label_includes_provider_icon(qapp):
     config.category_name_overrides = {}
     section = _VersionSection(config)
 
-    provider_map = {"p-prosat": {"icon": "🅿", "name": "ProSat"}}
+    provider_map = {
+        "p-prosat": {"icon": "🅿", "name": "ProSat"},
+        "p-other": {"icon": "🇴", "name": "Other"},
+    }
     v = ChannelVersion(
         channel_id="ch-abc",
         name="FOX SPORTS 1 HD",
@@ -459,19 +490,25 @@ def test_chip_label_includes_provider_icon(qapp):
         provider_id="p-prosat",
         is_inactive=False,
     )
+    other = ChannelVersion(
+        channel_id="ch-other", name="FOX SPORTS 1 HD (alt)", in_queue=False,
+        detected_prefix="EN", provider_id="p-other",
+    )
 
-    label = section._chip_label.__func__(section, v) if False else None
-    # Reload via instance (no unbound method in Python 3)
-    section._provider_map = provider_map
-    label = section._chip_label(v)
+    try:
+        section.load([v, other], provider_map=provider_map)
+        label = section._chip_label(v)
 
-    assert "🅿" in label, f"Expected source icon in chip label, got: {label!r}"
-    assert "HD" in label, f"Expected quality in chip label, got: {label!r}"
+        assert "🅿" in label, f"Expected source icon in chip label, got: {label!r}"
+        assert "HD" in label, f"Expected quality in chip label, got: {label!r}"
+    finally:
+        destroy_widget(section)
 
 
 def test_chip_click_emits_version_selected(qapp):
     """Left-clicking an active chip emits version_selected (show details), NOT play_version_requested."""
     from metatv.gui.details_versions import ChannelVersion
+    from tests.conftest import destroy_widget
 
     section = _make_version_section(qapp)
 
@@ -491,25 +528,27 @@ def test_chip_click_emits_version_selected(qapp):
         is_inactive=False,
     )
 
-    section.load([v], provider_map=provider_map)
+    try:
+        section.load([v], provider_map=provider_map)
 
-    # Locate the chip button that was added to the layout
-    layout = section._chips_layout
-    chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
-    assert chips, "Expected at least one chip in the layout"
-    chips[0].click()
+        chips = _active_row_chips(section)
+        assert chips, "Expected at least one chip in the Available row"
+        chips[0].click()
 
-    assert selected_received == ["ch-play"], (
-        f"Expected version_selected('ch-play'), got: {selected_received!r}"
-    )
-    assert play_received == [], (
-        f"Left-click must NOT emit play_version_requested, got: {play_received!r}"
-    )
+        assert selected_received == ["ch-play"], (
+            f"Expected version_selected('ch-play'), got: {selected_received!r}"
+        )
+        assert play_received == [], (
+            f"Left-click must NOT emit play_version_requested, got: {play_received!r}"
+        )
+    finally:
+        destroy_widget(section)
 
 
 def test_inactive_chip_click_emits_version_selected(qapp):
     """Left-clicking an inactive chip emits version_selected (show details), NOT play_version_requested."""
     from metatv.gui.details_versions import ChannelVersion
+    from tests.conftest import destroy_widget
 
     section = _make_version_section(qapp)
 
@@ -528,38 +567,43 @@ def test_inactive_chip_click_emits_version_selected(qapp):
         is_inactive=True,
     )
 
-    section.load([v], provider_map=provider_map)
+    try:
+        section.load([v], provider_map=provider_map)
 
-    # The chip lives in OFFLINE SOURCES now, not among the available versions.
-    # A source the user turned off must not be presented as something they can
-    # watch (CRITICAL_RULES:188) — but it is still shown, and still clickable,
-    # because right-click reactivate-and-play is the recovery path.
-    active_layout = section._chips_layout
-    active_chips = [active_layout.itemAt(i).widget() for i in range(active_layout.count())
-                    if active_layout.itemAt(i).widget()]
-    assert not active_chips, (
-        f"an inactive variant must not appear among the available versions, "
-        f"got {[c.text() for c in active_chips]!r}"
-    )
+        # An enabled-but-expired source's variant ("offline") does not appear
+        # among the available versions — a source the user turned off must
+        # not be presented as something they can watch right now
+        # (CRITICAL_RULES:188) — it sits behind a closed "+1 offline"
+        # disclosure instead. It is still reachable once opened, and still
+        # clickable, because right-click reactivate-and-play is the recovery
+        # path.
+        row0_texts = [c.text() for c in _active_row_chips(section)]
+        assert row0_texts == ["+1 offline"], (
+            f"an inactive variant must not appear among the available "
+            f"versions, got {row0_texts!r}"
+        )
 
-    layout = section._offline_chips_layout
-    chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
-    assert chips, "Expected the inactive variant to appear under OFFLINE SOURCES"
+        section._open_bucket("offline")
+        chips = _bucket_row_chips(section, "offline")
+        assert chips, "Expected the inactive variant to appear under the opened Offline row"
 
-    chips[0].click()
+        chips[0].click()
 
-    assert selected_received == ["ch-inactive"], (
-        f"Inactive chip left-click must emit version_selected, got: {selected_received!r}"
-    )
-    assert play_received == [], (
-        f"Inactive chip left-click must NOT emit play_version_requested, got: {play_received!r}"
-    )
+        assert selected_received == ["ch-inactive"], (
+            f"Inactive chip left-click must emit version_selected, got: {selected_received!r}"
+        )
+        assert play_received == [], (
+            f"Inactive chip left-click must NOT emit play_version_requested, got: {play_received!r}"
+        )
+    finally:
+        destroy_widget(section)
 
 
 def test_chip_right_click_wires_to_context_menu(qapp):
     """Right-clicking a chip invokes _show_version_chip_menu (which offers Play via play_version_requested)."""
     from metatv.gui.details_versions import ChannelVersion
-    from PyQt6.QtCore import QPoint
+    from PyQt6.QtCore import QPoint, Qt
+    from tests.conftest import destroy_widget
 
     section = _make_version_section(qapp)
 
@@ -574,24 +618,25 @@ def test_chip_right_click_wires_to_context_menu(qapp):
         is_inactive=False,
     )
 
-    section.load([v], provider_map=provider_map)
+    try:
+        section.load([v], provider_map=provider_map)
 
-    layout = section._chips_layout
-    chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
-    assert chips, "Expected at least one chip in the layout"
-    chip = chips[0]
+        chips = _active_row_chips(section)
+        assert chips, "Expected at least one chip in the Available row"
+        chip = chips[0]
 
-    # Verify the chip is wired for custom context menus
-    from PyQt6.QtCore import Qt
-    assert chip.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu, (
-        "Chip must use CustomContextMenu so right-click reaches _show_version_chip_menu"
-    )
+        # Verify the chip is wired for custom context menus
+        assert chip.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu, (
+            "Chip must use CustomContextMenu so right-click reaches _show_version_chip_menu"
+        )
 
-    # Simulate the customContextMenuRequested signal; verify menu helper is called
-    with patch.object(section, "_show_version_chip_menu") as mock_menu:
-        chip.customContextMenuRequested.emit(QPoint(0, 0))
+        # Simulate the customContextMenuRequested signal; verify menu helper is called
+        with patch.object(section, "_show_version_chip_menu") as mock_menu:
+            chip.customContextMenuRequested.emit(QPoint(0, 0))
 
-    mock_menu.assert_called_once(), "Right-click must route to _show_version_chip_menu"
+        mock_menu.assert_called_once(), "Right-click must route to _show_version_chip_menu"
+    finally:
+        destroy_widget(section)
 
 
 # ---------------------------------------------------------------------------
@@ -640,195 +685,18 @@ def test_reactivate_and_play_sibling_refreshes_dependent_views(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Filtered variants collapsible section (#PR: details-filtered-variants-collapse)
+# Filtered variants collapsible section — superseded by DETAILS-3c
 # ---------------------------------------------------------------------------
-
-def _make_mixed_versions():
-    """Return a list of ChannelVersion with one active and two filtered variants."""
-    from metatv.gui.details_versions import ChannelVersion
-    active = ChannelVersion(
-        channel_id="ch-active",
-        name="FOX SPORTS HD",
-        in_queue=False,
-        detected_prefix="EN",
-        detected_quality="HD",
-        is_filtered=False,
-        is_hidden=False,
-    )
-    filtered_1 = ChannelVersion(
-        channel_id="ch-filtered-1",
-        name="FOX SPORTS SD",
-        in_queue=False,
-        detected_prefix="FR",
-        detected_quality="SD",
-        is_filtered=True,
-        is_hidden=False,
-    )
-    filtered_2 = ChannelVersion(
-        channel_id="ch-filtered-2",
-        name="FOX SPORTS ES",
-        in_queue=False,
-        detected_prefix="ES",
-        is_filtered=True,
-        is_hidden=False,
-    )
-    return [active, filtered_1, filtered_2]
-
-
-def test_filtered_chips_hidden_by_default_after_load(qapp):
-    """After load() with filtered variants, the greyed-chip container is hidden (collapsed by default)."""
-    section = _make_version_section(qapp)
-    section.load(_make_mixed_versions())
-
-    assert not section._filtered_chips_row.isVisible(), (
-        "_filtered_chips_row must be hidden by default after load() — section starts collapsed"
-    )
-    assert section._filtered_collapsed is True, (
-        "_filtered_collapsed must be True after load()"
-    )
-
-
-def test_filtered_chips_go_into_filtered_layout_not_active_layout(qapp):
-    """Filtered variants land in _filtered_chips_layout; active variants land in _chips_layout."""
-    section = _make_version_section(qapp)
-    section.load(_make_mixed_versions())
-
-    active_count = section._chips_layout.count()
-    filtered_count = section._filtered_chips_layout.count()
-
-    assert active_count == 1, (
-        f"_chips_layout should contain exactly 1 active chip, got {active_count}"
-    )
-    assert filtered_count == 2, (
-        f"_filtered_chips_layout should contain exactly 2 filtered chips, got {filtered_count}"
-    )
-
-
-def test_filtered_section_hidden_when_no_filtered_variants(qapp):
-    """When there are no filtered variants, _filtered_section must be hidden entirely."""
-    from metatv.gui.details_versions import ChannelVersion
-    section = _make_version_section(qapp)
-    only_active = [
-        ChannelVersion(
-            channel_id="ch-only",
-            name="FOX SPORTS",
-            in_queue=False,
-            is_filtered=False,
-            is_hidden=False,
-        )
-    ]
-    section.load(only_active)
-
-    assert not section._filtered_section.isVisible(), (
-        "_filtered_section must be hidden when there are no filtered variants"
-    )
-
-
-def test_toggle_filtered_section_shows_and_hides_chips(qapp):
-    """Clicking the toggle button shows the filtered chips; clicking again hides them."""
-    section = _make_version_section(qapp)
-    section.load(_make_mixed_versions())
-
-    # Initially collapsed. NOTE: isVisible() is ancestor-gated and is always False
-    # for a section that was never .show()n in a headless test — assert on the
-    # explicit hidden flag (isHidden()) instead, which reflects setVisible() directly.
-    assert section._filtered_chips_row.isHidden()
-
-    # Click toggle → expanded
-    section._filtered_header._chevron.click()
-    assert not section._filtered_chips_row.isHidden(), (
-        "Filtered chips row must become visible after one toggle click"
-    )
-    assert section._filtered_collapsed is False
-
-    # Click toggle again → collapsed
-    section._filtered_header._chevron.click()
-    assert section._filtered_chips_row.isHidden(), (
-        "Filtered chips row must be hidden again after second toggle click"
-    )
-    assert section._filtered_collapsed is True
-
-
-def _icon_bytes(btn) -> bytes:
-    """Raw pixel bytes of *btn*'s current icon, for "did it actually repaint"."""
-    image = btn.icon().pixmap(btn.iconSize()).toImage()
-    return image.bits().asstring(image.sizeInBytes())
-
-
-def test_toggle_button_icon_swaps_on_toggle(qapp):
-    """The toggle button's icon alternates between expand and collapse glyphs.
-
-    ICON-1 moved this off ``.setText()`` onto ``icon_utils.set_button_icon``
-    (a real QIcon, never button text — a colour emoji as TEXT crops in a
-    fixed-size button), so the swap is asserted on the rendered pixel bytes.
-    """
-    section = _make_version_section(qapp)
-    section.load(_make_mixed_versions())
-
-    # Default: collapsed → expand icon
-    chevron = section._filtered_header._chevron
-    assert chevron.text() == ""
-    collapsed_bytes = _icon_bytes(chevron)
-
-    # After expand
-    chevron.click()
-    expanded_bytes = _icon_bytes(chevron)
-    assert expanded_bytes != collapsed_bytes, (
-        "Toggle button icon must repaint when expanded"
-    )
-
-    # After collapse again
-    chevron.click()
-    assert _icon_bytes(chevron) == collapsed_bytes, (
-        "Toggle button must revert to the expand glyph when re-collapsed"
-    )
-
-
-def test_the_header_sits_above_the_chips_not_beside_them(qapp):
-    """The header and the chip flow are STACKED.
-
-    The original asserted this by layout membership — that ``_chips_row`` was a
-    direct item of ``_row_container``'s layout. That stopped being true when
-    the section moved onto the shared CollapsibleHeader and its body went into
-    a ``_content`` wrapper so it can be folded away, without the stacking ever
-    changing. Membership was a proxy; this asserts the thing itself, by
-    measuring where the two are actually drawn.
-    """
-    from metatv.gui.details_versions import ChannelVersion
-
-    section = _make_version_section(qapp)
-    section.resize(420, 240)
-    section.show()
-    section.load([
-        ChannelVersion(channel_id="ch-1", name="FOX", in_queue=False, is_filtered=False)
-    ])
-    qapp.processEvents()
-
-    header_bottom = section._header.mapTo(
-        section, section._header.rect().bottomLeft()
-    ).y()
-    chips_top = section._chips_row.mapTo(
-        section, section._chips_row.rect().topLeft()
-    ).y()
-
-    assert chips_top >= header_bottom, (
-        f"the chips start at y={chips_top} but the header runs to "
-        f"y={header_bottom} — they are side by side or overlapping"
-    )
-
-
-def test_load_resets_filtered_section_to_collapsed(qapp):
-    """Calling load() a second time resets the filtered section back to collapsed."""
-    section = _make_version_section(qapp)
-    section.load(_make_mixed_versions())
-
-    # Expand filtered section (isHidden() is the headless-safe visibility check)
-    section._filtered_header._chevron.click()
-    assert not section._filtered_chips_row.isHidden()
-
-    # Reload — must reset to collapsed
-    section.load(_make_mixed_versions())
-    assert section._filtered_chips_row.isHidden(), (
-        "Reloading must reset filtered section to collapsed"
-    )
-    assert section._filtered_collapsed is True
+#
+# This block used to drive the nested "FILTERED VARIANTS" CollapsibleHeader
+# sub-section (hidden-by-default chip row, its own chevron, its own
+# collapsed flag). DETAILS-3c removed that mechanism entirely: a filtered
+# copy now sits behind a dashed "+N filtered" chip that ENDS the "Available
+# in" row, and opening it adds a "Filtered" labelled grid row below (closed
+# again via the "Filtered" key itself) — persisted per-bucket in
+# ``config.details_pane_open_copy_buckets`` rather than reset on every
+# load(), which is the opposite of what this block tested.
+# Equivalent (and additional) coverage now lives in
+# tests/test_details_copies_row.py: the closed "+N filtered" chip, opening
+# it, folding it back via the "Filtered" key, and — the deliberately
+# inverted case — that a reload does NOT reset an open bucket back to closed.

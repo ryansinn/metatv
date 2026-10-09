@@ -38,15 +38,20 @@ class _Cfg:
 
 
 def _sections(cfg):
+    """Every section that owns a shared ``CollapsibleHeader``.
+
+    "Also available" (``_VersionSection``) is deliberately NOT one of these
+    since DETAILS-3c: "Available in" is never collapsible — the copy you are
+    on plus every sibling, always visible — so it never had the shared header
+    to drift away from in the first place.
+    """
     from metatv.gui.details_sections import (
         _CastSection, _PlotSection, _TagsSection, _TechnicalSection,
     )
     from metatv.gui.details_similar import _SimilarSection
-    from metatv.gui.details_versions import _VersionSection
 
     return {
         "Overview": _PlotSection(),
-        "Also available": _VersionSection(cfg),
         "Cast": _CastSection(cfg),
         "Technical": _TechnicalSection(cfg),
         "Tags": _TagsSection(cfg),
@@ -154,31 +159,13 @@ def test_every_section_header_points_the_right_direction(qapp, owned_widgets):
         )
 
 
-def test_filtered_variants_is_the_shared_header_one_step_down(qapp):
-    """It IS the shared header now — in its nested scale.
-
-    It was a hand-rolled chevron-plus-clickable-label, which is the same shape
-    the details pane had four copies of before ``CollapsibleHeader`` existed.
-    It stays visibly a SUB-section: at the parent's type size it would read as
-    a second section header inside one section, so the nested scale is the
-    whole point of not just reusing the default.
-    """
-    from metatv.gui.details_section_header import CollapsibleHeader
-    from metatv.gui.details_versions import _VersionSection
-    from metatv.gui import theme as _theme
-
-    section = _VersionSection(_Cfg())
-    header = section._filtered_header
-    assert isinstance(header, CollapsibleHeader)
-    # The caret is a QIcon now (ICON-1), never button text, so "starts
-    # collapsed" is read off the tooltip and the repaint rather than a glyph.
-    assert header._chevron.text() == ""
-    assert not header._chevron.icon().isNull()
-    assert header._chevron.toolTip().startswith("Expand"), "starts collapsed"
-    assert header._title.styleSheet() == _theme.DETAIL_SUBSECTION_TITLE, (
-        "a sub-section header must not render at the parent header's size"
-    )
-    assert _theme.DETAIL_SUBSECTION_TITLE != _theme.DETAIL_SECTION_TITLE, (
-        "the nested scale is identical to the parent's — nothing distinguishes "
-        "a sub-section header from the section it sits inside"
-    )
+#
+# test_filtered_variants_is_the_shared_header_one_step_down used to live
+# here: "Filtered variants"/"Offline sources" were nested CollapsibleHeaders
+# at a one-step-down DETAIL_SUBSECTION_TITLE scale. DETAILS-3c removed both
+# nested sub-sections (and the "Also available" CollapsibleHeader itself —
+# see _sections() above) in favour of an always-visible "Available in" grid
+# row plus a dashed "+N …" disclosure chip; there is no nested header left to
+# test, and DETAIL_SUBSECTION_TITLE was removed from tokens/detail_roles.py
+# as the role only that mechanism used (test_theme_role_duplication.py's
+# _SHAPE_CLUSTER_BUDGET moved 44 -> 43 accordingly).
