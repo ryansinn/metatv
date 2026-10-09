@@ -71,6 +71,7 @@ class DetailsPaneWidget(QWidget):
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
     episode_action_state_requested = pyqtSignal(str)    # episode_id — episode-mode queue/favorite async load (Slice 2B)
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
+    stream_probe_requested     = pyqtSignal()           # "Get stream details" pressed (PLAYED-2)
     weights_requested          = pyqtSignal(str)        # channel_id — triggers async taste-weight load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
     play_episode_requested     = pyqtSignal()           # play the episode shown in the pane (read current_episode)
@@ -245,6 +246,10 @@ class DetailsPaneWidget(QWidget):
             return  # stale response — user already moved on
         self._details.load_stream_info(
             record, claimed_quality=getattr(self.current_channel, "detected_quality", None))
+
+    def set_probe_running(self, running: bool) -> None:
+        """Reflect a "Get stream details" probe in progress (PLAYED-2)."""
+        self._details.set_probe_running(running)
 
     def apply_taste_weights(self, channel_id: str, weights) -> None:
         """Called from main_window when the async taste-weight load completes.
@@ -674,6 +679,7 @@ class DetailsPaneWidget(QWidget):
         # Tag / collection chips — left-click filters, right-click opens Discover.
         self._details.tag_filter_clicked.connect(self.tag_filter_requested)
         self._details.tag_discover_clicked.connect(self.tag_discover_requested)
+        self._details.probe_requested.connect(self.stream_probe_requested)
 
         # Similar titles
         s = self._similar
