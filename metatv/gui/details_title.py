@@ -22,14 +22,12 @@ from __future__ import annotations
 
 import re
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from metatv.core.filter_utils import normalize_genre
-from metatv.core.models import MediaType
 from metatv.core.tag_provenance import guess_reason, strongest_kind
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -77,9 +75,7 @@ class _MetadataSection(QWidget):
         self._tag_genre_items: list = []
         self._tmdb_id: str | None = None
         self._imdb_id: str | None = None
-        self._media_type: str = ""
         self._source_provider_id: str | None = None
-        self._source_channel_id: str | None = None
         self._source_text: str = ""
         self._source_name: str | None = None
         self._collection_value: str | None = None
@@ -161,8 +157,6 @@ class _MetadataSection(QWidget):
         # top-level-widget leak guard (tests/conftest.py) rightly reports.
         self._tmdb_chip.setProperty("id_kind", "tmdb")
         self._tmdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
-        self._tmdb_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._tmdb_chip.customContextMenuRequested.connect(self._on_id_chip_menu_requested)
 
         self._imdb_chip = make_chip("IMDb")
         self._imdb_chip.hide()
@@ -171,8 +165,6 @@ class _MetadataSection(QWidget):
         # top-level-widget leak guard (tests/conftest.py) rightly reports.
         self._imdb_chip.setProperty("id_kind", "imdb")
         self._imdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
-        self._imdb_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._imdb_chip.customContextMenuRequested.connect(self._on_id_chip_menu_requested)
 
         self._rating_row_w = make_flow([self.rating_label, self._tmdb_chip, self._imdb_chip])
         self._rating_row_w.hide()
@@ -189,12 +181,9 @@ class _MetadataSection(QWidget):
         # Source row — NO label: the source chip (provider icon+name, or
         # "(source removed)") plus this copy's collection chip when one is
         # known.  Left-click the source chip filters the list to that
-        # source; left-click the collection chip filters to that collection;
-        # right-click the source chip offers "Copy channel id".
+        # source; left-click the collection chip filters to that collection.
         self._source_chip = make_chip("")
         self._source_chip.clicked.connect(self._on_source_chip_clicked)
-        self._source_chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._source_chip.customContextMenuRequested.connect(self._show_source_chip_menu)
 
         self._collection_chip = make_chip("", "COLOR_FACET_COLLECTION")
         self._collection_chip.clicked.connect(self._on_collection_chip_clicked)
@@ -261,14 +250,12 @@ class _MetadataSection(QWidget):
         # Byline — kind and year, in that order, on the line under the title.
         self._byline_year = getattr(channel, "detected_year", None) or ""
         self._byline_kind = (channel.media_type or "unknown").title()
-        self._media_type = channel.media_type or ""
         self._refresh_byline()
 
         # Source row — provider icon+name (or "(source removed)" for an
         # orphaned provider_id); hidden entirely when the channel has none.
         provider_id = getattr(channel, "provider_id", None)
         self._source_provider_id = provider_id
-        self._source_channel_id = getattr(channel, "id", None)
         if provider_id is not None:
             provider_info = (provider_map or {}).get(provider_id)
             if provider_info:
@@ -438,7 +425,6 @@ class _MetadataSection(QWidget):
         self.rating_label.hide()
         self._tmdb_id = None
         self._imdb_id = None
-        self._media_type = ""
         self._tmdb_chip.hide()
         self._imdb_chip.hide()
         self._refresh_rating_row_visibility()
@@ -448,7 +434,6 @@ class _MetadataSection(QWidget):
         self._clear_genre_chips()
         self._genres_container.hide()
         self._source_provider_id = None
-        self._source_channel_id = None
         self._source_text = ""
         self._source_name = None
         self._collection_value = None
@@ -533,18 +518,6 @@ class _MetadataSection(QWidget):
         if self._source_provider_id:
             self.source_filter_requested.emit(self._source_provider_id)
 
-    def _show_source_chip_menu(self, pos) -> None:
-        if not self._source_channel_id:
-            return
-        menu = QMenu(self._source_chip)
-        menu.addAction("Copy channel id").triggered.connect(self._copy_source_channel_id)
-        menu.exec(self._source_chip.mapToGlobal(pos))
-        menu.deleteLater()
-
-    def _copy_source_channel_id(self) -> None:
-        if self._source_channel_id:
-            QApplication.clipboard().setText(self._source_channel_id)
-
     def _on_collection_chip_clicked(self) -> None:
         if self._collection_value:
             self.collection_clicked.emit(self._collection_value)
@@ -564,11 +537,6 @@ class _MetadataSection(QWidget):
         if kind:
             self._on_id_chip_clicked(str(kind))
 
-    def _on_id_chip_menu_requested(self, pos) -> None:
-        kind = self.sender().property("id_kind") if self.sender() else None
-        if kind:
-            self._show_id_chip_menu(str(kind), pos)
-
     def _on_id_chip_clicked(self, kind: str) -> None:
         ident = self._tmdb_id if kind == "tmdb" else self._imdb_id
         if not ident:
@@ -576,29 +544,3 @@ class _MetadataSection(QWidget):
         QApplication.clipboard().setText(ident)
         label = "TMDb" if kind == "tmdb" else "IMDb"
         self.status_message.emit(f"Copied {label} id {ident} to clipboard")
-
-    def _show_id_chip_menu(self, kind: str, pos) -> None:
-        ident = self._tmdb_id if kind == "tmdb" else self._imdb_id
-        if not ident:
-            return
-        chip = self._tmdb_chip if kind == "tmdb" else self._imdb_chip
-        label = "TMDb" if kind == "tmdb" else "IMDb"
-        menu = QMenu(chip)
-        menu.addAction(f"Copy {label} id").triggered.connect(
-            lambda: self._on_id_chip_clicked(kind)
-        )
-        menu.addAction(f"Open on {label}").triggered.connect(
-            lambda: self._open_id_on_web(kind)
-        )
-        menu.exec(chip.mapToGlobal(pos))
-        menu.deleteLater()      # its action lambdas die with it — no lingering cycle
-
-    def _open_id_on_web(self, kind: str) -> None:
-        if kind == "tmdb" and self._tmdb_id:
-            is_series = self._media_type == MediaType.SERIES
-            url = f"https://www.themoviedb.org/{'tv' if is_series else 'movie'}/{self._tmdb_id}"
-        elif kind == "imdb" and self._imdb_id:
-            url = f"https://www.imdb.com/title/{self._imdb_id}"
-        else:
-            return
-        QDesktopServices.openUrl(QUrl(url))

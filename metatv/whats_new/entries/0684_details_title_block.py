@@ -14,7 +14,7 @@ ENTRY = WhatsNewEntry(
         "Select a film with metadata — genres appear as chips right under "
         "'Movie · year'; no stars beside the rating.",
         "Click the TMDb chip — its id is on the clipboard and the status bar "
-        "says so; right-click it — 'Open on TMDb' opens the page.",
+        "says so.",
         "Click the source chip — the list shows that source; click the "
         "collection chip — the list filters to that collection.",
     ),
