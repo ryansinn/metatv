@@ -19,7 +19,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from metatv.core.channel_name_utils import content_type_display
-from metatv.core.stream_info import display_rows, measured_caption
+from metatv.core.stream_info import display_rows, measured_caption, summarize
 from metatv.core.tag_provenance import group_label, guess_reason, strongest_kind
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
@@ -98,6 +98,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._tags: list = []
         self._stream_rows: list[tuple[str, str]] = []
         self._stream_caption = ""
+        self._stream_languages: tuple = ()
         self._setup()
 
     def _setup(self) -> None:
@@ -173,13 +174,16 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         """
         if record and record.get("info"):
             self._stream_rows = display_rows(record["info"], claimed_quality=claimed_quality)
+            self._stream_languages = (summarize(record) or {}).get("audio", ())
             self._stream_caption = measured_caption(record.get("measured_at"), record.get("source", ""))
         else:
             self._stream_rows, self._stream_caption = [], ""
+            self._stream_languages = ()
         self._render()
 
     def clear(self) -> None:
         self._stream_rows, self._stream_caption = [], ""
+        self._stream_languages = ()
         self._tags = []
         self._release_date = ""
         self._metadata_from_tmdb = False
@@ -218,6 +222,16 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             rows.setdefault(tag.facet_type, []).append(
                 (self._display(tag.facet_type, tag.value), tag.facet_type, tag.value, guessed, caption)
             )
+        # Languages heard in the stream lead the Language row; anything the
+        # provider or the region implies stays below them as lower-priority
+        # facts (a |SE| copy can be English audio with Swedish burned-in
+        # subtitles — the region guess is still worth keeping).
+        if self._stream_languages:
+            existing = rows.get("language", [])
+            heard = [(lang, "language", lang, False, self._stream_caption)
+                     for lang in self._stream_languages]
+            rest = [r for r in existing if r[2] not in self._stream_languages]
+            rows["language"] = heard + rest
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
