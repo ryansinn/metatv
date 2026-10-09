@@ -155,71 +155,58 @@ def test_genre_chip_click_emits_raw_unescaped_value(qapp):
     )
 
 
-def test_tag_chip_escapes_ampersand_but_emits_raw(qapp):
-    """The Tags-section facet chips follow the same rule: display escapes "&",
+def test_fact_chip_escapes_ampersand_but_emits_raw(qapp, owned_widgets):
+    """Details-section fact chips follow the same rule: display escapes "&",
     the emitted filter value stays raw."""
     from metatv.core.repositories.dtos import ChannelTagDTO
-    from metatv.gui.details_sections import _TagsSection
+    from metatv.gui.details_facts import _DetailsSection
+    from PyQt6.QtWidgets import QPushButton
 
-    section = _TagsSection(_make_config())
-    tag = ChannelTagDTO(
-        facet_type="collection",
-        value="Fast & Furious",
-        source_given=True,
-        confidence=1.0,
-        feeders=("provider_category",),
-    )
-    chip = section._make_chip(tag)
-    assert "Fast && Furious" in chip.text() and "Fast & Furious" not in chip.text().replace("&&", ""), (
-        f"tag chip must escape '&' as '&&' for display, got {chip.text()!r}"
+    section = owned_widgets.own(_DetailsSection(_make_config()))
+    section.set_copy(provider_name="TREX", copy_code="EN")
+    section.load_tags([ChannelTagDTO(
+        facet_type="platform", value="Fast & Furious", source_given=True,
+        confidence=1.0, feeders=("provider_category",),
+    )])
+    chips = [c for c in section.findChildren(QPushButton) if c.property("facet") == "platform"]
+    assert len(chips) == 1
+    chip = chips[0]
+    assert "Fast && Furious" in chip.text(), (
+        f"fact chip must escape '&' as '&&' for display, got {chip.text()!r}"
     )
 
     emitted: list[tuple[str, str]] = []
     section.tag_filter_clicked.connect(lambda ft, v: emitted.append((ft, v)))
     chip.click()
-    assert emitted == [("collection", "Fast & Furious")], (
+    assert emitted == [("platform", "Fast & Furious")], (
         f"clicking must emit the raw facet value, got {emitted!r}"
     )
 
 
-def test_tags_facet_row_wraps_not_crushes(qapp):
-    """Each Tags-section facet sub-row (GENRE, LANGUAGE, …) lays its chips in a
-    WRAPPING _FlowLayout, not a crushing QHBoxLayout.  A long GENRE list must wrap
-    to more rows at a narrow width — a QHBoxLayout would keep one row and squeeze
-    every chip below its text width (center-elided "tion & Adver")."""
+def test_fact_row_wraps_not_crushes(qapp, owned_widgets):
+    """Each Details fact row lays its chips in a WRAPPING FlowLayout, not a
+    crushing QHBoxLayout: a long LANGUAGE list must wrap to more rows when
+    narrow instead of squeezing every chip below its text width."""
     from metatv.core.repositories.dtos import ChannelTagDTO
-    from metatv.gui.details_sections import _TagsSection
-    from metatv.gui.flow_layout import FlowLayout as _FlowLayout
+    from metatv.gui.details_facts import _DetailsSection
+    from metatv.gui.flow_layout import FlowLayout
+    from PyQt6.QtWidgets import QWidget
 
-    genres = [
-        "Action & Adventure", "Sci-Fi & Fantasy", "Animation", "Comedy", "Drama",
-        "Documentary", "Family", "Kids", "War & Politics", "Reality",
-    ]
-    section = _TagsSection(_make_config())
-    section.load([
-        ChannelTagDTO(facet_type="genre", value=g, source_given=True,
-                      confidence=1.0, feeders=("genre",))
-        for g in genres
+    langs = ["English", "Swedish", "Norwegian", "Danish", "Finnish", "German",
+             "French", "Spanish", "Italian", "Portuguese"]
+    section = owned_widgets.own(_DetailsSection(_make_config()))
+    section.set_copy(provider_name="TREX", copy_code="EN")
+    section.load_tags([
+        ChannelTagDTO(facet_type="language", value=v, source_given=True,
+                      confidence=1.0, feeders=("provider_category",))
+        for v in langs
     ])
-
-    # Locate the facet chip row — the widget whose layout is a _FlowLayout.
-    layout = section._content_layout
-    flow_rows = [
-        layout.itemAt(i).widget().layout()
-        for i in range(layout.count())
-        if layout.itemAt(i).widget() is not None
-        and isinstance(layout.itemAt(i).widget().layout(), _FlowLayout)
-    ]
-    assert flow_rows, (
-        "the GENRE sub-row must use a wrapping _FlowLayout, not a QHBoxLayout that "
-        "crushes/truncates each chip"
-    )
-    flow = flow_rows[0]
-    assert flow.count() == len(genres)
-    narrow = flow.heightForWidth(150)
-    wide = flow.heightForWidth(2000)
-    assert narrow > wide, (
-        f"GENRE chips must wrap to more rows when narrow (narrow={narrow}, wide={wide})"
+    flows = [w.layout() for w in section.findChildren(QWidget)
+             if isinstance(w.layout(), FlowLayout) and w.layout().count() == len(langs)]
+    assert flows, "the LANGUAGE row must use a wrapping FlowLayout"
+    flow = flows[0]
+    assert flow.heightForWidth(150) > flow.heightForWidth(2000), (
+        "language chips must wrap to more rows when narrow"
     )
 
 
@@ -241,7 +228,7 @@ def _full_pane(qapp, tmp_path):
 
     ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
     pane = DetailsPaneWidget(_make_config(), ic, None)  # db=None → no EPG agenda
-    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._tech):
+    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._details):
         if hasattr(sec, "set_mode"):
             sec.set_mode(False)
     return pane

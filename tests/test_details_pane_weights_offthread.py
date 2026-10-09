@@ -43,9 +43,18 @@ from tests.conftest import destroy_widget, wire_inline_run_query
 CHANNEL_A = "prov_a"
 CHANNEL_B = "prov_b"
 
-# The two markers _pref_signal paints in front of a liked / disliked person.
+# The two markers a liked / disliked person's chip carries.
 LIKED_MARK = "▲"
 DISLIKED_MARK = "▼"
+
+
+def _role_text(pane, role: str) -> str:
+    """The texts of the Cast section's chips on one row, joined."""
+    return " | ".join(c.text() for c in pane._cast.person_chips(role))
+
+
+def _role_sheets(pane, role: str) -> str:
+    return " | ".join(c.styleSheet() for c in pane._cast.person_chips(role))
 
 
 @pytest.fixture(scope="module")
@@ -150,7 +159,7 @@ def test_the_render_path_never_computes_taste_weights(pane, monkeypatch):
         "the pane must ASK the host for weights, exactly once, carrying the "
         "channel id the reply will be checked against"
     )
-    text = pane._cast.cast_label.text()
+    text = _role_text(pane, "cast")
     assert "Ada Star" in text, "the cast must be painted before any weights arrive"
     assert LIKED_MARK not in text and DISLIKED_MARK not in text, (
         "the first paint is the weights=None render — no preference markers yet"
@@ -273,12 +282,12 @@ def test_a_failed_read_logs_and_leaves_the_render_alone(db, tmp_path, monkeypatc
 def test_none_weights_leave_the_un_annotated_render_standing(pane):
     """No taste signal is not a reason to blank the cast the pane already painted."""
     pane.show_channel(_channel(CHANNEL_A), metadata=_metadata())
-    before = pane._cast.cast_label.text()
+    before = _role_text(pane, "cast")
     assert "Ada Star" in before
 
     pane.apply_taste_weights(CHANNEL_A, None)
 
-    assert pane._cast.cast_label.text() == before, (
+    assert _role_text(pane, "cast") == before, (
         "a None reply must leave the render untouched — never clear() it"
     )
     assert not pane._cast.isHidden(), "the Cast section must not be hidden"
@@ -290,25 +299,25 @@ def test_none_weights_leave_the_un_annotated_render_standing(pane):
 def test_a_late_reply_for_a_channel_the_pane_has_left_is_dropped(pane):
     pane.show_channel(_channel(CHANNEL_A), metadata=_metadata())
     pane.show_channel(_channel(CHANNEL_B), metadata=_metadata())
-    text_on_b = pane._cast.cast_label.text()
+    text_on_b = _role_text(pane, "cast")
 
     pane.apply_taste_weights(CHANNEL_A, _weights())
 
-    assert pane._cast.cast_label.text() == text_on_b, (
+    assert _role_text(pane, "cast") == text_on_b, (
         "channel A's weights must not annotate channel B's pane"
     )
-    assert LIKED_MARK not in pane._cast.cast_label.text()
+    assert LIKED_MARK not in _role_text(pane, "cast")
 
 
 def test_the_reply_for_the_channel_on_screen_is_applied(pane):
     pane.show_channel(_channel(CHANNEL_A), metadata=_metadata())
-    assert LIKED_MARK not in pane._cast.cast_label.text()
+    assert LIKED_MARK not in _role_text(pane, "cast")
 
     pane.apply_taste_weights(CHANNEL_A, _weights())
 
-    text = pane._cast.cast_label.text()
+    text = _role_text(pane, "cast")
     assert LIKED_MARK in text, "the liked actor must gain its ▲ marker"
-    assert DISLIKED_MARK in pane._cast._director_lbl.text(), (
+    assert DISLIKED_MARK in _role_text(pane, "director"), (
         "the disliked director must gain its ▼ marker"
     )
 
@@ -342,28 +351,28 @@ def test_the_marker_is_added_without_moving_the_cast_row(pane, qapp):
 
     pane.show_channel(_channel(CHANNEL_A), metadata=_metadata())
     _settle()
-    plain_geom = pane._cast.cast_label.geometry()
-    plain_dir_geom = pane._cast._director_lbl.geometry()
-    plain_text = pane._cast.cast_label.text()
+    plain_geom = pane._cast.geometry()
+    plain_text = _role_text(pane, "cast")
 
     assert plain_geom.width() > 0 and plain_geom.height() > 0, (
-        "the un-annotated pass must actually paint a row to compare against"
+        "the un-annotated pass must actually paint a section to compare against"
     )
     assert LIKED_MARK not in plain_text and DISLIKED_MARK not in plain_text
 
     pane.apply_taste_weights(CHANNEL_A, _weights())
     _settle()
 
-    marked_text = pane._cast.cast_label.text()
-    assert LIKED_MARK in marked_text, "the liked actor gains ▲"
-    assert _theme.COLOR_OK in marked_text, (
-        "the ▲ takes the palette's positive colour, never a literal"
+    assert LIKED_MARK in _role_text(pane, "cast"), "the liked actor gains ▲"
+    assert _theme.COLOR_OK in _role_sheets(pane, "cast"), (
+        "the liked chip takes the palette's positive colour, never a literal"
     )
-    assert DISLIKED_MARK in pane._cast._director_lbl.text()
-    assert _theme.COLOR_ERR in pane._cast._director_lbl.text()
+    assert DISLIKED_MARK in _role_text(pane, "director")
+    assert _theme.COLOR_ERR in _role_sheets(pane, "director")
 
-    assert pane._cast.cast_label.geometry() == plain_geom, (
-        "annotating must not move or resize the cast row — the markers are "
-        "inline, so the pane must not jump once the weights land"
+    assert pane._cast.geometry().top() == plain_geom.top(), (
+        "annotating must not move the Cast section"
     )
-    assert pane._cast._director_lbl.geometry() == plain_dir_geom
+    assert pane._cast.geometry().height() == plain_geom.height(), (
+        "the markers sit inside the chips — the section must not grow or "
+        "shrink once the weights land"
+    )

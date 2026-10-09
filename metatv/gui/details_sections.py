@@ -1,5 +1,4 @@
-"""Content section widgets for the details pane: poster, metadata, plot, technical, cast."""
-import html
+"""Content section widgets for the details pane: poster, plot (Overview), cast."""
 import re
 
 from loguru import logger
@@ -14,12 +13,12 @@ from metatv.core.channel_name_utils import normalize_region_code
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.detail_chips import (
+    KEY_COL, SECTION_INDENT, make_chip, make_flow, make_key, make_label_grid,
+)
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
-from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
-from metatv.gui.qt_text_utils import escape_mnemonic
-from metatv.metadata_providers.base import MetadataResult
 
 
 def _is_stale_polluted_title(clean_title: str, metadata_title: str) -> bool:
@@ -153,17 +152,6 @@ class _WatchedBadge(QPushButton):
     def leaveEvent(self, event) -> None:
         self.hover_changed.emit(False)
         super().leaveEvent(event)
-
-
-def _pref_signal(name: str, weights, attr: str) -> str:
-    """Return HTML indicator for a person based on their preference weight."""
-    d = getattr(weights, attr, {})
-    score = d.get(name, 0.0)
-    if score > 0.3:
-        return f'<span style="color:{_theme.COLOR_OK}">▲ </span>'
-    if score < -0.3:
-        return f'<span style="color:{_theme.COLOR_ERR}">▼ </span>'
-    return ''
 
 
 # ---------------------------------------------------------------------------
@@ -854,7 +842,7 @@ class _PlotSection(CollapsibleMixin, QWidget):
 
         self._content = QWidget()
         content_layout = QVBoxLayout(self._content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(SECTION_INDENT, 0, 0, 0)
         content_layout.setSpacing(2)
         layout.addWidget(self._content)
 
@@ -980,10 +968,10 @@ class _CastSection(CollapsibleMixin, QWidget):
                 row += 1
             self._content_lay.addWidget(self._grid_w)
 
-        n = len(directors) + len(names)
-        self._header.set_summary(str(n) if n else "", f"{n} {'person' if n == 1 else 'people'}")
+        n = len(names)
+        self._header.set_summary(str(n) if n else "", f"{n} cast member{'s' * (n != 1)}")
         # A director alone OR any cast is enough to show the section.
-        self._has_content = bool(n)
+        self._has_content = bool(directors or names)
         self._apply_visibility()
 
     def _person_chip(self, name: str, role: str, weights, attr: str) -> QPushButton:
