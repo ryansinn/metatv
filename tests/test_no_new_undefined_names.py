@@ -36,7 +36,7 @@ from pathlib import Path
 
 #: Findings in the tree when this guard was written (2026-09-02), all of them
 #: quoted annotations. Shrink-only: never raise this to make a red run green.
-BASELINE = 22
+BASELINE = 17
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -15,6 +15,7 @@ nothing ever pushed back on it growing.
 from __future__ import annotations
 
 from loguru import logger
+from PyQt6.QtCore import Qt
 
 from metatv.core.repositories import RepositoryFactory
 
