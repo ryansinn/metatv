@@ -14,6 +14,10 @@
       "reason": "prefix/category-level filtered-variant chip menu (unhide category / remove filter / manage exclusions) - not channel-shaped."
     },
     {
+      "entry": "metatv/gui/details_versions.py::_VersionSection._show_merge_menu",
+      "reason": "DETAILS-3c 'label x-N' chip picker - a flat list of which identical-label copy to show, not a channel-verb menu."
+    },
+    {
       "entry": "metatv/gui/main_window_downloads.py::_DownloadsMixin.show_downloads_context_menu",
       "reason": "download-id-keyed row menu, not a ChannelDB row - own docstring: 'not the channel registry'."
     },

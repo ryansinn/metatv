@@ -153,12 +153,10 @@ _IDENTICAL_GROUP_BUDGET = 25
 # Merging them would paint the log viewer as a failure notice. Kept apart.
 # 43 -> 44, justified rather than absorbed (CHROME-1).
 #
-# The new cluster is DETAIL_SECTION_TITLE / DETAIL_SUBSECTION_TITLE. Same
-# property NAMES on the same QLabel selector; the values differ by exactly one
-# step of the type scale, and that step IS the information: the details pane's
-# Other Versions section nests headers (a source group inside the section), and
-# CollapsibleHeader(nested=True) has to read as subordinate to its parent
-# header or the hierarchy is invisible. One role with a size parameter would be
-# a composed sheet built per widget — the pre-registry population this guard's
-# siblings are ratcheting DOWN — so the pair stays two roles.
-_SHAPE_CLUSTER_BUDGET = 44
+# DETAIL_SUBSECTION_TITLE (paired with DETAIL_SECTION_TITLE in this cluster)
+# existed for the details pane's "Also available" nested sub-sections
+# (FILTERED VARIANTS / OFFLINE SOURCES), removed by DETAILS-3c in favour of
+# an always-visible grid row with its own dashed "+N …" disclosure chip —
+# there is no nested CollapsibleHeader left to read as subordinate to its
+# parent, so the role is gone rather than orphaned. 44 -> 43.
+_SHAPE_CLUSTER_BUDGET = 43

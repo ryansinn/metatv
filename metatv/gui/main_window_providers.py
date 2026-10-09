@@ -586,7 +586,16 @@ class _ProviderMixin:
             repos = RepositoryFactory(session)
             providers = repos.providers.get_all()
             provider_map = {
-                p.id: {"icon": getattr(p, "icon", "") or "", "name": p.name}
+                p.id: {
+                    "icon": getattr(p, "icon", "") or "",
+                    "name": p.name,
+                    # DETAILS-3c: "Available in" counts ENABLED sources only
+                    # when deciding whether to prefix a chip with its source
+                    # icon — a disabled provider's copies never reach the
+                    # chip at all, so this only ever distinguishes among
+                    # sources the title actually has an enabled copy on.
+                    "enabled": bool(getattr(p, "is_active", True)),
+                }
                 for p in providers
             }
             self.details_pane.set_provider_map(provider_map)

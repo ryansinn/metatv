@@ -23,25 +23,12 @@ def _make_config():
 
 
 # ── Fix #98: variant chip queue label ─────────────────────────────────────
-
-def test_chip_status_suffix_includes_queue_icon_when_queued(qapp, owned_widgets):
-    """_chip_status_suffix must include the queue icon when v.in_queue is True."""
-    from metatv.gui.details_versions import ChannelVersion, _VersionSection
-
-    section = _VersionSection(_make_config())
-    v = ChannelVersion(channel_id="c1", name="T", in_queue=True)
-    suffix = section._chip_status_suffix(v)
-    assert section.config.queue_icon in suffix
-
-
-def test_chip_status_suffix_omits_queue_icon_when_not_queued(qapp, owned_widgets):
-    """_chip_status_suffix must NOT include the queue icon when v.in_queue is False."""
-    from metatv.gui.details_versions import ChannelVersion, _VersionSection
-
-    section = _VersionSection(_make_config())
-    v = ChannelVersion(channel_id="c1", name="T", in_queue=False)
-    suffix = section._chip_status_suffix(v)
-    assert section.config.queue_icon not in suffix
+#
+# DETAILS-3c removed the status-glyph suffix (queue/favorite/history icons on
+# a chip's face) entirely — the chip label is now display_code(prefix) +
+# quality token only, and two same-prefix copies disambiguate via the "×N"
+# merge menu instead. ``_chip_status_suffix`` no longer exists; the menu's
+# own queue-label behaviour (tested below) is unaffected.
 
 
 def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypatch, owned_widgets):
@@ -104,45 +91,10 @@ def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypa
         destroy_widget(section)
 
 
-def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch, owned_widgets):
-    """When a chip reference is passed to the menu, its text updates after queue toggle."""
-    from PyQt6.QtCore import QPoint
-    from PyQt6.QtWidgets import QMenu, QPushButton
-    from metatv.gui.details_versions import ChannelVersion, _VersionSection
-    from tests.conftest import destroy_widget
-
-    # See the sibling test above: patch QMenu.exec on the class, not the
-    # module-level import build_channel_menu no longer reads.
-    def _pick_queue_action(self, pos=None):  # type: ignore[override]
-        # MENU-1: the registry wires the handler via triggered.connect, not a
-        # chosen-action return-value dispatch (the old hand-rolled menu's
-        # shape) — .trigger() it, same as a real exec() firing the signal
-        # when the user picks it.
-        for act in self.actions():
-            if "Watch Later" in act.text():
-                act.trigger()
-                return act
-        return None
-
-    monkeypatch.setattr(QMenu, "exec", _pick_queue_action)
-
-    cfg = _make_config()
-    section = _VersionSection(cfg)
-    v = ChannelVersion(channel_id="c1", name="T", in_queue=False, detected_prefix="EN")
-    chip = QPushButton("EN")   # dummy chip for text-update check
-
-    try:
-        section._show_version_chip_menu(QPoint(0, 0), v, chip)
-
-        # After the flip, the chip text should include the queue icon
-        assert cfg.queue_icon in chip.text(), (
-            f"Chip text '{chip.text()}' should include queue_icon after optimistic flip"
-        )
-    finally:
-        # Both are parentless top-levels the registry's action closures now
-        # reference (see the sibling test's comment) — neither is cleaned up
-        # by anything else.
-        destroy_widget(section, chip)
+# DETAILS-3c removed the chip-text refresh-on-queue-toggle behaviour along
+# with the status-glyph suffix it existed to repaint — a chip's face no
+# longer encodes queue/favorite/history state at all (see the comment above
+# test_version_chip_menu_queue_action_label_and_optimistic_flip).
 
 
 # ── Fix #101: genre chips wrap in flow layout ─────────────────────────────

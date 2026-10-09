@@ -4,26 +4,29 @@ from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel,
-    QMenu, QLineEdit, QSizePolicy,
+    QMenu, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCursor
 
 
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
 from metatv.gui import cursor_affordance
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
+from metatv.gui.detail_chips import (
+    add_quality_badge, display_code, make_chip, make_flow, make_key, make_label_grid,
+)
 from metatv.gui.details_version_groups import (
     DEFAULT_VISIBLE_REGIONS as VISIBLE_REGIONS,
     GROUPING_THRESHOLD,
     group_by_region,
     summarise,
 )
-from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_text_utils import escape_mnemonic
 
 # ---------------------------------------------------------------------------
@@ -78,6 +81,12 @@ class ChannelVersion:
     is_inactive: bool = False           # True when provider is toggled off (inactive)
     media_type: str = ""            # "movie" | "series" | "live" | ""
     user_rating: int = 0            # +1 liked, -1 disliked, 0 no rating
+    # How THIS source files this copy — tag_decomposer's "collection" facet off
+    # the provider category, falling back to the raw category string (DETAILS-3c).
+    # Used only for the merge-menu entry text and the filing tooltip; never on
+    # the chip's face (that stays display_code(prefix) + quality, see
+    # _VersionSection._chip_label).
+    collection: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,18 +134,26 @@ class _CategoryNamePopup(QFrame):
 # _VersionSection
 # ---------------------------------------------------------------------------
 
-class _VersionSection(CollapsibleMixin, QWidget):
-    """Preferred-version nudge banner + wrapping source-picker chip row.
+class _VersionSection(QWidget):
+    """"Available in" — every copy of the current title, the one you're on first.
 
-    Each chip shows the source icon (from *provider_map*), region/prefix, and
-    quality tier.  Left-clicking a chip shows that variant's details in the
-    details pane via ``version_selected``; right-clicking opens the full context
-    menu (play / favorite / queue / hide / filter / reactivate).
-    Inactive-source chips are dimmed and offer a "Reactivate & play" menu option
-    via right-click only.
+    Not collapsible (DETAILS-3c): it is a ``detail_chips.make_label_grid()``
+    row, key "Available in" in column 0, chips in column 1 — the same grid
+    shape as a Facts/Cast row, not a fifth hand-rolled collapsible section.
+    The FIRST chip is always the copy ``load()`` was told is currently shown
+    (``current``), drawn selected; the rest are every other PLAYABLE copy —
+    a source the user has turned off never reaches this widget at all, the
+    absolute gate enforced at the loader (``main_window_metadata.py``).
+
+    Over :data:`GROUPING_THRESHOLD` the active copies still group by region
+    (``details_version_groups.py``) exactly as before. Below it, and inside
+    every opened "Filtered"/"Offline" bucket, copies whose labels are
+    otherwise identical collapse into one "label ×N" chip — left-click opens
+    a small menu naming each by its collection so the user still picks the
+    right one. "Filtered"/"Offline" start closed behind a dashed "+N …" chip
+    that ends the Available row; opening one adds its own labelled grid row
+    below, remembered per-bucket in ``config.details_pane_open_copy_buckets``.
     """
-
-    COLLAPSE_KEY = "versions"
 
     version_selected         = pyqtSignal(str)        # channel_id — show details
     play_version_requested   = pyqtSignal(str)        # channel_id — play that variant
@@ -149,20 +166,38 @@ class _VersionSection(CollapsibleMixin, QWidget):
     prefix_name_saved        = pyqtSignal(str, str)   # prefix, name
     manage_filters_requested = pyqtSignal()
 
+    #: The two buckets that can be opened/closed and remembered, matching
+    #: ``Config.details_pane_open_copy_buckets``.
+    _BUCKETS = ("filtered", "offline")
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
+        self._current: ChannelVersion | None = None
         self._active_versions: list = []
+        self._filtered_versions: list = []
+        self._offline_versions: list = []
         self._region_expanded: str | None = None
         self._show_all_regions: bool = False
+        self._provider_map: dict = {}
+        self._show_source_icons: bool = False
+        self._open_buckets: set[str] = set()
+        # Every version load() was handed, current + sibling, by channel_id —
+        # rebuilt fresh on every load() — so a chip's click/context-menu slot
+        # can resolve "which ChannelVersion is this" from a Qt property on
+        # the SENDER rather than from a per-chip lambda closure over self
+        # (widget-owns-closure-owns-self is a reference cycle the Qt
+        # top-level-widget leak guard catches; see _on_chip_clicked).
+        self._versions_by_id: dict = {}
+        self._preferred_channel_id: str | None = None
         self._setup()
 
     def _setup(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
 
-        # Preferred version nudge banner (green)
+        # Preferred version nudge banner (green) — unchanged by DETAILS-3c.
         self._pref_nudge = QFrame()
         _theme.style_fn(self._pref_nudge, lambda: f"QFrame {{ background: {_theme.OVERLAY_GREEN_15}; border-radius: 4px;"
             f" border: 1px solid {_theme.OVERLAY_GREEN_40}; }}")
@@ -175,276 +210,206 @@ class _VersionSection(CollapsibleMixin, QWidget):
         self._pref_nudge_switch_btn.setFlat(True)
         _theme.style_fn(self._pref_nudge_switch_btn, lambda: f"color: {_theme.COLOR_PREF_NUDGE}; font-size: {_theme.FONT_MD}; font-weight: bold; border: none;")
         self._pref_nudge_switch_btn.setToolTip("Switch the details pane to show your preferred version")
+        # Connected ONCE, here — never per-load() — and reads the preferred
+        # channel id back off self rather than a lambda baked at connect time,
+        # so there is one bound-method connection for the button's whole
+        # lifetime instead of a fresh closure (over self) on every load().
+        self._pref_nudge_switch_btn.clicked.connect(self._on_pref_nudge_clicked)
         nudge_row.addWidget(self._pref_nudge_lbl, 1)
         nudge_row.addWidget(self._pref_nudge_switch_btn)
         self._pref_nudge.hide()
         layout.addWidget(self._pref_nudge)
 
-        # Chip section: "Also available as:" label above chips (vertical stack, full width)
-        self._row_container = QWidget()
-        row_layout = QVBoxLayout(self._row_container)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(4)
+        # The "Available in" grid (+ any opened bucket rows below it) is
+        # rebuilt wholesale on every load()/drill/toggle — see _render(). This
+        # body wrapper is what load() hides entirely when there is nothing at
+        # all to show (no current copy, no siblings).
+        self._body = QWidget()
+        self._body_layout = QVBoxLayout(self._body)
+        self._body_layout.setContentsMargins(0, 0, 0, 0)
+        self._body_layout.setSpacing(4)
+        self._body.hide()
+        layout.addWidget(self._body)
 
-        # Header — the shared collapsible one, so this section folds away like
-        # every other and its "65 versions · 19 regions" sits where every other
-        # section's count sits.
-        self._header = CollapsibleHeader("Also Available")
-        row_layout.addWidget(self._header)
-
-        self._content = QWidget()
-        content_layout = QVBoxLayout(self._content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(4)
-        row_layout.addWidget(self._content)
-
-        # Active chips — full width
-        self._chips_row = QWidget()
-        self._chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self._chips_layout = FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
-        content_layout.addWidget(self._chips_row)
-
-        # Two collapsible chip sub-sections, built by ONE factory.
-        #
-        # "Filtered variants" is the soft bucket: things the user's own filters
-        # excluded, revealable on demand. "Offline sources" is the hard one:
-        # variants on a source that is turned off or expired. They must not be
-        # the same list — CRITICAL_RULES "hidden-provider content is an absolute
-        # gate ... never a soft filter" — but they ARE the same widget, and
-        # hand-rolling the second copy of 45 lines of header plumbing is how
-        # they drift apart.
-        (self._filtered_section, self._filtered_header,
-         self._filtered_chips_row, self._filtered_chips_layout) = self._build_chip_subsection(
-            "FILTERED VARIANTS", "variants your own filters excluded",
-            self._toggle_filtered_section,
-        )
-        self._filtered_collapsed: bool = True
-        content_layout.addWidget(self._filtered_section)
-
-        (self._offline_section, self._offline_header,
-         self._offline_chips_row, self._offline_chips_layout) = self._build_chip_subsection(
-            "OFFLINE SOURCES", "variants on a source you have turned off or that has expired",
-            self._toggle_offline_section,
-        )
-        self._offline_collapsed: bool = True
-        content_layout.addWidget(self._offline_section)
-
-        self._wire_header()
-
-        self._row_container.hide()
-        layout.addWidget(self._row_container)
+    # ------------------------------------------------------------------ #
+    # Loading                                                              #
+    # ------------------------------------------------------------------ #
 
     def load(
         self,
         versions: list[ChannelVersion],
         provider_map: dict | None = None,
+        current: "ChannelVersion | None" = None,
     ) -> None:
-        """Rebuild the chip row from a fresh version list.
+        """Rebuild "Available in" from a fresh version list.
 
         Args:
-            versions: Alternative versions of the current channel.
-            provider_map: Optional ``{provider_id: {"icon": str, "name": str}}`` map
-                from ``DetailsPaneWidget._provider_map``.  When provided, chips show
-                the provider icon to the left of the region/quality label.
+            versions: Every OTHER playable copy of the current title. A copy
+                on a source the user has turned off must never reach here —
+                that is enforced at the loader, not here.
+            provider_map: Optional ``{provider_id: {"icon", "name", "enabled"}}``
+                map from ``DetailsPaneWidget._provider_map``.
+            current: The copy already shown in the details pane — drawn as
+                the first, selected chip. ``None`` only for a bare clear().
         """
-        self._provider_map: dict = provider_map or {}
-        # Clear active chips layout
-        layout = self._chips_layout
-        while layout.count():
-            item = layout.takeAt(0)
-            if w := item.widget():
-                w.deleteLater()
-        # Clear both sub-section chip layouts. Missing the second one here is
-        # how a reload leaves a previous title's offline chips on screen.
-        for sub_layout in (self._filtered_chips_layout, self._offline_chips_layout):
-            while sub_layout.count():
-                item = sub_layout.takeAt(0)
-                if w := item.widget():
-                    w.deleteLater()
-
-        try:
-            self._pref_nudge_switch_btn.clicked.disconnect()
-        except (RuntimeError, TypeError):
-            pass
+        self._provider_map = provider_map or {}
+        self._current = current
         self._pref_nudge.hide()
-        self._row_container.hide()
-        # Both sub-sections reset to hidden-and-collapsed on every load.
-        self._filtered_section.hide()
-        self._filtered_collapsed = True
-        self._filtered_chips_row.hide()
-        self._filtered_header.set_collapsed(True)
-        self._offline_section.hide()
-        self._offline_collapsed = True
-        self._offline_chips_row.hide()
-        self._offline_header.set_collapsed(True)
+        self._body.hide()
 
-        if not versions:
-            return
-
-        # THREE buckets, not two. A variant on a source the user has turned
-        # off (or that expired) used to land in `active`: rendered among the
-        # available versions, counted in the "3 versions · 2 regions" header,
-        # and distinguishable only by being slightly dimmer with an explanatory
-        # tooltip. That is a hidden-provider leak into a forward-looking view —
-        # CRITICAL_RULES:188 says such content "must never appear" there, and
-        # the only documented exception is the record/engaged views (History,
-        # Favorites, Queue). It also broke the colour-alone accessibility rule,
-        # since dimness was the entire visual signal.
-        #
-        # It is NOT folded into `filtered` either. That bucket is the user's own
-        # soft exclusions, revealable on demand; an inactive source is an
-        # absolute gate (CRITICAL_RULES:219), and merging them would let
-        # "reveal filtered" surface disabled-source content.
-        #
-        # The variants are still SHOWN, in their own section, because the chip
-        # already offers "right-click to reactivate & play" and that recovery
-        # path is the point — it just must not read as "available now".
         offline  = [v for v in versions if v.is_inactive and not v.is_hidden]
         active   = [v for v in versions
                     if not v.is_filtered and not v.is_hidden and not v.is_inactive]
         filtered = [v for v in versions
                     if v.is_filtered and not v.is_hidden and not v.is_inactive]
 
-        # A source glyph on every chip is only information when the chips span
-        # more than one source; with a single source it repeats the same symbol
-        # down the whole list and crowds out the label that actually varies
-        # (region/quality). Counted across active AND filtered so expanding
-        # "Filtered variants" can't change the rule mid-render. The source is
-        # still named in each chip's tooltip either way.
-        self._show_source_icons = len({
-            v.provider_id for v in (active + filtered + offline) if v.provider_id
-        }) > 1
+        self._versions_by_id = {
+            v.channel_id: v
+            for v in ([current] if current else []) + active + filtered + offline
+        }
 
-        if not active and not filtered and not offline:
-            return
+        # A source glyph is only information when more than one ENABLED
+        # source is in play — with one it repeats the same symbol on every
+        # chip and crowds out the thing that actually varies (region/quality).
+        # provider_map's "enabled" flag is set once, centrally, in
+        # MainWindow._refresh_details_provider_map; a provider missing from
+        # the map (a stale test double) defaults to enabled so it still counts.
+        provider_ids = {
+            v.provider_id for v in ([current] if current else []) + active + filtered + offline
+            if v.provider_id
+        }
+        self._show_source_icons = sum(
+            1 for pid in provider_ids
+            if self._provider_map.get(pid, {}).get("enabled", True)
+        ) > 1
+
+        self._active_versions = active
+        self._filtered_versions = filtered
+        self._offline_versions = offline
+        self._region_expanded = None
+        self._show_all_regions = False
+
+        stored_open = set(getattr(self.config, "details_pane_open_copy_buckets", None) or [])
+        self._open_buckets = stored_open & set(self._BUCKETS)
 
         preferred = next((v for v in versions if v.is_preferred), None)
+        self._preferred_channel_id = preferred.channel_id if preferred else None
         if preferred:
             self._pref_nudge_lbl.setText(
                 f"{self.config.preferred_version_icon} Preferred: {preferred.name}"
             )
-            self._pref_nudge_switch_btn.clicked.connect(
-                lambda: self.version_selected.emit(preferred.channel_id)
-            )
             self._pref_nudge.show()
 
-        # Active variants render GROUPED BY REGION (see
-        # details_version_groups.py — 65 chips become 12 plus a tail). Filtered
-        # variants stay one chip per version: that list is short, already
-        # behind a collapsed disclosure, and its whole purpose is naming the
-        # individual thing that got filtered.
-        self._active_versions = list(active)
-        self._region_expanded = None
-        self._show_all_regions = False
-        self._render_region_grid()
-        for v in filtered:
-            self._filtered_chips_layout.addWidget(self._make_greyed_chip(v))
+        if current is None and not active and not filtered and not offline:
+            self._clear_body()
+            return
 
-        for v in offline:
-            # _make_active_chip, NOT _make_greyed_chip. Both render a quiet chip,
-            # but the greyed one wires the FILTERED context menu and a tooltip
-            # saying "filtered" — using it here would silently drop the
-            # "right-click to reactivate & play" recovery path, which is the
-            # entire reason these are still shown rather than dropped.
-            # _make_active_chip already branches on is_inactive and every
-            # variant in this list has it set.
-            self._offline_chips_layout.addWidget(self._make_active_chip(v))
-        self._offline_section.setVisible(bool(offline))
+        self._render()
+        self._body.show()
 
-        if filtered:
-            self._filtered_section.show()
-        else:
-            # Belt-and-suspenders: ensure the section is hidden even if a previous
-            # load left it visible and this reload has zero filtered variants.
-            self._filtered_section.hide()
+    def clear(self) -> None:
+        self.load([])
 
-        self._row_container.show()
+    def _on_pref_nudge_clicked(self) -> None:
+        if self._preferred_channel_id:
+            self.version_selected.emit(self._preferred_channel_id)
 
-        # Hide the active grid entirely when nothing is IN it. Before offline
-        # variants moved to their own section, `active` was almost never empty
-        # — an inactive-source variant landed here and filled it. Now a title
-        # whose every variant is filtered or offline leaves an empty flow
-        # layout under the "Also Available" header, which renders as a gap with
-        # nothing in it (owner report, screenshot 2026-08-29). An empty
-        # container still occupies its margins; it has to be hidden, not just
-        # left unpopulated.
-        self._chips_row.setVisible(bool(active))
+    # ------------------------------------------------------------------ #
+    # Rendering — rebuilt wholesale on every load()/drill/bucket toggle    #
+    # ------------------------------------------------------------------ #
 
-        self._chips_row.updateGeometry()
-        if filtered:
-            self._filtered_chips_row.updateGeometry()
-        if offline:
-            self._offline_chips_row.updateGeometry()
-
-    def _clear_active_chips(self) -> None:
-        """Empty the grid — and take the old chips OFF THE SCREEN, now.
-
-        ``deleteLater()`` alone does not: it schedules destruction for the next
-        event-loop pass, and until then the widget is still a visible child of
-        the row, painting where it was. Taking it out of the LAYOUT only stops
-        it being positioned, so re-rendering in place (drilling into a region)
-        drew the new chips straight over the old ones. ``setParent(None)``
-        detaches it immediately; deleteLater then frees it.
-        """
-        while self._chips_layout.count():
-            item = self._chips_layout.takeAt(0)
-            if w := item.widget():
+    def _clear_body(self) -> None:
+        while self._body_layout.count():
+            item = self._body_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
                 w.setParent(None)
                 w.deleteLater()
 
-    def _render_region_grid(self) -> None:
-        """Draw the active grid: region chips, or one region's versions.
+    def _render(self) -> None:
+        self._clear_body()
 
-        Two states, one renderer, because they are the same grid — drilling in
-        replaces its contents rather than opening anything, so the pane never
-        changes height under the pointer.
+        grouped = len(self._active_versions) > GROUPING_THRESHOLD
+        active_chips = self._build_region_chips() if grouped else self._build_flat_chips(
+            self._active_versions, dashed=False, colour_token="COLOR_TEXT",
+            tooltip_fn=self._chip_tooltip, menu="version",
+        )
+
+        row0 = []
+        current_chip = self._build_current_chip()
+        if current_chip is not None:
+            row0.append(current_chip)
+        row0.extend(active_chips)
+        for word, bucket in (("filtered", self._filtered_versions), ("offline", self._offline_versions)):
+            if bucket and word not in self._open_buckets:
+                row0.append(self._make_bucket_summary_chip(word, len(bucket)))
+
+        grid_widget, grid = make_label_grid()
+        key = make_key("Available in")
+        if grouped:
+            key.setToolTip(summarise(group_by_region(self._active_versions)))
+        grid.addWidget(key, 0, 0, Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(make_flow(row0), 0, 1)
+
+        row_index = 1
+        for word, bucket in (("filtered", self._filtered_versions), ("offline", self._offline_versions)):
+            if not bucket or word not in self._open_buckets:
+                continue
+            tooltip_fn = self._filtered_why_tooltip if word == "filtered" else self._offline_why_tooltip
+            chips = self._build_flat_chips(
+                bucket, dashed=True, colour_token="COLOR_MUTED", tooltip_fn=tooltip_fn,
+                menu="filtered" if word == "filtered" else "version",
+            )
+            grid.addWidget(self._make_bucket_key(word, len(bucket)), row_index, 0, Qt.AlignmentFlag.AlignTop)
+            grid.addWidget(make_flow(chips), row_index, 1)
+            row_index += 1
+
+        self._body_layout.addWidget(grid_widget)
+
+    def _build_current_chip(self) -> "QPushButton | None":
+        if self._current is None:
+            return None
+        chip = make_chip(self._chip_label(self._current), "COLOR_TEXT_HI", selected=True, bold=True)
+        add_quality_badge(chip, "COLOR_TEXT_HI", bold=True)
+        chip.setToolTip(self._chip_tooltip(self._current, "The copy shown above"))
+        return chip
+
+    # ------------------------------------------------------------------ #
+    # Region grid (active copies, over GROUPING_THRESHOLD)                 #
+    # ------------------------------------------------------------------ #
+
+    def _build_region_chips(self) -> list:
+        """Region-group chips, or one drilled-in region's own copies.
+
+        Two states, one renderer — drilling in replaces row 0's active
+        chips rather than opening anything, so the pane never changes height
+        under the pointer. No version is ever dropped (details_version_groups).
         """
-        self._clear_active_chips()
         groups = group_by_region(self._active_versions)
-        self._header.set_summary(summarise(groups) if groups else "")
-
-        # Few enough to just show. Grouping costs a click to reach any version
-        # and drops the source icon and quality tier from the face, which is a
-        # bad trade until the flat list is genuinely unreadable.
-        if len(self._active_versions) <= GROUPING_THRESHOLD:
-            self._region_expanded = None
-            for v in self._active_versions:
-                self._chips_layout.addWidget(self._make_active_chip(v))
-            self._chips_row.updateGeometry()
-            return
 
         if self._region_expanded is not None:
-            group = next(
-                (g for g in groups if g.code == self._region_expanded), None
-            )
+            group = next((g for g in groups if g.code == self._region_expanded), None)
             if group is not None:
-                self._chips_layout.addWidget(self._make_back_chip(group))
-                for v in group.versions:
-                    self._chips_layout.addWidget(self._make_active_chip(v))
-                self._chips_row.updateGeometry()
-                return
+                return [self._make_back_chip(group)] + self._build_flat_chips(
+                    list(group.versions), dashed=False, colour_token="COLOR_TEXT",
+                    tooltip_fn=self._chip_tooltip, menu="version",
+                )
             # The region vanished under us (a reload with different data).
             self._region_expanded = None
 
         shown = groups if self._show_all_regions else groups[:VISIBLE_REGIONS]
-        for group in shown:
-            self._chips_layout.addWidget(self._make_region_chip(group))
+        chips = [self._make_region_chip(group) for group in shown]
         hidden = len(groups) - len(shown)
         if hidden > 0:
-            self._chips_layout.addWidget(self._make_more_chip(hidden))
-        self._chips_row.updateGeometry()
+            chips.append(self._make_more_chip(hidden))
+        return chips
 
     def _make_region_chip(self, group) -> QPushButton:
-        """One region: its code and how many versions are in it."""
-        chip = QPushButton(f"{group.code}  {group.count}")
+        """One region: its full name, code, and how many versions are in it."""
+        chip = QPushButton(escape_mnemonic(f"{display_code(group.code, self.config)} · {group.count}"))
         chip.setFlat(True)
         _theme.style(chip, "DETAIL_REGION_CHIP")
         cursor_affordance.set_clickable(chip)
-        # The FACE is a bare code because a grid of twelve full region names is
-        # the wall this replaced. The NAME is one hover away, with the region's
-        # quality tiers — which is where they belong: quality is present on
-        # roughly 6% of the library, so putting it on the face would leave
-        # almost every chip with a gap where a tier should be.
         name = resolve_category_name(group.code, self.config) or group.code
         lines = [f"{name} — {group.count} version{'s' if group.count != 1 else ''}"]
         if group.qualities:
@@ -453,14 +418,16 @@ class _VersionSection(CollapsibleMixin, QWidget):
             ))
         lines.append("Click to see them")
         chip.setToolTip("\n".join(lines))
-        chip.clicked.connect(lambda _=False, code=group.code: self._expand_region(code))
+        # The region code lives on the chip (a Qt property), read back by ONE
+        # shared bound slot via self.sender() — not a per-chip lambda closing
+        # over self, which is a widget<->closure reference cycle the Qt
+        # top-level-widget leak guard catches.
+        chip.setProperty("cv_region_code", group.code)
+        chip.clicked.connect(self._on_region_chip_clicked)
         return chip
 
     def _make_more_chip(self, hidden: int) -> QPushButton:
-        chip = QPushButton(f"+ {hidden} more")
-        chip.setFlat(True)
-        _theme.style(chip, "DETAIL_REGION_LINK")
-        cursor_affordance.set_clickable(chip)
+        chip = make_chip(f"+{hidden} more regions", "COLOR_TEXT", dashed=True)
         chip.setToolTip(f"Show the remaining {hidden} region"
                         f"{'s' if hidden != 1 else ''}")
         chip.clicked.connect(self._show_every_region)
@@ -476,218 +443,227 @@ class _VersionSection(CollapsibleMixin, QWidget):
         chip.clicked.connect(self._collapse_region)
         return chip
 
+    def _on_region_chip_clicked(self) -> None:
+        chip = self.sender()
+        code = chip.property("cv_region_code") if chip is not None else None
+        if code:
+            self._expand_region(code)
+
     def _expand_region(self, code: str) -> None:
         self._region_expanded = code
-        self._render_region_grid()
+        self._render()
 
     def _collapse_region(self) -> None:
         self._region_expanded = None
-        self._render_region_grid()
+        self._render()
 
     def _show_every_region(self) -> None:
         self._show_all_regions = True
-        self._render_region_grid()
+        self._render()
 
-    def clear(self) -> None:
-        self.load([])
+    # ------------------------------------------------------------------ #
+    # Bucket open/close (Filtered / Offline) — persisted per bucket        #
+    # ------------------------------------------------------------------ #
 
-    def _build_chip_subsection(self, title: str, hint: str, on_toggle):
-        """Build one collapsible, titled row of chips.
+    def _make_bucket_summary_chip(self, word: str, n: int) -> QPushButton:
+        chip = make_chip(f"+{n} {word}", "COLOR_TEXT", dashed=True)
+        chip.setToolTip(f"Show the {n} {word} copies")
+        chip.setProperty("cv_bucket", word)
+        chip.clicked.connect(self._on_bucket_toggle_clicked)
+        return chip
 
-        The header is the pane's own ``CollapsibleHeader`` in its ``nested``
-        scale, not a fifth hand-rolled chevron-plus-clickable-label: this file
-        carried ~45 lines of that plumbing, which is the same shape the details
-        pane had four copies of before ``CollapsibleHeader`` existed. The
-        widget already owns the caret glyph, the click target on the words, the
-        pointing-hand cursor and a tooltip that names the section and flips
-        with the state.
-
-        Args:
-            title: Header text, shown as written.
-            hint: What is in this bucket, appended to the header's own
-                "Expand …"/"Collapse …" tooltip.
-            on_toggle: Called with the new *collapsed* state.
-
-        Returns:
-            ``(section, header, chips_row, chips_layout)``.
+    def _make_bucket_key(self, word: str, n: int) -> QPushButton:
+        """The "Filtered"/"Offline" row key — clicking it folds the row back
+        into its "+N …" chip. Looks like ``make_key``'s plain label (same
+        DETAIL_SECTION_SUMMARY colour/size, transparent, no border) with a
+        hover state added, since this one — unlike every other key in the
+        pane — is itself a button.
         """
-        section = QWidget()
-        section_layout = QVBoxLayout(section)
-        section_layout.setContentsMargins(0, 4, 0, 0)
-        section_layout.setSpacing(2)
+        key = QPushButton(word.title())
+        key.setFlat(True)
+        key.setFixedHeight(make_chip("x").sizeHint().height())
+        _theme.style_fn(key, _bucket_key_sheet)
+        cursor_affordance.set_clickable(key)
+        key.setToolTip(f"Collapse the {n} {word} copies")
+        key.setProperty("cv_bucket", word)
+        key.setProperty("cv_bucket_action", "close")
+        key.clicked.connect(self._on_bucket_toggle_clicked)
+        return key
 
-        header = CollapsibleHeader(title, collapsed=True, hint=hint, nested=True)
-        header.toggled.connect(on_toggle)
-        section_layout.addWidget(header)
+    def _on_bucket_toggle_clicked(self) -> None:
+        chip = self.sender()
+        if chip is None:
+            return
+        word = chip.property("cv_bucket")
+        if not word:
+            return
+        if chip.property("cv_bucket_action") == "close":
+            self._close_bucket(word)
+        else:
+            self._open_bucket(word)
 
-        chips_row = QWidget()
-        chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        chips_layout = FlowLayout(chips_row, h_spacing=4, v_spacing=4)
-        chips_row.hide()                      # collapsed by default
-        section_layout.addWidget(chips_row)
+    def _open_bucket(self, word: str) -> None:
+        self._open_buckets.add(word)
+        self._save_open_buckets()
+        self._render()
 
-        section.hide()                        # shown only when it has chips
-        return section, header, chips_row, chips_layout
+    def _close_bucket(self, word: str) -> None:
+        self._open_buckets.discard(word)
+        self._save_open_buckets()
+        self._render()
 
-    def _toggle_offline_section(self, collapsed: bool) -> None:
-        """Expand/collapse OFFLINE SOURCES. The header owns the caret glyph."""
-        self._offline_collapsed = collapsed
-        self._offline_chips_row.setVisible(not collapsed)
-
-    def _toggle_filtered_section(self, collapsed: bool) -> None:
-        """Expand/collapse FILTERED VARIANTS. The header owns the caret glyph."""
-        self._filtered_collapsed = collapsed
-        self._filtered_chips_row.setVisible(not collapsed)
-        # After expanding, nudge Qt to re-query heightForWidth so the chips row
-        # gets the correct height (the layout may have cached 0 while collapsed).
-        if not collapsed:
-            self._filtered_chips_row.updateGeometry()
+    def _save_open_buckets(self) -> None:
+        self.config.details_pane_open_copy_buckets = sorted(self._open_buckets)
+        _cfgsave.save_soon(self)
 
     # ------------------------------------------------------------------ #
-    # Chip factories                                                       #
+    # Chip label, tooltips, merge                                         #
     # ------------------------------------------------------------------ #
-
-    def _chip_status_suffix(self, v: ChannelVersion) -> str:
-        """Return the status-icon suffix appended to a chip label (preferred/queue/fav/history)."""
-        status = ""
-        if v.is_preferred:
-            status += f" {self.config.preferred_version_icon}"
-        if v.in_queue:
-            status += f" {self.config.queue_icon}"
-        if v.is_favorite:
-            status += f" {self.config.favorite_icon}"
-        if v.in_history:
-            status += f" {self.config.history_icon}"
-        return status
 
     def _chip_label(self, v: ChannelVersion) -> str:
-        """Build the chip label text: [source_icon] [region/prefix] [quality].
+        """The chip's FACE text: ``display_code(prefix) + quality token``.
 
-        Source icon comes from provider_map (set at load() time).  Falls back to
-        no icon when provider_map is absent or the provider has no configured icon.
-
-        Suppressed entirely when every chip resolves to the same source (see
-        ``_show_source_icons``) — it distinguishes nothing there.
+        No collection, no status glyphs — those used to tell two same-prefix
+        chips apart; the new design merges genuinely-identical labels into
+        one "×N" chip instead (see :meth:`_build_flat_chips`) and leaves
+        disambiguation to that chip's picker menu. The source icon prefixes
+        the label only when more than one source is ENABLED
+        (``_show_source_icons``, set once in :meth:`load`).
         """
-        parts = []
-        if v.provider_id and getattr(self, "_show_source_icons", True):
-            pm = getattr(self, "_provider_map", {})
-            src_icon = pm.get(v.provider_id, {}).get("icon", "")
-            if src_icon:
-                parts.append(src_icon)
-        # Region / prefix label
         prefix = v.detected_prefix or ""
-        if prefix:
-            full = resolve_category_name(prefix, self.config)
-            parts.append(full or prefix)
-        # Quality tier — viewer-facing label (RAW → "Uncompressed"); the stored
-        # token stays the identity on the ChannelVersion.
+        name = display_code(prefix, self.config) if prefix else "?"
         if v.detected_quality:
-            parts.append(quality_display(v.detected_quality))
-        # Fallback: use prefix raw if nothing else resolved
-        if not parts:
-            parts.append(v.detected_prefix or "?")
-        return " ".join(parts)
+            name = f"{name} {v.detected_quality}"
+        icon = ""
+        if v.provider_id and self._show_source_icons:
+            icon = self._provider_map.get(v.provider_id, {}).get("icon", "")
+        return f"{icon} {name}" if icon else name
 
-    def _chip_tooltip(self, v: ChannelVersion, suffix: str = "") -> str:
-        """Build a rich tooltip: source name + region + resolution + status badges."""
-        lines = []
-        pm = getattr(self, "_provider_map", {})
-        src_name = v.provider_name or ""
-        if v.provider_id and not src_name:
-            src_name = pm.get(v.provider_id, {}).get("name", "")
-        if src_name:
-            lines.append(f"Source: {src_name}")
-        if v.detected_region:
-            lines.append(f"Region: {v.detected_region}")
-        if v.detected_quality:
-            lines.append(f"Quality: {quality_display(v.detected_quality)}")
-        if v.is_inactive:
-            lines.append("(source is inactive — right-click to reactivate & play)")
-        if suffix:
-            lines.append(suffix)
-        return "\n".join(lines) if lines else v.name
+    def _filing_parts(self, v: ChannelVersion) -> list[str]:
+        prov = v.provider_name or self._provider_map.get(v.provider_id or "", {}).get("name", "") or ""
+        return [p for p in (v.collection, prov) if p]
 
-    def _make_active_chip(self, v: ChannelVersion) -> QPushButton:
-        """Build an active-source chip that shows details on left-click."""
-        # Escape "&" for display — a resolved category name (e.g. "Kids & Family")
-        # would otherwise render its "&" as a mnemonic underscore on the button.
-        label = escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v))
+    def _chip_tooltip(self, v: ChannelVersion, action: str = "Click to show this copy") -> str:
+        """"<collection or category> · <provider>" + the click hint."""
+        filing = " · ".join(self._filing_parts(v))
+        return f"{filing}\n{action}" if filing else action
 
-        if v.is_inactive:
-            # Inactive: dimmed; left-click shows details, right-click offers reactivate & play
-            chip = QPushButton(label)
-            _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};"
-                f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; padding: 2px 8px;"
-                " opacity: 0.6; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT};"
-                f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_04}; }}")
-            tip = self._chip_tooltip(v, suffix="Click to show this version's details")
-            chip.setToolTip(tip)
-            # Left-click → show this variant's details
-            chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
-        else:
-            chip = QPushButton(label)
-            _theme.style_fn(chip, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
-                f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px; padding: 2px 8px; }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
-                f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_05}; }}")
-            tip = self._chip_tooltip(v, suffix="Click to show this version's details")
-            chip.setToolTip(tip)
-            # Left-click → show this variant's details
-            chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
+    def _menu_entry_text(self, v: ChannelVersion) -> str:
+        parts = self._filing_parts(v)
+        return escape_mnemonic(" · ".join(parts)) if parts else escape_mnemonic(v.name)
 
-        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        chip.customContextMenuRequested.connect(
-            lambda pos, _v=v, _c=chip: self._show_version_chip_menu(_c.mapToGlobal(pos), _v, _c)
-        )
-        return chip
+    def _merge_tooltip(self, n: int) -> str:
+        return f"{n} copies — click to choose one (each listed by its collection)"
 
-    def _make_greyed_chip(self, v: ChannelVersion) -> QPushButton:
-        """A filtered variant: quieter than an active chip, but just as clickable.
+    def _filtered_why_tooltip(self, v: ChannelVersion) -> str:
+        prefix = v.detected_prefix or ""
+        reason = display_code(prefix, self.config) if prefix else "this content"
+        return f"Hidden by your filters — {reason}"
 
-        These are DE-EMPHASIZED, not disabled. Owner: "they're just hidden to
-        reduce clutter or distraction, but they still should be clickable when
-        Filtered Variants is expanded" — you deliberately expanded the section to
-        reach them, so refusing the click is the wrong answer.
+    def _offline_why_tooltip(self, v: ChannelVersion) -> str:
+        prov = v.provider_name or self._provider_map.get(v.provider_id or "", {}).get("name", "") or "This source"
+        return f"{prov} has expired"
 
-        Left-click switches to the variant through the SAME ``version_selected``
-        signal an active chip emits, so there is one switch path for both.
+    def _build_flat_chips(
+        self, versions: list, *, dashed: bool, colour_token: str, tooltip_fn, menu: str,
+    ) -> list:
+        """One chip per DISTINCT label; identical labels merge into "×N".
 
-        Styling had made the promise the wiring broke: ``COLOR_BORDER`` text is
-        ~1.4:1 against the pane, which reads as a disabled control, and there was
-        no hover state at all — the two things that tell a user not to bother
-        clicking. Now it sits at the readable end of dim with a hover lift, so it
-        looks like what it is: available, just not shouting.
+        ``menu`` selects the right-click behaviour: ``"version"`` wires the
+        full channel context menu (play/favorite/queue/hide/reactivate —
+        ``_show_version_chip_menu``); ``"filtered"`` wires the lighter
+        category-level menu (``_show_filtered_chip_menu``). A merged chip's
+        right-click acts on its FIRST member — every member already shares
+        one label, which for a region/quality pair means one prefix, so the
+        prefix-level admin actions are the same action for any of them.
+
+        Every chip's click/context-menu data (which channel(s), which menu
+        kind) lives on the chip itself as a Qt property, read back by the
+        TWO shared bound slots below via ``self.sender()`` — never a
+        per-chip lambda closing over ``self``, which is a widget<->closure
+        reference cycle the Qt top-level-widget leak guard catches.
         """
-        prefix = v.detected_prefix or "?"
-        is_hidden_cat = v.is_hidden_category
-        extra = "text-decoration: line-through;" if is_hidden_cat else ""
-        chip = QPushButton(escape_mnemonic(self._chip_label(v)))
-        _theme.style_fn(
-            chip,
-            lambda _extra=extra: (
-                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
-                f" border: 1px solid {_theme.COLOR_BORDER}; background: transparent;"
-                f" border-radius: 4px; padding: 2px 8px; {_extra} }}"
-                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT};"
-                f" border-color: {_theme.COLOR_BORDER}; }}"
-            ),
-        )
-        cursor_affordance.set_clickable(chip)
-        full = resolve_category_name(prefix, self.config)
-        reason = "hidden" if is_hidden_cat else "filtered"
-        chip.setToolTip(
-            f"{full or prefix} ({prefix}) — {reason}. Click to switch to this "
-            f"version; right-click to manage."
-        )
-        chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
-        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        chip.customContextMenuRequested.connect(
-            lambda pos, p=prefix, hid=is_hidden_cat, _c=chip:
-                self._show_filtered_chip_menu(_c.mapToGlobal(pos), p, hid)
-        )
-        return chip
+        groups: dict[str, list] = {}
+        order: list[str] = []
+        for v in versions:
+            label = self._chip_label(v)
+            if label not in groups:
+                groups[label] = []
+                order.append(label)
+            groups[label].append(v)
+
+        chips = []
+        for label in order:
+            members = groups[label]
+            anchor = members[0]
+            text = f"{label} ×{len(members)}" if len(members) > 1 else label
+            chip = make_chip(text, colour_token, dashed=dashed)
+            add_quality_badge(chip, colour_token)
+            chip.setProperty("cv_cid", anchor.channel_id)
+            chip.setProperty("cv_menu_kind", menu)
+            if len(members) > 1:
+                chip.setToolTip(self._merge_tooltip(len(members)))
+                chip.setProperty("cv_merge_cids", ",".join(m.channel_id for m in members))
+            else:
+                chip.setToolTip(tooltip_fn(anchor))
+            chip.clicked.connect(self._on_chip_clicked)
+            chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            chip.customContextMenuRequested.connect(self._on_chip_context_menu)
+            chips.append(chip)
+        return chips
+
+    def _on_chip_clicked(self) -> None:
+        """Shared left-click slot for every Available/Filtered/Offline chip.
+
+        A merged "×N" chip opens the picker menu; anything else shows that
+        one copy's details — decided from the Qt properties
+        :meth:`_build_flat_chips` set on the SENDER, never from per-chip
+        bound data (see that method's docstring).
+        """
+        chip = self.sender()
+        if chip is None:
+            return
+        merge_cids = chip.property("cv_merge_cids")
+        if merge_cids:
+            members = [
+                self._versions_by_id[cid] for cid in merge_cids.split(",")
+                if cid in self._versions_by_id
+            ]
+            if members:
+                self._show_merge_menu(members)
+            return
+        cid = chip.property("cv_cid")
+        if cid:
+            self.version_selected.emit(cid)
+
+    def _on_chip_context_menu(self, pos) -> None:
+        """Shared right-click slot — resolves the chip's ANCHOR version and
+        dispatches to the version- or filtered-level menu per ``cv_menu_kind``."""
+        chip = self.sender()
+        if chip is None:
+            return
+        cid = chip.property("cv_cid")
+        v = self._versions_by_id.get(cid) if cid else None
+        if v is None:
+            return
+        if chip.property("cv_menu_kind") == "filtered":
+            self._show_filtered_chip_menu(
+                chip.mapToGlobal(pos), v.detected_prefix or "?", v.is_hidden_category
+            )
+        else:
+            self._show_version_chip_menu(chip.mapToGlobal(pos), v, chip)
+
+    def _show_merge_menu(self, members: list) -> None:
+        """Left-click on a "label ×N" chip: pick which copy to show."""
+        menu = QMenu(self)
+        actions = {}
+        for v in members:
+            act = menu.addAction(self._menu_entry_text(v))
+            actions[act] = v.channel_id
+        chosen = menu.exec(QCursor.pos())
+        menu.deleteLater()
+        if chosen is not None and chosen in actions:
+            self.version_selected.emit(actions[chosen])
 
     # ------------------------------------------------------------------ #
     # Context menus                                                        #
@@ -716,10 +692,8 @@ class _VersionSection(CollapsibleMixin, QWidget):
         def _toggle_queue() -> None:
             self.queue_toggled.emit(v.channel_id)
             # Optimistic flip so the next right-click shows the correct "Add/Remove"
-            # label and the chip icon reflects the new queue state immediately.
+            # label.
             v.in_queue = not v.in_queue
-            if chip is not None:
-                chip.setText(escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v)))
 
         ctx = ChannelMenuContext(
             channel_ids=[v.channel_id],
@@ -761,6 +735,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
         edit_act = menu.addAction("Edit Category Name…")
 
         chosen = menu.exec(global_pos)
+        menu.deleteLater()
         if chosen == hide_act:
             self.hide_requested.emit(v.channel_id)
         elif chosen in (filter_act, hide_cat_act):
@@ -787,6 +762,7 @@ class _VersionSection(CollapsibleMixin, QWidget):
         manage_act = menu.addAction("Manage Global Exclusions…")
 
         chosen = menu.exec(global_pos)
+        menu.deleteLater()
         if chosen == restore_act:
             self.prefix_unblock_requested.emit(prefix)
         elif chosen == manage_act:
@@ -798,3 +774,15 @@ class _VersionSection(CollapsibleMixin, QWidget):
         popup.name_saved.connect(lambda p, n: self.prefix_name_saved.emit(p, n))
         popup.move(pos)
         popup.show()
+
+
+def _bucket_key_sheet() -> str:
+    """The "Filtered"/"Offline" fold-back key's stylesheet: DETAIL_SECTION_SUMMARY's
+    own colour/size/background — the role every other key in the pane uses —
+    plus a hover state, since this key (alone among them) is a button.
+    """
+    return (
+        f"QPushButton {{ color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
+        f" background: transparent; border: none; padding: 0; text-align: left; }}"
+        f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT}; }}"
+    )

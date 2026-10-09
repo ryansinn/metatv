@@ -371,12 +371,16 @@ class TestBgFetchVersionsContentKeyPath:
         db.close()
 
     def test_disabled_provider_excluded_in_content_key_path(self, tmp_path):
-        """A variant on a disabled provider with matching content_key appears as is_inactive=True.
+        """A variant on a DISABLED provider never appears at all (DETAILS-3c).
 
-        Source-picker chips show ALL variants (including inactive) so the user can
-        opt into an inactive source explicitly (mirror-not-cage).  Inactive variants
-        are marked is_inactive=True and rendered dimmed with a 'Reactivate & play'
-        affordance rather than hidden entirely.
+        This used to assert the opposite — the disabled variant was included,
+        merely flagged ``is_inactive=True`` and rendered dimmed with a
+        "Reactivate & play" affordance. That dimmed-not-dropped treatment is
+        exactly what CRITICAL_RULES' absolute gate forbids for a
+        forward-looking view: a source the user turned off must never appear,
+        counted or not, not even dimmed. "Offline" (``is_inactive=True``) is
+        reserved for an ENABLED source whose account has merely expired — see
+        the sibling test below.
         """
         db = _make_db(tmp_path)
 
@@ -400,16 +404,54 @@ class TestBgFetchVersionsContentKeyPath:
         _, versions = obj._emitted[0]
         version_map = {v.channel_id: v for v in versions}
 
-        # Inactive-source variant IS included but flagged is_inactive=True
-        assert "ch-dead" in version_map, (
-            "Inactive-source variant must be included in version chips (dimmed, with reactivate affordance)"
-        )
-        assert version_map["ch-dead"].is_inactive is True, (
-            "Variant on disabled provider must be marked is_inactive=True even when content_key matches"
+        # The disabled-provider variant must be gone entirely — not merely dimmed.
+        assert "ch-dead" not in version_map, (
+            "A disabled source's variant must never reach the version list at all"
         )
         assert "ch-ok" in version_map, "Active-provider variant must still appear"
         assert version_map["ch-ok"].is_inactive is False, (
             "Active-provider variant must have is_inactive=False"
+        )
+
+    def test_enabled_but_expired_provider_is_offline_not_dropped(self, tmp_path):
+        """The sibling case: an ENABLED source whose account expired is kept,
+        flagged ``is_inactive=True`` — that is what "offline" now means,
+        distinct from a disabled source which is dropped outright above.
+        """
+        from datetime import datetime, timedelta
+
+        db = _make_db(tmp_path)
+
+        with db.session_scope() as session:
+            from metatv.core.database import ProviderDB
+            _add_provider(session, "p-active", is_active=True)
+            session.add(ProviderDB(
+                id="p-expired", name="p-expired", type="xtream",
+                url="http://example.com", username="u", password="p",
+                is_active=True,
+                account_exp_date=datetime.now() - timedelta(days=1),
+            ))
+            session.flush()
+            key = "dark star|movie|2017"
+            _add_channel(session, "ch-main", "EN Dark Star (2017)", "p-active",
+                         content_key=key, detected_prefix="EN")
+            _add_channel(session, "ch-expired", "4K Dark Star (2017)", "p-expired",
+                         content_key=key, detected_prefix="4K")
+
+        obj = self._make_mixin(db)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(obj._bg_fetch_versions, "ch-main").result(timeout=10)
+
+        assert obj._emitted
+        _, versions = obj._emitted[0]
+        version_map = {v.channel_id: v for v in versions}
+
+        assert "ch-expired" in version_map, (
+            "An enabled-but-expired source's variant must still appear, as 'offline'"
+        )
+        assert version_map["ch-expired"].is_inactive is True, (
+            "An enabled-but-expired variant must be flagged is_inactive=True"
         )
 
         db.close()

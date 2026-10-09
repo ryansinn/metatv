@@ -136,7 +136,30 @@ class DetailsPaneWidget(QWidget):
         self._source_notice_lbl.setVisible(bool(text))
 
     def set_versions(self, versions: list[ChannelVersion]) -> None:
-        self._versions.load(versions, provider_map=self._provider_map)
+        self._versions.load(
+            versions, provider_map=self._provider_map, current=self._current_version(),
+        )
+
+    def _current_version(self) -> "ChannelVersion | None":
+        """The copy already shown in the pane, as a ``ChannelVersion`` — the
+        first, selected chip in "Available in" (DETAILS-3c). ``None`` only
+        when the pane has nothing shown at all.
+        """
+        ch = self.current_channel
+        if ch is None:
+            return None
+        return ChannelVersion(
+            channel_id=ch.id,
+            name=ch.name,
+            in_queue=False,
+            detected_prefix=getattr(ch, "detected_prefix", None),
+            detected_title=getattr(ch, "detected_title", None),
+            detected_year=getattr(ch, "detected_year", None),
+            detected_quality=getattr(ch, "detected_quality", None),
+            detected_region=getattr(ch, "detected_region", None),
+            provider_id=getattr(ch, "provider_id", None),
+            media_type=getattr(ch, "media_type", "") or "",
+        )
 
     def set_similar_titles(self, titles: list[ChannelVersion]) -> None:
         origin = self.current_channel.name if self.current_channel else ""
@@ -524,12 +547,15 @@ class DetailsPaneWidget(QWidget):
         self._similar  = _SimilarSection(self.config)
 
         # Restore collapse state. Every section that owns a CollapsibleHeader
-        # is listed here — the two that were added when the shared header made
-        # collapsing cheap (Overview, Also available) included, so "remembers
-        # its state" is true of all of them rather than of the four that
-        # happened to have hand-rolled it.
+        # is listed here — Overview included, since the shared header made
+        # collapsing it cheap, so "remembers its state" is true of all of
+        # them rather than of the four that happened to have hand-rolled it.
+        # "Available in" (_versions) is NOT one of these (DETAILS-3c): it is
+        # the copy you are on plus every sibling, always visible, never
+        # collapsible — the shared header never applied to it the way it did
+        # to the other five.
         self._collapsible_sections = (
-            self._plot, self._versions, self._cast, self._tech,
+            self._plot, self._cast, self._tech,
             self._tags, self._similar,
         )
         for section in self._collapsible_sections:
