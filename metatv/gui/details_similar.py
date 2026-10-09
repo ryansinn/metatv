@@ -266,8 +266,20 @@ class _SimilarSection(CollapsibleMixin, QWidget):
             rating_lbl.setToolTip("You disliked this")
             row.addWidget(rating_lbl)
 
-        # 6. History indicator (previously watched)
-        if v.in_history:
+        # 6. State marks — shown ONLY when set; an unset state draws nothing,
+        # so a plain row stays quiet. Watch Later (below) is the one action
+        # that is always offered.
+        if v.is_rec_suppressed:
+            ni = QLabel(_icons.not_interested_icon)
+            _theme.style_fn(ni, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+            ni.setToolTip("Not interested")
+            row.addWidget(ni)
+        if v.watch_completed:
+            done = QLabel(_icons.watched_icon)
+            _theme.style_fn(done, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_OK};")
+            done.setToolTip("Watched")
+            row.addWidget(done)
+        elif v.in_history:
             hist = QLabel(_icons.history_icon)
             _theme.style_fn(hist, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
             hist.setToolTip("Previously watched")
@@ -280,18 +292,19 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         _theme.style_fn(year_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         row.addWidget(year_lbl)
 
-        # 8. Favorite toggle — colour alone carries state here (shape stays the
-        # solid star); see ledger F13 row for the sibling shape+colour convention.
-        fav_color = _theme.COLOR_GOLD if v.is_favorite else _theme.COLOR_FAINT
-        fav_btn = QPushButton()
-        fav_btn.setFixedSize(22, 20)
-        fav_btn.setFlat(True)
-        fav_btn.setStyleSheet(_icon_btn())
-        _icon_utils.set_button_icon(fav_btn, "favorite", color=fav_color)
-        fav_btn.setIconSize(QSize(13, 13))
-        fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
-        fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
-        row.addWidget(fav_btn)
+        # 8. Favorite — shown only when the title IS a favorite (click removes
+        # it); an un-favorited row draws no star. Adding a favorite is done from
+        # the details pane, not from every Similar row.
+        if v.is_favorite:
+            fav_btn = QPushButton()
+            fav_btn.setFixedSize(22, 20)
+            fav_btn.setFlat(True)
+            fav_btn.setStyleSheet(_icon_btn())
+            _icon_utils.set_button_icon(fav_btn, "favorite", color=_theme.COLOR_GOLD)
+            fav_btn.setIconSize(QSize(13, 13))
+            fav_btn.setToolTip("Remove from Favorites")
+            fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
+            row.addWidget(fav_btn)
 
         # 9. Queue toggle — optimistic: flips icon/color on click without waiting for DB roundtrip
         q_role = "watched" if v.in_queue else "queue"

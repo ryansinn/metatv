@@ -81,6 +81,8 @@ class ChannelVersion:
     is_inactive: bool = False           # True when provider is toggled off (inactive)
     media_type: str = ""            # "movie" | "series" | "live" | ""
     user_rating: int = 0            # +1 liked, -1 disliked, 0 no rating
+    is_rec_suppressed: bool = False # "Not interested" set on this channel
+    watch_completed: bool = False   # finished watching
     # How THIS source files this copy — tag_decomposer's "collection" facet off
     # the provider category, falling back to the raw category string (DETAILS-3c).
     # Used only for the merge-menu entry text and the filing tooltip; never on
