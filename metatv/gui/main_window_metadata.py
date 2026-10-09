@@ -331,6 +331,11 @@ class _MetadataMixin:
                 # How each source files its copy — the stored collection tag,
                 # computed at ingestion; never re-decomposed here.
                 collections = repos.tags.collections_for([ch.id for ch in versions_raw])
+                # What each copy's stream really is, where it has been measured
+                # (played or probed) — PLAYED-3 puts it on the copy chips.
+                from metatv.core.stream_info import summarize
+                measured = {cid: summarize(rec) for cid, rec in
+                            repos.stream_info.get_many([ch.id for ch in versions_raw]).items()}
 
                 # Score only active-source versions for preferred selection (inactive
                 # sources can't be "preferred" — they're off by user choice)
@@ -365,6 +370,7 @@ class _MetadataMixin:
                         provider_id=ch.provider_id,
                         is_inactive=ch.provider_id in hidden_provider_ids,
                         collection=collections.get(ch.id),
+                        measured=measured.get(ch.id),
                     )
                     for ch in versions_raw
                 ]

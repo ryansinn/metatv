@@ -13,6 +13,7 @@ from PyQt6.QtGui import QPixmap
 from metatv.core import watchlist
 from metatv.core.database import Database
 from metatv.core.models import MediaType
+from metatv.core.stream_info import summarize
 from metatv.gui.epg_agenda_widget import EpgAgendaWidget
 from metatv.metadata_providers.base import MetadataResult
 
@@ -96,6 +97,8 @@ class DetailsPaneWidget(QWidget):
         self._trailer_title: str = ""
         self.provider_urls: list = []
         self._provider_map: dict = {}
+        self._last_versions: "list[ChannelVersion] | None" = None
+        self._current_record: "dict | None" = None
         # "Currently playing" indicator — last play-state report from the host's
         # player-position poll; the green Play-button outline + live timer fire only
         # while the shown channel matches _playing_channel_id.
@@ -137,6 +140,7 @@ class DetailsPaneWidget(QWidget):
         self._source_notice_lbl.setVisible(bool(text))
 
     def set_versions(self, versions: list[ChannelVersion]) -> None:
+        self._last_versions = versions
         self._versions.load(
             versions, provider_map=self._provider_map, current=self._current_version(),
         )
@@ -160,6 +164,7 @@ class DetailsPaneWidget(QWidget):
             detected_region=getattr(ch, "detected_region", None),
             provider_id=getattr(ch, "provider_id", None),
             media_type=getattr(ch, "media_type", "") or "",
+            measured=summarize(self._current_record),
         )
 
     def set_similar_titles(self, titles: list[ChannelVersion]) -> None:
@@ -246,6 +251,10 @@ class DetailsPaneWidget(QWidget):
             return  # stale response — user already moved on
         self._details.load_stream_info(
             record, claimed_quality=getattr(self.current_channel, "detected_quality", None))
+        # The selected copy chip in "Available in" shows the measured quality too.
+        self._current_record = record
+        if self._last_versions is not None:
+            self.set_versions(self._last_versions)
 
     def set_probe_running(self, running: bool) -> None:
         """Reflect a "Get stream details" probe in progress (PLAYED-2)."""
@@ -275,6 +284,8 @@ class DetailsPaneWidget(QWidget):
         logger.debug(f"show_channel: {channel.name}, metadata={metadata is not None}")
         self.current_channel = channel
         self.current_metadata = metadata
+        self._current_record = None          # a new title: its measurement loads next
+        self._last_versions = None
         is_live = getattr(channel, "media_type", None) == MediaType.LIVE
 
         # Configure sections for channel type before clearing (reduces flicker)

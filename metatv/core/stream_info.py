@@ -188,6 +188,44 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
     return rows
 
 
+def measured_quality(height: Any) -> str | None:
+    """The quality tier a measured height earns, in the app's own quality
+    vocabulary (so the badge keeps its tier colour): 4K / FHD / HD / SD."""
+    if not isinstance(height, int) or height <= 0:
+        return None
+    if height >= 2000:
+        return "4K"
+    if height >= 1000:
+        return "FHD"
+    if height >= 680:
+        return "HD"
+    return "SD"
+
+
+def summarize(record: dict | None) -> dict | None:
+    """A stored record reduced to what a copy chip needs.
+
+    Returns:
+        ``{"width", "height", "audio": (language names…), "subs": (labels…),
+        "at": datetime | None, "source": str}``, or None for no record.
+    """
+    if not record or not record.get("info"):
+        return None
+    info = record["info"]
+    v = info.get("video") or {}
+    return {
+        "width": v.get("width"),
+        "height": v.get("height"),
+        "audio": tuple(dict.fromkeys(
+            language_name(a.get("lang")) for a in info.get("audio") or [] if a.get("lang"))),
+        "subs": tuple(
+            f"{language_name(s.get('lang'))} {_codec(s.get('codec'))}" if s.get("lang")
+            else _codec(s.get("codec")) for s in info.get("subs") or []),
+        "at": record.get("measured_at"),
+        "source": record.get("source", ""),
+    }
+
+
 def measured_caption(measured_at: datetime | None, source: str) -> str:
     """"seen when played Oct 9" / "probed Oct 9"."""
     verb = "probed" if source == "probe" else "seen when played"

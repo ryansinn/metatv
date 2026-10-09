@@ -248,6 +248,9 @@ migration_done_icon: str = "✓"      # U+2713 CHECK MARK — task complete
 # Taste markers on a details-pane person chip (Cast section): you have liked /
 # disliked work by this person. Their own keys, not move_up/move_down — a
 # reorder arrow and a taste marker must be free to diverge.
+# A measured fact (PLAYED-1): the stream itself confirmed it, e.g. the quality
+# badge on a copy chip whose resolution was read off the stream.
+verified_icon: str = "✓"            # U+2713 CHECK MARK
 pref_liked_icon: str = "▲"          # U+25B2 BLACK UP-POINTING TRIANGLE
 pref_disliked_icon: str = "▼"       # U+25BC BLACK DOWN-POINTING TRIANGLE
 

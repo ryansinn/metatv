@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidg
 
 from metatv.core.channel_name_utils import QUALITY_TOKENS, REGION_FULL_NAMES
 from metatv.gui import chip_row, cursor_affordance
+from metatv.gui import icons
 from metatv.gui import theme
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_text_utils import escape_mnemonic
@@ -206,6 +207,10 @@ def add_quality_badge(btn: QPushButton, colour_token: str, *, bold: bool = False
     # The quality token may be followed by a "×N" count.
     tail = words[-2:] if len(words) > 2 and words[-1].startswith("×") else words[-1:]
     token = tail[0]
+    # A trailing verified mark (PLAYED-3) means the stream itself measured it.
+    verified = token.endswith(icons.verified_icon)
+    if verified:
+        token = token[: -len(icons.verified_icon)]
     if token.upper() not in QUALITY_TOKENS:
         return btn
     name = " ".join(words[: len(words) - len(tail)])
@@ -224,6 +229,9 @@ def add_quality_badge(btn: QPushButton, colour_token: str, *, bold: bool = False
     layout.addWidget(label)
 
     badge = chip_row.chip_widget(chip_row.CHIP_QUALITY, token)
+    if verified:
+        # Shape, not colour, says "measured": the tier hue stays the token's.
+        badge.setText(f"{token} {icons.verified_icon}")
     layout.addWidget(badge)
 
     if count:
