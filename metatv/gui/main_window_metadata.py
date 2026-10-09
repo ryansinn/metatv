@@ -240,12 +240,16 @@ class _MetadataMixin:
                     repos.tags.channel_ids_for_content_types(_ct_slugs) if _ct_slugs else set()
                 )
 
+                # Measured audio contradicting an excluded prefix outranks it.
+                heard_keep = repos.stream_info.prefix_exempt_ids(all_excluded)
+
                 def _is_filtered(ch: ChannelDB) -> bool:
                     # Shared predicate: prefix wins, region is the no-prefix fallback —
                     # so a prefix-less variant filed under an excluded region is greyed
                     # out here too, matching the channel list exactly (P1-6).  The
                     # content_type layer (id-set membership) greys out AI variants too.
-                    if is_channel_excluded(ch.detected_prefix, ch.detected_region, all_excluded):
+                    if (ch.id not in heard_keep
+                            and is_channel_excluded(ch.detected_prefix, ch.detected_region, all_excluded)):
                         return True
                     return ch.id in excluded_ct_ids
 

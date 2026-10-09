@@ -144,6 +144,10 @@ class VisibilityScope:
     include_uncategorized: bool = True
     include_hidden: bool = False
     dead_signal_streak_floor: int | None = None
+    #: Channel ids the prefix exclusion must keep anyway: their measured audio
+    #: contradicts the excluded prefix's language (``StreamInfoRepository.
+    #: prefix_exempt_ids``, resolved by ``visibility_resolver.resolve_scope``).
+    exclusion_exempt_ids: set[str] = field(default_factory=set)
 
 
 def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) -> Any:
@@ -198,7 +202,8 @@ def apply(query: Any, scope: VisibilityScope, *, channel_cls: type = ChannelDB) 
     # divergence from discovery_engine._apply_prefix_filter's simpler flat
     # NOT IN). ───────────────────────────────────────────────────────────
     if scope.excluded_prefixes:
-        query = query.filter(channel_exclusion_criterion(scope.excluded_prefixes, channel_cls))
+        query = query.filter(channel_exclusion_criterion(
+            scope.excluded_prefixes, channel_cls, keep_ids=scope.exclusion_exempt_ids))
     if not scope.include_uncategorized:
         query = query.filter(channel_cls.detected_prefix.isnot(None))
 

@@ -38,14 +38,15 @@ from metatv.core.repositories import RepositoryFactory
 
 
 def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set,
-                             excluded_channel_ids: set | None = None) -> list:
+                             excluded_channel_ids: set | None = None, keep_ids=None) -> list:
     """Drop channels hidden by the Python-side Global Exclusions.
 
     The batch Python twin of the canonical Global-Exclusion predicate — routes
     each candidate row through :func:`~metatv.core.filter_utils.is_channel_excluded`
     (the single source of truth for "language wins over region"; see its
     docstring). Used by both ``_query_channels`` and its pagination sibling, and
-    by the ``hidden_by_search`` recount so the diff compares like with like.
+    by the ``hidden_by_search`` recount so the diff compares like with like. Ids in
+    ``keep_ids`` pass the prefix rule anyway (measured audio contradicts the prefix).
     A channel is also excluded when its user category is in ``excluded_user_cats``,
     or when its id is in ``excluded_channel_ids`` (the content-provenance layer —
     channels carrying a globally-excluded ``content_type`` tag, pre-resolved via
@@ -67,9 +68,8 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     """
     if excluded_prefixes:
         channels = [
-            c for c in channels
-            if not is_channel_excluded(c.detected_prefix, c.detected_region, excluded_prefixes)
-        ]
+            c for c in channels if (keep_ids and c.id in keep_ids)
+            or not is_channel_excluded(c.detected_prefix, c.detected_region, excluded_prefixes)]
     if excluded_user_cats:
         channels = [c for c in channels if c.user_category not in excluded_user_cats]
     if excluded_channel_ids:
@@ -569,10 +569,9 @@ class _ChannelListMixin:
         # Content-provenance layer: resolve the excluded content_type slugs to a
         # channel-id set (bounded, indexed — safe off the UI thread).
         _excl_ct_slugs = params.get('excluded_tag_content_types') or set()
-        excluded_ct_ids = (
-            repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
-            if _excl_ct_slugs else set()
-        )
+        excluded_ct_ids = (repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
+                           if _excl_ct_slugs else set())
+        heard_keep = repos.stream_info.prefix_exempt_ids(excluded_prefixes)
         # The reveal ("show" on the gold bar) must not deprioritise anything, or
         # the revealed rows would still lose the representative slot.
         _rank_excl = (
@@ -703,7 +702,7 @@ class _ChannelListMixin:
         if exclusions_applied:
             _before_excl = len(channels)
             channels = _apply_python_exclusions(
-                channels, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                channels, excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep
             )
             hidden_by_exclusions = _before_excl - len(channels)
             # Exact for the rows fetched, but the fetch stopped at the page cap
@@ -732,7 +731,7 @@ class _ChannelListMixin:
             # ONLY the tag filters (never the exclusion layer counted separately above).
             if exclusions_applied:
                 unfiltered = _apply_python_exclusions(
-                    unfiltered, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                    unfiltered, excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep
                 )
             hidden_by_search, floor_search = _ChannelListMixin._hidden_by_axis(
                 channels, unfiltered, _page_size,
@@ -774,7 +773,7 @@ class _ChannelListMixin:
             # ONLY the dead-stream gate (never the exclusion layer counted above).
             if exclusions_applied:
                 with_dead = _apply_python_exclusions(
-                    with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                    with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep
                 )
             hidden_by_dead, floor_dead = _ChannelListMixin._hidden_by_axis(
                 channels, with_dead, _page_size,
@@ -801,7 +800,7 @@ class _ChannelListMixin:
             # diff isolates ONLY the keyword axis (never the layer-1 exclusions).
             if exclusions_applied:
                 with_keywords = _apply_python_exclusions(
-                    with_keywords, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                    with_keywords, excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep
                 )
             hidden_by_keywords, floor_keywords = _ChannelListMixin._hidden_by_axis(
                 channels, with_keywords, _page_size,
@@ -823,7 +822,7 @@ class _ChannelListMixin:
             # Mirror the layer-1 filtering so the diff isolates only this axis.
             if exclusions_applied:
                 with_adult = _apply_python_exclusions(
-                    with_adult, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                    with_adult, excluded_prefixes, excluded_user_cats, excluded_ct_ids, heard_keep
                 )
             hidden_by_adult, floor_adult = _ChannelListMixin._hidden_by_axis(
                 channels, with_adult, _page_size,
@@ -2135,15 +2134,13 @@ class _ChannelListMixin:
         bypass_exclusions = bool(query_params.get('bypass_global_exclusions'))
         if not (hidden_only or downloaded_only) and not id_filter_show_all and not bypass_exclusions:
             _excl_ct_slugs = query_params.get('excluded_tag_content_types') or set()
-            _excl_ct_ids = (
-                repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
-                if _excl_ct_slugs else set()
-            )
+            _excl_ct_ids = (repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
+                            if _excl_ct_slugs else set())
+            _prefixes = query_params.get('excluded_prefixes', set())
             rows = _apply_python_exclusions(
-                rows,
-                query_params.get('excluded_prefixes', set()),
+                rows, _prefixes,
                 query_params.get('excluded_user_categories', set()),
-                _excl_ct_ids,
+                _excl_ct_ids, repos.stream_info.prefix_exempt_ids(_prefixes),
             )
 
         dtos = rows_to_dtos(repos, rows, query_params.get('search_query'))
