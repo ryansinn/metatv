@@ -1,10 +1,10 @@
 """The details pane's "Details for <copy>" section (DETAILS-3d).
 
-Every stored fact about the copy on screen, grouped by WHERE it came from —
-"From <source>", "From TMDb", "Yours", "In the title", "Guessed" — rather than
-by a confidence score. Genre and collection are not here: both already sit in
-the title block above. A guessed fact is dashed and carries its reason
-("from the name", "from region Sweden (SE)") beside it.
+Every stored fact about the copy on screen, one row per facet under a thin
+left rule. Each value is tinted text followed by a quiet caption naming where
+it came from ("· TREX Shared", "· TMDb"); a guess is italic and its caption
+says why ("· guessed from region Sweden (SE)"). Genre and collection are not
+here: both already sit in the title block above.
 
 Facts describe ONE copy. Nothing is merged in from the other copies of the
 title: a copy's language, subtitles and audio are its own, and a merged list
@@ -16,13 +16,15 @@ Technical carried is a row here.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from metatv.core.channel_name_utils import content_type_display
-from metatv.core.tag_provenance import GROUP_ORDER, group_label, guess_reason, strongest_kind
+from metatv.core.tag_provenance import group_label, guess_reason, strongest_kind
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.gui.detail_chips import (
-    KEY_COL, SECTION_INDENT, display_code, make_chip, make_flow, make_key, make_label_grid,
+    KEY_COL, SECTION_INDENT, display_code, make_flow, make_key, make_label_grid,
 )
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
 
@@ -56,6 +58,11 @@ _FACET_LABELS: dict[str, str] = {
 
 # Shown in the title block above, never repeated here.
 _TITLE_BLOCK_FACETS = frozenset({"genre", "collection"})
+
+
+def _source_caption(heading: str) -> str:
+    """"From TREX Shared" → "TREX Shared"; "Seen in the file" → "seen in the file"."""
+    return heading[5:] if heading.startswith("From ") else heading[0].lower() + heading[1:]
 
 
 def _facet_colour_token(facet: str) -> str:
@@ -154,63 +161,67 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         return [display_code(c, self.config) for c in codes]
 
     def _render(self) -> None:
+        """One row per facet under a thin left rule (DETAILS-3e, option D).
+
+        No group headings: each value is tinted text (no box) followed by a
+        quiet caption naming where it came from ("· TREX Shared", "· TMDb"),
+        or, for a guess, why ("· guessed from region Sweden (SE)").
+        """
         self._clear_body()
-        # group heading → facet → [(display, facet, value, feeders, guessed)]
-        groups: dict[str, dict[str, list]] = {}
-        for tag in self._tags:
-            heading = group_label(tag.feeders, provider_name=self._provider_name)
-            guessed = strongest_kind(tag.feeders) == "inference"
-            groups.setdefault(heading, {}).setdefault(tag.facet_type, []).append(
-                (self._display(tag.facet_type, tag.value), tag.facet_type, tag.value,
-                 tag.feeders, guessed)
-            )
-
-        total = sum(len(v) for g in groups.values() for v in g.values())
-        if self._release_date:
-            heading = "From TMDb" if self._metadata_from_tmdb else f"From {self._provider_name}"
-            groups.setdefault(heading, {})["released"] = [
-                (self._release_date, None, None, (), False)
-            ]
-            total += 1
-
+        # facet → [(display, facet, value, feeders, guessed, caption)]
+        rows: dict[str, list] = {}
         regions = self._region_names()
-        order = GROUP_ORDER(self._provider_name)
-        for heading in order + sorted(set(groups) - set(order)):
-            if heading in groups:
-                self._render_group(heading, groups[heading], regions)
+        for tag in self._tags:
+            guessed = strongest_kind(tag.feeders) == "inference"
+            caption = (f"guessed {guess_reason(tag.feeders, regions)}" if guessed
+                       else _source_caption(group_label(tag.feeders,
+                                                        provider_name=self._provider_name)))
+            rows.setdefault(tag.facet_type, []).append(
+                (self._display(tag.facet_type, tag.value), tag.facet_type, tag.value, guessed, caption)
+            )
+        if self._release_date:
+            rows["released"] = [(self._release_date, None, None, False,
+                                 "TMDb" if self._metadata_from_tmdb else self._provider_name)]
+        total = sum(len(v) for v in rows.values())
+
+        rule = QWidget()
+        rule.setObjectName("detailsRule")
+        rule.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        _theme.style_fn(rule, lambda: f"#detailsRule {{ border-left: 2px solid {_theme.COLOR_BORDER}; }}")
+        rule_lay = QVBoxLayout(rule)
+        rule_lay.setContentsMargins(12, 2, 0, 2)
+        grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT - 14)
+        grid.setVerticalSpacing(3)
+        ordered = [f for f in _FACET_DISPLAY_ORDER if f in rows]
+        ordered += sorted(f for f in rows if f not in _FACET_DISPLAY_ORDER and f != "released")
+        if "released" in rows:
+            ordered.append("released")
+        for r, facet in enumerate(ordered):
+            label = "Released" if facet == "released" else _FACET_LABELS.get(
+                facet, facet.replace("_", " ").title())
+            grid.addWidget(make_key(label), r, 0, Qt.AlignmentFlag.AlignTop)
+            widgets = []
+            for display, ftype, value, guessed, caption in rows[facet]:
+                if ftype is None:                       # the release date: a plain fact
+                    date = QLabel(display)
+                    _theme.style(date, "DETAIL_TEXT")
+                    widgets.append(date)
+                else:
+                    widgets.append(self._make_value_chip(display, ftype, value, guessed))
+                cap = QLabel(f"· {caption}")
+                _theme.style(cap, "DETAIL_FACT_REASON")
+                widgets.append(cap)
+            grid.addWidget(make_flow(widgets), r, 1)
+        rule_lay.addWidget(grid_w)
+        if total:
+            self._body.addWidget(rule)
+        else:
+            rule.deleteLater()
 
         n = total
         self._header.set_summary(str(n) if n else "", f"{n} fact{'s' * (n != 1)}")
         self._apply_collapsed()
         self.setVisible(not self._is_live and total > 0)
-
-    def _render_group(self, heading: str, facets: dict[str, list], regions: list[str]) -> None:
-        head = QLabel(heading.upper())
-        _theme.style(head, "DETAIL_GROUP_HEADING")
-        self._body.addWidget(head)
-
-        grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT)
-        ordered = [f for f in _FACET_DISPLAY_ORDER if f in facets]
-        ordered += sorted(f for f in facets if f not in _FACET_DISPLAY_ORDER)
-        for row, facet in enumerate(ordered):
-            label = "Released" if facet == "released" else _FACET_LABELS.get(
-                facet, facet.replace("_", " ").title())
-            grid.addWidget(make_key(label), row, 0, Qt.AlignmentFlag.AlignTop)
-            widgets = []
-            for display, ftype, value, feeders, guessed in facets[facet]:
-                if ftype is None:                       # the release date: a plain fact
-                    date = QLabel(display)
-                    _theme.style(date, "DETAIL_TEXT")
-                    widgets.append(date)
-                    continue
-                widgets.append(self._make_value_chip(display, ftype, value, guessed))
-                if guessed:
-                    why = QLabel(guess_reason(feeders, regions))
-                    why.setFixedHeight(make_chip("x").sizeHint().height())
-                    _theme.style(why, "DETAIL_FACT_REASON")
-                    widgets.append(why)
-            grid.addWidget(make_flow(widgets), row, 1)
-        self._body.addWidget(grid_w)
 
     def _display(self, facet: str, value: str) -> str:
         if facet == "region":
@@ -222,10 +233,14 @@ class _DetailsSection(CollapsibleMixin, QWidget):
     def _make_value_chip(self, display: str, facet: str, value: str, guessed: bool):
         # A guess is never facet-tinted: it reads at body text, dashed.
         token = "COLOR_TEXT" if guessed else _facet_colour_token(facet)
-        chip = make_chip(display, token, dashed=guessed)
-        # Properties + one shared bound slot, never a lambda over self: a
-        # closure that captures the widget it is connected on is a reference
-        # cycle the top-level-widget leak guard reports.
+        chip = QPushButton(escape_mnemonic(display))
+        chip.setFlat(True)
+        _theme.style_fn(chip, lambda: (
+            f"QPushButton {{ color: {getattr(_theme, token)}; border: none; padding: 0;"
+            f" font-size: {_theme.FONT_MD}; text-align: left;"
+            f"{' font-style: italic;' if guessed else ''} }}"
+            f"QPushButton:hover {{ text-decoration: underline; }}"))
+        cursor_affordance.set_clickable(chip)
         chip.setProperty("facet", facet)
         chip.setProperty("value", value)
         chip.clicked.connect(self._on_value_clicked)
