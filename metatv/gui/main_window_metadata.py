@@ -84,6 +84,19 @@ class _MetadataMixin:
     def _on_channel_tags_loaded(self, channel_id: str, tags: list) -> None:
         """Main-thread slot: deliver loaded tags to the details pane."""
         self.details_pane.apply_channel_tags(channel_id, tags or [])
+        self._load_stream_info(channel_id)
+
+    # ── Stream measurements (PLAYED-1: what the stream really contains) ─────
+
+    def _load_stream_info(self, channel_id: str) -> None:
+        """Read the channel's stored stream record off-thread and hand it to
+        the details pane. The one refresh path for a fresh measurement too —
+        stream capture calls it after storing, and so will a manual probe."""
+        self._run_query(
+            lambda repos: repos.stream_info.get(channel_id),
+            lambda record: self.details_pane.apply_stream_info(channel_id, record),
+            on_error=lambda e: logger.warning(f"Stream info load failed for {channel_id}: {e}"),
+        )
 
     # ── Taste weights (the ▲/▼ preference markers beside cast + director) ───
 

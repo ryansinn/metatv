@@ -780,6 +780,24 @@ class StreamRetryDB(Base):
     reliability_state = Column(String, default="ok")  # "ok"|"flagged"|"degraded"|"dead"
 
 
+class StreamInfoDB(Base):
+    """What a channel's stream actually contained when it was last measured
+    (PLAYED-1): resolution, fps, codecs, bitrates, audio and subtitle tracks.
+
+    One row per channel, replaced on every measurement. ``info`` is the plain
+    record ``core.stream_info.parse_mpv`` builds; ``source`` is ``"played"``
+    (captured while the user watched) or ``"probe"`` (fetched on request).
+    Only played channels get a row, and played channels are engaged, so a
+    provider delete never orphans one (it keeps engaged channels).
+    """
+    __tablename__ = "stream_info"
+
+    channel_id  = Column(String, primary_key=True)
+    info        = Column(JSONEncoded, nullable=False)
+    source      = Column(String, nullable=False, default="played")
+    measured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class TagDB(Base):
     """Canonical tag — a (type, value) pair in a known namespace.
 

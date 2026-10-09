@@ -26,6 +26,7 @@ from metatv.core.stream_diagnostics import _redact
 from metatv.core.stream_url_derivation import derive_channel_stream_url
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import playback_start_watch as _startwatch
+from metatv.gui import stream_capture as _stream_capture
 from metatv.gui import icons as _icons
 from metatv.gui import stream_switch as _stream_switch
 from metatv.gui.watch_capture import _WatchCaptureMixin
@@ -1281,6 +1282,7 @@ class _StreamingMixin(_WatchCaptureMixin):
         cache_dur = props.get("demuxer-cache-duration")
         _startwatch.on_loaded_tick(self, props.get("time-pos"), bool(props.get("pause")),
                                    cache_duration=cache_dur, duration=props.get("duration"))
+        _stream_capture.on_health_tick(self, key)   # PLAYED-1: what the stream really is
         text = format_playback_health(
             cache_dur, props.get("cache-speed"), props.get("frame-drop-count"))
 

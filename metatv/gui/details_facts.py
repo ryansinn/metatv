@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from metatv.core.channel_name_utils import content_type_display
+from metatv.core.stream_info import display_rows, measured_caption
 from metatv.core.tag_provenance import group_label, guess_reason, strongest_kind
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
@@ -92,6 +93,8 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._metadata_from_tmdb = False
         self._release_date = ""
         self._tags: list = []
+        self._stream_rows: list[tuple[str, str]] = []
+        self._stream_caption = ""
         self._setup()
 
     def _setup(self) -> None:
@@ -140,7 +143,24 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._metadata_from_tmdb = "tmdb" in source
         self._render()
 
+    def load_stream_info(self, record: dict | None, *, claimed_quality: str | None = None) -> None:
+        """Show what the stream actually contained when last measured
+        (PLAYED-1) — first, above anything the provider claims.
+
+        Args:
+            record: ``StreamInfoRepository.get`` output, or None (never measured).
+            claimed_quality: The channel's provider-stated quality, so a stream
+                that falls short of it says so.
+        """
+        if record and record.get("info"):
+            self._stream_rows = display_rows(record["info"], claimed_quality=claimed_quality)
+            self._stream_caption = measured_caption(record.get("measured_at"), record.get("source", ""))
+        else:
+            self._stream_rows, self._stream_caption = [], ""
+        self._render()
+
     def clear(self) -> None:
+        self._stream_rows, self._stream_caption = [], ""
         self._tags = []
         self._release_date = ""
         self._metadata_from_tmdb = False
@@ -182,7 +202,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
-        total = sum(len(v) for v in rows.values())
+        total = sum(len(v) for v in rows.values()) + len(self._stream_rows)
 
         rule = QWidget()
         rule.setObjectName("detailsRule")
@@ -196,7 +216,20 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         ordered += sorted(f for f in rows if f not in _FACET_DISPLAY_ORDER and f != "released")
         if "released" in rows:
             ordered.append("released")
-        for r, facet in enumerate(ordered):
+        # Measured rows first: what the stream really is outranks any claim.
+        for r, (key, text) in enumerate(self._stream_rows):
+            if key:
+                grid.addWidget(make_key(key), r, 0, Qt.AlignmentFlag.AlignTop)
+            value = QLabel(text)
+            _theme.style(value, "DETAIL_TEXT")
+            widgets = [value]
+            if r == 0:
+                cap = QLabel(f"· {self._stream_caption}")
+                _theme.style(cap, "DETAIL_FACT_REASON")
+                widgets.append(cap)
+            grid.addWidget(make_flow(widgets), r, 1)
+        offset = len(self._stream_rows)
+        for r, facet in enumerate(ordered, start=offset):
             label = "Released" if facet == "released" else _FACET_LABELS.get(
                 facet, facet.replace("_", " ").title())
             grid.addWidget(make_key(label), r, 0, Qt.AlignmentFlag.AlignTop)
