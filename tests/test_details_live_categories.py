@@ -83,7 +83,7 @@ class TestLoadBasicGenresLabelVisibility:
 
     def _make_meta_section(self, qapp):
         """Construct a real _MetadataSection (QWidget requires Qt event loop)."""
-        from metatv.gui.details_sections import _MetadataSection
+        from metatv.gui.details_title import _MetadataSection
         return _MetadataSection(self._make_config())
 
     def _fake_channel(self, media_type: str, name: str = "Test Channel") -> SimpleNamespace:

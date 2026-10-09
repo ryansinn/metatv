@@ -62,22 +62,28 @@ def _rich_metadata():
     )
 
 
-def test_media_row_uses_wrapping_flow_layout(qapp):
-    """The media/badge row must be a wrapping _FlowLayout, never a QHBoxLayout —
-    that's what keeps its minimum width to a single chip instead of the sum."""
-    from metatv.gui.details_sections import _MetadataSection
+def test_rating_row_uses_wrapping_flow_layout(qapp):
+    """The rating/id-chip row must be a wrapping _FlowLayout, never a QHBoxLayout —
+    that's what keeps its minimum width to a single chip instead of the sum.
+
+    DETAILS-3b replaced the old runtime/IMDb/TMDb/content-rating/stars
+    "_media_row" with this narrower rating-plus-id-chips row (runtime and
+    content rating moved into the byline text); the wrapping-layout property
+    this test protects is unchanged.
+    """
+    from metatv.gui.details_title import _MetadataSection
     from metatv.gui.flow_layout import FlowLayout as _FlowLayout
 
     section = _MetadataSection(_make_config())
-    assert isinstance(section._media_row.layout(), _FlowLayout), (
-        "the media/badge row must use _FlowLayout so it wraps instead of forcing a wide row"
+    assert isinstance(section._rating_row_w.layout(), _FlowLayout), (
+        "the rating row must use _FlowLayout so it wraps instead of forcing a wide row"
     )
 
 
 def test_metadata_section_width_within_pane(qapp):
     """With a full set of badges + many genres, the section's minimum width stays within
     the ~500px details viewport (it would exceed it with the old non-wrapping row)."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     section.set_mode(is_live=False)
@@ -93,7 +99,7 @@ def test_metadata_section_width_within_pane(qapp):
 
 def test_genres_flow_actually_wraps_when_narrow(qapp):
     """The genre flow lays out taller when narrow than when wide — i.e. it really wraps."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     section.set_mode(is_live=False)
@@ -120,7 +126,7 @@ def test_genres_flow_actually_wraps_when_narrow(qapp):
 def test_genre_chip_escapes_ampersand_for_display(qapp):
     """A genre containing "&" renders as the escaped "&&" form on the button —
     Qt then draws one literal "&" instead of eating it as a mnemonic."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     section._populate_genre_chips(["Action & Adventure", "Drama"])
@@ -135,7 +141,7 @@ def test_genre_chip_escapes_ampersand_for_display(qapp):
 def test_genre_chip_click_emits_raw_unescaped_value(qapp):
     """Clicking a genre chip emits the ORIGINAL "Action & Adventure" (not the
     escaped "&&" form) so the downstream genre filter still matches."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     emitted: list[str] = []

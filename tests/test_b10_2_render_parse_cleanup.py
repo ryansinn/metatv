@@ -88,7 +88,7 @@ class TestLoadBasicStoredFields:
     """_MetadataSection.load_basic must read stored detected_* fields, not re-parse."""
 
     def _make_section(self, qapp) -> object:
-        from metatv.gui.details_sections import _MetadataSection
+        from metatv.gui.details_title import _MetadataSection
         return _MetadataSection(_minimal_details_config())
 
     def test_title_from_detected_title(self, qapp):
@@ -129,55 +129,10 @@ class TestLoadBasicStoredFields:
 
         assert section.title_label.text() == "Raw Channel Name"
 
-    def test_prefix_chip_from_detected_prefix(self, qapp):
-        """Prefix chip must show detected_prefix, not parse_channel_name result."""
-        section = self._make_section(qapp)
-        channel = _fake_channel(
-            name="EN | CNN International",
-            detected_prefix="EN",
-            detected_title="CNN International",
-        )
-
-        section.load_basic(channel)
-
-        assert not section._prefix_chip.isHidden(), "Prefix chip must be visible for 'EN'"
-        assert section._prefix_chip.text() == "English (EN)"  # name + code (#139)
-
-    def test_prefix_chip_hidden_when_no_prefix(self, qapp):
-        """Prefix chip must be hidden when both detected_prefix and detected_region are None."""
-        section = self._make_section(qapp)
-        channel = _fake_channel(
-            name="CNN International",
-            detected_prefix=None,
-            detected_region=None,
-        )
-
-        section.load_basic(channel)
-
-        assert section._prefix_chip.isHidden(), "Prefix chip must be hidden when no prefix"
-
-    def test_quality_chip_from_detected_quality(self, qapp):
-        """Quality chip must show detected_quality in uppercase."""
-        section = self._make_section(qapp)
-        channel = _fake_channel(
-            name="EN | BBC World 4k",
-            detected_quality="4K",
-            detected_title="BBC World",
-        )
-
-        section.load_basic(channel)
-
-        assert not section._quality_chip.isHidden(), "Quality chip must be visible for '4K'"
-        assert section._quality_chip.text() == "4K"
-
-    def test_quality_chip_hidden_when_no_quality(self, qapp):
-        """Quality chip must be hidden when detected_quality is None."""
-        section = self._make_section(qapp)
-        channel = _fake_channel(detected_quality=None)
-
-        section.load_basic(channel)
-
-        assert section._quality_chip.isHidden(), "Quality chip must be hidden when no quality"
+    # Prefix/quality-chip coverage moved with the widgets themselves: DETAILS-3b
+    # removed the boxed region/prefix chip and the quality chip from the title
+    # block (quality now lives on the "Available in" copy chips, a parallel
+    # slice) — there is nothing left to assert about them here.
 
     def test_the_byline_carries_detected_year(self, qapp):
         """The year reads in the byline under the title.
@@ -231,24 +186,7 @@ class TestLoadBasicStoredFields:
 
         # The stored fields were used (regression guard)
         assert section.title_label.text() == "Peliculas"
-        assert section._prefix_chip.text() == "Spain (ES)"  # region name + code (#139)
-        assert section._quality_chip.text() == "HD"
         assert section._byline_lbl.text().endswith("2024")
-
-    def test_detected_region_used_as_prefix_fallback(self, qapp):
-        """When detected_prefix is None, detected_region is shown in the prefix chip."""
-        section = self._make_section(qapp)
-        channel = _fake_channel(
-            name="BBC World (US)",
-            detected_prefix=None,
-            detected_region="US",
-            detected_title="BBC World",
-        )
-
-        section.load_basic(channel)
-
-        assert not section._prefix_chip.isHidden(), "Prefix chip must be visible for detected_region"
-        assert section._prefix_chip.text() == "United States (US)"  # name + code (#139)
 
 
 # ---------------------------------------------------------------------------

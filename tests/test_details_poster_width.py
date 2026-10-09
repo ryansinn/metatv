@@ -75,7 +75,7 @@ def test_full_content_matches_narrow_viewport(qapp):
     scroll-area (resizable, h-scroll off).  At a narrow viewport the content widget
     must size to the VIEWPORT, not to the poster pixmap — proving nothing clips off
     the right edge."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.gui.details_versions import _VersionSection
 
     cfg = _make_config()

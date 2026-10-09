@@ -1,9 +1,10 @@
 """Behavioral tests for details-pane layout changes (PR #232).
 
-Change A — Rating on the media-type line:
-  * rating_label lives on the shared meta row (not a separate row).
+Change A — Rating on its own row (superseded by DETAILS-3b):
+  * rating_label lives on the title block's ``_rating_row_w`` (the TMDb/IMDb
+    id chips share it); content rating moved into the byline text
+    ("Movie · 2024 · PG-13") and no longer has its own badge.
   * Shows when raw_data / metadata provide a rating; hidden + no gap when absent.
-  * Content-rating badge (PG-13) also on the media-type row.
 
 Change B — actions tiered by frequency (feat/details-action-hierarchy):
   * Play + Resume graduate to a full-size primary row below the poster; the
@@ -54,32 +55,30 @@ def _stub_channel(**kwargs):
     return ch
 
 
-# ── Change A: rating on the media-type row ───────────────────────────────────
+# ── Change A: rating on its own row (DETAILS-3b) ─────────────────────────────
 
-def test_rating_label_is_on_the_shared_meta_row(qapp):
-    """rating_label belongs on the wrapping meta row, not a row of its own.
-
-    It used to be checked against ``_media_type_lbl`` as its rowmate. That
-    label is gone — the media-type WORD moved to the byline under the title,
-    where it reads as "Movie · 2024" instead of as an icon-plus-word badge
-    duplicating the row list's icon. The row it shared still exists and still
-    carries runtime, the IDs, the content rating and the stars, so the property
-    under test is unchanged; only the rowmate used to prove it has moved.
-    """
-    from metatv.gui.details_sections import _MetadataSection
+def test_rating_label_is_on_the_rating_row(qapp):
+    """rating_label belongs on the title block's rating row, alongside the
+    TMDb/IMDb id chips — not a row of its own and not the media-type row
+    (which is gone; type/year/runtime/content-rating all moved into the
+    byline text)."""
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
-    assert section.rating_label.parent() is section._media_row, (
-        "rating_label.parent() must be _media_row — it belongs on the meta line"
+    assert section.rating_label.parent() is section._rating_row_w, (
+        "rating_label.parent() must be _rating_row_w"
     )
-    assert section.runtime_label.parent() is section._media_row, (
-        "runtime_label.parent() must also be _media_row"
+    assert section._tmdb_chip.parent() is section._rating_row_w, (
+        "_tmdb_chip must share the rating row"
+    )
+    assert section._imdb_chip.parent() is section._rating_row_w, (
+        "_imdb_chip must share the rating row"
     )
 
 
 def test_rating_shown_when_raw_data_has_rating(qapp):
     """load_basic() with a raw_data rating must show rating_label on the type row."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     ch = _stub_channel(raw_data={"rating": "7.5"})
@@ -95,7 +94,7 @@ def test_rating_shown_when_raw_data_has_rating(qapp):
 
 def test_rating_hidden_when_no_raw_data(qapp):
     """load_basic() with no raw_data must leave rating_label hidden (no empty gap)."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     ch = _stub_channel(raw_data=None)
@@ -108,7 +107,7 @@ def test_rating_hidden_when_no_raw_data(qapp):
 
 def test_rating_hidden_when_raw_data_has_no_rating_key(qapp):
     """load_basic() with raw_data that lacks 'rating' must leave rating_label hidden."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     ch = _stub_channel(raw_data={"stream_type": "movie"})
@@ -122,7 +121,7 @@ def test_rating_hidden_when_raw_data_has_no_rating_key(qapp):
 @pytest.mark.parametrize("zero_rating", ["0", "0.0", 0, 0.0])
 def test_rating_hidden_when_raw_rating_is_zero(qapp, zero_rating):
     """A rating of 0 / '0' / '0.0' means unrated — must hide (not show '0.0 of 10')."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(_make_config())
     ch = _stub_channel(raw_data={"rating": zero_rating})
@@ -136,7 +135,7 @@ def test_rating_hidden_when_raw_rating_is_zero(qapp, zero_rating):
 
 def test_rating_shown_via_load_metadata(qapp):
     """load_metadata() with a numeric rating must show rating_label."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())
@@ -148,50 +147,42 @@ def test_rating_shown_via_load_metadata(qapp):
     assert "8.2" in section.rating_label.text()
 
 
-def test_content_rating_badge_on_media_row(qapp):
-    """_content_rating_lbl must share the meta row with the other badges."""
-    from metatv.gui.details_sections import _MetadataSection
-
-    section = _MetadataSection(_make_config())
-    assert section._content_rating_lbl.parent() is section._media_row, (
-        "_content_rating_lbl must be on _media_row (the type line)"
-    )
-
-
-def test_content_rating_badge_shown_via_load_metadata(qapp):
-    """load_metadata() with content_rating must show the badge."""
-    from metatv.gui.details_sections import _MetadataSection
+def test_content_rating_folds_into_the_byline(qapp):
+    """content_rating no longer has its own badge — it is the last segment of
+    the byline text ("Movie · 2024 · PG-13"), DETAILS-3b."""
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())
+    section.load_basic(_stub_channel(detected_year="2024"))
     section.load_metadata(MetadataResult(content_rating="PG-13"))
 
-    assert not section._content_rating_lbl.isHidden(), (
-        "_content_rating_lbl must be visible after load_metadata with content_rating"
-    )
-    assert section._content_rating_lbl.text() == "PG-13"
+    assert section._byline_lbl.text() == "Movie · 2024 · PG-13"
 
 
 def test_rating_cleared_after_clear(qapp):
-    """After clear(), rating_label must be hidden and empty."""
-    from metatv.gui.details_sections import _MetadataSection
+    """After clear(), rating_label must be hidden and empty, and the id chips
+    hidden with it."""
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())
-    section.load_metadata(MetadataResult(rating=7.0))
+    section.load_metadata(MetadataResult(rating=7.0, tmdb_id="42"))
     assert not section.rating_label.isHidden()
+    assert not section._tmdb_chip.isHidden()
 
     section.clear()
     assert section.rating_label.isHidden(), "rating_label must be hidden after clear()"
     assert section.rating_label.text() == "", "rating_label must be empty after clear()"
-    assert section._content_rating_lbl.isHidden(), (
-        "_content_rating_lbl must be hidden after clear()"
+    assert section._tmdb_chip.isHidden(), "_tmdb_chip must be hidden after clear()"
+    assert section._rating_row_w.isHidden(), (
+        "_rating_row_w must be hidden after clear() — nothing left to show"
     )
 
 
-def test_rating_hidden_for_live_via_media_row(qapp):
-    """For a live channel, set_mode(is_live=True) hides _media_row which contains the rating."""
-    from metatv.gui.details_sections import _MetadataSection
+def test_rating_hidden_for_live_via_rating_row(qapp):
+    """For a live channel, set_mode(is_live=True) hides _rating_row_w."""
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())
@@ -199,9 +190,8 @@ def test_rating_hidden_for_live_via_media_row(qapp):
     assert not section.rating_label.isHidden()
 
     section.set_mode(is_live=True)
-    # The _media_row (parent) is hidden for live, making rating effectively invisible.
-    assert section._media_row.isHidden(), (
-        "_media_row (which contains rating_label) must be hidden in live mode"
+    assert section._rating_row_w.isHidden(), (
+        "_rating_row_w (which contains rating_label) must be hidden in live mode"
     )
 
 

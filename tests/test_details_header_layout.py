@@ -7,13 +7,18 @@ long title "scrunched due to the badges/chips".
 
 These assert RENDERED GEOMETRY. "The chips are no longer children of the title
 row" is satisfied by a layout that still leaves the title 40px wide.
+
+DETAILS-3b removed the prefix/quality chips from this section entirely (quality
+now lives on the "Available in" copy chips, a parallel slice) — the tests that
+asserted their geometry went with them; the title/byline geometry tests below
+are unaffected since nothing shares either row.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from metatv.gui.details_sections import _MetadataSection
+from metatv.gui.details_title import _MetadataSection
 
 
 class _Ch:
@@ -63,14 +68,6 @@ def test_the_title_gets_the_whole_row(section, qapp):
     )
 
 
-def test_the_badges_are_not_in_the_title_row(section, qapp):
-    section.load_basic(_Ch(LONG))
-    qapp.processEvents()
-    row = section.title_label.parent()
-    for chip in (section._prefix_chip, section._quality_chip):
-        assert chip.parent() is not row, f"{chip.text()!r} is still in the title row"
-
-
 def test_a_long_title_takes_fewer_lines_than_the_badges_forced(section, qapp):
     """The user-visible symptom: line count.
 
@@ -110,39 +107,3 @@ def test_the_byline_sits_directly_under_the_title(section, qapp):
     )
 
 
-def test_the_badges_still_render_somewhere(section, qapp):
-    """Moved, not deleted. Quality and region are real information."""
-    section.load_basic(_Ch("Kraven The Hunter"))
-    qapp.processEvents()
-    assert section._prefix_chip.text() == "English (EN)"
-    assert section._quality_chip.text() == "4K"
-    assert not section._prefix_chip.isHidden()
-    assert not section._quality_chip.isHidden()
-
-
-def test_the_badge_row_never_floors_the_pane_wider_than_it_is(section, qapp):
-    """The width trap, which a plain QHBoxLayout on this row would reintroduce.
-
-    A QHBoxLayout's minimum width is the SUM of its children, so a long region
-    name plus a quality plus "Source: …" would push the whole details column
-    past its viewport — the failure docs/DETAILS_PANE_DESIGN.md records
-    recurring about five times. A flow layout's minimum is its widest single
-    child.
-    """
-    section.load_basic(_Ch(LONG, prefix="LAT", quality="uhd"))
-    qapp.processEvents()
-    layout = section._badge_row_w.layout()
-    widths = [layout.itemAt(i).widget().sizeHint().width()
-              for i in range(layout.count())]
-    minimum = section._badge_row_w.minimumSizeHint().width()
-
-    assert minimum < sum(widths), (
-        f"the badge row's minimum ({minimum}px) is the SUM of its children "
-        f"({sum(widths)}px) — it will floor the details pane wider than its "
-        f"viewport. This row must stay a flow layout."
-    )
-    # Margins and spacing put it a little over the widest child; what matters
-    # is that it tracks the widest rather than the total.
-    assert minimum <= max(widths) + 32, (
-        f"minimum {minimum}px is well past the widest child {max(widths)}px"
-    )

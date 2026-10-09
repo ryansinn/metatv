@@ -864,15 +864,6 @@ def _build_semantic_constants() -> dict[str, object]:
         " background: " + OVERLAY_08 + "; }"
     )
 
-    # Genre chips — details pane metadata genre buttons (blue / link-like, flow-layout row)
-    GENRE_CHIP = (
-        "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_ACCENT_BLUE_2 + ";"
-        " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 2px 8px;"
-        " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE_2 + ";"
-        " background: " + OVERLAY_BLUE_10 + "; }"
-    )
-
     # Variant-count badge (content-collapse Slice 2) — bottom-left overlay on poster cards.
     # Shown only when variant_count > 1; styled to be unobtrusive (muted + slight tint).
     VARIANT_BADGE = (
