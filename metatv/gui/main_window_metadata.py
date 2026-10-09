@@ -485,6 +485,8 @@ class _MetadataMixin:
                         in_history=bool(ch.play_count),
                         media_type=ch.media_type or "",
                         user_rating=ratings.get(ch.id, 0),
+                        is_rec_suppressed=bool(ch.is_rec_suppressed),
+                        watch_completed=bool(ch.watch_completed),
                     )
                     for ch in rows
                 ]
