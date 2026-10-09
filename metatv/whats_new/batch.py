@@ -31,7 +31,7 @@ by a script instead of by memory:
 from __future__ import annotations
 
 # main's HEAD when the current __version__ label was opened.
-OPENED_AT_SHA: str = "b514f647"
+OPENED_AT_SHA: str = "b03a576d"
 
 # The highest What's New entry id at that moment.
-OPENED_AT_ID: int = 685
+OPENED_AT_ID: int = 686
