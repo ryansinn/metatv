@@ -15,6 +15,7 @@ from loguru import logger
 from metatv.gui.row_activation import connect_row_activation
 from concurrent.futures import ThreadPoolExecutor
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui import stream_probe_action as _stream_probe_action
 from metatv.core import watchlist
 from metatv.core.build_info import window_title
 from metatv.core.config import Config
@@ -903,6 +904,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)
         self.details_pane.episode_action_state_requested.connect(self._on_episode_action_state_requested)
         self.details_pane.channel_tags_requested.connect(self._on_channel_tags_requested)
+        self.details_pane.stream_probe_requested.connect(
+            lambda: _stream_probe_action.request_probe(self))
         self.details_pane.weights_requested.connect(self._on_weights_requested)
         self._versions_loaded.connect(self._on_versions_loaded)
         self._similar_titles_loaded.connect(self._on_similar_titles_loaded)

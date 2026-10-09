@@ -25,6 +25,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.gui.detail_chips import (
+    make_chip,
     KEY_COL, SECTION_INDENT, display_code, make_flow, make_key, make_label_grid,
 )
 from metatv.gui.details_section_header import CollapsibleHeader, CollapsibleMixin
@@ -83,6 +84,8 @@ class _DetailsSection(CollapsibleMixin, QWidget):
 
     tag_filter_clicked = pyqtSignal(str, str)
     tag_discover_clicked = pyqtSignal(str, str)
+    #: "Get stream details" pressed — measure the stream without playing it.
+    probe_requested = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -107,11 +110,25 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         layout.addWidget(self._header)
 
         self._content = QWidget()
-        self._body = QVBoxLayout(self._content)
-        self._body.setContentsMargins(SECTION_INDENT, 0, 0, 0)
+        content_lay = QVBoxLayout(self._content)
+        content_lay.setContentsMargins(SECTION_INDENT, 0, 0, 0)
+        content_lay.setSpacing(6)
+        facts = QWidget()
+        self._body = QVBoxLayout(facts)
+        self._body.setContentsMargins(0, 0, 0, 0)
         self._body.setSpacing(6)
+        content_lay.addWidget(facts)
+        # PLAYED-2: measure the stream on request instead of having to play it.
+        self._probe_btn = make_chip("Get stream details")
+        self._probe_btn.setToolTip(
+            "Open the stream briefly in the background and record its resolution,\n"
+            "frame rate, codecs, bitrate and audio/subtitle tracks")
+        self._probe_btn.clicked.connect(self.probe_requested)
+        self._probe_running = False
+        content_lay.addWidget(make_flow([self._probe_btn]))
         layout.addWidget(self._content)
         self._wire_header()
+        self._has_copy = False
         self.hide()
 
     # ------------------------------------------------------------------ #
@@ -130,6 +147,8 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._header.set_title(
             f"Details for {self._copy_label}" if self._copy_label else "Details"
         )
+        self._has_copy = True
+        self._probe_running = False
 
     def load_tags(self, tags: list) -> None:
         """Populate from ``ChannelTagDTO`` objects (never ORM rows)."""
@@ -254,7 +273,23 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         n = total
         self._header.set_summary(str(n) if n else "", f"{n} fact{'s' * (n != 1)}")
         self._apply_collapsed()
-        self.setVisible(not self._is_live and total > 0)
+        # Always shown once a copy is on screen: even with no facts yet, the
+        # "Get stream details" button is what fills it.
+        self.setVisible(self._has_copy)
+        self._sync_probe_button()
+
+    def set_probe_running(self, running: bool) -> None:
+        """Show the probe as in progress (disabled, "Checking stream…") or idle."""
+        self._probe_running = running
+        self._sync_probe_button()
+
+    def _sync_probe_button(self) -> None:
+        if self._probe_running:
+            text = "Checking stream…"
+        else:
+            text = "Re-check stream" if self._stream_rows else "Get stream details"
+        self._probe_btn.setText(text)
+        self._probe_btn.setEnabled(not self._probe_running)
 
     def _display(self, facet: str, value: str) -> str:
         if facet == "region":
