@@ -228,7 +228,12 @@ class TestAlertsChannelProviderScoping:
 # ===========================================================================
 
 class TestDetailsSourceLineFallback:
-    """load_basic must always render source_label when provider_id is present."""
+    """load_basic must always render the source chip when provider_id is present.
+
+    DETAILS-3b replaced the plain "Source:" ``_ClickableLabel`` with a
+    clickable chip (``_source_chip``); the fallback-rendering behaviour this
+    class guards is unchanged — only the widget and its text format are.
+    """
 
     def _make_channel(self, provider_id="prov-123", channel_id="ch-abc"):
         """Minimal fake channel object."""
@@ -249,11 +254,12 @@ class TestDetailsSourceLineFallback:
         """Build a real _MetadataSection with a minimal fake config.
 
         The section is fully constructed (not __new__) because load_basic touches
-        many attributes (_rating_row, genres_label, rec_reason_label, etc.) that
-        are set up in _setup(). The config only needs the attributes load_basic
-        reads at the code paths that will execute (no raw_data → rating branch skipped).
+        many attributes (_rating_row_w, _genres_container, rec_reason_label, etc.)
+        that are set up in _setup(). The config only needs the attributes
+        load_basic reads at the code paths that will execute (no raw_data → rating
+        branch skipped).
         """
-        from metatv.gui.details_sections import _MetadataSection
+        from metatv.gui.details_title import _MetadataSection
 
         config = SimpleNamespace(
             rating_star_icon="★",
@@ -263,8 +269,8 @@ class TestDetailsSourceLineFallback:
         )
         return _MetadataSection(config)
 
-    def test_source_label_shown_when_provider_in_map(self, qapp):
-        """Normal case: provider_id present in provider_map → shows icon+name badge."""
+    def test_source_chip_shown_when_provider_in_map(self, qapp):
+        """Normal case: provider_id present in provider_map → shows icon+name chip."""
         section = self._make_section(qapp)
         ch = self._make_channel(provider_id="prov-1")
         provider_map = {
@@ -273,20 +279,23 @@ class TestDetailsSourceLineFallback:
 
         section.load_basic(ch, provider_map=provider_map)
 
-        assert not section.source_label.isHidden(), (
-            "source_label must be visible when provider is in map"
+        assert not section._source_chip.isHidden(), (
+            "_source_chip must be visible when provider is in map"
         )
-        text = section.source_label.text()
-        assert "Provider One" in text, f"Expected provider name in label, got: {text!r}"
-        assert section.source_label.channel_id == ch.id, (
-            "channel_id must be set for click-to-copy even in normal case"
-        )
+        text = section._source_chip.text()
+        assert "Provider One" in text, f"Expected provider name in chip, got: {text!r}"
 
-    def test_source_label_shown_with_fallback_when_provider_not_in_map(self, qapp):
-        """Orphan/unknown case: provider_id not in provider_map → fallback label shown.
+        emitted: list[str] = []
+        section.source_filter_requested.connect(emitted.append)
+        section._source_chip.click()
+        assert emitted == ["prov-1"], "click-to-copy's replacement, click-to-filter, must still work"
 
-        This is the regression fix: previously the source_label stayed hidden
-        for orphaned channels, preventing users from copying the channel ID.
+    def test_source_chip_shown_with_fallback_when_provider_not_in_map(self, qapp):
+        """Orphan/unknown case: provider_id not in provider_map → fallback text shown.
+
+        This is the regression fix: previously the source line stayed hidden
+        for orphaned channels. The chip still shows (source removed) wording —
+        the whole point of the original fix was to keep this line informative.
         """
         section = self._make_section(qapp)
         ch = self._make_channel(provider_id="orphan-prov-xyz")
@@ -294,45 +303,41 @@ class TestDetailsSourceLineFallback:
 
         section.load_basic(ch, provider_map=provider_map)
 
-        assert not section.source_label.isHidden(), (
-            "source_label must be visible even when provider is NOT in map (orphan regression)"
+        assert not section._source_chip.isHidden(), (
+            "_source_chip must be visible even when provider is NOT in map (orphan regression)"
         )
-        text = section.source_label.text()
+        text = section._source_chip.text()
         assert "orphan-prov-xyz" in text, (
-            f"Fallback label must include the provider_id so user can identify the source; got: {text!r}"
+            f"Fallback text must include the provider_id so user can identify the source; got: {text!r}"
         )
-        assert section.source_label.channel_id == ch.id, (
-            "channel_id must be set so orphan channels are still copyable"
-        )
-        tooltip = section.source_label.toolTip()
-        assert ch.id in tooltip, (
-            f"Tooltip must include channel id for copy hint; got: {tooltip!r}"
+        assert "(source removed)" in text, (
+            f"Fallback text must keep the '(source removed)' wording; got: {text!r}"
         )
 
-    def test_source_label_shown_when_provider_map_is_none(self, qapp):
-        """provider_map=None (no map passed at all) → fallback label still shown."""
+    def test_source_chip_shown_when_provider_map_is_none(self, qapp):
+        """provider_map=None (no map passed at all) → fallback text still shown."""
         section = self._make_section(qapp)
         ch = self._make_channel(provider_id="prov-no-map")
 
         section.load_basic(ch, provider_map=None)
 
-        assert not section.source_label.isHidden(), (
-            "source_label must be visible even when provider_map is None"
+        assert not section._source_chip.isHidden(), (
+            "_source_chip must be visible even when provider_map is None"
         )
-        text = section.source_label.text()
+        text = section._source_chip.text()
         assert "prov-no-map" in text, (
             f"Fallback must include provider_id when map is None; got: {text!r}"
         )
 
-    def test_source_label_hidden_when_no_provider_id(self, qapp):
-        """Channel with no provider_id → source_label stays hidden (no source to report)."""
+    def test_source_chip_hidden_when_no_provider_id(self, qapp):
+        """Channel with no provider_id → the source row stays hidden (no source to report)."""
         section = self._make_section(qapp)
         ch = self._make_channel(provider_id=None)
 
         section.load_basic(ch, provider_map={})
 
-        assert section.source_label.isHidden(), (
-            "source_label must remain hidden when channel has no provider_id"
+        assert section._source_row_w.isHidden(), (
+            "the source row must remain hidden when channel has no provider_id"
         )
 
 

@@ -44,7 +44,7 @@ def _metadata(genres):
 
 @pytest.fixture()
 def section(qapp):
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     sec = _MetadataSection(Config())
     sec.show()

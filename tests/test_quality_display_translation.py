@@ -144,53 +144,10 @@ def test_every_sidebar_section_translates_its_quality(module):
     assert "detected_quality,\n" not in src
 
 
-def test_details_pane_quality_chip_translates_but_channel_keeps_token(qapp):
-    """Details-pane title-bar chip shows the label; the channel field is untouched."""
-    from metatv.core.config import Config
-    from metatv.gui.details_sections import _MetadataSection
-
-    ch = MagicMock()
-    ch.id = "c1"
-    ch.name = "Some Movie RAW"
-    ch.media_type = "movie"
-    ch.is_adult = False
-    ch.detected_title = "Some Movie"
-    ch.detected_year = None
-    ch.detected_prefix = None
-    ch.detected_quality = "RAW"
-    ch.detected_region = None
-    ch.provider_id = None
-
-    section = _MetadataSection(Config())
-    section.load_basic(ch)
-
-    assert section._quality_chip.text() == "Uncompressed"
-    assert "uncompressed" in section._quality_chip.toolTip().lower()
-    # The stored field is identity — never rewritten for display
-    assert ch.detected_quality == "RAW"
-
-
-def test_details_pane_hevc_chip_carries_codec_tooltip(qapp):
-    from metatv.core.config import Config
-    from metatv.gui.details_sections import _MetadataSection
-
-    ch = MagicMock()
-    ch.id = "c2"
-    ch.name = "Some Movie HEVC"
-    ch.media_type = "movie"
-    ch.is_adult = False
-    ch.detected_title = "Some Movie"
-    ch.detected_year = None
-    ch.detected_prefix = None
-    ch.detected_quality = "HEVC"
-    ch.detected_region = None
-    ch.provider_id = None
-
-    section = _MetadataSection(Config())
-    section.load_basic(ch)
-
-    assert section._quality_chip.text() == "HEVC"
-    assert "codec" in section._quality_chip.toolTip().lower()
+# The details-pane title-bar quality chip (``_quality_chip``) that used to live
+# on ``_MetadataSection`` is removed as of DETAILS-3b — quality now lives on the
+# "Available in" copy chips (``details_versions.py``, a parallel slice), which
+# owns this translation coverage going forward.
 
 
 def _list_dto(**overrides):

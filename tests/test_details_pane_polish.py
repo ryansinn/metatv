@@ -150,7 +150,7 @@ def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch, 
 def test_genre_load_populates_flow_container(qapp, owned_widgets):
     """After load_metadata with genres, _genres_container holds one chip per genre."""
     from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.gui.flow_layout import FlowLayout as _FlowLayout
     from metatv.metadata_providers.base import MetadataResult
 
@@ -172,7 +172,7 @@ def test_genre_load_populates_flow_container(qapp, owned_widgets):
 def test_genre_chip_click_emits_genre_clicked(qapp, owned_widgets):
     """Clicking a genre chip emits genre_clicked with the raw (unescaped) genre name."""
     from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
@@ -193,7 +193,7 @@ def test_genre_chip_click_emits_genre_clicked(qapp, owned_widgets):
 
 def test_genre_chips_not_shown_for_live_channels(qapp, owned_widgets):
     """Live channels (no metadata genres) must leave the genre area hidden."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
     section.set_mode(is_live=True)
@@ -209,7 +209,7 @@ def test_genre_chips_not_shown_for_live_channels(qapp, owned_widgets):
 def test_genre_loading_label_shown_while_metadata_pending(qapp, owned_widgets):
     """After load_basic for a non-live channel, loading label is shown, not the container."""
     from unittest.mock import MagicMock
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
     # Minimal stub channel DTO
@@ -240,7 +240,7 @@ def test_genre_loading_label_shown_while_metadata_pending(qapp, owned_widgets):
 
 def test_genre_clear_hides_container(qapp, owned_widgets):
     """After clear(), the genre container and loading label are hidden."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
@@ -267,7 +267,7 @@ def test_comma_joined_genres_split_into_separate_chips(qapp, owned_widgets):
     split, so this produced one over-wide chip; now both ',' and '/' split.
     """
     from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
@@ -284,7 +284,7 @@ def test_comma_joined_genres_do_not_force_wide_minimum(qapp, owned_widgets):
     """The over-wide single chip is the bug e87956eb: after splitting, the flow
     layout's minimum width is just the widest single genre, never the whole joined
     string — so it can never push the details panel (min 300px) wider."""
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     joined = "Animation, Action, Adventure, Comedy, Drama, Science Fiction"
@@ -314,7 +314,7 @@ def test_ampersand_genre_not_split(qapp, owned_widgets):
     treat it as a mnemonic); normalise that back before comparing so this test
     stays about the *split* behaviour, not the display escaping."""
     from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = owned_widgets.own(_MetadataSection(_make_config()))
@@ -331,7 +331,7 @@ def test_ampersand_genre_not_split(qapp, owned_widgets):
 def test_duplicate_genres_deduped(qapp, owned_widgets):
     """Merged multi-provider metadata can repeat a genre — render it once."""
     from PyQt6.QtWidgets import QPushButton
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = owned_widgets.own(_MetadataSection(_make_config()))

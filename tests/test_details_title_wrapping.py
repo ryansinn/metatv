@@ -44,7 +44,7 @@ def _title_section(qapp, text: str = LONG, lines: int = 3):
     font-metric-dependent has to be expressed relative to the metrics.
     """
     from metatv.core.config import Config
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
 
     section = _MetadataSection(Config())
     section.show()

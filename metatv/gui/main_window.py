@@ -894,6 +894,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.details_pane.person_filter_requested.connect(self._on_person_filter_requested)
         self.details_pane.tag_filter_requested.connect(self._on_tag_filter_requested)
         self.details_pane.tag_discover_requested.connect(self._on_tag_discover_requested)
+        # Title block's source chip: the existing scoped load, same as the Sources
+        # sidebar's provider selection — no new filtering path.
+        self.details_pane.source_filter_requested.connect(self.load_channels)
+        self.details_pane.status_message.connect(lambda msg: self.status(msg, ms=0))
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)

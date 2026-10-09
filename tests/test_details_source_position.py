@@ -1,14 +1,18 @@
-"""Structural test: the details-pane "Source:" line sits under the TITLE.
+"""Structural test: the details-pane title block's row order (DETAILS-3b).
 
-Provenance ("which of my sources is this from?") is header information.  It used
-to render below the whole metadata block — under the media-type / runtime / IMDb /
-rating row and the tagline — so on a title with rich metadata you had to read past
-several rows to find it.  It now sits directly beneath the title/year line.
+Provenance ("which of my sources is this from?") used to render directly
+under the title/byline, as a plain "Source:" label sharing a row with the
+Adult indicator. The redesign (DETAILS-3b) makes it a clickable chip and
+moves it to the BOTTOM of the title block — after the genre row and the
+rating/TMDb/IMDb row — immediately above "Available in"; the Adult indicator
+moves up onto the byline's own row instead.
 
-These tests assert ORDER inside ``_MetadataSection``'s vertical layout, which is
-what would silently regress if someone re-appended the badge row.  They also guard
-the width trap: the relocated row must not become a width forcer (a plain
-QHBoxLayout's minimum width is the SUM of its children — docs/DETAILS_PANE_DESIGN.md).
+These tests assert ORDER inside ``_MetadataSection``'s vertical layout, which
+is what would silently regress if someone re-inserted the old badge row.
+They also guard the width trap: the relocated row must not become a width
+forcer (a plain QHBoxLayout's minimum width is the SUM of its children —
+docs/DETAILS_PANE_DESIGN.md) — it is built with ``detail_chips.make_flow``,
+whose minimum is its widest single chip.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ def qapp():
 
 def _section():
     from metatv.core.config import Config
-    from metatv.gui.details_sections import _MetadataSection
+    from metatv.gui.details_title import _MetadataSection
     return _MetadataSection(Config())
 
 
@@ -42,14 +46,15 @@ def _channel(**kw):
     ch.detected_quality = None
     ch.detected_region = None
     ch.provider_id = kw.get("provider_id", "p1")
+    ch.raw_data = None
     return ch
 
 
 def _row_index_of(section, widget) -> int:
     """Index of the section-level row that contains *widget*.
 
-    Rows are either a direct child widget (``title_bar``, ``_media_row``) or a
-    nested QHBoxLayout (the source/adult badge row), so resolve the widget up to
+    Rows are either a direct child widget (``title_bar``, ``_rating_row_w``)
+    or a nested layout (the byline/source rows), so resolve the widget up to
     the section's direct child first, then match either form.
     """
     layout = section.layout()
@@ -69,67 +74,56 @@ def _row_index_of(section, widget) -> int:
     raise AssertionError(f"{widget!r} not found in the section layout")
 
 
-def test_source_row_sits_in_the_title_block(qapp):
-    """Provenance stays header information, directly under title + byline.
-
-    The original of this test asserted ``source_idx == title_idx + 1``. That
-    was the right intent expressed as an exact offset, and the byline — one
-    line reading "Movie · 2024", added under the title so the prefix, quality
-    and year badges could stop competing with a wrapping title for the same
-    row — moved it to +2 without changing anything the test was protecting.
-
-    So assert the property instead of the offset: source comes after the title,
-    before the tagline and the meta row, and nothing but the byline is between.
-    """
+def test_source_row_sits_at_the_bottom_of_the_title_block(qapp):
+    """Source comes after the title, byline, genre row and rating row — the
+    last row in the block before the recommendation-reason line."""
     section = _section()
     title_idx = _row_index_of(section, section.title_label)
     byline_idx = _row_index_of(section, section._byline_lbl)
-    source_idx = _row_index_of(section, section.source_label)
+    genres_idx = _row_index_of(section, section._genres_container)
+    rating_idx = _row_index_of(section, section._rating_row_w)
+    source_idx = _row_index_of(section, section._source_chip)
 
     assert byline_idx == title_idx + 1, "the byline belongs immediately under the title"
-    assert source_idx == byline_idx + 1, (
-        f"Source must be the row after the title block "
-        f"(title {title_idx}, byline {byline_idx}, source {source_idx})"
+    assert genres_idx > byline_idx, "genres must render under the byline"
+    assert rating_idx > genres_idx, "the rating row must render under the genres"
+    assert source_idx > rating_idx, (
+        f"source must be the last row in the block "
+        f"(byline {byline_idx}, genres {genres_idx}, rating {rating_idx}, source {source_idx})"
     )
 
 
-def test_source_row_is_above_the_media_type_row(qapp):
-    """The regression this fixes: Source used to render BELOW the metadata block."""
-    section = _section()
-    source_idx = _row_index_of(section, section.source_label)
-    # The media-type WORD moved to the byline under the title; the row it
-    # used to sit on still exists and still carries runtime/IDs/rating, so
-    # anchor on the row itself.
-    media_idx = _row_index_of(section, section._media_row)
-    tagline_idx = _row_index_of(section, section._tagline_lbl)
-
-    assert source_idx < media_idx, "Source must render above the media-type/rating row"
-    assert source_idx < tagline_idx, "Source must render above the tagline"
-
-
-def test_source_row_still_populates_and_stays_clickable_to_copy(qapp):
-    """Moving the row must not break what it shows or its click-to-copy id."""
+def test_source_row_still_populates_and_stays_clickable(qapp):
+    """Moving the row must not break what it shows or its click-to-filter."""
     section = _section()
     provider_map = {"p1": {"icon": "📡", "name": "My Source"}}
     section.load_basic(_channel(id="chan-42"), provider_map)
 
-    assert section.source_label.isVisibleTo(section)
-    assert "My Source" in section.source_label.text()
-    assert section.source_label.text().startswith("Source:")
-    # click-to-copy payload survives the move
-    assert section.source_label.channel_id == "chan-42"
-    assert "chan-42" in section.source_label.toolTip()
+    assert section._source_chip.isVisibleTo(section)
+    assert "My Source" in section._source_chip.text()
+    assert "Source:" not in section._source_chip.text(), (
+        "the plain 'Source:' label prefix is removed — the chip speaks for itself"
+    )
+
+    emitted: list[str] = []
+    section.source_filter_requested.connect(emitted.append)
+    section._source_chip.click()
+    assert emitted == ["p1"]
 
 
-def test_adult_badge_moved_with_the_source_row(qapp):
-    """The adult indicator shares the row — it must move with it, not be orphaned."""
+def test_adult_badge_shares_the_byline_row_not_the_source_row(qapp):
+    """The adult indicator moved up onto the byline's row — it no longer
+    shares a row with the (relocated) source chip."""
     section = _section()
     section.load_basic(_channel(is_adult=True), {"p1": {"icon": "", "name": "S"}})
 
     assert section.adult_indicator.isVisibleTo(section)
-    assert _row_index_of(section, section.adult_indicator) == _row_index_of(
-        section, section.source_label
-    )
+    byline_idx = _row_index_of(section, section._byline_lbl)
+    adult_idx = _row_index_of(section, section.adult_indicator)
+    source_idx = _row_index_of(section, section._source_chip)
+
+    assert adult_idx == byline_idx, "the adult indicator must share the byline's row"
+    assert adult_idx != source_idx, "the adult indicator no longer shares the source row"
 
 
 def test_relocated_row_does_not_force_the_pane_wider(qapp):

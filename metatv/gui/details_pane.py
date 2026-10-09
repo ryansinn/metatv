@@ -18,9 +18,10 @@ from metatv.metadata_providers.base import MetadataResult
 
 # Section widgets
 from metatv.gui.details_sections import (
-    _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
+    _PosterSection, _PlotSection, _TechnicalSection, _CastSection,
     _TagsSection, _no_width_force,
 )
+from metatv.gui.details_title import _MetadataSection
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -63,6 +64,8 @@ class DetailsPaneWidget(QWidget):
     person_filter_requested    = pyqtSignal(str)        # person name
     tag_filter_requested       = pyqtSignal(str, str)   # (facet_type, value) — left-click tag chip
     tag_discover_requested     = pyqtSignal(str, str)   # (facet_type, value) — right-click tag chip
+    source_filter_requested    = pyqtSignal(str)        # provider_id — left-click the title block's source chip
+    status_message            = pyqtSignal(str)         # one-line status text (e.g. id-chip copy feedback)
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
@@ -205,6 +208,12 @@ class DetailsPaneWidget(QWidget):
         if not self.current_channel or self.current_channel.id != channel_id:
             return  # stale response — user already moved on
         self._tags.load(tags)
+        # Title block: genre-facet tags fold into the genre row (dashed when
+        # guessed); the first collection-facet tag's value feeds the source
+        # row's collection chip.
+        self._meta.set_genre_tags([t for t in tags if t.facet_type == "genre"])
+        collection_tags = [t for t in tags if t.facet_type == "collection"]
+        self._meta.set_collection(collection_tags[0].value if collection_tags else None)
 
     def apply_taste_weights(self, channel_id: str, weights) -> None:
         """Called from main_window when the async taste-weight load completes.
@@ -612,6 +621,14 @@ class DetailsPaneWidget(QWidget):
 
         # Genre chips
         self._meta.genre_clicked.connect(self.genre_filter_requested)
+        # Collection chip (title block) — same strict-filter entry point a
+        # Tags-section collection chip uses.
+        self._meta.collection_clicked.connect(
+            lambda value: self.tag_filter_requested.emit("collection", value)
+        )
+        # Source chip (title block) + its id-chip copy status feedback.
+        self._meta.source_filter_requested.connect(self.source_filter_requested)
+        self._meta.status_message.connect(self.status_message)
 
         # Cast / director / crew person chips
         self._cast.person_clicked.connect(self.person_filter_requested)
