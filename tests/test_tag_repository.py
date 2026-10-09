@@ -726,3 +726,27 @@ class TestBulkUpsert:
         )
         assert link.feeders == ["feeder_x"], "Duplicate feeder must not be appended"
         assert abs(_compute_confidence(link.feeders) - 1 / 3) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# collections_for — the batch read behind the details pane's copy chooser
+# ---------------------------------------------------------------------------
+
+class TestCollectionsFor:
+    def test_each_copy_gets_its_own_stored_collection(self, session):
+        repos = RepositoryFactory(session)
+        a, b, bare = _make_channel(session), _make_channel(session), _make_channel(session)
+        repos.tags.set_content_tags(a, [("collection", "Peliculas 2024", "provider_category"),
+                                        ("genre", "Drama", "provider_category")])
+        repos.tags.set_content_tags(b, [("collection", "Peliculas 4K", "provider_category"),
+                                        ("collection", "Film 1900 2018", "provider_category")])
+        session.commit()
+
+        got = repos.tags.collections_for([a, b, bare])
+
+        assert got[a] == "Peliculas 2024"          # not the genre
+        assert got[b] == "Film 1900 2018"          # alphabetically first, as the single read shows
+        assert bare not in got
+
+    def test_empty_input_is_empty(self, session):
+        assert RepositoryFactory(session).tags.collections_for([]) == {}

@@ -239,22 +239,6 @@ class _MetadataMixin:
                 def _is_hidden_category(ch: ChannelDB) -> bool:
                     return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)
 
-                def _collection_for(ch: ChannelDB) -> "str | None":
-                    # DETAILS-3c: how THIS source files the copy — the same
-                    # cleaned "collection" facet Details shows, decomposed
-                    # live off the provider's own category string (there is
-                    # no stored per-channel collection column to read back).
-                    # Falls back to the raw category when nothing decomposes.
-                    from metatv.core.tag_decomposer import decompose
-                    category = (ch.category or "").strip()
-                    if category:
-                        for tag_type, tag_value, _conf in decompose(
-                            "provider_category", category, config=self.config
-                        ):
-                            if tag_type == "collection":
-                                return tag_value
-                    return category or None
-
                 def _first_significant_word(text: str) -> str:
                     for w in text.split():
                         if len(w) >= 3:
@@ -331,6 +315,9 @@ class _MetadataMixin:
                 versions_raw = [
                     ch for ch in versions_raw if ch.provider_id not in disabled_provider_ids
                 ]
+                # How each source files its copy — the stored collection tag,
+                # computed at ingestion; never re-decomposed here.
+                collections = repos.tags.collections_for([ch.id for ch in versions_raw])
 
                 # Score only active-source versions for preferred selection (inactive
                 # sources can't be "preferred" — they're off by user choice)
@@ -364,7 +351,7 @@ class _MetadataMixin:
                         provider_name=provider_names.get(ch.provider_id),
                         provider_id=ch.provider_id,
                         is_inactive=ch.provider_id in hidden_provider_ids,
-                        collection=_collection_for(ch),
+                        collection=collections.get(ch.id),
                     )
                     for ch in versions_raw
                 ]
