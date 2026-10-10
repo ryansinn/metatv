@@ -279,12 +279,12 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         name_btn = QPushButton()
         name_btn.setFlat(True)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        _theme.style_fn(name_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_MD}; border: none; }}")
+        _theme.style(name_btn, "DETAIL_ROW_TITLE_BTN")
         name_lbl = MiddleElideLabel(clean_title, color_token="COLOR_TEXT")
         name_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         name_lbl.setMinimumWidth(0)
         name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; background: transparent;")
+        _theme.style(name_lbl, "SIDEBAR_ROW_TITLE")   # same job: a list row's title
         name_lay = QHBoxLayout(name_btn)
         name_lay.setContentsMargins(0, 0, 0, 0)
         name_lay.addWidget(name_lbl)
@@ -319,17 +319,17 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # that is always offered.
         if v.is_rec_suppressed:
             ni = QLabel(_icons.not_interested_icon)
-            _theme.style_fn(ni, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+            _theme.style(ni, "DETAIL_STATE_MARK")
             ni.setToolTip("Not interested")
             row.addWidget(ni)
         if v.watch_completed:
             done = QLabel(_icons.watched_icon)
-            _theme.style_fn(done, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_OK};")
+            _theme.style(done, "DETAIL_STATE_MARK_OK")
             done.setToolTip("Watched")
             row.addWidget(done)
         elif v.in_history:
             hist = QLabel(_icons.history_icon)
-            _theme.style_fn(hist, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+            _theme.style(hist, "DETAIL_STATE_MARK")
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 

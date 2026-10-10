@@ -25,6 +25,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.gui.detail_chips import (
+    fact_value_sheet,
     make_chip,
     KEY_COL, SECTION_INDENT, display_code, make_flow, make_key, make_label_grid,
 )
@@ -249,7 +250,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         rule = QWidget()
         rule.setObjectName("detailsRule")
         rule.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        _theme.style_fn(rule, lambda: f"#detailsRule {{ border-left: 2px solid {_theme.COLOR_BORDER}; }}")
+        _theme.style(rule, "DETAIL_FACTS_RULE")
         rule_lay = QVBoxLayout(rule)
         rule_lay.setContentsMargins(12, 2, 0, 2)
         grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT - 14)
@@ -333,11 +334,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         token = "COLOR_TEXT" if guessed else _facet_colour_token(facet)
         chip = QPushButton(escape_mnemonic(display))
         chip.setFlat(True)
-        _theme.style_fn(chip, lambda: (
-            f"QPushButton {{ color: {getattr(_theme, token)}; border: none; padding: 0;"
-            f" font-size: {_theme.FONT_MD}; text-align: left;"
-            f"{' font-style: italic;' if guessed else ''} }}"
-            f"QPushButton:hover {{ text-decoration: underline; }}"))
+        _theme.style_fn(chip, lambda: fact_value_sheet(token, guessed=guessed))
         cursor_affordance.set_clickable(chip)
         chip.setProperty("facet", facet)
         chip.setProperty("value", value)
