@@ -66,6 +66,14 @@ class _Ipc:
         self.sock.close()
 
 
+def _mpv_error(proc: subprocess.Popen) -> str:
+    """mpv's own last error line, for the log ("" while it is still running)."""
+    if proc.poll() is None or proc.stderr is None:
+        return ""
+    lines = [ln.strip() for ln in proc.stderr.read().splitlines() if ln.strip()]
+    return f": {lines[-1]}" if lines else ""
+
+
 def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict | None":
     """Open *url* in a headless mpv and return its stream record.
 
@@ -79,17 +87,19 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
     """
     sock_path = os.path.join(tempfile.gettempdir(), f"mpv-metatv-probe-{uuid.uuid4().hex[:8]}")
     cmd = [_resolve_mpv_binary(), "--no-config", "--idle=no", "--vo=null", "--ao=null",
-           "--no-terminal", "--force-window=no", f"--input-ipc-server={sock_path}",
+           "--force-window=no", "--msg-level=all=error", f"--input-ipc-server={sock_path}",
            *_base_stream_args(), url]
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # stderr kept (errors only) so a failed probe can say WHY mpv gave up.
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            text=True, errors="replace")
     ipc = None
     try:
         deadline = time.monotonic() + OPEN_TIMEOUT_SECONDS
         while not os.path.exists(sock_path):
             if proc.poll() is not None or time.monotonic() > deadline:
-                logger.info("stream probe: mpv {} before opening its IPC socket",
+                logger.info("stream probe: mpv {} before opening its IPC socket{}",
                             f"exited ({proc.returncode})" if proc.poll() is not None
-                            else "timed out")
+                            else "timed out", _mpv_error(proc))
                 return None
             time.sleep(0.1)
         ipc = _Ipc(sock_path)
@@ -100,7 +110,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
                 return None
             if proc.poll() is not None:
                 logger.info("stream probe: mpv exited ({}) before the stream produced tracks"
-                            " — refused or unreachable", proc.returncode)
+                            " — refused or unreachable{}", proc.returncode, _mpv_error(proc))
                 return None
             now = time.monotonic()
             if loaded_at is None:

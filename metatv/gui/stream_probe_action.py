@@ -25,8 +25,17 @@ def request_probe(host: Any) -> None:
     channel = pane.current_channel
     if channel is None or host.__dict__.get("_details_probe"):
         return
-    provider_id = getattr(channel, "provider_id", None)
-    holder = _HOLDER_PREFIX + channel.id
+    # A series has no stream of its own — only its episodes do. In episode
+    # mode the probe measures the selected episode (its stored stream_url,
+    # the same one episode playback uses); on a series root there is nothing
+    # to probe and the button is hidden.
+    episode = pane.current_episode
+    if episode is None and getattr(channel, "media_type", None) == "series":
+        return
+    target_id = episode.id if episode is not None else channel.id
+    target_name = getattr(episode, "title", None) or channel.name
+    provider_id = getattr(episode or channel, "provider_id", None)
+    holder = _HOLDER_PREFIX + target_id
     accountant = host.player_manager.connection_accountant
     if accountant is not None and provider_id:
         if not accountant.acquire(provider_id, "probe", holder).granted:
@@ -40,12 +49,14 @@ def request_probe(host: Any) -> None:
     cancel = threading.Event()
     host._details_probe = {"holder": holder, "cancel": cancel}
     pane.set_probe_running(True)
-    host.status(f"Getting stream details for {channel.name}…", ms=0)
-    db, channel_id = host.db, channel.id
+    host.status(f"Getting stream details for {target_name}…", ms=0)
+    db, channel_id = host.db, target_id
+    episode_url = getattr(episode, "stream_url", None) if episode is not None else None
 
     def query(repos) -> bool:
         try:
-            url = derive_channel_stream_url(db, channel) or getattr(channel, "stream_url", None)
+            url = episode_url if episode is not None else (
+                derive_channel_stream_url(db, channel) or getattr(channel, "stream_url", None))
             info = probe_details(url, cancel=cancel) if url else None
         finally:
             if accountant is not None and provider_id:
