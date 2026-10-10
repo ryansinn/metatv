@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from types import SimpleNamespace
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
@@ -65,6 +66,22 @@ def _source_notice_text(live_copy, details_pane) -> "str | None":
         f"{live_copy.dead_source_name} is {state} — no other source "
         "carries this title"
     )
+
+
+def _tmdb_recommended_keys(session, channel_id: str, tmdb_settings) -> list[str]:
+    """TMDb's recommendations for a channel, as content keys ("Similar Content").
+
+    Only a tmdb-keyed channel (``content_key`` = ``tmdb:{id}|{kind}``) can be
+    asked about; anything else, or no API key, yields an empty list.
+    """
+    from metatv.core.database import ChannelDB
+    from metatv.metadata_providers.tmdb import TMDbProvider
+
+    key = session.query(ChannelDB.content_key).filter(ChannelDB.id == channel_id).scalar() or ""
+    if not key.startswith("tmdb:") or tmdb_settings is None:
+        return []
+    tmdb_id, _, kind = key[5:].partition("|")
+    return asyncio.run(TMDbProvider(tmdb_settings).recommended_content_keys(tmdb_id, kind or "movie"))
 
 
 class _MetadataMixin:
@@ -470,9 +487,17 @@ class _MetadataMixin:
     # ── Similar Titles ──────────────────────────────────────────────────────
 
     def _fetch_similar_titles(self, channel_id: str) -> None:
-        self.executor.submit(self._bg_fetch_similar_titles, channel_id)
+        # Mode and TMDb settings are read HERE (config is main-thread only).
+        mode = getattr(self.config, "details_similar_mode", "titles")
+        tmdb = SimpleNamespace(
+            metadata_tmdb_api_key=getattr(self.config, "metadata_tmdb_api_key", ""),
+            metadata_tmdb_language=getattr(self.config, "metadata_tmdb_language", "en-US"),
+            metadata_tmdb_include_adult=False,
+        )
+        self.executor.submit(self._bg_fetch_similar_titles, channel_id, mode, tmdb)
 
-    def _bg_fetch_similar_titles(self, channel_id: str) -> None:
+    def _bg_fetch_similar_titles(self, channel_id: str, mode: str = "titles",
+                                 tmdb_settings=None) -> None:
         from metatv.core.database import UserRatingDB
 
         similar = []
@@ -484,11 +509,14 @@ class _MetadataMixin:
                 # expired/orphaned provider exclusion). We shape best-per-group
                 # ChannelVersion DTOs (queue/ratings/favorite/history) from its rows.
                 excluded = set(repos.providers.get_hidden_provider_ids())
+                content_keys = (_tmdb_recommended_keys(session, channel_id, tmdb_settings)
+                                if mode == "content" else None)
                 rows = repos.channels.get_similar_channels(
                     channel_id,
                     excluded_provider_ids=excluded,
                     limit=20,
                     config=self.config,
+                    content_keys=content_keys,
                 )
                 if not rows:
                     self._similar_titles_loaded.emit(channel_id, [])

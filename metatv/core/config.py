@@ -1268,8 +1268,9 @@ class Config(BaseModel):
     details_pane_width: int = 452  # Width of details pane in pixels (default tuned so a
     # portrait 2:3 poster fills the card without pillarbox padding — see
     # docs/DETAILS_PANE_DESIGN.md → "Poster sizing")
-    details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
-    details_pane_open_copy_buckets: list = Field(default_factory=list)  # Which "Available in" buckets (filtered/offline) are open
+    details_pane_collapsed_sections: list = Field(default_factory=list, json_schema_extra=PROFILE)  # Which sections are collapsed
+    details_pane_open_copy_buckets: list = Field(default_factory=list, json_schema_extra=PROFILE)  # Which "Available in" buckets (filtered/offline) are open
+    details_similar_mode: str = Field(default="titles", json_schema_extra=PROFILE)  # Similar [Titles | Content]: "titles" (name match) or "content" (TMDb recommendations)
 
     # Version preference settings (used in "Other Versions" section of details pane)
     preferred_version_prefixes: list = Field(default_factory=list)

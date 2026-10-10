@@ -167,6 +167,11 @@ class DetailsPaneWidget(QWidget):
             measured=summarize(self._current_record),
         )
 
+    def _on_similar_mode_changed(self, _mode: str) -> None:
+        """Similar [Titles | Content] flipped: refetch for the title on screen."""
+        if self.current_channel is not None:
+            self.similar_titles_requested.emit(self.current_channel.id)
+
     def set_similar_titles(self, titles: list[ChannelVersion]) -> None:
         origin = self.current_channel.name if self.current_channel else ""
         self._similar.load(titles, origin)
@@ -702,6 +707,7 @@ class DetailsPaneWidget(QWidget):
         # Similar titles
         s = self._similar
         s.play_requested.connect(self.play_requested)
+        s.mode_changed.connect(self._on_similar_mode_changed)
         s.version_selected.connect(self.version_selected)
         s.favorite_toggled.connect(self.favorite_toggled)
         s.queue_toggled.connect(self.queue_toggled)
