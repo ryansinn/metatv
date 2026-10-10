@@ -252,7 +252,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             rows["original"] = [(self._original_language, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
         if self._alt_titles:
-            # The title as the source's regional catalog releases it — searchable.
+            # Another title the source files it under (o_name) — searchable.
             rows["aka"] = [(t, None, None, False, self._provider_name) for t in self._alt_titles]
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
@@ -286,7 +286,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         offset = len(self._stream_rows)
         for r, facet in enumerate(ordered, start=offset):
             label = {"released": "Released", "original": "Original language",
-                     "aka": "Regional title"}.get(facet) or _FACET_LABELS.get(
+                     "aka": "Alternate title"}.get(facet) or _FACET_LABELS.get(
                 facet, facet.replace("_", " ").title())
             grid.addWidget(make_key(label), r, 0, Qt.AlignmentFlag.AlignTop)
             widgets = []
