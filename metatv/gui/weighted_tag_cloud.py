@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 
 from loguru import logger
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -155,11 +155,8 @@ class _TagButton(QPushButton):
         # A single title is the common case for people, so "1" is noise; a
         # bare name means one, and the tooltip still says so.
         count_str = _fmt_count(count) if count > 1 else ""
-        # A cross-facet search mixes facets that can share a colour (Cast and
-        # Directing are both blue), so the facet is named in the text too.
+        label = f"{mark}{label_value} {count_str}".rstrip()
         named = f"{label_value} · {facet_label}" if facet_label else label_value
-        label = f"{mark}{named} {count_str}".rstrip()
-        self.setText(label)
 
         # State-specific color for the mark character only isn't trivially
         # achievable via a stylesheet; we colorize the whole button by state
@@ -179,7 +176,31 @@ class _TagButton(QPushButton):
             f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_05}; }}"
         )
         self.setToolTip(f"{named} — {count:,} channel{'s' if count != 1 else ''}")
+        if facet_label:
+            # A cross-facet search mixes facets that can share a colour (Cast and
+            # Directing are both blue), so the facet is captioned above the name.
+            self._build_captioned(facet_label, label, font_token, color)
+        else:
+            self.setText(label)
         self.adjustSize()
+
+    def _build_captioned(self, caption: str, label: str, font_token: str, color: str) -> None:
+        """Lay out a small caps facet caption above the tag label."""
+        box = QVBoxLayout(self)
+        box.setContentsMargins(6, 2, 6, 2)
+        box.setSpacing(0)
+        cap = QLabel(caption.upper())
+        _theme.style(cap, "RECIPE_ROLE_LABEL")
+        name = QLabel(label)
+        _theme.style_fn(name, lambda: f"font-size: {font_token}; color: {color};")
+        for lbl in (cap, name):
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            box.addWidget(lbl)
+
+    def sizeHint(self):  # type: ignore[override]
+        """A captioned button sizes to its two-line layout, not its (empty) text."""
+        lay = self.layout()
+        return lay.sizeHint() if lay is not None else super().sizeHint()
 
     def value(self) -> str:
         return self._value
