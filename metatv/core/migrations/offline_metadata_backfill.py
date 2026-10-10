@@ -192,8 +192,11 @@ class OfflineMetadataBackfillTask:
                     _fill("title", result.title)
                     _fill("plot", result.plot)
                     _fill("genres", result.genres)
-                    _fill("cast", result.cast)
-                    _fill("director", result.director)
+                    # Credits are tags (core.credits), never metadata text.
+                    from metatv.core.repositories.tag import TagRepository
+                    from metatv.core.tag_decomposer import credit_tags
+                    TagRepository(session).set_content_tags(
+                        channel.id, credit_tags(result.cast, result.director))
                     _fill("rating", result.rating)
                     _fill("release_date", result.release_date)
                     _fill("poster_url", result.poster_url)

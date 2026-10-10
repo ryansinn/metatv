@@ -519,6 +519,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.migration_manager.register(CreditTagsBackfillTask(self.db))
         from metatv.core.migrations.feeder_codes_compact import FeederCodesCompactTask
         self.migration_manager.register(FeederCodesCompactTask(self.db))
+        from metatv.core.migrations.credits_text_drop import CreditsTextDropTask
+        self.migration_manager.register(CreditsTextDropTask(self.db))
         # One-time pass for rows ingested before provider_metadata read a
         # field the provider was already sending; cached metadata is not
         # re-derived on read. A new field is a row in its FIELDS table, not a

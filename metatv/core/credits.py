@@ -2,12 +2,11 @@
 
 Every reader of "who is in this" (the Details Cast section, taste weights,
 recommendation scoring, copy matching, search ranking, Similar Content) goes
-through here; none of them knows where credits are stored. They are stored as
+through here; none of them knows where credits are stored. They are stored ONLY as
 ``cast`` / ``director`` tags (``tag_decomposer.credit_tags``: one vocabulary
-row per name, a link per channel with billing order and character). Until a
-channel's credits have been converted (the ``credit_tags_backfill`` task),
-the old ``metadata.cast`` / ``metadata.director`` text is the fallback — the
-one place that still reads it.
+row per name, a link per channel with billing order and character); the old
+``metadata.cast`` / ``metadata.director`` text was dropped after conversion
+(``credits_text_drop``).
 
 Two forms, same answer:
 
@@ -21,7 +20,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from sqlalchemy import Text, func, select, type_coerce
+from sqlalchemy import func, select
 
 #: Separator inside a bulk cast column (never appears in a name).
 _SEP = "\x1f"
@@ -59,7 +58,7 @@ def _legacy(cast_json, director) -> Credits:
 
 def credits_for(session, channel_ids) -> dict:
     """``{channel_id: Credits}`` for *channel_ids*; channels with none are absent."""
-    from metatv.core.database import ChannelDB, ContentTagDB, MetadataDB, TagDB
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
     ids = list(dict.fromkeys(channel_ids or []))
     if not ids:
@@ -82,15 +81,6 @@ def credits_for(session, channel_ids) -> dict:
         if cid in cast or cid in directors:
             people = tuple((name, detail) for _o, name, detail in sorted(cast.get(cid, [])))
             out[cid] = Credits(people, tuple(name for _o, name in sorted(directors.get(cid, []))))
-    missing = [cid for cid in ids if cid not in out]
-    if missing:   # not converted yet: the old text
-        for cid, cast_json, director in (
-                session.query(ChannelDB.id, MetadataDB.cast, MetadataDB.director)
-                .join(MetadataDB, MetadataDB.id == ChannelDB.metadata_id)
-                .filter(ChannelDB.id.in_(missing)).all()):
-            legacy = _legacy(cast_json, director)
-            if legacy.cast or legacy.directors:
-                out[cid] = legacy
     return out
 
 
@@ -107,16 +97,12 @@ def _tag_names(kind: str, sep: str, channel_cls):
 
 def cast_column(channel_cls, metadata_cls, label: str = "cast"):
     """SQL column: the channel's cast names (tags, else the old metadata JSON)."""
-    # type_coerce: the metadata column is JSONEncoded, and its decoder must not
-    # run on the tag-joined string.
-    return func.coalesce(_tag_names("cast", _SEP, channel_cls),
-                         type_coerce(metadata_cls.cast, Text)).label(label)
+    return _tag_names("cast", _SEP, channel_cls).label(label)
 
 
 def director_column(channel_cls, metadata_cls, label: str = "director"):
     """SQL column: the channel's directing credits, comma-separated."""
-    return func.coalesce(_tag_names("director", ", ", channel_cls),
-                         metadata_cls.director).label(label)
+    return _tag_names("director", ", ", channel_cls).label(label)
 
 
 def cast_names(value) -> list[str]:

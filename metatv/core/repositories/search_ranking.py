@@ -20,7 +20,7 @@ from sqlalchemy import bindparam, case, func, literal, text
 from sqlalchemy import or_
 
 from metatv.core.database import ChannelDB
-from metatv.core.repositories.channel_lens import metadata_person_exists, tag_value_exists
+from metatv.core.repositories.channel_lens import tag_value_exists
 from metatv.core.watchlist_matching import _escape_like
 
 
@@ -420,15 +420,8 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     params = {"ids": ids, "exact": term,
               "padded": f"% {safe} %", "like": f"%{safe}%"}
 
-    # metadata is reached through ChannelDB.metadata_id — an FK on the CHANNEL,
-    # not metadata pointing back. (I had it the other way and the query returned
-    # nothing; channel_lens.metadata_person_exists is where the join is defined.)
-    #
-    # Cast is JSON and read through json_each; director is a plain TEXT column
-    # and has no names to split, so it is a second arm rather than a special
-    # case inside one. Both are what the details pane displays, which is the
-    # rule metadata_person_exists states: a filter over "who is in this" must
-    # match what is shown, not the raw provider blob.
+    # Credits are tags (core.credits): one row per person, so the matched name
+    # is the tag value itself — no JSON to unpack, no director string to split.
     sql = """
         SELECT cid, person, tier, namelen FROM (
             -- Credits as tags (core.credits): one name per value, no JSON to
@@ -445,33 +438,6 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
             WHERE ch.id IN :ids
               AND t.type IN ('cast', 'director')
               AND lower(t.value) LIKE :like ESCAPE '\\'
-            UNION ALL
-            -- The old metadata text: fallback for channels not converted yet.
-            SELECT ch.id AS cid,
-                   json_extract(j.value, '$.name') AS person,
-                   CASE WHEN lower(json_extract(j.value, '$.name')) = :exact THEN 0
-                        WHEN ' ' || lower(json_extract(j.value, '$.name')) || ' '
-                             LIKE :padded ESCAPE '\\' THEN 1
-                        ELSE 2 END AS tier,
-                   length(json_extract(j.value, '$.name')) AS namelen
-            FROM channels ch
-            JOIN metadata m ON m.id = ch.metadata_id
-            JOIN json_each(m."cast") j
-            WHERE ch.id IN :ids
-              AND lower(json_extract(j.value, '$.name')) LIKE :like ESCAPE '\\'
-            UNION ALL
-            SELECT ch.id AS cid,
-                   m.director AS person,
-                   CASE WHEN lower(m.director) = :exact THEN 0
-                        WHEN ' ' || lower(m.director) || ' '
-                             LIKE :padded ESCAPE '\\' THEN 1
-                        ELSE 2 END AS tier,
-                   length(m.director) AS namelen
-            FROM channels ch
-            JOIN metadata m ON m.id = ch.metadata_id
-            WHERE ch.id IN :ids
-              AND m.director IS NOT NULL
-              AND lower(m.director) LIKE :like ESCAPE '\\'
         )
         ORDER BY cid, tier, namelen
     """
@@ -536,7 +502,6 @@ def channel_text_search_predicate(search_term: str):
     term = search_term.strip()
     return or_(
         ChannelDB.name.ilike(pattern),
-        metadata_person_exists(pattern),
         # Credits and alternate titles as tags: "Oskyldigt blod" finds Innocent Blood.
         tag_value_exists(("title", "original_title", "cast", "director"), pattern),
         ChannelDB.id == term,

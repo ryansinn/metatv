@@ -43,47 +43,6 @@ LENS_CANDIDATE_SCAN = 200
 GENRE_MEDIA_TYPES = ["movie", "series"]
 
 
-def metadata_person_exists(pattern: str):
-    """Correlated EXISTS: the channel's ``MetadataDB`` row names this person.
-
-    The chokepoint for "does this channel's *enriched* metadata mention this
-    person" — shared by the free-text search predicate, the channel-list
-    person filter and the lightbox lens. The details pane displays
-    ``MetadataDB.cast``/``director``, so any filter over "who's in this" must
-    match what is displayed, not the raw provider blob.
-
-    ``MetadataDB.cast`` is a ``JSONEncoded`` (Text-backed) column holding
-    ``[{"name": …, "character": …}]``; a substring ILIKE against the serialized
-    JSON is enough for a name lookup. Both columns are wrapped in
-    ``type_coerce(..., Text)`` first — without it SQLAlchemy runs the
-    ``JSONEncoded`` bind-processor on the *pattern* too (JSON-encoding it into a
-    quoted literal), which silently never matches.
-
-    Args:
-        pattern: A SQL LIKE/ILIKE pattern, e.g. ``f"%{name}%"``.
-    """
-    from sqlalchemy import (
-        Text as _Text, exists as _exists, select as _sa_select,
-        type_coerce as _type_coerce,
-    )
-
-    # correlate(ChannelDB) is REQUIRED: get_all() outerjoins MetadataDB (for the
-    # list DTO's plot/poster columns), so without an explicit correlation
-    # SQLAlchemy auto-correlates MetadataDB out of this subquery too and raises
-    # "returned no FROM clauses due to auto-correlation".
-    return _exists(
-        _sa_select(MetadataDB.id)
-        .where(
-            MetadataDB.id == ChannelDB.metadata_id,
-            or_(
-                MetadataDB.director.ilike(pattern),
-                _type_coerce(MetadataDB.cast, _Text).ilike(pattern),
-            ),
-        )
-        .correlate(ChannelDB)
-    )
-
-
 def tag_value_exists(tag_types, pattern: str):
     """Correlated EXISTS: the channel carries a tag of one of *tag_types* whose
     value matches *pattern* (``ILIKE``). The indexed path for credits and
@@ -122,7 +81,6 @@ def person_predicate(name: str):
     pattern = f"%{name}%"
     return or_(
         tag_value_exists(("cast", "director"), pattern),
-        metadata_person_exists(pattern),
         ChannelDB.name.ilike(pattern),
         _text(
             "json_extract(raw_data, '$.cast') LIKE :_person_cast"

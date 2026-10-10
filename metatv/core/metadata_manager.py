@@ -559,11 +559,9 @@ class MetadataManager:
             _keep(metadata, "poster_url", result.poster_url)
             _keep(metadata, "backdrop_url", result.backdrop_url)
 
-            _keep(metadata, "cast", result.cast)
             _keep(metadata, "crew", result.crew)
             _keep(metadata, "genres", result.genres)
 
-            _keep(metadata, "director", result.director)
             _keep(metadata, "content_rating", result.content_rating)
 
             _keep(metadata, "rating", result.rating)
@@ -582,12 +580,12 @@ class MetadataManager:
             metadata.source = result.provider_name
             metadata.fetched_at = datetime.now()
             
-            # Credits become tags (cast/director, with billing order + character)
-            # from the STORED values, so a thinner fetch never erases them.
+            # Credits live ONLY as tags (core.credits reads them). A merge, never
+            # a replace, so a thinner fetch never erases a known credit.
             from metatv.core.repositories.tag import TagRepository
             from metatv.core.tag_decomposer import credit_tags
             TagRepository(session).set_content_tags(
-                channel.id, credit_tags(metadata.cast, metadata.director))
+                channel.id, credit_tags(result.cast, result.director))
 
             logger.debug(f"Committing metadata for {channel.name}")
             session.commit()
