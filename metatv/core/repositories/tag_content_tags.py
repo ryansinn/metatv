@@ -323,11 +323,7 @@ class ContentTagCrudMixin:
         Returns:
             Number of rows deleted.
         """
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter_by(source="generated")
-            .delete(synchronize_session="fetch")
-        )
+        deleted = self._delete_derived()
         logger.info("reprocess_delete_generated: removed {} content_tag rows", deleted)
         return deleted
 
@@ -347,12 +343,7 @@ class ContentTagCrudMixin:
         channel_key = self._channel_key(channel_id)
         if channel_key is None:
             return 0
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter_by(channel_key=channel_key, source="generated")
-            .delete(synchronize_session="fetch")
-        )
-        return deleted
+        return self._delete_derived(ContentTagDB.channel_key == channel_key)
 
     def delete_generated_for_channels(self, channel_ids: List[str]) -> int:
         """Delete ``source="generated"`` content-tag links for ALL channels in *channel_ids*.
@@ -373,17 +364,23 @@ class ContentTagCrudMixin:
         channel_keys = list(self._channel_keys(channel_ids).values())
         if not channel_keys:
             return 0
-        deleted = (
-            self.session.query(ContentTagDB)
-            .filter(
-                ContentTagDB.channel_key.in_(channel_keys),
-                ContentTagDB.source == "generated",
-            )
-            .delete(synchronize_session="fetch")
-        )
-        # Measured tags are not re-derived by name parsing; put them back so a
-        # re-tag never forgets what a played/probed stream proved (PLAYED-4).
-        self.reapply_measured_tags(channel_ids)
+        return self._delete_derived(ContentTagDB.channel_key.in_(channel_keys))
+
+    def _delete_derived(self, *where) -> int:
+        """Delete the DERIVED generated links matching *where*; keep any link that
+        carries a persistent feeder (measured, provider-reported, fetched — see
+        ``tag_provenance.PERSISTENT_FEEDERS``), stripping only its derived
+        feeders. One SQL delete for the bulk; the kept links are few.
+        """
+        from sqlalchemy import Text, not_, or_, type_coerce
+        from metatv.core.tag_provenance import PERSISTENT_FEEDERS
+        feeders_text = type_coerce(ContentTagDB.feeders, Text)
+        persistent = or_(*[feeders_text.like(f'%"{f}"%') for f in sorted(PERSISTENT_FEEDERS)])
+        base = self.session.query(ContentTagDB).filter(ContentTagDB.source == "generated", *where)
+        deleted = base.filter(not_(persistent)).delete(synchronize_session=False)
+        for link in base.filter(persistent).all():
+            current = link.feeders if isinstance(link.feeders, list) else []
+            link.feeders = [f for f in current if f in PERSISTENT_FEEDERS]
         return deleted
 
     def apply_measured_tags(self, channel_id: str, info: dict | None,
@@ -412,15 +409,6 @@ class ContentTagCrudMixin:
                 link.feeders = kept
             else:
                 self.session.delete(link)
-
-    def reapply_measured_tags(self, channel_ids: List[str]) -> None:
-        """Re-write measured tags for those of *channel_ids* that have a measurement."""
-        from metatv.core.database import StreamInfoDB
-        rows = (self.session.query(StreamInfoDB.channel_id, StreamInfoDB.info,
-                                   StreamInfoDB.source)
-                .filter(StreamInfoDB.channel_id.in_(list(channel_ids))).all())
-        for channel_id, info, source in rows:
-            self.apply_measured_tags(channel_id, info, source)
 
     def set_content_tags_bulk(
         self,

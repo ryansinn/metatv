@@ -39,6 +39,8 @@ from collections.abc import Iterable
 FEEDER_KIND: dict[str, str] = {
     "played_tracks": "observed",
     "provider_probe": "field",     # the provider's own ffprobe (get_vod_info) — stated, not seen
+    "provider_detail": "field",    # other get_vod_info facts: alternate titles (o_name)
+    "metadata_credits": "field",   # cast / directing credits from the title's metadata
     "provider_category": "field",
     "header": "field",
     "genre": "field",
@@ -64,6 +66,16 @@ _KIND_RANK = {kind: index for index, kind in enumerate(KIND_ORDER)}
 #: whether a lone ``tmdb`` feeder should read as "From TMDb" (nothing else
 #: backs it) or get folded into the provider's own group.
 _PROVIDER_FIELD_FEEDERS = frozenset({"provider_category", "header", "genre", "metadata"})
+
+
+#: Feeders a re-tag cannot re-derive from the catalog: they came from playing or
+#: probing a stream, or from a detail/metadata fetch. A re-tag never deletes a
+#: link carrying one — it only strips the derived feeders off it. THE one list
+#: (tag_content_tags._delete_derived reads it); a new non-derivable feeder is
+#: added here and nowhere else.
+PERSISTENT_FEEDERS: frozenset[str] = frozenset({
+    "played_tracks", "provider_probe", "provider_detail", "metadata_credits",
+})
 
 
 def feeder_kind(feeder: str) -> str:
