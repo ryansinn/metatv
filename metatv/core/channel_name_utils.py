@@ -1139,6 +1139,64 @@ AUDIO_LANG_WORD_MAP: dict[str, str] = {
 }
 
 
+# ISO 639-1 codes (TMDb's ``original_language``) → the same language names
+# AUDIO_LANG_WORD_MAP uses. Kept apart from that map on purpose: it feeds
+# provider-token parsing, where bare two-letter words like IS/HE would misfire.
+ISO_639_1_LANGUAGE_NAMES: dict[str, str] = {
+    "ar": "Arabic",
+    "bg": "Bulgarian",
+    "bn": "Bengali",
+    "ca": "Catalan",
+    "cn": "Chinese",
+    "cs": "Czech",
+    "da": "Danish",
+    "de": "German",
+    "el": "Greek",
+    "en": "English",
+    "es": "Spanish",
+    "et": "Estonian",
+    "fa": "Persian",
+    "fi": "Finnish",
+    "fr": "French",
+    "he": "Hebrew",
+    "hi": "Hindi",
+    "hr": "Croatian",
+    "hu": "Hungarian",
+    "id": "Indonesian",
+    "is": "Icelandic",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "ku": "Kurdish",
+    "lt": "Lithuanian",
+    "lv": "Latvian",
+    "ml": "Malayalam",
+    "ms": "Malay",
+    "nb": "Norwegian",
+    "nl": "Dutch",
+    "no": "Norwegian",
+    "pa": "Punjabi",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "ro": "Romanian",
+    "ru": "Russian",
+    "sk": "Slovak",
+    "sl": "Slovenian",
+    "sq": "Albanian",
+    "sr": "Serbian",
+    "sv": "Swedish",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "th": "Thai",
+    "tl": "Tagalog",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "ur": "Urdu",
+    "vi": "Vietnamese",
+    "zh": "Chinese",
+}
+
+
 def extract_audio_annotation(inner: str) -> tuple[str, list[str], list[str], list[str]]:
     """Extract audio facets from a sub/dub/multi parenthetical inner string.
 

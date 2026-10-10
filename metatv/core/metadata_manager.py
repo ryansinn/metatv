@@ -455,6 +455,7 @@ class MetadataManager:
             year=self._derive_year(metadata.year, metadata.release_date),
             plot=metadata.plot,
             tagline=metadata.tagline,
+            original_language=metadata.original_language,
 
             poster_url=metadata.poster_url,
             backdrop_url=metadata.backdrop_url,
@@ -542,6 +543,7 @@ class MetadataManager:
             _keep(metadata, "year", self._derive_year(result.year, result.release_date))
             _keep(metadata, "plot", result.plot)
             _keep(metadata, "tagline", result.tagline)
+            _keep(metadata, "original_language", result.original_language)
 
             _keep(metadata, "poster_url", result.poster_url)
             _keep(metadata, "backdrop_url", result.backdrop_url)

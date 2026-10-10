@@ -197,6 +197,7 @@ ORIGINAL_COLUMNS: dict[str, frozenset[str]] = {
         "id", "last_checked_at", "last_error", "next_check_at", "status",
         "stream_url",
     }),
+    "stream_info": frozenset({"channel_id", "info", "source", "measured_at"}),
     "tags": frozenset({
         "id", "type", "value",
     }),

@@ -31,7 +31,7 @@ def request_probe(host: Any) -> None:
     if accountant is not None and provider_id:
         if not accountant.acquire(provider_id, "probe", holder).granted:
             host.status("That source's connection is in use — stop playback to get "
-                        "stream details", level="warning")
+                        "stream details", level="warn")
             return
         if not host.__dict__.get("_details_probe_listening"):
             accountant.add_preempt_listener(lambda _p, h, _k: _on_preempted(host, h))
@@ -79,4 +79,4 @@ def _done(host: Any, channel_id: str, ok: bool, cancelled: bool) -> None:
         host.status("Stream check stopped — playback took the connection")
     else:
         host.status("Couldn't read the stream — it may be offline or refusing connections",
-                    level="warning")
+                    level="warn")

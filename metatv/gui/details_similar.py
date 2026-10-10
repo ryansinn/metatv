@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, QSize, Qt
 
 from metatv.gui import cursor_affordance
+from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui.chip_row import MiddleElideLabel
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
@@ -71,12 +72,14 @@ class _SimilarSection(CollapsibleMixin, QWidget):
     queue_toggled             = pyqtSignal(str)              # channel_id
     prefix_exclude_requested  = pyqtSignal(str)              # prefix → add to global exclusions
     similar_preview_requested = pyqtSignal(list, int, str)   # (channel_ids, index, origin_title)
+    mode_changed              = pyqtSignal(str)              # "titles" | "content" — refetch
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
         self._channel_ids: list[str] = []
         self._origin_title: str = ""
+        self._content_ever_shown = False
         self._setup()
 
     def _setup(self) -> None:
@@ -87,7 +90,27 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # Header — the shared collapsible one. The count moves to the right,
         # where every other section's count is, instead of being welded into
         # the title as "Similar Titles (18)".
-        self._header = CollapsibleHeader("Similar Titles")
+        self._header = CollapsibleHeader("Similar")
+
+        # [Titles | Content]: name matches vs TMDb's recommendations. The
+        # Events tab's segmented-toggle roles — the app's one segmented look.
+        self._mode = getattr(self.config, "details_similar_mode", "titles")
+        seg = QWidget()
+        seg_lay = QHBoxLayout(seg)
+        seg_lay.setContentsMargins(0, 0, 4, 0)
+        seg_lay.setSpacing(0)
+        self._mode_btns: dict[str, QPushButton] = {}
+        for mode, label, tip in (
+                ("titles", "Titles", "Titles with similar names — movies and series"),
+                ("content", "Content", "Titles like this one, from TMDb's recommendations")):
+            btn = QPushButton(label)
+            btn.setProperty("mode", mode)
+            btn.setToolTip(tip)
+            btn.clicked.connect(self._on_mode_clicked)
+            seg_lay.addWidget(btn)
+            self._mode_btns[mode] = btn
+        self._sync_mode_buttons()
+        self._header.add_trailing(seg)
 
         # ⤢ — the door to the cascading-column overlay. The pane deliberately
         # shows a handful rather than all eighteen: the overlay is where you
@@ -116,6 +139,21 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         layout.addWidget(self._content)
         self._wire_header()
 
+    def _on_mode_clicked(self) -> None:
+        mode = self.sender().property("mode") if self.sender() else None
+        if not mode or mode == self._mode:
+            return
+        self._mode = str(mode)
+        self._content_ever_shown = True
+        self.config.details_similar_mode = self._mode
+        _cfgsave.save_soon(self)
+        self._sync_mode_buttons()
+        self.mode_changed.emit(self._mode)
+
+    def _sync_mode_buttons(self) -> None:
+        for mode, btn in self._mode_btns.items():
+            _theme.style(btn, "EVENTS_SEG_ACTIVE" if mode == self._mode else "EVENTS_SEG_INACTIVE")
+
     def load(self, titles: list[ChannelVersion], origin_title: str = "") -> None:
         """Populate the section. Hides itself if titles is empty."""
         while self._body_layout.count():
@@ -124,9 +162,19 @@ class _SimilarSection(CollapsibleMixin, QWidget):
                 w.deleteLater()
 
         if not titles:
-            self._header.hide()
-            self._content.hide()
             self._channel_ids = []
+            if self._mode == "titles" and not self._content_ever_shown:
+                self._header.hide()       # nothing either way: no empty box
+                self._content.hide()
+                return
+            # Keep the header (and its toggle) so the other mode stays reachable.
+            self._header.set_summary("0", "nothing similar in your library")
+            self._header.show()
+            empty = QLabel("Nothing in your library matches." if self._mode == "content"
+                           else "No titles with similar names.")
+            _theme.style(empty, "DETAIL_FACT_REASON")
+            self._body_layout.addWidget(empty)
+            self._apply_collapsed()
             return
 
         self._channel_ids = [v.channel_id for v in titles]

@@ -56,3 +56,7 @@ class StreamInfoRepository:
         row.info = info
         row.source = source
         row.measured_at = datetime.utcnow()
+        # Searchable: a language heard in the stream becomes a language tag.
+        # Episodes have no channel row to tag (their ids miss the channel join).
+        from metatv.core.repositories.tag import TagRepository
+        TagRepository(self.session).apply_measured_tags(channel_id, info)

@@ -16,6 +16,7 @@ class MetadataResult:
     year: Optional[int] = None
     plot: Optional[str] = None
     tagline: Optional[str] = None
+    original_language: Optional[str] = None  # language name ("English"), from TMDb's ISO code
     
     # Media URLs
     poster_url: Optional[str] = None

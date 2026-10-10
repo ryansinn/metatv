@@ -223,7 +223,15 @@ def _set_backfill_active(active: bool) -> None:
 #       re-run; a library resuming from further behind still gets the
 #       unconditional full pass, which runs today's (already-fixed)
 #       ``_collect_tags`` and so closes this same gap as a side effect.
-CURRENT_TAG_BACKFILL_VERSION = 12
+#   13 — "SC" was in BASE_PLATFORM_GROUPS, so every "4K-SC - Title" (the
+#       Scandinavian-subtitled library, 431 titles on the owner's library) was
+#       tagged platform:SC. SC is a region code (REGION_FULL_NAMES["SC"]);
+#       the platform entry is gone. Targeted: only channels carrying a
+#       platform:SC tag are re-decomposed (``_collect_channel_ids_platform_sc``).
+CURRENT_TAG_BACKFILL_VERSION = 13
+
+#: A library already at version 12 only needs its platform:SC rows re-run.
+_TARGETED_PLATFORM_SC_FLOOR: int = 12
 
 # The tag_backfill_version a library must already be AT (not behind) for the
 # version-12 run to use the cheap targeted region-language query instead of
@@ -322,13 +330,18 @@ class TagBackfillTask:
         _set_backfill_active(True)
         try:
             stored_version = getattr(config, "tag_backfill_version", 0)
-            if stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR:
+            if stored_version >= _TARGETED_PLATFORM_SC_FLOOR:
+                logger.info("TagBackfillTask: library at version {} — targeted "
+                            "platform:SC re-tag only", stored_version)
+                channel_ids = self._collect_channel_ids_platform_sc()
+            elif stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR:
                 logger.info(
                     "TagBackfillTask: library already at version {} — targeted "
                     "region-language re-tag only (LANG-1)",
                     stored_version,
                 )
-                channel_ids = self._collect_channel_ids_region_language()
+                channel_ids = sorted(set(self._collect_channel_ids_region_language())
+                                     | set(self._collect_channel_ids_platform_sc()))
             else:
                 logger.info(
                     "TagBackfillTask: library at version {} — full corpus pass",
@@ -430,6 +443,17 @@ class TagBackfillTask:
                 "    WHERE ct.channel_key = c.channel_key "
                 "      AND t.type = 'genre' AND t.value = je.value"
                 "  )"
+            )).all()
+        return [r[0] for r in rows]
+
+    def _collect_channel_ids_platform_sc(self) -> list[str]:
+        """Channel IDs carrying a ``platform:SC`` tag (version 13's population)."""
+        with self._db.session_scope(commit=False) as session:
+            rows = session.execute(text(
+                "SELECT DISTINCT c.id FROM channels c "
+                "JOIN content_tags ct ON ct.channel_key = c.channel_key "
+                "JOIN tags t ON t.id = ct.tag_id "
+                "WHERE t.type = 'platform' AND t.value = 'SC'"
             )).all()
         return [r[0] for r in rows]
 

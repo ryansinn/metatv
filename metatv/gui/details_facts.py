@@ -95,6 +95,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._copy_label = ""
         self._metadata_from_tmdb = False
         self._release_date = ""
+        self._original_language = ""
         self._tags: list = []
         self._stream_rows: list[tuple[str, str]] = []
         self._stream_caption = ""
@@ -159,6 +160,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
     def load_metadata(self, metadata) -> None:
         """Take the release date (the one fact Technical Details used to show)."""
         self._release_date = (getattr(metadata, "release_date", None) or "").strip()
+        self._original_language = getattr(metadata, "original_language", None) or ""
         source = (getattr(metadata, "provider_name", None) or "").lower()
         self._metadata_from_tmdb = "tmdb" in source
         self._render()
@@ -186,6 +188,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._stream_languages = ()
         self._tags = []
         self._release_date = ""
+        self._original_language = ""
         self._metadata_from_tmdb = False
         self._render()
 
@@ -232,6 +235,11 @@ class _DetailsSection(CollapsibleMixin, QWidget):
                      for lang in self._stream_languages]
             rest = [r for r in existing if r[2] not in self._stream_languages]
             rows["language"] = heard + rest
+        if self._original_language:
+            # LANG-2: the title's original language — a fact about the film, not
+            # about this copy's audio (that is the Language row above).
+            rows["original"] = [(self._original_language, None, None, False,
+                                 "TMDb" if self._metadata_from_tmdb else self._provider_name)]
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
@@ -246,9 +254,9 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT - 14)
         grid.setVerticalSpacing(3)
         ordered = [f for f in _FACET_DISPLAY_ORDER if f in rows]
-        ordered += sorted(f for f in rows if f not in _FACET_DISPLAY_ORDER and f != "released")
-        if "released" in rows:
-            ordered.append("released")
+        tail = ("original", "released")
+        ordered += sorted(f for f in rows if f not in _FACET_DISPLAY_ORDER and f not in tail)
+        ordered += [f for f in tail if f in rows]
         # Measured rows first: what the stream really is outranks any claim.
         for r, (key, text) in enumerate(self._stream_rows):
             if key:
@@ -263,7 +271,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             grid.addWidget(make_flow(widgets), r, 1)
         offset = len(self._stream_rows)
         for r, facet in enumerate(ordered, start=offset):
-            label = "Released" if facet == "released" else _FACET_LABELS.get(
+            label = {"released": "Released", "original": "Original language"}.get(facet) or _FACET_LABELS.get(
                 facet, facet.replace("_", " ").title())
             grid.addWidget(make_key(label), r, 0, Qt.AlignmentFlag.AlignTop)
             widgets = []

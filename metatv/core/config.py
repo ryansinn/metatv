@@ -58,19 +58,36 @@ def _qa_defaults(model_cls) -> dict:
 PROFILE = {"store": "profile"}
 
 
+#: The ONLY settings config.yaml keeps: what must be readable before the
+#: database is open (where it lives, where data goes, the cold-launch theme,
+#: values MainWindow reads before it attaches the store) and the store's own
+#: bookkeeping. Everything else — every preference, every remembered UI
+#: state, every migration watermark — lives in metatv.db's ``profile`` table.
+#: The default is the database; adding a name here is the exception that has
+#: to be argued for (owner, 2026-10-09: "config.yaml isn't used. period.").
+YAML_ONLY: frozenset[str] = frozenset({
+    "config_dir", "data_dir", "cache_dir", "database_url",
+    "theme_name",                   # __main__ applies it before MainWindow exists
+    "max_stacked_notifications",    # read in MainWindow.__init__ before attach
+    "profile_store_populated",      # the profile store's own "have I migrated" flag
+})
+
+
 def _profile_field_names(model_cls) -> "set[str]":
-    """Every field marked :data:`PROFILE` on *model_cls*.
+    """Every field stored in the database profile: all of them, except
+    :data:`YAML_ONLY`, the ``qa_`` sidecar fields and the legacy ``*_icon``
+    constants (static glyphs read before attach; never user state).
 
     Derived from the model, exactly as ``_qa_field_names`` is derived from the
     ``qa_`` prefix. ``profile_store.attach`` takes this rather than owning a
-    list, so the store cannot disagree with the declarations.
+    list, so the store cannot disagree with the declarations. A field marked
+    :data:`PROFILE` is in it like any other; the marker now only documents.
     """
-    out = set()
-    for name, field in model_cls.model_fields.items():
-        extra = field.json_schema_extra
-        if isinstance(extra, dict) and extra.get("store") == "profile":
-            out.add(name)
-    return out
+    return {
+        name for name in model_cls.model_fields
+        if name not in YAML_ONLY and not name.startswith("qa_")
+        and not name.endswith("_icon")
+    }
 
 
 def _qa_field_names(model_cls) -> "set[str]":
@@ -285,7 +302,8 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "Shahid":        ["SHAHID"],        # Arabic/Middle East streaming confirmed
     # Less common full-name variants (low channel counts, catch-all):
     "Apple TV+":     ["A+", "APPLE", "APPLETV"],  # A+ confirmed Apple TV+ content
-    "SC":            ["SC"],    # SC — mixed multi-language VOD library (English/Turkish/Indian; origin TBD)
+    # "SC" is NOT a platform: it is the Scandinavian-subtitled library ("4K-SC",
+    # "|SCA| NORDIC FILMS 4K") — a region code, already REGION_FULL_NAMES["SC"].
     "Other Streaming": ["HBO", "HULU", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
                         "PLAY", "PLAY+"],  # PLAY/PLAY+ = Belgian streaming (PLAY ACTIE, PLAY CRIME etc.)
     # ── Broadcast / Pay TV ────────────────────────────────────────────────────
@@ -1268,8 +1286,9 @@ class Config(BaseModel):
     details_pane_width: int = 452  # Width of details pane in pixels (default tuned so a
     # portrait 2:3 poster fills the card without pillarbox padding — see
     # docs/DETAILS_PANE_DESIGN.md → "Poster sizing")
-    details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
-    details_pane_open_copy_buckets: list = Field(default_factory=list)  # Which "Available in" buckets (filtered/offline) are open
+    details_pane_collapsed_sections: list = Field(default_factory=list, json_schema_extra=PROFILE)  # Which sections are collapsed
+    details_pane_open_copy_buckets: list = Field(default_factory=list, json_schema_extra=PROFILE)  # Which "Available in" buckets (filtered/offline) are open
+    details_similar_mode: str = Field(default="titles", json_schema_extra=PROFILE)  # Similar [Titles | Content]: "titles" (name match) or "content" (TMDb recommendations)
 
     # Version preference settings (used in "Other Versions" section of details pane)
     preferred_version_prefixes: list = Field(default_factory=list)

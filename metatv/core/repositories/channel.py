@@ -1448,6 +1448,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         excluded_provider_ids: "Optional[Set[str] | List[str]]" = None,
         limit: int = 20,
         config=None,
+        content_keys: "Optional[List[str]]" = None,
     ) -> "List[ChannelDB]":
         """Canonical "Similar Titles" query — ranked, content_key-deduped, provider-scoped.
 
@@ -1459,7 +1460,9 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         filtered only ``is_hidden`` and leaked disabled/expired-source content.
 
         Matching (preserves the prior behavior of both surfaces):
-        - Same ``media_type`` as the origin channel; excludes the origin row itself.
+        - Titles mode: movies and series for a VOD origin (live for live); excludes
+          the origin row itself. Content mode (``content_keys``): the rows whose
+          stored ``content_key`` is in the list, ranked in list order.
         - Word-overlap heuristic on the origin's ``normalize_title`` words of length
           ≥ 4: a candidate qualifies when it shares ≥ ``max(1, len(words)//2)`` of
           them (non-ASCII is blanked before splitting a candidate's words).
@@ -1513,17 +1516,26 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
 
         norm = normalize_title(channel.name, channel.detected_prefix)
         words = [w for w in norm.split() if len(w) >= 4]
-        if not words:
+        if content_keys is not None:
+            # "Similar Content": the candidates are named by content_key (TMDb's
+            # recommendations, in TMDb's rank order), not by title words.
+            q = self.session.query(ChannelDB).filter(
+                ChannelDB.content_key.in_(content_keys), ChannelDB.id != channel_id)
+        elif not words:
             return []
-
-        q = (
-            self.session.query(ChannelDB)
-            .filter(
-                ChannelDB.media_type == channel.media_type,
-                ChannelDB.id != channel_id,
-                channel_text_search_predicate(words[0]),
+        else:
+            # "Similar Titles": names that share words — movies AND series for a
+            # VOD title (a film's series spin-off is a similar title), live for live.
+            same_kind = ([channel.media_type] if channel.media_type == "live"
+                         else ["movie", "series"])
+            q = (
+                self.session.query(ChannelDB)
+                .filter(
+                    ChannelDB.media_type.in_(same_kind),
+                    ChannelDB.id != channel_id,
+                    channel_text_search_predicate(words[0]),
+                )
             )
-        )
         # EVERY exclusion axis, through the one predicate. This used to hand-roll
         # is_hidden and the provider gate and then call a helper that applied two
         # of the six axes — so 215 adult/restricted rows and 114 content-type
@@ -1548,13 +1560,17 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         # a key and collapse exactly as on Discover/Other-Versions); falls back to the
         # normalized title only for rows with no content_key (pre-backfill).
         matches: "list[ChannelDB]" = []
+        if content_keys is not None:
+            rank = {k: i for i, k in enumerate(content_keys)}
+            candidates.sort(key=lambda c: rank.get(c.content_key, len(rank)))
         for ch in candidates:
-            ch_norm = normalize_title(ch.name, ch.detected_prefix)
-            ch_norm_ascii = _SIMILAR_NON_ASCII_RE.sub(" ", ch_norm).strip()
-            ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
-            overlap = sum(1 for w in words if w in ch_words)
-            if overlap < threshold or ch_norm == norm:
-                continue
+            if content_keys is None:
+                ch_norm = normalize_title(ch.name, ch.detected_prefix)
+                ch_norm_ascii = _SIMILAR_NON_ASCII_RE.sub(" ", ch_norm).strip()
+                ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
+                overlap = sum(1 for w in words if w in ch_words)
+                if overlap < threshold or ch_norm == norm:
+                    continue
             if current_key:
                 ch_meta = (
                     self.session.get(MetadataDB, ch.metadata_id)

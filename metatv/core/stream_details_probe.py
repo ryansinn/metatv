@@ -87,18 +87,27 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
         deadline = time.monotonic() + OPEN_TIMEOUT_SECONDS
         while not os.path.exists(sock_path):
             if proc.poll() is not None or time.monotonic() > deadline:
+                logger.info("stream probe: mpv {} before opening its IPC socket",
+                            f"exited ({proc.returncode})" if proc.poll() is not None
+                            else "timed out")
                 return None
             time.sleep(0.1)
         ipc = _Ipc(sock_path)
         loaded_at = None
         while True:
-            if (cancel is not None and cancel.is_set()) or proc.poll() is not None:
+            if cancel is not None and cancel.is_set():
+                logger.info("stream probe: cancelled (playback took the connection)")
+                return None
+            if proc.poll() is not None:
+                logger.info("stream probe: mpv exited ({}) before the stream produced tracks"
+                            " — refused or unreachable", proc.returncode)
                 return None
             now = time.monotonic()
             if loaded_at is None:
                 if ipc.get("track-list"):
                     loaded_at = now
                 elif now > deadline:
+                    logger.info("stream probe: no tracks after {}s", OPEN_TIMEOUT_SECONDS)
                     return None
             elif now - loaded_at >= SETTLE_SECONDS:
                 return parse_mpv({name: ipc.get(name) for name in MPV_PROPS})
