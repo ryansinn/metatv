@@ -152,11 +152,13 @@ class _TagButton(QPushButton):
         elif state == "exclude":
             mark = _icons.tag_exclude_icon + " "
 
-        count_str = _fmt_count(count)
+        # A single title is the common case for people, so "1" is noise; a
+        # bare name means one, and the tooltip still says so.
+        count_str = _fmt_count(count) if count > 1 else ""
         # A cross-facet search mixes facets that can share a colour (Cast and
         # Directing are both blue), so the facet is named in the text too.
         named = f"{label_value} · {facet_label}" if facet_label else label_value
-        label = f"{mark}{named} {count_str}"
+        label = f"{mark}{named} {count_str}".rstrip()
         self.setText(label)
 
         # State-specific color for the mark character only isn't trivially
@@ -176,7 +178,7 @@ class _TagButton(QPushButton):
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
             f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_05}; }}"
         )
-        self.setToolTip(f"{named} — {count:,} channels")
+        self.setToolTip(f"{named} — {count:,} channel{'s' if count != 1 else ''}")
         self.adjustSize()
 
     def value(self) -> str:
