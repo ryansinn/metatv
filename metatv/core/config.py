@@ -302,7 +302,8 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "Shahid":        ["SHAHID"],        # Arabic/Middle East streaming confirmed
     # Less common full-name variants (low channel counts, catch-all):
     "Apple TV+":     ["A+", "APPLE", "APPLETV"],  # A+ confirmed Apple TV+ content
-    "SC":            ["SC"],    # SC — mixed multi-language VOD library (English/Turkish/Indian; origin TBD)
+    # "SC" is NOT a platform: it is the Scandinavian-subtitled library ("4K-SC",
+    # "|SCA| NORDIC FILMS 4K") — a region code, already REGION_FULL_NAMES["SC"].
     "Other Streaming": ["HBO", "HULU", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
                         "PLAY", "PLAY+"],  # PLAY/PLAY+ = Belgian streaming (PLAY ACTIE, PLAY CRIME etc.)
     # ── Broadcast / Pay TV ────────────────────────────────────────────────────
