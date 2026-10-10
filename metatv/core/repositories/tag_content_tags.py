@@ -381,7 +381,25 @@ class ContentTagCrudMixin:
             )
             .delete(synchronize_session="fetch")
         )
+        # Measured tags are not re-derived by name parsing; put them back so a
+        # re-tag never forgets what a played/probed stream proved (PLAYED-4).
+        self.reapply_measured_tags(channel_ids)
         return deleted
+
+    def apply_measured_tags(self, channel_id: str, info: dict | None) -> None:
+        """Write the tags a stream measurement proves (``played_tracks`` feeder)."""
+        from metatv.core.stream_info import measured_tags
+        tags = measured_tags(info)
+        if tags and self._channel_key(channel_id) is not None:   # episodes have no channel row
+            self.set_content_tags(channel_id, tags)
+
+    def reapply_measured_tags(self, channel_ids: List[str]) -> None:
+        """Re-write measured tags for those of *channel_ids* that have a measurement."""
+        from metatv.core.database import StreamInfoDB
+        rows = (self.session.query(StreamInfoDB.channel_id, StreamInfoDB.info)
+                .filter(StreamInfoDB.channel_id.in_(list(channel_ids))).all())
+        for channel_id, info in rows:
+            self.apply_measured_tags(channel_id, info)
 
     def set_content_tags_bulk(
         self,

@@ -188,6 +188,22 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
     return rows
 
 
+def measured_tags(info: dict | None) -> list[tuple[str, str, str]]:
+    """Tags a measurement proves, for search: ``(facet, value, "played_tracks")``.
+
+    Audio languages → ``language``; subtitle tracks with a language →
+    ``subtitle``. The ``played_tracks`` feeder ranks as observed — above
+    anything the provider states or MetaTV guesses.
+    """
+    if not info:
+        return []
+    out = [("language", language_name(a.get("lang")), "played_tracks")
+           for a in info.get("audio") or [] if a.get("lang")]
+    out += [("subtitle", language_name(s.get("lang")), "played_tracks")
+            for s in info.get("subs") or [] if s.get("lang")]
+    return list(dict.fromkeys(out))
+
+
 def audio_contradicts_prefix(heard: "tuple[str, ...] | list[str]", prefix: str | None) -> bool:
     """True when a copy's measured audio languages exclude the language its
     prefix code denotes — a |SE| copy that is really English. False when
