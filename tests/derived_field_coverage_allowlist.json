@@ -19,6 +19,8 @@
     "MetadataDB.content_rating|movie": "CORRECTED by W-2a (the original reason here was wrong): metadata_from_raw does NOT actually compute a value for this shape, so a _fill('content_rating', ...) line would be a no-op. 'rating'/'rating_5based' are Xtream stream-API placeholders (a review-style score, e.g. '7.8', never an age rating like 'PG-13') - metadata_from_raw explicitly pops them from the flat info-copy before building the result whenever there's no nested 'info' sub-dict, which is the shape every real payload uses, so info.get('rating') is always None by the time content_rating is computed. No source exists; not filled, per CLAUDE.md 'do not invent a source'.",
     "MetadataDB.content_rating|series": "same as MetadataDB.content_rating|movie - not media_type-specific; the pop happens identically for both shapes.",
     "MetadataDB.tagline|movie": "no source exists: neither the movie nor the series LIST payload ships a 'tagline' key (verified against the real library), so metadata_from_raw's info.get('tagline') always resolves to None for this shape - only network TMDb/OMDb enrichment can supply it. W-2a confirmed this and deliberately did not add a _fill('tagline', ...) line (CLAUDE.md: don't invent a source).",
-    "MetadataDB.tagline|series": "same as MetadataDB.tagline|movie - not media_type-specific."
+    "MetadataDB.tagline|series": "same as MetadataDB.tagline|movie - not media_type-specific.",
+    "MetadataDB.cast|series": "credits live only as cast/director TAGS since #891 (core/credits.py); the metadata text column is no longer written.",
+    "MetadataDB.director|series": "credits live only as cast/director TAGS since #891 (core/credits.py); the metadata text column is no longer written."
   }
 }

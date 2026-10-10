@@ -69,6 +69,11 @@ def test_every_key_survives_a_write_and_read(tmp_path) -> None:
         # No sidecar means no QA state was set, so those fields are at their
         # declared defaults — which is what `expected` holds for them.
         raw.update(_qa_defaults(Config))
+    # The legacy *_icon glyphs are constants, never written: a read gets the
+    # declared default (config_storage.icon_field_defaults).
+    from metatv.core.config_storage import icon_field_defaults
+    for key, value in icon_field_defaults(Config).items():
+        raw.setdefault(key, value)
 
     differing = []
     for key, value in expected.items():

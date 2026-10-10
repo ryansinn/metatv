@@ -139,7 +139,7 @@ def test_a_retry_after_the_interruption_succeeds(tmp_path):
 
     with db.engine.connect() as conn:
         cols = {r[1] for r in conn.execute(sa.text("PRAGMA table_info(content_tags)"))}
-    assert cols == {"channel_key", "tag_id", "source", "feeders"}
+    assert cols == {"channel_key", "tag_id", "source", "feeders", "detail", "ord"}
 
 
 # ---------------------------------------------------------------------------

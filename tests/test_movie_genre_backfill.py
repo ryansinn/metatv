@@ -137,7 +137,8 @@ def test_harvest_fills_empty_genres_and_marks_fetched(db):
         meta = session.query(MetadataDB).filter_by(id=meta_id).one()
         assert meta.genres == ["Action", "Thriller"]
         assert meta.plot == "Boom."
-        assert meta.director == "Y"
+        from metatv.core.credits import credits_for
+        assert credits_for(session, [cid])[cid].directors == ("Y",), "credits land as tags"
         state = session.query(ChannelDB.genre_enrich_state).filter_by(id=cid).scalar()
         assert state == "fetched"
 

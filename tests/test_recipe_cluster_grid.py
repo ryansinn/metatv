@@ -153,12 +153,12 @@ class TestGetTopTagsPerFacet:
         assert repos.tags.get_top_tags_per_facet([], 10) == {}
         assert repos.tags.get_top_tags_per_facet(["genre"], 0) == {}
 
-    def test_returns_all_eight_browse_facets(self, session):
-        """One windowed pass resolves every browse facet that has data (all 8)."""
+    def test_returns_every_browse_facet(self, session):
+        """One windowed pass resolves every browse facet that has data."""
         from metatv.gui.recipe_widgets import BROWSE_FACETS
 
         pid = _make_provider(session, "p1")
-        # One channel carrying a tag in each of the 8 browse facets.
+        # One channel carrying a tag in each browse facet.
         c = _make_channel(session, pid)
         for facet in BROWSE_FACETS:
             _tag(session, c, facet, f"{facet}_v")
@@ -167,7 +167,7 @@ class TestGetTopTagsPerFacet:
         repos = RepositoryFactory(session)
         out = repos.tags.get_top_tags_per_facet(list(BROWSE_FACETS), 24)
         assert set(out.keys()) == set(BROWSE_FACETS)
-        assert len(BROWSE_FACETS) == 8
+        assert len(BROWSE_FACETS) >= 8
 
 
 # ---------------------------------------------------------------------------

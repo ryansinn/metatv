@@ -209,6 +209,7 @@ class _Version:
         self.name = f"{prefix} version"
         self.channel_id = str(uuid.uuid4())
         self.provider_name = "Test Source"
+        self.measured = None   # no stored stream measurement
 
 
 def _label_for(versions, active_flags=None):

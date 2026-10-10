@@ -278,7 +278,14 @@ class TestConsolidatedChokepoint:
         touched = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
         assert "is_hidden" not in touched, (
             "hand-rolling is_hidden here is what let the other four axes drift")
-        assert not {"in_", "notin_"} & touched, (
+        # An in_/notin_ ON provider_id is the hand-rolled gate; membership tests
+        # on other columns (content_key, media_type) are ordinary query shape.
+        provider_gates = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Attribute) and n.attr in {"in_", "notin_"}
+            and isinstance(n.value, ast.Attribute) and n.value.attr == "provider_id"
+        ]
+        assert not provider_gates, (
             "hand-rolling the provider gate here is the same mistake")
 
     def test_the_per_channel_hide_gate_still_bites(self, tmp_path):

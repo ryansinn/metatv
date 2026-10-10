@@ -206,20 +206,29 @@ def _rebuild_impl(engine) -> None:
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
             conn.exec_driver_sql("BEGIN IMMEDIATE")
+            old_cols = {row[1] for row in conn.exec_driver_sql(
+                "PRAGMA table_info(content_tags)").fetchall()}
+            carried = ", ".join(f"ct.{c}" if c in old_cols else "NULL"
+                                for c in ("detail", "ord"))
             conn.exec_driver_sql(
                 "CREATE TABLE content_tags_new ("
                 "channel_key INTEGER NOT NULL REFERENCES channels(channel_key), "
                 "tag_id INTEGER NOT NULL REFERENCES tags(id), "
                 "source INTEGER NOT NULL DEFAULT 0, "
                 "feeders TEXT, "
+                # detail/ord were ALTERed onto the OLD table earlier in
+                # _migrate; a rebuild without them drops them for good.
+                "detail TEXT, "
+                "ord INTEGER, "
                 "PRIMARY KEY (channel_key, tag_id, source)"
                 ") WITHOUT ROWID"
             )
             conn.exec_driver_sql(
-                "INSERT INTO content_tags_new (channel_key, tag_id, source, feeders) "
+                "INSERT INTO content_tags_new "
+                "(channel_key, tag_id, source, feeders, detail, ord) "
                 "SELECT c.channel_key, ct.tag_id, "
                 "CASE ct.source WHEN 'user' THEN 1 ELSE 0 END, "
-                "ct.feeders "
+                f"ct.feeders, {carried} "
                 "FROM content_tags ct JOIN channels c ON c.id = ct.channel_id"
             )
             conn.exec_driver_sql("DROP TABLE content_tags")

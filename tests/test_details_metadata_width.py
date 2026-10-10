@@ -202,7 +202,7 @@ def test_fact_row_wraps_not_crushes(qapp, owned_widgets):
         for v in langs
     ])
     flows = [w.layout() for w in section.findChildren(QWidget)
-             if isinstance(w.layout(), FlowLayout) and w.layout().count() == len(langs)]
+             if isinstance(w.layout(), FlowLayout) and w.layout().count() >= len(langs)]   # value + provenance caption per language
     assert flows, "the LANGUAGE row must use a wrapping FlowLayout"
     flow = flows[0]
     assert flow.heightForWidth(150) > flow.heightForWidth(2000), (

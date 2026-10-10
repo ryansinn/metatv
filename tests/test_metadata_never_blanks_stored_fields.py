@@ -98,10 +98,15 @@ def _stored(db, channel_id):
     with db.session_scope(commit=False) as session:
         channel = session.query(ChannelDB).filter_by(id=channel_id).first()
         row = session.query(MetadataDB).filter_by(id=channel.metadata_id).first()
+        # Credits live only as tags (core.credits), never the metadata text.
+        from metatv.core.credits import credits_for
+        cr = credits_for(session, [channel_id]).get(channel_id)
         return {
             "title": row.title, "plot": row.plot, "poster_url": row.poster_url,
-            "cast": list(row.cast or []), "genres": list(row.genres or []),
-            "director": row.director, "runtime": row.runtime,
+            "cast": [n for n, _c in cr.cast] if cr else [],
+            "genres": list(row.genres or []),
+            "director": ", ".join(cr.directors) if cr and cr.directors else None,
+            "runtime": row.runtime,
         }
 
 

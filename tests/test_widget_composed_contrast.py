@@ -82,10 +82,6 @@ KNOWN_BELOW_FLOOR: dict[tuple[str, str, str, str], str] = {
     ("categories_dialog.py", "<bare>", "@COLOR_ERR_2@", "@OVERLAY_ERR2_15@"):
         "error red on its own red tint; the pair is the semantic signal and "
         "retinting it is a palette decision",
-    ("details_title.py", "<bare>", "@COLOR_ERR_2@", "@OVERLAY_ERR2_15@"):
-        "error red on its own red tint; the pair is the semantic signal and "
-        "retinting it is a palette decision — moved here with the title "
-        "block's adult_indicator (DETAILS-3b)",
     ("discover_filter_dialog.py", "QPushButton", "@COLOR_TEXT@", "@COLOR_LINE@"):
         "4.23:1 in Daylight only — COLOR_LINE used as a control fill; the fix "
         "is a surface token, which moves this control's whole look",

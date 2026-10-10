@@ -260,6 +260,7 @@ def test_host_tree_selection_routes_episode_and_season(qapp):
     host.current_series = series
     # The handler passes the CLEANED title through _episode_display_title.
     host._episode_display_title = lambda ep: f"clean::{ep.title}"
+    host._load_stream_info = lambda _id: None   # the episode's measured stream (PLAYED-1)
 
     recorded: list = []
     host.details_pane = SimpleNamespace(
