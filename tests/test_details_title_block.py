@@ -141,16 +141,20 @@ def test_source_row_shows_provider_then_collection_after_set_collection(qapp):
     assert section._collection_chip.text() == "Marvel Universe"
 
 
-def test_source_chip_click_emits_source_filter_requested(qapp):
+def test_source_chip_click_copies_the_channel_id(qapp):
+    from PyQt6.QtWidgets import QApplication
     section = _MetadataSection(_make_config())
     provider_map = {"prov-1": {"icon": "", "name": "My Source"}}
-    section.load_basic(_stub_movie(provider_id="prov-1"), provider_map)
+    movie = _stub_movie(provider_id="prov-1")
+    movie.id = "chan-1"            # a MagicMock id would not be a clipboard string
+    section.load_basic(movie, provider_map)
 
-    emitted: list[str] = []
-    section.source_filter_requested.connect(emitted.append)
+    said: list[str] = []
+    section.status_message.connect(said.append)
     section._source_chip.click()
 
-    assert emitted == ["prov-1"]
+    assert QApplication.clipboard().text() == movie.id
+    assert said and movie.id in said[0]
 
 
 def test_collection_chip_click_emits_collection_clicked(qapp):

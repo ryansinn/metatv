@@ -285,10 +285,9 @@ class TestDetailsSourceLineFallback:
         text = section._source_chip.text()
         assert "Provider One" in text, f"Expected provider name in chip, got: {text!r}"
 
-        emitted: list[str] = []
-        section.source_filter_requested.connect(emitted.append)
+        from PyQt6.QtWidgets import QApplication
         section._source_chip.click()
-        assert emitted == ["prov-1"], "click-to-copy's replacement, click-to-filter, must still work"
+        assert QApplication.clipboard().text() == ch.id, "clicking the source copies the channel id"
 
     def test_source_chip_shown_with_fallback_when_provider_not_in_map(self, qapp):
         """Orphan/unknown case: provider_id not in provider_map → fallback text shown.

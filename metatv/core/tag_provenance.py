@@ -38,6 +38,7 @@ from collections.abc import Iterable
 #: than raising — a new feeder should degrade gracefully, not crash rendering.
 FEEDER_KIND: dict[str, str] = {
     "played_tracks": "observed",
+    "provider_probe": "field",     # the provider's own ffprobe (get_vod_info) — stated, not seen
     "provider_category": "field",
     "header": "field",
     "genre": "field",

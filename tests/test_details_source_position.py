@@ -105,10 +105,9 @@ def test_source_row_still_populates_and_stays_clickable(qapp):
         "the plain 'Source:' label prefix is removed — the chip speaks for itself"
     )
 
-    emitted: list[str] = []
-    section.source_filter_requested.connect(emitted.append)
+    from PyQt6.QtWidgets import QApplication
     section._source_chip.click()
-    assert emitted == ["p1"]
+    assert QApplication.clipboard().text() == "chan-42", "the source chip copies the channel id"
 
 
 def test_adult_badge_shares_the_byline_row_not_the_source_row(qapp):

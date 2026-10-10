@@ -15,7 +15,10 @@ and one cast parser in the codebase (Governing Principle: single chokepoint).
 from __future__ import annotations
 
 import re
+
 from typing import Any, Optional
+
+from metatv.core.stream_info import provider_original_language, provider_stream_record
 
 
 def parse_genres(genre_str: Any) -> list[str]:
@@ -114,7 +117,8 @@ def extract_artwork(info: dict) -> tuple[Optional[str], Optional[str]]:
 #: PRODUCES them rather than by the writer that consumes them — so adding a
 #: field is one edit here, and no consumer can drift from the contract.
 #: ``genres`` leads because ``apply_metadata_harvest`` counts only that one.
-HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_url")
+HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_url",
+                  "original_language")
 
 
 def harvest_detail_metadata(data: Any) -> dict:
@@ -151,6 +155,10 @@ def harvest_detail_metadata(data: Any) -> dict:
         "director": info.get("director"),
         "poster_url": poster,
         "backdrop_url": backdrop,
+        # The same response carries TMDb's original language and the provider's
+        # own ffprobe of the file — free, so kept (LANG-2 / PLAYED-5).
+        "original_language": provider_original_language(info),
+        "stream": provider_stream_record(info),
     }
 
 
