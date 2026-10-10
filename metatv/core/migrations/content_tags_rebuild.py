@@ -209,7 +209,7 @@ def _rebuild_impl(engine) -> None:
             old_cols = {row[1] for row in conn.exec_driver_sql(
                 "PRAGMA table_info(content_tags)").fetchall()}
             carried = ", ".join(f"ct.{c}" if c in old_cols else "NULL"
-                                for c in ("detail", "ord"))
+                                for c in ("detail", "ord", "qualifier"))
             conn.exec_driver_sql(
                 "CREATE TABLE content_tags_new ("
                 "channel_key INTEGER NOT NULL REFERENCES channels(channel_key), "
@@ -220,12 +220,13 @@ def _rebuild_impl(engine) -> None:
                 # _migrate; a rebuild without them drops them for good.
                 "detail TEXT, "
                 "ord INTEGER, "
+                "qualifier INTEGER, "
                 "PRIMARY KEY (channel_key, tag_id, source)"
                 ") WITHOUT ROWID"
             )
             conn.exec_driver_sql(
                 "INSERT INTO content_tags_new "
-                "(channel_key, tag_id, source, feeders, detail, ord) "
+                "(channel_key, tag_id, source, feeders, detail, ord, qualifier) "
                 "SELECT c.channel_key, ct.tag_id, "
                 "CASE ct.source WHEN 'user' THEN 1 ELSE 0 END, "
                 f"ct.feeders, {carried} "

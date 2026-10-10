@@ -42,9 +42,11 @@ def test_links_store_detail_and_survive_a_retag(file_db):
     with file_db.session_scope() as s:
         # channel_key is assigned by a trigger, so read it back, never off the object.
         key = s.query(ChannelDB.channel_key).filter(ChannelDB.id == cid).scalar()
-        kept = {(t.type, t.value): link.detail for link, t in
+        from metatv.core.tag_source import link_facets
+        kept = {(facet, t.value): link.detail for link, t in
                 s.query(ContentTagDB, TagDB).join(TagDB, TagDB.id == ContentTagDB.tag_id)
-                 .filter(ContentTagDB.channel_key == key)}
+                 .filter(ContentTagDB.channel_key == key)
+                for facet in link_facets(t.type, link.qualifier)}
     assert kept.get(("cast", "Danny DeVito")) == "Frank Reynolds"
     assert ("title", "Oskyldigt blod") in kept
     assert ("genre", "Comedy") not in kept, "derived tags are rebuilt by the re-tag, not kept"

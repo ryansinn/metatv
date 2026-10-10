@@ -121,3 +121,43 @@ def feeder_present(column, name: str):
     if code is not None:
         clauses.append((literal(",") + text_col + literal(",")).like(f"%,{code},%"))
     return or_(*clauses)
+
+
+# ── Qualifier: in what capacity a tag applies to THIS title ──────────────────
+#
+# ``content_tags.qualifier`` is a per-link bitmask, generic across tag types.
+# Its first use is people: ONE ``person`` tag per identity, the role on the link
+# — so an actor who also directed is one tag, never two (owner, 2026-10-10).
+# A person with no role bits was named in the channel title (feeder
+# ``name_cast``): we know they belong to it, not how.
+#
+# "cast" and "director" stay the FACET NAMES everywhere above the repository
+# (writers, readers, the recipe, the details pane); :func:`tag_storage`
+# translates a facet to what is stored and :func:`facet_match` back to SQL.
+# Bits are permanent: never renumber one, only add.
+ROLE_BITS: dict[str, int] = {"cast": 1, "director": 2}
+PERSON_TYPE = "person"
+
+
+def tag_storage(facet: str) -> tuple[str, int]:
+    """``(stored tag type, qualifier bit)`` for a facet name."""
+    bit = ROLE_BITS.get(facet, 0)
+    return (PERSON_TYPE, bit) if bit else (facet, 0)
+
+
+def facet_match(type_col, qualifier_col, facet: str):
+    """SQL: a (tag, link) pair belongs to *facet* — a role facet is a person
+    whose link carries that role bit."""
+    from sqlalchemy import and_
+    stored, bit = tag_storage(facet)
+    if not bit:
+        return type_col == stored
+    return and_(type_col == stored, qualifier_col.op("&")(bit) != 0)
+
+
+def link_facets(tag_type: str, qualifier: int | None) -> list[str]:
+    """The facet names one stored link reads back as (a person may be several)."""
+    if tag_type != PERSON_TYPE:
+        return [tag_type]
+    roles = [facet for facet, bit in ROLE_BITS.items() if (qualifier or 0) & bit]
+    return roles or [PERSON_TYPE]

@@ -1606,6 +1606,10 @@ CONF_WEAK_PRIOR: float = 0.15
 # launder one the vocabulary already knows is wrong — so a residual containing
 # any of these is never read as a person; the genuinely unclassifiable remainder
 # becomes a LOW-confidence person tag.
+# Billing qualifiers a provider tacks onto a credited name ("CILLIAN MURPHY
+# UNCREDITED"): stripped from the END of the name, never part of the person.
+CREDIT_QUALIFIER_WORDS: frozenset[str] = frozenset({"UNCREDITED", "CAMEO", "VOICE"})
+
 NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({
     # Collection / edition labels
     "COLLECTION", "COLECCION", "COLECCIÓN", "COLLECTIE", "SAGA", "TRILOGY",

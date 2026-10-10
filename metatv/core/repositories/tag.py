@@ -44,6 +44,7 @@ from sqlalchemy import exists
 
 from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 from metatv.core.repositories.tag_content_tags import ContentTagCrudMixin
+from metatv.core.tag_source import ROLE_BITS, facet_match
 
 # ---------------------------------------------------------------------------
 # Process-level tag-id cache
@@ -458,7 +459,9 @@ class TagRepository(ContentTagCrudMixin):
     # cloud). Neither belongs in the filter panel's per-value counts. THE one
     # definition — every listing/count method here reads it.
     SEARCH_ONLY_TYPES: frozenset = frozenset({"title", "original_title"})
-    LIST_LIMITS: dict = {"cast": 300, "director": 300}
+    # People are big lists: only the most common names. "person" is the stored
+    # identity (any role); cast/director are its role facets (tag_source).
+    LIST_LIMITS: dict = {"cast": 300, "director": 300, "person": 300}
 
     _FACET_ORDER: tuple[str, ...] = (
         "genre",
@@ -585,7 +588,7 @@ class TagRepository(ContentTagCrudMixin):
                 _func.count(_func.distinct(ContentTagDB.channel_key)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .filter(TagDB.type == facet_type)
+            .filter(facet_match(TagDB.type, ContentTagDB.qualifier, facet_type))
         )
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_key, excluded_provider_ids,
@@ -618,23 +621,13 @@ class TagRepository(ContentTagCrudMixin):
     ) -> dict[str, list]:
         """Return the top-N tag values for EACH requested facet in ONE windowed pass.
 
-        The engine chokepoint for the Recipe builder's default **cluster grid**:
-        instead of the caller firing one :meth:`get_tag_counts_for_facet` per facet
-        (N round-trips, N GROUP BYs), this resolves every facet's most-common values
-        in a single SQL statement — a ``ROW_NUMBER() OVER (PARTITION BY tag.type
-        ORDER BY <distinct-channel count> DESC)`` window keeps at most
-        *limit_per_facet* rows per namespace.
-
-        Scoping is IDENTICAL to :meth:`get_tag_counts_for_facet` (the same
-        ``_scope_to_visible_channels`` predicate over ``excluded_provider_ids`` +
-        the caller's Global Exclusion sets), so a cluster tile agrees value-for-value
-        with the single-facet cloud you reach by drilling into it, and never surfaces
-        a hidden-source / globally-banished channel's tags.  The engine never reads
-        ``Config`` (DR-0007 — the control layer resolves the sets and passes them in).
-
-        A facet with fewer than *limit_per_facet* distinct values returns ALL of
-        them (its ``ROW_NUMBER`` never exceeds the cap), so small facets are never
-        truncated.  A facet with no visible values is simply absent from the result.
+        The Recipe cluster grid's chokepoint: a ``ROW_NUMBER() OVER (PARTITION BY
+        type ORDER BY count DESC)`` window keeps at most *limit_per_facet* values per
+        facet in one statement (role facets — cast/director — via
+        :meth:`get_tag_counts_for_facet`, since they are a person + role bit).
+        Scoping is IDENTICAL to :meth:`get_tag_counts_for_facet`, so a tile agrees
+        with the cloud it drills into; the engine never reads ``Config`` (DR-0007).
+        Small facets return every value; empty facets are absent.
 
         Args:
             facets: The tag namespaces to include (e.g.
@@ -660,6 +653,18 @@ class TagRepository(ContentTagCrudMixin):
         facet_list = [f for f in (facets or []) if f]
         if not facet_list or limit_per_facet <= 0:
             return {}
+        # A role facet is a person + role bit, not a stored type: no window for it.
+        scope = {"excluded_provider_ids": excluded_provider_ids,
+                 "excluded_prefixes": excluded_prefixes,
+                 "excluded_categories": excluded_categories,
+                 "excluded_tag_content_types": excluded_tag_content_types,
+                 "excluded_keywords": excluded_keywords}
+        roles = {f: self.get_tag_counts_for_facet(f, limit=limit_per_facet, **scope)
+                 for f in facet_list if f in ROLE_BITS}
+        roles = {f: counts for f, counts in roles.items() if counts}
+        facet_list = [f for f in facet_list if f not in ROLE_BITS]
+        if not facet_list:
+            return roles
 
         # ── INNER ── per-(type, value) distinct-channel counts, scoped to visible.
         inner_q = (
@@ -702,6 +707,7 @@ class TagRepository(ContentTagCrudMixin):
             result.setdefault(ftype, []).append(
                 TagCountDTO(value=value, channel_count=int(cnt))
             )
+        result.update(roles)
         return result
 
     def search_tag_values_across_facets(
@@ -755,7 +761,9 @@ class TagRepository(ContentTagCrudMixin):
             .filter(_func.lower(TagDB.value).like(pattern))
         )
         if facet_types:
-            q = q.filter(TagDB.type.in_(list(facet_types)))
+            from sqlalchemy import or_ as _or
+            q = q.filter(_or(*[facet_match(TagDB.type, ContentTagDB.qualifier, f)
+                               for f in facet_types]))
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
@@ -867,16 +875,9 @@ class TagRepository(ContentTagCrudMixin):
         # each EXISTS as a correlated scan using the idx on content_tags(tag_id);
         # no full-table materialisation occurs at any facet count.
 
-        # Anchor the driving query directly on the first constrained include
-        # facet's tag membership (JOIN tags … WHERE type/value), so SQLite seeks
-        # the tag_id index and the driving scan is bounded to that facet's
-        # channels — instead of `SELECT DISTINCT channel_key FROM content_tags`
-        # enumerating the entire content_tags table (1M+ rows) and EXISTS-checking
-        # each.  The remaining include facets stay as correlated EXISTS subqueries
-        # (AND across facets), and the exclude block (NOT EXISTS) is unchanged.
-        # The result set is identical — DISTINCT collapses a channel's multiple
-        # anchor-tag rows; only the access path changes.  This took a single-facet
-        # recipe count/sample from ~7.5s to ~0.3-0.5s on a 3GB / 1.2M-tag library.
+        # Anchor on the first include facet's tag membership so SQLite seeks the
+        # tag_id index instead of scanning all of content_tags; the other facets
+        # are correlated EXISTS (AND), excludes one NOT EXISTS. ~7.5s → ~0.4s.
         outer = aliased(ContentTagDB, flat=True)
         if constrained_facets:
             anchor_ftype, anchor_values = constrained_facets[0]
@@ -886,7 +887,7 @@ class TagRepository(ContentTagCrudMixin):
                 self.session.query(outer.channel_key)
                 .join(t_anchor, t_anchor.id == outer.tag_id)
                 .filter(
-                    t_anchor.type == anchor_ftype,
+                    facet_match(t_anchor.type, outer.qualifier, anchor_ftype),
                     t_anchor.value.in_(list(anchor_values)),
                 )
                 .distinct()
@@ -922,16 +923,15 @@ class TagRepository(ContentTagCrudMixin):
                 .join(t_i, t_i.id == ct_i.tag_id)
                 .where(
                     ct_i.channel_key == outer.channel_key,
-                    t_i.type == ftype,
+                    facet_match(t_i.type, ct_i.qualifier, ftype),
                     t_i.value.in_(list(allowed_values)),
                 )
                 .correlate(outer)
             )
             query = query.filter(exists(subq))
 
-        # --- exclude facets: ONE NOT EXISTS over every excluded (type, value) pair ---
-        # SQLite has no tuple-IN, so the pairs become an OR of per-type
-        # (type = ftype AND value IN (...)) clauses inside a single subquery.
+        # --- exclude facets: ONE NOT EXISTS; SQLite has no tuple-IN, so an OR of
+        # per-facet (facet AND value IN (...)) clauses.
         exclude_pairs: list[tuple[str, str]] = [
             (ftype, val)
             for ftype, vals in excludes.items()
@@ -945,7 +945,7 @@ class TagRepository(ContentTagCrudMixin):
             # Build per-facet OR clauses for the exclude subquery.
             from sqlalchemy import or_, and_
             excl_facet_clauses = [
-                and_(t_e.type == ftype, t_e.value.in_(list(vals)))
+                and_(facet_match(t_e.type, ct_e.qualifier, ftype), t_e.value.in_(list(vals)))
                 for ftype, vals in excludes.items()
                 if vals
             ]

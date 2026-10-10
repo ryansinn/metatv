@@ -50,6 +50,10 @@ def tag_value_exists(tag_types, pattern: str):
     per name, the link found by channel_key."""
     from sqlalchemy import exists as _exists, select as _sa_select
     from metatv.core.database import ContentTagDB, TagDB
+    from metatv.core.tag_source import tag_storage
+    # cast/director are roles of ONE person tag; "is this person in it" asks
+    # for the person in any role (or named in the title), so match the stored type.
+    tag_types = {tag_storage(t)[0] for t in tag_types}
     return _exists(
         _sa_select(ContentTagDB.tag_id)
         .join(TagDB, TagDB.id == ContentTagDB.tag_id)
