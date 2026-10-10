@@ -171,14 +171,14 @@ class _MetadataMixin:
         def query(repos):
             from metatv.core.database import ChannelDB
             from metatv.metadata_providers.raw_parse import harvest_detail_metadata
-            from metatv.providers.factory import ProviderFactory
+            from metatv.providers.factory import get_provider
             ch = repos.session.get(ChannelDB, channel_id)
             if ch is None or ch.media_type != "movie":
                 return None
             provider_db = repos.providers.get_by_id(ch.provider_id)
             if provider_db is None or provider_db.type != "xtream":
                 return None
-            plugin = ProviderFactory.get_provider("xtream")
+            plugin = get_provider("xtream")
             if plugin is None:
                 return None
             data = asyncio.run(plugin.fetch_vod_info(repos.providers.to_model(provider_db),

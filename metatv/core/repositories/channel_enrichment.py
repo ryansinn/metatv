@@ -456,12 +456,18 @@ class ChannelEnrichmentMixin:
         from metatv.core.repositories.tag import TagRepository
         from metatv.core.tag_decomposer import credit_tags, title_tags
         tags = TagRepository(self.session)
+        # The channel's own title(s): an "alternate" title equal to them is not one.
+        own_titles = {cid: (name, title) for cid, name, title in self.session.query(
+            ChannelDB.id, ChannelDB.name, ChannelDB.detected_title).filter(
+            ChannelDB.id.in_(list(harvest))).all()}
         for cid, h in harvest.items():
             if h.get("stream"):
                 streams.upsert(cid, h["stream"], source="provider")
             # Alternate titles (o_name) and credits become tags — searchable,
             # and the cast/director clouds' source.
-            items = title_tags(h.get("alt_titles")) + credit_tags(h.get("cast"), h.get("director"))
+            own = {(t or "").casefold() for t in own_titles.get(cid, ())}
+            alts = [t for t in h.get("alt_titles") or [] if t.casefold() not in own]
+            items = title_tags(alts) + credit_tags(h.get("cast"), h.get("director"))
             if items:
                 tags.set_content_tags(cid, items)
         filled = 0
