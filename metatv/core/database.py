@@ -798,6 +798,10 @@ class StreamInfoDB(Base):
     info        = Column(JSONEncoded, nullable=False)
     source      = Column(String, nullable=False, default="played")
     measured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    #: The name of what was measured. Providers recycle stream ids, so when a
+    #: catalog refresh finds a different name under this id the measurement is
+    #: about another title and is discarded (StreamInfoRepository.invalidate_changed).
+    fingerprint = Column(String)
 
 
 class TagDB(Base):
@@ -1078,6 +1082,7 @@ class Database:
             ("metadata",     "trailer_url",                   "TEXT"),
             ("metadata",     "original_language",             "TEXT"),   # LANG-2
             ("metadata",     "alt_titles",                    "TEXT"),   # JSONEncoded -> Text
+            ("stream_info",  "fingerprint",                   "TEXT"),   # recycled-id guard
             ("metadata",     "content_rating",                "TEXT"),
             ("metadata",     "release_date",                  "TEXT"),
             ("channels",     "channel_key",                   "INTEGER"),  # DB-9

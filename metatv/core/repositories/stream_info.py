@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from loguru import logger
+
 from metatv.core.database import ChannelDB, StreamInfoDB
 from metatv.core.stream_info import audio_contradicts_prefix, summarize
 
@@ -74,6 +76,7 @@ class StreamInfoRepository:
         row.info = info
         row.source = source
         row.measured_at = datetime.utcnow()
+        row.fingerprint = self._current_name(channel_id)
         # Searchable: a language heard in the stream becomes a language tag.
         # Episodes have no channel row to tag (their ids miss the channel join).
         from metatv.core.repositories.tag import TagRepository
@@ -85,6 +88,48 @@ class StreamInfoRepository:
         series_id = self._series_copy_of_episode(channel_id)
         if series_id:
             tags.apply_measured_tags(series_id, info, source)
+
+    def _current_name(self, item_id: str) -> "str | None":
+        """The name a measurement is about: the channel's, or the episode's title."""
+        from metatv.core.database import EpisodeDB
+        ch = self.session.get(ChannelDB, item_id)
+        if ch is not None:
+            return ch.name
+        ep = self.session.get(EpisodeDB, item_id)
+        return ep.title if ep is not None else None
+
+    def invalidate_changed(self, channel_ids) -> int:
+        """Drop measurements whose channel now carries a DIFFERENT title.
+
+        Called at catalog refresh with the ids whose row changed. Only a name
+        change under the same id discards anything — a rating or timestamp
+        change in raw_data does not. A record with no fingerprint yet (written
+        before this existed) adopts the current name rather than being lost.
+        The measured/provider-reported language tags go with it, before the
+        refresh re-tags, so they cannot be re-applied from the stale record.
+
+        Returns:
+            How many measurements were discarded.
+        """
+        ids = list(channel_ids or [])
+        if not ids:
+            return 0
+        rows = (self.session.query(StreamInfoDB, ChannelDB.name)
+                .join(ChannelDB, ChannelDB.id == StreamInfoDB.channel_id)
+                .filter(StreamInfoDB.channel_id.in_(ids)).all())
+        stale = []
+        for record, name in rows:
+            if record.fingerprint is None:
+                record.fingerprint = name
+            elif record.fingerprint != name:
+                stale.append(record.channel_id)
+                self.session.delete(record)
+        if stale:
+            from metatv.core.repositories.tag import TagRepository
+            TagRepository(self.session).drop_feeders(stale, ("played_tracks", "provider_probe"))
+            logger.info("stream_info: discarded {} measurement(s) whose channel now "
+                        "names a different title", len(stale))
+        return len(stale)
 
     def _series_copy_of_episode(self, episode_id: str) -> "str | None":
         """The ``ChannelDB.id`` of the series copy an episode belongs to, or None."""
