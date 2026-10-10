@@ -285,9 +285,13 @@ class _ClusterTile(QFrame):
         _theme.style(self._sub_lbl, "RECIPE_CLUSTER_SUBTITLE")
         hdr_row.addWidget(self._sub_lbl)
         hdr_row.addStretch()
-        self._see_all_lbl = QLabel(f"see all {_icons.nav_next_icon}")
-        _theme.style(self._see_all_lbl, "RECIPE_CLUSTER_SUBTITLE")
-        hdr_row.addWidget(self._see_all_lbl)
+        # A real button (it was a label that only LOOKED like a link): same
+        # drill-in as the facet name, same role/icon as the bar's "Show all".
+        self._see_all_btn = QPushButton(f"See all {_icons.see_all_arrow_icon}")
+        self._see_all_btn.setFlat(True)
+        _theme.style(self._see_all_btn, "RECIPE_SHOW_ALL_BTN")
+        self._see_all_btn.clicked.connect(self._emit_facet)
+        hdr_row.addWidget(self._see_all_btn)
         self._hdr_row = hdr_row
         outer.addLayout(hdr_row)
 
@@ -320,6 +324,7 @@ class _ClusterTile(QFrame):
             f"QPushButton:hover {{ text-decoration: underline; }}"
         )
         self._hdr_btn.setToolTip(f"Browse all {display} tags")
+        self._see_all_btn.setToolTip(f"Browse all {display} tags")
         self._sub_lbl.setText(f"· {len(items)} tags")
 
         is_decade = facet == "decade"
@@ -331,7 +336,7 @@ class _ClusterTile(QFrame):
             else list(items)
         )
         # Decade is a chip strip (see all one line), never truncated to a "see all".
-        self._see_all_lbl.setVisible(not is_decade)
+        self._see_all_btn.setVisible(not is_decade)
 
         # content_type slugs render friendly labels; identity stays the slug.
         display_map: dict[str, str] = {}
