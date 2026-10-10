@@ -132,7 +132,8 @@ def force_recompute_for_changed_ids(
     separators: list[str] | None,
     changed_ids: Collection[str],
 ) -> None:
-    """Force ``detected_*`` recomputation for exactly *changed_ids*; always logs the count.
+    """Force ``detected_*`` recomputation for exactly *changed_ids* — and discard
+    stream measurements whose channel now names a different title — always logs.
 
     Args:
         channels_repo: A ``ChannelRepository`` (or duck-typed equivalent)
@@ -145,6 +146,10 @@ def force_recompute_for_changed_ids(
         channels_repo.update_detected_prefixes(
             provider_id=provider_id, separators=separators, channel_ids=changed_ids,
         )
+        # Same rows, same moment: a recycled id now naming a different title
+        # must not keep the old title's stream measurement (or its tags).
+        from metatv.core.repositories.stream_info import StreamInfoRepository
+        StreamInfoRepository(channels_repo.session).invalidate_changed(changed_ids)
     logger.info(
         "detected_* recomputed for {:,} rows whose name/category/raw_data changed",
         len(changed_ids),

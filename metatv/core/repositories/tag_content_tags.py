@@ -394,6 +394,25 @@ class ContentTagCrudMixin:
         if tags and self._channel_key(channel_id) is not None:   # episodes have no channel row
             self.set_content_tags(channel_id, tags)
 
+    def drop_feeders(self, channel_ids: List[str], feeders) -> None:
+        """Remove *feeders* from these channels' tag links; a link left with no
+        feeder at all is deleted. Used when a measurement turns out to be about
+        a different title (a recycled stream id)."""
+        keys = list(self._channel_keys(channel_ids).values())
+        if not keys:
+            return
+        drop = set(feeders)
+        for link in (self.session.query(ContentTagDB)
+                     .filter(ContentTagDB.channel_key.in_(keys)).all()):
+            current = link.feeders if isinstance(link.feeders, list) else []
+            if not drop & set(current):
+                continue
+            kept = [f for f in current if f not in drop]
+            if kept:
+                link.feeders = kept
+            else:
+                self.session.delete(link)
+
     def reapply_measured_tags(self, channel_ids: List[str]) -> None:
         """Re-write measured tags for those of *channel_ids* that have a measurement."""
         from metatv.core.database import StreamInfoDB
