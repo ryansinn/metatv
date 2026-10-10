@@ -20,7 +20,7 @@ from sqlalchemy import bindparam, case, func, literal, text
 from sqlalchemy import or_
 
 from metatv.core.database import ChannelDB
-from metatv.core.repositories.channel_lens import metadata_alt_title_exists, metadata_person_exists
+from metatv.core.repositories.channel_lens import metadata_person_exists, tag_value_exists
 from metatv.core.watchlist_matching import _escape_like
 
 
@@ -521,7 +521,8 @@ def channel_text_search_predicate(search_term: str):
     return or_(
         ChannelDB.name.ilike(pattern),
         metadata_person_exists(pattern),
-        metadata_alt_title_exists(pattern),     # "Oskyldigt blod" finds Innocent Blood
+        # Credits and alternate titles as tags: "Oskyldigt blod" finds Innocent Blood.
+        tag_value_exists(("title", "original_title", "cast", "director"), pattern),
         ChannelDB.id == term,
         ChannelDB.source_id == term,
     )

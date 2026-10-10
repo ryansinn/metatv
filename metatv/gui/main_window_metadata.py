@@ -185,13 +185,14 @@ class _MetadataMixin:
             if not harvest or not (harvest.get("stream") or harvest.get("original_language")):
                 return None
             repos.channels.apply_metadata_harvest({channel_id: harvest})
-            return {"lang": harvest.get("original_language") or "",
-                    "alt": harvest.get("alt_titles") or []}
+            return harvest.get("original_language") or ""
 
-        def stored(found) -> None:
-            if found is None:
+        def stored(lang) -> None:
+            if lang is None:
                 return
-            self.details_pane.apply_provider_facts(channel_id, found["lang"], found["alt"])
+            if lang:
+                self.details_pane.apply_original_language(channel_id, lang)
+            self._on_channel_tags_requested(channel_id)   # alternate titles / credits arrived as tags
             self._run_query(lambda repos: repos.stream_info.get(channel_id),
                             lambda rec: self.details_pane.apply_stream_info(channel_id, rec))
 

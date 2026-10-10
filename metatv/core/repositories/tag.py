@@ -363,7 +363,7 @@ class TagRepository(ContentTagCrudMixin):
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
-        ).group_by(TagDB.type, TagDB.value)
+        ).filter(TagDB.type.notin_(list((self.SEARCH_ONLY_TYPES | set(self.LIST_LIMITS))))).group_by(TagDB.type, TagDB.value)
 
         result: dict[str, dict[str, int]] = {}
         for tag_type, value, cnt in q.all():
@@ -437,7 +437,7 @@ class TagRepository(ContentTagCrudMixin):
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
-        ).group_by(TagDB.type)
+        ).filter(TagDB.type.notin_(list((self.SEARCH_ONLY_TYPES | set(self.LIST_LIMITS))))).group_by(TagDB.type)
 
         out: dict[str, int] = {}
         for tag_type, cnt in tagged_q.all():
@@ -453,6 +453,13 @@ class TagRepository(ContentTagCrudMixin):
     # Controls the order returned by get_facet_summary().  Facets not present
     # in this list (e.g. future namespaces) are appended at the end in
     # alphabetical order so they are never silently dropped.
+    # High-cardinality tag types. Titles are searched, never listed; people are
+    # listed only as their most common names (a cloud of 200k actors is no
+    # cloud). Neither belongs in the filter panel's per-value counts. THE one
+    # definition — every listing/count method here reads it.
+    SEARCH_ONLY_TYPES: frozenset = frozenset({"title", "original_title"})
+    LIST_LIMITS: dict = {"cast": 300, "director": 300}
+
     _FACET_ORDER: tuple[str, ...] = (
         "genre",
         "language",
@@ -461,6 +468,8 @@ class TagRepository(ContentTagCrudMixin):
         "decade",
         "quality",
         "collection",
+        "cast",
+        "director",
         "person",
     )
 
@@ -511,7 +520,7 @@ class TagRepository(ContentTagCrudMixin):
             q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
-        ).group_by(TagDB.type)
+        ).filter(TagDB.type.notin_(list(self.SEARCH_ONLY_TYPES))).group_by(TagDB.type)
 
         raw: dict[str, int] = {}
         for tag_type, distinct_vals in q.all():
@@ -585,6 +594,8 @@ class TagRepository(ContentTagCrudMixin):
         ).group_by(TagDB.value).order_by(
             _func.count(_func.distinct(ContentTagDB.channel_key)).desc()
         )
+        if limit is None:
+            limit = self.LIST_LIMITS.get(facet_type)   # people: the most common names only
         if limit is not None:
             q = q.limit(limit)
 
@@ -664,7 +675,7 @@ class TagRepository(ContentTagCrudMixin):
             inner_q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
-        ).group_by(TagDB.type, TagDB.value)
+        ).filter(TagDB.type.notin_(list(self.SEARCH_ONLY_TYPES))).group_by(TagDB.type, TagDB.value)
         inner = inner_q.subquery()
 
         # ── MIDDLE ── rank each value within its facet by count DESC.  A window

@@ -1273,6 +1273,7 @@ class Config(BaseModel):
     epg_channel_id_backfill_version: int = 0
     #: Version of the metadata.year derivation that has been applied.
     metadata_year_backfill_version: int = 0
+    credit_tags_backfill_version: int = 0
     # ── Signal checking ─────────────────────────────────────────────────
     # How a stream is judged dead air rather than a picture. Exposed because
     # the right answer is provider-dependent: a channel that runs a 4-second
@@ -2516,8 +2517,7 @@ class Config(BaseModel):
         # missing from both.
         owned = profile_store.owned_keys()
         profile_data = {k: v for k, v in data.items() if k in owned}
-        # Legacy *_icon glyph constants (debt: icons live in icons.py) are never
-        # user-set; written only when someone actually changed one.
+        # Legacy *_icon constants (icons live in icons.py): written only if changed.
         icon_defaults = icon_field_defaults(type(self))
         main_data = {k: v for k, v in data.items()
                      if k not in qa_names and k not in owned

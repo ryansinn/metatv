@@ -572,6 +572,13 @@ class MetadataManager:
             metadata.source = result.provider_name
             metadata.fetched_at = datetime.now()
             
+            # Credits become tags (cast/director, with billing order + character)
+            # from the STORED values, so a thinner fetch never erases them.
+            from metatv.core.repositories.tag import TagRepository
+            from metatv.core.tag_decomposer import credit_tags
+            TagRepository(session).set_content_tags(
+                channel.id, credit_tags(metadata.cast, metadata.director))
+
             logger.debug(f"Committing metadata for {channel.name}")
             session.commit()
             logger.debug(f"Successfully saved metadata for {channel.name}")

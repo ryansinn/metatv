@@ -84,19 +84,19 @@ def metadata_person_exists(pattern: str):
     )
 
 
-def metadata_alt_title_exists(pattern: str):
-    """Correlated EXISTS: one of the channel's alternate titles (``MetadataDB.
-    alt_titles`` — e.g. the provider's ``o_name``) matches *pattern*. Separate
-    from :func:`metadata_person_exists` on purpose: a person filter must never
-    match a film's title. Used by free-text search only."""
-    from sqlalchemy import (
-        Text as _Text, exists as _exists, select as _sa_select,
-        type_coerce as _type_coerce,
-    )
+def tag_value_exists(tag_types, pattern: str):
+    """Correlated EXISTS: the channel carries a tag of one of *tag_types* whose
+    value matches *pattern* (``ILIKE``). The indexed path for credits and
+    alternate titles (``cast``/``director``/``title`` tags) — one vocabulary row
+    per name, the link found by channel_key."""
+    from sqlalchemy import exists as _exists, select as _sa_select
+    from metatv.core.database import ContentTagDB, TagDB
     return _exists(
-        _sa_select(MetadataDB.id)
-        .where(MetadataDB.id == ChannelDB.metadata_id,
-               _type_coerce(MetadataDB.alt_titles, _Text).ilike(pattern))
+        _sa_select(ContentTagDB.tag_id)
+        .join(TagDB, TagDB.id == ContentTagDB.tag_id)
+        .where(ContentTagDB.channel_key == ChannelDB.channel_key,
+               TagDB.type.in_(list(tag_types)),
+               TagDB.value.ilike(pattern))
         .correlate(ChannelDB)
     )
 
@@ -121,6 +121,7 @@ def person_predicate(name: str):
 
     pattern = f"%{name}%"
     return or_(
+        tag_value_exists(("cast", "director"), pattern),
         metadata_person_exists(pattern),
         ChannelDB.name.ilike(pattern),
         _text(
