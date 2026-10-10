@@ -373,6 +373,6 @@ def _sub_label(s: dict) -> str:
 
 
 def measured_caption(measured_at: datetime | None, source: str) -> str:
-    """"seen when played Oct 9" / "probed Oct 9" / "reported by the source Oct 9"."""
-    verb = {"probe": "probed", "provider": "reported by the source"}.get(source, "seen when played")
+    """"seen when played Oct 9" / "probed Oct 9" / "reported by source Oct 9"."""
+    verb = {"probe": "probed", "provider": "reported by source"}.get(source, "seen when played")
     return f"{verb} {measured_at:%b} {measured_at.day}" if measured_at else verb

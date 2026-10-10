@@ -543,7 +543,10 @@ class _VersionSection(QWidget):
         quality = v.detected_quality
         measured_q = measured_quality((v.measured or {}).get("height"))
         if measured_q:
-            quality = f"{measured_q}{_icons.verified_icon}"   # badge reads "FHD ✓"
+            # ✓ only for what WE measured (played or probed); the source's own
+            # report still beats the name's claim, but is not verified.
+            seen = (v.measured or {}).get("source") in ("played", "probe")
+            quality = f"{measured_q}{_icons.verified_icon}" if seen else measured_q
         if quality:
             name = f"{name} {quality}"
         icon = ""

@@ -131,7 +131,9 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._probe_btn.clicked.connect(self.probe_requested)
         self._probe_running = False
         self._probe_available = True
-        content_lay.addWidget(make_flow([self._probe_btn]))
+        self._stream_source = ""
+        # In the heading, left of the count: an action on the section, not a fact.
+        self._header.add_action(self._probe_btn)
         layout.addWidget(self._content)
         self._wire_header()
         self._has_copy = False
@@ -182,9 +184,11 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             self._stream_rows = display_rows(record["info"], claimed_quality=claimed_quality)
             self._stream_languages = (summarize(record) or {}).get("audio", ())
             self._stream_caption = measured_caption(record.get("measured_at"), record.get("source", ""))
+            self._stream_source = record.get("source", "")
         else:
             self._stream_rows, self._stream_caption = [], ""
             self._stream_languages = ()
+            self._stream_source = ""
         self._render()
 
     def set_original_language(self, language: str) -> None:
@@ -194,6 +198,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             self._render()
 
     def clear(self) -> None:
+        self._stream_source = ""
         self._stream_rows, self._stream_caption = [], ""
         self._stream_languages = ()
         self._tags = []
@@ -230,9 +235,15 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         regions = self._region_names()
         for tag in self._tags:
             guessed = strongest_kind(tag.feeders) == "inference"
-            caption = (f"guessed {guess_reason(tag.feeders, regions)}" if guessed
-                       else _source_caption(group_label(tag.feeders,
-                                                        provider_name=self._provider_name)))
+            if guessed and tag.facet_type == "decade":
+                # A decade comes from a year WRITTEN in the title ("(2018)"):
+                # deduced from it, not guessed.
+                guessed, caption = False, "deduced from title"
+            elif guessed:
+                caption = f"guessed {guess_reason(tag.feeders, regions)}"
+            else:
+                caption = _source_caption(group_label(tag.feeders,
+                                                      provider_name=self._provider_name))
             rows.setdefault(tag.facet_type, []).append(
                 (self._display(tag.facet_type, tag.value), tag.facet_type, tag.value, guessed, caption)
             )
@@ -245,12 +256,18 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             heard = [(lang, "language", lang, False, self._stream_caption)
                      for lang in self._stream_languages]
             rest = [r for r in existing if r[2] not in self._stream_languages]
-            rows["language"] = heard + rest
-        if self._original_language:
+            # The Audio row already names what was heard; a Language row that
+            # only repeats it says nothing new.
+            if rest or len(self._stream_languages) > 1:
+                rows["language"] = heard + rest
+            else:
+                rows.pop("language", None)
+        heard_only = set(self._stream_languages)
+        if self._original_language and heard_only != {self._original_language}:
             # LANG-2: the title's original language — a fact about the film, not
             # about this copy's audio (that is the Language row above).
             rows["original"] = [(self._original_language, None, None, False,
-                                 "TMDb" if self._metadata_from_tmdb else self._provider_name)]
+                                 "TMDb" if self._metadata_from_tmdb else "reported by source")]
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
@@ -327,7 +344,9 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         if self._probe_running:
             text = "Checking stream…"
         else:
-            text = "Re-check stream" if self._stream_rows else "Get stream details"
+            # "Re-check" only once WE measured it; a source's report was never checked.
+            checked = self._stream_source in ("played", "probe")
+            text = "Re-check stream" if checked else "Get stream details"
         self._probe_btn.setText(text)
         self._probe_btn.setEnabled(not self._probe_running)
         self._probe_btn.setVisible(self._probe_available)
