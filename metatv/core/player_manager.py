@@ -460,6 +460,18 @@ class PlayerManager:
             return dict.fromkeys(names)
         return self.player.get_properties(names, key=key)
 
+    def is_playing(self) -> bool:
+        """True when any player window has a file loaded.
+
+        Not the same as :meth:`active_keys`: mpv runs with ``--idle=yes``, so
+        its process outlives the stream and sits idle until the next play. A
+        caller asking "is the user watching something?" wants this.
+        """
+        for key in self.active_keys():
+            if self.get_properties(["path"], key=key).get("path"):
+                return True
+        return False
+
     def active_keys(self) -> list[str]:
         """Return the instance keys whose player processes are currently alive.
 
