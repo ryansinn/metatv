@@ -102,7 +102,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         self._mode_btns: dict[str, QPushButton] = {}
         for mode, label, tip in (
                 ("titles", "Titles", "Titles with similar names — movies and series"),
-                ("content", "Content", "Titles like this one, from TMDb's recommendations")):
+                ("content", "Content", "Titles like this one — TMDb's recommendations when a TMDb key is set, otherwise matched by genre, director and cast")):
             btn = QPushButton(label)
             btn.setProperty("mode", mode)
             btn.setToolTip(tip)

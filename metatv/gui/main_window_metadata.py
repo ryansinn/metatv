@@ -84,6 +84,38 @@ def _tmdb_recommended_keys(session, channel_id: str, tmdb_settings) -> list[str]
     return asyncio.run(TMDbProvider(tmdb_settings).recommended_content_keys(tmdb_id, kind or "movie"))
 
 
+def _similar_content_keys(session, channel_id: str, tmdb_settings, config) -> list[str]:
+    """"Similar Content": TMDb's recommendations when a TMDb key is set, else
+    MetaTV's own — the recommendation scorer (and its exclusion scope, via
+    ``recommendation_scope``) seeded with THIS title's genres, director and
+    cast instead of the user's taste. Returned as content keys, best first.
+    """
+    keys = _tmdb_recommended_keys(session, channel_id, tmdb_settings)
+    if keys:
+        return keys
+    from metatv.core.database import ChannelDB, MetadataDB
+    from metatv.core.preference_engine import (
+        AttributeWeights, _split_directors, recommendation_scope, score_candidates,
+    )
+    ch = session.get(ChannelDB, channel_id)
+    md = session.get(MetadataDB, ch.metadata_id) if ch is not None and ch.metadata_id else None
+    if md is None:
+        return []
+    cast = [c.get("name") for c in (md.cast or []) if isinstance(c, dict) and c.get("name")][:6]
+    weights = AttributeWeights(
+        genres=dict.fromkeys(md.genres or [], 1.0),
+        directors=dict.fromkeys(_split_directors(md.director) if md.director else [], 1.5),
+        actors=dict.fromkeys(cast, 1.0),
+    )
+    if not (weights.genres or weights.directors or weights.actors):
+        return []
+    scored = score_candidates(session, weights, limit=40, **recommendation_scope(session, config))
+    ids = [sc.channel_id for sc in scored if sc.channel_id != channel_id]
+    by_id = dict(session.query(ChannelDB.id, ChannelDB.content_key)
+                 .filter(ChannelDB.id.in_(ids)).all())
+    return list(dict.fromkeys(by_id[i] for i in ids if by_id.get(i)))
+
+
 class _MetadataMixin:
     """Mixin: details pane data loading, versions, similar titles, action states."""
 
@@ -509,7 +541,8 @@ class _MetadataMixin:
                 # expired/orphaned provider exclusion). We shape best-per-group
                 # ChannelVersion DTOs (queue/ratings/favorite/history) from its rows.
                 excluded = set(repos.providers.get_hidden_provider_ids())
-                content_keys = (_tmdb_recommended_keys(session, channel_id, tmdb_settings)
+                content_keys = (_similar_content_keys(session, channel_id, tmdb_settings,
+                                                      self.config)
                                 if mode == "content" else None)
                 rows = repos.channels.get_similar_channels(
                     channel_id,
