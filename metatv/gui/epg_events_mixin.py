@@ -233,11 +233,11 @@ class _EpgEventsMixin:
     def _apply_events_toggle_styles(self) -> None:
         """Apply active/inactive styles to the Timeline / By Network buttons."""
         if self._events_timeline_btn.isChecked():
-            _theme.style(self._events_timeline_btn, "EVENTS_SEG_ACTIVE")
-            _theme.style(self._events_network_btn, "EVENTS_SEG_INACTIVE")
+            _theme.style(self._events_timeline_btn, "SEGMENTED_ACTIVE")
+            _theme.style(self._events_network_btn, "SEGMENTED_INACTIVE")
         else:
-            _theme.style(self._events_timeline_btn, "EVENTS_SEG_INACTIVE")
-            _theme.style(self._events_network_btn, "EVENTS_SEG_ACTIVE")
+            _theme.style(self._events_timeline_btn, "SEGMENTED_INACTIVE")
+            _theme.style(self._events_network_btn, "SEGMENTED_ACTIVE")
 
     def _on_events_mode_timeline(self) -> None:
         self._events_timeline_btn.setChecked(True)

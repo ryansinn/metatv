@@ -93,7 +93,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         self._header = CollapsibleHeader("Similar")
 
         # [Titles | Content]: name matches vs TMDb's recommendations. The
-        # Events tab's segmented-toggle roles — the app's one segmented look.
+        # The app's one segmented-toggle look (SEGMENTED_*).
         self._mode = getattr(self.config, "details_similar_mode", "titles")
         seg = QWidget()
         seg_lay = QHBoxLayout(seg)
@@ -152,7 +152,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
 
     def _sync_mode_buttons(self) -> None:
         for mode, btn in self._mode_btns.items():
-            _theme.style(btn, "EVENTS_SEG_ACTIVE" if mode == self._mode else "EVENTS_SEG_INACTIVE")
+            _theme.style(btn, "SEGMENTED_ACTIVE" if mode == self._mode else "SEGMENTED_INACTIVE")
 
     def load(self, titles: list[ChannelVersion], origin_title: str = "") -> None:
         """Populate the section. Hides itself if titles is empty."""
@@ -250,7 +250,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
             type_lbl = QLabel(type_icon)
             type_lbl.setFixedWidth(18)
             type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            _theme.style_fn(type_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+            _theme.style(type_lbl, "TEXT_MD")
             type_lbl.setToolTip((v.media_type or "").title())
             row.addWidget(type_lbl)
 
@@ -305,12 +305,12 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # 5. Rating icon (liked / disliked — hidden when neutral)
         if v.user_rating == 1:
             rating_lbl = QLabel(_icons.like_icon)
-            _theme.style_fn(rating_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE};")
+            _theme.style(rating_lbl, "DETAIL_STATE_MARK_LIKED")
             rating_lbl.setToolTip("You liked this")
             row.addWidget(rating_lbl)
         elif v.user_rating == -1:
             rating_lbl = QLabel(_icons.dislike_icon)
-            _theme.style_fn(rating_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_ORANGE};")
+            _theme.style(rating_lbl, "DETAIL_STATE_MARK_DISLIKED")
             rating_lbl.setToolTip("You disliked this")
             row.addWidget(rating_lbl)
 
@@ -319,7 +319,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         # that is always offered.
         if v.is_rec_suppressed:
             ni = QLabel(_icons.not_interested_icon)
-            _theme.style(ni, "DETAIL_STATE_MARK")
+            _theme.style(ni, "TEXT_MD")
             ni.setToolTip("Not interested")
             row.addWidget(ni)
         if v.watch_completed:
@@ -329,7 +329,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
             row.addWidget(done)
         elif v.in_history:
             hist = QLabel(_icons.history_icon)
-            _theme.style(hist, "DETAIL_STATE_MARK")
+            _theme.style(hist, "TEXT_MD")
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 

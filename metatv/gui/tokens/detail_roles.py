@@ -151,10 +151,17 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         # the body ramp and carries its reason instead of a colour claim.
         # The thin left rule the "Details for <copy>" rows hang from (option D).
         "DETAIL_FACTS_RULE": f"#detailsRule {{ border-left: 2px solid {border}; }}",
-        # A Similar row's state mark (history ↺, not-interested) — shown only when set.
-        "DETAIL_STATE_MARK": f"font-size: {font_md}; color: {text};",
-        # …and the measured/confirmed kind (watched ✓).
+        # A Similar row's confirmed state mark (watched ✓); the plain marks use TEXT_MD.
         "DETAIL_STATE_MARK_OK": f"font-size: {font_md}; color: {ok};",
+        # Liked / disliked marks on a Similar row (shape + colour, never colour alone).
+        "DETAIL_STATE_MARK_LIKED": f"font-size: {font_md}; color: {accent};",
+        "DETAIL_STATE_MARK_DISLIKED": f"font-size: {font_md}; color: {_('COLOR_ACCENT_ORANGE')};",
+        # The details pane's title and its adult badge.
+        "DETAIL_TITLE": f"font-size: {_('FONT_4XL')}; font-weight: bold;",
+        "DETAIL_ADULT_BADGE": (
+            f"color: {_('COLOR_ERR_2')}; font-size: {font_md}; font-weight: 600;"
+            f" background: {_('OVERLAY_ERR2_15')}; border-radius: 3px; padding: 1px 5px;"
+        ),
         # A Similar row's title button (its eliding label uses SIDEBAR_ROW_TITLE).
         "DETAIL_ROW_TITLE_BTN": f"QPushButton {{ font-size: {font_md}; border: none; }}",
         "DETAIL_FACT_REASON": (

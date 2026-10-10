@@ -88,7 +88,7 @@ class _SavedRecipeCard(QFrame):
 
         # Live match count.
         self._count_lbl = QLabel("counting…")
-        _theme.style(self._count_lbl, "RECIPE_SAVED_COUNT")
+        _theme.style(self._count_lbl, "TEXT_MD")
         outer.addWidget(self._count_lbl)
 
         # Ingredient tags (facet-colored), includes then excludes.
@@ -108,7 +108,7 @@ class _SavedRecipeCard(QFrame):
                 added += 1
         if not added:
             empty = QLabel("no ingredients")
-            _theme.style(empty, "RECIPE_SAVED_COUNT")
+            _theme.style(empty, "TEXT_MD")
             tags_row.addWidget(empty)
         tags_row.addStretch()
         outer.addLayout(tags_row)

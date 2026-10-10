@@ -123,7 +123,7 @@ class _ItemRow(QWidget):
         self._count_lbl: QLabel | None = None
         if count > 0:
             self._count_lbl = QLabel(_fmt(count))
-            _theme.style(self._count_lbl, "ITEM_COUNT")
+            _theme.style(self._count_lbl, "TEXT_MD")
             self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(self._count_lbl)
 
@@ -226,7 +226,7 @@ class _GroupRow(QWidget):
         self._count_lbl: QLabel | None = None
         if total_count > 0:
             self._count_lbl = QLabel(_fmt(total_count))
-            _theme.style(self._count_lbl, "ITEM_COUNT")
+            _theme.style(self._count_lbl, "TEXT_MD")
             self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             hl.addWidget(self._count_lbl)
 
