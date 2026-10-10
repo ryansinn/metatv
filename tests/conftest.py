@@ -1252,6 +1252,8 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._channel_density_combo.currentData.return_value = "comfy"
     dlg._sidebar_density_combo = MagicMock()
     dlg._sidebar_density_combo.currentData.return_value = "compact"
+    dlg._text_size_combo = MagicMock()
+    dlg._text_size_combo.currentData.return_value = 1.0
     dlg._alerts_show_idle_check = MagicMock()
     dlg._alerts_show_idle_check.isChecked.return_value = False
     dlg._series_interval_spin = MagicMock()
@@ -1405,6 +1407,7 @@ def wire_settings_density_widget(dlg) -> None:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
     from metatv.gui.settings_dialog_tabs import _CHANNEL_DENSITY_CHOICES
+    from metatv.gui.settings_text_size import TEXT_SIZE_CHOICES
     from metatv.gui.settings_dialog_tabs import (
         _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
     )
@@ -1420,6 +1423,9 @@ def wire_settings_density_widget(dlg) -> None:
     dlg._sidebar_density_combo = QComboBox()
     for label, value in _SIDEBAR_DENSITY_CHOICES:
         dlg._sidebar_density_combo.addItem(label, value)
+    dlg._text_size_combo = QComboBox()
+    for label, value in TEXT_SIZE_CHOICES:
+        dlg._text_size_combo.addItem(label, value)
     dlg._alerts_show_idle_check = QCheckBox()
     dlg._alerts_show_idle_check.setChecked(False)
     dlg._series_interval_spin = QSpinBox()

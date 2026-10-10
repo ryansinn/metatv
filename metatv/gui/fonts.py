@@ -111,11 +111,14 @@ def apply_ui_font(app) -> bool:
     family = families.get("ui")
     if not family:
         return False
+    from metatv.gui import theme
+
     font = QFont(family)
-    # Keep the platform's own size — the type scale sets pixel sizes per role,
-    # and overriding the base here would silently rescale anything that has
-    # not been given an explicit token yet.
-    font.setPointSizeF(app.font().pointSizeF())
+    # The type scale's base, in PIXELS — never the platform's point size. The
+    # OS default (13pt on macOS, 10-11pt on Linux desktops at 96 DPI) put every
+    # unstyled widget at a different size from styled text, differently per
+    # platform. theme's font floor re-applies this on every theme/scale change.
+    font.setPixelSize(int(str(theme.FONT_MD)[:-2]))
     app.setFont(font)
     return True
 
