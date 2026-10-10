@@ -87,6 +87,7 @@ from metatv.core.channel_name_utils import (
     CONF_WEAK_PRIOR,
     CREDIT_QUALIFIER_WORDS,
     NON_PERSON_RESIDUAL_WORDS,
+    leading_country,
     CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
     QUALITY_TOKENS,
@@ -580,6 +581,14 @@ def _decompose_compound(raw: str, config) -> list[tuple[str, str, float]]:
     residual_parts: list[str] = []
 
     for tok in tokens:
+        # A country NAME leading the label ("SWEDEN SOCCER PPV") is a region,
+        # classified exactly like its code; the rest of the token carries on.
+        country = leading_country(tok)
+        if country:
+            code, tok = country
+            tags.extend(_classify_prefix_token(code, config))
+            if not tok:
+                continue
         tok_upper = tok.upper()
 
         # Try as quality first (quality tokens are a closed set).

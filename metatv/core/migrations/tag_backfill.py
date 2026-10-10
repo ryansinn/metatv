@@ -228,7 +228,16 @@ def _set_backfill_active(active: bool) -> None:
 #       tagged platform:SC. SC is a region code (REGION_FULL_NAMES["SC"]);
 #       the platform entry is gone. Targeted: only channels carrying a
 #       platform:SC tag are re-decomposed (``_collect_channel_ids_platform_sc``).
-CURRENT_TAG_BACKFILL_VERSION = 13
+#   14 — a country NAME leading a group label ("SWEDEN SOCCER PPV") is now a
+#       region (channel_name_utils.leading_country). 3,075 prefix-less live
+#       channels on the owner's library carried their country only there, so
+#       Global Exclusions could not see them. Targeted: those channels get
+#       detected_region filled and are re-decomposed
+#       (``_collect_channel_ids_country_label``).
+CURRENT_TAG_BACKFILL_VERSION = 14
+
+#: A library already at version 13 only needs its country-named labels re-run.
+_TARGETED_COUNTRY_LABEL_FLOOR: int = 13
 
 #: A library already at version 12 only needs its platform:SC rows re-run.
 _TARGETED_PLATFORM_SC_FLOOR: int = 12
@@ -330,10 +339,16 @@ class TagBackfillTask:
         _set_backfill_active(True)
         try:
             stored_version = getattr(config, "tag_backfill_version", 0)
-            if stored_version >= _TARGETED_PLATFORM_SC_FLOOR:
+            country_ids = (self._collect_channel_ids_country_label(config)
+                           if stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR else [])
+            if stored_version >= _TARGETED_COUNTRY_LABEL_FLOOR:
+                logger.info("TagBackfillTask: library at version {} — targeted "
+                            "country-label re-tag only", stored_version)
+                channel_ids = country_ids
+            elif stored_version >= _TARGETED_PLATFORM_SC_FLOOR:
                 logger.info("TagBackfillTask: library at version {} — targeted "
                             "platform:SC re-tag only", stored_version)
-                channel_ids = self._collect_channel_ids_platform_sc()
+                channel_ids = sorted(set(self._collect_channel_ids_platform_sc()) | set(country_ids))
             elif stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR:
                 logger.info(
                     "TagBackfillTask: library already at version {} — targeted "
@@ -341,7 +356,8 @@ class TagBackfillTask:
                     stored_version,
                 )
                 channel_ids = sorted(set(self._collect_channel_ids_region_language())
-                                     | set(self._collect_channel_ids_platform_sc()))
+                                     | set(self._collect_channel_ids_platform_sc())
+                                     | set(country_ids))
             else:
                 logger.info(
                     "TagBackfillTask: library at version {} — full corpus pass",
@@ -456,6 +472,33 @@ class TagBackfillTask:
                 "WHERE t.type = 'platform' AND t.value = 'SC'"
             )).all()
         return [r[0] for r in rows]
+
+    def _collect_channel_ids_country_label(self, config) -> list[str]:
+        """Prefix-less channels whose group label leads with a country name
+        (version 14). Fills their empty ``detected_region`` from the label —
+        the column Global Exclusions read — and returns them for re-tagging."""
+        from metatv.core.tag_decomposer import region_code_from_category
+        found: dict[str, str] = {}
+        with self._db.session_scope(commit=False) as session:
+            rows = session.execute(text(
+                "SELECT id, category FROM channels WHERE COALESCE(detected_prefix, '') = ''"
+                " AND COALESCE(detected_region, '') = '' AND COALESCE(category, '') != ''"
+            )).all()
+        by_label: dict[str, str | None] = {}
+        for cid, category in rows:
+            if category not in by_label:
+                by_label[category] = region_code_from_category(category, config=config)
+            if by_label[category]:
+                found[cid] = by_label[category]
+        if found:
+            with self._db.session_scope() as session:
+                session.execute(text(
+                    "UPDATE channels SET detected_region = :r WHERE id = :i"
+                    " AND COALESCE(detected_region, '') = ''"),
+                    [{"r": r, "i": i} for i, r in found.items()])
+        logger.info("TagBackfillTask: {:,} channel(s) take their region from a "
+                    "country-named label", len(found))
+        return sorted(found)
 
     def _collect_channel_ids_region_language(self) -> list[str]:
         """Return movie/series channel IDs carrying at least one ``region`` tag.
