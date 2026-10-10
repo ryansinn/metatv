@@ -58,19 +58,36 @@ def _qa_defaults(model_cls) -> dict:
 PROFILE = {"store": "profile"}
 
 
+#: The ONLY settings config.yaml keeps: what must be readable before the
+#: database is open (where it lives, where data goes, the cold-launch theme,
+#: values MainWindow reads before it attaches the store) and the store's own
+#: bookkeeping. Everything else — every preference, every remembered UI
+#: state, every migration watermark — lives in metatv.db's ``profile`` table.
+#: The default is the database; adding a name here is the exception that has
+#: to be argued for (owner, 2026-10-09: "config.yaml isn't used. period.").
+YAML_ONLY: frozenset[str] = frozenset({
+    "config_dir", "data_dir", "cache_dir", "database_url",
+    "theme_name",                   # __main__ applies it before MainWindow exists
+    "max_stacked_notifications",    # read in MainWindow.__init__ before attach
+    "profile_store_populated",      # the profile store's own "have I migrated" flag
+})
+
+
 def _profile_field_names(model_cls) -> "set[str]":
-    """Every field marked :data:`PROFILE` on *model_cls*.
+    """Every field stored in the database profile: all of them, except
+    :data:`YAML_ONLY`, the ``qa_`` sidecar fields and the legacy ``*_icon``
+    constants (static glyphs read before attach; never user state).
 
     Derived from the model, exactly as ``_qa_field_names`` is derived from the
     ``qa_`` prefix. ``profile_store.attach`` takes this rather than owning a
-    list, so the store cannot disagree with the declarations.
+    list, so the store cannot disagree with the declarations. A field marked
+    :data:`PROFILE` is in it like any other; the marker now only documents.
     """
-    out = set()
-    for name, field in model_cls.model_fields.items():
-        extra = field.json_schema_extra
-        if isinstance(extra, dict) and extra.get("store") == "profile":
-            out.add(name)
-    return out
+    return {
+        name for name in model_cls.model_fields
+        if name not in YAML_ONLY and not name.startswith("qa_")
+        and not name.endswith("_icon")
+    }
 
 
 def _qa_field_names(model_cls) -> "set[str]":
