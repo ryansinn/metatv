@@ -122,11 +122,18 @@ HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_
 
 
 def _alt_titles(info: dict) -> list:
-    """The provider's ``o_name`` as an alternate title, year stripped; empty when
-    absent or the same as the title it already shows."""
-    o_name = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", str(info.get("o_name") or "")).strip()
-    main = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", str(info.get("name") or "")).strip()
-    return [o_name] if o_name and o_name.casefold() != main.casefold() else []
+    """Every title the detail blob names (``o_name``, ``name``), year stripped.
+
+    Not compared with each other: on some panels BOTH are the regional title
+    ("Oskyldigt blod" for Innocent Blood). The writer drops whichever equal the
+    channel's own title — the comparison only it can make.
+    """
+    out = []
+    for key in ("o_name", "name"):
+        title = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", str(info.get(key) or "")).strip()
+        if title and title.casefold() not in {t.casefold() for t in out}:
+            out.append(title)
+    return out
 
 
 def harvest_detail_metadata(data: Any) -> dict:
