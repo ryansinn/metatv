@@ -278,9 +278,9 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
             parts.append(f"says {claimed_quality}, plays {resolution_label(v['height'])}")
         rows.append(("Resolution", " · ".join(parts)))
     if v.get("codec"):
+        # No bitrate: a probe's figure is a few seconds' average and reads as
+        # precision it is not (owner, 2026-10-10). Still stored, just not shown.
         text = _codec(v["codec"]) + (f" {v['profile']}" if v.get("profile") else "")
-        if v.get("bitrate_kbps"):
-            text += f" · {_rate(v['bitrate_kbps'])}"
         rows.append(("Video", text))
     for i, a in enumerate(info.get("audio") or []):
         bits = [language_name(a.get("lang")), _codec(a.get("codec")), _channels(a.get("channels"))]
