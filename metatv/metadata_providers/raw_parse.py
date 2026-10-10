@@ -118,7 +118,15 @@ def extract_artwork(info: dict) -> tuple[Optional[str], Optional[str]]:
 #: field is one edit here, and no consumer can drift from the contract.
 #: ``genres`` leads because ``apply_metadata_harvest`` counts only that one.
 HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_url",
-                  "original_language")
+                  "original_language", "alt_titles")
+
+
+def _alt_titles(info: dict) -> list:
+    """The provider's ``o_name`` as an alternate title, year stripped; empty when
+    absent or the same as the title it already shows."""
+    o_name = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", str(info.get("o_name") or "")).strip()
+    main = re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", str(info.get("name") or "")).strip()
+    return [o_name] if o_name and o_name.casefold() != main.casefold() else []
 
 
 def harvest_detail_metadata(data: Any) -> dict:
@@ -158,6 +166,9 @@ def harvest_detail_metadata(data: Any) -> dict:
         # The same response carries TMDb's original language and the provider's
         # own ffprobe of the file — free, so kept (LANG-2 / PLAYED-5).
         "original_language": provider_original_language(info),
+        # o_name: the title as this source's catalog files it ("Oskyldigt blod"
+        # for Innocent Blood on a Swedish panel) — kept so it is searchable.
+        "alt_titles": _alt_titles(info),
         "stream": provider_stream_record(info),
     }
 

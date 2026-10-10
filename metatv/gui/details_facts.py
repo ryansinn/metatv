@@ -97,6 +97,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._metadata_from_tmdb = False
         self._release_date = ""
         self._original_language = ""
+        self._alt_titles: list = []
         self._tags: list = []
         self._stream_rows: list[tuple[str, str]] = []
         self._stream_caption = ""
@@ -163,6 +164,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         """Take the release date (the one fact Technical Details used to show)."""
         self._release_date = (getattr(metadata, "release_date", None) or "").strip()
         self._original_language = getattr(metadata, "original_language", None) or ""
+        self._alt_titles = list(getattr(metadata, "alt_titles", None) or [])
         source = (getattr(metadata, "provider_name", None) or "").lower()
         self._metadata_from_tmdb = "tmdb" in source
         self._render()
@@ -197,6 +199,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._tags = []
         self._release_date = ""
         self._original_language = ""
+        self._alt_titles = []
         self._metadata_from_tmdb = False
         self._render()
 
@@ -248,6 +251,9 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             # about this copy's audio (that is the Language row above).
             rows["original"] = [(self._original_language, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
+        if self._alt_titles:
+            # The title as the source's regional catalog releases it — searchable.
+            rows["aka"] = [(t, None, None, False, self._provider_name) for t in self._alt_titles]
         if self._release_date:
             rows["released"] = [(self._release_date, None, None, False,
                                  "TMDb" if self._metadata_from_tmdb else self._provider_name)]
@@ -262,7 +268,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT - 14)
         grid.setVerticalSpacing(3)
         ordered = [f for f in _FACET_DISPLAY_ORDER if f in rows]
-        tail = ("original", "released")
+        tail = ("aka", "original", "released")
         ordered += sorted(f for f in rows if f not in _FACET_DISPLAY_ORDER and f not in tail)
         ordered += [f for f in tail if f in rows]
         # Measured rows first: what the stream really is outranks any claim.
@@ -279,7 +285,8 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             grid.addWidget(make_flow(widgets), r, 1)
         offset = len(self._stream_rows)
         for r, facet in enumerate(ordered, start=offset):
-            label = {"released": "Released", "original": "Original language"}.get(facet) or _FACET_LABELS.get(
+            label = {"released": "Released", "original": "Original language",
+                     "aka": "Regional title"}.get(facet) or _FACET_LABELS.get(
                 facet, facet.replace("_", " ").title())
             grid.addWidget(make_key(label), r, 0, Qt.AlignmentFlag.AlignTop)
             widgets = []

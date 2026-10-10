@@ -84,6 +84,23 @@ def metadata_person_exists(pattern: str):
     )
 
 
+def metadata_alt_title_exists(pattern: str):
+    """Correlated EXISTS: one of the channel's alternate titles (``MetadataDB.
+    alt_titles`` — e.g. the provider's ``o_name``) matches *pattern*. Separate
+    from :func:`metadata_person_exists` on purpose: a person filter must never
+    match a film's title. Used by free-text search only."""
+    from sqlalchemy import (
+        Text as _Text, exists as _exists, select as _sa_select,
+        type_coerce as _type_coerce,
+    )
+    return _exists(
+        _sa_select(MetadataDB.id)
+        .where(MetadataDB.id == ChannelDB.metadata_id,
+               _type_coerce(MetadataDB.alt_titles, _Text).ilike(pattern))
+        .correlate(ChannelDB)
+    )
+
+
 def person_predicate(name: str):
     """Single definition of "this channel is associated with this person".
 
