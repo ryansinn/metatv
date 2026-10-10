@@ -1403,6 +1403,23 @@ _FULL_NAME_TO_CODE: dict[str, str] = {
     "ETHIOPIA": "ETH", "TOGO": "TGO",     "GABON": "GAB",
     "GAMBIA": "GM",    "TANZANIA": "TZ",  "MALI": "MLI",
     "GUINEA": "GIN",   "MOZAMBIQUE": "MZ",
+    # Seen leading provider group labels ("KUWAIT +6H", "ESTONIA PPV"); ISO
+    # codes, matching REGION_FULL_NAMES and the Global Exclusions lists.
+    "UNITED STATES": "US", "UNITED KINGDOM": "UK", "NEW ZEALAND": "NZ",
+    "KUWAIT": "KW", "QATAR": "QA", "SAUDI ARABIA": "SA", "BAHRAIN": "BH",
+    "IRAQ": "IQ", "JORDAN": "JO", "LEBANON": "LB", "SYRIA": "SY", "YEMEN": "YE",
+    "PALESTINE": "PS", "SUDAN": "SD", "ALGERIA": "DZ", "TUNISIA": "TN",
+    "LIBYA": "LY", "UNITED ARAB EMIRATES": "AE", "IRAN": "IR",
+    "ESTONIA": "EE", "LATVIA": "LV", "LITHUANIA": "LT", "BELARUS": "BY",
+    "KAZAKHSTAN": "KZ", "UZBEKISTAN": "UZ", "ARMENIA": "AM", "AZERBAIJAN": "AZ",
+    "GEORGIA": "GE", "CYPRUS": "CY", "MALTA": "MT", "BULGARIA": "BG",
+    "SERBIA": "RS", "SLOVENIA": "SI", "BOSNIA": "BA", "MONTENEGRO": "ME",
+    "ALBANIA": "AL", "NORTH MACEDONIA": "MK", "CZECH REPUBLIC": "CZ",
+    "SLOVAKIA": "SK", "HONG KONG": "HK", "TAIWAN": "TW", "SINGAPORE": "SG",
+    "MALAYSIA": "MY", "THAILAND": "TH", "VIETNAM": "VN", "PHILIPPINES": "PH",
+    "INDONESIA": "ID", "SOUTH KOREA": "KR", "KOREA": "KR", "CAMBODIA": "KH",
+    "NEPAL": "NP", "BANGLADESH": "BD", "SRI LANKA": "LK", "HAITI": "HT",
+    "MADAGASCAR": "MG", "CAPE VERDE": "CV",
 }
 
 _ALIAS_MAP: dict[str, str] = {
@@ -1534,7 +1551,18 @@ REGION_FULL_NAMES: dict[str, str] = {
     "ISR": "Israel",  # surfaced in TREX + IPTV Ninja, measured 588 channels
     # Content-type prefixes (Trex / provider-specific)
     "MV": "Music Videos", "SPT": "Sports",
+    # ISO codes that had no display name (they rendered as bare codes).
+    "KW": "Kuwait", "QA": "Qatar", "IQ": "Iraq", "JO": "Jordan", "LB": "Lebanon",
+    "PS": "Palestine", "SD": "Sudan", "SY": "Syria", "YE": "Yemen", "BH": "Bahrain",
+    "AZ": "Azerbaijan", "KH": "Cambodia", "HK": "Hong Kong", "SG": "Singapore",
+    "TW": "Taiwan", "HT": "Haiti", "MG": "Madagascar", "GE": "Georgia",
+    "CY": "Cyprus", "NP": "Nepal", "LV": "Latvia", "LT": "Lithuania",
+    "MY": "Malaysia", "MT": "Malta", "CV": "Cape Verde", "BY": "Belarus",
+    "KZ": "Kazakhstan", "UZ": "Uzbekistan", "BA": "Bosnia and Herzegovina",
+    "ME": "Montenegro", "MK": "North Macedonia", "AM": "Armenia",
+    "BD": "Bangladesh", "LK": "Sri Lanka", "EE": "Estonia",
 }
+
 
 
 #: Spelled-out league names prefixing a dash-matchup fixture's team A — "MAJOR
@@ -2195,6 +2223,20 @@ def normalize_region_code(raw: str) -> str:
     if upper in _ALIAS_MAP:
         return _ALIAS_MAP[upper]
     return upper
+
+
+_LEADING_COUNTRY_RE = re.compile(
+    r"^(" + "|".join(sorted(map(re.escape, _FULL_NAME_TO_CODE), key=len, reverse=True))
+    + r")\b\s*(.*)$", re.IGNORECASE)
+
+
+def leading_country(label: str) -> tuple[str, str] | None:
+    """``(code, rest)`` when *label* STARTS with a country name — "SWEDEN SOCCER
+    PPV" → ``("SWE", "SOCCER PPV")`` — via the same table
+    :func:`normalize_region_code` reads; None otherwise. Leading only, so a
+    country word inside a title is never read as a region."""
+    m = _LEADING_COUNTRY_RE.match((label or "").strip())
+    return (_FULL_NAME_TO_CODE[m.group(1).upper()], m.group(2).strip()) if m else None
 
 
 def split_category_prefix(category: str) -> tuple[Optional[str], Optional[str]]:
