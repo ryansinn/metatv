@@ -456,6 +456,7 @@ class MetadataManager:
             plot=metadata.plot,
             tagline=metadata.tagline,
             original_language=metadata.original_language,
+            alt_titles=metadata.alt_titles or [],
 
             poster_url=metadata.poster_url,
             backdrop_url=metadata.backdrop_url,

@@ -345,6 +345,7 @@ class MetadataDB(Base):
     plot = Column(Text)
     tagline = Column(Text)
     original_language = Column(String)  # LANG-2: TMDb's original language, as a name
+    alt_titles = Column(JSONEncoded)  # other names it is filed under (the provider's o_name, e.g. 'Oskyldigt blod')
     
     # Ratings
     rating = Column(Float)
@@ -1076,6 +1077,7 @@ class Database:
             ("metadata",     "crew",                          "TEXT"),  # JSONEncoded -> Text
             ("metadata",     "trailer_url",                   "TEXT"),
             ("metadata",     "original_language",             "TEXT"),   # LANG-2
+            ("metadata",     "alt_titles",                    "TEXT"),   # JSONEncoded -> Text
             ("metadata",     "content_rating",                "TEXT"),
             ("metadata",     "release_date",                  "TEXT"),
             ("channels",     "channel_key",                   "INTEGER"),  # DB-9

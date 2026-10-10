@@ -17,6 +17,7 @@ class MetadataResult:
     plot: Optional[str] = None
     tagline: Optional[str] = None
     original_language: Optional[str] = None  # language name ("English"), from TMDb's ISO code
+    alt_titles: List[str] = field(default_factory=list)  # other names it is filed under
     
     # Media URLs
     poster_url: Optional[str] = None
