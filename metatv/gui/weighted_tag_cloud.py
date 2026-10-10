@@ -179,23 +179,37 @@ class _TagButton(QPushButton):
         if facet_label:
             # A cross-facet search mixes facets that can share a colour (Cast and
             # Directing are both blue), so the facet is captioned above the name.
-            self._build_captioned(facet_label, label, font_token, color)
+            self._build_captioned(facet_label, count_str, f"{mark}{label_value}",
+                                  font_token, color)
         else:
             self.setText(label)
         self.adjustSize()
 
-    def _build_captioned(self, caption: str, label: str, font_token: str, color: str) -> None:
-        """Lay out a small caps facet caption above the tag label."""
+    def _build_captioned(self, caption: str, count_str: str, label: str,
+                         font_token: str, color: str) -> None:
+        """Lay out a small caps caption row (facet left, count right) above the name.
+
+        The count rides in the caption so it stays small; at the name's weighted
+        font size it read as part of the name.
+        """
         box = QVBoxLayout(self)
         box.setContentsMargins(6, 2, 6, 2)
         box.setSpacing(0)
+        top = QHBoxLayout()
+        top.setSpacing(8)
         cap = QLabel(caption.upper())
-        _theme.style(cap, "RECIPE_ROLE_LABEL")
+        num = QLabel(count_str)
         name = QLabel(label)
+        _theme.style(cap, "RECIPE_ROLE_LABEL")
+        _theme.style(num, "RECIPE_ROLE_LABEL")
         _theme.style_fn(name, lambda: f"font-size: {font_token}; color: {color};")
-        for lbl in (cap, name):
+        top.addWidget(cap)
+        top.addStretch()
+        top.addWidget(num)
+        box.addLayout(top)
+        box.addWidget(name)
+        for lbl in (cap, num, name):
             lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            box.addWidget(lbl)
 
     def sizeHint(self):  # type: ignore[override]
         """A captioned button sizes to its two-line layout, not its (empty) text."""
