@@ -39,6 +39,13 @@ from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowContainer
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 
+def _half_size(font_token: str) -> str:
+    """About half the ROW height (0.6 x the name size), floored at FONT_SM."""
+    def px(tok: str) -> int:
+        return int(str(tok).strip().removesuffix("px") or 0)
+    return f"{max(px(_theme.FONT_SM), round(px(font_token) * 0.6))}px"
+
+
 # Maximum number of tags shown before the "+N more" cap button appears.
 _CAP: int = 40
 
@@ -224,7 +231,10 @@ class _TagButton(QPushButton):
         name = QLabel(label)
         num = QLabel(count_str)
         _theme.style_fn(name, lambda: f"font-size: {font_token}; color: {color};")
-        _theme.style(num, "RECIPE_ROLE_LABEL")
+        # About half the row height, never below the caption size — readable
+        # beside a big name, quiet beside a small one.
+        _theme.style_fn(num, lambda: _theme.RECIPE_ROLE_LABEL
+                        + f" font-size: {_half_size(font_token)};")
         row.addWidget(name)
         row.addWidget(num, 0, Qt.AlignmentFlag.AlignTop)
         for lbl in (name, num):
