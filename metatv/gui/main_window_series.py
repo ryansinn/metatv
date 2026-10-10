@@ -27,6 +27,8 @@ from PyQt6.QtWidgets import QTreeWidgetItem
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.series_copies import other_copies
+from metatv.gui.detail_chips import display_code
 from metatv.core.provider_loader import SeriesLoadThread
 from metatv.core.repositories.dtos import EpisodeDTO
 from metatv.gui import icons as _icons
@@ -278,6 +280,33 @@ class _SeriesMixin:
 
     # ── Tree population ────────────────────────────────────────────────────────
 
+    def _mark_season_not_in_copy(self, season_item, season, copies) -> None:
+        """Label an empty season and list the other copies, each a child row the
+        user can double-click to open that copy. Explicit about the switch: the
+        row and its tooltip name the copy, its source, and that it is a
+        different version — nothing is opened on the user's behalf."""
+        season_item.setText(0, f"{season.name} · not in this copy")
+        season_item.setText(1, "")
+        season_item.setForeground(0, QColor(_theme.COLOR_MUTED))
+        if not copies:
+            note = QTreeWidgetItem(season_item)
+            note.setText(0, "No other copy of this series on your sources")
+            note.setForeground(0, QColor(_theme.COLOR_MUTED))
+            note.setFlags(note.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            return
+        for copy in copies:
+            label = display_code(copy.prefix, self.config) if copy.prefix else "Another copy"
+            source = self.details_pane.provider_name(copy.provider_id)
+            n = copy.episodes_by_season.get(season.season_num)
+            status = (f"has {n} episodes" if n else
+                      "not checked yet" if not copy.episodes_by_season else "doesn't have it either")
+            row = QTreeWidgetItem(season_item)
+            row.setText(0, f"{_icons.redirect_icon} Open the {label} copy · {source} — {status}")
+            row.setToolTip(0, f"A different version of this series: the {label} copy from "
+                              f"{source}.\nDouble-click to switch the tree to that copy.")
+            row.setData(0, Qt.ItemDataRole.UserRole,
+                        {"type": "other_copy", "channel_id": copy.channel_id, "label": label})
+
     def populate_series_tree(self):
         """Populate the series tree widget with seasons and episodes."""
         self.series_tree.clear()
@@ -317,6 +346,7 @@ class _SeriesMixin:
                 gap_item.setFlags(gap_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
 
             total_episodes = 0
+            copies = None          # other copies, looked up once, only if a season is empty
 
             for season in seasons:
                 # Get episodes as DTOs first — they're needed for the season glyph.
@@ -352,6 +382,14 @@ class _SeriesMixin:
                     if episode.rating:
                         episode_item.setText(3, f"{self.rating_star_icon} {episode.rating}")
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
+
+                if not episode_dtos:
+                    # Listed by the provider but empty in THIS copy: say so, and
+                    # offer the other copies — the user decides; nothing switches.
+                    if copies is None:
+                        copies = other_copies(session, self.current_series.id,
+                                              repos.providers.get_hidden_provider_ids())
+                    self._mark_season_not_in_copy(season_item, season, copies)
 
                 # Initially collapse seasons.
                 season_item.setExpanded(False)
