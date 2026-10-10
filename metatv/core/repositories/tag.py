@@ -654,11 +654,11 @@ class TagRepository(ContentTagCrudMixin):
         if not facet_list or limit_per_facet <= 0:
             return {}
         # A role facet is a person + role bit, not a stored type: no window for it.
-        scope = dict(excluded_provider_ids=excluded_provider_ids,
-                     excluded_prefixes=excluded_prefixes,
-                     excluded_categories=excluded_categories,
-                     excluded_tag_content_types=excluded_tag_content_types,
-                     excluded_keywords=excluded_keywords)
+        scope = {"excluded_provider_ids": excluded_provider_ids,
+                 "excluded_prefixes": excluded_prefixes,
+                 "excluded_categories": excluded_categories,
+                 "excluded_tag_content_types": excluded_tag_content_types,
+                 "excluded_keywords": excluded_keywords}
         roles = {f: self.get_tag_counts_for_facet(f, limit=limit_per_facet, **scope)
                  for f in facet_list if f in ROLE_BITS}
         roles = {f: counts for f, counts in roles.items() if counts}
