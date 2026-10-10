@@ -103,6 +103,7 @@ adult_filter_icon: str = "🔞"       # U+1F51E NO ONE UNDER EIGHTEEN — conten
 filter_only_icon: str = "◎"   # U+25CE BULLSEYE — "show only this group" affordance
 show_all_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "show all / expand" affordance
 see_all_arrow_icon: str = "→"  # U+2192 RIGHTWARDS ARROW — "See all / Show all" drill-down affordance
+redirect_icon: str = "↪"  # U+21AA — "open a different copy/version instead" (series tree: a season this copy lacks)
 overflow_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "More…" overflow-menu button (demoted actions)
 hide_icon: str = "🚫"
 hide_watched_filter_icon: str = "✓"   # Used in "Hide watched" toggle label

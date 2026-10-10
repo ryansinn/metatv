@@ -141,6 +141,13 @@ class _SeriesPlaybackMixin:
             # Play episode
             episode = data["data"]
             self.play_episode(episode)
+        elif item_type == "other_copy":
+            # The user chose another copy for a season this one lacks — open it,
+            # and say what happened so the switch is never a surprise.
+            channel = self._resolve_playable_channel(data["channel_id"])
+            if channel is not None:
+                self.status(f"Switched to the {data.get('label', 'other')} copy of this series")
+                self.drill_into_series(channel)
 
     def play_episode_by_id(self, episode_id: str) -> None:
         """Resolve an episode_id to a PlayableEpisodeDTO and route through play_episode().
