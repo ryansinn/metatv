@@ -187,10 +187,16 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             self._stream_languages = ()
         self._render()
 
-    def set_original_language(self, language: str) -> None:
-        """Show a title's original language that arrived after its metadata."""
+    def set_provider_facts(self, language: str, alt_titles: list) -> None:
+        """Show an original language / alternate titles that arrived after metadata."""
+        changed = False
         if language and not self._original_language:
-            self._original_language = language
+            self._original_language, changed = language, True
+        for title in alt_titles or []:
+            if title not in self._alt_titles:
+                self._alt_titles.append(title)
+                changed = True
+        if changed:
             self._render()
 
     def clear(self) -> None:
