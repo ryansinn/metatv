@@ -51,3 +51,73 @@ class TagSourceType(TypeDecorator):
         if value is None:
             return None
         return _TAG_SOURCE_FROM_INT.get(value, f"unknown:{value}")
+
+
+# ── Feeder codes ──────────────────────────────────────────────────────────────
+# A content_tags link records which feeders asserted it. Stored as the feeder
+# NAMES in JSON ('["provider_category","name_parse"]'), the same few words were
+# repeated across ~4M rows; stored as codes ("1,2") they cost a few bytes.
+# Readers still see names: the column type translates both ways.
+#
+# PERMANENT: a code, once written, means its feeder forever. Never renumber or
+# reuse one; a new feeder takes the next unused number. A name not listed here
+# is stored as its own text (never lost), so forgetting to add one costs bytes,
+# not data.
+
+import json as _json
+
+from sqlalchemy import Text, literal, or_
+
+FEEDER_CODES: dict[str, int] = {
+    "provider_category": 1, "name_parse": 2, "region_inference": 3,
+    "metadata_credits": 4, "genre": 5, "header": 6, "audio_annotation": 7,
+    "name_cast": 8, "name_ai_marker": 9, "played_tracks": 10,
+    "provider_probe": 11, "provider_detail": 12, "user": 13, "tmdb": 14,
+    "metadata": 15,
+}
+_FEEDER_NAMES = {code: name for name, code in FEEDER_CODES.items()}
+
+
+def encode_feeders(feeders) -> str | None:
+    """``["provider_category", "x"]`` → ``"1,x"``."""
+    if feeders is None:
+        return None
+    return ",".join(str(FEEDER_CODES.get(f, f)) for f in feeders)
+
+
+def decode_feeders(stored) -> list:
+    """Stored codes (or the legacy JSON form) → feeder names."""
+    if stored is None or stored == "":
+        return [] if stored == "" else None
+    if isinstance(stored, list):
+        return stored
+    if stored.startswith("["):                        # pre-codes JSON, until converted
+        try:
+            return list(_json.loads(stored))
+        except ValueError:
+            return []
+    return [_FEEDER_NAMES.get(int(t), t) if t.isdigit() else t for t in stored.split(",") if t]
+
+
+class FeederList(TypeDecorator):
+    """``content_tags.feeders``: a list of feeder names, stored as codes."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return encode_feeders(value)
+
+    def process_result_value(self, value, dialect):
+        return decode_feeders(value)
+
+
+def feeder_present(column, name: str):
+    """SQL: the link's feeders include *name* — matches both stored forms."""
+    from sqlalchemy import type_coerce
+    text_col = type_coerce(column, Text)
+    code = FEEDER_CODES.get(name)
+    clauses = [text_col.like(f'%"{name}"%')]                      # legacy JSON form
+    if code is not None:
+        clauses.append((literal(",") + text_col + literal(",")).like(f"%,{code},%"))
+    return or_(*clauses)

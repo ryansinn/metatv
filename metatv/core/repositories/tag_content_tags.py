@@ -385,10 +385,10 @@ class ContentTagCrudMixin:
         ``tag_provenance.PERSISTENT_FEEDERS``), stripping only its derived
         feeders. One SQL delete for the bulk; the kept links are few.
         """
-        from sqlalchemy import Text, not_, or_, type_coerce
+        from sqlalchemy import not_, or_
         from metatv.core.tag_provenance import PERSISTENT_FEEDERS
-        feeders_text = type_coerce(ContentTagDB.feeders, Text)
-        persistent = or_(*[feeders_text.like(f'%"{f}"%') for f in sorted(PERSISTENT_FEEDERS)])
+        from metatv.core.tag_source import feeder_present
+        persistent = or_(*[feeder_present(ContentTagDB.feeders, f) for f in sorted(PERSISTENT_FEEDERS)])
         base = self.session.query(ContentTagDB).filter(ContentTagDB.source == "generated", *where)
         deleted = base.filter(not_(persistent)).delete(synchronize_session=False)
         for link in base.filter(persistent).all():

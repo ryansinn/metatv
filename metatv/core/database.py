@@ -13,7 +13,7 @@ from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 from metatv.core import channel_index_policy, write_gate
-from metatv.core.tag_source import TagSourceType
+from metatv.core.tag_source import TagSourceType, FeederList
 
 Base = declarative_base()
 
@@ -855,7 +855,7 @@ class ContentTagDB(Base):
                           primary_key=True, nullable=False)
     source      = Column(TagSourceType, primary_key=True, nullable=False,
                           default="generated")  # "generated" | "user"
-    feeders     = Column(JSONEncoded)      # list[str] of contributing feeder names
+    feeders     = Column(FeederList)       # list[str] of feeder names, stored as codes (tag_source.FEEDER_CODES)
     #: What the tag means ON THIS CHANNEL, per type: cast → the character played,
     #: director → the job credited ("Director", "First Assistant Director"),
     #: title → where the name comes from. NULL when the source gave none.
