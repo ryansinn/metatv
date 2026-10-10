@@ -81,6 +81,12 @@ class CollapsibleHeader(QWidget):
 
         row.addStretch()
 
+        # Section actions sit just left of the count (Details' stream probe).
+        self._actions = QHBoxLayout()
+        self._actions.setContentsMargins(0, 0, 0, 0)
+        self._actions.setSpacing(_theme.space_px(_theme.SPACE_XS))
+        row.addLayout(self._actions)
+
         # Right-aligned summary — "18", "65 versions · 19 regions". Hidden when
         # empty rather than left as a blank: an empty slot on some headers and
         # not others reads as a missing value.
@@ -146,6 +152,10 @@ class CollapsibleHeader(QWidget):
 
     def summary(self) -> str:
         return self._summary.text()
+
+    def add_action(self, widget: QWidget) -> None:
+        """Add a section action left of the count — Details' "Get stream details"."""
+        self._actions.addWidget(widget)
 
     def add_trailing(self, widget: QWidget) -> None:
         """Add a control after the summary — Similar Titles' expand arrow."""

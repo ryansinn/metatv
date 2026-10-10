@@ -195,12 +195,11 @@ def guess_reason(feeders: Iterable[str], region_names: list[str]) -> str:
 
     Returns:
         ``"from region {names}"`` when the guess came from a region
-        inference and at least one region name is known, ``"from the
-        region"`` when a region inference has no resolved name, else
-        ``"from the name"``.
+        inference and at least one region name is known, ``"from region"``
+        when a region inference has no resolved name, else ``"from title"``.
     """
     if "region_inference" in feeders:
         if region_names:
             return "from region " + ", ".join(region_names)
-        return "from the region"
-    return "from the name"
+        return "from region"
+    return "from title"

@@ -129,12 +129,12 @@ def test_guess_reason_region_inference_multiple_names():
 
 
 def test_guess_reason_region_inference_no_names():
-    assert guess_reason(["region_inference"], []) == "from the region"
+    assert guess_reason(["region_inference"], []) == "from region"
 
 
 def test_guess_reason_falls_back_to_name():
-    assert guess_reason(["name_parse"], []) == "from the name"
-    assert guess_reason([], ["Sweden (SE)"]) == "from the name"
+    assert guess_reason(["name_parse"], []) == "from title"
+    assert guess_reason([], ["Sweden (SE)"]) == "from title"
 
 
 # ---------------------------------------------------------------------------
