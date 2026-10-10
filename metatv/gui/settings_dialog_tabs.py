@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
+from metatv.gui.settings_text_size import add_text_size_row
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
@@ -918,6 +919,7 @@ class SettingsTabsMixin:
             "restart needed for most of the app."
         )
         appearance_form.addRow("Theme:", self._theme_combo)
+        self._text_size_combo = add_text_size_row(appearance_form)
 
         self._menu_auto_hide_check = QCheckBox(
             "Hide the menu bar until Alt is pressed"
@@ -1041,9 +1043,8 @@ class SettingsTabsMixin:
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
 
-        # A QFormLayout, like every other settings group: a hand-rolled
-        # label+combo QHBoxLayout puts the control at a different x, and the
-        # page stops sharing a left edge (tests/test_settings_form_alignment).
+        # A QFormLayout, like every settings group: a hand-rolled label+combo row puts
+        # the control at a different x (tests/test_settings_form_alignment).
         density_form = QFormLayout()
         density_form.setSpacing(8)
         self._sidebar_density_combo = QComboBox()

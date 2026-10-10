@@ -21,7 +21,8 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from metatv.core.config import QA_STATE_FILENAME, Config, _qa_field_names
+from metatv.core.config import Config
+from metatv.core.config_storage import QA_STATE_FILENAME, _qa_field_names
 
 
 @pytest.fixture()

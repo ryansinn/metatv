@@ -25,7 +25,8 @@ import pathlib
 import pytest
 import yaml
 
-from metatv.core.config import QA_STATE_FILENAME, Config, _qa_defaults, _YamlDumper, _YamlLoader
+from metatv.core.config import Config
+from metatv.core.config_storage import QA_STATE_FILENAME, _qa_defaults, _YamlDumper, _YamlLoader
 
 
 def test_the_c_emitter_is_used_when_the_platform_has_it() -> None:

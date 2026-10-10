@@ -10,6 +10,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
+from metatv.gui.settings_text_size import load_text_size, save_text_size
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
@@ -587,6 +588,9 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         self._theme_combo.blockSignals(True)
         _load_theme_combo(self._theme_combo, c)
         self._theme_combo.blockSignals(False)
+        self._text_size_combo.blockSignals(True)
+        load_text_size(self._text_size_combo, c)
+        self._text_size_combo.blockSignals(False)
 
         # Channel List
         self._channel_density_combo.blockSignals(True)
@@ -743,6 +747,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
                 new_visible.append(sid)
         # Appearance
         _save_theme_combo(self._theme_combo, c)
+        save_text_size(self._text_size_combo, c)
 
         # Channel List
         _save_channel_density(self._channel_density_combo, c)

@@ -347,6 +347,9 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.db = Database(config.database_url)
         self.db.create_tables()
         config.attach_profile_store(self.db)
+        # Text size lives in the database profile, so it applies here — after
+        # attach, before any widget exists (theme is the one owner of sizes).
+        _theme.set_text_scale(getattr(config, "ui_text_scale", 1.0))
         self._register_cleanable("profile_store", profile_store.shutdown)
         # Watch list -> database, written off-thread; see core/watchlist.py.
         self._watchlist_notifier = install_watchlist_writes(self)
@@ -2082,7 +2085,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         ``theme.COLOR_*`` fresh inside ``paint()``, so it needs a repaint
         rather than a restyle.
         """
-        if not _theme.apply_theme(self.config.theme_name):
+        scaled = _theme.set_text_scale(getattr(self.config, "ui_text_scale", 1.0))
+        if not _theme.apply_theme(self.config.theme_name) and not scaled:
             return
         if hasattr(self, "channels_list"):
             self.channels_list.viewport().update()

@@ -29,7 +29,8 @@ import yaml
 import pytest
 
 from metatv.core import profile_store
-from metatv.core.config import Config, _profile_field_names
+from metatv.core.config import Config
+from metatv.core.config_storage import _profile_field_names
 from metatv.core.database import Database, ProfileDB
 
 

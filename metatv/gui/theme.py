@@ -80,6 +80,8 @@ from metatv.gui.tokens import progress_roles as _progress_roles
 # ``_theme.COLOR_X`` at call time) — only their bound VALUE changes per palette.
 
 _current_theme: str = theme_palettes.DEFAULT_PALETTE
+#: Settings → text size: multiplies every FONT_* px token (see set_text_scale).
+_text_scale: float = 1.0
 
 
 class _TokenStr(str):
@@ -183,6 +185,8 @@ def _apply_palette_tokens(palette: dict[str, object]) -> None:
     for name, value in palette.items():
         if isinstance(value, str) and name.startswith(("COLOR_", "OVERLAY_")):
             value = _TokenStr(value, name)
+        elif name.startswith("FONT_") and isinstance(value, str) and value.endswith("px"):
+            value = f"{max(6, round(int(value[:-2]) * _text_scale))}px"
         g[name] = value
     # Derived tokens — composed from another token, not an independent
     # literal, so they aren't stored in theme_palettes.py's palette dicts.
@@ -1930,6 +1934,11 @@ def _sync_qt_application_palette() -> None:
     app = QApplication.instance()
     if app is not None:
         app.setPalette(qt_palette())
+        # The FONT floor (like the palette floor): unstyled widgets take the app
+        # font, so it is the type scale's base in px — never the OS point size.
+        font = app.font()
+        font.setPixelSize(int(str(FONT_MD)[:-2]))
+        app.setFont(font)
 
 
 # ---------------------------------------------------------------------------
@@ -2319,7 +2328,7 @@ def _visible_top_levels() -> list[QWidget]:
     return [w for w in app.topLevelWidgets() if w.isVisible()]
 
 
-def _apply_theme_locked(name: str) -> bool:
+def _apply_theme_locked(name: str, force: bool = False) -> bool:
     """The body of :func:`apply_theme`, with token-read recording suspended.
 
     THEME-1: painting is suspended (``setUpdatesEnabled``) on every visible
@@ -2328,7 +2337,7 @@ def _apply_theme_locked(name: str) -> bool:
     why pass 4 skips widgets 2/3 already restyled.
     """
     global _current_theme
-    changed = name != _current_theme
+    changed = force or name != _current_theme
     rewrite_map: dict[str, str] = {}
     global _CONSTANT_REWRITE
     _CONSTANT_REWRITE = {}
@@ -2394,6 +2403,20 @@ def _apply_theme_locked(name: str) -> bool:
     for hook in _POST_APPLY_HOOKS:
         hook()
     return changed
+
+
+def set_text_scale(scale: float) -> bool:
+    """Scale every ``FONT_*`` token (Settings → text size, 0.8–1.6) and restyle
+    live — roles, ``style_fn`` builders and the font floor all follow. True if
+    it changed."""
+    global _text_scale
+    scale = min(1.6, max(0.8, float(scale or 1.0)))
+    if abs(scale - _text_scale) < 1e-6:
+        return False
+    _text_scale = scale
+    with _suspend_recording():
+        _apply_theme_locked(_current_theme, force=True)
+    return True
 
 
 def current_theme() -> str:
