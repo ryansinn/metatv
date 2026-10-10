@@ -27,9 +27,15 @@ def _section(owned_widgets, source):
     return s
 
 
-def _keys(s):
-    return [lbl.text() for lbl in s._content.findChildren(QLabel)
-            if lbl.text() and not lbl.text().startswith("·") and lbl.isVisibleTo(s)]
+def _live_labels(s):
+    """Labels of the CURRENT render: replaced rows leave the body layout before
+    they are deleted, so reading through the layout never sees stale ones."""
+    out = []
+    for i in range(s._body.count()):
+        w = s._body.itemAt(i).widget()
+        if w is not None:
+            out += [lbl.text() for lbl in w.findChildren(QLabel) if lbl.text()]
+    return out
 
 
 def test_a_source_report_is_not_called_checked(qapp, owned_widgets):
@@ -44,13 +50,10 @@ def test_a_probe_offers_a_recheck(qapp, owned_widgets):
 
 def test_decade_is_deduced_and_repeat_rows_are_dropped(qapp, owned_widgets):
     s = _section(owned_widgets, "provider")
-    from PyQt6.QtCore import QCoreApplication, QEvent
-    # Replaced rows are deleteLater'd; flush them so only live rows are read.
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    captions = [lbl.text() for lbl in s._content.findChildren(QLabel)
-                if lbl.text().startswith("·")]
+    labels = _live_labels(s)
+    captions = [t for t in labels if t.startswith("·")]
     assert "· deduced from title" in captions
     assert not any("guessed" in c for c in captions)
-    keys = _keys(s)
+    keys = [t for t in labels if not t.startswith("·")]
     assert "Language" not in keys, "a Language row repeating the one audio track says nothing"
     assert "Original language" not in keys, "nor does an original language equal to it"
