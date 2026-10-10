@@ -149,7 +149,10 @@ class _MetadataMixin:
 
     def _on_stream_info_loaded(self, channel_id: str, record) -> None:
         self.details_pane.apply_stream_info(channel_id, record)
-        if record is None:
+        # Ask the provider once when there is nothing measured OR the title's
+        # provider-only facts (original language, alternate titles) were never
+        # fetched — a played movie still needs those.
+        if record is None or not self.details_pane.has_original_language():
             self._fetch_provider_details(channel_id)
 
     def _fetch_provider_details(self, channel_id: str) -> None:
@@ -182,13 +185,13 @@ class _MetadataMixin:
             if not harvest or not (harvest.get("stream") or harvest.get("original_language")):
                 return None
             repos.channels.apply_metadata_harvest({channel_id: harvest})
-            return harvest.get("original_language") or ""
+            return {"lang": harvest.get("original_language") or "",
+                    "alt": harvest.get("alt_titles") or []}
 
-        def stored(lang) -> None:
-            if lang is None:
+        def stored(found) -> None:
+            if found is None:
                 return
-            if lang:
-                self.details_pane.apply_original_language(channel_id, lang)
+            self.details_pane.apply_provider_facts(channel_id, found["lang"], found["alt"])
             self._run_query(lambda repos: repos.stream_info.get(channel_id),
                             lambda rec: self.details_pane.apply_stream_info(channel_id, rec))
 
