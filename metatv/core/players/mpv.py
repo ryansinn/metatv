@@ -378,7 +378,7 @@ class MPVPlayer(PlayerPlugin):
 
     # ── IPC ─────────────────────────────────────────────────────────────────
 
-    def _send_ipc_command(self, command: dict, key: str) -> bool:
+    def _send_ipc_command(self, command: dict, key: str, *, check_error: bool = False) -> bool:
         """Send IPC command to the socket for *key*.
 
         Args:
@@ -405,6 +405,17 @@ class MPVPlayer(PlayerPlugin):
             sock.close()
 
             logger.debug(f"IPC [{key}] sent: {command}, response: {response}")
+            if check_error:
+                # Delivered is not accepted: mpv answers {"error": "..."} for the
+                # request id. Event lines can share the read; skip those.
+                for line in response.splitlines():
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (msg.get("request_id") == command.get("request_id")
+                            and msg.get("error") not in (None, "success")):
+                        return False
             return True
 
         except FileNotFoundError:
@@ -817,16 +828,17 @@ class MPVPlayer(PlayerPlugin):
         }
         mpv_mode = mode_map.get(mode, "append-play")
 
-        # Escape the title for inclusion in mpv's per-file options string.
-        # mpv uses a comma-separated key=value list; we only need to escape
-        # the handful of characters that are structurally significant there.
-        safe_title = title.replace("\\", "\\\\").replace(",", "\\,").replace("=", "\\=")
+        # mpv's per-file options are a comma-separated key=value list with NO
+        # backslash escapes — "A rey muerto\\, rey puesto" was rejected as an
+        # invalid parameter and the episode silently never queued. mpv's own
+        # quoting is "%<byte length>%<value>", which carries any character.
+        quoted = f"%{len(title.encode('utf-8'))}%{title}"
         command = {
-            "command": ["loadfile", url, mpv_mode, 0, f"force-media-title={safe_title}"],
+            "command": ["loadfile", url, mpv_mode, 0, f"force-media-title={quoted}"],
             "request_id": 1,
         }
 
-        if self._send_ipc_command(command, key):
+        if self._send_ipc_command(command, key, check_error=True):
             logger.info(f"Queued to mpv [{key}]: {title}")
             return True
         else:
