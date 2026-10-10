@@ -436,7 +436,7 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
             JOIN content_tags ct ON ct.channel_key = ch.channel_key
             JOIN tags t ON t.id = ct.tag_id
             WHERE ch.id IN :ids
-              AND t.type IN ('cast', 'director')
+              AND t.type = 'person'   -- one identity, any role (tag_source)
               AND lower(t.value) LIKE :like ESCAPE '\\'
         )
         ORDER BY cid, tier, namelen

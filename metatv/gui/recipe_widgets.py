@@ -63,6 +63,8 @@ def _facet_meta() -> dict[str, tuple[str, str, str]]:
         # People — the same light blue as the Details pane's Cast chips.
         "cast":       ("Cast",          _theme.COLOR_ACCENT_BLUE_LIGHT, "WITH"),
         "director":   ("Directing",     _theme.COLOR_ACCENT_BLUE_LIGHT, "BY"),
+        # The identity itself, in any role (search results, names from titles).
+        "person":     ("Person",        _theme.COLOR_ACCENT_BLUE_LIGHT, "WITH"),
     }
 
 # Role display order in the recipe rail / bar

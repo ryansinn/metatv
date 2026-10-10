@@ -85,6 +85,7 @@ from metatv.core.channel_name_utils import (
     CONF_DENOTED,
     CONF_STRONG_PRIOR,
     CONF_WEAK_PRIOR,
+    CREDIT_QUALIFIER_WORDS,
     NON_PERSON_RESIDUAL_WORDS,
     CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
@@ -405,6 +406,8 @@ def decompose_name_cast(detected_name_cast: str | None) -> list[tuple[str, str, 
     for part in _PERSON_SPLIT_RE.split(base):
         candidate = _PARENTHETICAL_RE.sub("", part).strip()
         words = candidate.split()
+        while words and words[-1].upper() in CREDIT_QUALIFIER_WORDS:   # "… UNCREDITED"
+            words.pop()
         if not 2 <= len(words) <= 4:
             continue
         if any(w.upper() in NON_PERSON_RESIDUAL_WORDS for w in words):

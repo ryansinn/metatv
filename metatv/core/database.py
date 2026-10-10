@@ -862,6 +862,8 @@ class ContentTagDB(Base):
     detail      = Column(String)
     #: Order within its type on this channel (cast billing order). NULL = unordered.
     ord         = Column(Integer)
+    # In what capacity the tag applies here (tag_source: a person's role bits).
+    qualifier   = Column(Integer)
 
     __table_args__ = (
         # (tag_id, channel_key) — declared here (DB-6) so QueryIndexTask's
@@ -1091,6 +1093,7 @@ class Database:
             ("stream_info",  "fingerprint",                   "TEXT"),   # recycled-id guard
             ("content_tags", "detail",                        "TEXT"),   # per-channel tag detail
             ("content_tags", "ord",                           "INTEGER"),
+            ("content_tags", "qualifier",                     "INTEGER"),  # role bits
             ("metadata",     "content_rating",                "TEXT"),
             ("metadata",     "release_date",                  "TEXT"),
             ("channels",     "channel_key",                   "INTEGER"),  # DB-9

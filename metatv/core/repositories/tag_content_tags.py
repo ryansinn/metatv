@@ -55,6 +55,15 @@ def _compute_confidence(feeders: List[str]) -> float:
     return min(1.0, weighted_sum / _FEEDER_DENOMINATOR)
 
 
+def _merged_qualifier(stmt):
+    """On upsert, ADD the incoming role bits to the stored ones (an actor later
+    credited as director keeps both); a write with no bits leaves them alone."""
+    from sqlalchemy import case, func
+    incoming = stmt.excluded.qualifier
+    return case((incoming.is_(None), ContentTagDB.qualifier),
+                else_=func.coalesce(ContentTagDB.qualifier, 0).op("|")(incoming))
+
+
 class ContentTagCrudMixin:
     """Upsert / delete / per-channel read methods on ``ContentTagDB``.
 
@@ -81,6 +90,13 @@ class ContentTagCrudMixin:
             self.session.query(ChannelDB.id, ChannelDB.channel_key)
             .filter(ChannelDB.id.in_(list(channel_ids))).all()
         )
+
+    def _resolve_item(self, item) -> Tuple[int, int]:
+        """``(tag_id, role bit)`` for one ``(facet, value, …)`` item: a role facet
+        ("cast", "director") is stored as the ONE person tag plus a role bit."""
+        from metatv.core.tag_source import tag_storage
+        stored, bit = tag_storage(item[0])
+        return self.get_or_create_tag_id(stored, item[1]), bit
 
     def set_content_tags(
         self,
@@ -127,10 +143,12 @@ class ContentTagCrudMixin:
         # THIS channel (a cast member's character, billing order).
         tag_ids: List[Tuple[int, str]] = []  # (tag_id, feeder)
         details: Dict[int, tuple] = {}
+        roles: Dict[int, int] = {}
         for item in tags:
-            tag_type, tag_value, feeder = item[0], item[1], item[2]
-            tag_id = self.get_or_create_tag_id(tag_type, tag_value)
+            feeder = item[2]
+            tag_id, bit = self._resolve_item(item)
             tag_ids.append((tag_id, feeder))
+            roles[tag_id] = roles.get(tag_id, 0) | bit
             if len(item) > 3 and tag_id not in details:   # first credit wins
                 details[tag_id] = (item[3], item[4] if len(item) > 4 else None)
 
@@ -173,6 +191,7 @@ class ContentTagCrudMixin:
                 "feeders": feeders,
                 "detail": details.get(tag_id, (None, None))[0],
                 "ord": details.get(tag_id, (None, None))[1],
+                "qualifier": roles.get(tag_id) or None,
             }
             for tag_id, feeders in merged.items()
         ]
@@ -185,7 +204,8 @@ class ContentTagCrudMixin:
                 # A write without a detail never blanks one already stored.
                 set_={"feeders": stmt.excluded.feeders,
                       "detail": _func.coalesce(stmt.excluded.detail, ContentTagDB.detail),
-                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord)},
+                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord),
+                      "qualifier": _merged_qualifier(stmt)},
             )
             self.session.execute(stmt)
             self.session.flush()
@@ -222,6 +242,7 @@ class ContentTagCrudMixin:
                 TagDB.type,
                 TagDB.value,
                 ContentTagDB.feeders,
+                ContentTagDB.qualifier,
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
@@ -230,18 +251,21 @@ class ContentTagCrudMixin:
             .all()
         )
 
+        from metatv.core.tag_source import link_facets
         dtos: List[ChannelTagDTO] = []
-        for tag_type, value, feeders_raw in rows:
+        for tag_type, value, feeders_raw, qualifier in rows:
             feeder_list: List[str] = feeders_raw if isinstance(feeders_raw, list) else []
             # source_given = True when any feeder is a direct provider-field reader
             source_given = any(f in _SOURCE_GIVEN_FEEDERS for f in feeder_list)
-            dtos.append(ChannelTagDTO(
-                facet_type=tag_type,
-                value=value,
-                source_given=source_given,
-                confidence=_compute_confidence(feeder_list),
-                feeders=tuple(feeder_list),
-            ))
+            for facet in link_facets(tag_type, qualifier):   # a person may be cast AND director
+                dtos.append(ChannelTagDTO(
+                    facet_type=facet,
+                    value=value,
+                    source_given=source_given,
+                    confidence=_compute_confidence(feeder_list),
+                    feeders=tuple(feeder_list),
+                ))
+        dtos.sort(key=lambda d: (d.facet_type, d.value))
         return dtos
 
     def tags_for(self, channel_id: str) -> List[Tuple[str, str]]:
@@ -255,14 +279,15 @@ class ContentTagCrudMixin:
         Returns:
             List of ``(type, value)`` pairs, unordered.
         """
+        from metatv.core.tag_source import link_facets
         rows = (
-            self.session.query(TagDB.type, TagDB.value)
+            self.session.query(TagDB.type, TagDB.value, ContentTagDB.qualifier)
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
             .join(ChannelDB, ChannelDB.channel_key == ContentTagDB.channel_key)
             .filter(ChannelDB.id == channel_id)
             .all()
         )
-        return [(r.type, r.value) for r in rows]
+        return [(facet, r.value) for r in rows for facet in link_facets(r.type, r.qualifier)]
 
     def collections_for(self, channel_ids: List[str]) -> Dict[str, str]:
         """Return each channel's stored ``collection`` tag value, in one query.
@@ -465,12 +490,14 @@ class ContentTagCrudMixin:
         # (channel_key, tag_id, feeder) triples across the whole batch.
         channel_tag_feeders: List[Tuple[int, int, str]] = []  # (ckey, tid, feeder)
         details: Dict[Tuple[int, int], tuple] = {}
+        roles: Dict[Tuple[int, int], int] = {}
         for channel_id, tags in mapping.items():
             channel_key = key_by_cid.get(channel_id)
             if not tags or channel_key is None:
                 continue
             for item in tags:
-                tag_id = self.get_or_create_tag_id(item[0], item[1])
+                tag_id, bit = self._resolve_item(item)
+                roles[(channel_key, tag_id)] = roles.get((channel_key, tag_id), 0) | bit
                 channel_tag_feeders.append((channel_key, tag_id, item[2]))
                 if len(item) > 3 and (channel_key, tag_id) not in details:   # first wins
                     details[(channel_key, tag_id)] = (item[3], item[4] if len(item) > 4 else None)
@@ -521,6 +548,7 @@ class ContentTagCrudMixin:
                 "feeders": feeders,
                 "detail": details.get((ck, tid), (None, None))[0],
                 "ord": details.get((ck, tid), (None, None))[1],
+                "qualifier": roles.get((ck, tid)) or None,
             }
             for (ck, tid), feeders in merged.items()
         ]
@@ -532,7 +560,8 @@ class ContentTagCrudMixin:
                 index_elements=["channel_key", "tag_id", "source"],
                 set_={"feeders": stmt.excluded.feeders,
                       "detail": _func.coalesce(stmt.excluded.detail, ContentTagDB.detail),
-                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord)},
+                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord),
+                      "qualifier": _merged_qualifier(stmt)},
             )
             self.session.execute(stmt)
             self.session.flush()

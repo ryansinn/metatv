@@ -3,8 +3,8 @@
 Every reader of "who is in this" (the Details Cast section, taste weights,
 recommendation scoring, copy matching, search ranking, Similar Content) goes
 through here; none of them knows where credits are stored. They are stored ONLY as
-``cast`` / ``director`` tags (``tag_decomposer.credit_tags``: one vocabulary
-row per name, a link per channel with billing order and character); the old
+ONE ``person`` tag per name whose link carries the role bits (acting, directing —
+``tag_source.ROLE_BITS``), billing order and character; the old
 ``metadata.cast`` / ``metadata.director`` text was dropped after conversion
 (``credits_text_drop``).
 
@@ -21,6 +21,8 @@ import json
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
+
+from metatv.core.tag_source import PERSON_TYPE, ROLE_BITS, facet_match
 
 #: Separator inside a bulk cast column (never appears in a name).
 _SEP = "\x1f"
@@ -63,19 +65,21 @@ def credits_for(session, channel_ids) -> dict:
     ids = list(dict.fromkeys(channel_ids or []))
     if not ids:
         return {}
-    rows = (session.query(ChannelDB.id, TagDB.type, TagDB.value, ContentTagDB.detail,
+    rows = (session.query(ChannelDB.id, ContentTagDB.qualifier, TagDB.value, ContentTagDB.detail,
                           ContentTagDB.ord)
             .join(ContentTagDB, ContentTagDB.channel_key == ChannelDB.channel_key)
             .join(TagDB, TagDB.id == ContentTagDB.tag_id)
-            .filter(ChannelDB.id.in_(ids), TagDB.type.in_(("cast", "director")))
+            .filter(ChannelDB.id.in_(ids), TagDB.type == PERSON_TYPE,
+                    ContentTagDB.qualifier.isnot(None))
             .all())
     cast: dict = {}
     directors: dict = {}
-    for cid, kind, value, detail, ord_ in rows:
-        if kind == "cast":
-            cast.setdefault(cid, []).append((ord_ if ord_ is not None else 1 << 30, value, detail))
-        else:
-            directors.setdefault(cid, []).append((ord_ if ord_ is not None else 1 << 30, value))
+    for cid, bits, value, detail, ord_ in rows:
+        order = ord_ if ord_ is not None else 1 << 30
+        if bits & ROLE_BITS["cast"]:
+            cast.setdefault(cid, []).append((order, value, detail))
+        if bits & ROLE_BITS["director"]:
+            directors.setdefault(cid, []).append((order, value))
     out = {}
     for cid in ids:
         if cid in cast or cid in directors:
@@ -88,7 +92,8 @@ def _tag_names(kind: str, sep: str, channel_cls):
     from metatv.core.database import ContentTagDB, TagDB
     inner = (select(TagDB.value)
              .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-             .where(ContentTagDB.channel_key == channel_cls.channel_key, TagDB.type == kind)
+             .where(ContentTagDB.channel_key == channel_cls.channel_key,
+                    facet_match(TagDB.type, ContentTagDB.qualifier, kind))
              .order_by(ContentTagDB.ord)
              .correlate(channel_cls)
              .subquery())

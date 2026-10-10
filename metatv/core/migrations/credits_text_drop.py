@@ -64,7 +64,7 @@ class CreditsTextDropTask:
                 "SELECT COUNT(*) FROM channels c JOIN metadata m ON m.id = c.metadata_id "
                 f"WHERE {_HAS_CREDITS} AND NOT EXISTS (SELECT 1 FROM content_tags ct "
                 "JOIN tags t ON t.id = ct.tag_id WHERE ct.channel_key = c.channel_key "
-                "AND t.type IN ('cast', 'director', 'title'))")).scalar() or 0
+                "AND t.type IN ('person', 'cast', 'director', 'title'))")).scalar() or 0
             top = conn.execute(text("SELECT COALESCE(MAX(rowid), 0) FROM metadata")).scalar()
         if missing:
             raise RuntimeError(
