@@ -123,9 +123,16 @@ class ContentTagCrudMixin:
             return
 
         # Step 1: resolve tag ids (cached — typically 0 DB round-trips after warmup).
+        # An item may carry (detail, ord) after the feeder: what the tag means on
+        # THIS channel (a cast member's character, billing order).
         tag_ids: List[Tuple[int, str]] = []  # (tag_id, feeder)
-        for tag_type, tag_value, feeder in tags:
-            tag_ids.append((self.get_or_create_tag_id(tag_type, tag_value), feeder))
+        details: Dict[int, tuple] = {}
+        for item in tags:
+            tag_type, tag_value, feeder = item[0], item[1], item[2]
+            tag_id = self.get_or_create_tag_id(tag_type, tag_value)
+            tag_ids.append((tag_id, feeder))
+            if len(item) > 3:
+                details[tag_id] = (item[3], item[4] if len(item) > 4 else None)
 
         # Step 2: load all existing links for this channel+source in one SELECT.
         existing_tag_ids = [tid for tid, _ in tag_ids]
@@ -164,15 +171,21 @@ class ContentTagCrudMixin:
                 "tag_id": tag_id,
                 "source": source,
                 "feeders": feeders,
+                "detail": details.get(tag_id, (None, None))[0],
+                "ord": details.get(tag_id, (None, None))[1],
             }
             for tag_id, feeders in merged.items()
         ]
 
         try:
             stmt = _sqlite_insert(ContentTagDB).values(rows)
+            from sqlalchemy import func as _func
             stmt = stmt.on_conflict_do_update(
                 index_elements=["channel_key", "tag_id", "source"],
-                set_={"feeders": stmt.excluded.feeders},
+                # A write without a detail never blanks one already stored.
+                set_={"feeders": stmt.excluded.feeders,
+                      "detail": _func.coalesce(stmt.excluded.detail, ContentTagDB.detail),
+                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord)},
             )
             self.session.execute(stmt)
             self.session.flush()
@@ -451,13 +464,16 @@ class ContentTagCrudMixin:
         # round-trips after warmup).  Build a flat list of
         # (channel_key, tag_id, feeder) triples across the whole batch.
         channel_tag_feeders: List[Tuple[int, int, str]] = []  # (ckey, tid, feeder)
+        details: Dict[Tuple[int, int], tuple] = {}
         for channel_id, tags in mapping.items():
             channel_key = key_by_cid.get(channel_id)
             if not tags or channel_key is None:
                 continue
-            for tag_type, tag_value, feeder in tags:
-                tag_id = self.get_or_create_tag_id(tag_type, tag_value)
-                channel_tag_feeders.append((channel_key, tag_id, feeder))
+            for item in tags:
+                tag_id = self.get_or_create_tag_id(item[0], item[1])
+                channel_tag_feeders.append((channel_key, tag_id, item[2]))
+                if len(item) > 3:   # (detail, ord) — see set_content_tags
+                    details[(channel_key, tag_id)] = (item[3], item[4] if len(item) > 4 else None)
 
         if not channel_tag_feeders:
             return
@@ -503,15 +519,20 @@ class ContentTagCrudMixin:
                 "tag_id": tid,
                 "source": source,
                 "feeders": feeders,
+                "detail": details.get((ck, tid), (None, None))[0],
+                "ord": details.get((ck, tid), (None, None))[1],
             }
             for (ck, tid), feeders in merged.items()
         ]
 
         try:
+            from sqlalchemy import func as _func
             stmt = _sqlite_insert(ContentTagDB).values(rows)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["channel_key", "tag_id", "source"],
-                set_={"feeders": stmt.excluded.feeders},
+                set_={"feeders": stmt.excluded.feeders,
+                      "detail": _func.coalesce(stmt.excluded.detail, ContentTagDB.detail),
+                      "ord": _func.coalesce(stmt.excluded.ord, ContentTagDB.ord)},
             )
             self.session.execute(stmt)
             self.session.flush()

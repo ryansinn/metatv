@@ -856,6 +856,12 @@ class ContentTagDB(Base):
     source      = Column(TagSourceType, primary_key=True, nullable=False,
                           default="generated")  # "generated" | "user"
     feeders     = Column(JSONEncoded)      # list[str] of contributing feeder names
+    #: What the tag means ON THIS CHANNEL, per type: cast → the character played,
+    #: director → the job credited ("Director", "First Assistant Director"),
+    #: title → where the name comes from. NULL when the source gave none.
+    detail      = Column(String)
+    #: Order within its type on this channel (cast billing order). NULL = unordered.
+    ord         = Column(Integer)
 
     __table_args__ = (
         # (tag_id, channel_key) — declared here (DB-6) so QueryIndexTask's
@@ -1083,6 +1089,8 @@ class Database:
             ("metadata",     "original_language",             "TEXT"),   # LANG-2
             ("metadata",     "alt_titles",                    "TEXT"),   # JSONEncoded -> Text
             ("stream_info",  "fingerprint",                   "TEXT"),   # recycled-id guard
+            ("content_tags", "detail",                        "TEXT"),   # per-channel tag detail
+            ("content_tags", "ord",                           "INTEGER"),
             ("metadata",     "content_rating",                "TEXT"),
             ("metadata",     "release_date",                  "TEXT"),
             ("channels",     "channel_key",                   "INTEGER"),  # DB-9
