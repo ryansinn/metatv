@@ -296,7 +296,10 @@ def _name_button(row_w, needle: str = ""):
     from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QPushButton
     for b in row_w.findChildren(QPushButton):
-        if b.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu and needle in b.text():
+        # The title is a middle-eliding label INSIDE the button, so the button's
+        # own text is empty; its tooltip carries the full title.
+        if (b.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+                and (needle in b.text() or needle in b.toolTip())):
             return b
     return None
 

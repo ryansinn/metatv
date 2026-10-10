@@ -322,7 +322,7 @@ def test_mpv_queue_sends_force_media_title_as_per_file_option():
     sent_commands = []
 
     with patch.object(player, "_ensure_instance_running", return_value=True), \
-         patch.object(player, "_send_ipc_command", side_effect=lambda cmd, key: sent_commands.append(cmd) or True):
+         patch.object(player, "_send_ipc_command", side_effect=lambda cmd, key, **_kw: sent_commands.append(cmd) or True):
         result = player.queue("http://example.com/ep2.ts", "S01E02 - The Answer", QueueMode.APPEND)
 
     assert result is True
@@ -346,12 +346,15 @@ def test_mpv_queue_escapes_comma_in_title():
     sent_commands = []
 
     with patch.object(player, "_ensure_instance_running", return_value=True), \
-         patch.object(player, "_send_ipc_command", side_effect=lambda cmd, key: sent_commands.append(cmd) or True):
+         patch.object(player, "_send_ipc_command", side_effect=lambda cmd, key, **_kw: sent_commands.append(cmd) or True):
         player.queue("http://example.com/ep.ts", "Hello, World!", QueueMode.APPEND)
 
     options_str = sent_commands[0]["command"][4]
-    # The comma must be escaped; the raw unescaped comma must not appear
-    assert "\\," in options_str, f"Expected escaped comma in {options_str!r}"
+    # mpv's %N% length-prefix quoting carries the comma verbatim (a backslash
+    # escape is not honoured inside loadfile's option list).
+    title = "Hello, World!"
+    assert f"force-media-title=%{len(title)}%{title}" in options_str, (
+        f"Expected %N%-quoted title in {options_str!r}")
 
 
 def test_mpv_queue_uses_instance_key_from_arg():

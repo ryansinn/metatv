@@ -846,33 +846,48 @@ def _mirror_credit_text_into_tags(database) -> None:
     Production stores credits only as tags (``core.credits``); the
     ``metadata.cast`` / ``metadata.director`` text was dropped after
     conversion. Dozens of tests still describe a title the natural way —
-    ``MetadataDB(cast=[...], director="...")`` — so, at commit, this runs the
+    ``MetadataDB(cast=[...], director="...")`` — so, after each flush, this runs the
     PRODUCTION conversion (``tag_decomposer.credit_tags`` through the tag
     writer) for every channel linked to such a row. One shared factory rather
     than an edit in every file (CLAUDE.md: repair at the shared factory).
     """
     from sqlalchemy import event
+    from sqlalchemy.orm import Session
 
     from metatv.core.database import ChannelDB, MetadataDB
 
-    def _before_commit(session) -> None:
+    if _CREDIT_MIRROR[0]:
+        return
+
+    def _before_flush(session, _ctx, _instances) -> None:
         if session.info.get("_mirroring_credits"):
             return
         touched = [o for o in list(session.new) + list(session.dirty)
                    if isinstance(o, (MetadataDB, ChannelDB))]
-        if not touched:
+        if touched:
+            session.info.setdefault("_credit_touched", []).extend(touched)
+
+    def _after_flush(session, _ctx) -> None:
+        # Mid-flush the session can't query, so only note WHICH titles were
+        # touched; the conversion runs at the next query or commit.
+        touched = session.info.pop("_credit_touched", None)
+        if touched:
+            ids = session.info.setdefault("_credit_meta_ids", set())
+            ids |= {o.id for o in touched if isinstance(o, MetadataDB)}
+            ids |= {o.metadata_id for o in touched
+                    if isinstance(o, ChannelDB) and o.metadata_id}
+
+    def _convert_pending(session) -> None:
+        meta_ids = session.info.get("_credit_meta_ids")
+        if not meta_ids or session.info.get("_mirroring_credits"):
             return
         session.info["_mirroring_credits"] = True
         try:
+            session.info.pop("_credit_meta_ids", None)
             from metatv.core.repositories.tag import TagRepository
             from metatv.core.tag_decomposer import credit_tags
-            session.flush()
-            meta_ids = {o.id for o in touched if isinstance(o, MetadataDB)}
-            meta_ids |= {o.metadata_id for o in touched
-                         if isinstance(o, ChannelDB) and o.metadata_id}
-            if not meta_ids:
-                return
             rows = (session.query(ChannelDB.id, MetadataDB.cast, MetadataDB.director)
+                    .select_from(ChannelDB)
                     .join(MetadataDB, MetadataDB.id == ChannelDB.metadata_id)
                     .filter(MetadataDB.id.in_(meta_ids)).all())
             tags = TagRepository(session)
@@ -880,10 +895,26 @@ def _mirror_credit_text_into_tags(database) -> None:
                 items = credit_tags(cast or [], director)
                 if items:
                     tags.set_content_tags(cid, items)
+            session.flush()
         finally:
             session.info.pop("_mirroring_credits", None)
 
-    event.listen(database.SessionLocal, "before_commit", _before_commit)
+    def _on_execute(orm_execute_state) -> None:
+        # Any statement, text() SQL included — readers query the tags directly.
+        _convert_pending(orm_execute_state.session)
+
+    # Every Session, not just this database's: tests that build their own
+    # Database (local fixtures, db_session) describe credits the same way.
+    _CREDIT_MIRROR[0] = _after_flush
+    event.listen(Session, "before_flush", _before_flush)
+    event.listen(Session, "after_flush_postexec", _after_flush)
+    event.listen(Session, "do_orm_execute", _on_execute)
+    event.listen(Session, "before_commit", lambda session: (session.flush(),
+                                                            _convert_pending(session)))
+
+
+_CREDIT_MIRROR: list = [None]
+_mirror_credit_text_into_tags(None)   # installed once, for every test session
 
 
 @pytest.fixture(scope="function")

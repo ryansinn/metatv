@@ -200,6 +200,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self._release_date = ""
         self._original_language = ""
         self._metadata_from_tmdb = False
+        self._has_copy = False   # nothing on screen: no heading, no probe button
         self._render()
 
     # ------------------------------------------------------------------ #

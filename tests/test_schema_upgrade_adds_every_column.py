@@ -706,7 +706,8 @@ def test_an_old_shaped_content_tags_is_rebuilt_by_migrate(tmp_path):
     Database(url).create_tables()  # the upgrade path — triggers the rebuild
 
     live_types = _reflected_column_type_classes(db.engine, "content_tags")
-    assert set(live_types) == {"channel_key", "tag_id", "source", "feeders"}, (
+    assert set(live_types) == {"channel_key", "tag_id", "source", "feeders",
+                               "detail", "ord"}, (
         f"content_tags did not land in the DB-9 shape: {sorted(live_types)}"
     )
     assert live_types["channel_key"] == "INTEGER"

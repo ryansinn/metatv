@@ -389,7 +389,7 @@ def test_search_tag_click_reflects_include_mark(qapp):
     view._cloud._tag_buttons[0].click()  # none → include
 
     # The re-rendered button shows the include icon.
-    assert _icons.tag_include_icon in view._cloud._tag_buttons[0].text()
+    assert _icons.tag_include_icon in view._cloud._tag_buttons[0].label_text()
 
 
 def test_search_loaded_ignored_when_query_cleared(qapp):

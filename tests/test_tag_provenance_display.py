@@ -233,10 +233,12 @@ class TestDetailsSectionRender:
         sec.set_copy(provider_name="TREX", copy_code="EN")
         return sec
 
-    def test_section_hidden_with_empty_tags(self, qapp, owned_widgets):
+    def test_section_shown_for_a_copy_even_with_no_tags(self, qapp, owned_widgets):
         sec = self._make_section(owned_widgets)
         sec.load_tags([])
-        assert not sec.isVisible(), "Details must hide when there is nothing to say"
+        assert sec.isVisible(), (
+            "a copy on screen keeps Details visible — its 'Get stream details' "
+            "button is what fills it")
 
     def test_section_visible_with_tags(self, qapp, owned_widgets):
         sec = self._make_section(owned_widgets)

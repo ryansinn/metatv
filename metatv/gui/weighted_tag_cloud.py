@@ -156,6 +156,7 @@ class _TagButton(QPushButton):
         # bare name means one, and the tooltip still says so.
         count_str = _fmt_count(count) if count > 1 else ""
         label = f"{mark}{label_value} {count_str}".rstrip()
+        self._label_text = label
         named = f"{label_value} · {facet_label}" if facet_label else label_value
 
         # State-specific color for the mark character only isn't trivially
@@ -218,6 +219,10 @@ class _TagButton(QPushButton):
 
     def value(self) -> str:
         return self._value
+
+    def label_text(self) -> str:
+        """The rendered label (mark, value, count), whether plain or captioned."""
+        return self._label_text
 
     def facet_type(self) -> str:
         return self._facet_type

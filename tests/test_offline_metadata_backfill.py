@@ -76,7 +76,8 @@ def test_a_series_gets_its_plot_cast_and_genre_from_raw_data(db):
         meta = session.get(MetadataDB, ch.metadata_id)
         assert meta.plot.startswith("With a documentary")
         assert meta.genres == ["Drama", "Crime"]
-        assert [c["name"] for c in meta.cast] == ["Hugo Speer", "Sharon Small"]
+        from metatv.core.credits import credits_for
+        assert [n for n, _c in credits_for(session, ["c1"])["c1"].cast] == ["Hugo Speer", "Sharon Small"]
         assert meta.rating == 7.0
         assert meta.release_date == "2019-02-25"
         assert meta.poster_url == "http://cdn/rock.jpg"

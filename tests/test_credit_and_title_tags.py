@@ -36,10 +36,12 @@ def test_links_store_detail_and_survive_a_retag(file_db):
                                                         "character": "Frank Reynolds"}], None)
                                     + title_tags(["Oskyldigt blod"])
                                     + [("genre", "Comedy", "provider_category")])
-        cid, key = ch.id, ch.channel_key
+        cid = ch.id
     with file_db.session_scope() as s:
         RepositoryFactory(s).tags.delete_generated_for_channels([cid])
     with file_db.session_scope() as s:
+        # channel_key is assigned by a trigger, so read it back, never off the object.
+        key = s.query(ChannelDB.channel_key).filter(ChannelDB.id == cid).scalar()
         kept = {(t.type, t.value): link.detail for link, t in
                 s.query(ContentTagDB, TagDB).join(TagDB, TagDB.id == ContentTagDB.tag_id)
                  .filter(ContentTagDB.channel_key == key)}

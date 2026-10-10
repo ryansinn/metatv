@@ -87,6 +87,10 @@ _DECL = re.compile(r"(?<![-\w])(background-color|background|color)\s*:\s*([^;{}]
 #: Every entry is a decision, not an oversight. Delete a line when you fix it —
 #: the test fails if an allowlisted pair starts passing.
 KNOWN_BELOW_FLOOR: dict[tuple[str, str], str] = {
+    ("DETAIL_ADULT_BADGE", "<bare>"):
+        "2.77 worst palette — error red on its own red tint, the same pair "
+        "categories_dialog uses; retinting it is a palette decision (was "
+        "allowlisted inline in details_title.py before it became a role)",
     ("DISCOVER_REC_PILL_BTN", "QPushButton"):
         "3.19 worst palette",
     ("EXCL_CHIP_ACTIVE", "QPushButton"):

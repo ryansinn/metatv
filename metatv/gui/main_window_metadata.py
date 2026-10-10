@@ -198,7 +198,8 @@ class _MetadataMixin:
                 self.details_pane.apply_original_language(channel_id, lang)
             self._on_channel_tags_requested(channel_id)   # alternate titles / credits arrived as tags
             self._run_query(lambda repos: repos.stream_info.get(channel_id),
-                            lambda rec: self.details_pane.apply_stream_info(channel_id, rec))
+                            lambda rec: self.details_pane.apply_stream_info(channel_id, rec),
+                            on_error=lambda e: logger.warning(f"Stream info reload failed: {e}"))
 
         self._run_query(query, stored, commit=True,
                         on_error=lambda e: logger.debug(f"provider details for {channel_id}: {e}"))

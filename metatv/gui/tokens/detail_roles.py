@@ -160,7 +160,7 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         "DETAIL_TITLE": f"font-size: {_('FONT_4XL')}; font-weight: bold;",
         "DETAIL_ADULT_BADGE": (
             f"color: {_('COLOR_ERR_2')}; font-size: {font_md}; font-weight: 600;"
-            f" background: {_('OVERLAY_ERR2_15')}; border-radius: 3px; padding: 1px 5px;"
+            f" background: {_('OVERLAY_ERR2_15')}; border-radius: 4px; padding: 1px 5px;"
         ),
         # A Similar row's title button (its eliding label uses SIDEBAR_ROW_TITLE).
         "DETAIL_ROW_TITLE_BTN": f"QPushButton {{ font-size: {font_md}; border: none; }}",

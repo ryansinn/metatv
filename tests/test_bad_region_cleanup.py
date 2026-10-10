@@ -200,10 +200,13 @@ class TestPlatformVocabularyGap:
     """
 
     def test_clears_a_platform_group_prefix_the_small_vocabulary_missed(self, db):
-        cid = _add(db, prefix="SC", region="ES", category="|SCA| NORDIC FILMS 4K")
+        # SC was the original case; it stopped being a platform (4K-SC), so WOW
+        # (Sky's German service) carries the same point: in BASE_PLATFORM_GROUPS,
+        # absent from the small PLATFORM_CODES vocabulary.
+        cid = _add(db, prefix="WOW", region="ES", category="|DE| WOW FILME")
         _run(db)
         assert _region_of(db, cid) in (None, ""), (
-            "SC is in BASE_PLATFORM_GROUPS; a Scandinavian listing must not keep "
+            "WOW is in BASE_PLATFORM_GROUPS; a platform listing must not keep "
             "an inherited Spanish region"
         )
 
