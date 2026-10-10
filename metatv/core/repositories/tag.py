@@ -713,43 +713,28 @@ class TagRepository(ContentTagCrudMixin):
         excluded_tag_content_types: Optional[Set[str]] = None,
         excluded_keywords: Optional[Set[str]] = None,
         limit: int = 300,
+        facet_types: Optional[Sequence[str]] = None,
     ) -> list:
-        """Search tag VALUES across ALL facet types, case-insensitively, sorted by count.
+        """Search tag VALUES case-insensitively across facets, sorted by count.
 
-        The cross-facet sibling of :meth:`get_tag_counts_for_facet`: instead of
-        restricting to one ``facet_type``, this scans every namespace and returns
-        each ``(facet_type, value)`` group whose value contains *query* (a
-        case-insensitive substring), plus the number of active-source channels
-        carrying it.  Powers the Recipe builder's Pantry search — typing "comedy"
-        surfaces "Comedy" (genre), "Comedy Central" (collection), etc. all at once
-        in the center cloud, color-coded by facet.
-
-        Scoping is IDENTICAL to :meth:`get_tag_counts_for_facet` (the same global
-        exclusion sets + ``excluded_provider_ids`` via
-        :meth:`_scope_to_visible_channels`), so the cross-facet counts agree with
-        the per-facet cloud and the rest of the recipe view.
-
-        Executes a single SQL GROUP BY over content_tags JOIN tags JOIN channels.
-        No Python-side materialisation — safe over 1M+ rows.
+        Powers the Recipe builder's Pantry search (every facet) and a drilled-in
+        cloud's Filter box (*facet_types* = that one facet), so a name below the
+        cloud's top-N cutoff is still findable. Scoping is IDENTICAL to
+        :meth:`get_tag_counts_for_facet` (:meth:`_scope_to_visible_channels`),
+        so counts agree with the cloud. One SQL GROUP BY, no Python-side
+        materialisation.
 
         Args:
-            query: Case-insensitive substring to match against the tag value.  An
-                empty / whitespace-only query returns ``[]`` (no search).
-            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
-                sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
-            excluded_prefixes: Global-exclusion prefix/region codes to drop (see
-                :meth:`_scope_to_visible_channels`).  Caller-supplied — the engine
-                never reads Config.
-            excluded_categories: Global-exclusion ``user_category`` labels to drop
-                (see :meth:`_scope_to_visible_channels`).
-            limit: Cap on the number of ``(facet_type, value)`` groups returned
-                (default 300) so the cloud stays sane on a broad query.  Applied
-                after sorting by count DESC, so the most popular matches win.
+            query: Case-insensitive substring of the value; blank returns ``[]``.
+            excluded_provider_ids: ``ProviderRepository.get_hidden_provider_ids()``.
+            excluded_prefixes: Global-exclusion prefix/region codes.
+            excluded_categories: Global-exclusion ``user_category`` labels.
+            limit: Max ``(facet_type, value)`` groups, most popular first.
+            facet_types: Restrict to these tag types; ``None`` searches all.
 
         Returns:
-            List of ``TagSearchResultDTO`` (facet_type, value, channel_count),
-            sorted by ``channel_count`` DESC.  Zero-count groups are omitted.
-            No ORM objects are returned.
+            ``TagSearchResultDTO`` list (facet_type, value, channel_count),
+            count DESC, zero-count groups omitted.
         """
         from sqlalchemy import func as _func
         from metatv.core.repositories.dtos import TagSearchResultDTO
@@ -769,6 +754,8 @@ class TagRepository(ContentTagCrudMixin):
             # Lower-cased LIKE = portable case-insensitive substring match.
             .filter(_func.lower(TagDB.value).like(pattern))
         )
+        if facet_types:
+            q = q.filter(TagDB.type.in_(list(facet_types)))
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_key, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,

@@ -180,6 +180,16 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         self._results_token: list[int] = [0]
         self._see_all_token: list[int] = [0]
         self._search_token: list[int] = [0]
+        self._cloud_filter_token: list[int] = [0]
+
+        # A drilled-in cloud holds only the facet's top values; its Filter box
+        # also asks the DB, and names below the cutoff ride along as extras.
+        self._cloud_filter_text: str = ""
+        self._cloud_extra: list = []
+        self._cloud_filter_debounce = QTimer(self)
+        self._cloud_filter_debounce.setSingleShot(True)
+        self._cloud_filter_debounce.setInterval(self._DEBOUNCE_MS)
+        self._cloud_filter_debounce.timeout.connect(self._load_cloud_filter)
 
         # "Show all" lazy-pagination state.
         self._see_all_offset: int = 0
@@ -370,6 +380,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         self._cloud.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._cloud.tag_clicked.connect(self._on_tag_clicked)
         self._cloud.tag_clicked_facet.connect(self._on_search_tag_clicked)
+        self._cloud.filter_text_changed.connect(self._on_cloud_filter_changed)
         cloud_scroll.setWidget(self._cloud)
         self._top_stack.addWidget(cloud_scroll)     # index 1 — single/search cloud
 
@@ -483,11 +494,62 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         if not self._active:
             return
         self._tag_counts = counts
+        self._cloud_extra = []
         self._rebuild_cloud()
+        if self._cloud_filter_text:
+            self._cloud_filter_debounce.start()
 
     def _on_cloud_error(self, exc: Exception) -> None:
         logger.error("RecipeView: cloud load failed: {}", exc)
         self._stage_hdr.setText("Couldn't load tags")
+
+    def _on_cloud_filter_changed(self, text: str) -> None:
+        """Drilled-in cloud's Filter box changed — also look beyond the top-N."""
+        self._cloud_filter_text = text
+        if not text:
+            self._cloud_filter_debounce.stop()
+            if self._cloud_extra:
+                self._cloud_extra = []
+                self._rebuild_cloud()
+            return
+        if self._selected_facet is not None and not self._search_query:
+            self._cloud_filter_debounce.start()
+
+    def _load_cloud_filter(self) -> None:
+        """Query the selected facet for values matching the Filter text (off-thread)."""
+        facet, text = self._selected_facet, self._cloud_filter_text
+        if facet is None or not text or self._search_query:
+            return
+        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        self._run_query(
+            lambda repos: (facet, text, repos.tags.search_tag_values_across_facets(
+                text,
+                excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
+                facet_types=[facet],
+            )),
+            self._on_cloud_filter_loaded,
+            token_ref=self._cloud_filter_token,
+            on_error=self._on_search_error,
+        )
+
+    def _on_cloud_filter_loaded(self, payload: tuple) -> None:
+        """Main-thread slot: add matches missing from the loaded cloud as extras."""
+        facet, text, results = payload
+        if (not self._active or facet != self._selected_facet
+                or text != self._cloud_filter_text or self._search_query):
+            return
+        from metatv.core.repositories.dtos import TagCountDTO
+
+        loaded = {dto.value for dto in self._tag_counts}
+        extra = [TagCountDTO(value=r.value, channel_count=r.channel_count)
+                 for r in results if r.value not in loaded]
+        if extra or self._cloud_extra:
+            self._cloud_extra = extra
+            self._rebuild_cloud()
 
     def _rebuild_cloud(self) -> None:
         """Re-render the center view with current tag counts + recipe state.
@@ -508,7 +570,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         excludes = self._recipe_excludes.get(facet, set())
 
         items: list[tuple[str, int, str]] = []
-        for dto in self._tag_counts:
+        for dto in [*self._tag_counts, *self._cloud_extra]:
             if dto.value in includes:
                 state = "include"
             elif dto.value in excludes:
@@ -717,6 +779,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         self._cloud.set_multi_facet_tags(
             items, facet_name=f'"{self._search_query}"',
             display_map=display_map or None,
+            facet_labels={dto.facet_type: _facet_display(dto.facet_type) for dto in results},
         )
 
     def _on_search_error(self, exc: Exception) -> None:
