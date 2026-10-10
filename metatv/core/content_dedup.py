@@ -208,6 +208,7 @@ def build_engaged_normalized(
     Channels in ``overrides`` are excluded from the engaged set so their
     counterparts are not suppressed by the fingerprint match.
     """
+    from metatv.core.credits import director_column
     from metatv.core.database import ChannelDB, MetadataDB
 
     engaged: set[tuple] = set()
@@ -257,7 +258,7 @@ def build_engaged_normalized(
             ChannelDB.media_type,
             ChannelDB.metadata_id,
             ChannelDB.content_key,
-            MetadataDB.director,
+            director_column(ChannelDB, MetadataDB),    # core.credits — the one credits reader
             MetadataDB.year,
         )
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)

@@ -24,8 +24,10 @@ if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
 
-#: Bumped when this should sweep again.
-CURRENT_VERSION: int = 1
+#: Bumped when this should sweep again. 2: directors gained billing order
+#: (``ord``) — copy matching keys on the FIRST-listed director, so v1's
+#: unordered director links are rewritten with the source's order.
+CURRENT_VERSION: int = 2
 
 _BATCH = 2000
 

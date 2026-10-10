@@ -431,6 +431,22 @@ def matched_persons_map(session, channel_ids, search_term: str) -> dict:
     # match what is shown, not the raw provider blob.
     sql = """
         SELECT cid, person, tier, namelen FROM (
+            -- Credits as tags (core.credits): one name per value, no JSON to
+            -- unpack and no multi-name director string to split.
+            SELECT ch.id AS cid,
+                   t.value AS person,
+                   CASE WHEN lower(t.value) = :exact THEN 0
+                        WHEN ' ' || lower(t.value) || ' ' LIKE :padded ESCAPE '\\' THEN 1
+                        ELSE 2 END AS tier,
+                   length(t.value) AS namelen
+            FROM channels ch
+            JOIN content_tags ct ON ct.channel_key = ch.channel_key
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE ch.id IN :ids
+              AND t.type IN ('cast', 'director')
+              AND lower(t.value) LIKE :like ESCAPE '\\'
+            UNION ALL
+            -- The old metadata text: fallback for channels not converted yet.
             SELECT ch.id AS cid,
                    json_extract(j.value, '$.name') AS person,
                    CASE WHEN lower(json_extract(j.value, '$.name')) = :exact THEN 0

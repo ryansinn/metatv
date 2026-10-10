@@ -113,6 +113,8 @@ def fetch_candidates(session, scope: "VisibilityScope") -> list[Candidate]:
     """
     query = _build_candidates_query(session, scope)
 
+    from metatv.core.credits import cast_names
+
     candidates: list[Candidate] = []
     for (cid, name, media_type, provider_id, detected_prefix, detected_region,
          detected_quality, detected_year, detected_title, content_key,
@@ -124,7 +126,8 @@ def fetch_candidates(session, scope: "VisibilityScope") -> list[Candidate]:
             detected_quality=detected_quality, detected_year=detected_year,
             detected_title=detected_title, content_key=content_key,
             last_played=last_played, rec_shown_count=rec_shown_count,
-            genres=genres, cast=cast, plot=plot, director=director,
+            genres=genres, cast=[{"name": n} for n in cast_names(cast)], plot=plot,
+            director=director,
             poster_url=poster_url, rating=rating, year=year,
         ))
     return candidates
@@ -140,6 +143,7 @@ def _build_candidates_query(session, scope: "VisibilityScope"):
     not that the production code is.
     """
     from metatv.core import channel_visibility
+    from metatv.core.credits import cast_column, director_column
     from metatv.core.database import ChannelDB, MetadataDB
 
     query = (
@@ -157,9 +161,9 @@ def _build_candidates_query(session, scope: "VisibilityScope"):
             ChannelDB.last_played,
             ChannelDB.rec_shown_count,
             MetadataDB.genres,
-            MetadataDB.cast,
+            cast_column(ChannelDB, MetadataDB),      # core.credits — the one credits reader
             MetadataDB.plot,
-            MetadataDB.director,
+            director_column(ChannelDB, MetadataDB),
             MetadataDB.poster_url,
             MetadataDB.rating,
             MetadataDB.year,

@@ -338,7 +338,7 @@ class MetadataManager:
             if channel.metadata_id:
                 cached = self._get_cached_metadata(session, channel.metadata_id)
                 if cached:
-                    stored = self._metadata_db_to_result(cached)
+                    stored = self._metadata_db_to_result(cached, session, channel.id)
                     if force_refresh or self._is_stale(cached):
                         stale_result = stored
                     else:
@@ -379,7 +379,8 @@ class MetadataManager:
                 return None
             self._save_metadata_cache(session, channel, result)
             stored_row = self._get_cached_metadata(session, channel.metadata_id)
-            stored = self._metadata_db_to_result(stored_row) if stored_row else None
+            stored = (self._metadata_db_to_result(stored_row, session, channel.id)
+                      if stored_row else None)
         logger.info(f"Cached metadata for {ch_name} from: {', '.join(providers_tried)}")
         return stored
     
@@ -448,8 +449,17 @@ class MetadataManager:
                 pass
         return None
 
-    def _metadata_db_to_result(self, metadata: MetadataDB) -> MetadataResult:
-        """Convert MetadataDB to MetadataResult"""
+    def _metadata_db_to_result(self, metadata: MetadataDB, session=None,
+                               channel_id: "str | None" = None) -> MetadataResult:
+        """Convert MetadataDB to MetadataResult. Cast and directors come from
+        ``core.credits`` (the one reader of credits) when the channel is known."""
+        cast, director = metadata.cast or [], metadata.director
+        if session is not None and channel_id:
+            from metatv.core.credits import credits_for
+            found = credits_for(session, [channel_id]).get(channel_id)
+            if found is not None:
+                cast = [{"name": n, "character": c, "photo_url": None} for n, c in found.cast]
+                director = ", ".join(found.directors) or None
         return MetadataResult(
             title=metadata.title,
             year=self._derive_year(metadata.year, metadata.release_date),
@@ -461,9 +471,9 @@ class MetadataManager:
             poster_url=metadata.poster_url,
             backdrop_url=metadata.backdrop_url,
 
-            cast=metadata.cast or [],
+            cast=cast,
             crew=metadata.crew or [],
-            director=metadata.director,
+            director=director,
 
             genres=metadata.genres or [],
             content_rating=metadata.content_rating,

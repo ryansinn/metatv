@@ -95,16 +95,18 @@ def _similar_content_keys(session, channel_id: str, tmdb_settings, config) -> li
         return keys
     from metatv.core.database import ChannelDB, MetadataDB
     from metatv.core.preference_engine import (
-        AttributeWeights, _split_directors, recommendation_scope, score_candidates,
+        AttributeWeights, recommendation_scope, score_candidates,
     )
     ch = session.get(ChannelDB, channel_id)
     md = session.get(MetadataDB, ch.metadata_id) if ch is not None and ch.metadata_id else None
     if md is None:
         return []
-    cast = [c.get("name") for c in (md.cast or []) if isinstance(c, dict) and c.get("name")][:6]
+    from metatv.core.credits import credits_for
+    people = credits_for(session, [channel_id]).get(channel_id)
+    cast = people.cast_names()[:6] if people else []
     weights = AttributeWeights(
         genres=dict.fromkeys(md.genres or [], 1.0),
-        directors=dict.fromkeys(_split_directors(md.director) if md.director else [], 1.5),
+        directors=dict.fromkeys(people.directors if people else [], 1.5),
         actors=dict.fromkeys(cast, 1.0),
     )
     if not (weights.genres or weights.directors or weights.actors):
