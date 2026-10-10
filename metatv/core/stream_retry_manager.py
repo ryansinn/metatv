@@ -61,6 +61,7 @@ class StreamRetryManager(QObject):
         # player window is open — check_all_now (the user's explicit "check
         # now") is NOT gated, since that click is the user asking for it now.
         self._player_is_running = player_is_running
+        self._deferring = False      # last logged playback state (log transitions only)
 
     def start(self) -> None:
         self._timer.start(self._POLL_MS)
@@ -173,8 +174,14 @@ class StreamRetryManager(QObject):
     def _check_due(self) -> None:
         if self._busy:
             return
-        if self._player_is_running is not None and self._player_is_running():
-            logger.debug("StreamRetry: player running — probe deferred")
+        playing = self._player_is_running is not None and self._player_is_running()
+        if playing != self._deferring:
+            # Log the transition, not every tick: an evening of watching was
+            # ~100 identical lines.
+            logger.debug("StreamRetry: {}", "playback active — probes deferred" if playing
+                         else "playback idle — probes resume")
+            self._deferring = playing
+        if playing:
             return
         self._busy = True
         self._executor.submit(self._run_checks, force_all=False)
