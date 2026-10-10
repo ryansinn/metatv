@@ -10,7 +10,7 @@
     "metatv/core/provider_loader.py": 1320,
     "metatv/core/repositories/channel.py": 1739,
     "metatv/core/repositories/channel_ingestion.py": 1327,
-    "metatv/core/repositories/tag.py": 1400,
+    "metatv/core/repositories/tag.py": 1398,
     "metatv/core/series_monitor.py": 1035,
     "metatv/gui/details_sections.py": 1013,
     "metatv/gui/discover_view.py": 1016,
