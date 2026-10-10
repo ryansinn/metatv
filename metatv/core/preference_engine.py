@@ -402,24 +402,27 @@ def compute_weights(session, settings: RecScoringSettings | None = None) -> Attr
         for meta in session.query(MetadataDB).filter(MetadataDB.id.in_(all_metadata_ids)).all():
             meta_map[meta.id] = meta
 
+    from metatv.core.credits import credits_for
+    credits = credits_for(session, [ch.id for ch, _ in signal_pairs if ch])
+
     for channel, sig in signal_pairs:
         if not channel or not channel.metadata_id:
             continue
         meta = meta_map.get(channel.metadata_id)
         if not meta:
             continue
+        people = credits.get(channel.id)
 
         # Level 1 — structured attributes
         for genre in _split_genres(_loads(meta.genres) or []):
             weights.genres[genre] = weights.genres.get(genre, 0.0) + sig * dials.genre_weight
 
-        for director in _split_directors(meta.director) if meta.director else []:
+        for director in people.directors if people else ():
             weights.directors[director] = (
                 weights.directors.get(director, 0.0) + sig * dials.director_weight
             )
 
-        for person in (_loads(meta.cast) or [])[:10]:
-            name = person.get("name") if isinstance(person, dict) else None
+        for name in (people.cast_names() if people else [])[:10]:
             if name:
                 weights.actors[name] = weights.actors.get(name, 0.0) + sig * dials.actor_weight
                 actor_support[name] += 1

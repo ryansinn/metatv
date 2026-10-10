@@ -883,10 +883,10 @@ def credit_tags(cast, director) -> list[tuple]:
             continue
         character = _clean_name(person.get("character")) if isinstance(person, dict) else ""
         items.append(("cast", name, "metadata_credits", character or None, i))
-    for name in _split_directors(director) if director else []:
+    for i, name in enumerate(_split_directors(director) if director else []):
         name = _clean_name(name)
         if name:
-            items.append(("director", name, "metadata_credits", None, None))
+            items.append(("director", name, "metadata_credits", None, i))
     return items
 
 
