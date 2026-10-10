@@ -13,7 +13,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from metatv.core.channel_name_utils import AUDIO_LANG_WORD_MAP, CODE_FACETS
+from metatv.core.channel_name_utils import (
+    AUDIO_LANG_WORD_MAP, CODE_FACETS, ISO_639_1_LANGUAGE_NAMES,
+)
 
 #: The mpv properties one capture reads.
 MPV_PROPS: tuple[str, ...] = (
@@ -87,6 +89,7 @@ def parse_mpv(props: dict) -> dict | None:
         elif kind == "sub":
             subs.append({
                 "lang": t.get("lang"),
+                "title": t.get("title"),        # "Completos CC" tells two tracks apart
                 "codec": t.get("codec"),
                 "default": bool(t.get("default")),
                 "external": bool(t.get("external")),
@@ -109,10 +112,16 @@ def merge_bitrate(earlier: dict | None, later: dict | None) -> dict | None:
 # ── display ──────────────────────────────────────────────────────────────────
 
 def language_name(code: str | None) -> str:
-    """"eng" → "English" through the shared language map; unknown → the code."""
+    """mpv's track language → a language name: "eng"/"en"/"es-ES" → "English"/
+    "English"/"Spanish". The region subtag of a BCP-47 tag ("es-ES", "pt_BR")
+    is dropped; three-letter codes go through the shared provider map, two-
+    letter ones through the ISO 639-1 table. Unknown → the code itself."""
     if not code:
         return "Unknown"
-    return AUDIO_LANG_WORD_MAP.get(code.upper(), code.upper())
+    primary = code.strip().replace("_", "-").split("-")[0]
+    return (AUDIO_LANG_WORD_MAP.get(primary.upper())
+            or ISO_639_1_LANGUAGE_NAMES.get(primary.lower())
+            or code.upper())
 
 
 def _codec(name: str | None) -> str:
@@ -182,9 +191,7 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
                      + (f" · {bits[3]}" if len(bits) > 3 else "")))
     subs = info.get("subs") or []
     if subs:
-        rows.append(("Subtitles", " · ".join(
-            f"{language_name(s.get('lang'))} {_codec(s.get('codec'))}" if s.get("lang")
-            else _codec(s.get("codec")) for s in subs)))
+        rows.append(("Subtitles", " · ".join(_sub_label(s) for s in subs)))
     return rows
 
 
@@ -249,12 +256,18 @@ def summarize(record: dict | None) -> dict | None:
         "height": v.get("height"),
         "audio": tuple(dict.fromkeys(
             language_name(a.get("lang")) for a in info.get("audio") or [] if a.get("lang"))),
-        "subs": tuple(
-            f"{language_name(s.get('lang'))} {_codec(s.get('codec'))}" if s.get("lang")
-            else _codec(s.get("codec")) for s in info.get("subs") or []),
+        "subs": tuple(_sub_label(s) for s in info.get("subs") or []),
         "at": record.get("measured_at"),
         "source": record.get("source", ""),
     }
+
+
+def _sub_label(s: dict) -> str:
+    """"Spanish SRT (Completos CC)" — language, format, and the track's own
+    title when it has one (two same-language tracks differ only there)."""
+    label = (f"{language_name(s.get('lang'))} {_codec(s.get('codec'))}" if s.get("lang")
+             else _codec(s.get("codec")))
+    return f"{label} ({s['title']})" if s.get("title") else label
 
 
 def measured_caption(measured_at: datetime | None, source: str) -> str:
