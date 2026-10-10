@@ -219,6 +219,39 @@ class TMDbProvider(MetadataProviderPlugin):
             return None
         return self._map_details(data)
 
+    async def recommended_content_keys(self, tmdb_id: str, media_type: str = "movie",
+                                       limit: int = 40) -> list[str]:
+        """TMDb's recommendations for a title, as library ``content_key`` values.
+
+        ``/recommendations`` first (TMDb's audience-based "people also liked"),
+        topped up from ``/similar`` (genre/keyword-based) when it is thin. The
+        keys use the ingestion format ``tmdb:{id}|{movie|series}``, so the
+        library match is one indexed ``content_key IN (...)`` lookup.
+
+        Args:
+            tmdb_id: The origin's TMDb id.
+            media_type: ``"movie"`` or ``"series"``.
+            limit: Most keys to return, in TMDb's rank order.
+
+        Returns:
+            Content keys, best first; empty on any failure or with no API key.
+        """
+        if not self._api_key():
+            return []
+        tmdb_type = _TMDB_MEDIA_TYPE.get(media_type, "movie")
+        params = {"api_key": self._api_key(), "language": self._language()}
+        keys: list[str] = []
+        for endpoint in ("recommendations", "similar"):
+            data = await self._get_json(f"{_BASE_URL}/{tmdb_type}/{tmdb_id}/{endpoint}", params)
+            for item in (data or {}).get("results") or []:
+                kind = "series" if (item.get("media_type") or tmdb_type) == "tv" else "movie"
+                key = f"tmdb:{item.get('id')}|{kind}"
+                if item.get("id") and key not in keys:
+                    keys.append(key)
+            if len(keys) >= limit // 2:
+                break
+        return keys[:limit]
+
     def _map_details(self, data: dict[str, Any]) -> MetadataResult:
         """Map a TMDb ``/movie|tv/{id}`` detail response to ``MetadataResult``.
 
