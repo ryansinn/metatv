@@ -117,8 +117,7 @@ def extract_artwork(info: dict) -> tuple[Optional[str], Optional[str]]:
 #: PRODUCES them rather than by the writer that consumes them — so adding a
 #: field is one edit here, and no consumer can drift from the contract.
 #: ``genres`` leads because ``apply_metadata_harvest`` counts only that one.
-HARVEST_FIELDS = ("genres", "plot", "cast", "director", "poster_url", "backdrop_url",
-                  "original_language")
+HARVEST_FIELDS = ("genres", "plot", "poster_url", "backdrop_url", "original_language")
 
 
 def _alt_titles(info: dict) -> list:

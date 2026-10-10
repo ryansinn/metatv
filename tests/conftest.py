@@ -836,7 +836,54 @@ def make_file_db(path) -> Database:
     """
     database = Database(f"sqlite:///{path}")
     database.create_tables()
+    _mirror_credit_text_into_tags(database)
     return database
+
+
+def _mirror_credit_text_into_tags(database) -> None:
+    """Test databases: credits a test writes as metadata TEXT become credit TAGS.
+
+    Production stores credits only as tags (``core.credits``); the
+    ``metadata.cast`` / ``metadata.director`` text was dropped after
+    conversion. Dozens of tests still describe a title the natural way —
+    ``MetadataDB(cast=[...], director="...")`` — so, at commit, this runs the
+    PRODUCTION conversion (``tag_decomposer.credit_tags`` through the tag
+    writer) for every channel linked to such a row. One shared factory rather
+    than an edit in every file (CLAUDE.md: repair at the shared factory).
+    """
+    from sqlalchemy import event
+
+    from metatv.core.database import ChannelDB, MetadataDB
+
+    def _before_commit(session) -> None:
+        if session.info.get("_mirroring_credits"):
+            return
+        touched = [o for o in list(session.new) + list(session.dirty)
+                   if isinstance(o, (MetadataDB, ChannelDB))]
+        if not touched:
+            return
+        session.info["_mirroring_credits"] = True
+        try:
+            from metatv.core.repositories.tag import TagRepository
+            from metatv.core.tag_decomposer import credit_tags
+            session.flush()
+            meta_ids = {o.id for o in touched if isinstance(o, MetadataDB)}
+            meta_ids |= {o.metadata_id for o in touched
+                         if isinstance(o, ChannelDB) and o.metadata_id}
+            if not meta_ids:
+                return
+            rows = (session.query(ChannelDB.id, MetadataDB.cast, MetadataDB.director)
+                    .join(MetadataDB, MetadataDB.id == ChannelDB.metadata_id)
+                    .filter(MetadataDB.id.in_(meta_ids)).all())
+            tags = TagRepository(session)
+            for cid, cast, director in rows:
+                items = credit_tags(cast or [], director)
+                if items:
+                    tags.set_content_tags(cid, items)
+        finally:
+            session.info.pop("_mirroring_credits", None)
+
+    event.listen(database.SessionLocal, "before_commit", _before_commit)
 
 
 @pytest.fixture(scope="function")

@@ -131,7 +131,7 @@ class ContentTagCrudMixin:
             tag_type, tag_value, feeder = item[0], item[1], item[2]
             tag_id = self.get_or_create_tag_id(tag_type, tag_value)
             tag_ids.append((tag_id, feeder))
-            if len(item) > 3:
+            if len(item) > 3 and tag_id not in details:   # first credit wins
                 details[tag_id] = (item[3], item[4] if len(item) > 4 else None)
 
         # Step 2: load all existing links for this channel+source in one SELECT.
@@ -472,7 +472,7 @@ class ContentTagCrudMixin:
             for item in tags:
                 tag_id = self.get_or_create_tag_id(item[0], item[1])
                 channel_tag_feeders.append((channel_key, tag_id, item[2]))
-                if len(item) > 3:   # (detail, ord) — see set_content_tags
+                if len(item) > 3 and (channel_key, tag_id) not in details:   # first wins
                     details[(channel_key, tag_id)] = (item[3], item[4] if len(item) > 4 else None)
 
         if not channel_tag_feeders:
