@@ -65,7 +65,6 @@ class DetailsPaneWidget(QWidget):
     person_filter_requested    = pyqtSignal(str)        # person name
     tag_filter_requested       = pyqtSignal(str, str)   # (facet_type, value) — left-click tag chip
     tag_discover_requested     = pyqtSignal(str, str)   # (facet_type, value) — right-click tag chip
-    source_filter_requested    = pyqtSignal(str)        # provider_id — left-click the title block's source chip
     status_message            = pyqtSignal(str)         # one-line status text (e.g. id-chip copy feedback)
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
@@ -696,7 +695,6 @@ class DetailsPaneWidget(QWidget):
             lambda value: self.tag_filter_requested.emit("collection", value)
         )
         # Source chip (title block) + its id-chip copy status feedback.
-        self._meta.source_filter_requested.connect(self.source_filter_requested)
         self._meta.status_message.connect(self.status_message)
 
         # Cast / director / crew person chips

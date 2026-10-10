@@ -9,7 +9,7 @@ its own cohesive module — the class name ``_MetadataSection`` is kept so the
 pane's one caller (``details_pane.py``) has an unchanged API: ``load_basic``,
 ``load_metadata``, ``set_mode``, ``clear``, ``set_recommendation_reason``, the
 ``genre_clicked`` signal, plus the new ``set_collection``,
-``source_filter_requested``, ``collection_clicked`` and ``status_message``
+``collection_clicked`` and ``status_message``
 members this slice adds.
 
 Quality/region badges and the plain "Source:" label are gone from this block
@@ -60,7 +60,6 @@ class _MetadataSection(QWidget):
 
     genre_clicked = pyqtSignal(str)            # genre name — left-click a genre chip
     collection_clicked = pyqtSignal(str)        # collection value — left-click the collection chip
-    source_filter_requested = pyqtSignal(str)   # provider_id — left-click the source chip
     status_message = pyqtSignal(str)            # one-line status text — id-chip copy feedback
 
     def __init__(self, config, parent=None):
@@ -76,6 +75,7 @@ class _MetadataSection(QWidget):
         self._tmdb_id: str | None = None
         self._imdb_id: str | None = None
         self._source_provider_id: str | None = None
+        self._source_channel_id: str | None = None
         self._source_text: str = ""
         self._source_name: str | None = None
         self._collection_value: str | None = None
@@ -255,6 +255,7 @@ class _MetadataSection(QWidget):
         # orphaned provider_id); hidden entirely when the channel has none.
         provider_id = getattr(channel, "provider_id", None)
         self._source_provider_id = provider_id
+        self._source_channel_id = getattr(channel, "id", None)
         if provider_id is not None:
             provider_info = (provider_map or {}).get(provider_id)
             if provider_info:
@@ -433,6 +434,7 @@ class _MetadataSection(QWidget):
         self._clear_genre_chips()
         self._genres_container.hide()
         self._source_provider_id = None
+        self._source_channel_id = None
         self._source_text = ""
         self._source_name = None
         self._collection_value = None
@@ -501,7 +503,7 @@ class _MetadataSection(QWidget):
             self._source_row_w.hide()
             return
         self._source_chip.setText(escape_mnemonic(self._source_text))
-        self._source_chip.setToolTip("Show everything from this source")
+        self._source_chip.setToolTip("Click to copy this copy's channel id")
         if self._collection_value:
             self._collection_chip.setText(escape_mnemonic(self._collection_value))
             self._collection_chip.setToolTip(
@@ -514,8 +516,11 @@ class _MetadataSection(QWidget):
         self._source_row_w.show()
 
     def _on_source_chip_clicked(self) -> None:
-        if self._source_provider_id:
-            self.source_filter_requested.emit(self._source_provider_id)
+        """Copy the channel id — what the source line always did. (DETAILS-3b
+        briefly made it filter the list to the whole source: never useful.)"""
+        if self._source_channel_id:
+            QApplication.clipboard().setText(self._source_channel_id)
+            self.status_message.emit(f"Copied channel id {self._source_channel_id} to clipboard")
 
     def _on_collection_chip_clicked(self) -> None:
         if self._collection_value:
