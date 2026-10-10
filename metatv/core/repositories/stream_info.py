@@ -74,8 +74,9 @@ class StreamInfoRepository:
         ep = self.session.get(EpisodeDB, episode_id)
         if ep is None:
             return None
-        return (self.session.query(ChannelDB.id)
-                .filter(ChannelDB.source_id == ep.series_id,
-                        ChannelDB.provider_id == ep.provider_id,
-                        ChannelDB.media_type == "series")
-                .scalar())
+        row = (self.session.query(ChannelDB.id)
+               .filter(ChannelDB.source_id == ep.series_id,
+                       ChannelDB.provider_id == ep.provider_id,
+                       ChannelDB.media_type == "series")
+               .first())
+        return row[0] if row else None

@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import Optional
 import shutil
-import tempfile
 import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
@@ -12,7 +11,8 @@ from metatv.core import profile_store
 from metatv.core.catalog_refresh import RETIRED_LIVE_REFRESH_MODES
 
 from metatv.core.config_storage import (
-    PROFILE, QA_STATE_FILENAME, _qa_defaults, _profile_field_names, _qa_field_names, _YamlDumper, _YamlLoader,
+    atomic_yaml_write, icon_field_defaults,
+    PROFILE, QA_STATE_FILENAME, _qa_defaults, _profile_field_names, _qa_field_names, _YamlLoader,
 )
 
 # ---------------------------------------------------------------------------
@@ -2429,7 +2429,8 @@ class Config(BaseModel):
         missing = sorted(set(type(self).model_fields)
                          - set(data)
                          - _profile_field_names(type(self))
-                         - _qa_field_names(type(self)))
+                         - _qa_field_names(type(self))
+                         - set(icon_field_defaults(type(self))))
         if not missing:
             return False
         logger.info(
@@ -2515,8 +2516,12 @@ class Config(BaseModel):
         # missing from both.
         owned = profile_store.owned_keys()
         profile_data = {k: v for k, v in data.items() if k in owned}
+        # Legacy *_icon glyph constants (debt: icons live in icons.py) are never
+        # user-set; written only when someone actually changed one.
+        icon_defaults = icon_field_defaults(type(self))
         main_data = {k: v for k, v in data.items()
-                     if k not in qa_names and k not in owned}
+                     if k not in qa_names and k not in owned
+                     and not (k in icon_defaults and v == icon_defaults[k])}
 
         # Only the keys that CHANGED. Sending the whole slice would make every
         # save a 34-row write and reinstate, in the database, exactly the
@@ -2536,7 +2541,7 @@ class Config(BaseModel):
                     logger.debug(f"Backed up config to {backup_file}")
                 except Exception as e:
                     logger.warning(f"Failed to create backup: {e}")
-            self._atomic_write(config_file, main_data)
+            atomic_yaml_write(config_file, main_data)
             logger.info(f"Saved config to {config_file}")
             wrote = True
 
@@ -2546,7 +2551,7 @@ class Config(BaseModel):
         # fields are collapse flags that default to True.
         if qa_data and qa_data != _qa_defaults(type(self)):
             if force or self._last_written.get("_qa") != qa_data or not qa_file.exists():
-                self._atomic_write(qa_file, qa_data)
+                atomic_yaml_write(qa_file, qa_data)
                 logger.debug(f"Saved QA state to {qa_file}")
                 wrote = True
 
@@ -2573,31 +2578,6 @@ class Config(BaseModel):
         # wrote it.
         self._last_written = {"_main": main_data, "_qa": qa_data,
                               "_profile": profile_data}
-
-    def _atomic_write(self, target: Path, payload: dict) -> None:
-        """Write *payload* to *target* via a temp file and an atomic replace.
-
-        Extracted so config.yaml and the QA sidecar cannot drift on how they
-        are written — the temp-then-replace is what stops a crash mid-write
-        leaving a truncated file, and that mattering for one of them means it
-        matters for both.
-        """
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=self.config_dir, delete=False, suffix=".yaml"
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
-            tmp_path.replace(target)
-        except Exception as e:
-            logger.error(f"Failed to write {target}: {e}")
-            try:
-                if tmp_path is not None:
-                    tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass  # best-effort cleanup of a temp file we are already abandoning
-            raise
 
 # ---------------------------------------------------------------------------
 # Dev-mode gate

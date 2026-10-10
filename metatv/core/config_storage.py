@@ -7,7 +7,11 @@ whose real job is declaring the settings themselves.
 """
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import yaml
+from loguru import logger
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -112,3 +116,34 @@ _YamlDumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 #: Likewise for reading.
 _YamlLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def icon_field_defaults(model_cls) -> dict:
+    """``{name: default}`` for the legacy ``*_icon`` glyph constants — never
+    user-set (icons live in ``icons.py``), so config.yaml does not carry them."""
+    return {k: f.default for k, f in model_cls.model_fields.items() if k.endswith("_icon")}
+
+
+def atomic_yaml_write(target: Path, payload: dict) -> None:
+    """Write *payload* to *target* via a temp file and an atomic replace.
+
+    One writer for config.yaml and the QA sidecar so they cannot drift on how
+    they are written — the temp-then-replace is what stops a crash mid-write
+    leaving a truncated file.
+    """
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=target.parent, delete=False, suffix=".yaml"
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
+        tmp_path.replace(target)
+    except Exception as e:
+        logger.error(f"Failed to write {target}: {e}")
+        try:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass  # best-effort cleanup of a temp file we are already abandoning
+        raise
