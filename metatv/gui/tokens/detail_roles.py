@@ -149,6 +149,14 @@ def build(t: Mapping[str, object]) -> dict[str, str]:
         # name", "from region Sweden (SE)". Quiet TEXT at the small size, the
         # same weight as a Facts key, never facet-tinted: a guess reads at
         # the body ramp and carries its reason instead of a colour claim.
+        # The thin left rule the "Details for <copy>" rows hang from (option D).
+        "DETAIL_FACTS_RULE": f"#detailsRule {{ border-left: 2px solid {border}; }}",
+        # A Similar row's state mark (history ↺, not-interested) — shown only when set.
+        "DETAIL_STATE_MARK": f"font-size: {font_md}; color: {text};",
+        # …and the measured/confirmed kind (watched ✓).
+        "DETAIL_STATE_MARK_OK": f"font-size: {font_md}; color: {ok};",
+        # A Similar row's title button (its eliding label uses SIDEBAR_ROW_TITLE).
+        "DETAIL_ROW_TITLE_BTN": f"QPushButton {{ font-size: {font_md}; border: none; }}",
         "DETAIL_FACT_REASON": (
             f"color: {text}; font-size: {font_xs};"
         ),

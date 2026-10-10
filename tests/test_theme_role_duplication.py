@@ -118,7 +118,7 @@ def test_roles_that_declare_the_same_properties_are_reviewed(palette):
 
 #: Shrink-only, like the code-health ratchet. Lower these when roles are merged;
 #: never raise one to make a new twin pass. Measured 2026-08-25 on 299 roles.
-_IDENTICAL_GROUP_BUDGET = 25
+_IDENTICAL_GROUP_BUDGET = 24
 # 41 -> 42, justified rather than absorbed, which is what this ratchet asks for.
 #
 # The new cluster is SIDEBAR_GROUP_HEADING / SIDEBAR_GROUP_HEADING_COUNT /

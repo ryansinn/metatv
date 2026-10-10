@@ -90,6 +90,20 @@ def chip_sheet(colour_token: str, *, dashed: bool = False, selected: bool = Fals
     )
 
 
+def fact_value_sheet(colour_token: str, *, guessed: bool = False) -> str:
+    """A fact value in "Details for <copy>": tinted text, no box, underlined on
+    hover (it is clickable — it filters). A guess reads italic.
+
+    Args:
+        colour_token: ``theme`` colour constant name for the text.
+        guessed: Italicise (an inference, not a stated fact).
+    """
+    return (f"QPushButton {{ color: {getattr(theme, colour_token)}; border: none; padding: 0;"
+            f" font-size: {theme.FONT_MD}; text-align: left;"
+            f"{' font-style: italic;' if guessed else ''} }}"
+            "QPushButton:hover { text-decoration: underline; }")
+
+
 def make_chip(text: str, colour_token: str = "COLOR_TEXT", *, dashed: bool = False,
               selected: bool = False, bold: bool = False) -> QPushButton:
     """Build one outlined, clickable chip — the pane's one chip widget.
