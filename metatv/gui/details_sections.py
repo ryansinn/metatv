@@ -958,7 +958,7 @@ class _CastSection(CollapsibleMixin, QWidget):
         if directors or names:
             self._grid_w, grid = make_label_grid(KEY_COL - SECTION_INDENT)
             row = 0
-            for key, role, people, attr in (("Director", "director", directors, "directors"),
+            for key, role, people, attr in (("Directing", "director", directors, "directors"),
                                             ("Cast", "cast", names, "actors")):
                 if not people:
                     continue

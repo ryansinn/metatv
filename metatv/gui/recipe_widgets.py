@@ -60,10 +60,14 @@ def _facet_meta() -> dict[str, tuple[str, str, str]]:
         "decade":     ("Decade",        _theme.COLOR_FACET_DECADE,     "ERA"),
         "quality":    ("Quality",       _theme.COLOR_FACET_QUALITY,    "FINISH"),
         "collection": ("Collection",    _theme.COLOR_FACET_COLLECTION, "SET"),
+        # People — the same light blue as the Details pane's Cast chips.
+        "cast":       ("Cast",          _theme.COLOR_ACCENT_BLUE_LIGHT, "WITH"),
+        "director":   ("Directing",     _theme.COLOR_ACCENT_BLUE_LIGHT, "BY"),
     }
 
 # Role display order in the recipe rail / bar
-_ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "FINISH", "SET"]
+_ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "FINISH", "SET",
+                          "WITH", "BY"]
 
 # The browse facets shown as masonry tiles, in display order (mockup order).
 # **Format is deliberately excluded** — audio format is a filter-panel concern,
@@ -72,6 +76,7 @@ _ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "F
 # stays facet-agnostic (DR-0007).
 BROWSE_FACETS: tuple[str, ...] = (
     "genre", "region", "language", "decade", "collection", "quality", "platform", "subtitle",
+    "cast", "director",
 )
 # Back-compat alias — the cluster mixin loads this exact set in one windowed pass.
 _ALL_CLUSTER_FACETS: tuple[str, ...] = BROWSE_FACETS
