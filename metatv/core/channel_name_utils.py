@@ -1142,6 +1142,36 @@ AUDIO_LANG_WORD_MAP: dict[str, str] = {
 # ISO 639-1 codes (TMDb's ``original_language``) → the same language names
 # AUDIO_LANG_WORD_MAP uses. Kept apart from that map on purpose: it feeds
 # provider-token parsing, where bare two-letter words like IS/HE would misfire.
+# A stream track's region subtag ("es-MX", "pt-BR") → the dialect name the
+# language facet already uses. Spain's Spanish (es-ES, castellano) is plain
+# "Spanish"; Latin American Spanish is its own value. Unlisted pairs fall back
+# to the base language.
+LANGUAGE_REGION_VARIANTS: dict[tuple[str, str], str] = {
+    ("es", "MX"): "Spanish (Mexico)",
+    ("es", "419"): "Latin American Spanish",
+    ("es", "AR"): "Latin American Spanish",
+    ("es", "BO"): "Latin American Spanish",
+    ("es", "CL"): "Latin American Spanish",
+    ("es", "CO"): "Latin American Spanish",
+    ("es", "CR"): "Latin American Spanish",
+    ("es", "CU"): "Latin American Spanish",
+    ("es", "DO"): "Latin American Spanish",
+    ("es", "EC"): "Latin American Spanish",
+    ("es", "GT"): "Latin American Spanish",
+    ("es", "HN"): "Latin American Spanish",
+    ("es", "NI"): "Latin American Spanish",
+    ("es", "PA"): "Latin American Spanish",
+    ("es", "PE"): "Latin American Spanish",
+    ("es", "PR"): "Latin American Spanish",
+    ("es", "PY"): "Latin American Spanish",
+    ("es", "SV"): "Latin American Spanish",
+    ("es", "US"): "Latin American Spanish",
+    ("es", "UY"): "Latin American Spanish",
+    ("es", "VE"): "Latin American Spanish",
+    ("pt", "BR"): "Portuguese (Brazil)",
+    ("pt", "PT"): "Portuguese (Portugal)",
+}
+
 ISO_639_1_LANGUAGE_NAMES: dict[str, str] = {
     "ar": "Arabic",
     "bg": "Bulgarian",

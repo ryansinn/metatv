@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from metatv.core.channel_name_utils import (
-    AUDIO_LANG_WORD_MAP, CODE_FACETS, ISO_639_1_LANGUAGE_NAMES,
+    AUDIO_LANG_WORD_MAP, CODE_FACETS, ISO_639_1_LANGUAGE_NAMES, LANGUAGE_REGION_VARIANTS,
 )
 
 #: The mpv properties one capture reads.
@@ -118,7 +118,15 @@ def language_name(code: str | None) -> str:
     letter ones through the ISO 639-1 table. Unknown → the code itself."""
     if not code:
         return "Unknown"
-    primary = code.strip().replace("_", "-").split("-")[0]
+    parts = code.strip().replace("_", "-").split("-")
+    primary = parts[0]
+    if len(parts) > 1:
+        # "es-MX" → Spanish (Mexico), "es-419" → Latin American Spanish; es-ES
+        # (castellano) is plain Spanish. A 3-letter base ("spa") maps first.
+        base = {"spa": "es", "por": "pt"}.get(primary.lower(), primary.lower())
+        variant = LANGUAGE_REGION_VARIANTS.get((base, parts[1].upper()))
+        if variant:
+            return variant
     return (AUDIO_LANG_WORD_MAP.get(primary.upper())
             or ISO_639_1_LANGUAGE_NAMES.get(primary.lower())
             or code.upper())
