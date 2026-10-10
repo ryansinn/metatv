@@ -19,6 +19,7 @@ from typing import Any, Optional
 import aiohttp
 from loguru import logger
 
+from metatv.core.channel_name_utils import ISO_639_1_LANGUAGE_NAMES
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
 
 _BASE_URL = "https://api.themoviedb.org/3"
@@ -300,6 +301,8 @@ class TMDbProvider(MetadataProviderPlugin):
             year=_year_from_date(release_date),
             plot=data.get("overview") or None,
             tagline=data.get("tagline") or None,
+            original_language=ISO_639_1_LANGUAGE_NAMES.get(
+                (data.get("original_language") or "").lower()) or None,
 
             poster_url=_image_url(data.get("poster_path"), "w500"),
             backdrop_url=_image_url(data.get("backdrop_path"), "w1280"),
