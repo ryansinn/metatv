@@ -39,6 +39,13 @@ from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import FlowContainer
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 
+def _half_size(font_token: str) -> str:
+    """About half the ROW height (0.6 x the name size), floored at FONT_SM."""
+    def px(tok: str) -> int:
+        return int(str(tok).strip().removesuffix("px") or 0)
+    return f"{max(px(_theme.FONT_SM), round(px(font_token) * 0.6))}px"
+
+
 # Maximum number of tags shown before the "+N more" cap button appears.
 _CAP: int = 40
 
@@ -182,6 +189,10 @@ class _TagButton(QPushButton):
             # Directing are both blue), so the facet is captioned above the name.
             self._build_captioned(facet_label, count_str, f"{mark}{label_value}",
                                   font_token, color)
+        elif count_str:
+            # The count stays small at the name's top right — at the name's
+            # weighted size "Frank Welker 51" read as one giant label.
+            self._build_counted(count_str, f"{mark}{label_value}", font_token, color)
         else:
             self.setText(label)
         self.adjustSize()
@@ -210,6 +221,23 @@ class _TagButton(QPushButton):
         box.addLayout(top)
         box.addWidget(name)
         for lbl in (cap, num, name):
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def _build_counted(self, count_str: str, label: str, font_token: str, color: str) -> None:
+        """The name at its weighted size with a small count at its top right."""
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 2, 6, 2)
+        row.setSpacing(4)
+        name = QLabel(label)
+        num = QLabel(count_str)
+        _theme.style_fn(name, lambda: f"font-size: {font_token}; color: {color};")
+        # About half the row height, never below the caption size — readable
+        # beside a big name, quiet beside a small one.
+        _theme.style_fn(num, lambda: _theme.RECIPE_ROLE_LABEL
+                        + f" font-size: {_half_size(font_token)};")
+        row.addWidget(name)
+        row.addWidget(num, 0, Qt.AlignmentFlag.AlignTop)
+        for lbl in (name, num):
             lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def sizeHint(self):  # type: ignore[override]

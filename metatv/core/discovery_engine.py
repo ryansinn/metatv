@@ -855,23 +855,40 @@ def get_by_user_category(session, category: str, limit: int = 30,
     exclusion narrows OTHER shelves; it must never make this one contradict
     itself by hiding every row of the category it exists to display.
     """
+    from sqlalchemy import or_
+
     from metatv.core.database import ChannelDB, MetadataDB
+    # A category names WORKS, not one source's copy: a title filed under it on
+    # any source (a disabled one included) brings its copies on every active
+    # source with it — joined on the stored content_key (owner, 2026-10-10).
+    filed_works = (
+        session.query(ChannelDB.content_key)
+        .filter(ChannelDB.user_category == category, ChannelDB.content_key.isnot(None))
+    )
     q = (
         session.query(ChannelDB, MetadataDB)
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
-            ChannelDB.user_category == category,
+            or_(ChannelDB.user_category == category,
+                ChannelDB.content_key.in_(filed_works.scalar_subquery())),
             ChannelDB.is_hidden == False,  # noqa: E712
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids, dead_signal_streak_floor)
-    rows = q.order_by(ChannelDB.name).limit(limit).all()
-    return [
-        _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
-        for ch, meta in rows
-    ]
+    # One card per work: the copy filed under the category first, then by name.
+    rows = q.order_by((ChannelDB.user_category == category).desc(), ChannelDB.name).all()
+    seen: set = set()
+    cards = []
+    for ch, meta in rows:
+        work = ch.content_key or f"id:{ch.id}"
+        if work in seen:
+            continue
+        seen.add(work)
+        cards.append(_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map))
+    cards.sort(key=lambda c: (c.title or "").lower())
+    return cards[:limit]
 
 
 # ---------------------------------------------------------------------------

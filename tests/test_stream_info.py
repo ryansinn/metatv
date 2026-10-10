@@ -40,7 +40,7 @@ def test_nothing_loaded_is_not_stored():
 def test_rows_name_languages_and_measurements():
     rows = {(k or f"+{i}"): v for i, (k, v) in enumerate(display_rows(parse_mpv(AE_PROPS)))}
     assert rows["Resolution"] == "1920×1080 · 59.94 fps"
-    assert rows["Video"] == "H.264 High · 4.2 Mb/s"
+    assert rows["Video"] == "H.264 High", "no bitrate: a probe average reads as false precision"
     assert rows["Audio"].startswith("English AAC 2.0")
     assert any(v.startswith("Spanish AAC 2.0") for v in rows.values())
     assert rows["Subtitles"] == "DVB · CC (EIA-608)"

@@ -216,8 +216,8 @@ def test_exclude_state_shows_exclude_mark(qapp):
     cloud = WeightedTagCloud()
     cloud.set_tags([("Horror", 50, "exclude")], facet_color=_theme.COLOR_ACCENT)
     btn = cloud._tag_buttons[0]
-    assert _icons.tag_exclude_icon in btn.text(), (
-        f"Exclude-state button should contain '{_icons.tag_exclude_icon}', got: {btn.text()!r}"
+    assert _icons.tag_exclude_icon in btn.label_text(), (
+        f"Exclude-state button should contain '{_icons.tag_exclude_icon}', got: {btn.label_text()!r}"
     )
 
 
@@ -226,8 +226,8 @@ def test_include_state_shows_include_mark(qapp):
     cloud = WeightedTagCloud()
     cloud.set_tags([("Comedy", 120, "include")], facet_color=_theme.COLOR_ACCENT_TEAL)
     btn = cloud._tag_buttons[0]
-    assert _icons.tag_include_icon in btn.text(), (
-        f"Include-state button should contain '{_icons.tag_include_icon}', got: {btn.text()!r}"
+    assert _icons.tag_include_icon in btn.label_text(), (
+        f"Include-state button should contain '{_icons.tag_include_icon}', got: {btn.label_text()!r}"
     )
 
 
@@ -236,8 +236,8 @@ def test_none_state_has_no_mark(qapp):
     cloud = WeightedTagCloud()
     cloud.set_tags([("Thriller", 80, "none")], facet_color=_theme.COLOR_ACCENT)
     btn = cloud._tag_buttons[0]
-    assert _icons.tag_include_icon not in btn.text()
-    assert _icons.tag_exclude_icon not in btn.text()
+    assert _icons.tag_include_icon not in btn.label_text()
+    assert _icons.tag_exclude_icon not in btn.label_text()
 
 
 def test_header_shows_facet_name_and_count(qapp):
