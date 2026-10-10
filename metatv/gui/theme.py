@@ -732,7 +732,9 @@ def _build_semantic_constants() -> dict[str, object]:
     # Filter dialog / panel
     FILTER_CHECKBOX  = "QCheckBox { color: " + COLOR_TEXT + "; }"
     FILTER_ITEM_TEXT = "font-size: " + FONT_LG + ";"
-    ITEM_COUNT       = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
+    # Body text at the base size — the ONE role for it (was ITEM_COUNT,
+    # RECIPE_SAVED_COUNT, WHATS_NEW_ITEM and DETAIL_STATE_MARK: one sheet, four names).
+    TEXT_MD          = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     EXPAND_HINT      = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XS + ";"
     INFO_LABEL       = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + "; padding-left: 4px; padding-top: 4px;"
 
@@ -1029,9 +1031,6 @@ def _build_semantic_constants() -> dict[str, object]:
     WHATS_NEW_META = (
         "font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
     )
-    WHATS_NEW_ITEM = (
-        "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
-    )
     WHATS_NEW_CARD = (
         "QWidget { background: " + OVERLAY_04 + "; border: 1px solid " + COLOR_LINE + ";"
         " border-radius: " + RADIUS_MD + "; }"
@@ -1049,14 +1048,14 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     )
 
-    # Events tab — segmented view-mode toggle (Timeline / By Network)
-    EVENTS_SEG_INACTIVE = (
+    # Segmented toggle (Events Timeline/By Network, Similar Titles/Content)
+    SEGMENTED_INACTIVE = (
         "QPushButton { color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + ";"
         " padding: 3px " + SPACE_MD + "; background: transparent; }"
         "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + "; }"
     )
-    EVENTS_SEG_ACTIVE = (
+    SEGMENTED_ACTIVE = (
         "QPushButton { color: " + COLOR_TEXT_HI + "; font-size: " + FONT_MD + "; font-weight: 600;"
         " border: 1px solid " + COLOR_ACCENT + "; border-radius: " + RADIUS_SM + ";"
         " padding: 3px " + SPACE_MD + "; background: " + OVERLAY_BLUE_15 + "; }"
@@ -1319,7 +1318,6 @@ def _build_semantic_constants() -> dict[str, object]:
         " font-size: " + FONT_2XL + "; font-weight: 600; padding: 0; }"
         "QLineEdit:focus { border-bottom: 1px solid " + COLOR_BORDER + "; }"
     )
-    RECIPE_SAVED_COUNT = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
     # Generic muted empty/loading placeholder text (saved-empty, grid-loading, no-matches).
     RECIPE_EMPTY_HINT = (
         "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XL + "; padding: 8px " + SPACE_XS + ";"

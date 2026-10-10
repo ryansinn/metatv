@@ -59,4 +59,24 @@ class StreamInfoRepository:
         # Searchable: a language heard in the stream becomes a language tag.
         # Episodes have no channel row to tag (their ids miss the channel join).
         from metatv.core.repositories.tag import TagRepository
-        TagRepository(self.session).apply_measured_tags(channel_id, info)
+        tags = TagRepository(self.session)
+        tags.apply_measured_tags(channel_id, info)
+        # An episode has no channel row to tag; its languages roll up to the
+        # series COPY that holds it (same source, same series id) — never to a
+        # sibling variant, whose episodes are a different file.
+        series_id = self._series_copy_of_episode(channel_id)
+        if series_id:
+            tags.apply_measured_tags(series_id, info)
+
+    def _series_copy_of_episode(self, episode_id: str) -> "str | None":
+        """The ``ChannelDB.id`` of the series copy an episode belongs to, or None."""
+        from metatv.core.database import EpisodeDB
+        ep = self.session.get(EpisodeDB, episode_id)
+        if ep is None:
+            return None
+        row = (self.session.query(ChannelDB.id)
+               .filter(ChannelDB.source_id == ep.series_id,
+                       ChannelDB.provider_id == ep.provider_id,
+                       ChannelDB.media_type == "series")
+               .first())
+        return row[0] if row else None

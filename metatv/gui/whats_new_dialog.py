@@ -246,7 +246,7 @@ class WhatsNewDialog(QDialog):
         # Bullet items — each fully expands to its wrapped-text height, no cap.
         for item_text in entry.items:
             item_label = QLabel(f"{_icons.bullet_icon}  {item_text}")
-            _theme.style(item_label, "WHATS_NEW_ITEM")
+            _theme.style(item_label, "TEXT_MD")
             item_label.setWordWrap(True)
             _no_width_force(item_label)
             layout.addWidget(item_label)

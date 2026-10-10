@@ -120,8 +120,7 @@ class _MetadataSection(QWidget):
         byline_row_layout.addWidget(self._byline_lbl, 1)
 
         self.adult_indicator = QLabel("🔞 Adult")
-        _theme.style_fn(self.adult_indicator, lambda: f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
-            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;")
+        _theme.style(self.adult_indicator, "DETAIL_ADULT_BADGE")
         self.adult_indicator.hide()
         byline_row_layout.addWidget(self.adult_indicator)
         layout.addWidget(byline_row)
@@ -130,7 +129,7 @@ class _MetadataSection(QWidget):
         # already present; a guessed tag genre renders dashed.  A wrapping
         # flow row so it never forces the pane wider than its viewport.
         self._genres_loading_lbl = QLabel()
-        _theme.style_fn(self._genres_loading_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
+        _theme.style(self._genres_loading_lbl, "TEXT_MD")
         self._genres_loading_lbl.hide()
         layout.addWidget(self._genres_loading_lbl)
 
@@ -207,7 +206,7 @@ class _MetadataSection(QWidget):
         if is_live:
             self._genres_loading_lbl.hide()
             self._genres_container.hide()
-            _theme.style_fn(self.title_label, lambda: f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
+            _theme.style(self.title_label, "DETAIL_TITLE")
             self._tagline_lbl.hide()
         else:
             _theme.style(self.title_label, "DETAIL_TITLE")
