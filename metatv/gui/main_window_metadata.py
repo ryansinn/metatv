@@ -158,10 +158,10 @@ class _MetadataMixin:
             self._fetch_provider_details(channel_id)
 
     def _fetch_provider_details(self, channel_id: str) -> None:
-        """A movie with nothing measured: ask its provider once (Xtream
-        ``get_vod_info``, one small call — the response carries the provider's
-        own ffprobe of the file and TMDb's original language) and store it the
-        way the enrichment sweep does. Once per title per session; never bulk.
+        """Ask a title's provider once (Xtream ``get_vod_info`` for a movie,
+        ``get_series_info`` for a series — one small call carrying the provider's
+        ffprobe, TMDb's original language, alternate titles and credits) and
+        store it the way the enrichment sweep does. Once per title per session.
         """
         done = self.__dict__.setdefault("_provider_details_fetched", set())
         if channel_id in done:
@@ -173,7 +173,7 @@ class _MetadataMixin:
             from metatv.metadata_providers.raw_parse import harvest_detail_metadata
             from metatv.providers.factory import get_provider
             ch = repos.session.get(ChannelDB, channel_id)
-            if ch is None or ch.media_type != "movie":
+            if ch is None or ch.media_type not in ("movie", "series"):
                 return None
             provider_db = repos.providers.get_by_id(ch.provider_id)
             if provider_db is None or provider_db.type != "xtream":
@@ -181,10 +181,12 @@ class _MetadataMixin:
             plugin = get_provider("xtream")
             if plugin is None:
                 return None
-            data = asyncio.run(plugin.fetch_vod_info(repos.providers.to_model(provider_db),
-                                                     ch.source_id))
+            fetch = plugin.fetch_vod_info if ch.media_type == "movie" else plugin.fetch_series_info
+            data = asyncio.run(fetch(repos.providers.to_model(provider_db), ch.source_id))
             harvest = harvest_detail_metadata(data) if data else None
-            if not harvest or not (harvest.get("stream") or harvest.get("original_language")):
+            useful = [k for k, v in (harvest or {}).items() if v]
+            logger.info(f"Provider details for {ch.name!r} ({ch.media_type}): {useful or 'nothing new'}")
+            if not useful:
                 return None
             repos.channels.apply_metadata_harvest({channel_id: harvest})
             return harvest.get("original_language") or ""
