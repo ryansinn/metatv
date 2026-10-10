@@ -852,3 +852,44 @@ def _dedup(tags: list[tuple[str, str, float]]) -> list[tuple[str, str, float]]:
             seen.add(key)
             result.append(tag)
     return result
+
+
+# ── Credits and titles as tags (cast / director / title) ──────────────────────
+
+def _clean_name(name) -> str:
+    """Trim and collapse whitespace — the cheap half of spelling variants; the
+    alias model merges the rest ("Danny De Vito" / "Danny DeVito")."""
+    return " ".join(str(name or "").split())
+
+
+def credit_tags(cast, director) -> list[tuple]:
+    """Cast and directing credits as tag items for ``set_content_tags``.
+
+    ``(type, value, feeder, detail, ord)``: cast keeps billing order (``ord``)
+    and the character played as ``detail`` when the source gave one; directors
+    carry no detail yet — an Xtream panel's "director" field is the whole
+    Directing department (assistant directors included) with no job titles, so
+    the job is left unclaimed until a source (TMDb) states it.
+
+    Args:
+        cast: Stored cast list (``[{"name", "character", …}]``) or names.
+        director: Stored director string (comma/slash/& separated) or None.
+    """
+    from metatv.core.preference_engine import _split_directors
+    items: list[tuple] = []
+    for i, person in enumerate(cast or []):
+        name = _clean_name(person.get("name") if isinstance(person, dict) else person)
+        if not name:
+            continue
+        character = _clean_name(person.get("character")) if isinstance(person, dict) else ""
+        items.append(("cast", name, "metadata_credits", character or None, i))
+    for name in _split_directors(director) if director else []:
+        name = _clean_name(name)
+        if name:
+            items.append(("director", name, "metadata_credits", None, None))
+    return items
+
+
+def title_tags(titles, feeder: str = "provider_detail") -> list[tuple]:
+    """Alternate titles as ``title`` tag items (searchable, never listed)."""
+    return [("title", t, feeder) for t in (_clean_name(x) for x in titles or []) if t]

@@ -515,6 +515,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             MetadataYearBackfillTask,
         )
         self.migration_manager.register(MetadataYearBackfillTask(self.db))
+        from metatv.core.migrations.credit_tags_backfill import CreditTagsBackfillTask
+        self.migration_manager.register(CreditTagsBackfillTask(self.db))
         # One-time pass for rows ingested before provider_metadata read a
         # field the provider was already sending; cached metadata is not
         # re-derived on read. A new field is a row in its FIELDS table, not a
