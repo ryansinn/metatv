@@ -334,6 +334,8 @@ class DetailsPaneWidget(QWidget):
             provider_name=self.provider_name(channel.provider_id) if channel.provider_id else "",
             copy_code=getattr(channel, "detected_prefix", None) or "",
         )
+        # A series root has no stream to probe — its episodes do (show_episode).
+        self._details.set_probe_available(getattr(channel, "media_type", None) != "series")
         self._action_bar.update_favorite(channel.is_favorite)
         _is_series = getattr(channel, "media_type", None) == MediaType.SERIES
         # Primary button caption: a SERIES root drills in (🗂 Browse); movies/live
@@ -433,6 +435,7 @@ class DetailsPaneWidget(QWidget):
 
         self.current_episode = episode
         self._details.load_stream_info(None)   # the series' measurement is not this episode's
+        self._details.set_probe_available(True)  # an episode IS a stream
         self._in_episode_mode = True
 
         # Byline — the cleaned episode title (matches the tree row); fall back to the

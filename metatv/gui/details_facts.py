@@ -127,6 +127,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             "frame rate, codecs, bitrate and audio/subtitle tracks")
         self._probe_btn.clicked.connect(self.probe_requested)
         self._probe_running = False
+        self._probe_available = True
         content_lay.addWidget(make_flow([self._probe_btn]))
         layout.addWidget(self._content)
         self._wire_header()
@@ -300,6 +301,12 @@ class _DetailsSection(CollapsibleMixin, QWidget):
         self.setVisible(self._has_copy)
         self._sync_probe_button()
 
+    def set_probe_available(self, available: bool) -> None:
+        """Hide the probe button where there is no stream to measure (a series
+        root — only its episodes are streams)."""
+        self._probe_available = available
+        self._sync_probe_button()
+
     def set_probe_running(self, running: bool) -> None:
         """Show the probe as in progress (disabled, "Checking stream…") or idle."""
         self._probe_running = running
@@ -312,6 +319,7 @@ class _DetailsSection(CollapsibleMixin, QWidget):
             text = "Re-check stream" if self._stream_rows else "Get stream details"
         self._probe_btn.setText(text)
         self._probe_btn.setEnabled(not self._probe_running)
+        self._probe_btn.setVisible(self._probe_available)
 
     def _display(self, facet: str, value: str) -> str:
         if facet == "region":
