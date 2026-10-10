@@ -98,6 +98,94 @@ def parse_mpv(props: dict) -> dict | None:
             "container": props.get("file-format")}
 
 
+# ffprobe reports H.264/HEVC profiles as numbers in some panels' JSON.
+_FFPROBE_PROFILES = {("h264", "66"): "Baseline", ("h264", "77"): "Main",
+                     ("h264", "100"): "High", ("h264", "110"): "High 10",
+                     ("hevc", "1"): "Main", ("hevc", "2"): "Main 10"}
+
+
+def _fraction(fraction: Any) -> float | None:
+    """"24000/1001" → 23.976; "0/0" or junk → None."""
+    try:
+        num, _, den = str(fraction).partition("/")
+        value = float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return round(value, 3) if value > 0 else None
+
+
+def provider_stream_record(info: dict | None) -> dict | None:
+    """A provider's own ffprobe (Xtream ``get_vod_info`` → ``info.video`` /
+    ``info.audio`` / ``info.bitrate``) as a stream record — the same shape as
+    :func:`parse_mpv`, stored with ``source="provider"``.
+
+    Only the first audio track is reported and no subtitles, and it describes
+    the file the provider probed, which can differ from what plays today — so
+    it ranks below a played or probed measurement, above any guess.
+    """
+    if not isinstance(info, dict):
+        return None
+    v = info.get("video") if isinstance(info.get("video"), dict) else None
+    a = info.get("audio") if isinstance(info.get("audio"), dict) else None
+    if not v and not a:
+        return None
+    video = None
+    if v:
+        codec = (v.get("codec_name") or "").lower()
+        profile = str(v.get("profile") or "")
+        transfer = (v.get("color_transfer") or "").lower()
+        total_kbps = int(info["bitrate"]) if str(info.get("bitrate", "")).isdigit() else None
+        vtags = v.get("tags") if isinstance(v.get("tags"), dict) else {}
+        track_kbps = _kbps(int(vtags["BPS"])) if str(vtags.get("BPS", "")).isdigit() else None
+        audio_kbps = _kbps(int(a["bit_rate"])) if a and str(a.get("bit_rate", "")).isdigit() else None
+        video = {
+            "codec": codec or None,
+            "profile": _FFPROBE_PROFILES.get((codec, profile), profile if not profile.isdigit() else None),
+            "width": v.get("width"),
+            "height": v.get("height"),
+            "fps": _fraction(v.get("avg_frame_rate")) or _fraction(v.get("r_frame_rate")),
+            "hdr": "HDR10" if transfer == "smpte2084" else "HLG" if transfer == "arib-std-b67" else None,
+            # The track's own BPS tag when the muxer wrote one; else total minus audio.
+            "bitrate_kbps": track_kbps or ((total_kbps - audio_kbps) if total_kbps and audio_kbps
+                                           else total_kbps),
+        }
+    audio = []
+    if a:
+        tags = a.get("tags") if isinstance(a.get("tags"), dict) else {}
+        audio.append({
+            "lang": tags.get("language") or tags.get("LANGUAGE"),
+            "codec": (a.get("codec_name") or "").lower() or None,
+            "profile": None,
+            "channels": a.get("channels"),
+            "samplerate": a.get("sample_rate"),
+            "bitrate_kbps": (_kbps(int(a["bit_rate"])) if str(a.get("bit_rate", "")).isdigit()
+                             else _kbps(int(tags["BPS"])) if str(tags.get("BPS", "")).isdigit()
+                             else None),
+            "default": True,
+        })
+    return {"video": video, "audio": audio, "subs": [], "container": None}
+
+
+def provider_original_language(info: dict | None) -> str | None:
+    """TMDb's original language as a provider passes it on. Xtream panels put it
+    in ``country`` ("English") — named for a country, holding a language — or in
+    ``original_language`` (an ISO code). A value that is not a known language
+    name or code (a real country) yields None."""
+    if not isinstance(info, dict):
+        return None
+    for key in ("original_language", "country"):
+        value = str(info.get(key) or "").strip()
+        if not value:
+            continue
+        if value in _LANGUAGE_NAMES:
+            return value
+        if len(value) <= 3:
+            name = language_name(value)
+            if name in _LANGUAGE_NAMES:
+                return name
+    return None
+
+
 def merge_bitrate(earlier: dict | None, later: dict | None) -> dict | None:
     """Combine two captures of one play: keep the later record, but never let
     a missing later bitrate erase one the earlier capture had."""
@@ -130,6 +218,9 @@ def language_name(code: str | None) -> str:
     return (AUDIO_LANG_WORD_MAP.get(primary.upper())
             or ISO_639_1_LANGUAGE_NAMES.get(primary.lower())
             or code.upper())
+
+
+_LANGUAGE_NAMES = frozenset(AUDIO_LANG_WORD_MAP.values()) | frozenset(ISO_639_1_LANGUAGE_NAMES.values())
 
 
 def _codec(name: str | None) -> str:
@@ -203,7 +294,7 @@ def display_rows(info: dict, *, claimed_quality: str | None = None) -> list[tupl
     return rows
 
 
-def measured_tags(info: dict | None) -> list[tuple[str, str, str]]:
+def measured_tags(info: dict | None, source: str = "played") -> list[tuple[str, str, str]]:
     """Tags a measurement proves, for search: ``(facet, value, "played_tracks")``.
 
     Audio languages → ``language``; subtitle tracks with a language →
@@ -212,9 +303,12 @@ def measured_tags(info: dict | None) -> list[tuple[str, str, str]]:
     """
     if not info:
         return []
-    out = [("language", language_name(a.get("lang")), "played_tracks")
+    # Provenance follows the source: heard while streaming is OBSERVED; the
+    # provider's own ffprobe is a statement by the provider, ranked below it.
+    feeder = "provider_probe" if source == "provider" else "played_tracks"
+    out = [("language", language_name(a.get("lang")), feeder)
            for a in info.get("audio") or [] if a.get("lang")]
-    out += [("subtitle", language_name(s.get("lang")), "played_tracks")
+    out += [("subtitle", language_name(s.get("lang")), feeder)
             for s in info.get("subs") or [] if s.get("lang")]
     return list(dict.fromkeys(out))
 
@@ -279,6 +373,6 @@ def _sub_label(s: dict) -> str:
 
 
 def measured_caption(measured_at: datetime | None, source: str) -> str:
-    """"seen when played Oct 9" / "probed Oct 9"."""
-    verb = "probed" if source == "probe" else "seen when played"
+    """"seen when played Oct 9" / "probed Oct 9" / "reported by the source Oct 9"."""
+    verb = {"probe": "probed", "provider": "reported by the source"}.get(source, "seen when played")
     return f"{verb} {measured_at:%b} {measured_at.day}" if measured_at else verb

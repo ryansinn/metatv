@@ -47,9 +47,27 @@ class StreamInfoRepository:
                 (summarize({"info": info}) or {}).get("audio", ()), prefix)
         }
 
+    def upsert_provider_records(self, pairs) -> None:
+        """Store each ``(id, provider info dict)``'s ffprobe block as a
+        ``"provider"`` record (episodes at series load; never over a real
+        measurement). Rows must already exist so the series roll-up finds them.
+        """
+        from metatv.core.stream_info import provider_stream_record
+        for item_id, info in pairs:
+            record = provider_stream_record(info)
+            if record:
+                self.upsert(item_id, record, source="provider")
+
     def upsert(self, channel_id: str, info: dict, source: str = "played") -> None:
-        """Replace the channel's record with a fresh measurement."""
+        """Replace the channel's record with a fresh measurement.
+
+        Ranking: what mpv read from the stream itself ("played"/"probe") is the
+        truth; the provider's own ffprobe ("provider") only fills a gap — it
+        never replaces a real measurement.
+        """
         row = self.session.get(StreamInfoDB, channel_id)
+        if source == "provider" and row is not None and row.source != "provider":
+            return
         if row is None:
             row = StreamInfoDB(channel_id=channel_id)
             self.session.add(row)
@@ -60,13 +78,13 @@ class StreamInfoRepository:
         # Episodes have no channel row to tag (their ids miss the channel join).
         from metatv.core.repositories.tag import TagRepository
         tags = TagRepository(self.session)
-        tags.apply_measured_tags(channel_id, info)
+        tags.apply_measured_tags(channel_id, info, source)
         # An episode has no channel row to tag; its languages roll up to the
         # series COPY that holds it (same source, same series id) — never to a
         # sibling variant, whose episodes are a different file.
         series_id = self._series_copy_of_episode(channel_id)
         if series_id:
-            tags.apply_measured_tags(series_id, info)
+            tags.apply_measured_tags(series_id, info, source)
 
     def _series_copy_of_episode(self, episode_id: str) -> "str | None":
         """The ``ChannelDB.id`` of the series copy an episode belongs to, or None."""

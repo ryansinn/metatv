@@ -449,6 +449,13 @@ class ChannelEnrichmentMixin:
             ):
                 meta_by_id[meta.id] = meta
 
+        # The provider's ffprobe of each file, where the response carried one —
+        # stored as a "provider" stream record (never over a real measurement).
+        from metatv.core.repositories.stream_info import StreamInfoRepository
+        streams = StreamInfoRepository(self.session)
+        for cid, h in harvest.items():
+            if h.get("stream"):
+                streams.upsert(cid, h["stream"], source="provider")
         filled = 0
         movie_fetched: List[str] = []  # got a genre → mark 'fetched'
         movie_none: List[str] = []     # attempted, no genre → mark 'none'

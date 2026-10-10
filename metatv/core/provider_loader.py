@@ -13,6 +13,7 @@ from metatv.core.database import (
     Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB, UserRatingDB, WatchQueueDB,
 )
 from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
+from metatv.core.repositories.stream_info import StreamInfoRepository
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.repositories.channel_change_detection import (
     diff_batch_for_upsert, force_recompute_for_changed_ids)
@@ -1062,10 +1063,6 @@ class SeriesLoadThread(QThread):
             self.finished.emit(False, "Could not fetch series information", None)
             return
         
-        # Debug: Log the structure of what we received
-        logger.debug(f"Series data type: {type(series_data)}")
-        logger.debug(f"Series data keys: {series_data.keys() if isinstance(series_data, dict) else 'NOT A DICT'}")
-        
         # Handle case where API returns unexpected format
         if not isinstance(series_data, dict):
             logger.error(f"Expected dict from fetch_series_info, got {type(series_data)}")
@@ -1080,14 +1077,6 @@ class SeriesLoadThread(QThread):
             # Parse and store seasons
             seasons = series_data.get("seasons", [])
             episodes_data = series_data.get("episodes", {})
-            
-            # Debug logging
-            logger.debug(f"Seasons type: {type(seasons)}, count: {len(seasons) if isinstance(seasons, list) else 'N/A'}")
-            if seasons and len(seasons) > 0:
-                logger.debug(f"First season type: {type(seasons[0])}, value: {seasons[0]}")
-            logger.debug(f"Episodes type: {type(episodes_data)}")
-            if isinstance(episodes_data, list) and len(episodes_data) > 0:
-                logger.debug(f"First episode item type: {type(episodes_data[0])}")
             
             # Handle both dict and list formats for episodes
             if isinstance(episodes_data, dict):
@@ -1186,8 +1175,8 @@ class SeriesLoadThread(QThread):
                         )
                 season_count = len(seasons)
             
+            provider_streams: list = []   # (episode id, info) — see upsert_provider_records
             for season_data in seasons:
-                logger.debug(f"Processing season, type: {type(season_data)}, value: {season_data}")
                 
                 # Handle case where season_data might be a list instead of dict
                 if isinstance(season_data, list):
@@ -1270,6 +1259,7 @@ class SeriesLoadThread(QThread):
                         )
                         info_raw = {}
                     info = info_raw
+                    provider_streams.append((db_episode_id, info))
                     duration = info.get("duration", "") or episode_data.get("duration", "")
 
                     # Episode-grain metadata (plot/air_date/rating/still_url) — lifted
@@ -1315,7 +1305,10 @@ class SeriesLoadThread(QThread):
                             still_url=ep_fields["still_url"],
                         )
                         session.add(episode)
-            
+
+            # Each episode's info carries the provider's own ffprobe (PLAYED-5).
+            session.flush()
+            StreamInfoRepository(session).upsert_provider_records(provider_streams)
             session.commit()
             logger.info(f"Stored {season_count} seasons and {total_episodes} episodes for {self.series_name}")
         finally:

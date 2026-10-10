@@ -143,9 +143,57 @@ class _MetadataMixin:
         stream capture calls it after storing, and so will a manual probe."""
         self._run_query(
             lambda repos: repos.stream_info.get(channel_id),
-            lambda record: self.details_pane.apply_stream_info(channel_id, record),
+            lambda record: self._on_stream_info_loaded(channel_id, record),
             on_error=lambda e: logger.warning(f"Stream info load failed for {channel_id}: {e}"),
         )
+
+    def _on_stream_info_loaded(self, channel_id: str, record) -> None:
+        self.details_pane.apply_stream_info(channel_id, record)
+        if record is None:
+            self._fetch_provider_details(channel_id)
+
+    def _fetch_provider_details(self, channel_id: str) -> None:
+        """A movie with nothing measured: ask its provider once (Xtream
+        ``get_vod_info``, one small call — the response carries the provider's
+        own ffprobe of the file and TMDb's original language) and store it the
+        way the enrichment sweep does. Once per title per session; never bulk.
+        """
+        done = self.__dict__.setdefault("_provider_details_fetched", set())
+        if channel_id in done:
+            return
+        done.add(channel_id)
+
+        def query(repos):
+            from metatv.core.database import ChannelDB
+            from metatv.metadata_providers.raw_parse import harvest_detail_metadata
+            from metatv.providers.factory import ProviderFactory
+            ch = repos.session.get(ChannelDB, channel_id)
+            if ch is None or ch.media_type != "movie":
+                return None
+            provider_db = repos.providers.get_by_id(ch.provider_id)
+            if provider_db is None or provider_db.type != "xtream":
+                return None
+            plugin = ProviderFactory.get_provider("xtream")
+            if plugin is None:
+                return None
+            data = asyncio.run(plugin.fetch_vod_info(repos.providers.to_model(provider_db),
+                                                     ch.source_id))
+            harvest = harvest_detail_metadata(data) if data else None
+            if not harvest or not (harvest.get("stream") or harvest.get("original_language")):
+                return None
+            repos.channels.apply_metadata_harvest({channel_id: harvest})
+            return harvest.get("original_language") or ""
+
+        def stored(lang) -> None:
+            if lang is None:
+                return
+            if lang:
+                self.details_pane.apply_original_language(channel_id, lang)
+            self._run_query(lambda repos: repos.stream_info.get(channel_id),
+                            lambda rec: self.details_pane.apply_stream_info(channel_id, rec))
+
+        self._run_query(query, stored, commit=True,
+                        on_error=lambda e: logger.debug(f"provider details for {channel_id}: {e}"))
 
     # ── Taste weights (the ▲/▼ preference markers beside cast + director) ───
 

@@ -266,6 +266,11 @@ class DetailsPaneWidget(QWidget):
         if self._last_versions is not None:
             self.set_versions(self._last_versions)
 
+    def apply_original_language(self, channel_id: str, language: str) -> None:
+        """The title's original language arrived from its provider (LANG-2)."""
+        if self.current_channel is not None and self.current_channel.id == channel_id:
+            self._details.set_original_language(language)
+
     def set_probe_running(self, running: bool) -> None:
         """Reflect a "Get stream details" probe in progress (PLAYED-2)."""
         self._details.set_probe_running(running)
