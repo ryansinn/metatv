@@ -247,6 +247,12 @@ class DetailsPaneWidget(QWidget):
     def apply_stream_info(self, channel_id: str, record: "dict | None") -> None:
         """Called from main_window when the channel's stored stream record
         (PLAYED-1) loads — at show time, and again after a fresh measurement."""
+        if getattr(self.current_episode, "id", None) == channel_id:
+            # Episode mode: the measurement is the episode's own; the copies row
+            # describes the series, so it is left alone.
+            self._details.load_stream_info(
+                record, claimed_quality=getattr(self.current_channel, "detected_quality", None))
+            return
         if not self.current_channel or self.current_channel.id != channel_id:
             return  # stale response — user already moved on
         self._details.load_stream_info(
@@ -421,6 +427,7 @@ class DetailsPaneWidget(QWidget):
             self.show_channel(series_channel)
 
         self.current_episode = episode
+        self._details.load_stream_info(None)   # the series' measurement is not this episode's
         self._in_episode_mode = True
 
         # Byline — the cleaned episode title (matches the tree row); fall back to the

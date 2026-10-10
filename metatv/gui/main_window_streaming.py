@@ -811,6 +811,7 @@ class _StreamingMixin(_WatchCaptureMixin):
             if "_playing_channels" not in self.__dict__:
                 self._playing_channels: dict[str, str] = {}
             self._playing_channels[key] = channel_id
+            self.__dict__.get("_playing_episodes", {}).pop(key, None)   # a channel replaced it
         except Exception:
             # Never let bookkeeping cost the user the stream they just started.
             logger.exception("could not record play for {}", channel_id)

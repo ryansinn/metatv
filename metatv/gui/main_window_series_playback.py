@@ -633,6 +633,10 @@ class _SeriesPlaybackMixin:
         if not hasattr(self, "_watch_tracking"):
             self._watch_tracking = {}
         _watch_key = self.player_manager.resolve_key(provider_id)
+        # PLAYED-1: stream capture measures the started episode (its own map —
+        # _playing_channels readers expect channel ids, never an episode's).
+        self.__dict__.setdefault("_playing_episodes", {})[_watch_key] = episode_id
+        self.__dict__.get("_playing_channels", {}).pop(_watch_key, None)
         if queue_episodes:
             # Multi-episode queue: store full playlist in order (started ep first).
             _queue = [{"content_id": episode_id}] + [

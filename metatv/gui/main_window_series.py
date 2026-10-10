@@ -398,6 +398,7 @@ class _SeriesMixin:
             self.details_pane.show_episode(
                 episode, series, self._episode_display_title(episode)
             )
+            self._load_stream_info(episode.id)   # PLAYED-1: the episode's own stream
             return
 
         # Season, header/gap, or anything else → show the series root details, but

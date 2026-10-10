@@ -32,7 +32,8 @@ def on_health_tick(host: Any, key: "str | None") -> None:
     if not host.__dict__.get("_health_ever_progressed"):
         state.pop(key, None)
         return
-    playing = host.__dict__.get("_playing_channels") or {}
+    playing = {**(host.__dict__.get("_playing_channels") or {}),
+               **(host.__dict__.get("_playing_episodes") or {})}
     channel_id = playing.get(key)
     if channel_id is None and len(playing) == 1:
         channel_id = next(iter(playing.values()))    # shared window: null key
