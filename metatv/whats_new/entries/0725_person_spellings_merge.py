@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=724,
+    id=725,
     version="0.163.0",
     date="2026-10-11",
     title="Different spellings of the same person are one person",
