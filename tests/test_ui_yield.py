@@ -9,7 +9,8 @@ def test_it_sleeps_every_n_items_off_the_main_thread(monkeypatch):
     slept = []
     monkeypatch.setattr(ui_yield.time, "sleep", lambda s: slept.append(s))
     t = threading.Thread(target=lambda: [ui_yield.yield_to_ui(i, every=10) for i in range(35)])
-    t.start(); t.join()
+    t.start()
+    t.join()
     assert len(slept) == 3, "at 10, 20 and 30 — never at 0"
 
 
