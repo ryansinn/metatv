@@ -23,14 +23,16 @@ _LABELS = ("Try Any", "Try AR", "Try ES", "Try LA",
 
 
 @pytest.fixture
-def card(qapp):
+def card(qapp, owned_widgets):
     note = Notification(
         id="n1", title="Stream Unavailable",
         message="Ghostbusters Frozen Empire\nHTTP 500",
         type=NotificationType.ERROR,
         actions=[(label, lambda: None) for label in _LABELS],
     )
-    c = NotificationCard(note, Config(config_dir=tempfile.mkdtemp()))
+    # Owned: a shown card left alive was processed by Qt after its test — an
+    # intermittent segfault on 3.12 when the next test ran events.
+    c = owned_widgets.own(NotificationCard(note, Config(config_dir=tempfile.mkdtemp())))
     c.resize(420, c.sizeHint().height())
     c.show()
     qapp.processEvents()
@@ -87,7 +89,7 @@ def test_the_labels_survive_intact(card):
 # a "Stop" click does.
 # ---------------------------------------------------------------------------
 
-def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp):
+def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp, owned_widgets):
     note = Notification(
         id="n1", title="⏺ RECORDING The Match",
         message="1:12:04 / ~2:03 · 8.4 GB used, 120.0 GB free · ends 21:15 "
@@ -97,7 +99,7 @@ def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp
         dismissible=False,
         actions=[("Watch", lambda: None, True), ("Stop", lambda: None)],
     )
-    card = NotificationCard(note, Config(config_dir=tempfile.mkdtemp()))
+    card = owned_widgets.own(NotificationCard(note, Config(config_dir=tempfile.mkdtemp())))
     card.show()
     qapp.processEvents()
 
@@ -113,7 +115,7 @@ def test_the_persistent_recording_card_renders_its_message_and_both_actions(qapp
     )
 
 
-def test_keep_open_action_survives_its_own_click_the_default_does_not(qapp):
+def test_keep_open_action_survives_its_own_click_the_default_does_not(qapp, owned_widgets):
     """The generic action-button mechanism's opt-in third element (REC-2):
     "Watch" (keep_open=True) must not dismiss the card; "Stop" (the plain
     2-tuple every pre-existing caller uses) still does, unchanged."""
@@ -124,7 +126,7 @@ def test_keep_open_action_survives_its_own_click_the_default_does_not(qapp):
         actions=[("Watch", lambda: calls.append("watch"), True),
                  ("Stop", lambda: calls.append("stop"))],
     )
-    card = NotificationCard(note, Config(config_dir=tempfile.mkdtemp()))
+    card = owned_widgets.own(NotificationCard(note, Config(config_dir=tempfile.mkdtemp())))
     card.dismiss = MagicMock()
     card.show()
     qapp.processEvents()
