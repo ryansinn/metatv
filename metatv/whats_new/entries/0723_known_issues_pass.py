@@ -8,8 +8,6 @@ ENTRY = WhatsNewEntry(
     items=("Launch no longer rebuilds the recommendation keyword index each time, and two "
            "background passes (genre fill, watch-alert scan) wait a minute instead of "
            "competing with the window as it opens.",
-           "Recommendation scoring hands the screen a turn while it reads its candidates, "
-           "so it no longer freezes the app for seconds.",
            "Clicking a tag in the Recipe overview redraws only that facet's tile.",
            "A person in your recipe has a role toggle: Any → Acting → Directing.",
            "A provider's '#### SECTION ####' header labels only its own groups and "
