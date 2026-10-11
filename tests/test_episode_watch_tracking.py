@@ -69,7 +69,9 @@ def test_migration_list_includes_episode_watch_progress():
     ]
     # Verify both entries appear in the real migration list by checking the source
     import inspect
-    source = inspect.getsource(Database._migrate)
+
+    from metatv.core import schema_migrations
+    source = inspect.getsource(schema_migrations)   # the ALTER list lives here
     assert '"watch_progress"' in source or "'watch_progress'" in source, (
         "episodes.watch_progress missing from migration list"
     )
@@ -81,8 +83,8 @@ def test_migration_list_includes_episode_watch_progress():
 def test_migration_list_episode_columns_have_integer_default():
     """Both episode migration entries specify INTEGER DEFAULT 0."""
     import inspect
-    from metatv.core.database import Database
-    source = inspect.getsource(Database._migrate)
+    from metatv.core import schema_migrations
+    source = inspect.getsource(schema_migrations)   # the ALTER list lives here
     # Check that both entries appear near the "episodes" table references
     # (a shape check that the migration entries actually exist, alongside the
     # behavioral test above that creates_tables creates the column for new DBs)

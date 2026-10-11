@@ -56,8 +56,9 @@ def _seed_episode(db, ep_id: str = "e1"):
 def test_migration_list_has_channels_watch_percent():
     """channels.watch_percent must appear in the _migrate column list."""
     import inspect
-    from metatv.core.database import Database
-    src = inspect.getsource(Database._migrate)
+
+    from metatv.core import schema_migrations
+    src = inspect.getsource(schema_migrations)   # the ALTER list lives here
     assert "watch_percent" in src, "watch_percent missing from _migrate"
     # More specifically — check both table entries
     assert '"channels"' in src or "'channels'" in src
@@ -67,8 +68,8 @@ def test_migration_list_has_channels_watch_percent():
 def test_migration_both_tables_have_watch_percent_entries():
     """Both channels and episodes entries for watch_percent appear in the migration."""
     import inspect
-    from metatv.core.database import Database
-    src = inspect.getsource(Database._migrate)
+    from metatv.core import schema_migrations
+    src = inspect.getsource(schema_migrations)   # the ALTER list lives here
     lines = src.split("\n")
     ch_pct = any("channels" in ln and "watch_percent" in ln for ln in lines)
     ep_pct = any("episodes" in ln and "watch_percent" in ln for ln in lines)

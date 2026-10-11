@@ -127,13 +127,13 @@ def test_the_columns_exist_on_the_channel_model():
 def test_existing_databases_get_the_columns_added():
     """A new column is useless if only fresh databases have it.
 
-    ``database.py`` carries an explicit ALTER list for exactly this; a column
+    ``schema_migrations.py`` carries the explicit ALTER list for exactly this; a column
     added to the model and not to that list leaves every existing install
     raising ``no such column`` on the next query.
     """
     from pathlib import Path
 
-    import metatv.core.database as mod
+    import metatv.core.schema_migrations as mod   # the ALTER list lives here
 
     source = Path(mod.__file__).read_text()
     for column in ("detected_season", "detected_episode"):
