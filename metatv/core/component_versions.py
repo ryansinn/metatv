@@ -95,7 +95,7 @@ def collect() -> ComponentVersions:
 
     mpv_path: str | None
     try:
-        from metatv.core.players.mpv import _resolve_mpv_binary
+        from metatv.core.players.mpv_binary import _resolve_mpv_binary
 
         mpv_path = _resolve_mpv_binary()
     except Exception as exc:                       # pragma: no cover - defensive

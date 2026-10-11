@@ -22,7 +22,8 @@ import uuid
 
 from loguru import logger
 
-from metatv.core.players.mpv import _base_stream_args, _resolve_mpv_binary
+from metatv.core.players.mpv import _base_stream_args
+from metatv.core.players.mpv_binary import _resolve_mpv_binary
 from metatv.core.stream_info import MPV_PROPS, parse_mpv
 
 #: How long to keep reading after the tracks appear, so mpv's bitrate

@@ -475,7 +475,7 @@ def test_dial_liked_cap_limits_already_liked_slots(tmp_path):
 
 
 def test_dial_people_diversity_decay_off_preserves_score_order():
-    from metatv.core.preference_engine import _diversify_people
+    from metatv.core.preference_ranking import _diversify_people
 
     ranked = [_scp(10, ["Star"]), _scp(9, ["Star"]), _scp(8, [])]
     spread = _diversify_people(ranked)                       # default 0.5 → re-ranks

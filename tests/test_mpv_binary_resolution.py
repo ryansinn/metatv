@@ -5,7 +5,7 @@ own vendored ``Resources/mpv/mpv``, an explicit ``$MPV_BINARY`` overrides, and
 the ``shutil.which("mpv")`` fallback MUST remain for Linux dev + the test suite.
 """
 
-from metatv.core.players import mpv as mpv_mod
+from metatv.core.players import mpv_binary as mpv_mod
 
 
 def test_resolve_prefers_bundled_when_frozen(monkeypatch, tmp_path):

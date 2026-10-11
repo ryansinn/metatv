@@ -230,8 +230,8 @@ with `git config core.hooksPath .githooks`).
 
 ### A new DB column needs an ALTER TABLE entry — `create_all` will not add it
 `Base.metadata.create_all()` creates missing TABLES and never adds a column to
-one that exists, so a new column needs a line in `Database._migrate()`'s
-migrations list (and an index entry if it is indexed). This shipped **twice in
+one that exists, so a new column needs a line in `core/schema_migrations.py`'s
+`COLUMN_MIGRATIONS` (applied by `Database._migrate()`; index entries stay there). This shipped **twice in
 one day** — #617's `signal_*` columns and #648's `last_seen_at` — and killed
 every ORM query on the owner's real library while 1,699 tests stayed green,
 because every test builds its database from scratch where the column exists by

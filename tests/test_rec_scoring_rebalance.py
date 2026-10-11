@@ -88,7 +88,7 @@ def _scp(score, people):
 # --------------------------------------------------------------------------- #
 
 def test_matched_mean_averages_and_ignores_neutral():
-    from metatv.core.preference_engine import _matched_mean
+    from metatv.core.preference_ranking import _matched_mean
     assert _matched_mean([]) == 0.0
     assert _matched_mean([0.0, 0.0]) == 0.0
     # Neutral (0) entries don't dilute — a lone strong match keeps its strength.
@@ -101,7 +101,7 @@ def test_matched_mean_averages_and_ignores_neutral():
 
 def test_matched_mean_kills_volume_inflation():
     """Ten weak matches must not out-score one strong match (the old SUM bug)."""
-    from metatv.core.preference_engine import _matched_mean
+    from metatv.core.preference_ranking import _matched_mean
     many_weak = _matched_mean([0.5] * 10)   # would SUM to 5.0
     one_strong = _matched_mean([3.0])
     assert one_strong > many_weak
@@ -144,7 +144,7 @@ def test_actor_needs_two_titles_to_count(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def test_interleave_leads_with_stronger_and_alternates():
-    from metatv.core.preference_engine import _interleave_media_types
+    from metatv.core.preference_ranking import _interleave_media_types
     movies = [_sc(10, "movie"), _sc(8, "movie"), _sc(6, "movie")]
     series = [_sc(9, "series"), _sc(5, "series")]
     out = _interleave_media_types(movies + series, slots=4)
@@ -153,7 +153,7 @@ def test_interleave_leads_with_stronger_and_alternates():
 
 
 def test_interleave_fills_from_other_type_when_one_exhausts():
-    from metatv.core.preference_engine import _interleave_media_types
+    from metatv.core.preference_ranking import _interleave_media_types
     movies = [_sc(10, "movie"), _sc(8, "movie"), _sc(6, "movie")]
     series = [_sc(9, "series"), _sc(5, "series")]
     out = _interleave_media_types(movies + series, slots=10)
@@ -162,7 +162,7 @@ def test_interleave_fills_from_other_type_when_one_exhausts():
 
 
 def test_interleave_single_type_returns_top_slots_unchanged():
-    from metatv.core.preference_engine import _interleave_media_types
+    from metatv.core.preference_ranking import _interleave_media_types
     movies = [_sc(10, "movie"), _sc(8, "movie"), _sc(6, "movie")]
     out = _interleave_media_types(movies, slots=2)
     assert [s.score for s in out] == [10, 8]
@@ -173,7 +173,7 @@ def test_interleave_single_type_returns_top_slots_unchanged():
 # --------------------------------------------------------------------------- #
 
 def test_diversify_people_pushes_repeat_performer_down():
-    from metatv.core.preference_engine import _diversify_people
+    from metatv.core.preference_ranking import _diversify_people
     a = _scp(10, ["Star"])    # top match
     b = _scp(9,  ["Star"])    # second, shares Star → should be decayed
     c = _scp(8,  [])          # no liked people → never decayed
@@ -186,7 +186,7 @@ def test_diversify_people_pushes_repeat_performer_down():
 
 
 def test_diversify_people_leaves_distinct_people_alone():
-    from metatv.core.preference_engine import _diversify_people
+    from metatv.core.preference_ranking import _diversify_people
     a = _scp(10, ["Star"])
     b = _scp(9,  ["Other"])   # different person → no decay → keeps rank
     out = _diversify_people([a, b])

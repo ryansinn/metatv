@@ -548,7 +548,7 @@ def test_definitions_are_not_re_read_per_channel(tmp_path):
     rows/s, so 785,163 rows took 18 minutes, and ProviderLoader's categorize
     step paid the same toll on every refresh.
 
-    Someone already knew: ``channel_name_utils._sports_keywords_flat`` carries
+    Someone already knew: ``epg_channel_classify._sports_keywords_flat`` carries
     an lru_cache and a comment saying this function reads a YAML file. The cache
     went on the call site that was noticed, not on the function, so the hot
     caller kept paying.

@@ -147,7 +147,7 @@ def load_sports_definitions(config=None) -> Tuple[Dict[str, List[str]], Dict[str
     # 785,163 rows took 18 minutes, and ProviderLoader's own categorize step
     # was paying the same toll on every refresh.
     #
-    # Someone already knew: channel_name_utils._sports_keywords_flat() carries
+    # Someone already knew: epg_channel_classify._sports_keywords_flat() carries
     # an lru_cache and a comment saying load_sports_definitions() reads a YAML
     # file. The cache went on the call site that was noticed rather than on the
     # function, so the hot caller kept paying.
