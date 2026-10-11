@@ -131,45 +131,6 @@ class _EpgOnNowMixin:
         re.IGNORECASE,
     )
 
-    # Normalize full country names that appear as prefixes → short codes for display
-    _COUNTRY_ABBREV: dict[str, str] = {
-        "ARGENTINA": "ARG",
-        "AUSTRALIA": "AUS",
-        "AUSTRIA": "AUT",
-        "BELGIUM": "BEL",
-        "BOLIVIA": "BOL",
-        "BRAZIL": "BRA",
-        "CANADA": "CAN",
-        "CHILE": "CHL",
-        "COLOMBIA": "COL",
-        "CROATIA": "HRV",
-        "DENMARK": "DEN",
-        "ECUADOR": "ECU",
-        "FINLAND": "FIN",
-        "FRANCE": "FRA",
-        "GERMANY": "GER",
-        "GREECE": "GRE",
-        "HUNGARY": "HUN",
-        "IRELAND": "IRL",
-        "ITALY": "ITA",
-        "MEXICO": "MEX",
-        "NETHERLANDS": "NED",
-        "NORWAY": "NOR",
-        "PARAGUAY": "PAR",
-        "PERU": "PER",
-        "POLAND": "POL",
-        "PORTUGAL": "POR",
-        "ROMANIA": "ROU",
-        "RUSSIA": "RUS",
-        "SPAIN": "ESP",
-        "SWEDEN": "SWE",
-        "SWITZERLAND": "SUI",
-        "TURKEY": "TUR",
-        "UKRAINE": "UKR",
-        "URUGUAY": "URY",
-        "VENEZUELA": "VEN",
-    }
-
     # ── Tab: On Now ────────────────────────────────────────────────────
 
     def _build_on_now_tab(self) -> None:
