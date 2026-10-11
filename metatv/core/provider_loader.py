@@ -330,6 +330,7 @@ class ProviderLoadThread(QThread):
         batch: list[dict] = []
         processed = 0
         current_source_category: str | None = None
+        header_group: str | None = None   # the provider group the ##…## row sits in
         current_source_quality: str | None = None
         changed_ids: set[str] = set()
 
@@ -378,12 +379,22 @@ class ProviderLoadThread(QThread):
                     if parsed is not None:
                         current_source_category = parsed[0] or None
                         current_source_quality = parsed[1] or None
+                        header_group = channel.category
                         # The ##...## header is a positional *marker* labelling the
                         # channels that follow it — not real content (its "stream"
                         # is a bumper / few-second loop). Its label is already
                         # captured above, so skip storing it as a browsable channel.
                         processed += 1
                         continue
+
+                # A header covers its own group and later groups that carry its
+                # words ("SOCCER PPV" over "US| SOCCER PPV", "FR| SOCCER PPV");
+                # the first unrelated group ends it. It never reset before, so
+                # one header ran over 833 groups (54,144 channels) on one source.
+                if (channel.media_type == "live" and current_source_category
+                        and channel.category != header_group
+                        and current_source_category.upper() not in (channel.category or "").upper()):
+                    current_source_category = current_source_quality = None
 
                 batch.append({
                     "id": channel.id,

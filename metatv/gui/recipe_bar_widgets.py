@@ -109,6 +109,10 @@ class _RecipeTabBar(QWidget):
 # One-line recipe "sentence" bar
 # ---------------------------------------------------------------------------
 
+#: A person ingredient's role, in toggle order: the facet IS the role (tag_source).
+PERSON_ROLE_LABELS: dict[str, str] = {"person": "Any", "cast": "Acting", "director": "Directing"}
+
+
 class _IngredientFlow(QWidget):
     """Wrapping row of ingredient pills for the recipe bar.
 
@@ -119,6 +123,7 @@ class _IngredientFlow(QWidget):
     """
 
     remove_clicked = pyqtSignal(str, str)   # (facet_type, value)
+    role_clicked = pyqtSignal(str, str)     # (facet_type, value) — a person's role toggle
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -130,6 +135,15 @@ class _IngredientFlow(QWidget):
         self._flow.clear()
         for facet_type, value, excluded in ingredients:
             icon = _icons.tag_exclude_icon if excluded else ""
+            if facet_type in PERSON_ROLE_LABELS:
+                # One person, any role by default; the toggle narrows it.
+                role = QPushButton(PERSON_ROLE_LABELS[facet_type])
+                _theme.style(role, "CLOUD_CTRL_BTN")
+                role.setToolTip(f"'{value}' in {PERSON_ROLE_LABELS[facet_type].lower()} role"
+                                " — click for Any → Acting → Directing")
+                role.clicked.connect(lambda _=False, f=facet_type, v=value: self.role_clicked.emit(f, v))
+                self._flow.add(role)
+                role.show()
             label = f"{icon} {value}  {_icons.close_icon}".strip()
             chip = QPushButton(label)
             chip.setStyleSheet(_facet_chip_style(_facet_color(facet_type), excluded=excluded))
@@ -166,6 +180,7 @@ class _RecipeBar(QWidget):
     """
 
     ingredient_remove_requested = pyqtSignal(str, str)   # (facet_type, value)
+    ingredient_role_requested   = pyqtSignal(str, str)   # (facet_type, value)
     save_requested              = pyqtSignal()
     clear_requested             = pyqtSignal()
 
@@ -231,6 +246,7 @@ class _RecipeBar(QWidget):
 
         self._ings = _IngredientFlow()
         self._ings.remove_clicked.connect(self.ingredient_remove_requested)
+        self._ings.role_clicked.connect(self.ingredient_role_requested)
         row.addWidget(self._ings, stretch=1)
 
         self._empty_lbl = QLabel("Your recipe is empty — click any tag above to add it")

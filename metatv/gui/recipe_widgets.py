@@ -415,6 +415,7 @@ class _ClusterGrid(QWidget):
         self._includes: dict[str, set] = {}
         self._excludes: dict[str, set] = {}
         self._tiles: list[_ClusterTile] = []
+        self._marks: dict = {}
         self._col_layouts: list[QVBoxLayout] = []
         self._last_cols: int = 0
         self._build_ui()
@@ -427,11 +428,45 @@ class _ClusterGrid(QWidget):
         includes: dict[str, set],
         excludes: dict[str, set],
     ) -> None:
-        """Render the per-facet tiles from ``{facet: [TagCountDTO, …]}`` + recipe marks."""
-        self._data = data or {}
+        """Render the per-facet tiles from ``{facet: [TagCountDTO, …]}`` + recipe marks.
+
+        Same data, new marks (a tag click) → only the tiles whose facet's marks
+        changed are rebuilt; every tile used to be, a ~1 s stall per click.
+        """
+        data = data or {}
+        marks = self._snapshot_marks(includes or {}, excludes or {})
+        same_data = self._tiles and data is self._data
+        self._data = data
         self._includes = includes or {}
         self._excludes = excludes or {}
+        if same_data:
+            changed = {f for f in set(marks) | set(self._marks)
+                       if marks.get(f) != self._marks.get(f)}
+            self._marks = marks
+            for i, tile in enumerate(self._tiles):
+                if tile._facet in changed:
+                    self._replace_tile(i, tile)
+            return
+        self._marks = marks
         self._rebuild()
+
+    @staticmethod
+    def _snapshot_marks(includes: dict, excludes: dict) -> dict:
+        """Per-facet frozen copy of the marks — the caller mutates its sets in place."""
+        return {f: (frozenset(includes.get(f, ())), frozenset(excludes.get(f, ())))
+                for f in set(includes) | set(excludes)}
+
+    def _replace_tile(self, index: int, old: "_ClusterTile") -> None:
+        """Swap one tile for a freshly marked one in the same masonry slot."""
+        new = self._make_tile(old._facet, self._data.get(old._facet, []))
+        for col in self._col_layouts:
+            pos = col.indexOf(old)
+            if pos >= 0:
+                col.insertWidget(pos, new)
+                break
+        old.setParent(None)
+        old.deleteLater()
+        self._tiles[index] = new
 
     def tiles(self) -> list:
         """All rendered tiles — for tests/introspection."""

@@ -25,7 +25,7 @@ proves ``compute_weights`` DELEGATES to ``corpus_idf`` patches the reference
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -111,30 +111,28 @@ def test_new_plot_invalidates(db, monkeypatch):
     )
 
 
-def test_refetched_plot_invalidates(db, monkeypatch):
-    _seed_plot(
-        db, "m1", "a quiet drama about people and weather",
-        fetched_at=datetime(2020, 1, 1),
-    )
-
+def test_a_refetch_alone_reuses_the_table_but_a_moved_corpus_rebuilds(db, monkeypatch):
+    """MAX(fetched_at) moves on nearly every launch (enrichment never stops), and
+    an exact-stamp match rebuilt 134k plots at startup. A table is reused while
+    the plot count stays within 2%; beyond that it rebuilds."""
+    _seed_plot(db, "m1", "a quiet drama about people and weather",
+               fetched_at=datetime(2020, 1, 1))
     calls: list = []
     _counting_build_idf(monkeypatch, calls)
-
     with db.session_scope(commit=False) as s:
         idf_corpus.corpus_idf(s)
     assert len(calls) == 1
 
-    # Plot count is unchanged; MAX(fetched_at) moves — enrichment re-fetched
-    # the same row (e.g. a corrected plot from a slower metadata provider).
-    with db.session_scope() as s:
-        row = s.query(MetadataDB).filter_by(id="m1").first()
-        row.fetched_at = datetime(2020, 1, 1) + timedelta(days=1)
-
+    with db.session_scope() as s:        # a re-fetch: same count, newer stamp
+        s.query(MetadataDB).filter_by(id="m1").first().fetched_at = datetime(2020, 1, 2)
     with db.session_scope(commit=False) as s:
         idf_corpus.corpus_idf(s)
-    assert len(calls) == 2, (
-        "a re-fetched plot moved MAX(fetched_at) but corpus_idf served the stale IDF"
-    )
+    assert len(calls) == 1, "a re-fetch alone must not rebuild the table"
+
+    _seed_plot(db, "m2", "a loud comedy about cars", fetched_at=datetime(2020, 1, 3))
+    with db.session_scope(commit=False) as s:
+        idf_corpus.corpus_idf(s)
+    assert len(calls) == 2, "the corpus doubled — far past 2% — so it rebuilds"
 
 
 def test_compute_weights_uses_the_shared_corpus(db, monkeypatch):

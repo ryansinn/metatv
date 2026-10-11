@@ -92,6 +92,10 @@ import metatv.whats_new as _whats_new
 #: Three minutes clears the launch burst (sources tested, filters restored,
 #: migrations queued) and still runs long before anyone notices it did not.
 _WATCHLIST_STARTUP_DELAY_MS = 3 * 60 * 1000
+# Background passes nobody waits for start after launch settles: at 0-3 s they
+# competed with the channel list, sidebar and filters for the GIL (~30 s of
+# stutter in the owner's 2026-10-10 log).
+_BACKGROUND_SETTLE_MS = 60 * 1000
 
 #: Padding above every view in the content column (px). Structural spacing, so
 #: a literal rather than a token — the theme scale's SPACE_* are stylesheet
@@ -704,10 +708,10 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # genres (the list raw_data omits them), and a genreless movie scores 0 in the
         # genre-driven recommender — so it never appears. This fills those genres from
         # each movie's get_vod_info detail blob. Off-thread, batched, capped per launch,
-        # resumable; a safe no-op once drained. Deferred 3 s so it never competes with
+        # resumable; a safe no-op once drained. Deferred until launch settles so it never competes with
         # the initial channel load / paint or blocks launch.
         QTimer.singleShot(
-            3000, self.tmdb_enrichment_manager.backfill_missing_genres
+            _BACKGROUND_SETTLE_MS, self.tmdb_enrichment_manager.backfill_missing_genres
         )
 
         # Background metadata enrichment (roadmap #249) — owner opt-in only
@@ -806,8 +810,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             logger.debug(
                 "series_monitor: startup check skipped — recurring recheck is off")
 
-        # VOD watch-alert startup check — same deferred strategy as series_monitor.
-        QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
+        # VOD watch-alert startup check — after launch settles (_BACKGROUND_SETTLE_MS).
+        QTimer.singleShot(_BACKGROUND_SETTLE_MS, self.vod_watch_alert_manager.check_all)
 
         # EPG startup refresh check — run after the event loop settles (2 s) so
         # the channel list is loaded and the match map can be built correctly.

@@ -390,6 +390,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         # The slim one-line recipe "sentence" bar.
         self._recipe_bar = _RecipeBar()
         self._recipe_bar.ingredient_remove_requested.connect(self._on_ingredient_remove)
+        self._recipe_bar.ingredient_role_requested.connect(self._on_ingredient_role)
         self._recipe_bar.save_requested.connect(self._on_save_recipe)
         self._recipe_bar.clear_requested.connect(self.clear_recipe)
         bvl.addWidget(self._recipe_bar)
@@ -800,6 +801,20 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
             self._render_search_cloud(self._search_results)
         else:
             self._rebuild_cloud()
+        self._results_debounce.start()
+
+    def _on_ingredient_role(self, facet_type: str, value: str) -> None:
+        """Cycle a person ingredient Any → Acting → Directing, keeping include/exclude."""
+        from metatv.gui.recipe_bar_widgets import PERSON_ROLE_LABELS
+        order = list(PERSON_ROLE_LABELS)
+        nxt = order[(order.index(facet_type) + 1) % len(order)]
+        for marks in (self._recipe_includes, self._recipe_excludes):
+            if value in marks.get(facet_type, set()):
+                marks[facet_type].discard(value)
+                if not marks[facet_type]:
+                    marks.pop(facet_type)
+                marks.setdefault(nxt, set()).add(value)
+        self._recipe_bar.update_recipe(self._recipe_includes, self._recipe_excludes, None)
         self._results_debounce.start()
 
     # ── Accessors (for tests) ─────────────────────────────────────────────

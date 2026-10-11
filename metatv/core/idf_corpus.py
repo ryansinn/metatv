@@ -186,6 +186,25 @@ _idf_cache_lock = threading.Lock()
 _idf_cache: "tuple[tuple[int, object], dict[str, float]] | None" = None
 
 
+#: A cached table is reused while the plot count stays within this fraction.
+#: The stamp's MAX(fetched_at) moved on nearly every launch (enrichment never
+#: stops fetching), so an exact match rebuilt 134k plots at startup, competing
+#: with the UI for the GIL — and a few hundred new plots barely move any weight.
+_DRIFT_TOLERANCE = 0.02
+
+
+def _close_enough(cached, current) -> bool:
+    """The cached table still describes this corpus: same stamp, or a plot
+    count within :data:`_DRIFT_TOLERANCE` of it."""
+    if list(cached) == list(current):
+        return True
+    try:
+        old, new = int(cached[0]), int(current[0])
+    except (TypeError, ValueError, IndexError):
+        return False
+    return old > 0 and abs(new - old) <= old * _DRIFT_TOLERANCE
+
+
 def corpus_idf(session) -> dict[str, float]:
     """Return the shared plot-corpus IDF table, rebuilt only when the corpus moved.
 
@@ -218,14 +237,14 @@ def corpus_idf(session) -> dict[str, float]:
     # in from different threads must produce one build and one wait-then-hit,
     # never two overlapping rebuilds of the same 129k-term table.
     with _idf_cache_lock:
-        if _idf_cache is not None and _idf_cache[0] == stamp:
+        if _idf_cache is not None and _close_enough(_idf_cache[0], stamp):
             logger.debug(f"IDF corpus cache hit ({len(_idf_cache[1])} terms)")
             return _idf_cache[1]
 
         serializable_stamp = _serializable_stamp(stamp)
 
         disk = _read_disk_cache()
-        if disk is not None and disk[0] == serializable_stamp:
+        if disk is not None and _close_enough(disk[0], serializable_stamp):
             disk_idf = disk[1]
             _idf_cache = (stamp, disk_idf)
             logger.debug(

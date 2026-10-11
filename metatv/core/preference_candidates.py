@@ -115,11 +115,16 @@ def fetch_candidates(session, scope: "VisibilityScope") -> list[Candidate]:
 
     from metatv.core.credits import cast_names
 
+    from metatv.core.ui_yield import yield_to_ui
+
     candidates: list[Candidate] = []
-    for (cid, name, media_type, provider_id, detected_prefix, detected_region,
-         detected_quality, detected_year, detected_title, content_key,
-         last_played, rec_shown_count, genres, cast, plot, director,
-         poster_url, rating, year) in query.all():
+    # Batched + yielding: ~100k rows converted in one go held the GIL long
+    # enough to freeze the UI for 12.8 s (owner log, 2026-10-10).
+    for i, (cid, name, media_type, provider_id, detected_prefix, detected_region,
+            detected_quality, detected_year, detected_title, content_key,
+            last_played, rec_shown_count, genres, cast, plot, director,
+            poster_url, rating, year) in enumerate(query.yield_per(1000)):
+        yield_to_ui(i)
         candidates.append(Candidate(
             id=cid, name=name, media_type=media_type, provider_id=provider_id,
             detected_prefix=detected_prefix, detected_region=detected_region,
