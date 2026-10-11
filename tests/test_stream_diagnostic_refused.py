@@ -135,3 +135,17 @@ def test_the_credentials_never_reach_the_summary():
     assert "secretuser" not in result.summary
     assert "secretpass" not in result.summary
     assert "secretpass" not in (result.error or "")
+
+
+def test_458_and_509_both_read_as_the_connection_limit():
+    """458 is another panel's spelling of 509 (seen 2026-10-11 on a line whose
+    player_api reported active_cons == max_connections) — one message for both."""
+    for status in (458, 509):
+        assert "connection limit" in sd.explain_http_status(status).lower()
+        assert f"HTTP {status}" in sd.explain_stream_error(f"HTTP {status}")
+        assert "all of its connections" in sd.explain_stream_error(f"HTTP {status}")
+
+
+def test_other_preflight_errors_pass_through_unchanged():
+    for err in ("HTTP 403", "HTTP 4580", "Connection timed out", ""):
+        assert sd.explain_stream_error(err) == err

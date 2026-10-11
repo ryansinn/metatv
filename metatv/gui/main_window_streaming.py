@@ -22,7 +22,7 @@ from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import persist_url_stats
 from metatv.gui.stale_source_offer import read_last_refresh, stale_source_offer
-from metatv.core.stream_diagnostics import _redact
+from metatv.core.stream_diagnostics import _redact, explain_stream_error
 from metatv.core.stream_url_derivation import derive_channel_stream_url
 from metatv.core.url_cycle import UrlCycler, rebase_stream_url
 from metatv.gui import playback_start_watch as _startwatch
@@ -599,7 +599,8 @@ class _StreamingMixin(_WatchCaptureMixin):
             logger.error(f"All stream URLs failed validation for {channel_name}")
             self.status(f"Error: Stream unavailable for {channel_name}", ms=0, level="error")
             prestart = _startwatch.prestart_detail(data.get("event_start_time"), _epg.now_utc())
-            detail = prestart or stream_err or "All URLs failed (possibly geo-blocked)"
+            detail = (prestart or explain_stream_error(stream_err)
+                      or "All URLs failed (possibly geo-blocked)")
             self.notification_manager.dismiss(notif_id)
             # Dismiss any prior failure toast for this channel (deduplicate)
             prior_fail_notif = self._stream_fail_notifs.pop(channel_id, None)

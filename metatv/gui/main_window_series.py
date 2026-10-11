@@ -28,6 +28,7 @@ from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.series_copies import other_copies
+from metatv.core.stream_diagnostics import explain_stream_error
 from metatv.gui.detail_chips import display_code
 from metatv.core.provider_loader import SeriesLoadThread
 from metatv.core.repositories.dtos import EpisodeDTO
@@ -522,7 +523,8 @@ class _SeriesMixin:
             safe_title = p.bare_name or title
         else:
             safe_title = ""
-        _msg = f"{safe_title}\n{detail}".strip() if safe_title else detail
+        shown = explain_stream_error(detail)   # Copy Error + the ledger keep the raw code
+        _msg = f"{safe_title}\n{shown}".strip() if safe_title else shown
 
         # Play Anyway first, always — the pre-flight check is advisory in
         # practice (mpv often plays what it rejects), so the override is never
