@@ -525,6 +525,8 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         self.migration_manager.register(FeederCodesCompactTask(self.db))
         from metatv.core.migrations.person_identity import PersonIdentityTask
         self.migration_manager.register(PersonIdentityTask(self.db))
+        from metatv.core.migrations.person_aliases import PersonAliasTask
+        self.migration_manager.register(PersonAliasTask(self.db))
         from metatv.core.migrations.credits_text_drop import CreditsTextDropTask
         self.migration_manager.register(CreditsTextDropTask(self.db))
         # One-time pass for rows ingested before provider_metadata read a

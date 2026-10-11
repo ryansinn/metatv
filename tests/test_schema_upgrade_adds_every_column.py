@@ -201,6 +201,10 @@ ORIGINAL_COLUMNS: dict[str, frozenset[str]] = {
     "tags": frozenset({
         "id", "type", "value",
     }),
+    # Created whole by create_all() (2026-10-11, person_aliases) — no ALTERs.
+    "tag_aliases": frozenset({
+        "type", "value", "tag_id",
+    }),
     "user_ratings": frozenset({
         "channel_id", "rated_at", "rating",
     }),
