@@ -87,6 +87,7 @@ from metatv.core.channel_name_utils import (
     CONF_WEAK_PRIOR,
     CREDIT_QUALIFIER_WORDS,
     NON_PERSON_RESIDUAL_WORDS,
+    CONTENT_TYPE_WORDS,
     leading_country,
     CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
@@ -589,6 +590,14 @@ def _decompose_compound(raw: str, config) -> list[tuple[str, str, float]]:
             tags.extend(_classify_prefix_token(code, config))
             if not tok:
                 continue
+        # A content-type word ("PPV") is a type, never part of a collection name.
+        for phrase, ctype in CONTENT_TYPE_WORDS.items():
+            stripped = re.sub(rf"\b{re.escape(phrase)}\b", " ", tok, flags=re.IGNORECASE)
+            if stripped != tok:
+                tags.append(("content_type", ctype, CONF_DENOTED))
+                tok = " ".join(stripped.split())
+        if not tok:
+            continue
         tok_upper = tok.upper()
 
         # Try as quality first (quality tokens are a closed set).

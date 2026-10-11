@@ -173,7 +173,9 @@ class TestGlobalExclusionSet:
             global_filter_excluded_categories=["IN"],
             global_filter_excluded_prefixes=["ZZ"],
         )
-        assert global_exclusion_set(cfg) == {"IN", "ZZ"}
+        got = global_exclusion_set(cfg)
+        assert {"IN", "ZZ"} <= got, "both lists are unioned"
+        assert got - {"IN", "ZZ"} <= {"IND"}, "plus only IN's own country family (India)"
 
     def test_paused_yields_empty(self):
         cfg = SimpleNamespace(

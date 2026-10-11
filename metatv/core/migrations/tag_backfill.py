@@ -234,7 +234,14 @@ def _set_backfill_active(active: bool) -> None:
 #       Global Exclusions could not see them. Targeted: those channels get
 #       detected_region filled and are re-decomposed
 #       (``_collect_channel_ids_country_label``).
-CURRENT_TAG_BACKFILL_VERSION = 14
+#   15 — "PPV" / "PAY PER VIEW" in a provider label is a content_type tag
+#       (ppv), and no longer part of a collection name ("Soccer Ppv").
+#       Targeted: channels whose category/header mentions it
+#       (``_collect_channel_ids_ppv_label``).
+CURRENT_TAG_BACKFILL_VERSION = 15
+
+#: A library already at version 14 only needs its PPV-labelled rows re-run.
+_TARGETED_PPV_LABEL_FLOOR: int = 14
 
 #: A library already at version 13 only needs its country-named labels re-run.
 _TARGETED_COUNTRY_LABEL_FLOOR: int = 13
@@ -340,15 +347,23 @@ class TagBackfillTask:
         try:
             stored_version = getattr(config, "tag_backfill_version", 0)
             country_ids = (self._collect_channel_ids_country_label(config)
-                           if stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR else [])
-            if stored_version >= _TARGETED_COUNTRY_LABEL_FLOOR:
+                           if _TARGETED_REGION_LANGUAGE_FLOOR <= stored_version < _TARGETED_PPV_LABEL_FLOOR
+                           else [])
+            ppv_ids = (self._collect_channel_ids_ppv_label()
+                       if stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR else [])
+            if stored_version >= _TARGETED_PPV_LABEL_FLOOR:
+                logger.info("TagBackfillTask: library at version {} — targeted "
+                            "PPV-label re-tag only", stored_version)
+                channel_ids = ppv_ids
+            elif stored_version >= _TARGETED_COUNTRY_LABEL_FLOOR:
                 logger.info("TagBackfillTask: library at version {} — targeted "
                             "country-label re-tag only", stored_version)
-                channel_ids = country_ids
+                channel_ids = sorted(set(country_ids) | set(ppv_ids))
             elif stored_version >= _TARGETED_PLATFORM_SC_FLOOR:
                 logger.info("TagBackfillTask: library at version {} — targeted "
                             "platform:SC re-tag only", stored_version)
-                channel_ids = sorted(set(self._collect_channel_ids_platform_sc()) | set(country_ids))
+                channel_ids = sorted(set(self._collect_channel_ids_platform_sc())
+                                     | set(country_ids) | set(ppv_ids))
             elif stored_version >= _TARGETED_REGION_LANGUAGE_FLOOR:
                 logger.info(
                     "TagBackfillTask: library already at version {} — targeted "
@@ -357,7 +372,7 @@ class TagBackfillTask:
                 )
                 channel_ids = sorted(set(self._collect_channel_ids_region_language())
                                      | set(self._collect_channel_ids_platform_sc())
-                                     | set(country_ids))
+                                     | set(country_ids) | set(ppv_ids))
             else:
                 logger.info(
                     "TagBackfillTask: library at version {} — full corpus pass",
@@ -499,6 +514,16 @@ class TagBackfillTask:
         logger.info("TagBackfillTask: {:,} channel(s) take their region from a "
                     "country-named label", len(found))
         return sorted(found)
+
+    def _collect_channel_ids_ppv_label(self) -> list[str]:
+        """Channels whose provider category or header says PPV (version 15)."""
+        with self._db.session_scope(commit=False) as session:
+            rows = session.execute(text(
+                "SELECT id FROM channels WHERE upper(COALESCE(category, '')) LIKE '%PPV%'"
+                " OR upper(COALESCE(source_category, '')) LIKE '%PPV%'"
+                " OR upper(COALESCE(category, '')) LIKE '%PAY PER VIEW%'"
+                " OR upper(COALESCE(source_category, '')) LIKE '%PAY PER VIEW%'")).all()
+        return [r[0] for r in rows]
 
     def _collect_channel_ids_region_language(self) -> list[str]:
         """Return movie/series channel IDs carrying at least one ``region`` tag.

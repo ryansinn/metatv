@@ -1224,7 +1224,8 @@ class GlobalFilterDialog(QDialog):
             AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, content_type_display,
         )
 
-        provenance_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE]
+        # PPV is a content type read off provider labels ("SWEDEN SOCCER PPV").
+        provenance_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, "ppv"]
         counts = _load_tag_content_type_counts(self._db, provenance_values)
         excluded = set(getattr(self._config, "global_filter_excluded_tag_content_types", []))
         visible = [

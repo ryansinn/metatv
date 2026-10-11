@@ -2215,6 +2215,26 @@ def is_category_header(name: str) -> bool:
     return len(stripped) >= 2 and stripped[0] == "#" and stripped[1] == "#"
 
 
+def code_family(codes) -> set[str]:
+    """Every code naming the SAME place/language as any of *codes*.
+
+    A country has several codes in the wild — Denmark is DK, DNK and DEN,
+    Sweden SE, SW and SWE — and an exclusion written as one must hide the
+    others. Family = codes sharing one REGION_FULL_NAMES name; an unnamed
+    code is its own family.
+    """
+    out = {str(c).upper() for c in codes if c}
+    names = {REGION_FULL_NAMES[c] for c in out if c in REGION_FULL_NAMES}
+    if names:
+        out |= {c for c, n in REGION_FULL_NAMES.items() if n in names}
+    return out
+
+
+#: Words in a provider label that denote a CONTENT TYPE, not a collection —
+#: "SWEDEN SOCCER PPV" is pay-per-view whatever else it is.
+CONTENT_TYPE_WORDS: dict[str, str] = {"PAY PER VIEW": "ppv", "PPV": "ppv"}
+
+
 def normalize_region_code(raw: str) -> str:
     """Normalize a raw prefix token to a canonical short display code."""
     upper = raw.strip().upper()

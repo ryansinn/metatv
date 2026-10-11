@@ -130,7 +130,8 @@ def get_excluded_prefixes(config) -> set[str]:
     These are always hidden regardless of the allowlist state. Written by the
     "Block [PREFIX]" quick action in the Other Versions section of the details pane.
     """
-    return set(getattr(config, "global_filter_excluded_prefixes", []))
+    from metatv.core.channel_name_utils import code_family
+    return code_family(getattr(config, "global_filter_excluded_prefixes", []))
 
 
 def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
@@ -145,7 +146,9 @@ def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
     """
     if getattr(config, "global_filter_paused", False):
         return None, True
-    prefixes = list(getattr(config, "global_filter_excluded_categories", []))
+    from metatv.core.channel_name_utils import code_family
+    # Excluding one code hides the country's other codes too (DK → DNK, DEN).
+    prefixes = sorted(code_family(getattr(config, "global_filter_excluded_categories", [])))
     include_uncategorized = getattr(config, "global_filter_include_uncategorized", True)
     return (prefixes if prefixes else None), include_uncategorized
 
