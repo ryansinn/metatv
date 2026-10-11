@@ -735,6 +735,10 @@ def _build_semantic_constants() -> dict[str, object]:
     # Body text at the base size — the ONE role for it (was ITEM_COUNT,
     # RECIPE_SAVED_COUNT, WHATS_NEW_ITEM and DETAIL_STATE_MARK: one sheet, four names).
     TEXT_MD          = "font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
+    # Generic text roles, named by LOOK (F53): a label wanting one of these
+    # takes it rather than coining a same-sheet twin under its own name.
+    TEXT_MD_ITALIC   = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-style: italic;"
+    TEXT_SM_MUTED    = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
     EXPAND_HINT      = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XS + ";"
     INFO_LABEL       = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + "; padding-left: 4px; padding-top: 4px;"
 
@@ -947,8 +951,6 @@ def _build_semantic_constants() -> dict[str, object]:
     DIAG_METRICS = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
     # Key column in the diagnostics technical-details grid (dim label, value beside it).
     DIAG_METRIC_KEY = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-weight: 600;"
-    # Recommended-args / placeholder line.
-    DIAG_RECOMMEND = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + "; font-style: italic;"
     # Saved-confirmation line after applying tuning.
     DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
@@ -1071,8 +1073,6 @@ def _build_semantic_constants() -> dict[str, object]:
     EVENTS_TIME_ON_NOW = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
     # WeightedTagCloud — role-named semantic constants
-    # Count badge next to each tag value (small, muted, non-clickable)
-    CLOUD_COUNT = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
     # State-mark prefix on include-state tags (green checkmark)
     CLOUD_INCLUDE_MARK = "color: " + COLOR_OK + ";"
     # State-mark prefix on exclude-state tags (orange/red ⊘)

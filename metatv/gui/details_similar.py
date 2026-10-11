@@ -337,7 +337,7 @@ class _SimilarSection(CollapsibleMixin, QWidget):
         year_lbl = QLabel(year_str)
         year_lbl.setFixedWidth(36)
         year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        _theme.style_fn(year_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+        _theme.style(year_lbl, "TEXT_SM_MUTED")
         row.addWidget(year_lbl)
 
         # 8. Favorite — shown only when the title IS a favorite (click removes

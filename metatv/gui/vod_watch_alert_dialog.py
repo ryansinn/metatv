@@ -338,7 +338,7 @@ class ManageVodAlertsDialog(QDialog):
         type_lbl = type_icons.get(match_type, "")
         type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
         type_badge = QLabel(type_display)
-        _theme.style_fn(type_badge, lambda: f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};")
+        _theme.style(type_badge, "TEXT_SM_MUTED")
         hl.addWidget(type_badge)
 
         if alerted_count > 0:

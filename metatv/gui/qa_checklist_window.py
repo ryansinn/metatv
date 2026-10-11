@@ -1066,7 +1066,7 @@ class QAChecklistWindow(QWidget):
             header_layout.addWidget(fail_badge)
 
         ref_lbl = QLabel(entry.date)
-        _theme.style_fn(ref_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+        _theme.style(ref_lbl, "TEXT_SM_MUTED")
         ref_lbl.setOpenExternalLinks(True)
         header_layout.addWidget(ref_lbl)
         self._ref_labels[entry.id] = ref_lbl

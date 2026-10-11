@@ -420,7 +420,7 @@ class _Section(QWidget):
         hl.addStretch()
 
         self._summary_lbl = QLabel("")
-        _theme.style_fn(self._summary_lbl, lambda: f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+        _theme.style(self._summary_lbl, "TEXT_SM_MUTED")
         hl.addWidget(self._summary_lbl)
 
         self._select_all = _TriCheckbox()
