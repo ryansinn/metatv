@@ -113,6 +113,30 @@ class DiagnosticResult:
     http_status: int | None = None
 
 
+#: Statuses an IPTV source uses to say "this account is already using all of
+#: its connections": 509 is the common one (PLAY-21); 458 is another panel's
+#: spelling of the same refusal, seen 2026-10-11 on a one-connection line whose
+#: ``player_api`` reported ``active_cons == max_connections`` at the time.
+CONNECTION_LIMIT_STATUSES: frozenset[int] = frozenset({458, 509})
+
+_CONNECTION_LIMIT_ADVICE = (
+    "this account is already using all of its connections. Another device "
+    "may be watching on it; closing the player releases this app's own.")
+
+
+def connection_limit_detail(status: "int | None") -> "str | None":
+    """The connection-limit explanation for *status*, or None if it is not one."""
+    if status not in CONNECTION_LIMIT_STATUSES:
+        return None
+    return f"The source refused the connection (HTTP {status}): {_CONNECTION_LIMIT_ADVICE}"
+
+
+def explain_stream_error(err: str) -> str:
+    """*err* (a pre-flight ``"HTTP NNN"`` string) with the limit explanation, if it is one."""
+    m = re.fullmatch(r"HTTP (\d{3})", err or "")
+    return (m and connection_limit_detail(int(m.group(1)))) or err
+
+
 #: Plain-language cause + next step per HTTP status, for a stream URL that the
 #: server answered and refused. Keyed by exact status first, then by class.
 #:
@@ -136,6 +160,9 @@ _HTTP_EXPLANATIONS: "dict[int, tuple[str, str]]" = {
           "a real player's request, so the stream itself may play normally. "
           "Try playing it; if it plays, this result says more about the probe "
           "than about the stream."),
+    **dict.fromkeys(CONNECTION_LIMIT_STATUSES,
+                    ("Your source is at its connection limit.",
+                     f"Its reply means {_CONNECTION_LIMIT_ADVICE}")),
     429: ("Your source is rate-limiting you.",
           "Too many requests or connections in a short window. Wait a minute "
           "and try again, and avoid refreshing sources while watching."),

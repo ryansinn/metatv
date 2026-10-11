@@ -889,24 +889,27 @@ def _tap_http_error(key: str, code: int) -> None:
     thread.join(timeout=5)
 
 
-def test_a_509_recorded_after_arm_names_the_connection_limit():
+@pytest.mark.parametrize("code", [509, 458])
+def test_a_limit_refusal_recorded_after_arm_names_the_connection_limit(code):
+    """458 is another panel's spelling of 509 (2026-10-11): same message."""
+    key = f"prov-{code}-key"
     host = _host()
     host.player_manager = MagicMock()
-    host.player_manager.resolve_key.return_value = "prov-509-key"
-    mpv_log_tap.clear_exit("prov-509-key")
+    host.player_manager.resolve_key.return_value = key
+    mpv_log_tap.clear_exit(key)
     attempt = PlayAttempt("p1", "Mariners at Red Sox", "http://x/1.ts",
-                           provider_id="prov-509-key")
+                           provider_id=key)
     watch.arm(host, attempt)
-    _tap_http_error("prov-509-key", 509)   # recorded AFTER arm — this play's own error
+    _tap_http_error(key, code)   # recorded AFTER arm — this play's own error
 
     assert watch.on_player_gone(host) is True
 
     msg = host.notification_manager.show.call_args.kwargs["message"]
     status = host.status_bar.showMessage.call_args[0][0]
-    assert "HTTP 509" in msg
-    assert "connection" in msg
+    assert f"HTTP {code}" in msg
+    assert "all of its connections" in msg
     assert "connection limit" in status
-    mpv_log_tap.clear_exit("prov-509-key")
+    mpv_log_tap.clear_exit(key)
 
 
 def test_a_stale_509_recorded_before_arm_is_ignored():

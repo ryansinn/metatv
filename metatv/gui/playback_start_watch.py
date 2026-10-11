@@ -86,6 +86,7 @@ from PyQt6.QtCore import QTimer
 from metatv.core import epg_utils
 from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, last_http_error
+from metatv.core.stream_diagnostics import CONNECTION_LIMIT_STATUSES, connection_limit_detail
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -578,7 +579,7 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
             "nothing within {}s (refused={})", name, FAILED_AFTER_TICKS * 2, refused)
     try:
         status_text = (f"Nothing is playing: {name} — the source is at its connection limit"
-                       if refused == 509 else f"Nothing is playing: {name}")
+                       if refused in CONNECTION_LIMIT_STATUSES else f"Nothing is playing: {name}")
         host.status(status_text, ms=0, level="warn")
     except Exception:                                    # pragma: no cover
         logger.exception("could not update the status bar")
@@ -596,10 +597,8 @@ def _report_never_started(host: Any, *, exited: bool = False, stalled: bool = Fa
         # past the real end of the file ends it instantly, which is the one
         # cause of this the USER can do something about (play from the start).
         detail = (
-            "The source refused the connection (HTTP 509): this account is "
-            "already using all of its connections. Another device may be "
-            "watching on it; closing the player releases this app's own."
-            if refused == 509 else
+            connection_limit_detail(refused)
+            if refused in CONNECTION_LIMIT_STATUSES else
             f"The source refused the connection (HTTP {refused})."
             if refused is not None and refused >= 400 else
             f"The player exited while still opening the stream ({exit_reason}); "
