@@ -825,6 +825,17 @@ class TagDB(Base):
     )
 
 
+class TagAliasDB(Base):
+    """Another spelling of a tag ("Denzel Washigton" → Denzel Washington's tag),
+    so a provider sending it again lands on the one identity (person_aliases)."""
+
+    __tablename__ = "tag_aliases"
+
+    type   = Column(String, primary_key=True)
+    value  = Column(String, primary_key=True)   # the alias spelling, as seen
+    tag_id = Column(Integer, ForeignKey("tags.id"), nullable=False)
+
+
 class ContentTagDB(Base):
     """Link between a channel and a tag, with provenance.
 

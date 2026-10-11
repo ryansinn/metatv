@@ -57,6 +57,7 @@
     "Config.network_timeout",
     "Config.next_icon",
     "Config.notification_position",
+    "Config.person_aliases_version",
     "Config.pin_icon",
     "Config.player_args",
     "Config.preferred_player",

@@ -1275,6 +1275,7 @@ class Config(BaseModel):
     metadata_year_backfill_version: int = 0
     credit_tags_backfill_version: int = 0
     feeder_codes_compact_version: int = 0
+    person_aliases_version: int = 0
     # ── Signal checking ─────────────────────────────────────────────────
     # How a stream is judged dead air rather than a picture. Exposed because
     # the right answer is provider-dependent: a channel that runs a 4-second

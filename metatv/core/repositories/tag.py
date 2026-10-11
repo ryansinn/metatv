@@ -148,6 +148,8 @@ class TagRepository(ContentTagCrudMixin):
             )
             .first()
         )
+        if row is None:   # a known other spelling resolves to its tag
+            row = self._aliased_tag(type, normalised)
         if row is None:
             row = TagDB(type=type, value=normalised)
             self.session.add(row)
@@ -165,6 +167,16 @@ class TagRepository(ContentTagCrudMixin):
             _TAG_ID_CACHE[cache_key] = row.id
 
         return row
+
+    def _aliased_tag(self, type: str, value: str):
+        """The tag *value* is a recorded alias of, else None."""
+        from sqlalchemy import func as _func
+        from metatv.core.database import TagAliasDB
+        alias = (self.session.query(TagAliasDB.tag_id)
+                 .filter(TagAliasDB.type == type,
+                         _func.lower(TagAliasDB.value) == value.casefold())
+                 .first())
+        return self.session.get(TagDB, alias[0]) if alias else None
 
     def get_or_create_tag_id(self, type: str, value: str) -> int:
         """Return the ``TagDB.id`` for ``(type, value)``, creating the row if needed.
@@ -1389,10 +1401,9 @@ class TagRepository(ContentTagCrudMixin):
 def _clear_tag_cache() -> None:
     """Clear the process-level tag-id cache.
 
-    Intended for test isolation only — not needed in production because the
-    cache is keyed by ``(type, value)`` which are stable for a given DB file.
-    Call this in test fixtures that create a fresh DB to avoid stale ids from
-    a prior test leaking into the new DB's identity space.
+    For test isolation (a fresh DB must not inherit ids from a prior one), and
+    after a pass that MERGES tags (person_aliases): the cache would otherwise
+    hand a deleted alias's id to the next write.
     """
     with _TAG_ID_LOCK:
         _TAG_ID_CACHE.clear()
