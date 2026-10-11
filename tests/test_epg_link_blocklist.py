@@ -8,7 +8,7 @@ re-runs on every EPG view activation — can never silently undo them:
    ("Clear EPG link") never re-enters tier 1 (exact epg_channel_id) or
    tiers 2/3 (fuzzy name) on a later relink pass. Removing it from the
    blocklist ("Re-link EPG data") lets the next relink pass re-match it.
-2. Region-gated fuzzy matching — ``channel_name_utils.epg_tld_compatible``
+2. Region-gated fuzzy matching — ``epg_channel_classify.epg_tld_compatible``
    rejects a tier-2/3 fuzzy match when the candidate's detected region/prefix
    is incompatible with the EPG feed's TLD (parsed from its epg_id suffix);
    an unmapped code or unparseable TLD abstains (matches as before).

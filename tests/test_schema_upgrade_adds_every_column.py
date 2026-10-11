@@ -220,13 +220,12 @@ _MIGRATION_ENTRY_RE = re.compile(r'\(\s*"(\w+)",\s*"(\w+)",\s*"([^"]+)"\s*\)')
 def _migration_entries() -> list[tuple[str, str, str]]:
     """Every ``(table, column, type)`` triple ``Database._migrate()`` applies.
 
-    Read out of the source rather than by running the migration, so a failure
-    names the missing ENTRY — which is what the fix is — instead of a symptom
-    several layers downstream.
+    Read from the list itself (``schema_migrations.COLUMN_MIGRATIONS``) rather
+    than by running the migration, so a failure names the missing ENTRY —
+    which is what the fix is — instead of a symptom downstream.
     """
-    src = Path(database.__file__).read_text(encoding="utf-8")
-    block = src[src.index("migrations = ["):src.index("for table, col, col_type in migrations")]
-    return _MIGRATION_ENTRY_RE.findall(block)
+    from metatv.core.schema_migrations import COLUMN_MIGRATIONS
+    return [tuple(entry) for entry in COLUMN_MIGRATIONS]
 
 
 def _migrated_columns() -> dict[str, set[str]]:

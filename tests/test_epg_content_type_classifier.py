@@ -14,10 +14,7 @@ Pure function — no DB, no Qt. Covers:
 
 from __future__ import annotations
 
-from metatv.core.channel_name_utils import (
-    EPG_CONTENT_TYPES,
-    classify_channel_content_type,
-)
+from metatv.core.epg_channel_classify import EPG_CONTENT_TYPES, classify_channel_content_type
 
 
 # ---------------------------------------------------------------------------

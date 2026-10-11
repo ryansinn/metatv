@@ -16,7 +16,7 @@ import re
 
 from loguru import logger
 
-from metatv.core.channel_name_utils import epg_tld_compatible
+from metatv.core.epg_channel_classify import epg_tld_compatible
 from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.xmltv_parser import normalize_channel_name
@@ -24,7 +24,7 @@ from metatv.core.xmltv_parser import normalize_channel_name
 
 # The trailing dot-suffix some feeds use as a language/region TLD idiom on an
 # epg_id ("UandEden.uk" -> "uk"); only a 2-3 letter alpha suffix counts — anything
-# else is not a TLD and the region gate abstains (channel_name_utils.epg_tld_compatible).
+# else is not a TLD and the region gate abstains (epg_channel_classify.epg_tld_compatible).
 _EPG_ID_TLD_RE = re.compile(r"\.([A-Za-z]{2,3})$")
 
 
@@ -64,7 +64,7 @@ def build_match_map(
 
     Tiers 2/3 are additionally region-gated: a candidate's ``detected_prefix``/
     ``detected_region`` is checked against the EPG feed's TLD (parsed from its
-    epg_id) via ``channel_name_utils.epg_tld_compatible`` — an unrecognized
+    epg_id) via ``epg_channel_classify.epg_tld_compatible`` — an unrecognized
     code/TLD abstains (matches as before); a recognized mismatch is rejected.
     """
     repos = RepositoryFactory(session)

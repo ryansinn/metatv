@@ -57,9 +57,8 @@ from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core import watchlist
 from metatv.core.watchlist_matching import matches_any
-from metatv.core.channel_name_utils import (
-    REGION_FULL_NAMES, classify_channel_content_type, quality_display, quality_tooltip,
-)
+from metatv.core.channel_name_utils import REGION_FULL_NAMES, quality_display, quality_tooltip
+from metatv.core.epg_channel_classify import classify_channel_content_type
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
 from metatv.core.epg_utils import (
