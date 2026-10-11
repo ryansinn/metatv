@@ -710,9 +710,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # each movie's get_vod_info detail blob. Off-thread, batched, capped per launch,
         # resumable; a safe no-op once drained. Deferred until launch settles so it never competes with
         # the initial channel load / paint or blocks launch.
-        QTimer.singleShot(
-            _BACKGROUND_SETTLE_MS, self.tmdb_enrichment_manager.backfill_missing_genres
-        )
+        self._after_settle(self.tmdb_enrichment_manager.backfill_missing_genres)
 
         # Background metadata enrichment (roadmap #249) — owner opt-in only
         # (config.metadata_background_refresh defaults False); manual start from
@@ -751,6 +749,19 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             QTimer.singleShot(3000, self.update_checker.check_async)
 
         logger.info("Main window initialized")
+
+    def _after_settle(self, callback) -> None:
+        """Run *callback* once launch has settled (``_BACKGROUND_SETTLE_MS``).
+
+        A timer OWNED by the window, not ``QTimer.singleShot``: a bare
+        single-shot outlives the window that scheduled it, and a minute is long
+        enough for it to fire into a deleted manager (a test-suite segfault).
+        """
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(callback)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(_BACKGROUND_SETTLE_MS)
 
     def _gate_startup_fetches(self) -> None:
         """Sequence the startup bulk-write kickoffs behind any pending migration.
@@ -811,7 +822,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
                 "series_monitor: startup check skipped — recurring recheck is off")
 
         # VOD watch-alert startup check — after launch settles (_BACKGROUND_SETTLE_MS).
-        QTimer.singleShot(_BACKGROUND_SETTLE_MS, self.vod_watch_alert_manager.check_all)
+        self._after_settle(self.vod_watch_alert_manager.check_all)
 
         # EPG startup refresh check — run after the event loop settles (2 s) so
         # the channel list is loaded and the match map can be built correctly.
