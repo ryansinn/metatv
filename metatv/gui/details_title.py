@@ -172,7 +172,7 @@ class _MetadataSection(QWidget):
         # Tagline — italic subtitle line, shown when metadata provides it.
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
-        _theme.style_fn(self._tagline_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-style: italic; font-size: {_theme.FONT_MD};")
+        _theme.style(self._tagline_lbl, "TEXT_MD_ITALIC")
         _no_width_force(self._tagline_lbl)
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
@@ -194,7 +194,7 @@ class _MetadataSection(QWidget):
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
-        _theme.style_fn(self.rec_reason_label, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; font-style: italic;")
+        _theme.style(self.rec_reason_label, "TEXT_MD_ITALIC")
         self.rec_reason_label.setWordWrap(True)
         _no_width_force(self.rec_reason_label)
         self.rec_reason_label.hide()

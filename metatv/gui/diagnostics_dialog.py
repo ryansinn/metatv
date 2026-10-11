@@ -180,7 +180,7 @@ class StreamDiagnosticsDialog(QDialog):
         # Recommended args / saved confirmation.
         self._recommend = QLabel("")
         self._recommend.setWordWrap(True)
-        _theme.style(self._recommend, "DIAG_RECOMMEND")
+        _theme.style(self._recommend, "TEXT_MD_ITALIC")
         self._recommend.hide()
         layout.addWidget(self._recommend)
 
