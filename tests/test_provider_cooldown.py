@@ -247,7 +247,8 @@ def test_mpv_retries_a_5xx_on_the_initial_open():
 
     4xx is excluded on purpose: being told no must still fail fast.
     """
-    from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, RECONNECT_FLAG
+    from metatv.core.players.mpv_args import RECONNECT_FLAG
+    from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 
     assert "reconnect_on_http_error=5xx" in RECONNECT_FLAG
     assert "4xx" not in RECONNECT_FLAG, (
@@ -269,7 +270,8 @@ def test_mpv_errors_out_of_a_held_connection_instead_of_hanging_on_it():
     into the reconnect_delay_max backoff instead of sitting on ffmpeg's own
     uncapped (effectively infinite) connect/read timeout.
     """
-    from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S, RECONNECT_FLAG
+    from metatv.core.players.mpv_args import RECONNECT_FLAG
+    from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 
     assert "reconnect_on_network_error=1" in RECONNECT_FLAG
     # PLAY-18: no socket read timeout at all — rw_timeout was a no-op, and

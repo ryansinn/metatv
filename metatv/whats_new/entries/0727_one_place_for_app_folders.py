@@ -18,6 +18,9 @@ ENTRY = WhatsNewEntry(
            "MetaTV ships, the same probe as 'Get stream details', instead of needing "
            "ffprobe installed. Packaged builds never included ffprobe, so these fields "
            "were usually blank there.",
+           "The signal check (the black-screen / frozen / silent test) now identifies itself "
+           "with the same browser User-Agent mpv plays with. Before, a source that filters "
+           "on User-Agent could make it report a stream as dead that plays fine.",
            "The stream-details probe now opens its mpv control socket in your private "
            "runtime folder instead of the shared /tmp."),
     test_steps=("Open Settings → Playback — there is no 'Preferred player' row; 'Player mode' "

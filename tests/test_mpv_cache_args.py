@@ -29,7 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG, _OPEN_ENDED_BUFFER_ARGS
+from metatv.core.players.mpv import MPVPlayer, _OPEN_ENDED_BUFFER_ARGS
+from metatv.core.players.mpv_args import NO_READ_TIMEOUT_FLAG, RECONNECT_FLAG
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 

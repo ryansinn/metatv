@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metatv.core.players import mpv_log_tap
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
+from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,

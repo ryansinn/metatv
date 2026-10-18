@@ -84,7 +84,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
+from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, last_http_error
 from metatv.core.stream_diagnostics import CONNECTION_LIMIT_STATUSES, connection_limit_detail
 

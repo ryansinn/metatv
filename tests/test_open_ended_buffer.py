@@ -28,7 +28,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG
+from metatv.core.players.mpv import MPVPlayer
+from metatv.core.players.mpv_args import RECONNECT_FLAG
 from metatv.gui.channel_menu import ACTIONS, SURFACE_LAYOUTS, ChannelMenuContext, build_channel_menu
 from metatv.gui import icons as _icons
 

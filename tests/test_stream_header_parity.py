@@ -1,6 +1,6 @@
 """Behavioral tests for stream HTTP header parity.
 
-Verifies that validation, diagnostics and mpv (which diagnostics also probes
+Verifies that validation, diagnostics, the ffmpeg signal check and mpv (which diagnostics also probes
 codec/bitrate through) all use the same
 canonical User-Agent (single source of truth in metatv.core.http_headers).
 
@@ -140,3 +140,19 @@ class TestDiagnosticsRequestsHeaders:
         assert result is None  # error → None, no crash
         assert "headers" in captured_kwargs
         assert captured_kwargs["headers"].get("User-Agent") == stream_user_agent()
+
+
+# ---------------------------------------------------------------------------
+# 4. The ffmpeg signal check sends the same User-Agent
+# ---------------------------------------------------------------------------
+
+class TestSignalCheckUserAgent:
+    def test_ffmpeg_command_sends_the_canonical_user_agent_before_the_input(self):
+        """A source that gates on User-Agent must not look dead to the signal
+        check while mpv plays it; the option only applies if it precedes -i."""
+        from metatv.core.stream_probe import _build_command
+
+        cmd = _build_command("http://x/1.ts", 3)
+        ua_at = cmd.index("-user_agent")
+        assert cmd[ua_at + 1] == stream_user_agent()
+        assert ua_at < cmd.index("-i")

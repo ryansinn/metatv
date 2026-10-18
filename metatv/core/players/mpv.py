@@ -16,36 +16,8 @@ from metatv.core.players import mpv_ipc
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
 from metatv.core.config import Config
-from metatv.core.http_headers import stream_user_agent
+from metatv.core.players.mpv_args import stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
-
-# Always-on reconnect for transient drops (PLAY-12: the owner's one-connection panel holds a new
-# connection while counting the previous stream — #635 measured 14-26s, up to ~40s on 2026-09-07).
-# reconnect_on_http_error=5xx covers a 5xx reply; reconnect_on_network_error covers no reply at
-# all. 4xx excluded — told no must still fail fast (ConnectionAccountant.PROVIDER_COOLDOWN_S).
-# ffmpeg's backoff (delay=0, then delay=1+2*delay per failure, stopping once the next delay exceeds
-# reconnect_delay_max) measured 2026-09-11 against an always-5xx server: max=8 -> +0,+0,+1,+4,+11s
-# (11s, PLAY-10's old value — short); max=30 -> 26s (still short of the panel's ~40s); max=60 ->
-# +0,+0,+1,+4,+11,+26,+57s (57s — covers it).
-# NO socket read timeout (PLAY-18): on the owner's source a stalled connection that resumes beats
-# a reconnect — PLAY-14's timeout=20s turned every stall into refused reconnects ("it only plays
-# the first 2 minutes"). mpv's own --network-timeout (default 60s) is a read timeout too, and on a
-# one-connection source worse: ffmpeg reconnects while STILL holding the stalled socket, the source
-# counts two, and every reconnect gets 509 until mpv is killed (PLAY-20, reproduced 2026-09-29).
-RECONNECT_DELAY_MAX_S = 60
-RECONNECT_FLAG = (
-    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
-    f"reconnect_delay_max={RECONNECT_DELAY_MAX_S},"
-    "reconnect_on_http_error=5xx,reconnect_on_network_error=1"
-)
-
-NO_READ_TIMEOUT_FLAG = "--network-timeout=0"  # 0 = FFmpeg default: no read timeout
-
-
-def _base_stream_args() -> list[str]:
-    """UA + reconnect + no-read-timeout — the flags every composed launch carries."""
-    return [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG]
-
 
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"
@@ -1000,7 +972,7 @@ class MPVPlayer(PlayerPlugin):
 
         # Canonical User-Agent must come first; user's own --user-agent in user_args
         # appears later and wins (mpv honours the last value).
-        base_args = _base_stream_args()
+        base_args = stream_args()
 
         byte_size = self._to_mpv_bytesize(size) if (size and size != "auto") else None
 
@@ -1075,7 +1047,7 @@ class MPVPlayer(PlayerPlugin):
         the user build a large buffer lead to ride out an unstable stream.
 
         Composition (same shape as ``_compose_extra_args``):
-        * ``_base_stream_args()`` — UA, reconnect, no read timeout (same as normal path).
+        * ``stream_args()`` — UA, reconnect, no read timeout (same as normal path).
         * Open-ended cache flags INSTEAD of the configured buffer profile:
           ``--cache=yes --cache-on-disk=yes --demuxer-readahead-secs=3600
           --demuxer-max-bytes=2GiB``
@@ -1095,7 +1067,7 @@ class MPVPlayer(PlayerPlugin):
             return user_args
 
         # _OPEN_ENDED_BUFFER_ARGS is shared with _buffer_profile_args('open_ended').
-        return _base_stream_args() + list(_OPEN_ENDED_BUFFER_ARGS) + user_args
+        return stream_args() + list(_OPEN_ENDED_BUFFER_ARGS) + user_args
 
     def _compose_deep_cache_args(self, record_path: str) -> list[str]:
         """Build mpv args for deep-cache ("Buffer without limit") VOD pre-loading.
@@ -1132,7 +1104,7 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        return (_base_stream_args() + self._buffer_profile_args("deep")
+        return (stream_args() + self._buffer_profile_args("deep")
                 + [f"--stream-record={record_path}"] + user_args)
 
     # ── Deep cache ("Buffer without limit", VOD-only, ephemeral) ────────────

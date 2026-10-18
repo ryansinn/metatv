@@ -26,7 +26,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, _Inst
+from metatv.core.players.mpv import MPVPlayer, _Inst
+from metatv.core.players.mpv_args import RECONNECT_FLAG
 from metatv.gui.channel_menu import ACTIONS, SURFACE_LAYOUTS, ChannelMenuContext
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"

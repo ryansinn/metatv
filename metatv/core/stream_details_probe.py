@@ -20,7 +20,7 @@ import uuid
 from loguru import logger
 
 from metatv.core.players import mpv_ipc
-from metatv.core.players.mpv import _base_stream_args
+from metatv.core.players.mpv_args import stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
 from metatv.core.stream_info import MPV_PROPS, parse_mpv
 
@@ -85,7 +85,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
     sock_path = mpv_ipc.address(f"probe-{uuid.uuid4().hex[:8]}")
     cmd = [_resolve_mpv_binary(), "--no-config", "--idle=no", "--vo=null", "--ao=null",
            "--force-window=no", "--msg-level=all=error", f"--input-ipc-server={sock_path}",
-           *_base_stream_args(), url]
+           *stream_args(), url]
     # stderr kept (errors only) so a failed probe can say WHY mpv gave up.
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             text=True, errors="replace")

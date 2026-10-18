@@ -35,10 +35,8 @@ from __future__ import annotations
 
 
 
-from metatv.core.players.mpv import (
-    RECONNECT_DELAY_MAX_S,
-    RECONNECT_FLAG,
-)
+from metatv.core.players.mpv_args import RECONNECT_FLAG
+from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 from metatv.gui.playback_start_watch import ffmpeg_retry_window_s
 
 
