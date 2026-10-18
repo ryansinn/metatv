@@ -1,19 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — builds a windowed, unsigned ``MetaTV.app`` for macOS.
+"""PyInstaller spec — builds a windowed, unsigned MetaTV for macOS or Windows.
+
+macOS produces ``dist/MetaTV.app``; Windows produces the one-folder
+``dist/MetaTV/`` with ``MetaTV.exe``. Everything up to ``COLLECT`` is shared;
+only the icon, ``argv_emulation`` and the ``.app`` wrapper differ.
 
 Run from the repo root::
 
     pyinstaller packaging/metatv.spec --noconfirm
 
-Note: mpv is an EXTERNAL binary MetaTV spawns over an IPC socket (not libmpv),
-so PyInstaller does NOT bundle it here.  CI vendors a self-contained mpv into
-``MetaTV.app/Contents/Resources/mpv/`` after this build (see
-``.github/workflows/release.yml``); ``_resolve_mpv_binary()`` finds it there
+Note: mpv is an EXTERNAL binary MetaTV spawns over IPC (not libmpv), so
+PyInstaller does NOT bundle it here.  CI vendors a self-contained mpv after
+this build — into ``MetaTV.app/Contents/Resources/mpv/`` (release.yml) or
+``MetaTV/mpv/`` (windows-rolling.yml); ``_resolve_mpv_binary()`` finds it there
 when frozen and falls back to ``$MPV_BINARY`` / ``PATH`` otherwise.
 """
 
 import os
 import re
+import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -105,6 +110,11 @@ datas += [
 
 block_cipher = None
 
+IS_MAC = sys.platform == "darwin"
+IS_WINDOWS = sys.platform == "win32"
+# PyInstaller converts a PNG to .ico itself when Pillow is installed.
+WINDOWS_ICON = os.path.join(REPO_ROOT, "packaging", "icon", "metatv-256.png")
+
 a = Analysis(
     [os.path.join(REPO_ROOT, "metatv", "__main__.py")],
     pathex=[REPO_ROOT],
@@ -131,9 +141,10 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,  # windowed .app (no attached terminal)
+    console=False,  # windowed app (no attached terminal)
     disable_windowed_traceback=False,
-    argv_emulation=True,
+    argv_emulation=IS_MAC,  # macOS open-document events; meaningless elsewhere
+    icon=WINDOWS_ICON if IS_WINDOWS else None,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
@@ -150,19 +161,20 @@ coll = COLLECT(
     name="MetaTV",
 )
 
-app = BUNDLE(
-    coll,
-    name="MetaTV.app",
-    icon='icon/metatv.icns' if os.path.exists('packaging/icon/metatv.icns') else None,
-    bundle_identifier="com.ryansinn.metatv",
-    version=VERSION,
-    info_plist={
-        "CFBundleName": "MetaTV",
-        "CFBundleDisplayName": "MetaTV",
-        "CFBundleIdentifier": "com.ryansinn.metatv",
-        "CFBundleShortVersionString": VERSION,
-        "CFBundleVersion": VERSION,
-        "LSMinimumSystemVersion": "12.0",
-        "NSHighResolutionCapable": True,
-    },
-)
+if IS_MAC:
+    app = BUNDLE(
+        coll,
+        name="MetaTV.app",
+        icon='icon/metatv.icns' if os.path.exists('packaging/icon/metatv.icns') else None,
+        bundle_identifier="com.ryansinn.metatv",
+        version=VERSION,
+        info_plist={
+            "CFBundleName": "MetaTV",
+            "CFBundleDisplayName": "MetaTV",
+            "CFBundleIdentifier": "com.ryansinn.metatv",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            "LSMinimumSystemVersion": "12.0",
+            "NSHighResolutionCapable": True,
+        },
+    )

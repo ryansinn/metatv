@@ -7,7 +7,9 @@ whose real job is declaring the settings themselves.
 """
 from __future__ import annotations
 
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -124,6 +126,28 @@ def icon_field_defaults(model_cls) -> dict:
     return {k: f.default for k, f in model_cls.model_fields.items() if k.endswith("_icon")}
 
 
+#: Windows refuses to replace a file another process has open, and antivirus
+#: scanners and the search indexer open freshly written files for a moment.
+#: The replace is retried briefly there; POSIX replace has no such failure.
+_WINDOWS_REPLACE_ATTEMPTS = 10
+_WINDOWS_REPLACE_DELAY_S = 0.05
+
+
+def _replace(src: Path, target: Path) -> None:
+    """``src.replace(target)``, retrying a transient Windows sharing violation."""
+    if sys.platform != "win32":
+        src.replace(target)
+        return
+    for attempt in range(_WINDOWS_REPLACE_ATTEMPTS):
+        try:
+            src.replace(target)
+            return
+        except PermissionError:
+            if attempt == _WINDOWS_REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_WINDOWS_REPLACE_DELAY_S)
+
+
 def atomic_yaml_write(target: Path, payload: dict) -> None:
     """Write *payload* to *target* via a temp file and an atomic replace.
 
@@ -138,7 +162,7 @@ def atomic_yaml_write(target: Path, payload: dict) -> None:
         ) as tmp:
             tmp_path = Path(tmp.name)
             yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
-        tmp_path.replace(target)
+        _replace(tmp_path, target)
     except Exception as e:
         logger.error(f"Failed to write {target}: {e}")
         try:

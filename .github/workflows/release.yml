@@ -366,6 +366,10 @@ jobs:
           **Linux:** \`MetaTV.flatpak\` — install with
           \`flatpak install --user MetaTV.flatpak\` (attached by flatpak-rolling.yml).
 
+          **Windows (experimental):** \`MetaTV-windows-x64.zip\` — unzip anywhere and
+          run \`MetaTV.exe\`. Unsigned, so SmartScreen asks once: More info → Run
+          anyway (attached by windows-rolling.yml).
+
           This release always points at the newest code. Re-download to update —
           there is no in-app updater yet. See the in-app What's New for what
           changed." \

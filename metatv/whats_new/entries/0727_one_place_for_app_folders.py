@@ -4,8 +4,11 @@ ENTRY = WhatsNewEntry(
     id=727,
     version="0.165.0",
     date="2026-10-18",
-    title="Removed the 'Preferred player' setting, which did nothing",
-    items=("Settings → Playback offered mpv, VLC and 'custom', but MetaTV has always played "
+    title="An experimental Windows build, and a setting that did nothing is gone",
+    items=("The rolling release now carries MetaTV-windows-x64.zip: unzip it anywhere and run "
+           "MetaTV.exe. mpv is included. It is unsigned, so Windows SmartScreen asks once "
+           "(More info → Run anyway). Experimental: it has not been tested on Windows yet.",
+           "Settings → Playback offered mpv, VLC and 'custom', but MetaTV has always played "
            "through mpv whatever was chosen. The choice is gone until a second player "
            "actually exists.",
            "Where MetaTV keeps its config, database, caches and downloads is now decided in "
@@ -18,5 +21,8 @@ ENTRY = WhatsNewEntry(
                 "Open Settings → Downloads — the folder shows your existing downloads folder, "
                 "unchanged. Download a VOD — it lands there.",
                 "Select a movie and click 'Get stream details' in the details pane — the tracks and "
-                "bitrate appear as before."),
+                "bitrate appear as before.",
+                "On a Windows PC, download MetaTV-windows-x64.zip from the rolling release, unzip "
+                "it, run MetaTV.exe and choose Run anyway — the window opens; add a source and "
+                "play a channel — it plays in mpv."),
 )

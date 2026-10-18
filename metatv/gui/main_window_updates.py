@@ -13,6 +13,8 @@ docs/update-checker note).
 
 from __future__ import annotations
 
+import sys
+
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from loguru import logger
@@ -64,8 +66,12 @@ class _UpdatesMixin:
     # -- download / reveal ----------------------------------------------------
 
     def _start_update_download(self, info) -> None:
-        """Begin the assisted download, or open the releases page as fallback."""
-        if info.dmg_url:
+        """Begin the assisted download, or open the releases page as fallback.
+
+        Only macOS has an assisted download: a ``.dmg`` is the only installer
+        the checker knows, so every other platform gets the releases page.
+        """
+        if info.dmg_url and sys.platform == "darwin":
             self.notification_manager.show(
                 title="Downloading update…",
                 message="Saving the new MetaTV to your Downloads folder.",
@@ -74,7 +80,7 @@ class _UpdatesMixin:
             )
             self.update_checker.download_update(info)
         else:
-            # No packaged .dmg asset on this release — hand off to the browser.
+            # No .dmg for this platform — hand off to the browser.
             QDesktopServices.openUrl(QUrl(info.release_url or _RELEASES_PAGE))
 
     def _on_update_downloaded(self, path: str) -> None:
