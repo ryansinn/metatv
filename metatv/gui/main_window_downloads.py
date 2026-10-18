@@ -20,6 +20,7 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMenu, QMessageBox
 
+from metatv.core import file_ops
 from metatv.core.download_manager import DownloadManager, library_dir
 from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.models import MediaType
@@ -343,8 +344,7 @@ class _DownloadsMixin:
         never the ghost-row Undo a history CLEAR gets): this cannot be undone
         the way a history-group clear can, because the bytes are gone, not
         just the row. The row's meta flips to "file removed" on the next
-        render — ``channel_downloads._file_exists`` is read fresh every time,
-        never cached.
+        render — ``channel_downloads._file_exists`` is read fresh every time, never cached.
         """
         rows = [r for r in self.download_manager.progress() if r.id == download_id]
         if not rows:
@@ -358,11 +358,13 @@ class _DownloadsMixin:
             QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
-        try:
-            path.unlink(missing_ok=True)
+        try:  # "in use" happens only on Windows, which refuses to delete an open file
+            error = None if file_ops.remove(path) else "it is open, probably in the player"
         except OSError as exc:
             logger.warning(f"Could not delete download file {path}: {exc}")
-            self.status(f"Could not delete {path.name}: {exc}", ms=5000, level="error")
+            error = str(exc)
+        if error:
+            self.status(f"Could not delete {path.name}: {error}", ms=5000, level="error")
             return
         self.status(f"Deleted {path.name}", ms=4000)
         self._refresh_transfer_sections()

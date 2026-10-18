@@ -40,7 +40,7 @@ import requests
 from loguru import logger
 
 
-from metatv.core import app_paths
+from metatv.core import app_paths, file_ops
 from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
 if TYPE_CHECKING:                                    # pragma: no cover
@@ -212,6 +212,9 @@ class DownloadManager:
         self._active_id: Optional[str] = None
         #: Set when the accountant evicts us mid-transfer.
         self._preempted = threading.Event()
+        #: Partial files a cancel could not delete because the worker still had
+        #: them open (Windows only); the worker deletes them once it lets go.
+        self._discard_when_closed: set[Path] = set()
         #: download_id -> recent (monotonic_ts, bytes_written) samples, for the
         #: UI's speed/ETA readout. Guarded by ``_lock`` — written by the worker
         #: thread inside ``_transfer``, read by ``progress()`` from whichever
@@ -305,7 +308,8 @@ class DownloadManager:
                 return
             partial = Path(row.dest_path + ".part")
             session.delete(row)
-        partial.unlink(missing_ok=True)
+        if not file_ops.remove(partial):
+            self._discard_when_closed.add(partial)
         self._notify()
 
     # ── history (terminal rows) ─────────────────────────────────────────────
@@ -753,7 +757,7 @@ class DownloadManager:
                                 return False
 
             self._flush_progress(download_id, written, force=True)
-            partial.replace(dest)
+            file_ops.replace(partial, dest)
             self._set_state(download_id, "completed")
             logger.info("download complete: {}", dest)
             return True
@@ -766,6 +770,9 @@ class DownloadManager:
             self._accountant.release(row["provider_id"], download_id)
             self._active_id = None
             self._clear_rate_samples(download_id)
+            if partial in self._discard_when_closed:
+                self._discard_when_closed.discard(partial)
+                file_ops.remove(partial)
 
     @staticmethod
     def _content_total(response, already_have: int) -> Optional[int]:

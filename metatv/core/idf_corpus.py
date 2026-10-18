@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import threading
 from collections import Counter
@@ -44,7 +43,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from metatv.core import app_paths
+from metatv.core import app_paths, file_ops
 
 
 STOP_WORDS: frozenset[str] = frozenset({
@@ -168,18 +167,15 @@ def _read_disk_cache() -> tuple[list, dict[str, float]] | None:
 def _write_disk_cache(stamp: list, idf: dict[str, float]) -> None:
     """Persist the built table atomically, or silently give up.
 
-    Writes to a ``.tmp`` sibling in the same directory and ``os.replace()``s
-    it into place, so a reader never sees a partially written file. Any
+    Through :func:`file_ops.atomic_write`, so a reader never sees a
+    partially written file. Any
     failure (unwritable directory, disk full, permissions) is logged at
     debug and swallowed — the disk cache is purely an optimization.
     """
     path = _disk_cache_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.parent / (path.name + ".tmp")
-        with tmp_path.open("w", encoding="utf-8") as f:
-            json.dump({"stamp": stamp, "idf": idf}, f)
-        os.replace(tmp_path, path)
+        file_ops.atomic_write(path, lambda f: json.dump({"stamp": stamp, "idf": idf}, f))
     except OSError as exc:
         logger.debug(f"Failed to write IDF corpus disk cache ({exc}); continuing without it")
 

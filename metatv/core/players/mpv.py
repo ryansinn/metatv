@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 
-from metatv.core import app_paths
+from metatv.core import app_paths, file_ops
 from metatv.core.child_process import NO_WINDOW
 from metatv.core.players import mpv_ipc
 from metatv.core.players.base import PlayerPlugin, QueueMode
@@ -1172,7 +1172,8 @@ class MPVPlayer(PlayerPlugin):
 
         Safe to call even while mpv still holds the file open for writing
         (POSIX unlink semantics — see the ``stop()`` docstring) and safe to
-        call on an already-removed path (no-op).
+        call on an already-removed path (no-op). Windows refuses while mpv
+        holds it; the file then stays until the startup or cap sweep.
 
         Args:
             path: Absolute path to the ``.ts`` recording (``""`` is a no-op).
@@ -1180,10 +1181,12 @@ class MPVPlayer(PlayerPlugin):
         if not path:
             return
         try:
-            p = Path(path)
-            if p.exists():
-                p.unlink()
-                logger.info(f"Deep-cache: purged {p}")
+            if not Path(path).exists():
+                return
+            if file_ops.remove(path):
+                logger.info(f"Deep-cache: purged {path}")
+            else:
+                logger.info(f"Deep-cache: {path} still open in mpv; the next sweep removes it")
         except OSError as e:
             logger.warning(f"Deep-cache: could not purge {path}: {e}")
 

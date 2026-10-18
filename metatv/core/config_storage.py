@@ -7,14 +7,12 @@ whose real job is declaring the settings themselves.
 """
 from __future__ import annotations
 
-import tempfile
-import time
 from pathlib import Path
 
 import yaml
 from loguru import logger
 
-from metatv.core import runtime_env
+from metatv.core import file_ops
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -127,28 +125,6 @@ def icon_field_defaults(model_cls) -> dict:
     return {k: f.default for k, f in model_cls.model_fields.items() if k.endswith("_icon")}
 
 
-#: Windows refuses to replace a file another process has open, and antivirus
-#: scanners and the search indexer open freshly written files for a moment.
-#: The replace is retried briefly there; POSIX replace has no such failure.
-_WINDOWS_REPLACE_ATTEMPTS = 10
-_WINDOWS_REPLACE_DELAY_S = 0.05
-
-
-def _replace(src: Path, target: Path) -> None:
-    """``src.replace(target)``, retrying a transient Windows sharing violation."""
-    if not runtime_env.is_windows():
-        src.replace(target)
-        return
-    for attempt in range(_WINDOWS_REPLACE_ATTEMPTS):
-        try:
-            src.replace(target)
-            return
-        except PermissionError:
-            if attempt == _WINDOWS_REPLACE_ATTEMPTS - 1:
-                raise
-            time.sleep(_WINDOWS_REPLACE_DELAY_S)
-
-
 def atomic_yaml_write(target: Path, payload: dict) -> None:
     """Write *payload* to *target* via a temp file and an atomic replace.
 
@@ -156,19 +132,11 @@ def atomic_yaml_write(target: Path, payload: dict) -> None:
     they are written — the temp-then-replace is what stops a crash mid-write
     leaving a truncated file.
     """
-    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=target.parent, delete=False, suffix=".yaml"
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-            yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
-        _replace(tmp_path, target)
+        file_ops.atomic_write(
+            target,
+            lambda f: yaml.dump(payload, f, Dumper=_YamlDumper, default_flow_style=False),
+            suffix=".yaml")
     except Exception as e:
         logger.error(f"Failed to write {target}: {e}")
-        try:
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass  # best-effort cleanup of a temp file we are already abandoning
         raise
