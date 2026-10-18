@@ -211,8 +211,8 @@ def test_separators_appear_in_time_ascending_sort(qapp):
             if host.browse_list.topLevelItem(i).data(0, _SEPARATOR_ROLE)
         ]
         assert len(seps) == 2
-        assert seps[0].text(0) == "Tonight · Sat Aug 1"
-        assert seps[1].text(0) == "Tomorrow · Sun Aug 2"
+        assert seps[0].text(0) == "Tonight · Sat 1 Aug"
+        assert seps[1].text(0) == "Tomorrow · Sun 2 Aug"
         # Separators are excluded from the footer's programme count.
         assert host.browse_stats.text() == "2 programmes · times shown in your local time"
 

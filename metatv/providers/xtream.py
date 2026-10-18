@@ -12,6 +12,7 @@ from metatv.core.connection_tracker import ConnectionTracker
 from metatv.core.content_identity import added_from_raw, rating_from_raw, valid_tmdb_id
 from metatv.core.discovery_engine import poster_url_from_raw
 from metatv.core.url_cycle import UrlCycler
+from metatv.core.time_display import date_text
 from metatv.providers.base import ProviderPlugin
 
 
@@ -156,7 +157,7 @@ class XtreamAPI:
                     exp_str = ""
                     if exp_ts:
                         try:
-                            exp_str = f" (expired {datetime.fromtimestamp(int(exp_ts)).strftime('%Y-%m-%d')})"
+                            exp_str = f" (expired {date_text(datetime.fromtimestamp(int(exp_ts)))})"
                         except (TypeError, ValueError, OSError, OverflowError):
                             pass  # silent: junk timestamp — the status alone is still useful
                     error_msg = f"Account {status}{exp_str}"

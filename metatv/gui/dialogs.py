@@ -17,6 +17,7 @@ from metatv.core.models import Provider
 from metatv.core.notifications import NotificationManager
 from metatv.core.provider_loader import ProviderTestThread
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.time_display import date_text
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 
@@ -262,7 +263,7 @@ class AddProviderDialog(QDialog):
             try:
                 exp_dt = datetime.fromtimestamp(int(exp_ts))
                 days_left = (exp_dt - datetime.now()).days
-                lines.append(f"  Expires:     {exp_dt.strftime('%Y-%m-%d')}  ({days_left} days remaining)")
+                lines.append(f"  Expires:     {date_text(exp_dt)}  ({days_left} days remaining)")
             except (TypeError, ValueError, OSError, OverflowError):
                 pass  # silent: providers send junk timestamps; omit the line rather than guess
 
@@ -270,7 +271,7 @@ class AddProviderDialog(QDialog):
         if created_ts:
             try:
                 created_dt = datetime.fromtimestamp(int(created_ts))
-                lines.append(f"  Created:     {created_dt.strftime('%Y-%m-%d')}")
+                lines.append(f"  Created:     {date_text(created_dt)}")
             except (TypeError, ValueError, OSError, OverflowError):
                 pass  # silent: providers send junk timestamps; omit the line rather than guess
 

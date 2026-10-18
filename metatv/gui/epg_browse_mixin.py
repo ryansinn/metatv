@@ -79,6 +79,7 @@ from metatv.gui.epg_widgets import (
 )
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 
+from metatv.core.time_display import clock_text, weekday_date_text
 from metatv.core.epg_utils import (
     browse_anchors as _browse_anchors,
     browse_day_separator_label as _day_separator_label,
@@ -86,7 +87,6 @@ from metatv.core.epg_utils import (
     fmt_duration as _duration_str,
     local_date as _local_date,
     local_day_window as _local_day_window,
-    local_strftime as _local_strftime,
     to_local as _to_local,
     now_utc as _now_utc,
 )
@@ -710,7 +710,7 @@ class _EpgBrowseMixin(_EpgBrowseScrubberMixin):
             return "No upcoming programmes match your search."
         if guide_end is not None:
             local_end = _to_local(guide_end)
-            end_str = _local_strftime(local_end, "%a %b %-d at %-I:%M %p")
+            end_str = f"{weekday_date_text(local_end)} at {clock_text(local_end)}"
             return f"No more programmes from here — this source's guide currently reaches {end_str}."
         return "No upcoming programmes in the guide."
 

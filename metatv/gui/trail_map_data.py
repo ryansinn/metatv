@@ -99,10 +99,9 @@ def _fmt_last_watched(dt) -> str | None:
         return "yesterday"
     if days < 7:
         return f"{days}d ago"
-    month = dt.strftime("%b")
-    if dt.year == now.year:
-        return f"{month} {dt.day}"
-    return f"{month} {dt.day}, {dt.year}"
+    from metatv.core.time_display import date_text, short_date_text
+
+    return short_date_text(dt) if dt.year == now.year else date_text(dt)
 
 
 def _row_from_channel(

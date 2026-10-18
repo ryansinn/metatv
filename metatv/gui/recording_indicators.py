@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from metatv.core.epg_utils import now_utc, to_local
+from metatv.core.time_display import clock_text
 from metatv.gui import icons
 
 if TYPE_CHECKING:                                    # pragma: no cover
@@ -73,7 +74,7 @@ def indicator_for(
 
     recording = next((r for r in matches if r.state == "recording"), None)
     if recording is not None:
-        return "recording", f"Recording — ends {to_local(recording.ends_at):%H:%M}"
+        return "recording", f"Recording — ends {clock_text(to_local(recording.ends_at))}"
 
     now = now or now_utc()
     # Prefer whichever scheduled match's OWN window contains `now` (the
@@ -83,8 +84,8 @@ def indicator_for(
         (r for r in matches if r.starts_at <= now < r.ends_at), matches[0]
     )
     return "scheduled", (
-        f"Scheduled — {to_local(current.starts_at):%H:%M}"
-        f"–{to_local(current.ends_at):%H:%M}"
+        f"Scheduled — {clock_text(to_local(current.starts_at))}"
+        f"–{clock_text(to_local(current.ends_at))}"
     )
 
 

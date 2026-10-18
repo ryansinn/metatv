@@ -531,11 +531,9 @@ class Config(BaseModel):
     #: than assumed.
     _last_written: dict = PrivateAttr(default_factory=dict)
     
-    # Paths
+    # Paths — config.yaml stores them only when custom (config_storage.DERIVED_PATHS)
     config_dir: Path = Field(default_factory=app_paths.config_dir)
     data_dir: Path = Field(default_factory=app_paths.data_dir)
-    
-    # Database
     database_url: str = Field(default="")
     
     # UI Settings
@@ -960,6 +958,8 @@ class Config(BaseModel):
     # same allocation. See metatv.gui.chip_row.
     sidebar_row_density: str = "compact"
     ui_text_scale: float = 1.0  # Settings → Appearance → Text size: multiplies every FONT_* token
+    time_format: str = "system"  # Settings → Appearance → Time: "system" | "12h" | "24h"
+    date_format: str = "system"  # … → Date: "system" | "day_month" | "month_day" | "iso"
     #: Trade SIDEBAR scrollbars for "Show N more" rows. Off by default: every
     #: entry is present and the section scrolls, like any other list. On: the
     #: section shows what fits and ends with a row that makes it taller — for

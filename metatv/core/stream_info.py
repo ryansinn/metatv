@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from metatv.core.time_display import short_date_text
 from metatv.core.channel_name_utils import (
     AUDIO_LANG_WORD_MAP, CODE_FACETS, ISO_639_1_LANGUAGE_NAMES, LANGUAGE_REGION_VARIANTS,
 )
@@ -373,6 +374,7 @@ def _sub_label(s: dict) -> str:
 
 
 def measured_caption(measured_at: datetime | None, source: str) -> str:
-    """"seen when played Oct 9" / "probed Oct 9" / "reported by source Oct 9"."""
+    """"seen when played 9 Oct" / "probed 9 Oct" / "reported by source 9 Oct"
+    (date in the user's style)."""
     verb = {"probe": "probed", "provider": "reported by source"}.get(source, "seen when played")
-    return f"{verb} {measured_at:%b} {measured_at.day}" if measured_at else verb
+    return f"{verb} {short_date_text(measured_at)}" if measured_at else verb

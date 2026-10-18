@@ -12,6 +12,7 @@ from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.settings_text_size import load_text_size, save_text_size
+from metatv.gui.time_display_settings import load_time_format, save_time_format
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui.middle_click_actions import DEFAULT_MIDDLE_CLICK_ACTION
 from metatv.gui.settings_dialog_tabs import SettingsTabsMixin
@@ -589,6 +590,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         self._text_size_combo.blockSignals(True)
         load_text_size(self._text_size_combo, c)
         self._text_size_combo.blockSignals(False)
+        load_time_format(self._time_format_combo, self._date_format_combo, c)
 
         # Channel List
         self._channel_density_combo.blockSignals(True)
@@ -746,6 +748,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         # Appearance
         _save_theme_combo(self._theme_combo, c)
         save_text_size(self._text_size_combo, c)
+        save_time_format(self._time_format_combo, self._date_format_combo, c)
 
         # Channel List
         _save_channel_density(self._channel_density_combo, c)

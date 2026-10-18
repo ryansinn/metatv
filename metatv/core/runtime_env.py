@@ -7,7 +7,7 @@ Single source of truth for the questions asked in more than one place:
   platform difference is then handled once, in the module that owns that
   concern (``app_paths`` folders, ``players/mpv_ipc`` socket vs pipe,
   ``child_process`` console windows, ``config_storage`` file replace,
-  ``epg_utils.local_strftime`` time text), so callers get the same answer on
+  ``time_display.local_strftime`` time text), so callers get the same answer on
   every platform. Guard: ``tests/test_platform_checks_have_one_home.py``.
 * "Are we running inside a bundled application?" (``is_frozen``)
 * "Where does a bundled resource live?" (``bundle_resource_path``)

@@ -25,6 +25,10 @@ ENTRY = WhatsNewEntry(
            "'The Film (2024)' instead of 'The Film _2024_'. A title that is a reserved "
            "Windows name, such as 'Con', gets a trailing _ so the library still copies to a "
            "Windows drive.",
+           "Times and dates now follow your system's regional format everywhere, and "
+           "Settings → Appearance has separate Time (12- or 24-hour) and Date (4 Aug 2026, "
+           "Aug 4, 2026 or 2026-08-04) choices to override it. Recordings used to show "
+           "24-hour times beside a 12-hour guide; every surface now uses the same style.",
            "The stream-details probe now opens its mpv control socket in your private "
            "runtime folder instead of the shared /tmp."),
     test_steps=("Open Settings → Playback — there is no 'Preferred player' row; 'Player mode' "
@@ -35,6 +39,9 @@ ENTRY = WhatsNewEntry(
                 "bitrate appear as before.",
                 "Run a stream diagnostic on a channel — the result shows its codec and "
                 "resolution (e.g. h264, 1920x1080), with no ffprobe installed.",
+                "Open Settings → Appearance — Time and Date rows show 'System' with an example. "
+                "Pick 24-hour and Year-Month-Day, click OK — the EPG times, a recording's "
+                "times and the guide-end date all switch at once; set both back to System.",
                 "On a Windows PC, download MetaTV-windows-x64.zip from the rolling release, unzip "
                 "it, run MetaTV.exe and choose Run anyway — the window opens; add a source and "
                 "play a channel — it plays in mpv."),

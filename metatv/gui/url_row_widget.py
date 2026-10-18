@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.models import ProviderURL
+from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
@@ -246,5 +247,5 @@ class URLRowWidget(QWidget):
         rel = f"{pu.reliability_score:.0f}% reliability"
         parts = [rel, f"{ok}{pu.success_count}", f"{err}{pu.failure_count}"]
         if pu.last_success:
-            parts.append(f"last ok {pu.last_success.strftime('%m/%d')}")
+            parts.append(f"last ok {short_date_text(pu.last_success)}")
         return "  ·  ".join(parts)

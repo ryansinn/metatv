@@ -1,9 +1,9 @@
-"""No ``strftime`` format with ``%-X`` outside ``epg_utils.local_strftime``.
+"""No ``strftime`` format with ``%-X`` outside ``time_display.local_strftime``.
 
 ``%-I`` / ``%-d`` (no leading zero) are a glibc/BSD extension; on Windows
 ``strftime`` raises ``ValueError`` on them. Linux and macOS accept them, so no
 behaviour test on those platforms can notice a new one — hence a scan. Use
-``epg_utils.local_strftime(dt, fmt)``, which strips the zero itself.
+``time_display.local_strftime(dt, fmt)``, which strips the zero itself.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def test_no_strftime_uses_a_platform_only_directive():
     ]
     assert not offenders, (
         "strftime with %-X raises ValueError on Windows — use "
-        f"epg_utils.local_strftime: {offenders}")
+        f"time_display.local_strftime: {offenders}")
 
 
 def test_the_scan_sees_one():
@@ -42,7 +42,7 @@ def test_the_scan_sees_one():
 def test_local_strftime_strips_the_zero_without_the_platform_directive():
     from datetime import datetime
 
-    from metatv.core.epg_utils import local_strftime
+    from metatv.core.time_display import local_strftime
 
     assert local_strftime(datetime(2026, 8, 4, 9, 5), "%a %b %-d %-I:%M %p") == "Tue Aug 4 9:05 AM"
     assert local_strftime(datetime(2026, 8, 14, 12, 0), "%-d %-I") == "14 12"

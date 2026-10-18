@@ -23,6 +23,7 @@ from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.settings_text_size import add_text_size_row
+from metatv.gui.time_display_settings import add_time_format_rows
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
@@ -916,10 +917,9 @@ class SettingsTabsMixin:
         )
         appearance_form.addRow("Theme:", self._theme_combo)
         self._text_size_combo = add_text_size_row(appearance_form)
+        self._time_format_combo, self._date_format_combo = add_time_format_rows(appearance_form)
 
-        self._menu_auto_hide_check = QCheckBox(
-            "Hide the menu bar until Alt is pressed"
-        )
+        self._menu_auto_hide_check = QCheckBox("Hide the menu bar until Alt is pressed")
         self._menu_auto_hide_check.setToolTip(
             "Off by default. When on, the menu bar appears only while you\n"
             "press Alt — and File, View, Layout, Style and Buffer all go with\n"

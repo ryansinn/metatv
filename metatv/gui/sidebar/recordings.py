@@ -24,6 +24,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QListWidget, QSizePolicy
 
 from metatv.core.epg_utils import now_utc, to_local
+from metatv.core.time_display import clock_text
 from metatv.gui import icons as _icons
 from metatv.gui.sidebar.base import CollapsibleSection, SectionAction, make_seamless
 from metatv.gui.sidebar.transfer_rows import (
@@ -124,7 +125,7 @@ class RecordingsSection(CollapsibleSection):
             # A scheduled recording has no progress yet — no bar, rather than a
             # bar at zero, which reads as stalled instead of as not-started.
             fraction = row.elapsed_fraction(now=now) if running else None
-            when = to_local(row.starts_at).strftime("%H:%M")
+            when = clock_text(to_local(row.starts_at))
             size = human_bytes(row.recorded_bytes) if row.recorded_bytes else ""
             meta = [row.channel_name, when]
             if size:
@@ -139,7 +140,7 @@ class RecordingsSection(CollapsibleSection):
                 fraction=fraction,
                 meta_parts=tuple(m for m in meta if m),
                 dest_path=row.dest_path or "",
-                tooltip=row.error or f"{to_local(row.starts_at):%H:%M}–{to_local(row.ends_at):%H:%M}",
+                tooltip=row.error or f"{clock_text(to_local(row.starts_at))}–{clock_text(to_local(row.ends_at))}",
             )
         self.set_empty(lst.count() == 0)
         self.reapply_row_budget()
