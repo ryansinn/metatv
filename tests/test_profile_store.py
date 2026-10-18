@@ -43,8 +43,7 @@ def db(tmp_path):
 
 @pytest.fixture
 def config(tmp_path):
-    cfg = Config(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data",
-                 cache_dir=tmp_path / "cache")
+    cfg = Config(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data")
     cfg.save()
     return cfg
 
@@ -189,8 +188,7 @@ def test_a_stored_value_wins_over_the_yaml_on_the_next_launch(config, db):
     profile_store.unbind()
 
     # A second launch: the YAML still holds the old value from before the prune.
-    fresh = Config(config_dir=config.config_dir, data_dir=config.data_dir,
-                   cache_dir=config.cache_dir, filter_known_genres=["Action"])
+    fresh = Config(config_dir=config.config_dir, data_dir=config.data_dir, filter_known_genres=["Action"])
     fresh.attach_profile_store(db)
 
     assert fresh.filter_known_genres == ["Action", "Comedy"]
@@ -213,8 +211,7 @@ def test_none_and_empty_survive_as_different_values(config, db, value):
 
     assert _rows(db)["filter_included_genres"] == value
 
-    fresh = Config(config_dir=config.config_dir, data_dir=config.data_dir,
-                   cache_dir=config.cache_dir)
+    fresh = Config(config_dir=config.config_dir, data_dir=config.data_dir)
     fresh.attach_profile_store(db)
     assert fresh.filter_included_genres == value
     assert (fresh.filter_included_genres is None) == (value is None), \

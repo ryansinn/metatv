@@ -33,8 +33,7 @@ from metatv.core.config import Config
 
 @pytest.fixture()
 def cfg(tmp_path):
-    c = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-               cache_dir=tmp_path / "cache")
+    c = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
     c.save()                      # establish the baseline
     return c
 
@@ -130,8 +129,7 @@ def test_a_deleted_file_is_rewritten_even_though_nothing_changed(cfg, monkeypatc
 
 def test_the_first_save_always_writes(tmp_path, monkeypatch):
     """No snapshot yet means no basis to skip."""
-    c = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-               cache_dir=tmp_path / "cache")
+    c = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
     calls: list[int] = []
     real = yaml.dump
     monkeypatch.setattr("metatv.core.config.yaml.dump",

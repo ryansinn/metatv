@@ -277,7 +277,7 @@ def test_config_refresh_all_includes_inactive_roundtrip(tmp_path):
     from metatv.core.config import Config
 
     # --- save False ---
-    cfg = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    cfg = Config(config_dir=tmp_path, data_dir=tmp_path)
     cfg.refresh_all_includes_inactive = False
     cfg.save()
 

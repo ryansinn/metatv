@@ -406,11 +406,9 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     config = Config(
         config_dir=tmp_path / "cfg",
         data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
     config.config_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    config.cache_dir.mkdir(parents=True, exist_ok=True)
 
     from metatv.gui.settings_dialog import SettingsDialog
     dialog = SettingsDialog.__new__(SettingsDialog)
@@ -531,11 +529,10 @@ def test_config_watch_partial_threshold_round_trips(tmp_path):
     from metatv.core.config import Config
     cfg_dir = tmp_path / "cfg"
     data_dir = tmp_path / "data"
-    cache_dir = tmp_path / "cache"
-    for d in (cfg_dir, data_dir, cache_dir):
+    for d in (cfg_dir, data_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    c = Config(config_dir=cfg_dir, data_dir=data_dir, cache_dir=cache_dir)
+    c = Config(config_dir=cfg_dir, data_dir=data_dir)
     c.watch_partial_threshold = 0.20
     c.save()
 

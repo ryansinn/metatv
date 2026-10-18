@@ -191,8 +191,7 @@ class TestEditIconOnlyOnRecipeShelves:
         from metatv.core.config import Config
         from metatv.gui.discover_shelf import _Shelf
 
-        cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                     cache_dir=tmp_path / "cache")
+        cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         shelf = _Shelf("✦ Cold Drama", "recipe:Cold Drama", [],
                         image_cache=None, config=cfg, collapsed=False)
 
@@ -219,8 +218,7 @@ class TestEditIconOnlyOnRecipeShelves:
         from metatv.core.config import Config
         from metatv.gui.discover_shelf import _Shelf
 
-        cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                     cache_dir=tmp_path / "cache")
+        cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         shelf = _Shelf("Action", "genre:Action", [],
                         image_cache=None, config=cfg, collapsed=False)
 

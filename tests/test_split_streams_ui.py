@@ -29,7 +29,6 @@ from metatv.gui.main_window import MainWindow
 @dataclass
 class _FakeConfig:
     """Minimal config stub for PlayerManager tests."""
-    mpv_socket_path: str = "/tmp/metatv-test-split.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     default_cache_size: str = "auto"

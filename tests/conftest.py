@@ -48,7 +48,7 @@ def _clear_tag_id_cache():
 def _isolate_user_config(tmp_path_factory, monkeypatch):
     """Redirect every ``Path.home()``-derived location to a throwaway tmp home.
 
-    ``Config.config_dir`` / ``data_dir`` / ``cache_dir`` default to
+    ``Config.config_dir`` / ``data_dir`` (and every ``app_paths`` folder) default to
     ``Path.home()/…`` and ``Config.load()``/``save()`` hardcode the same paths.
     Without this guard, any test that builds a default ``Config()`` and saves
     (e.g. the On-Now header-state test, ``test_epg_on_now_display``) silently

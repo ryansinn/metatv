@@ -37,11 +37,9 @@ def real_config(tmp_path):
     cfg = Config(
         config_dir=tmp_path / "cfg",
         data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
     cfg.config_dir.mkdir(parents=True, exist_ok=True)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
-    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
     return cfg
 
 

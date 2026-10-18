@@ -130,8 +130,7 @@ def platform_db(tmp_path):
 def _config(tmp_path, **overrides):
     from metatv.core.config import Config
 
-    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                 cache_dir=tmp_path / "cache")
+    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
     for key, value in overrides.items():
         setattr(cfg, key, value)
     return cfg

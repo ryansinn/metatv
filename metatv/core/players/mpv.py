@@ -2,7 +2,6 @@
 
 import subprocess
 import json
-import socket
 import os
 import re
 import shutil
@@ -13,6 +12,7 @@ from typing import Optional
 from loguru import logger
 
 from metatv.core import app_paths
+from metatv.core.players import mpv_ipc
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
 from metatv.core.config import Config
@@ -82,8 +82,8 @@ class MPVPlayer(PlayerPlugin):
 
     In single-instance (default) mode each *instance key* maps to one
     persistent mpv window.  The key is resolved by the caller:
-    - ``"__shared__"`` → the one legacy window (``config.mpv_socket_path``)
-    - a provider-id string → a separate window with a derived socket path
+    - ``"__shared__"`` → the one default window
+    - a provider-id string → a separate window with its own IPC address
 
     In multiple-instances mode every ``play()`` call always spawns a new
     process (no IPC; the registry / keying does not apply).
@@ -137,11 +137,11 @@ class MPVPlayer(PlayerPlugin):
     # ── Socket-path helpers ─────────────────────────────────────────────────
 
     def _socket_path_for(self, key: str) -> str:
-        """Return the IPC socket path for *key*.
+        """Return the IPC address (socket path or pipe name) for *key*.
 
-        ``"__shared__"`` → ``config.mpv_socket_path`` (exact legacy value).
-        Any other key → base path + ``"-"`` + first-8-hex of MD5(key), which
-        is filesystem-safe and stable across restarts.
+        ``"__shared__"`` → ``mpv_ipc.address("socket")``. Any other key →
+        ``"socket-"`` + first-8-hex of MD5(key), which is filesystem-safe and
+        stable across restarts.
 
         This method is pure and unit-testable without launching mpv.
 
@@ -149,16 +149,12 @@ class MPVPlayer(PlayerPlugin):
             key: Instance key string.
 
         Returns:
-            Absolute path to the IPC socket for this key.
+            The IPC address for this key.
         """
-        base = self.config.mpv_socket_path
         if key == _SHARED_KEY:
-            return base
+            return mpv_ipc.address("socket")
         suffix = hashlib.md5(key.encode()).hexdigest()[:8]
-        # Ensure the suffix contains only safe filesystem characters (it's
-        # hex from MD5 so already [0-9a-f], but be explicit).
-        suffix = re.sub(r"[^A-Za-z0-9_-]", "_", suffix)
-        return f"{base}-{suffix}"
+        return mpv_ipc.address(f"socket-{suffix}")
 
     # ── Instance lifecycle ──────────────────────────────────────────────────
 
@@ -237,12 +233,11 @@ class MPVPlayer(PlayerPlugin):
         self._instances.pop(key, None)
 
         sock_path = self._socket_path_for(key)
-        if os.path.exists(sock_path):
-            try:
-                os.remove(sock_path)
+        try:
+            if mpv_ipc.discard(sock_path):
                 logger.info(f"Removed stale socket before relaunch: {sock_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove stale socket: {e}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale socket: {e}")
 
         return self._launch_ipc_instance(key, extra_args, record_path=record_path)
 
@@ -272,12 +267,11 @@ class MPVPlayer(PlayerPlugin):
 
         # Remove stale socket file (also called by _relaunch_instance for the
         # relaunch path; guard here covers the normal _ensure_instance_running path).
-        if os.path.exists(sock_path):
-            try:
-                os.remove(sock_path)
+        try:
+            if mpv_ipc.discard(sock_path):
                 logger.info(f"Removed stale socket: {sock_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove stale socket: {e}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale socket: {e}")
 
         try:
             cmd = [
@@ -305,7 +299,7 @@ class MPVPlayer(PlayerPlugin):
             # Wait briefly for socket to appear.
             import time
             for _ in range(10):
-                if os.path.exists(sock_path):
+                if mpv_ipc.is_ready(sock_path):
                     logger.info(f"Socket ready: {sock_path}")
                     self._instances[key] = _Inst(
                         process=process, socket_path=sock_path, record_path=record_path
@@ -341,9 +335,7 @@ class MPVPlayer(PlayerPlugin):
             return False
         sock_path = inst.socket_path
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(sock_path)
+            sock = mpv_ipc.connect(sock_path, timeout=2.0)
 
             command_json = json.dumps(command) + "\n"
             sock.sendall(command_json.encode("utf-8"))
@@ -368,7 +360,7 @@ class MPVPlayer(PlayerPlugin):
         except FileNotFoundError:
             logger.error(f"Socket not found [{key}]: {sock_path}")
             return False
-        except socket.timeout:
+        except TimeoutError:
             logger.warning(f"IPC command timed out [{key}]")
             return False
         except Exception as e:
@@ -411,7 +403,7 @@ class MPVPlayer(PlayerPlugin):
             return None
         inst = self._instances.get(resolved)
         # If no instance is in the registry yet (e.g. property query before
-        # first play), derive the socket path from config so IPC still works
+        # first play), derive the socket path from the key so IPC still works
         # when the socket happens to exist (the old single self.socket_path
         # behavior was equivalent to always having the shared path available).
         sock_path = inst.socket_path if inst is not None else self._socket_path_for(resolved)
@@ -419,9 +411,7 @@ class MPVPlayer(PlayerPlugin):
         self._request_id += 1
         rid = self._request_id
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(sock_path)
+            sock = mpv_ipc.connect(sock_path, timeout=2.0)
 
             command = {"command": ["get_property", name], "request_id": rid}
             sock.sendall((json.dumps(command) + "\n").encode("utf-8"))
@@ -455,7 +445,7 @@ class MPVPlayer(PlayerPlugin):
         except FileNotFoundError:
             logger.debug(f"get_property: socket not found [{resolved}]: {sock_path}")
             return None
-        except socket.timeout:
+        except TimeoutError:
             logger.debug(f"get_property: timed out reading {name!r} [{resolved}]")
             return None
         except Exception as e:
@@ -923,11 +913,11 @@ class MPVPlayer(PlayerPlugin):
                     logger.warning(f"mpv instance [{key}] did not terminate, killing")
                     inst.process.kill()
 
-            if inst.socket_path and os.path.exists(inst.socket_path):
+            if inst.socket_path:
                 try:
-                    os.remove(inst.socket_path)
-                    logger.info(f"Removed socket [{key}]: {inst.socket_path}")
-                except Exception as e:
+                    if mpv_ipc.discard(inst.socket_path):
+                        logger.info(f"Removed socket [{key}]: {inst.socket_path}")
+                except OSError as e:
                     logger.warning(f"Could not remove socket [{key}]: {e}")
 
             if inst.record_path:

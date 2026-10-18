@@ -238,8 +238,7 @@ class TestDiscoverViewFollowsThePalette:
             def get_image_async(self, url):
                 pass
 
-        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                        cache_dir=tmp_path / "cache")
+        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         view = DiscoverView(MagicMock(), config, _FakeImageCache(), None)
         assert tp.MIDNIGHT["COLOR_MUTED_2"] in view._loading_lbl.styleSheet()
 
@@ -362,8 +361,7 @@ class TestProviderEditorFollowsThePalette:
         from metatv.core.config import Config
         from metatv.gui.provider_editor import ProviderEditorView
 
-        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                        cache_dir=tmp_path / "cache")
+        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         view = ProviderEditorView(file_db, config, MagicMock())
         midnight_action = view._action_refresh_btn.styleSheet()
         midnight_icon = view._icon_picker._btn.styleSheet()
@@ -395,8 +393,7 @@ class TestSourcesManagerFollowsThePalette:
         from metatv.gui.provider_editor import ProviderEditorView
         from metatv.gui.sources_manager_view import SourcesManagerView
 
-        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                        cache_dir=tmp_path / "cache")
+        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         provider_editor = ProviderEditorView(file_db, config, MagicMock())
         view = SourcesManagerView(config, file_db, provider_editor, None)
         midnight_editor_btn = provider_editor._action_refresh_btn.styleSheet()
@@ -429,8 +426,7 @@ class TestPreferencesViewFollowsThePalette:
         from metatv.core.config import Config
         from metatv.gui.preferences_view import PreferencesView
 
-        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                        cache_dir=tmp_path / "cache")
+        config = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
         view = PreferencesView(file_db, config, None)
         assert tp.MIDNIGHT["COLOR_TEXT"] in view._mix_label.styleSheet()
 

@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.core.players import mpv_ipc
 from metatv.core.players.mpv import MPVPlayer, _SHARED_KEY
 from metatv.core.player_manager import PlayerManager
 
@@ -35,7 +36,6 @@ from metatv.core.player_manager import PlayerManager
 @dataclass
 class _FakeConfig:
     """Minimal stand-in for Config."""
-    mpv_socket_path: str = "/tmp/metatv-test.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     default_cache_size: str = "auto"
@@ -79,11 +79,10 @@ def _make_manager(config: _FakeConfig | None = None) -> PlayerManager:
 # 1. _socket_path_for
 # ---------------------------------------------------------------------------
 
-def test_socket_path_shared_key_returns_config_path():
-    """``__shared__`` must return the exact ``config.mpv_socket_path``."""
-    cfg = _FakeConfig(mpv_socket_path="/tmp/my-test.sock")
-    player = _make_player(cfg)
-    assert player._socket_path_for(_SHARED_KEY) == "/tmp/my-test.sock"
+def test_socket_path_shared_key_is_the_default_address():
+    """``__shared__`` maps to the one default IPC address."""
+    player = _make_player()
+    assert player._socket_path_for(_SHARED_KEY) == mpv_ipc.address("socket")
 
 
 def test_socket_path_non_shared_differs_from_shared():
@@ -102,10 +101,11 @@ def test_socket_path_is_stable_for_same_key():
 
 def test_socket_path_suffix_is_filesystem_safe():
     """Per-key suffix must contain only [A-Za-z0-9_-] characters."""
-    player = _make_player(_FakeConfig(mpv_socket_path="/tmp/base"))
+    player = _make_player()
+    base = mpv_ipc.address("socket")
     path = player._socket_path_for("provider/with:special chars!")
-    # Everything after the last "-" that follows the base is the suffix
-    suffix = path[len("/tmp/base") + 1:]
+    # Everything after the "-" that follows the shared address is the suffix
+    suffix = path[len(base) + 1:]
     assert re.fullmatch(r"[A-Za-z0-9_\-]+", suffix), f"Unsafe suffix: {suffix!r}"
 
 
@@ -115,12 +115,14 @@ def test_socket_path_two_different_keys_produce_different_paths():
     assert player._socket_path_for("p1") != player._socket_path_for("p2")
 
 
-def test_socket_path_non_shared_starts_with_base():
-    """Per-key path is derived from config.mpv_socket_path."""
-    cfg = _FakeConfig(mpv_socket_path="/tmp/metatv")
-    player = _make_player(cfg)
+def test_socket_path_lives_in_the_per_user_runtime_dir():
+    """Sockets go in the user's runtime dir, never a machine-wide /tmp path."""
+    from metatv.core import app_paths
+
+    player = _make_player()
     path = player._socket_path_for("some-provider")
-    assert path.startswith("/tmp/metatv-")
+    assert path.startswith(str(app_paths.runtime_dir()))
+    assert path.startswith(mpv_ipc.address("socket") + "-")
 
 
 # ---------------------------------------------------------------------------
@@ -389,11 +391,10 @@ def test_get_properties_key_none_no_last_key_returns_all_none():
 # ---------------------------------------------------------------------------
 
 def test_split_off_socket_path_unchanged():
-    """With split_streams_by_source=False, the resolved socket is config.mpv_socket_path."""
-    cfg = _FakeConfig(mpv_socket_path="/tmp/mpv-metatv-socket")
-    mgr = _make_manager(cfg)
+    """With split_streams_by_source=False, every play uses the default address."""
+    mgr = _make_manager(_FakeConfig())
     key = mgr._resolve_instance_key("any-provider")
-    assert mgr.player._socket_path_for(key) == "/tmp/mpv-metatv-socket"
+    assert mgr.player._socket_path_for(key) == mpv_ipc.address("socket")
 
 
 # ---------------------------------------------------------------------------

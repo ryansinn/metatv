@@ -533,7 +533,6 @@ class Config(BaseModel):
     # Paths
     config_dir: Path = Field(default_factory=app_paths.config_dir)
     data_dir: Path = Field(default_factory=app_paths.data_dir)
-    cache_dir: Path = Field(default_factory=app_paths.cache_dir)
     
     # Database
     database_url: str = Field(default="")
@@ -749,7 +748,6 @@ class Config(BaseModel):
     split_streams_by_source: bool = False  # one mpv window per source (keyed by provider_id) when True
     
     # MPV-specific settings
-    mpv_socket_path: str = "/tmp/mpv-metatv-socket"
     mpv_extra_args: list = Field(default_factory=list)  # Additional args like ["--cache=yes", "--demuxer-max-bytes=50M"]
     
     # Playback settings
@@ -2461,7 +2459,6 @@ class Config(BaseModel):
         """
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Set database URL if not set
         if not self.database_url:

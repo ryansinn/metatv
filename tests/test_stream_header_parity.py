@@ -51,7 +51,6 @@ class _FakeConfig:
 
     default_cache_size: str = "auto"
     mpv_extra_args: list = field(default_factory=list)
-    mpv_socket_path: str = "/tmp/metatv-test-headers.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"

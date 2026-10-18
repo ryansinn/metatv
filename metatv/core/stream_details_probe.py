@@ -12,8 +12,6 @@ a worker, and only after the connection accountant has granted a slot.
 from __future__ import annotations
 
 import json
-import os
-import socket
 import subprocess
 import threading
 import time
@@ -21,7 +19,7 @@ import uuid
 
 from loguru import logger
 
-from metatv.core import app_paths
+from metatv.core.players import mpv_ipc
 from metatv.core.players.mpv import _base_stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
 from metatv.core.stream_info import MPV_PROPS, parse_mpv
@@ -34,12 +32,10 @@ OPEN_TIMEOUT_SECONDS = 20.0
 
 
 class _Ipc:
-    """A minimal JSON-IPC client for one mpv socket."""
+    """A minimal JSON-IPC client for one mpv instance."""
 
     def __init__(self, path: str):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(3.0)
-        self.sock.connect(path)
+        self.sock = mpv_ipc.connect(path, timeout=3.0)
         self.buf = b""
         self.next_id = 0
 
@@ -86,7 +82,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
         A :func:`parse_mpv` record, or None when the stream never produced
         tracks (refused, offline, timed out, cancelled).
     """
-    sock_path = str(app_paths.runtime_dir() / f"mpv-metatv-probe-{uuid.uuid4().hex[:8]}")
+    sock_path = mpv_ipc.address(f"probe-{uuid.uuid4().hex[:8]}")
     cmd = [_resolve_mpv_binary(), "--no-config", "--idle=no", "--vo=null", "--ao=null",
            "--force-window=no", "--msg-level=all=error", f"--input-ipc-server={sock_path}",
            *_base_stream_args(), url]
@@ -96,7 +92,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
     ipc = None
     try:
         deadline = time.monotonic() + OPEN_TIMEOUT_SECONDS
-        while not os.path.exists(sock_path):
+        while not mpv_ipc.is_ready(sock_path):
             if proc.poll() is not None or time.monotonic() > deadline:
                 logger.info("stream probe: mpv {} before opening its IPC socket{}",
                             f"exited ({proc.returncode})" if proc.poll() is not None
@@ -134,6 +130,6 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
         except subprocess.TimeoutExpired:
             proc.kill()
         try:
-            os.unlink(sock_path)
+            mpv_ipc.discard(sock_path)
         except OSError:
             pass

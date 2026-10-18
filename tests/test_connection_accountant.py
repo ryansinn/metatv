@@ -230,7 +230,6 @@ def test_thread_safety_smoke_concurrent_acquire_release():
 
 @dataclass
 class _Cfg:
-    mpv_socket_path: str = "/tmp/metatv-test-acct.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     default_cache_size: str = "auto"

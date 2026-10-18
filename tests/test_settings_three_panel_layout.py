@@ -50,11 +50,9 @@ def _make_config(tmp_path) -> Config:
     config = Config(
         config_dir=tmp_path / "cfg",
         data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
     config.config_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    config.cache_dir.mkdir(parents=True, exist_ok=True)
     return config
 
 

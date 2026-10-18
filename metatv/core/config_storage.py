@@ -68,7 +68,7 @@ PROFILE = {"store": "profile"}
 #: The default is the database; adding a name here is the exception that has
 #: to be argued for (owner, 2026-10-09: "config.yaml isn't used. period.").
 YAML_ONLY: frozenset[str] = frozenset({
-    "config_dir", "data_dir", "cache_dir", "database_url",
+    "config_dir", "data_dir", "database_url",
     "theme_name",                   # __main__ applies it before MainWindow exists
     "max_stacked_notifications",    # read in MainWindow.__init__ before attach
     "profile_store_populated",      # the profile store's own "have I migrated" flag
