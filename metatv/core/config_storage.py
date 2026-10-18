@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from metatv.core import file_ops
+from metatv.core import app_paths, file_ops
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -117,6 +117,31 @@ _YamlDumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 #: Likewise for reading.
 _YamlLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+#: Locations ``app_paths`` derives at runtime. config.yaml carries one only when
+#: it differs from the derived default (a custom data folder), so the file is
+#: not a second, stale copy of where things live. ``config_dir`` is never
+#: written or read: the file lives IN it, so it cannot also say where it is.
+DERIVED_PATHS: frozenset[str] = frozenset({"config_dir", "data_dir", "database_url"})
+
+
+def default_database_url(data_dir: Path) -> str:
+    """The database ``Config`` uses when none is configured: ``metatv.db`` in *data_dir*."""
+    return f"sqlite:///{data_dir / 'metatv.db'}"
+
+
+def derived_path_defaults(data_dir: Path) -> dict:
+    """``{field: value}`` a :data:`DERIVED_PATHS` field holds when nobody chose it."""
+    return {"data_dir": str(app_paths.data_dir()),
+            "database_url": default_database_url(data_dir)}
+
+
+def drop_stale_config_dir(data: dict) -> dict:
+    """Ignore a ``config_dir`` an older file stored: the file was found IN
+    ``app_paths.config_dir()``, so that is where saves must go too."""
+    data.pop("config_dir", None)
+    return data
 
 
 def icon_field_defaults(model_cls) -> dict:

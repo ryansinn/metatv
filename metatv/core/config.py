@@ -11,7 +11,8 @@ from metatv.core import app_paths, profile_store
 from metatv.core.catalog_refresh import RETIRED_LIVE_REFRESH_MODES
 
 from metatv.core.config_storage import (
-    atomic_yaml_write, icon_field_defaults,
+    DERIVED_PATHS, atomic_yaml_write, default_database_url, derived_path_defaults,
+    drop_stale_config_dir, icon_field_defaults,
     PROFILE, QA_STATE_FILENAME, _qa_defaults, _profile_field_names, _qa_field_names, _YamlLoader,
 )
 
@@ -2107,8 +2108,7 @@ class Config(BaseModel):
     def model_post_init(self, __context):
         """Initialize database_url if not set, and migrate legacy filter_included_* fields."""
         if not self.database_url:
-            db_path = self.data_dir / "metatv.db"
-            self.database_url = f"sqlite:///{db_path}"
+            self.database_url = default_database_url(self.data_dir)
         # Migrate legacy filter_included_* empty-list values to None — ONE TIME ONLY.
         # Before the None-sentinel was introduced, [] meant "never configured" (the
         # restore path treated [] as all-selected).  A pre-sentinel config has
@@ -2321,9 +2321,11 @@ class Config(BaseModel):
                 with open(config_file) as f:
                     data = yaml.load(f, Loader=_YamlLoader) or {}
 
-                # Check if config is empty/corrupt (missing database_url indicates corruption)
-                if not data or not data.get("database_url"):
-                    logger.warning("Config file is empty or missing database_url")
+                # Empty/corrupt? Every written file has profile_store_populated;
+                # an older one has database_url (now written only when custom).
+                if not isinstance(data, dict) or not (
+                        "profile_store_populated" in data or data.get("database_url")):
+                    logger.warning("Config file is empty or unrecognisable")
                     # Try to restore from backup
                     if backup_file.exists():
                         logger.warning("Attempting to restore from backup")
@@ -2346,7 +2348,7 @@ class Config(BaseModel):
                     logger.info(f"Loaded config from {config_file}")
 
                 if data:
-                    data = cls._merge_qa_sidecar(config_dir, data)
+                    data = cls._merge_qa_sidecar(config_dir, drop_stale_config_dir(data))
                     config = cls(**data)
                     config._inject_new_sections()
                     config._retire_collapsed_shelves()
@@ -2360,7 +2362,7 @@ class Config(BaseModel):
                         with open(backup_file) as f:
                             data = yaml.load(f, Loader=_YamlLoader) or {}
                         if data:
-                            data = cls._merge_qa_sidecar(config_dir, data)
+                            data = cls._merge_qa_sidecar(config_dir, drop_stale_config_dir(data))
                             config = cls(**data)
                             config._inject_new_sections()
                             config._retire_collapsed_shelves()
@@ -2426,7 +2428,8 @@ class Config(BaseModel):
                          - set(data)
                          - _profile_field_names(type(self))
                          - _qa_field_names(type(self))
-                         - set(icon_field_defaults(type(self))))
+                         - set(icon_field_defaults(type(self)))
+                         - DERIVED_PATHS)
         if not missing:
             return False
         logger.info(
@@ -2460,11 +2463,6 @@ class Config(BaseModel):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Set database URL if not set
-        if not self.database_url:
-            db_path = self.data_dir / "metatv.db"
-            self.database_url = f"sqlite:///{db_path}"
-
         config_file = self.config_dir / "config.yaml"
         backup_file = self.config_dir / "config.yaml.bak"
 
@@ -2482,8 +2480,7 @@ class Config(BaseModel):
         # nudged back to the same size, a section toggled twice — paid the
         # full 83 ms on the UI thread.
         #
-        # Compared AFTER the database_url default above, so first-run does
-        # write. `force` exists for a caller that must be certain the file on
+        # A first run writes because the file does not exist yet. `force` exists for a caller that must be certain the file on
         # disk is current (a shutdown path), not as a way to opt out.
         # `config_file.exists()` is the other half of "already written", not an
         # afterthought: if the file is deleted out from under us the in-memory
@@ -2511,10 +2508,12 @@ class Config(BaseModel):
         # missing from both.
         owned = profile_store.owned_keys()
         profile_data = {k: v for k, v in data.items() if k in owned}
-        icon_defaults = icon_field_defaults(type(self))
+        # Written only when changed: icon glyphs and DERIVED_PATHS (config_dir never).
+        unchanged_defaults = {**icon_field_defaults(type(self)),
+                              **derived_path_defaults(self.data_dir)}
         main_data = {k: v for k, v in data.items()
-                     if k not in qa_names and k not in owned
-                     and not (k in icon_defaults and v == icon_defaults[k])}
+                     if k not in qa_names and k not in owned and k != "config_dir"
+                     and not (k in unchanged_defaults and v == unchanged_defaults[k])}
 
         # Only the keys that CHANGED. Sending the whole slice would make every
         # save a 34-row write and reinstate, in the database, exactly the
