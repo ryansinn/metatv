@@ -20,15 +20,12 @@ Every function reads ``Path.home()`` at call time, never at import, because
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 
+from metatv.core import runtime_env
+
 APP_DIR_NAME = "metatv"
-
-
-def _is_windows() -> bool:
-    return sys.platform == "win32"
 
 
 def _windows_base(env_var: str, fallback: str) -> Path:
@@ -39,21 +36,21 @@ def _windows_base(env_var: str, fallback: str) -> Path:
 
 def config_dir() -> Path:
     """The folder holding ``config.yaml`` (and logs, QA notes, user overrides)."""
-    if _is_windows():
+    if runtime_env.is_windows():
         return _windows_base("APPDATA", "Roaming") / "MetaTV"
     return Path.home() / ".config" / APP_DIR_NAME
 
 
 def data_dir() -> Path:
     """The folder holding ``metatv.db``."""
-    if _is_windows():
+    if runtime_env.is_windows():
         return _windows_base("LOCALAPPDATA", "Local") / "MetaTV"
     return Path.home() / ".local" / "share" / APP_DIR_NAME
 
 
 def cache_dir() -> Path:
     """The root for regenerable data (images, deep-cache scratch, IDF table)."""
-    if _is_windows():
+    if runtime_env.is_windows():
         return _windows_base("LOCALAPPDATA", "Local") / "MetaTV" / "cache"
     return Path.home() / ".cache" / APP_DIR_NAME
 
@@ -91,7 +88,7 @@ def default_library_dir() -> Path:
 
     macOS names it ``Movies``; Linux and Windows name it ``Videos``.
     """
-    videos = "Movies" if sys.platform == "darwin" else "Videos"
+    videos = "Movies" if runtime_env.is_macos() else "Videos"
     return Path.home() / videos / "MetaTV"
 
 

@@ -13,12 +13,12 @@ docs/update-checker note).
 
 from __future__ import annotations
 
-import sys
 
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from loguru import logger
 
+from metatv.core import runtime_env
 from metatv.core.runtime_env import flatpak_app_id
 
 _RELEASES_PAGE = "https://github.com/ryansinn/metatv/releases/latest"
@@ -71,7 +71,7 @@ class _UpdatesMixin:
         Only macOS has an assisted download: a ``.dmg`` is the only installer
         the checker knows, so every other platform gets the releases page.
         """
-        if info.dmg_url and sys.platform == "darwin":
+        if info.dmg_url and runtime_env.is_macos():
             self.notification_manager.show(
                 title="Downloading update…",
                 message="Saving the new MetaTV to your Downloads folder.",

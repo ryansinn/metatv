@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from typing import Optional
 
-from metatv.core.runtime_env import bundle_resource_path, is_frozen
+from metatv.core.runtime_env import bundle_resource_path, is_frozen, is_windows
 
 #: Where CI vendors mpv inside a frozen build, relative to the bundle root.
-_BUNDLED_MPV = "mpv/mpv.exe" if sys.platform == "win32" else "mpv/mpv"
+_BUNDLED_MPV = "mpv/mpv.exe" if is_windows() else "mpv/mpv"
 
 # Cached result of _resolve_mpv_binary().  Resolution is stable for a process
 # lifetime (frozen-ness, env, and PATH don't change), so resolve once.

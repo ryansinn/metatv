@@ -15,19 +15,14 @@ from __future__ import annotations
 import functools
 import os
 import socket
-import sys
 import time
 
-from metatv.core import app_paths
+from metatv.core import app_paths, runtime_env
 
 _PREFIX = "mpv-metatv-"
 
 #: How often a pipe read checks for data while waiting out its timeout.
 _PIPE_POLL_S = 0.01
-
-
-def _is_windows() -> bool:
-    return sys.platform == "win32"
 
 
 def address(name: str) -> str:
@@ -39,14 +34,14 @@ def address(name: str) -> str:
     Returns:
         A named-pipe path on Windows, else a socket path in the runtime dir.
     """
-    if _is_windows():
+    if runtime_env.is_windows():
         return rf"\\.\pipe\{_PREFIX}{name}"
     return str(app_paths.runtime_dir() / f"{_PREFIX}{name}")
 
 
 def is_ready(addr: str) -> bool:
     """True once mpv is listening on *addr*."""
-    if _is_windows():
+    if runtime_env.is_windows():
         # A pipe has no file to stat; opening a client end and closing it again
         # is harmless — mpv serves each connection independently.
         try:
@@ -97,7 +92,7 @@ def discard(addr: str) -> bool:
     Raises:
         OSError: The file exists but could not be removed.
     """
-    if _is_windows() or not os.path.exists(addr):
+    if runtime_env.is_windows() or not os.path.exists(addr):
         return False
     os.remove(addr)
     return True
@@ -116,7 +111,7 @@ class Connection:
 
     def __init__(self, addr: str, timeout: float):
         self._timeout = timeout
-        if _is_windows():
+        if runtime_env.is_windows():
             self._sock = None
             self._pipe = open(addr, "r+b", buffering=0)
         else:

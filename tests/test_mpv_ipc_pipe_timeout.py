@@ -2,7 +2,7 @@
 
 A pipe opened as a file has no read timeout, so before this a property query
 against a hung mpv would block the caller forever. The Windows branch is driven
-here on any platform: ``_is_windows`` is patched true, a plain temp file stands
+here on any platform: ``runtime_env.is_windows`` is patched true, a plain temp file stands
 in for the pipe (``open(addr, "r+b")`` works on both), and ``_pipe_available``
 — the one Windows-only call — is replaced with a script.
 """
@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from metatv.core import runtime_env
 from metatv.core.players import mpv_ipc
 
 
@@ -20,7 +21,7 @@ from metatv.core.players import mpv_ipc
 def pipe_conn(tmp_path, monkeypatch):
     stand_in = tmp_path / "pipe"
     stand_in.write_bytes(b'{"data": 1}\n')
-    monkeypatch.setattr(mpv_ipc, "_is_windows", lambda: True)
+    monkeypatch.setattr(runtime_env, "is_windows", lambda: True)
     conn = mpv_ipc.connect(str(stand_in), timeout=0.2)
     yield conn
     conn.close()

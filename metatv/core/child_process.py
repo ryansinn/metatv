@@ -12,8 +12,7 @@ Guard: ``tests/test_child_process_no_window.py`` fails on a call without it.
 from __future__ import annotations
 
 import subprocess
-import sys
 
-NO_WINDOW: dict = (
-    {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
-)
+from metatv.core.runtime_env import is_windows
+
+NO_WINDOW: dict = {"creationflags": subprocess.CREATE_NO_WINDOW} if is_windows() else {}

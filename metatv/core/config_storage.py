@@ -7,13 +7,14 @@ whose real job is declaring the settings themselves.
 """
 from __future__ import annotations
 
-import sys
 import tempfile
 import time
 from pathlib import Path
 
 import yaml
 from loguru import logger
+
+from metatv.core import runtime_env
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -135,7 +136,7 @@ _WINDOWS_REPLACE_DELAY_S = 0.05
 
 def _replace(src: Path, target: Path) -> None:
     """``src.replace(target)``, retrying a transient Windows sharing violation."""
-    if sys.platform != "win32":
+    if not runtime_env.is_windows():
         src.replace(target)
         return
     for attempt in range(_WINDOWS_REPLACE_ATTEMPTS):

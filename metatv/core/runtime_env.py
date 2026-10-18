@@ -1,7 +1,14 @@
-"""Runtime environment helpers — frozen (PyInstaller/.app) vs source checkout.
+"""Runtime environment helpers — which OS, and frozen (PyInstaller/.app) vs source.
 
-Single source of truth for two questions asked in more than one place:
+Single source of truth for the questions asked in more than one place:
 
+* "Which operating system is this?" (``is_windows``, ``is_macos``,
+  ``os_description``) — the ONLY place the app reads ``sys.platform``. Each
+  platform difference is then handled once, in the module that owns that
+  concern (``app_paths`` folders, ``players/mpv_ipc`` socket vs pipe,
+  ``child_process`` console windows, ``config_storage`` file replace,
+  ``epg_utils.local_strftime`` time text), so callers get the same answer on
+  every platform. Guard: ``tests/test_platform_checks_have_one_home.py``.
 * "Are we running inside a bundled application?" (``is_frozen``)
 * "Where does a bundled resource live?" (``bundle_resource_path``)
 
@@ -13,8 +20,24 @@ frozen-vs-dev branching logic exists once, not copy-pasted per consumer.
 from __future__ import annotations
 
 import os
+import platform
 import sys
 from pathlib import Path
+
+
+def is_windows() -> bool:
+    """True on Windows. Read at call time so a test can patch it."""
+    return sys.platform == "win32"
+
+
+def is_macos() -> bool:
+    """True on macOS."""
+    return sys.platform == "darwin"
+
+
+def os_description() -> str:
+    """The OS name and release for an About box or a log, e.g. ``"Linux 6.9.1"``."""
+    return f"{platform.system()} {platform.release()}"
 
 
 def is_frozen() -> bool:

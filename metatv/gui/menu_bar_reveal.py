@@ -29,11 +29,11 @@ the behaviour that survives a user who presses Alt and then thinks.
 
 from __future__ import annotations
 
-import sys
 
 from loguru import logger
 from PyQt6.QtCore import Qt
 
+from metatv.core import runtime_env
 from metatv.gui import deferred_config_save as _cfgsave
 
 
@@ -44,7 +44,7 @@ def auto_hide_supported() -> bool:
     in the window to hide and Alt means nothing. Checked here rather than at
     the call sites so a future caller cannot forget it.
     """
-    return sys.platform != "darwin"
+    return not runtime_env.is_macos()
 
 
 class _MenuBarRevealMixin:
