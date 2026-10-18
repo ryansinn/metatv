@@ -6,6 +6,7 @@ Arithmetic functions compare UTC-naive against now_utc() — no conversion neede
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
@@ -13,6 +14,23 @@ from datetime import date, datetime, timedelta, timezone
 def _local_tz():
     """Return machine's local tzinfo. Module-level callable for testability via patch."""
     return datetime.now().astimezone().tzinfo
+
+
+_UNPADDED = re.compile(r"%-([a-zA-Z])")
+
+
+def local_strftime(dt: datetime, fmt: str) -> str:
+    """``dt.strftime(fmt)``, where ``%-X`` means field X without its leading zero.
+
+    ``%-I`` / ``%-d`` are a glibc/BSD extension: Windows' C library raises
+    ``ValueError: Invalid format string`` on them, which took down every EPG
+    label there. Every display format with an unpadded field comes through here
+    instead, so the zero is stripped once, the same way on every platform.
+    Guard: ``tests/test_no_platform_strftime.py``.
+    """
+    def unpadded(match: "re.Match[str]") -> str:
+        return dt.strftime("%" + match.group(1)).lstrip("0") or "0"
+    return dt.strftime(_UNPADDED.sub(unpadded, fmt))
 
 
 def now_utc() -> datetime:
@@ -215,9 +233,9 @@ def browse_anchors(_now: datetime | None = None, tz=None) -> list[tuple[str, dat
 
     anchors: list[tuple[str, datetime]] = [
         ("Now", now),
-        (f"Tonight · {tonight.strftime('%-I %p')}", _utc_naive(tonight)),
+        (f"Tonight · {local_strftime(tonight, '%-I %p')}", _utc_naive(tonight)),
         (f"Tomorrow · {tomorrow_midnight.strftime('%a')}", _utc_naive(tomorrow_midnight)),
-        (f"Tomorrow Night · {tomorrow_night.strftime('%-I %p')}", _utc_naive(tomorrow_night)),
+        (f"Tomorrow Night · {local_strftime(tomorrow_night, '%-I %p')}", _utc_naive(tomorrow_night)),
     ]
 
     # "This Weekend" = upcoming Saturday 00:00 local. Skip when today is already
@@ -359,7 +377,7 @@ def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
     local = to_local(dt)
     local_now = to_local(now)
     day_delta = (local.date() - local_now.date()).days
-    time_str = local.strftime("%-I:%M %p")
+    time_str = local_strftime(local, "%-I:%M %p")
     if day_delta == 0:
         prefix = "Tonight" if local.hour >= 18 else "Today"
     elif day_delta == 1:
@@ -369,7 +387,7 @@ def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
     elif 1 < day_delta < 7:
         prefix = local.strftime("%A")
     else:
-        prefix = local.strftime("%a %b %-d")
+        prefix = local_strftime(local, "%a %b %-d")
     return f"{prefix} {time_str}"
 
 
@@ -397,7 +415,7 @@ def browse_day_separator_label(dt: datetime, _now: datetime | None = None) -> st
     local = to_local(dt)
     local_now = to_local(now)
     day_delta = (local.date() - local_now.date()).days
-    date_str = local.strftime("%a %b %-d")
+    date_str = local_strftime(local, "%a %b %-d")
     if day_delta == 0:
         return f"Tonight · {date_str}"
     if day_delta == 1:
@@ -407,7 +425,7 @@ def browse_day_separator_label(dt: datetime, _now: datetime | None = None) -> st
 
 def fmt_time(dt: datetime) -> str:
     """UTC-naive EPG datetime → local time string like '5:30 PM'."""
-    return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p").lstrip("0") or "12:00 AM"
+    return local_strftime(dt.replace(tzinfo=timezone.utc).astimezone(), "%-I:%M %p")
 
 
 def fmt_duration(start: datetime, stop: datetime) -> str:
@@ -625,10 +643,10 @@ class GuideFreshness:
     detail: str = ""
 
 
-def _fmt_day(dt: datetime) -> str:
-    """A guide date as "4 Aug 2026", local, with no leading zero."""
+def fmt_guide_day(dt: datetime) -> str:
+    """A UTC-naive guide date as "4 Aug 2026", local, with no leading zero."""
     try:
-        return to_local(dt).strftime("%d %b %Y").lstrip("0")
+        return local_strftime(to_local(dt), "%-d %b %Y")
     except (TypeError, ValueError, OSError, OverflowError):
         return str(dt)  # an unformattable date still reads
 
@@ -703,7 +721,7 @@ def guide_freshness(
     if epg_data_end is None:
         return GuideFreshness("no_data", "No guide data fetched yet")
 
-    day = _fmt_day(epg_data_end)
+    day = fmt_guide_day(epg_data_end)
     if epg_is_stale(epg_data_end, _now):
         return GuideFreshness(
             "source_lagging",

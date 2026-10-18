@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from metatv.core.epg_utils import local_strftime
+
 # The ladder, coarsest-last. Each rung is (upper bound in seconds, formatter).
 _MINUTE = 60
 _HOUR = 60 * _MINUTE
@@ -86,8 +88,8 @@ def humanize_until(start: datetime | None, now: datetime, *,
         return f"in {mins}m"
     local = to_local(start)
     if is_local_today is not None and is_local_today(start):
-        return local.strftime("%-I:%M %p")
-    return local.strftime("%a %-I:%M %p")
+        return local_strftime(local, "%-I:%M %p")
+    return local_strftime(local, "%a %-I:%M %p")
 
 
 def humanize_ago(when: datetime | None, *, now: datetime | None = None) -> str:
