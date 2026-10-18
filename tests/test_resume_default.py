@@ -116,7 +116,6 @@ class _FakeSettingsConfig:
     """Minimal config stub for SettingsDialog playback-tab tests."""
 
     def __init__(self, playback_resume_mode: str = "resume"):
-        self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.playback_resume_mode = playback_resume_mode
@@ -169,8 +168,6 @@ def _bare_dialog(qapp):
     dlg = SettingsDialog.__new__(SettingsDialog)
     wire_settings_widgets(dlg)
 
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()

@@ -38,6 +38,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from loguru import logger
 
 import metatv
+from metatv.core import app_paths
 
 # GitHub REST v3 "latest release" endpoint (unauthenticated — ~60 req/hr/IP,
 # far more than a once-a-day check needs).
@@ -241,7 +242,7 @@ def download_dmg(dmg_url: str, dest_dir: Optional[Path] = None) -> Optional[str]
     """
     if not dmg_url:
         return None
-    dest_dir = dest_dir or (Path.home() / "Downloads")
+    dest_dir = dest_dir or app_paths.downloads_dir()
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
         name = os.path.basename(urllib.parse.urlparse(dmg_url).path) or "MetaTV.dmg"

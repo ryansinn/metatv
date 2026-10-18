@@ -44,6 +44,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from metatv.core import app_paths
+
 
 STOP_WORDS: frozenset[str] = frozenset({
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
@@ -124,12 +126,12 @@ def build_idf(all_plots: list[str]) -> dict[str, float]:
 def _disk_cache_path() -> Path:
     """Where the built table is persisted, resolved lazily (never at import).
 
-    Resolving ``Path.home()`` at call time — not as a module-level constant —
+    Resolving the cache dir at call time — not as a module-level constant —
     is what lets tests' autouse ``Path.home`` patch (``tests/conftest.py``)
     redirect this; a module-level constant would bake in the real home
     directory before any test gets a chance to patch it.
     """
-    return Path.home() / ".cache" / "metatv" / "idf_corpus.json"
+    return app_paths.cache_dir() / "idf_corpus.json"
 
 
 def _serializable_stamp(stamp) -> list:

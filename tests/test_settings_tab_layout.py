@@ -37,7 +37,6 @@ class _FakeConfig:
     """Minimal config stub for the tab-layout tests."""
 
     def __init__(self):
-        self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.playback_resume_mode = "resume"
@@ -88,8 +87,6 @@ def _full_dialog(qapp) -> SettingsDialog:
     wire_settings_widgets(dlg)
 
     # -- Playback tab widgets --
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()

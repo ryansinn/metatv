@@ -26,7 +26,6 @@ has already cost this project once.
 
 from __future__ import annotations
 
-import os
 import shutil
 import threading
 import time
@@ -41,6 +40,7 @@ import requests
 from loguru import logger
 
 
+from metatv.core import app_paths
 from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
 if TYPE_CHECKING:                                    # pragma: no cover
@@ -126,8 +126,8 @@ class DownloadProgress:
 
 def library_dir(config) -> Path:
     """Where finished downloads live, expanded and created on demand."""
-    raw = getattr(config, "download_dir", None) or "~/Videos/MetaTV"
-    path = Path(os.path.expanduser(str(raw)))
+    raw = getattr(config, "download_dir", None) or app_paths.default_library_dir()
+    path = app_paths.expand_user(raw)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

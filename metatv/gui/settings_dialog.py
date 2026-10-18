@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core import app_paths
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 from metatv.core.preference_engine import RecScoringSettings
@@ -382,9 +383,6 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         c = self.config
 
         # Playback
-        player_idx = {"mpv": 0, "vlc": 1}.get(c.preferred_player, 2)
-        self._player_combo.setCurrentIndex(player_idx)
-
         mode_idx = 0 if c.player_mode == "single-instance" else 1
         self._player_mode_combo.setCurrentIndex(mode_idx)
 
@@ -478,7 +476,7 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
 
         # Downloads
         self._download_dir_input.setText(
-            str(getattr(c, "download_dir", "~/Videos/MetaTV")))
+            str(getattr(c, "download_dir", None) or app_paths.default_library_dir()))
         dl_layout_idx = self._download_layout_combo.findData(
             getattr(c, "download_layout", "tree"))
         self._download_layout_combo.setCurrentIndex(
@@ -629,7 +627,6 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         c = self.config
 
         # Playback
-        c.preferred_player = self._player_combo.currentText()
         c.player_mode = (
             "single-instance" if self._player_mode_combo.currentIndex() == 0
             else "multiple-instances"
@@ -667,7 +664,8 @@ class SettingsDialog(SettingsTabsMixin, SettingsDownloadsTabMixin, SettingsRecor
         # Downloads — read live by download_manager.py on every scheduler
         # step (library_dir/_space_shortfall), so nothing here needs an
         # APPLY hook the way series_monitor_interval_minutes does.
-        c.download_dir = self._download_dir_input.text().strip() or "~/Videos/MetaTV"
+        c.download_dir = (self._download_dir_input.text().strip()
+                          or str(app_paths.default_library_dir()))
         c.download_layout = self._download_layout_combo.currentData() or "tree"
         c.download_free_space_floor_gb = self._download_floor_spin.value()
         c.download_space_policy = (

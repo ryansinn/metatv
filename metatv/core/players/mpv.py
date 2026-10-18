@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 
+from metatv.core import app_paths
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
 from metatv.core.config import Config
@@ -1149,22 +1150,14 @@ class MPVPlayer(PlayerPlugin):
     def _deep_cache_dir(self) -> Path:
         """Resolve the deep-cache scratch directory from config.
 
-        Expands a leading ``~/`` via ``Path.home()`` rather than
-        ``Path.expanduser()`` — ``expanduser()`` reads ``$HOME`` directly and
-        would bypass the ``Path.home()`` patch the test suite's autouse
-        ``_isolate_user_config`` fixture (``tests/conftest.py``) relies on for
-        isolation, which would let a test run sweep/purge files under the
-        real developer's home directory.
+        A leading ``~`` goes through :func:`app_paths.expand_user`, which is
+        ``Path.home()``-based so the test suite's home patch isolates it.
 
         Returns:
             The expanded, absolute deep-cache directory path.
         """
-        raw = getattr(self.config, "deep_cache_dir", "") or "~/.cache/metatv/deepcache"
-        if raw == "~":
-            return Path.home()
-        if raw.startswith("~/"):
-            return Path.home() / raw[2:]
-        return Path(raw)
+        raw = getattr(self.config, "deep_cache_dir", "") or app_paths.deep_cache_dir()
+        return app_paths.expand_user(raw)
 
     def _deep_cache_record_path(self, channel_id: str) -> Path:
         """Deterministic ``--stream-record`` path for *channel_id*.

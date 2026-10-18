@@ -20,6 +20,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from metatv.core.app_paths import expand_user
+
 
 def _open(path: Path) -> bool:
     from PyQt6.QtCore import QUrl
@@ -43,7 +45,7 @@ def open_folder(path: "str | os.PathLike | None") -> bool:
     """
     if not path:
         return False
-    p = Path(os.path.expanduser(str(path)))
+    p = expand_user(path)
     if not p.is_dir():
         logger.debug("open_folder: {} is not a directory", p)
         return False
@@ -61,7 +63,7 @@ def reveal_file(path: "str | os.PathLike | None") -> bool:
     """
     if not path:
         return False
-    p = Path(os.path.expanduser(str(path)))
+    p = expand_user(path)
     if not p.exists():
         logger.debug("reveal_file: {} is gone", p)
         return False

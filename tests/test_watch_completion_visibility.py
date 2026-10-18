@@ -70,7 +70,6 @@ def _dto(**overrides) -> ChannelListDTO:
 class _FakeThresholdConfig:
     """Minimal config stub with watch_complete_threshold."""
     def __init__(self, threshold: float = 0.9, partial_threshold: float = 0.10):
-        self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.playback_resume_mode = "resume"
@@ -125,8 +124,6 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     wire_settings_widgets(dlg)
     dlg.config = _FakeThresholdConfig(threshold=threshold)
 
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()

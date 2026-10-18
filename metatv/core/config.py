@@ -7,7 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
-from metatv.core import profile_store
+from metatv.core import app_paths, profile_store
 from metatv.core.catalog_refresh import RETIRED_LIVE_REFRESH_MODES
 
 from metatv.core.config_storage import (
@@ -531,9 +531,9 @@ class Config(BaseModel):
     _last_written: dict = PrivateAttr(default_factory=dict)
     
     # Paths
-    config_dir: Path = Field(default_factory=lambda: Path.home() / ".config" / "metatv")
-    data_dir: Path = Field(default_factory=lambda: Path.home() / ".local" / "share" / "metatv")
-    cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "metatv")
+    config_dir: Path = Field(default_factory=app_paths.config_dir)
+    data_dir: Path = Field(default_factory=app_paths.data_dir)
+    cache_dir: Path = Field(default_factory=app_paths.cache_dir)
     
     # Database
     database_url: str = Field(default="")
@@ -743,19 +743,14 @@ class Config(BaseModel):
     concurrent_requests: int = 5
     
     # External players
-    preferred_player: str = "mpv"
     player_mode: str = "single-instance"  # "single-instance" or "multiple-instances"
     close_player_when_finished: bool = True  # Close player when stream finishes (mpv --keep-open=no)
     max_player_instances: int = 1  # Max player instances (0 = use provider's max_connections, -1 = unlimited)
     split_streams_by_source: bool = False  # one mpv window per source (keyed by provider_id) when True
-    player_args: dict = Field(default_factory=dict)
     
     # MPV-specific settings
     mpv_socket_path: str = "/tmp/mpv-metatv-socket"
     mpv_extra_args: list = Field(default_factory=list)  # Additional args like ["--cache=yes", "--demuxer-max-bytes=50M"]
-    
-    # VLC-specific settings
-    vlc_extra_args: list = Field(default_factory=list)  # Additional args like ["--network-caching=3000"]
     
     # Playback settings
     default_cache_size: str = "auto"  # "auto" or size like "50M", "100M"
@@ -766,11 +761,11 @@ class Config(BaseModel):
     # Deep-cache ("Buffer without limit", VOD-only, ephemeral): per-play mode that
     # relaunches mpv with --stream-record into a scratch dir so the buffer can grow
     # past mpv's in-memory/disk cache. See MPVPlayer's "deep" buffer profile and
-    # _compose_deep_cache_args(). Str (not Path) + tilde literal, expanded at the
-    # consumer — same pattern as image_cache_dir below.
-    deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
+    # _compose_deep_cache_args(). Str (not Path); a leading ``~`` is expanded at
+    # the consumer via app_paths.expand_user — same pattern as image_cache_dir.
+    deep_cache_dir: str = Field(default_factory=lambda: str(app_paths.deep_cache_dir()))
     #: Where saved VOD downloads land. Persistent, unlike deep_cache_dir.
-    download_dir: str = "~/Videos/MetaTV"
+    download_dir: str = Field(default_factory=lambda: str(app_paths.default_library_dir()))
     #: "tree" (Movies/, Series/Show/Season NN/) or "flat" (one folder).
     #: Tree is the settled default because Plex/Jellyfin/Kodi read it without
     #: configuration; an item whose metadata cannot fill the tree falls back to
@@ -1037,7 +1032,7 @@ class Config(BaseModel):
     
     # Image caching settings
     image_cache_enabled: bool = True  # Enable image caching
-    image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
+    image_cache_dir: str = Field(default_factory=lambda: str(app_paths.image_cache_dir()))
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
 
     # Provider-native TMDb enrichment (Phase 2 — tmdb_enrichment_manager.py).
@@ -2315,7 +2310,7 @@ class Config(BaseModel):
             (config, recovered_from_backup) - recovered_from_backup is True if config was empty/corrupt
             and was restored from .bak file.
         """
-        config_dir = Path.home() / ".config" / "metatv"
+        config_dir = app_paths.config_dir()
         config_file = config_dir / "config.yaml"
         backup_file = config_dir / "config.yaml.bak"
 

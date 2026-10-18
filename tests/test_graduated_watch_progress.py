@@ -424,8 +424,6 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     mock_spin.value.return_value = 15   # user set 15%
 
     # Patch the attributes that _save_values reads
-    dialog._player_combo = MagicMock()
-    dialog._player_combo.currentText.return_value = "mpv"
     dialog._player_mode_combo = MagicMock()
     dialog._player_mode_combo.currentIndex.return_value = 0
     dialog._autoplay_check = MagicMock()

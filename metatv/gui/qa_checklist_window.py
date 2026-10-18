@@ -291,10 +291,9 @@ def _config_dir(config: "Config") -> Path:
     Falls back to the real default only when ``config_dir`` is absent (e.g. a
     minimal stub) — never a hardcoded ``~`` expansion in the normal path.
     """
-    cdir = getattr(config, "config_dir", None)
-    if cdir is None:
-        cdir = Path.home() / ".config" / "metatv"
-    return Path(cdir)
+    from metatv.core.log_paths import config_directory
+
+    return config_directory(config)
 
 
 def _attachments_dir(config: "Config") -> Path:

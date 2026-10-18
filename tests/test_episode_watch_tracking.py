@@ -303,7 +303,6 @@ def _make_mpv_player():
     player._instances = {}
     player._last_key = "__shared__"
     player.config = MagicMock(
-        preferred_player="mpv",
         player_mode="single-instance",
         mpv_extra_args=[],
         mpv_args_override_all=False,

@@ -11,6 +11,7 @@ from loguru import logger
 from metatv.core.database import ChannelDB
 from metatv.core.channel_name_utils import parse_platform_event
 from metatv.core.event_datetime import parse_event_window
+from metatv.core.log_paths import config_directory
 from metatv.core.fixture_titles import fixture_display_title, parse_fixture_opponents
 
 
@@ -107,9 +108,7 @@ def get_user_definitions_path(config=None) -> Path:
     This file is created ONLY by the settings UI when the user explicitly
     customises definitions. It should never be auto-created by the code.
     """
-    if config is not None:
-        return Path(config.config_dir) / 'sports_definitions.yaml'
-    return Path.home() / '.config' / 'metatv' / 'sports_definitions.yaml'
+    return config_directory(config) / 'sports_definitions.yaml'
 
 
 def _load_definitions_file(path: Path) -> Tuple[Dict, Dict]:

@@ -15,13 +15,13 @@ import json
 import os
 import socket
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
 
 from loguru import logger
 
+from metatv.core import app_paths
 from metatv.core.players.mpv import _base_stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
 from metatv.core.stream_info import MPV_PROPS, parse_mpv
@@ -86,7 +86,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
         A :func:`parse_mpv` record, or None when the stream never produced
         tracks (refused, offline, timed out, cancelled).
     """
-    sock_path = os.path.join(tempfile.gettempdir(), f"mpv-metatv-probe-{uuid.uuid4().hex[:8]}")
+    sock_path = str(app_paths.runtime_dir() / f"mpv-metatv-probe-{uuid.uuid4().hex[:8]}")
     cmd = [_resolve_mpv_binary(), "--no-config", "--idle=no", "--vo=null", "--ao=null",
            "--force-window=no", "--msg-level=all=error", f"--input-ipc-server={sock_path}",
            *_base_stream_args(), url]

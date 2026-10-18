@@ -4,7 +4,7 @@ Playback, Interaction, Recommendations, Metadata & API Keys, Interface — moved
 here **verbatim** from ``settings_dialog.py`` (which owns the three-panel shell
 plus ``_load_values``/``_save_values``) purely to keep both files under the
 1000-line ceiling. Mixed into ``SettingsDialog`` via multiple inheritance, so
-``self._player_combo`` etc. resolve exactly as before.
+``self._player_mode_combo`` etc. resolve exactly as before.
 """
 from __future__ import annotations
 
@@ -64,10 +64,6 @@ class SettingsTabsMixin:
         player_group = QGroupBox("Player")
         player_form = QFormLayout(player_group)
         player_form.setSpacing(8)
-
-        self._player_combo = QComboBox()
-        self._player_combo.addItems(["mpv", "vlc", "custom"])
-        player_form.addRow("Preferred player:", self._player_combo)
 
         self._player_mode_combo = QComboBox()
         self._player_mode_combo.addItems(["Single instance", "Multiple instances"])

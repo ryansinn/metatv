@@ -22,13 +22,13 @@ re-arms.
 
 from __future__ import annotations
 
-import os
 
 from PyQt6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
     QHBoxLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
+from metatv.core.app_paths import expand_user
 from metatv.core.download_naming import LAYOUT_FLAT, LAYOUT_TREE
 
 
@@ -123,7 +123,7 @@ class SettingsDownloadsTabMixin:
 
     def _browse_download_dir(self) -> None:
         """"Browse…" next to the downloads-folder path."""
-        start = os.path.expanduser(self._download_dir_input.text().strip() or "~")
+        start = str(expand_user(self._download_dir_input.text().strip() or "~"))
         chosen = QFileDialog.getExistingDirectory(
             self, "Choose downloads folder", start)
         if chosen:

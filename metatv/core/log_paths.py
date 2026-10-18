@@ -9,7 +9,7 @@ of promise a comment cannot keep.
 The split had a real cause, so this module keeps it addressable rather than
 pretending it away: ``setup_logging`` runs BEFORE ``Config.load()``, so it has
 no config to ask. ``config`` is therefore optional here, and the fallback is the
-same default ``Config`` itself uses. ``Path.home()`` is read at call time, never
+same default ``Config`` itself uses (``app_paths.config_dir``). ``Path.home()`` is read at call time, never
 cached, because ``tests/conftest.py`` patches it to isolate the user's real
 config — a module-level constant would be resolved at import and defeat that.
 """
@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+
+from metatv.core import app_paths
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -38,7 +40,7 @@ def config_directory(config: "Optional[Config]" = None) -> Path:
     """
     cdir = getattr(config, "config_dir", None) if config is not None else None
     if cdir is None:
-        return Path.home() / ".config" / "metatv"
+        return app_paths.config_dir()
     return Path(cdir)
 
 

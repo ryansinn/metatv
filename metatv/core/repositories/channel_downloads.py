@@ -22,11 +22,10 @@ predicates themselves, and the reasoning for them, live here instead.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 
 from sqlalchemy import false as sql_false
 
+from metatv.core.app_paths import expand_user
 from metatv.core.database import ChannelDB, DownloadDB
 
 
@@ -41,7 +40,7 @@ def _file_exists(dest_path: "str | None") -> bool:
     if not dest_path:
         return False
     try:
-        return Path(os.path.expanduser(dest_path)).is_file()
+        return expand_user(dest_path).is_file()
     except OSError:
         return False
 
