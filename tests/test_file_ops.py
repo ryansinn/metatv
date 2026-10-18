@@ -76,8 +76,8 @@ def test_remove_deletes_and_tolerates_a_missing_file(tmp_path):
 
 def test_atomic_write_is_utf8_and_leaves_no_temp_on_failure(tmp_path):
     target = tmp_path / "c.yaml"
-    file_ops.atomic_write(target, lambda f: f.write("é📺"), suffix=".yaml")
-    assert target.read_bytes() == "é📺".encode("utf-8")
+    file_ops.atomic_write(target, lambda f: f.write("é📺\nx"), suffix=".yaml")
+    assert target.read_bytes() == "é📺\nx".encode("utf-8"), "UTF-8, and \\n on every platform"
 
     def half_written(f):
         f.write("partial")
@@ -85,5 +85,5 @@ def test_atomic_write_is_utf8_and_leaves_no_temp_on_failure(tmp_path):
 
     with pytest.raises(RuntimeError):
         file_ops.atomic_write(target, half_written, suffix=".yaml")
-    assert target.read_text(encoding="utf-8") == "é📺", "the old file must survive"
+    assert target.read_text(encoding="utf-8") == "é📺\nx", "the old file must survive"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["c.yaml"], "temp file left behind"

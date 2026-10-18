@@ -73,9 +73,9 @@ def atomic_write(target: "str | os.PathLike", write: "Callable[[IO[str]], None]"
     """Write a text file through a temp file in the same folder and a replace.
 
     A reader never sees a half-written file, and a crash mid-write leaves the
-    old one intact. UTF-8 explicitly, so a source checkout on Windows (which
-    does not run in UTF-8 mode the way the packaged app does) writes the same
-    bytes.
+    old one intact. UTF-8 and ``\n`` line endings explicitly, so the file is
+    byte-identical on every platform — including a source checkout on Windows,
+    which does not run in UTF-8 mode the way the packaged app does.
 
     Args:
         target: The file to create or overwrite.
@@ -89,8 +89,8 @@ def atomic_write(target: "str | os.PathLike", write: "Callable[[IO[str]], None]"
     target = Path(target)
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
-                                         delete=False, suffix=suffix) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
+                                         dir=target.parent, delete=False, suffix=suffix) as tmp:
             tmp_path = Path(tmp.name)
             write(tmp)
         replace(tmp_path, target)
