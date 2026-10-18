@@ -3,7 +3,8 @@
 
 macOS produces ``dist/MetaTV.app``; Windows produces the one-folder
 ``dist/MetaTV/`` with ``MetaTV.exe``. Everything up to ``COLLECT`` is shared;
-only the icon, ``argv_emulation`` and the ``.app`` wrapper differ.
+only the icon, ``argv_emulation`` and the ``.app`` wrapper differ. Both run in
+Python's UTF-8 mode (``RUNTIME_OPTIONS``).
 
 Run from the repo root::
 
@@ -131,10 +132,18 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Python's UTF-8 mode: every open(), pipe and log file reads and writes UTF-8
+# whatever the OS locale says. Windows' locale encoding is a legacy code page
+# (cp1252 in the West), so without it config.yaml, the QA notes and mpv's
+# output would be read and written in a different encoding than on Linux and
+# macOS, and a channel name with an emoji would fail to save. macOS is UTF-8
+# already, so it gets the same behaviour it had.
+RUNTIME_OPTIONS = [("X utf8_mode=1", None, "OPTION")]
+
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    RUNTIME_OPTIONS,
     exclude_binaries=True,
     name="MetaTV",
     debug=False,
