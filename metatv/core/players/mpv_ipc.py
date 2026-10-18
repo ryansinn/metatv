@@ -12,13 +12,18 @@ machine. Sockets now live in the per-user :func:`app_paths.runtime_dir`.
 
 from __future__ import annotations
 
+import functools
 import os
 import socket
 import sys
+import time
 
 from metatv.core import app_paths
 
 _PREFIX = "mpv-metatv-"
+
+#: How often a pipe read checks for data while waiting out its timeout.
+_PIPE_POLL_S = 0.01
 
 
 def _is_windows() -> bool:
@@ -52,6 +57,37 @@ def is_ready(addr: str) -> bool:
     return os.path.exists(addr)
 
 
+def _pipe_available(pipe) -> "int | None":
+    """Bytes waiting in a Windows pipe, or None once mpv has closed its end.
+
+    ``PeekNamedPipe`` never blocks, which is what lets :meth:`Connection.recv`
+    honour a timeout: a pipe opened as a file has none, so a plain read on a
+    hung mpv would freeze the caller (the UI thread, for a property query).
+    """
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    available = wintypes.DWORD(0)
+    handle = msvcrt.get_osfhandle(pipe.fileno())
+    if not _peek_named_pipe()(handle, None, 0, None, ctypes.byref(available), None):
+        return None
+    return available.value
+
+
+@functools.cache
+def _peek_named_pipe():
+    """kernel32's ``PeekNamedPipe``, bound once (Windows only)."""
+    import ctypes
+    from ctypes import wintypes
+
+    peek = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    peek.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                     wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPDWORD]
+    peek.restype = wintypes.BOOL
+    return peek
+
+
 def discard(addr: str) -> bool:
     """Remove a stale socket file left by a previous mpv. No-op for a pipe.
 
@@ -72,11 +108,14 @@ class Connection:
 
     Raises the same exceptions on every platform for the cases callers handle:
     ``FileNotFoundError`` when nothing is listening and ``TimeoutError`` (alias
-    ``socket.timeout``) when a read stalls. A Windows pipe opened as a file has
-    no read timeout, so *timeout* applies on Unix only.
+    ``socket.timeout``) when a read stalls past *timeout*. A socket enforces it
+    itself; a Windows pipe has no read timeout, so :meth:`recv` polls
+    :func:`_pipe_available` instead. Writes are not timed: commands are small
+    and mpv drains them.
     """
 
     def __init__(self, addr: str, timeout: float):
+        self._timeout = timeout
         if _is_windows():
             self._sock = None
             self._pipe = open(addr, "r+b", buffering=0)
@@ -97,9 +136,18 @@ class Connection:
             self._sock.sendall(data)
 
     def recv(self, size: int) -> bytes:
-        if self._pipe is not None:
-            return self._pipe.read(size) or b""
-        return self._sock.recv(size)
+        if self._pipe is None:
+            return self._sock.recv(size)
+        deadline = time.monotonic() + self._timeout
+        while True:
+            available = _pipe_available(self._pipe)
+            if available is None:  # mpv closed its end: EOF, as a socket reports it
+                return b""
+            if available:
+                return self._pipe.read(min(size, available)) or b""
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"mpv sent nothing for {self._timeout}s")
+            time.sleep(_PIPE_POLL_S)
 
     def close(self) -> None:
         (self._pipe or self._sock).close()
