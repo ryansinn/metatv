@@ -21,6 +21,10 @@ ENTRY = WhatsNewEntry(
            "The signal check (the black-screen / frozen / silent test) now identifies itself "
            "with the same browser User-Agent mpv plays with. Before, a source that filters "
            "on User-Agent could make it report a stream as dead that plays fine.",
+           "Recordings keep the characters of their title that every system allows: "
+           "'The Film (2024)' instead of 'The Film _2024_'. A title that is a reserved "
+           "Windows name, such as 'Con', gets a trailing _ so the library still copies to a "
+           "Windows drive.",
            "The stream-details probe now opens its mpv control socket in your private "
            "runtime folder instead of the shared /tmp."),
     test_steps=("Open Settings → Playback — there is no 'Preferred player' row; 'Player mode' "

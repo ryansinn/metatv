@@ -151,10 +151,11 @@ def test_the_queue_survives_a_restart(env, server, tmp_path):
 
 
 def test_the_filename_is_the_users_name_with_the_urls_extension():
-    assert safe_filename("The Film (2024)", "http://x/y/1.mkv") == "The Film _2024_.mkv"
+    assert safe_filename("The Film (2024)", "http://x/y/1.mkv") == "The Film (2024).mkv"
     assert safe_filename("a/b:c", "http://x/y/1.mp4") == "a_b_c.mp4"
     assert safe_filename("", "http://x/y/1.mp4") == "download.mp4"
     assert safe_filename("no ext", "http://x/y/1") == "no ext.mp4"
+    assert safe_filename("Con", "http://x/y/1.mp4") == "Con_.mp4", "a Windows device name"
 
 
 # ── resume ──────────────────────────────────────────────────────────────────

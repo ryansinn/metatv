@@ -41,6 +41,7 @@ from loguru import logger
 
 
 from metatv.core import app_paths, file_ops
+from metatv.core.download_naming import safe_component
 from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
 if TYPE_CHECKING:                                    # pragma: no cover
@@ -145,9 +146,7 @@ def safe_filename(name: str, url: str, *, default_suffix: str = ".mp4") -> str:
             a lie players have to guess their way out of.
     """
     suffix = Path(url.split("?")[0]).suffix or default_suffix
-    cleaned = "".join(c if (c.isalnum() or c in " ._-") else "_" for c in name).strip()
-    cleaned = " ".join(cleaned.split()) or "download"
-    return f"{cleaned[:120]}{suffix}"
+    return f"{safe_component(name)}{suffix}"
 
 
 def destination_for(session, config, channel_id: str, channel_name: str,
