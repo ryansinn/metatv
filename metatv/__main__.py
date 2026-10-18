@@ -7,7 +7,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
-from metatv.core.runtime_env import bundle_resource_path, flatpak_app_id
+from metatv.core.runtime_env import bundle_resource_path, flatpak_app_id, is_windows
 from metatv.core.stream_diagnostics import _redact
 
 from metatv.gui import cursor_affordance
@@ -117,6 +117,13 @@ def main():
     # match the window to MetaTV's icon instead of a generic one.
     if flatpak_app_id():
         app.setDesktopFileName(flatpak_app_id())
+    # Windows' native styles (windowsvista / windows11) draw many controls
+    # themselves and ignore the QPalette that theme.apply_theme() sets as the
+    # floor for every widget without its own stylesheet — a dark theme would
+    # come up with light native controls. Fusion honours the palette, which is
+    # what Linux typically runs already. macOS keeps its native style.
+    if is_windows():
+        app.setStyle("Fusion")
 
     # Bundled typefaces (metatv/assets/fonts) — registered before the theme and
     # before any widget, because the type scale sets SIZES and inherits the
