@@ -14,6 +14,10 @@ ENTRY = WhatsNewEntry(
            "Where MetaTV keeps its config, database, caches and downloads is now decided in "
            "one place. Existing folders are unchanged. On a new macOS install, downloads "
            "default to ~/Movies/MetaTV rather than a ~/Videos folder macOS doesn't have.",
+           "Stream diagnostics now read the codec, resolution and bitrate with the mpv "
+           "MetaTV ships, the same probe as 'Get stream details', instead of needing "
+           "ffprobe installed. Packaged builds never included ffprobe, so these fields "
+           "were usually blank there.",
            "The stream-details probe now opens its mpv control socket in your private "
            "runtime folder instead of the shared /tmp."),
     test_steps=("Open Settings → Playback — there is no 'Preferred player' row; 'Player mode' "
@@ -22,6 +26,8 @@ ENTRY = WhatsNewEntry(
                 "unchanged. Download a VOD — it lands there.",
                 "Select a movie and click 'Get stream details' in the details pane — the tracks and "
                 "bitrate appear as before.",
+                "Run a stream diagnostic on a channel — the result shows its codec and "
+                "resolution (e.g. h264, 1920x1080), with no ffprobe installed.",
                 "On a Windows PC, download MetaTV-windows-x64.zip from the rolling release, unzip "
                 "it, run MetaTV.exe and choose Run anyway — the window opens; add a source and "
                 "play a channel — it plays in mpv."),
