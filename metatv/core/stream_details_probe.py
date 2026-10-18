@@ -19,6 +19,7 @@ import uuid
 
 from loguru import logger
 
+from metatv.core.child_process import NO_WINDOW
 from metatv.core.players import mpv_ipc
 from metatv.core.players.mpv_args import stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
@@ -88,7 +89,7 @@ def probe_details(url: str, *, cancel: "threading.Event | None" = None) -> "dict
            *stream_args(), url]
     # stderr kept (errors only) so a failed probe can say WHY mpv gave up.
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            text=True, errors="replace")
+                            text=True, errors="replace", **NO_WINDOW)
     ipc = None
     try:
         deadline = time.monotonic() + OPEN_TIMEOUT_SECONDS

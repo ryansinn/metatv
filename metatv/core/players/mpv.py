@@ -12,6 +12,7 @@ from typing import Optional
 from loguru import logger
 
 from metatv.core import app_paths
+from metatv.core.child_process import NO_WINDOW
 from metatv.core.players import mpv_ipc
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
@@ -263,7 +264,8 @@ class MPVPlayer(PlayerPlugin):
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
             clear_exit(key)
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       **NO_WINDOW)
             start_log_tap(process, key)
 
             logger.info(f"Started mpv instance [{key}] PID {process.pid}")
@@ -803,6 +805,7 @@ class MPVPlayer(PlayerPlugin):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                **NO_WINDOW,
             )
             start_log_tap(process, title)
 

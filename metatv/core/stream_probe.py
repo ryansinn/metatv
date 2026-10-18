@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from metatv.core.child_process import NO_WINDOW
 from metatv.core.stream_access import PROBE, StreamAccess, ffmpeg_reconnect_options
 
 #: Seconds of stream to sample. Two is enough for every detector to fire —
@@ -338,7 +339,8 @@ def _run_ffmpeg(command: "list[str]", *, timeout: float,
     run for seconds.
     """
     proc = subprocess.Popen(command, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, errors="replace")
+                            stderr=subprocess.PIPE, text=True, errors="replace",
+                            **NO_WINDOW)
     deadline = time.monotonic() + timeout
     while True:
         if cancel is not None and cancel.is_set():
