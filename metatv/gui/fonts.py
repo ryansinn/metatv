@@ -123,6 +123,21 @@ def apply_ui_font(app) -> bool:
     return True
 
 
+def monospace_family() -> str:
+    """A monospace family Qt will actually resolve on this platform.
+
+    ``"monospace"`` is a real family only on Linux (fontconfig); on macOS and
+    Windows a widget asking for it gets the proportional default. Qt's
+    ``StyleHint`` is the portable way to ask, so every monospace surface —
+    widget fonts and stylesheet ``font-family`` alike — takes it from here.
+    """
+    from PyQt6.QtGui import QFont
+
+    font = QFont()
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    return font.defaultFamily()
+
+
 @lru_cache(maxsize=1)
 def icon_codepoints() -> dict[str, str]:
     """``{icon_name: "e8b6"}`` for the bundled Material Symbols subset.

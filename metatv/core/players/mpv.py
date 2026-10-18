@@ -49,6 +49,20 @@ class _Inst:
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
+    def terminate(self, key: str) -> None:
+        """End the process: terminate, then kill if it is still there after 2 s.
+
+        On Windows ``terminate()`` is already a hard kill (TerminateProcess);
+        nothing here depends on mpv's own exit path, so that is equivalent.
+        """
+        logger.info(f"Terminating mpv instance [{key}] PID {self.process.pid}")
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"mpv instance [{key}] did not terminate, killing")
+            self.process.kill()
+
 
 class MPVPlayer(PlayerPlugin):
     """MPV media player implementation with per-key instance registry.
@@ -186,16 +200,7 @@ class MPVPlayer(PlayerPlugin):
         # Terminate the existing process for this key, if any.
         inst = self._instances.get(key)
         if inst is not None and inst.is_running():
-            logger.info(
-                f"Terminating existing mpv instance [{key}] PID {inst.process.pid} "
-                "for relaunch with new buffer args"
-            )
-            inst.process.terminate()
-            try:
-                inst.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                logger.warning(f"mpv instance [{key}] did not terminate in time, killing")
-                inst.process.kill()
+            inst.terminate(key)  # relaunch with new buffer args
 
         # The old instance for this key is gone — purge its deep-cache recording
         # (if any) now, symmetric with the socket-unlink below.
@@ -880,13 +885,7 @@ class MPVPlayer(PlayerPlugin):
 
         for key, inst in list(self._instances.items()):
             if inst.is_running():
-                logger.info(f"Terminating mpv instance [{key}] PID {inst.process.pid}")
-                inst.process.terminate()
-                try:
-                    inst.process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    logger.warning(f"mpv instance [{key}] did not terminate, killing")
-                    inst.process.kill()
+                inst.terminate(key)
 
             if inst.socket_path:
                 try:

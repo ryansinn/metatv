@@ -30,6 +30,7 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui.dialog_chrome import dialog_buttons
+from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 from metatv.gui import theme as _theme
 
@@ -401,7 +402,7 @@ class _GroupSection(_ExpandableSection, QWidget):
             label = f"[{prefix}] {full_name}" if full_name else prefix
             cb = QCheckBox(label)
             cb.setChecked(prefix.upper() in self._initial_checked)
-            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; font-family: monospace;")
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_LG}; font-family: '{monospace_family()}';")
             cb.stateChanged.connect(self._on_prefix_changed)
             rl.addWidget(cb)
 
@@ -591,7 +592,7 @@ class _ContentTypeSection(_ExpandableSection, QWidget):
 
             cb = QCheckBox(label)
             cb.setChecked(label in self._initial_checked)
-            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_MD}; font-family: monospace;")
+            _theme.style_fn(cb, lambda: f"font-size: {_theme.FONT_MD}; font-family: '{monospace_family()}';")
             cb.stateChanged.connect(self._on_item_changed)
             rl.addWidget(cb)
 
