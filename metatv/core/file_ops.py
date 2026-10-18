@@ -73,7 +73,7 @@ def atomic_write(target: "str | os.PathLike", write: "Callable[[IO[str]], None]"
     """Write a text file through a temp file in the same folder and a replace.
 
     A reader never sees a half-written file, and a crash mid-write leaves the
-    old one intact. UTF-8 and ``\n`` line endings explicitly, so the file is
+    old one intact. UTF-8 and ``\\n`` line endings explicitly, so the file is
     byte-identical on every platform — including a source checkout on Windows,
     which does not run in UTF-8 mode the way the packaged app does.
 
