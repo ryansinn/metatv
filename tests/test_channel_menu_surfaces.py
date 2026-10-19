@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.gui import icons as _icons
 from metatv.gui.channel_menu import (
     ChannelMenuContext,
     _resolve_menu_icon,
@@ -76,7 +75,7 @@ def test_show_separately_icon_is_non_null(qapp):
     )
     glyph, _color = _resolve_menu_icon(ACTIONS["show_separately"], ctx)
     assert glyph, "show_separately must render an icon"
-    assert glyph == _icons.show_separately_icon
+    assert glyph == "show_separately"
 
 
 def test_show_separately_triggers_its_handler(qapp):

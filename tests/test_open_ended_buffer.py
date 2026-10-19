@@ -31,7 +31,6 @@ from metatv.core.http_headers import stream_user_agent
 from metatv.core.players.mpv import MPVPlayer
 from metatv.core.players.mpv_args import RECONNECT_FLAG
 from metatv.gui.channel_menu import ACTIONS, SURFACE_LAYOUTS, ChannelMenuContext, build_channel_menu
-from metatv.gui import icons as _icons
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -390,7 +389,7 @@ def test_play_open_ended_buffer_in_actions():
 def test_play_open_ended_buffer_action_has_icon():
     """The action must reference the open_ended_buffer_icon from icons.py."""
     action = ACTIONS["play_open_ended_buffer"]
-    assert action.icon == _icons.open_ended_buffer_icon
+    assert action.icon == "open_ended_buffer"
 
 
 def test_play_open_ended_buffer_in_channel_surface():

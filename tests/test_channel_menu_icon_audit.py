@@ -56,20 +56,18 @@ def _ctx(**kwargs) -> ChannelMenuContext:
 # ---------------------------------------------------------------------------
 
 def test_open_ended_buffer_uses_infinity_glyph():
-    assert _icons.open_ended_buffer_icon == "∞", (
-        "open-ended buffer should use the ∞ infinity glyph, not an hourglass"
+    assert ACTIONS["play_open_ended_buffer"].icon == "open_ended_buffer"
+    assert _icons.vector_key("open_ended_buffer") == "mdi6.infinity", (
+        "open-ended buffer should be the infinity mark, not an hourglass"
     )
-    assert ACTIONS["play_open_ended_buffer"].icon == _icons.open_ended_buffer_icon
 
 
 def test_play_new_window_uses_window_glyph():
-    assert _icons.new_window_icon == "❐", (
-        "Play in New Window should use the window-over-window glyph (U+2750)"
-    )
-    assert ACTIONS["play_new_window"].icon == _icons.new_window_icon
-    # Must not reuse the play/open-ended/clock-ish glyphs.
-    assert _icons.new_window_icon != _icons.play_icon
-    assert _icons.new_window_icon != _icons.open_ended_buffer_icon
+    assert ACTIONS["play_new_window"].icon == "new_window"
+    assert _icons.vector_key("new_window") == "mdi6.open-in-new"
+    # Must not reuse the play/open-ended glyphs.
+    assert _icons.vector_key("new_window") not in (
+        _icons.vector_key("play"), _icons.vector_key("open_ended_buffer"))
 
 
 # ---------------------------------------------------------------------------
@@ -77,18 +75,17 @@ def test_play_new_window_uses_window_glyph():
 # ---------------------------------------------------------------------------
 
 def test_category_icon_distinct_from_queue():
-    assert hasattr(_icons, "category_icon"), "icons.py must define a category_icon"
-    assert _icons.category_icon != _icons.queue_icon
-    assert ACTIONS["category"].icon == _icons.category_icon
+    assert ACTIONS["category"].icon == "category"
+    assert _icons.vector_key("category") != _icons.vector_key("queue")
     assert ACTIONS["category"].icon != ACTIONS["queue"].icon, (
         "Add to Category must not share the Add to Queue icon"
     )
 
 
 def test_all_category_actions_share_the_category_icon():
-    """Single, bulk and EPG category actions all use the one category glyph."""
+    """Single, bulk and EPG category actions all use the one category icon."""
     for token in ("category", "bulk_category", "epg_assign_category"):
-        assert ACTIONS[token].icon == _icons.category_icon, token
+        assert ACTIONS[token].icon == "category", token
 
 
 # ---------------------------------------------------------------------------
@@ -99,18 +96,17 @@ def test_play_from_beginning_icon_is_neutral_not_resume(qapp):
     """play_from_beginning resolves to a gray (None) colour, never the orange accent."""
     ctx = _ctx(watch_progress=300)  # resumable movie
     glyph, color = _resolve_menu_icon(ACTIONS["play_from_beginning"], ctx)
-    assert glyph == _icons.play_from_beginning_icon
+    assert glyph == "play_from_beginning"
     assert color is None, "play_from_beginning must be neutral/gray, not orange"
-    # And its glyph must differ from the resume glyph so the two read distinctly.
-    assert _icons.play_from_beginning_icon != _icons.resume_from_icon
+    assert _icons.vector_key("play_from_beginning") != _icons.vector_key("resume_from")
 
 
-def test_play_from_beginning_uses_play_triangle_not_last_track(qapp):
-    """'Play from Beginning' shows the gray play triangle ▶ — the SAME clean glyph as
-    plain Play — not the ⏮ last-track button, which renders as a tofu/box in many
-    fonts (the bug: a "gray square" appeared instead of a play triangle when a resume
-    option was also present). Distinction from resume stays carried by colour."""
-    assert _icons.play_from_beginning_icon == _icons.play_icon == "▶"
+def test_play_from_beginning_has_its_own_shape(qapp):
+    """It was the same ▶ as Play, told apart by colour alone; the icon plan
+    (2026-10-19) gives it a replay arrow, a vector that cannot render as tofu."""
+    from metatv.gui import icon_utils
+    assert _icons.vector_key("play_from_beginning") != _icons.vector_key("play")
+    assert not icon_utils.role_icon("play_from_beginning").isNull()
 
 
 def test_resumable_play_is_orange_and_relabelled(qapp):
@@ -119,7 +115,7 @@ def test_resumable_play_is_orange_and_relabelled(qapp):
     label = ACTIONS["play"].label(ctx)
     glyph, color = _resolve_menu_icon(ACTIONS["play"], ctx)
     assert label == "Play from 5:00", f"expected resume label, got {label!r}"
-    assert glyph == _icons.play_icon
+    assert glyph == "play"
     assert color == _theme.COLOR_PLAYBACK_IN_PROGRESS, "resumable Play must be orange"
 
 

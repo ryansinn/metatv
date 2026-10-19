@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import QMenu
 if TYPE_CHECKING:                                    # pragma: no cover
     from datetime import datetime
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu_layouts import SURFACE_LAYOUTS
 
@@ -134,7 +134,7 @@ class ChannelAction:
 
     id: str
     label: Callable[[ChannelMenuContext], str]
-    icon: str = ""                                         # icons.py value or ""
+    icon: str = ""                                         # an icons.VECTOR_KEYS role, or ""
     tooltip: "str | Callable[[ChannelMenuContext], str]" = ""
     checkable: bool = False
     checked: Callable[[ChannelMenuContext], bool] = field(
@@ -163,7 +163,7 @@ def _fav_label(c: ChannelMenuContext) -> str:
 
 
 def _fav_icon(c: ChannelMenuContext) -> str:
-    return _icons.unfavorite_icon if c.is_favorite else _icons.favorite_icon
+    return "unfavorite" if c.is_favorite else "favorite"
 
 
 def _queue_label(c: ChannelMenuContext) -> str:
@@ -283,7 +283,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "play": ChannelAction(
         id="play",
         label=_play_label,
-        icon=_icons.play_icon,
+        icon="play",
         icon_color=_play_color,
         tooltip="Play this channel",
         # source_inactive defaults False everywhere except "versions", so this
@@ -293,14 +293,14 @@ ACTIONS: dict[str, ChannelAction] = {
     "play_new_window": ChannelAction(
         id="play_new_window",
         label=lambda c: "Play in New Window",
-        icon=_icons.new_window_icon,
+        icon="new_window",
         tooltip="Open in a separate player window (per-source)",
         applies=lambda c: c.is_single and c.channel_found,
     ),
     "play_open_ended_buffer": ChannelAction(
         id="play_open_ended_buffer",
         label=lambda c: "Play with open-ended buffer",
-        icon=_icons.open_ended_buffer_icon,
+        icon="open_ended_buffer",
         tooltip=(
             "Buffer ahead open-endedly — caches as far as the stream allows "
             "(disk-backed, up to 2 GiB). Useful for riding out an unstable stream."
@@ -310,7 +310,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "play_deep_cache": ChannelAction(
         id="play_deep_cache",
         label=lambda c: "Buffer without limit (pre-load fully)",
-        icon=_icons.deep_cache_icon,
+        icon="deep_cache",
         tooltip=(
             "Pre-load this title fully to a scratch cache before/while playing — goes "
             "further than the open-ended buffer by recording to disk. VOD only; the "
@@ -323,7 +323,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "download": ChannelAction(
         id="download",
         label=lambda c: "Download to library",
-        icon=_icons.download_icon,
+        icon="download",
         tooltip=(
             "Save this title to your library folder so it plays without the source. "
             "Resumes if interrupted, and pauses while you watch anything on this source."
@@ -335,7 +335,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "record": ChannelAction(
         id="record",
         label=lambda c: "Record what's on",
-        icon=_icons.record_icon,
+        icon="record",
         tooltip=(
             "Record this channel to your library. Keeps recording if you start "
             "watching something else, and waits rather than giving up if busy."
@@ -351,7 +351,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "record_window": ChannelAction(
         id="record_window",
         label=lambda c: "Record for a time window…",
-        icon=_icons.record_window_icon,
+        icon="record_window",
         tooltip="Record a start/end window you set — no guide needed. MetaTV must stay open.",
         applies=lambda c: c.is_single and c.channel_found and c.media_type == "live",
     ),
@@ -359,7 +359,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "record_programme": ChannelAction(
         id="record_programme",
         label=lambda c: "Record this programme",
-        icon=_icons.record_icon,
+        icon="record",
         tooltip=(
             "Schedule a recording for this programme's guide window, padded by your "
             "Settings → Recording defaults; a clash on this source is caught now."
@@ -373,7 +373,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "play_from_beginning": ChannelAction(
         id="play_from_beginning",
         label=lambda c: "Play from Beginning",
-        icon=_icons.play_from_beginning_icon,
+        icon="play_from_beginning",
         tooltip=(
             "Start playback from the beginning, ignoring the saved resume position.\n"
             "Your resume position is preserved — this is a one-time override."
@@ -385,7 +385,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "resume_from": ChannelAction(
         id="resume_from",
         label=_resume_from_label,
-        icon=_icons.resume_from_icon,
+        icon="resume_from",
         icon_color=_resume_color,
         tooltip=(
             "Resume from your saved position — overrides the 'Start from beginning' default\n"
@@ -402,14 +402,14 @@ ACTIONS: dict[str, ChannelAction] = {
     "reactivate_play": ChannelAction(
         id="reactivate_play",
         label=lambda c: "Reactivate source & play",
-        icon=_icons.play_icon,
+        icon="play",
         tooltip=lambda c: f"Re-enable {c.version_prefix or 'this source'} and play this variant",
         applies=lambda c: c.source_inactive,
     ),
     "show_details": ChannelAction(
         id="show_details",
         label=lambda c: f"Show details for {c.version_prefix} version",
-        icon=_icons.info_icon,
+        icon="info",
         tooltip=lambda c: c.channel_name or "",
         applies=lambda c: True,
     ),
@@ -423,14 +423,14 @@ ACTIONS: dict[str, ChannelAction] = {
     "queue": ChannelAction(
         id="queue",
         label=_queue_label,
-        icon=_icons.queue_icon,
+        icon="queue",
         tooltip="Toggle this channel in your Watch Queue",
         applies=lambda c: c.is_single and c.channel_found,
     ),
     "like": ChannelAction(
         id="like",
         label=lambda c: "Like",
-        icon=_icons.like_icon,
+        icon="like",
         tooltip="Rate this title positively",
         checkable=True,
         checked=lambda c: c.rating == 1,
@@ -439,7 +439,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "dislike": ChannelAction(
         id="dislike",
         label=lambda c: "Dislike",
-        icon=_icons.dislike_icon,
+        icon="dislike",
         tooltip="Rate this title negatively",
         checkable=True,
         checked=lambda c: c.rating == -1,
@@ -451,14 +451,14 @@ ACTIONS: dict[str, ChannelAction] = {
     "search_title": ChannelAction(
         id="search_title",
         label=lambda c: "Search this title",
-        icon=_icons.search_icon,
+        icon="search",
         tooltip="Find every version of this title in the channel list",
         applies=lambda c: c.is_single and c.channel_found and bool(c.title),
     ),
     "copy_title": ChannelAction(
         id="copy_title",
         label=lambda c: "Copy title",
-        icon=_icons.copy_icon,
+        icon="copy",
         tooltip="Copy this title to the clipboard",
         applies=lambda c: c.is_single and c.channel_found and bool(c.title),
     ),
@@ -472,7 +472,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "show_versions": ChannelAction(
         id="show_versions",
         label=lambda c: f"Show {c.variant_count} versions",
-        icon=_icons.versions_icon,
+        icon="versions",
         tooltip="Pick a specific quality/language/source version of this title",
         applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
     ),
@@ -486,7 +486,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "show_separately": ChannelAction(
         id="show_separately",
         label=lambda c: f"Show {c.variant_count} versions separately",
-        icon=_icons.show_separately_icon,
+        icon="show_separately",
         tooltip="Show this title as its own row instead of grouped with its other versions",
         applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
     ),
@@ -505,7 +505,7 @@ ACTIONS: dict[str, ChannelAction] = {
         # action has never actually rendered where it applies. Found migrating
         # "alerts_series" onto it (MENU-1); see docs/REFACTOR_PLAN.md.
         label=_browse_series_label,
-        icon=_icons.series_icon,
+        icon="series",
         tooltip="Open every season and episode of this series",
         applies=lambda c: (
             c.is_single and c.channel_found
@@ -516,7 +516,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "monitor_series": ChannelAction(
         id="monitor_series",
         label=_monitor_label,
-        icon=_icons.alert_icon,
+        icon="alert",
         tooltip="Alert me when this series has new episodes",
         applies=lambda c: (
             c.is_single and c.channel_found
@@ -530,7 +530,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "clear_alert": ChannelAction(
         id="clear_alert",
         label=lambda c: "Clear alert — I've seen this",
-        icon=_icons.new_match_icon,
+        icon="new_match",
         tooltip="Acknowledge this new match — clears the alert highlight everywhere",
         applies=lambda c: c.is_single and c.has_unviewed_match,
     ),
@@ -540,7 +540,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "view_matches": ChannelAction(
         id="view_matches",
         label=lambda c: "View matches",
-        icon=_icons.search_icon,
+        icon="search",
         tooltip="Show this alert's matched content in the main list",
         applies=lambda c: True,
     ),
@@ -549,7 +549,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "mark_seen": ChannelAction(
         id="mark_seen",
         label=lambda c: "Mark seen",
-        icon=_icons.watched_icon,
+        icon="watched",
         tooltip="Clear the new-episode count for this series",
         applies=lambda c: c.has_unviewed_match,
     ),
@@ -557,7 +557,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "manage_alerts": ChannelAction(
         id="manage_alerts",
         label=lambda c: "Manage…",
-        icon=_icons.manage_icon,
+        icon="manage",
         tooltip="Manage watch alerts — keyword rules and monitored series",
         applies=lambda c: True,
     ),
@@ -565,7 +565,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "mark_watched": ChannelAction(
         id="mark_watched",
         label=_mark_watched_label,
-        icon=_icons.watched_icon,
+        icon="watched",
         tooltip="Mark this movie or series as watched / unwatched",
         applies=lambda c: (
             c.is_single and c.channel_found
@@ -591,21 +591,21 @@ ACTIONS: dict[str, ChannelAction] = {
     "unhide": ChannelAction(
         id="unhide",
         label=lambda c: "Unhide",
-        icon=_icons.hide_icon,
+        icon="hide",
         tooltip="Un-hide this channel so it appears in the channel list",
         applies=lambda c: c.is_single and c.channel_found and c.is_hidden,
     ),
     "hide": ChannelAction(
         id="hide",
         label=lambda c: "Hide",
-        icon=_icons.hide_icon,
+        icon="hide",
         tooltip="Hide this channel from the channel list",
         applies=lambda c: c.is_single and c.channel_found and not c.is_hidden,
     ),
     "category": ChannelAction(
         id="category",
         label=_category_label,
-        icon=_icons.category_icon,
+        icon="category",
         tooltip=(
             "Assign this channel to a user-defined category.\n"
             "Categories appear as shelves in the Discover view."
@@ -616,7 +616,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "remove_history": ChannelAction(
         id="remove_history",
         label=lambda c: "Remove from History",
-        icon=_icons.delete_icon,
+        icon="delete",
         tooltip="Remove this entry from your playback history",
         applies=lambda c: c.is_single and c.channel_found,
     ),
@@ -634,7 +634,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "not_interested": ChannelAction(
         id="not_interested",
         label=lambda c: "Not Interested",
-        icon=_icons.not_interested_icon,
+        icon="not_interested",
         tooltip="Suppress this title from recommendations",
         applies=lambda c: c.is_single and c.channel_found,
     ),
@@ -642,7 +642,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "remove_retry": ChannelAction(
         id="remove_retry",
         label=lambda c: "Remove from Stream Monitoring",
-        icon=_icons.close_icon,
+        icon="close",
         tooltip="Stop monitoring this stream for reconnection",
         applies=lambda c: True,
     ),
@@ -660,7 +660,7 @@ ACTIONS: dict[str, ChannelAction] = {
             "Watch this channel (EPG alerts)" if c.is_single
             else "Watch channels…"
         ),
-        icon=_icons.watchlist_on_icon,
+        icon="watchlist_on",
         tooltip="Add this channel to your EPG watchlist for alerts",
         applies=lambda c: True,
     ),
@@ -670,21 +670,21 @@ ACTIONS: dict[str, ChannelAction] = {
             "Stop watching this channel" if c.is_single
             else "Unwatch channels…"
         ),
-        icon=_icons.watchlist_off_icon,
+        icon="monitor_off",
         tooltip="Remove this channel from your EPG watchlist",
         applies=lambda c: True,
     ),
     "epg_track_show": ChannelAction(
         id="epg_track_show",
         label=lambda c: "Track show…" if c.is_single else "Track shows…",
-        icon=_icons.watchlist_icon,
+        icon="watchlist",
         tooltip="Add the current show title as a watchlist pattern",
         applies=lambda c: True,
     ),
     "epg_assign_category": ChannelAction(
         id="epg_assign_category",
         label=lambda c: "Assign category…",
-        icon=_icons.category_icon,
+        icon="category",
         tooltip=(
             "Assign this channel to a user-defined EPG category.\n"
             "Categories appear as shelves in the On Now view."
@@ -703,7 +703,7 @@ ACTIONS: dict[str, ChannelAction] = {
         label=lambda c: (
             "Hide channel" if c.is_single else "Hide channels…"
         ),
-        icon=_icons.hide_icon,
+        icon="hide",
         tooltip="Hide this channel from the EPG On Now view",
         applies=lambda c: True,
     ),
@@ -712,14 +712,14 @@ ACTIONS: dict[str, ChannelAction] = {
         label=lambda c: (
             "Hide show" if c.is_single else "Hide shows…"
         ),
-        icon=_icons.hide_icon,
+        icon="hide",
         tooltip="Hide this show title from the EPG On Now view",
         applies=lambda c: True,
     ),
     "clear_epg_link": ChannelAction(
         id="clear_epg_link",
         label=_clear_epg_link_label,
-        icon=_icons.clear_epg_link_icon,
+        icon="clear_epg_link",
         tooltip=_clear_epg_link_tooltip,
         # Live channels only — VOD has no XMLTV guide to (mis)link. Single-select
         # only (the toggle label/behavior depends on ONE channel's blocked state).
@@ -729,7 +729,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "play_all": ChannelAction(
         id="play_all",
         label=lambda c: f"Play All ({len(c.channel_ids)})",
-        icon=_icons.play_all_icon,
+        icon="play_all",
         tooltip="Play first selected item, queue the rest in selection order",
         applies=lambda c: c.is_multi,
     ),
@@ -737,28 +737,28 @@ ACTIONS: dict[str, ChannelAction] = {
     "quickpick_trash": ChannelAction(
         id="quickpick_trash",
         label=lambda c: "Trash",
-        icon=_icons.delete_icon,
+        icon="delete",
         tooltip="Assign to Trash — Dislike mood, added to Global Exclusions",
         applies=lambda c: c.is_multi,
     ),
     "quickpick_watch_later": ChannelAction(
         id="quickpick_watch_later",
         label=lambda c: "Watch Later",
-        icon=_icons.watch_later_icon,
+        icon="watch_later",
         tooltip="Assign to Watch Later — Neutral mood",
         applies=lambda c: c.is_multi,
     ),
     "quickpick_explore": ChannelAction(
         id="quickpick_explore",
         label=lambda c: "Explore",
-        icon=_icons.curious_icon,
+        icon="curious",
         tooltip="Assign to Explore — Curious mood, surfaces more like this",
         applies=lambda c: c.is_multi,
     ),
     "bulk_category": ChannelAction(
         id="bulk_category",
         label=_bulk_category_label,
-        icon=_icons.category_icon,
+        icon="category",
         tooltip="Assign a user-defined category to the selected channels",
         applies=lambda c: c.is_multi,
     ),
@@ -766,21 +766,21 @@ ACTIONS: dict[str, ChannelAction] = {
     "bulk_favorite": ChannelAction(
         id="bulk_favorite",
         label=lambda c: "Add to Favorites",
-        icon=_icons.favorite_icon,
+        icon="favorite",
         tooltip="Add all selected channels to Favorites",
         applies=lambda c: c.is_multi,
     ),
     "bulk_queue": ChannelAction(
         id="bulk_queue",
         label=lambda c: "Add to Watch Later",
-        icon=_icons.queue_icon,
+        icon="queue",
         tooltip="Add all selected channels to the Watch Queue",
         applies=lambda c: c.is_multi,
     ),
     "bulk_mark_watched": ChannelAction(
         id="bulk_mark_watched",
         label=_mark_watched_label,
-        icon=_icons.watched_icon,
+        icon="watched",
         tooltip=lambda c: (
             "Mark all selected as unwatched"
             if c.is_vod_watched
@@ -791,7 +791,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "bulk_hide": ChannelAction(
         id="bulk_hide",
         label=lambda c: "Hide Selected",
-        icon=_icons.hide_icon,
+        icon="hide",
         tooltip="Hide all selected channels from the channel list",
         applies=lambda c: c.is_multi,
     ),
@@ -908,7 +908,9 @@ def build_channel_menu(
         # admin rows get none — the blank column signals a different tier.
         glyph, glyph_color = _resolve_menu_icon(action_def, ctx)
         if glyph:
-            act.setIcon(_icons.glyph_icon(glyph, glyph_color))
+            # An mdi6 role, monochrome like the glyphs it replaced: muted grey,
+            # the one accent only where icon_color asks for it (resume).
+            act.setIcon(_icon_utils.role_icon(glyph, glyph_color or _theme.COLOR_MUTED))
 
         if action_def.checkable:
             act.setCheckable(True)

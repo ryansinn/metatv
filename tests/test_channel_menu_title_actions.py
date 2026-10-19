@@ -92,9 +92,8 @@ def test_both_actions_are_registered_with_icons_and_tooltips():
 
 
 def test_actions_use_registry_icons_from_icons_module():
-    from metatv.gui import icons as _icons
-    assert ACTIONS["search_title"].icon == _icons.search_icon
-    assert ACTIONS["copy_title"].icon == _icons.copy_icon
+    assert ACTIONS["search_title"].icon == "search"
+    assert ACTIONS["copy_title"].icon == "copy"
 
 
 @pytest.mark.parametrize(
