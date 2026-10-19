@@ -4,7 +4,7 @@ Provenance ("which of my sources is this from?") is a clickable chip. DETAILS-3b
 put it on a row of its own at the bottom of the title block; the owner moved it
 (2026-10-19) to the right end of the byline row, beside the Adult indicator, and
 the rating up to the right end of the genre row, so the block reads:
-title / byline + source / genres + rating.
+byline + source (in small caps, above) / title / genres + rating.
 
 These tests assert ORDER inside ``_MetadataSection``'s vertical layout, which
 is what would silently regress if someone re-inserted the old badge row.
@@ -74,7 +74,7 @@ def _row_index_of(section, widget) -> int:
 
 
 def test_source_shares_the_byline_row_and_rating_shares_the_genre_row(qapp):
-    """title / byline + source / genres + rating — three rows, in that order."""
+    """byline + source / title / genres + rating — three rows, in that order."""
     section = _section()
     title_idx = _row_index_of(section, section.title_label)
     byline_idx = _row_index_of(section, section._byline_lbl)
@@ -82,9 +82,9 @@ def test_source_shares_the_byline_row_and_rating_shares_the_genre_row(qapp):
     rating_idx = _row_index_of(section, section._rating_row_w)
     source_idx = _row_index_of(section, section._source_chip)
 
-    assert byline_idx == title_idx + 1, "the byline belongs immediately under the title"
+    assert title_idx == byline_idx + 1, "the byline sits immediately above the title"
     assert source_idx == byline_idx, "the source chip sits on the byline's row"
-    assert genres_idx == byline_idx + 1, "genres render under the byline"
+    assert genres_idx == title_idx + 1, "genres render under the title"
     assert rating_idx == genres_idx, "the rating shares the genre row"
 
 

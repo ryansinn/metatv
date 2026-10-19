@@ -87,22 +87,23 @@ def test_a_long_title_takes_fewer_lines_than_the_badges_forced(section, qapp):
 def test_the_byline_says_kind_and_year(section, qapp):
     section.load_basic(_Ch("Kraven The Hunter"))
     qapp.processEvents()
-    assert section._byline_lbl.text() == "Movie · 2024"
+    assert section._byline_lbl.text() == "MOVIE · 2024"
     assert not section._byline_lbl.isHidden()
 
 
-def test_the_byline_sits_directly_under_the_title(section, qapp):
-    """Rendered position — it is one block, not two things that happen to exist."""
+def test_the_byline_sits_directly_above_the_title(section, qapp):
+    """The kicker ("MOVIE · 2024") sits right above the title (owner
+    2026-10-19) — one block, not two things that happen to exist."""
     section.load_basic(_Ch("Kraven The Hunter"))
     qapp.processEvents()
 
     title = section.title_label
     byline = section._byline_lbl
-    title_bottom = title.mapTo(section, title.rect().bottomLeft()).y()
-    byline_top = byline.mapTo(section, byline.rect().topLeft()).y()
+    byline_bottom = byline.mapTo(section, byline.rect().bottomLeft()).y()
+    title_top = title.mapTo(section, title.rect().topLeft()).y()
 
-    assert byline_top >= title_bottom - 2, "the byline overlaps the title"
-    assert byline_top - title_bottom < title.fontMetrics().lineSpacing(), (
+    assert title_top >= byline_bottom - 2, "the byline overlaps the title"
+    assert title_top - byline_bottom < title.fontMetrics().lineSpacing(), (
         "the byline is more than a line away from the title — not one block"
     )
 

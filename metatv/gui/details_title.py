@@ -89,6 +89,27 @@ class _MetadataSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(4)
 
+        # Kicker ABOVE the title (owner 2026-10-19): "MOVIE · 2024 · 2H 28M ·
+        # PG-13" in the episode eyebrow's small caps, plus the 🔞 Adult
+        # indicator and the source chips on the same row.
+        byline_row = QWidget()
+        byline_row_layout = QHBoxLayout(byline_row)
+        byline_row_layout.setContentsMargins(0, 0, 0, 0)
+        byline_row_layout.setSpacing(8)
+
+        self._byline_lbl = QLabel()
+        _theme.style(self._byline_lbl, "DETAIL_GROUP_HEADING")
+        _no_width_force(self._byline_lbl)
+        self._byline_lbl.hide()
+        byline_row_layout.addWidget(self._byline_lbl, 1)
+
+        self.adult_indicator = QLabel("🔞 Adult")
+        _theme.style(self.adult_indicator, "DETAIL_ADULT_BADGE")
+        self.adult_indicator.hide()
+        byline_row_layout.addWidget(self.adult_indicator)
+        layout.addWidget(byline_row)
+        self._byline_row_layout = byline_row_layout  # the source chips join it below
+
         # Title bar — unchanged.  Nothing else shares the row, so a long
         # title gets (effectively) the whole width to wrap in.
         title_bar = QWidget()
@@ -106,26 +127,6 @@ class _MetadataSection(QWidget):
         _theme.style(self.title_label, "DETAIL_TITLE")
         title_bar_layout.addWidget(self.title_label, 1)
         layout.addWidget(title_bar)
-
-        # Byline — "Movie · 2024 · 2h 28m · PG-13" — plus the 🔞 Adult
-        # indicator on the SAME row when the title is adult.
-        byline_row = QWidget()
-        byline_row_layout = QHBoxLayout(byline_row)
-        byline_row_layout.setContentsMargins(0, 0, 0, 0)
-        byline_row_layout.setSpacing(8)
-
-        self._byline_lbl = QLabel()
-        _theme.style(self._byline_lbl, "DETAIL_BYLINE")
-        _no_width_force(self._byline_lbl)
-        self._byline_lbl.hide()
-        byline_row_layout.addWidget(self._byline_lbl, 1)
-
-        self.adult_indicator = QLabel("🔞 Adult")
-        _theme.style(self.adult_indicator, "DETAIL_ADULT_BADGE")
-        self.adult_indicator.hide()
-        byline_row_layout.addWidget(self.adult_indicator)
-        layout.addWidget(byline_row)
-        self._byline_row_layout = byline_row_layout  # the source chips join it below
 
         # Genres — metadata genres first, then tag genres (facet "genre") not
         # already present; a guessed tag genre renders dashed.  A wrapping
@@ -252,7 +253,7 @@ class _MetadataSection(QWidget):
             self._byline_kind, self._byline_year,
             self._byline_runtime, self._byline_content_rating,
         ) if p]
-        self._byline_lbl.setText(" · ".join(parts))
+        self._byline_lbl.setText(" · ".join(parts).upper())
         self._byline_lbl.setVisible(bool(parts))
 
     def _refresh_rating_row_visibility(self) -> None:

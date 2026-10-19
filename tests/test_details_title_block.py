@@ -85,7 +85,7 @@ def test_byline_includes_runtime_and_content_rating(qapp):
     section.load_basic(_stub_movie(detected_year="2021"))
     section.load_metadata(MetadataResult(runtime=148, content_rating="PG-13"))
 
-    assert section._byline_lbl.text() == "Movie · 2021 · 2h 28m · PG-13"
+    assert section._byline_lbl.text() == "MOVIE · 2021 · 2H 28M · PG-13"
 
 
 def test_byline_runtime_under_an_hour_has_no_hours_segment(qapp):
@@ -93,7 +93,7 @@ def test_byline_runtime_under_an_hour_has_no_hours_segment(qapp):
     section.load_basic(_stub_movie(detected_year=None))
     section.load_metadata(MetadataResult(runtime=48))
 
-    assert section._byline_lbl.text() == "Movie · 48m"
+    assert section._byline_lbl.text() == "MOVIE · 48M"
 
 
 def test_genre_chips_use_the_facet_genre_chip_sheet(qapp):
