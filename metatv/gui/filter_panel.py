@@ -687,9 +687,20 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             # restore it — the exact bug this guard prevents.  Static sections (Media,
             # Untagged) are always safe to save because they are populated in __init__.
             if self._stats_loaded:
-                for inc_attr, known_attr, sec in self._known_section_attrs():
-                    setattr(self.config, inc_attr,
-                            self._persisted_selection(sec, inc_attr, known_attr, unseen))
+                # Named one by one, not setattr in a loop: GUARD-4 finds a
+                # stored field's readers by its literal name.
+                sel = {inc: self._persisted_selection(sec, inc, known, unseen)
+                       for inc, known, sec in self._known_section_attrs()}
+                cfg = self.config
+                cfg.filter_included_languages = sel['filter_included_languages']
+                cfg.filter_included_regions = sel['filter_included_regions']
+                cfg.filter_included_qualities = sel['filter_included_qualities']
+                cfg.filter_included_platforms = sel['filter_included_platforms']
+                cfg.filter_included_categories = sel['filter_included_categories']
+                cfg.filter_included_genres = sel['filter_included_genres']
+                cfg.filter_included_subtitles = sel['filter_included_subtitles']
+                cfg.filter_included_dubs = sel['filter_included_dubs']
+                cfg.filter_included_formats = sel['filter_included_formats']
             self.config.filter_adult_mode = state['adult_mode']
 
             # Save per-section collapse states
