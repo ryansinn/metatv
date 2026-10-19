@@ -332,5 +332,5 @@ lower it when roles are merged, never raise it to admit a new twin.
 The proactive form of the Governing Principles.
 
 - **Find the existing path before adding a sibling.** Grep the verb-cluster (`play_*`/`load_*`/`refresh_*`/`fetch_*`/`_on_*_ready`) and the repo/manager method or seam you're about to call before writing a new one. A core primitive called from >1 UI site is a chokepoint — one entry, every caller gets the full behavior. Need a variant → share the core (one helper both call), never copy-paste-and-trim. Semantic duplication is invisible to syntactic greps — read behavior. (Cautionary case: a duplicate play path that silently dropped failover/buffering and rotted as fixes landed only on the canonical path — see [AUDIT_2026-06-19.md](AUDIT_2026-06-19.md).)
-- **One concern per PR.** Discover a larger problem mid-task → record it in the backlog (task tracker, or the active `docs/REFACTOR_PLAN_BAND*.md`) as a new item; don't expand the PR and don't paper over it.
+- **One concern per PR.** Discover a larger problem mid-task → record it in the backlog (task tracker, or `docs/REFACTOR_PLAN.md`) as a new item; don't expand the PR and don't paper over it.
 - **When the correct path is unclear, ask.** A one-line clarifying question beats inventing a third pattern.
