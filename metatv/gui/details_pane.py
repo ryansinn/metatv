@@ -26,7 +26,7 @@ from metatv.gui.details_title import _MetadataSection, _rating_rich_text, rating
 from metatv.gui.flow_layout import enable_height_for_width
 from metatv.gui.episode_heading import aired_text, episode_eyebrow
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
 from metatv.gui.details_similar import _SimilarSection
@@ -397,8 +397,8 @@ class DetailsPaneWidget(QWidget):
         if metadata:
             self._apply_metadata(metadata)
         elif not is_live:
-            self._plot.show_loading(_icons.loading_icon)
-            self._poster.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
+            self._plot.show_loading()
+            self._poster.poster_label.setText(f"{_icon_utils.role_html('loading')}&nbsp;Loading poster...")
 
         # Re-evaluate the "currently playing" indicator for the new title: the
         # action_bar.clear() above reset it; light it back up if this title is the

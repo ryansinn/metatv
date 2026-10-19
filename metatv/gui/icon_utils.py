@@ -16,7 +16,7 @@ from typing import Callable, Union
 from loguru import logger
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, QSize
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QIcon, QPalette
 from PyQt6.QtWidgets import QPushButton
 
@@ -364,7 +364,8 @@ def set_label_icon(label, role: str, px: int = 14) -> None:
     _paint_label(label, role, px)
 
 
-def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> None:
+def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None,
+                    trailing: bool = False) -> None:
     """Paint *btn*'s icon from the semantic *role* and register it for re-paint.
 
     Vector-first: a role present in :data:`icons.VECTOR_KEYS` resolves through
@@ -396,6 +397,11 @@ def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> 
             :func:`refresh_icon_buttons` can only replay what it was given.
             Pass ``lambda: _theme.COLOR_MUTED_2`` for a token so the glyph
             follows a theme switch.
+        trailing: Draw the icon AFTER the words (a dropdown caret, a state
+            dot, a "Show all →"). Qt places a button icon on the leading
+            side only, so this flips the button's layout direction; the
+            text's own direction is unaffected (Qt lays it out by its
+            content), which a render check confirmed for "Label (2/5)".
 
     Raises:
         KeyError: *role* is neither a vector key nor a glyph constant name —
@@ -410,8 +416,17 @@ def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> 
         resolved_color = btn.palette().color(QPalette.ColorRole.ButtonText).name()
         btn.removeEventFilter(_FOLLOW)
         btn.installEventFilter(_FOLLOW)
+    if trailing:
+        btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
     _paint(btn, role, resolved_color)
     _registered_icon_buttons[btn] = (role, color)
+
+
+def clear_button_icon(btn: QPushButton) -> None:
+    """Remove *btn*'s icon and stop re-painting it — the inverse of
+    :func:`set_button_icon`, for a state that shows no mark."""
+    _registered_icon_buttons.pop(btn, None)
+    btn.setIcon(QIcon())
 
 
 def button_role(btn: QPushButton) -> str | None:

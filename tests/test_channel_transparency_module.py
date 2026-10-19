@@ -62,15 +62,11 @@ def test_button_attrs_covers_every_axis():
 
 
 def test_every_icon_comes_from_the_icons_module():
-    """No glyph literals in the table — icons.py is the one source (CLAUDE.md)."""
+    """Every axis names an icon role registered in icons.VECTOR_KEYS (CLAUDE.md)."""
     from metatv.gui import icons
 
-    registered = {
-        v for k, v in vars(icons).items()
-        if isinstance(v, str) and k.endswith("_icon")
-    }
     for axis in ct.AXES:
-        assert axis.icon in registered, (
+        assert axis.icon in icons.VECTOR_KEYS, (
             f"{axis.key}'s icon {axis.icon!r} is not registered in icons.py"
         )
 
@@ -87,11 +83,11 @@ def test_every_icon_comes_from_the_icons_module():
 #: here with a KeyError until its rendered string is written down. That is the
 #: guard working: the adult gate arrived this way.
 _EXPECTED = {
-    "exclusions": "🔒 4 hidden by Global Exclusions  —  show",
-    "search":     "🔎 4 hidden by search filters  —  show",
-    "dead":       "⚠ 4 unavailable (repeated play failures)  —  show",
-    "keywords":   "🔤 4 hidden by keywords  —  show",
-    "adult":      "🔞 4 hidden as adult content  —  change in Settings",
+    "exclusions": "4 hidden by Global Exclusions  —  show",
+    "search":     "4 hidden by search filters  —  show",
+    "dead":       "4 unavailable (repeated play failures)  —  show",
+    "keywords":   "4 hidden by keywords  —  show",
+    "adult":      "4 hidden as adult content  —  change in Settings",
 }
 
 
@@ -111,6 +107,8 @@ def test_each_segment_renders_its_expected_text(qapp, axis):
     assert getattr(host, axis.attr).text() == _EXPECTED[axis.key], (
         f"{axis.key} renders {getattr(host, axis.attr).text()!r}"
     )
+    from metatv.gui import icon_utils
+    assert icon_utils.button_role(getattr(host, axis.attr)) == axis.icon
 
 
 def test_a_floor_count_is_marked_as_one(qapp):

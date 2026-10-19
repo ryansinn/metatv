@@ -329,7 +329,7 @@ def test_overview_visible_while_loading(qapp, owned_widgets):
     s = owned_widgets.own(_PlotSection())
     s.set_mode(is_live=False)
     s.clear()
-    s.show_loading("...")
+    s.show_loading()
     assert not s.isHidden(), "Overview must be visible while metadata is loading"
 
 

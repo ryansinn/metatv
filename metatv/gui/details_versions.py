@@ -1,4 +1,5 @@
 """Version chips and category-name types for the details pane."""
+import html as _html
 import re as _re
 from dataclasses import dataclass
 
@@ -302,7 +303,7 @@ class _VersionSection(QWidget):
         self._preferred_channel_id = preferred.channel_id if preferred else None
         if preferred:
             self._pref_nudge_lbl.setText(
-                f"{self.config.preferred_version_icon} Preferred: {preferred.name}"
+                f"{_icon_utils.role_html('preferred_version')}&nbsp;Preferred: {_html.escape(preferred.name, quote=False)}"
             )
             self._pref_nudge.show()
 
@@ -441,7 +442,8 @@ class _VersionSection(QWidget):
 
     def _make_back_chip(self, group) -> QPushButton:
         name = resolve_category_name(group.code, self.config) or group.code
-        chip = QPushButton(f"{_icons.back_icon} All regions")
+        chip = QPushButton("All regions")
+        _icon_utils.set_button_icon(chip, "back")
         chip.setFlat(True)
         _theme.style(chip, "DETAIL_REGION_LINK")
         cursor_affordance.set_clickable(chip)
@@ -771,7 +773,7 @@ class _VersionSection(QWidget):
             menu.addSeparator()
             hide_act = menu.addAction(f"Hide this {prefix} version")
             hide_act.setToolTip(f"Hides only: {v.name}")
-            hide_act.setIcon(_icons.glyph_icon(_icons.hide_icon))
+            hide_act.setIcon(_icon_utils.role_icon("hide"))
         menu.addSeparator()
 
         # Admin/destructive rows — no icon (blank column signals a different tier)

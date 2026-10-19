@@ -379,7 +379,6 @@ def test_search_tag_click_adds_under_its_own_facet(qapp):
 
 def test_search_tag_click_reflects_include_mark(qapp):
     """After clicking, the search cloud re-renders the tag with its include mark."""
-    from metatv.gui import icons as _icons
 
     view, seam = _make_view(qapp)
     view._active = True
@@ -389,7 +388,7 @@ def test_search_tag_click_reflects_include_mark(qapp):
     view._cloud._tag_buttons[0].click()  # none → include
 
     # The re-rendered button shows the include icon.
-    assert _icons.tag_include_icon in view._cloud._tag_buttons[0].label_text()
+    assert view._cloud._tag_buttons[0].mark_role() == "tag_include"
 
 
 def test_search_loaded_ignored_when_query_cleared(qapp):
