@@ -1,11 +1,8 @@
 """The details title block's rows, measured (owner, 2026-10-19).
 
-    Tires
-    Series · 2024                       [🦖 TREX Shared]
-    [Comedy]                            7.0 / 10 [TMDb]
-
-    Bonus Money                                 7.4 / 10
-    SEASON 2 · EPISODE 1 OF 12          AIRED 5 JUN 2025
+    SERIES · 2024                       [🦖 TREX Shared]
+    Tires                               7.0 / 10 [TMDb]
+    [Comedy] [Top Series]
 
 Rendered geometry, not structure: the genre chips used to start ~10 px right
 of every other row (Qt's default FlowLayout margins), the rating and the source
@@ -76,14 +73,26 @@ def test_genre_chips_start_at_the_same_edge_as_the_byline(section):
         "default margins are back")
 
 
-def test_the_rating_sits_at_the_right_of_the_genre_row(section):
-    chip = _first_genre_chip(section)
+def test_the_rating_sits_at_the_right_of_the_title_line(section):
+    title = section.title_label
     rating = section._rating_row_w
-    assert abs(_y_mid(rating, section) - _y_mid(chip, section)) <= 4, (
-        "the rating is not on the genres' row")
+    assert abs(_y_mid(rating, section) - _y_mid(title, section)) <= 8, (
+        "the rating is not on the title's line")
     right_gap = section.width() - (_x(rating, section) + rating.width())
     assert right_gap <= 4, f"the rating ends {right_gap}px short of the right edge"
-    assert _x(rating, section) > _x(chip, section) + chip.width()
+
+
+def test_the_collection_chip_ends_the_genre_row(section):
+    section.set_collection("Top Series")
+    layout = section._genres_layout
+    assert layout.itemAt(layout.count() - 1).widget() is section._collection_chip
+    assert not section._collection_chip.isHidden()
+
+
+def test_the_block_is_no_taller_than_it_needs(section):
+    """The gap above "Available in": the block grew toward a size hint that
+    assumed every chip on its own line."""
+    assert section.sizeHint().height() == section.heightForWidth(section.width())
 
 
 def test_the_source_chip_sits_at_the_right_of_the_byline(section):

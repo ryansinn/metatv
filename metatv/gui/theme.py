@@ -711,9 +711,9 @@ def _build_semantic_constants() -> dict[str, object]:
     LIST_TITLE   = "font-weight: bold; font-size: " + FONT_XL + ";"
     FIELD_LABEL  = "font-weight: 600;"
     DETAIL_TITLE = "font-size: " + FONT_3XL + "; font-weight: bold;"
-    # Episode byline — the episode title shown under the series title in episode mode.
-    # Subordinate to the series title (smaller than DETAIL_TITLE) but still emphasized.
-    DETAIL_EPISODE_BYLINE = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
+    # The smaller of two titles in episode mode — the SHOW's title once an
+    # episode is the subject (the episode title takes DETAIL_TITLE).
+    DETAIL_TITLE_SECOND = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
     DETAIL_TEXT  = "color: " + COLOR_LIGHTGRAY + ";"
     META_DIM     = "color: " + COLOR_GRAY + ";"
     LOADING_TEXT = "color: " + COLOR_GRAY + "; font-style: italic;"

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
@@ -71,6 +71,7 @@ class _MetadataSection(QWidget):
         self._byline_runtime = ""
         self._byline_content_rating = ""
         self._is_live = False
+        self._episode_mode = False
         self._metadata_genres: list[str] = []
         self._tag_genre_items: list = []
         self._tmdb_id: str | None = None
@@ -110,8 +111,9 @@ class _MetadataSection(QWidget):
         layout.addWidget(byline_row)
         self._byline_row_layout = byline_row_layout  # the source chips join it below
 
-        # Title bar — unchanged.  Nothing else shares the row, so a long
-        # title gets (effectively) the whole width to wrap in.
+        # Title bar — the title, and the rating at the right end of the same
+        # line (owner 2026-10-19). An episode's block goes directly under it
+        # (place_under_title), so the series' genres follow the episode.
         title_bar = QWidget()
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(0, 0, 0, 0)
@@ -127,21 +129,15 @@ class _MetadataSection(QWidget):
         _theme.style(self.title_label, "DETAIL_TITLE")
         title_bar_layout.addWidget(self.title_label, 1)
         layout.addWidget(title_bar)
+        self._title_bar = title_bar
 
         # Genres — metadata genres first, then tag genres (facet "genre") not
         # already present; a guessed tag genre renders dashed.  A wrapping
-        # flow row so it never forces the pane wider than its viewport.
-        # Genres share their row with the rating (owner 2026-10-19): genres
-        # flow from the left edge, the rating sits at the right.
-        genre_row = QWidget()
-        genre_row_layout = QHBoxLayout(genre_row)
-        genre_row_layout.setContentsMargins(0, 0, 0, 0)
-        genre_row_layout.setSpacing(8)
-
+        # flow row of its own, flush left, so it never forces the pane wider.
         self._genres_loading_lbl = QLabel()
         _theme.style(self._genres_loading_lbl, "TEXT_MD")
         self._genres_loading_lbl.hide()
-        genre_row_layout.addWidget(self._genres_loading_lbl)
+        layout.addWidget(self._genres_loading_lbl)
 
         self._genres_container = QWidget()
         self._genres_container.setSizePolicy(
@@ -152,10 +148,7 @@ class _MetadataSection(QWidget):
         # genre chips past every other row's left edge.
         self._genres_layout.setContentsMargins(0, 0, 0, 0)
         self._genres_container.hide()
-        genre_row_layout.addWidget(self._genres_container, 1, Qt.AlignmentFlag.AlignTop)
-        # Takes the slack only while the genres are hidden, so the rating
-        # still sits at the right.
-        genre_row_layout.addStretch(0)
+        layout.addWidget(self._genres_container)
 
         # Rating row — "8.0 / 10" (no stars) + framed TMDb/IMDb chips, shown
         # only when the id exists.  Left-click a chip copies its id and
@@ -181,14 +174,13 @@ class _MetadataSection(QWidget):
         self._imdb_chip.setProperty("id_kind", "imdb")
         self._imdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
 
-        # One line when there is room (it shares the genre row), but still a
-        # flow, so a narrow pane wraps it instead of being forced wider.
+        # One line when there is room (it shares the title's line), but still
+        # a flow, so a narrow pane wraps it instead of being forced wider.
         self._rating_row_w = make_flow(
             [self.rating_label, self._tmdb_chip, self._imdb_chip], prefer_one_line=True)
         self._rating_row_w.hide()
-        genre_row_layout.addWidget(
-            self._rating_row_w, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(genre_row)
+        title_bar_layout.addWidget(
+            self._rating_row_w, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         # Tagline — italic subtitle line, shown when metadata provides it.
         self._tagline_lbl = QLabel()
@@ -209,8 +201,10 @@ class _MetadataSection(QWidget):
         self._collection_chip.clicked.connect(self._on_collection_chip_clicked)
         self._collection_chip.hide()
 
-        self._source_row_w = make_flow(
-            [self._source_chip, self._collection_chip], prefer_one_line=True)
+        # The collection chip is NOT here: it is a grouping like a genre, so it
+        # ends the genre row in its own colour (owner 2026-10-19); the source
+        # chip says where the copy comes from and stays on the kicker line.
+        self._source_row_w = make_flow([self._source_chip], prefer_one_line=True)
         self._source_row_w.hide()
         self._byline_row_layout.addWidget(
             self._source_row_w, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -225,10 +219,32 @@ class _MetadataSection(QWidget):
         # The two shared rows hold wrapping flows; without height-for-width the
         # pane sizes this block as if every flow were wrapped at its narrowest
         # and the slack shows up as a gap under the genres.
-        for _row in (self._byline_row_layout.parentWidget(), genre_row, self):
+        # Never taller than it needs (sizeHint below): spare height in the pane
+        # belongs below the sections, not inside this block.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        for _row in (self._byline_row_layout.parentWidget(), title_bar, self):
             enable_height_for_width(_row)
         # Any height beyond that goes below the block, never into its rows.
         layout.addStretch(1)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        """The block's REAL height at its current width.
+
+        Wrapped text and chip flows can only say how tall they are once they
+        know their width; their plain hints assume the worst (every chip on its
+        own line, the title in a narrow column) — 187 px for a block that needs
+        131. Given spare room, the pane grew the block toward that hint, and
+        the difference sat as a gap above "Available in".
+        """
+        hint = super().sizeHint()
+        if self.width() > 0:
+            hint.setHeight(self.heightForWidth(self.width()))
+        return hint
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self.updateGeometry()   # the height that fits depends on the width
 
     def set_mode(self, is_live: bool) -> None:
         self._is_live = is_live
@@ -236,10 +252,21 @@ class _MetadataSection(QWidget):
         if is_live:
             self._genres_loading_lbl.hide()
             self._genres_container.hide()
-            _theme.style(self.title_label, "DETAIL_TITLE")
             self._tagline_lbl.hide()
-        else:
-            _theme.style(self.title_label, "DETAIL_TITLE")
+
+    def set_episode_mode(self, on: bool) -> None:
+        """An episode is the subject: the show's title steps down to the
+        episode-title size (the episode takes the big size) and the show's
+        rating hides, leaving only the episode's (owner 2026-10-19)."""
+        self._episode_mode = on
+        _theme.style(self.title_label, "DETAIL_TITLE_SECOND" if on else "DETAIL_TITLE")
+        self._refresh_rating_row_visibility()
+
+    def place_under_title(self, widget: QWidget) -> None:
+        """Put *widget* (the pane's episode block) directly under the title,
+        above the genres, which belong to the show."""
+        layout = self.layout()
+        layout.insertWidget(layout.indexOf(self._title_bar) + 1, widget)
 
     def _refresh_byline(self) -> None:
         """Rebuild "Movie · 2024 · 2h 28m · PG-13" from whichever parts are known.
@@ -263,7 +290,8 @@ class _MetadataSection(QWidget):
             or not self._tmdb_chip.isHidden()
             or not self._imdb_chip.isHidden()
         )
-        self._rating_row_w.setVisible(has_content and not self._is_live)
+        self._rating_row_w.setVisible(
+            has_content and not self._is_live and not self._episode_mode)
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata.
@@ -477,11 +505,27 @@ class _MetadataSection(QWidget):
     # ------------------------------------------------------------------ #
 
     def _clear_genre_chips(self) -> None:
-        """Remove all genre chip buttons from the flow layout."""
+        """Remove all genre chip buttons from the flow layout (the collection
+        chip, which shares the row, is kept and re-appended)."""
         while self._genres_layout.count():
             item = self._genres_layout.takeAt(0)
-            if w := item.widget():
+            w = item.widget()
+            if w is not None and w is not self._collection_chip:
                 w.deleteLater()
+
+    def _sync_genre_row(self) -> None:
+        """Put the collection chip last on the genre row and show the row
+        while it holds anything visible."""
+        idx = self._genres_layout.indexOf(self._collection_chip)
+        if idx >= 0:
+            self._genres_layout.takeAt(idx)
+        self._genres_layout.addWidget(self._collection_chip)
+        shown = any(
+            not self._genres_layout.itemAt(i).widget().isHidden()
+            for i in range(self._genres_layout.count())
+        )
+        self._genres_container.updateGeometry()
+        self._genres_container.setVisible(shown)
 
     def _populate_genre_chips(self, genres: list[str]) -> None:
         """Replace the flow layout contents with one chip button per genre."""
@@ -492,8 +536,7 @@ class _MetadataSection(QWidget):
             chip.setProperty("genre", g)
             chip.clicked.connect(self._on_genre_chip_clicked)
             self._genres_layout.addWidget(chip)
-        self._genres_container.updateGeometry()
-        self._genres_container.show()
+        self._sync_genre_row()
 
     def _rebuild_genre_row(self) -> None:
         """Rebuild the genre row from the metadata genres plus any tag genres.
@@ -504,7 +547,8 @@ class _MetadataSection(QWidget):
         """
         if self._is_live:
             self._genres_loading_lbl.hide()
-            self._genres_container.hide()
+            self._clear_genre_chips()
+            self._sync_genre_row()   # a live channel can still have a collection
             return
         self._populate_genre_chips(self._metadata_genres)
         seen = {g.casefold() for g in self._metadata_genres}
@@ -522,7 +566,7 @@ class _MetadataSection(QWidget):
             chip.clicked.connect(self._on_genre_chip_clicked)
             self._genres_layout.addWidget(chip)
         self._genres_loading_lbl.hide()
-        self._genres_container.setVisible(self._genres_layout.count() > 0)
+        self._sync_genre_row()
 
     # ------------------------------------------------------------------ #
     # Source / collection row — private helpers                            #
@@ -531,6 +575,8 @@ class _MetadataSection(QWidget):
     def _rebuild_source_row(self) -> None:
         if self._source_provider_id is None:
             self._source_row_w.hide()
+            self._collection_chip.hide()
+            self._sync_genre_row()
             return
         self._source_chip.setText(escape_mnemonic(self._source_text))
         self._source_chip.setToolTip("Click to copy this copy's channel id")
@@ -544,6 +590,7 @@ class _MetadataSection(QWidget):
         else:
             self._collection_chip.hide()
         self._source_row_w.show()
+        self._sync_genre_row()
 
     def _on_source_chip_clicked(self) -> None:
         """Copy the channel id — what the source line always did. (DETAILS-3b
