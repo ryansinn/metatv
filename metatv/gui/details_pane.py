@@ -579,9 +579,10 @@ class DetailsPaneWidget(QWidget):
         self._source_notice_lbl.hide()
 
         # Episode head (owner 2026-10-19), shown only in episode mode:
-        #   SEASON 2 · EPISODE 1 OF 12            AIRED 5 JUN 2025
         #   Bonus Money                                  7.4 / 10
-        # The eyebrow says what the title below it is; each row keeps its
+        #   SEASON 2 · EPISODE 1 OF 12            AIRED 5 JUN 2025
+        # The line UNDER the title says where it sits (owner 2026-10-19);
+        # each row keeps its
         # second fact at the right edge, as the genre/rating row above does.
         self._episode_meta_row = QWidget()
         _episode_head = QVBoxLayout(self._episode_meta_row)
@@ -598,7 +599,6 @@ class DetailsPaneWidget(QWidget):
         _theme.style(self._episode_air_date_lbl, "DETAIL_GROUP_HEADING")
         self._episode_air_date_lbl.hide()
         _eyebrow_row.addWidget(self._episode_air_date_lbl, 0, Qt.AlignmentFlag.AlignRight)
-        _episode_head.addLayout(_eyebrow_row)
 
         _title_row = QHBoxLayout()
         _title_row.setSpacing(8)
@@ -609,6 +609,7 @@ class DetailsPaneWidget(QWidget):
         _title_row.addWidget(
             self._episode_rating_lbl, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         _episode_head.addLayout(_title_row)
+        _episode_head.addLayout(_eyebrow_row)
         self._episode_meta_row.hide()
 
         self._versions = _VersionSection(self.config)

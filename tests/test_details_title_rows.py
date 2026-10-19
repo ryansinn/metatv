@@ -4,8 +4,8 @@
     Series · 2024                       [🦖 TREX Shared]
     [Comedy]                            7.0 / 10 [TMDb]
 
-    SEASON 2 · EPISODE 1 OF 12          AIRED 5 JUN 2025
     Bonus Money                                 7.4 / 10
+    SEASON 2 · EPISODE 1 OF 12          AIRED 5 JUN 2025
 
 Rendered geometry, not structure: the genre chips used to start ~10 px right
 of every other row (Qt's default FlowLayout margins), the rating and the source
@@ -155,7 +155,7 @@ def test_air_date_and_episode_rating_sit_at_the_right_of_their_rows(pane, qapp):
 
     assert abs(_y_mid(aired, head) - _y_mid(eyebrow, head)) <= 3
     assert head.width() - (_x(aired, head) + aired.width()) <= 2
-    assert _y_mid(eyebrow, head) < _y_mid(title, head), "the eyebrow is not above the title"
+    assert _y_mid(eyebrow, head) > _y_mid(title, head), "the season/episode line is not under the title"
 
     assert abs(_y_mid(rating, head) - _y_mid(title, head)) <= 8
     assert head.width() - (_x(rating, head) + rating.width()) <= 2
