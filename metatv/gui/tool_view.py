@@ -12,11 +12,13 @@ Subclass ``ToolView`` instead of ``QWidget`` for a new Tools-menu view.
 """
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
 from loguru import logger
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.content_view import ContentView
 
@@ -64,7 +66,8 @@ class ToolView(ContentView):
         Verbatim top bar every one of the four views built by copy.
         """
         top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.prev_icon + " Back")
+        back_btn = QPushButton("Back")
+        _icon_utils.set_button_icon(back_btn, "back")
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title_label = QLabel(title)
@@ -98,6 +101,6 @@ class ToolView(ContentView):
         detail = str(exc_or_text)
         logger.warning("Panel load failed: {}", detail)
         clear_layout(layout)
-        err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load — {detail}")
+        err = QLabel(f"{_icon_utils.role_html('warning')}&nbsp;Couldn't load — {_html.escape(detail, quote=False)}")
         _theme.style(err, "SECTION_HINT")
         layout.addWidget(err)

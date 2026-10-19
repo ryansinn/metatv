@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from metatv.gui import icons as _icons
 from metatv.gui.tool_view import ToolView, clear_layout
 
 
@@ -43,7 +42,8 @@ def test_show_panel_error_renders_one_row_with_warning_icon_and_detail(qtbot) ->
     assert layout.count() == 1
     label = layout.itemAt(0).widget()
     assert isinstance(label, QLabel)
-    assert _icons.notification_warning_icon in label.text()
+    from metatv.gui import icon_utils
+    assert icon_utils.role_html("warning") in label.text()
     assert "database is locked" in label.text()
 
 

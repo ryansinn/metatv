@@ -20,12 +20,15 @@ text (never colour alone).
 
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QFrame,
 )
 
 from metatv.core.repositories.dtos import TmdbFunnelDTO, MissingTmdbSourceDTO
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.tool_view import ToolView, clear_layout
 
@@ -52,7 +55,7 @@ class MissingTmdbView(ToolView):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = self.build_top_bar(f"{_icons.missing_data_icon}  Missing TMDb Data")
+        top_bar = self.build_top_bar(f"{_icon_utils.role_html('missing_data')}&nbsp; Missing TMDb Data")
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -70,7 +73,7 @@ class MissingTmdbView(ToolView):
         content_layout.addSpacing(16)
         content_layout.addWidget(self.section_header("Idless Titles by Source"))
         hint = QLabel(
-            f"{_icons.info_icon}  Opening this view asks your providers for the "
+            f"{_icon_utils.role_html('info')}&nbsp; Opening this view asks your providers for the "
             "TMDb ids of the sampled titles — the counts shrink as ids arrive."
         )
         _theme.style(hint, "SECTION_HINT")
@@ -137,7 +140,7 @@ class MissingTmdbView(ToolView):
             return
 
         headline = QLabel(
-            f"{_icons.notification_success_icon}  Source methods identified "
+            f"{_icon_utils.role_html('notification_success')}&nbsp; Source methods identified "
             f"{dto.resolved_pct:.0f}% of {dto.total_vod:,} titles "
             f"({dto.resolved:,} with a TMDb id)."
         )
@@ -147,16 +150,16 @@ class MissingTmdbView(ToolView):
 
         # Provenance breakdown — icon + label + count (never colour alone).
         for glyph, label, count in (
-            (_icons.notification_info_icon or _icons.info_icon, "From source list", dto.from_list),
-            (_icons.recipe_check_icon, "Propagated from a title sibling", dto.propagated),
-            (_icons.search_icon, "Fetched from source detail", dto.fetched),
+            (_icon_utils.role_html('info'), "From source list", dto.from_list),
+            (_icon_utils.role_html('tag_include'), "Propagated from a title sibling", dto.propagated),
+            (_icon_utils.role_html('search'), "Fetched from source detail", dto.fetched),
             (_icons.playback_neutral_icon, "Not yet attempted", dto.unattempted),
         ):
             self._funnel_layout.addWidget(self._stat_row(glyph, label, count, dto.total_vod))
 
         # The residual — the only-TMDb-API-addressable gap (the decision point).
         residual = QLabel(
-            f"{_icons.notification_warning_icon}  {dto.residual:,} titles "
+            f"{_icon_utils.role_html('warning')}&nbsp; {dto.residual:,} titles "
             f"({dto.residual_pct:.0f}%) remain that only the TMDb API could resolve "
             "(provider detail was asked and carried no id)."
         )
@@ -167,7 +170,7 @@ class MissingTmdbView(ToolView):
 
     def _stat_row(self, glyph: str, label: str, count: int, total: int) -> QLabel:
         pct = (count / total * 100.0) if total else 0.0
-        prefix = f"{glyph}  " if glyph else ""
+        prefix = f"{glyph}&nbsp; " if glyph else ""
         row = QLabel(f"{prefix}{label}: {count:,} ({pct:.0f}%)")
         _theme.style(row, "SECTION_HINT")
         return row
@@ -179,7 +182,7 @@ class MissingTmdbView(ToolView):
 
         if not groups:
             done = QLabel(
-                f"{_icons.notification_success_icon}  Every visible title has a TMDb id."
+                f"{_icon_utils.role_html('notification_success')}&nbsp; Every visible title has a TMDb id."
             )
             _theme.style(done, "SECTION_HINT")
             self._sources_layout.addWidget(done)
@@ -199,7 +202,7 @@ class MissingTmdbView(ToolView):
         block_layout.setContentsMargins(0, 4, 0, 8)
 
         header = QLabel(
-            f"{_icons.provider_icon}  {group.provider_name} — "
+            f"{_icon_utils.role_html('provider')}&nbsp; {_html.escape(group.provider_name, quote=False)} — "
             f"{group.missing_count:,} without an id"
             + (f"  ({group.residual_count:,} TMDb-API-only)" if group.residual_count else "")
         )
@@ -208,14 +211,14 @@ class MissingTmdbView(ToolView):
         block_layout.addWidget(header)
 
         for row in group.sample:
-            mtype = _icons.movie_icon if row.media_type == "movie" else _icons.series_icon
+            mtype = _icon_utils.role_html('movie') if row.media_type == "movie" else _icon_utils.role_html('series')
             if row.tmdb_addressable:
-                flag = f"{_icons.notification_success_icon} likely matchable"
+                flag = f"{_icon_utils.role_html('notification_success')} likely matchable"
             else:
-                flag = f"{_icons.notification_warning_icon} unclear title"
+                flag = f"{_icon_utils.role_html('warning')} unclear title"
             title = row.detected_title or row.name
             year = f" ({row.detected_year})" if row.detected_year else ""
-            line = QLabel(f"    {mtype}  {title}{year}  ·  {flag}")
+            line = QLabel(f"&nbsp;&nbsp;&nbsp;&nbsp;{mtype}  {_html.escape(title, quote=False)}{year}  ·  {flag}")
             _theme.style(line, "SECTION_HINT")
             line.setWordWrap(True)
             block_layout.addWidget(line)

@@ -14,6 +14,8 @@ mid-flight (auto-started at launch, or left running from a prior visit).
 
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
@@ -21,6 +23,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.tool_view import ToolView, clear_layout
 
@@ -49,7 +52,7 @@ class MetadataEnrichmentView(ToolView):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = self.build_top_bar(f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment")
+        top_bar = self.build_top_bar(f"{_icon_utils.role_html('metadata_enrich')}&nbsp; Background Metadata Enrichment")
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -58,7 +61,7 @@ class MetadataEnrichmentView(ToolView):
 
         content_layout.addWidget(self.section_header("Status"))
         hint = QLabel(
-            f"{_icons.info_icon}  Fills in missing/stale posters, plot, cast and "
+            f"{_icon_utils.role_html('info')}&nbsp; Fills in missing/stale posters, plot, cast and "
             "ratings across your library — favorited, queued, and recently played "
             "titles first. Safe to pause or close the app; it resumes where it "
             "left off."
@@ -88,19 +91,22 @@ class MetadataEnrichmentView(ToolView):
         content_layout.addWidget(self._failed_label)
 
         controls = QHBoxLayout()
-        self._start_btn = QPushButton(f"{_icons.play_icon} Start")
+        self._start_btn = QPushButton("Start")
+        _icon_utils.set_button_icon(self._start_btn, "play")
         self._start_btn.setToolTip("Begin (or resume) a background enrichment pass")
         _theme.style(self._start_btn, "SAVE_BTN")
         self._start_btn.clicked.connect(self._on_start_clicked)
         controls.addWidget(self._start_btn)
 
-        self._pause_btn = QPushButton(f"{_icons.enrich_pause_icon} Pause")
+        self._pause_btn = QPushButton("Pause")
+        _icon_utils.set_button_icon(self._pause_btn, "enrich_pause")
         self._pause_btn.setToolTip("Pause after the current title finishes")
         _theme.style(self._pause_btn, "PANEL_BTN")
         self._pause_btn.clicked.connect(self._on_pause_clicked)
         controls.addWidget(self._pause_btn)
 
-        self._cancel_btn = QPushButton(f"{_icons.enrich_cancel_icon} Cancel")
+        self._cancel_btn = QPushButton("Cancel")
+        _icon_utils.set_button_icon(self._cancel_btn, "enrich_cancel")
         self._cancel_btn.setToolTip("Stop this pass after the current title finishes")
         _theme.style(self._cancel_btn, "DELETE_BTN")
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
@@ -180,18 +186,17 @@ class MetadataEnrichmentView(ToolView):
     def _render_state(self, state: str) -> None:
         labels = {
             "idle": (f"{_icons.playback_neutral_icon}  Idle — no pass has run yet", False),
-            "running": (f"{_icons.notification_progress_icon}  Running…", True),
-            "paused": (f"{_icons.enrich_pause_icon}  Paused", False),
-            "cancelled": (f"{_icons.notification_warning_icon}  Cancelled", False),
-            "finished": (f"{_icons.notification_success_icon}  Up to date", False),
+            "running": (f"{_icon_utils.role_html('loading')}&nbsp; Running…", True),
+            "paused": (f"{_icon_utils.role_html('enrich_pause')}&nbsp; Paused", False),
+            "cancelled": (f"{_icon_utils.role_html('warning')}&nbsp; Cancelled", False),
+            "finished": (f"{_icon_utils.role_html('notification_success')}&nbsp; Up to date", False),
         }
         text, running = labels.get(state, (state, False))
         self._state_label.setText(text)
 
         self._start_btn.setEnabled(not running)
-        self._start_btn.setText(
-            f"{_icons.play_icon} " + ("Resume" if state == "paused" else "Start")
-        )
+        self._start_btn.setText("Resume" if state == "paused" else "Start")
+        _icon_utils.set_button_icon(self._start_btn, "play")
         self._pause_btn.setEnabled(running)
         self._cancel_btn.setEnabled(running or state == "paused")
 
@@ -208,17 +213,17 @@ class MetadataEnrichmentView(ToolView):
 
     def _render_failures(self, failed_count: int, recent_failures) -> None:
         self._failed_label.setText(
-            f"{_icons.notification_warning_icon}  {failed_count:,} failed this pass"
+            f"{_icon_utils.role_html('warning')}&nbsp; {failed_count:,} failed this pass"
             if failed_count else ""
         )
         clear_layout(self._failures_layout)
         if not recent_failures:
-            empty = QLabel(f"{_icons.notification_success_icon}  No failures yet.")
+            empty = QLabel(f"{_icon_utils.role_html('notification_success')}&nbsp;No failures yet.")
             _theme.style(empty, "SECTION_HINT")
             self._failures_layout.addWidget(empty)
             return
         for title, reason in list(recent_failures)[-_VISIBLE_FAILURES:]:
-            row = QLabel(f"{_icons.notification_error_icon}  {title} — {reason}")
+            row = QLabel(f"{_icon_utils.role_html('notification_error')}&nbsp;{_html.escape(title, quote=False)} — {reason}")
             _theme.style(row, "SECTION_HINT")
             row.setWordWrap(True)
             self._failures_layout.addWidget(row)

@@ -24,6 +24,8 @@ a cheap single-row write run synchronously on the main thread (same pattern as
 
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QPushButton, QFrame,
 )
@@ -31,7 +33,7 @@ from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.dtos import ReconnectCandidateDTO
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.tool_view import ToolView, clear_layout
 
@@ -55,8 +57,9 @@ class ReconnectEngagedView(ToolView):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        top_bar = self.build_top_bar(f"{_icons.reconnect_icon}  Reconnect Engaged Content")
-        self._reconnect_all_btn = QPushButton(f"{_icons.reconnect_icon} Reconnect All")
+        top_bar = self.build_top_bar(f"{_icon_utils.role_html('reconnect')}&nbsp; Reconnect Engaged Content")
+        self._reconnect_all_btn = QPushButton("Reconnect All")
+        _icon_utils.set_button_icon(self._reconnect_all_btn, "reconnect")
         self._reconnect_all_btn.setToolTip(
             "Move every matched row's engagement onto its proposed live replacement"
         )
@@ -66,7 +69,7 @@ class ReconnectEngagedView(ToolView):
         top_bar.addWidget(self._reconnect_all_btn)
 
         hint = QLabel(
-            f"{_icons.info_icon}  When a source is removed, your favorited/watched/"
+            f"{_icon_utils.role_html('info')}&nbsp; When a source is removed, your favorited/watched/"
             "queued content from it is kept but stranded. These rows have a "
             "same-title match on one of your active sources — reconnecting moves "
             "your favorite, watch history, resume position, rating, and queue "
@@ -128,7 +131,7 @@ class ReconnectEngagedView(ToolView):
 
         if not candidates:
             done = QLabel(
-                f"{_icons.notification_success_icon}  No orphaned engaged content — "
+                f"{_icon_utils.role_html('notification_success')}&nbsp; No orphaned engaged content — "
                 "everything you've favorited, watched, or queued is on an active source."
             )
             _theme.style(done, "SECTION_HINT")
@@ -145,16 +148,16 @@ class ReconnectEngagedView(ToolView):
         row_layout.setContentsMargins(0, 6, 0, 10)
 
         mtype_icon = {
-            "movie": _icons.movie_icon, "series": _icons.series_icon,
-        }.get(candidate.media_type or "", _icons.unknown_icon)
+            "movie": _icon_utils.role_html('movie'), "series": _icon_utils.role_html('series'),
+        }.get(candidate.media_type or "", _icon_utils.role_html('unknown'))
         title = candidate.detected_title or candidate.orphan_name
         year = f" ({candidate.detected_year})" if candidate.detected_year else ""
-        header = QLabel(f"{mtype_icon}  {title}{year}  ·  was on {candidate.provider_name}")
+        header = QLabel(f"{mtype_icon}  {_html.escape(title, quote=False)}{year}  ·  was on {_html.escape(candidate.provider_name, quote=False)}")
         _theme.style(header, "SECTION_HDR")
         header.setWordWrap(True)
         row_layout.addWidget(header)
 
-        engaged_line = QLabel(f"    {self._engagement_summary(candidate)}")
+        engaged_line = QLabel(f"&nbsp;&nbsp;&nbsp;&nbsp;{self._engagement_summary(candidate)}")
         _theme.style(engaged_line, "SECTION_HINT")
         engaged_line.setWordWrap(True)
         row_layout.addWidget(engaged_line)
@@ -165,14 +168,15 @@ class ReconnectEngagedView(ToolView):
             match_title = match.detected_title or match.name
             quality = f" ({match.detected_quality})" if match.detected_quality else ""
             match_label = QLabel(
-                f"    {_icons.notification_success_icon} Match: {match_title}{quality} "
-                f"on {match.provider_name}"
+                f"&nbsp;&nbsp;&nbsp;&nbsp;{_icon_utils.role_html('notification_success')} Match: {_html.escape(match_title, quote=False)}{quality} "
+                f"on {_html.escape(match.provider_name, quote=False)}"
             )
             _theme.style(match_label, "SECTION_HINT")
             match_label.setWordWrap(True)
             action_row.addWidget(match_label, 1)
 
-            reconnect_btn = QPushButton(f"{_icons.reconnect_icon} Reconnect")
+            reconnect_btn = QPushButton("Reconnect")
+            _icon_utils.set_button_icon(reconnect_btn, "reconnect")
             reconnect_btn.setToolTip("Move this row's engagement onto the matched live channel")
             _theme.style(reconnect_btn, "PANEL_BTN")
             orphan_id, live_id = candidate.orphan_id, match.channel_id
@@ -182,7 +186,7 @@ class ReconnectEngagedView(ToolView):
             action_row.addWidget(reconnect_btn)
         else:
             unmatched_label = QLabel(
-                f"    {_icons.notification_warning_icon} No live match found on an active source"
+                f"&nbsp;&nbsp;&nbsp;&nbsp;{_icon_utils.role_html('warning')} No live match found on an active source"
             )
             _theme.style(unmatched_label, "SECTION_HINT")
             unmatched_label.setWordWrap(True)
@@ -195,21 +199,21 @@ class ReconnectEngagedView(ToolView):
         """One line describing exactly what a reconnect would move for this row."""
         parts: list[str] = []
         if candidate.is_favorite:
-            parts.append(f"{_icons.favorite_icon} favorited")
+            parts.append(f"{_icon_utils.role_html('favorite')} favorited")
         if candidate.last_played is not None:
-            parts.append(f"{_icons.history_icon} watched")
+            parts.append(f"{_icon_utils.role_html('history')} watched")
         if candidate.play_count:
             parts.append(f"played {candidate.play_count}×")
         if candidate.watch_completed:
-            parts.append(f"{_icons.watched_icon} completed")
+            parts.append(f"{_icon_utils.role_html('watched')} completed")
         elif candidate.watch_progress:
             parts.append(f"{candidate.watch_percent}% watched")
         if candidate.user_rating == 1:
-            parts.append(_icons.like_icon)
+            parts.append(_icon_utils.role_html('like'))
         elif candidate.user_rating == -1:
-            parts.append(_icons.dislike_icon)
+            parts.append(_icon_utils.role_html('dislike'))
         if candidate.in_queue:
-            parts.append(f"{_icons.queue_icon} queued")
+            parts.append(f"{_icon_utils.role_html('queue')} queued")
         return "Will move: " + (", ".join(parts) if parts else "engagement")
 
     # ── Reconnect actions ───────────────────────────────────────────────────

@@ -493,7 +493,7 @@ def _clear_watch_icon_cache() -> None:
 
 
 def watch_icon(glyph: str, muted: bool) -> object:
-    """Return a QIcon rendering *glyph* in solid or muted color.
+    """Return the mdi6 QIcon for watch-state *glyph*, in solid or muted color.
 
     MUST be called on the main thread -- builds a QPixmap on first use.
 
@@ -514,37 +514,12 @@ def watch_icon(glyph: str, muted: bool) -> object:
     if cache_key in _WATCH_ICON_CACHE:
         return _WATCH_ICON_CACHE[cache_key]
 
-    from PyQt6.QtCore import QRect, Qt
-    from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
-    from PyQt6.QtWidgets import QApplication
-
-    color_str = _theme.COLOR_MUTED if muted else _theme.COLOR_TEXT
-    color = QColor(color_str)
-
-    # Render the glyph HiDPI-aware: create the pixmap at physical resolution
-    # and set the device pixel ratio so Qt renders it crisply on Retina displays.
-    size = 14
-    screen = QApplication.primaryScreen()
-    dpr = screen.devicePixelRatio() if screen is not None else 1.0
-    phys = int(size * dpr)
-    pixmap = QPixmap(phys, phys)
-    pixmap.setDevicePixelRatio(dpr)
-    pixmap.fill(Qt.GlobalColor.transparent)
-
-    painter = QPainter(pixmap)
-    font = QFont()
-    # Use the FONT_LG token (12px) — never a raw pixel literal.
-    font.setPixelSize(int(_theme.FONT_LG.replace("px", "")))
-    painter.setFont(font)
-    painter.setPen(color)
-    # Draw into the LOGICAL-size rect (size×size), not pixmap.rect() (which is
-    # the device rect, e.g. 28×28 at dpr=2).  With setDevicePixelRatio the
-    # painter works in logical coords, so using the device rect centers the
-    # glyph in a box twice too big and pushes it into a corner.
-    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, glyph)
-    painter.end()
-
-    icon = QIcon(pixmap)
+    # Drawn from the one icon set: each watch glyph maps to its mdi6 role.
+    from metatv.gui import icon_utils as _icon_utils  # local: icon_utils imports this module
+    role = {watched_icon: "watched", partial_watched_q1_icon: "partial_watched_q1",
+            partial_watched_icon: "partial_watched", partial_watched_q3_icon: "partial_watched_q3",
+            episode_icon: "episode"}.get(glyph, "episode")
+    icon = _icon_utils.role_icon(role, _theme.COLOR_MUTED if muted else _theme.COLOR_TEXT)
     _WATCH_ICON_CACHE[cache_key] = icon
     return icon
 

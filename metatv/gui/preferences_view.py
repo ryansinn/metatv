@@ -19,7 +19,6 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import deferred_config_save as _cfgsave
@@ -167,8 +166,9 @@ class _RecRow(QWidget):
         hl.setSpacing(4)
 
         if already_liked:
-            liked_lbl = QLabel(config.like_icon)
+            liked_lbl = QLabel()
             liked_lbl.setFixedWidth(18)
+            _icon_utils.set_label_icon(liked_lbl, "like")
             hl.addWidget(liked_lbl)
 
         lbl = QLabel(text)
@@ -281,7 +281,7 @@ class PreferencesView(QWidget):
 
         # Recommendations list
         rec_header = QHBoxLayout()
-        rec_label = QLabel(f"<b>{self.config.discover_icon} Recommended for you</b>  "
+        rec_label = QLabel(f"<b>{_icon_utils.role_html('discover')}&nbsp;Recommended for you</b>  "
                            "<small>(double-click to play)</small>")
         rec_label.setTextFormat(Qt.TextFormat.RichText)
         rec_header.addWidget(rec_label)
@@ -298,7 +298,8 @@ class PreferencesView(QWidget):
 
         # Exclusions panel — collapsible, at the bottom
         excl_header = QHBoxLayout()
-        self._excl_toggle_btn = QPushButton(f"{_icons.expand_icon} Excluded (0)")
+        self._excl_toggle_btn = QPushButton("Excluded (0)")
+        _icon_utils.set_button_icon(self._excl_toggle_btn, "expand")
         self._excl_toggle_btn.setFlat(True)
         _theme.style_fn(self._excl_toggle_btn, lambda: f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
@@ -422,10 +423,8 @@ class PreferencesView(QWidget):
         # The chevron is derived from the RESTORED state, not hardcoded to "expand": now that the
         # section remembers being open, a fixed glyph would contradict it on the next launch.
         _ver_open = bool(getattr(self.config, "preferences_version_prefs_expanded", False))
-        self._ver_prefs_toggle_btn = QPushButton(
-            f"{_icons.collapse_icon if _ver_open else _icons.expand_icon}"
-            f" Version Preferences"
-        )
+        self._ver_prefs_toggle_btn = QPushButton("Version Preferences")
+        _icon_utils.set_button_icon(self._ver_prefs_toggle_btn, "collapse" if _ver_open else "expand")
         self._ver_prefs_toggle_btn.setToolTip(
             ("Collapse" if _ver_open else "Expand") + " Version Preferences")
         self._ver_prefs_toggle_btn.setFlat(True)
@@ -522,8 +521,7 @@ class PreferencesView(QWidget):
     def _toggle_version_prefs(self) -> None:
         visible = not self._ver_prefs_container.isVisible()
         self._ver_prefs_container.setVisible(visible)
-        icon = _icons.collapse_icon if visible else _icons.expand_icon
-        self._ver_prefs_toggle_btn.setText(f"{icon} Version Preferences")
+        _icon_utils.set_button_icon(self._ver_prefs_toggle_btn, "collapse" if visible else "expand")
         self._ver_prefs_toggle_btn.setToolTip(
             ("Collapse" if visible else "Expand") + " Version Preferences")
         self.config.preferences_version_prefs_expanded = visible
@@ -618,8 +616,8 @@ class PreferencesView(QWidget):
 
         total = attr_count + chan_count + dedup_count
         open_ = self._excl_container.isVisible()
-        arrow = _icons.collapse_icon if open_ else _icons.expand_icon
-        self._excl_toggle_btn.setText(f"{arrow} Excluded ({total})")
+        self._excl_toggle_btn.setText(f"Excluded ({total})")
+        _icon_utils.set_button_icon(self._excl_toggle_btn, "collapse" if open_ else "expand")
         self._excl_toggle_btn.setToolTip(
             ("Collapse" if open_ else "Expand") + f" Excluded ({total})")
 
@@ -704,13 +702,13 @@ class PreferencesView(QWidget):
         if weights.is_empty():
             self._header_label.setText(
                 "No ratings yet — right-click movies or series and choose "
-                f"{self.config.like_icon} Like or {self.config.dislike_icon} Dislike"
+                f"{_icon_utils.role_html('like')} Like or {_icon_utils.role_html('dislike')} Dislike"
             )
         else:
             self._header_label.setText(
                 f"{weights.rated_count} rated  ·  "
-                f"{self.config.like_icon} {weights.liked_count}  "
-                f"{self.config.dislike_icon} {weights.disliked_count}"
+                f"{_icon_utils.role_html('like')} {weights.liked_count}&nbsp;&nbsp;"
+                f"{_icon_utils.role_html('dislike')} {weights.disliked_count}"
             )
 
         # Show the movie/series ratio this list was actually built with.
