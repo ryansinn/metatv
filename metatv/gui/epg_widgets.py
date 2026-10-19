@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.epg_utils import now_utc as _now_utc
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.dialog_chrome import dialog_buttons
 from metatv.gui import deferred_config_save as _cfgsave
@@ -204,7 +205,7 @@ def rec_cell_click(host, item: QTreeWidgetItem, title_column: int) -> None:
 
 def apply_rec_cell(item: QTreeWidgetItem, column: int, channel_id, start, stop,
                     progress_rows, now) -> None:
-    """Set column ``column``'s glyph/tooltip/colour for a programme row's Rec control.
+    """Set column ``column``'s icon/tooltip/colour for a programme row's Rec control.
 
     One call from each tree's render loop (initial populate) AND from
     :func:`refresh_rec_column` (the poll-tick re-walk) — the recording/
@@ -212,10 +213,12 @@ def apply_rec_cell(item: QTreeWidgetItem, column: int, channel_id, start, stop,
     caller. ``recording_indicators.indicator_for`` does the actual overlap
     test against ``progress_rows``.
     """
-    from metatv.gui.recording_indicators import glyph_for, indicator_for
+    from metatv.gui.recording_indicators import indicator_for, vector_key_for
 
     state, tooltip = indicator_for(channel_id, start, stop, progress_rows, now)
-    item.setText(column, glyph_for(state))
+    item.setText(column, "")
+    item.setIcon(column, _icon_utils.role_icon(
+        vector_key_for(state), _theme.COLOR_ERR if state == "recording" else _theme.COLOR_TEXT))
     item.setToolTip(column, tooltip)
     item.setTextAlignment(column, Qt.AlignmentFlag.AlignCenter)
     item.setForeground(

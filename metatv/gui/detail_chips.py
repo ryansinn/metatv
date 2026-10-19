@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.core.quality_vocab import QUALITY_TOKENS
@@ -128,6 +129,12 @@ def make_chip(text: str, colour_token: str = "COLOR_TEXT", *, dashed: bool = Fal
     btn = QPushButton(escape_mnemonic(text))
     theme.style_fn(btn, lambda: chip_sheet(colour_token, dashed=dashed, selected=selected, bold=bold))
     cursor_affordance.set_clickable(btn)
+    # A mark added later (a liked actor's trend icon) must not resize the
+    # chip: cap the icon at the text line. Qt's default 16px is taller than
+    # the chip font's line on macOS, so the cast row grew when weights landed.
+    btn.ensurePolished()
+    line = btn.fontMetrics().height()
+    btn.setIconSize(QSize(line, line))
     return btn
 
 

@@ -414,7 +414,7 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
                          Python-side exclusions). Defaults to ``len(dtos)`` only
                          when omitted; the host must pass the raw count so an
                          active exclusion doesn't desync paging.
-            get_media_type_icon: Callable (media_type → glyph) injected from
+            get_media_type_icon: Callable (media_type → icon role) injected from
                                  MainWindow so the model can produce the same
                                  icons without importing GUI state.
             partial_threshold_pct: Lower bound int (0–100) below which no progress

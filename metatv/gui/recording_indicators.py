@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.time_display import clock_text
-from metatv.gui import icons
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.recording_manager import RecordingProgress
@@ -89,20 +88,9 @@ def indicator_for(
     )
 
 
-def glyph_for(state: "str | None") -> str:
-    """Which ``icons.py`` glyph a Rec cell shows for `state` (plain-text glyphs,
-    for a tree cell — the sidebar row's vector icon uses its own key, one of
-    ``"record"``/``"recording_active"``/``"recording_scheduled"``)."""
-    if state == "recording":
-        return icons.recording_active_icon
-    if state == "scheduled":
-        return icons.recording_scheduled_icon
-    return icons.record_icon
-
-
 def vector_key_for(state: "str | None") -> str:
-    """Which ``icons.VECTOR_KEYS`` role the sidebar's pixmap-rendered Record
-    control uses for `state` — the ``_AlertRow`` sibling of :func:`glyph_for`."""
+    """Which ``icons.VECTOR_KEYS`` role a Record control shows for `state` —
+    the sidebar's ``_AlertRow`` and the EPG trees' Rec column alike."""
     if state == "recording":
         return "recording_active"
     if state == "scheduled":

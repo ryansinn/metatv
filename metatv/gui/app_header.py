@@ -26,7 +26,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.chips import FilterChip, ToggleChip
 from metatv.gui.scoped_filter_box import ScopedFilterBox
@@ -229,7 +229,8 @@ class _AppHeaderMixin:
         layout.addStretch(1)
 
         # Split-streams toggle — one player window per source when ON.
-        self._split_toggle_btn = QPushButton(f"{_icons.split_icon} Split")
+        self._split_toggle_btn = QPushButton("Split")
+        _icon_utils.set_button_icon(self._split_toggle_btn, "split")
         self._split_toggle_btn.setCheckable(True)
         self._split_toggle_btn.setChecked(
             getattr(self.config, "split_streams_by_source", False)
@@ -255,7 +256,8 @@ class _AppHeaderMixin:
         # Tools — Diagnose lived on its own button in the bottom bar, which put
         # a niche action permanently on screen next to the primary navigation.
         # It is one entry in a menu now (R5).
-        self._tools_btn = QPushButton(f"{_icons.tools_icon} Tools")
+        self._tools_btn = QPushButton("Tools")
+        _icon_utils.set_button_icon(self._tools_btn, "tools")
         _theme.style(self._tools_btn, "NAV_TOGGLE_BTN")
         self._tools_btn.setToolTip("Diagnostics and maintenance tools")
         self._tools_btn.clicked.connect(self._show_tools_menu)

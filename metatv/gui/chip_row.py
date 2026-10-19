@@ -542,7 +542,8 @@ def build_chip_row(
         layout.addWidget(leading_slot)
 
     if liked:
-        like_lbl = QLabel(_icons.like_icon)
+        like_lbl = QLabel()
+        _icon_utils.set_label_icon(like_lbl, "like")
         like_lbl.setToolTip("You liked this")
         layout.addWidget(like_lbl)
 

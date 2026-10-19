@@ -33,6 +33,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from metatv.gui import theme as _theme_mod
+
 from metatv.core.database import ChannelDB, Database, EpgProgramDB
 from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.repositories.epg import EpgRepository
@@ -253,7 +255,6 @@ def test_render_browse_rec_column_plain_glyph_by_default(qapp, seeded_db):
     """REC-2: column 6 exists and carries the plain record glyph when nothing
     is recording — the failing case pre-fix is either an IndexError (no
     column 6) or stale data, never this glyph."""
-    from metatv.gui import icons
 
     db, _, query_date = seeded_db
     session = db.get_session()
@@ -266,7 +267,7 @@ def test_render_browse_rec_column_plain_glyph_by_default(qapp, seeded_db):
     _EpgBrowseMixin._render_browse(host, progs)
 
     item = host.browse_list.topLevelItem(0)
-    assert item.text(6) == icons.record_icon
+    assert _rec_icon_is(item, 6, "record", _theme_mod.COLOR_TEXT)
     assert item.toolTip(6) == (
         "Record this programme — schedules its guide window with your padding"
     )
@@ -276,7 +277,6 @@ def test_render_browse_rec_column_shows_recording_when_overlapping(qapp, seeded_
     """A fake progress() row overlapping this programme's window must flip
     the Rec cell to the recording glyph, proven against a real populate."""
     from metatv.core.recording_manager import RecordingProgress
-    from metatv.gui import icons
 
     db, _, query_date = seeded_db
     session = db.get_session()
@@ -297,7 +297,7 @@ def test_render_browse_rec_column_shows_recording_when_overlapping(qapp, seeded_
     _EpgBrowseMixin._render_browse(host, progs)
 
     item = host.browse_list.topLevelItem(0)
-    assert item.text(6) == icons.recording_active_icon
+    assert _rec_icon_is(item, 6, "recording_active", _theme_mod.COLOR_ERR)
     assert "Recording" in item.toolTip(6)
 
 
@@ -339,3 +339,10 @@ def test_render_browse_empty_no_sources_message(qapp):
     )
     _EpgBrowseMixin._render_browse(host, [])
     assert "No EPG sources" in host.browse_placeholder.text()
+
+
+def _rec_icon_is(item, column: int, role: str, colour: str) -> bool:
+    """The Rec cell's icon is *role* painted in *colour* (pixel-compared)."""
+    from metatv.gui import icon_utils
+    return (item.icon(column).pixmap(16, 16).toImage()
+            == icon_utils.role_icon(role, colour).pixmap(16, 16).toImage())

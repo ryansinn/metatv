@@ -24,7 +24,6 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.recipe_widgets import _facet_chip_style, _facet_color
 
@@ -120,7 +119,7 @@ class _SavedRecipeCard(QFrame):
         # as every other settings checkbox in the app.
         self._show_check = QCheckBox("Show in Discover")
         self._show_check.setToolTip(
-            f"When on, this recipe appears as its own {_icons.recipe_icon} "
+            "When on, this recipe appears as its own "
             "shelf on the Discover page."
         )
         self._show_check.setChecked(bool(recipe.get("show_in_discover", True)))
@@ -130,7 +129,7 @@ class _SavedRecipeCard(QFrame):
         outer.addWidget(self._show_check)
 
     def _tag(self, facet: str, value: str, *, excluded: bool) -> QLabel:
-        lbl = QLabel(f"{_icons.tag_exclude_icon} {value}" if excluded else value)
+        lbl = QLabel(f"not {value}" if excluded else value)   # words, as the Recipe bar chips
         lbl.setStyleSheet(_facet_chip_style(_facet_color(facet), excluded=excluded))
         return lbl
 

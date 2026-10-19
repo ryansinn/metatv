@@ -44,6 +44,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metatv.gui import theme as _theme_mod
+
 from metatv.gui import deferred_config_save as _cfgsave
 
 
@@ -776,13 +778,12 @@ def _rec_program(channel_db_id="ch1"):
 def test_rec_column_shows_the_plain_glyph_with_nothing_recording(qapp):
     """The failing case pre-fix: there is no column 6 at all, so this either
     IndexErrors or reads stale data — never the plain record glyph."""
-    from metatv.gui import icons
 
     host = _make_render_host()
     host._render_on_now([_rec_program()])
 
     item = host.on_now_list.topLevelItem(0).child(0)
-    assert item.text(6) == icons.record_icon
+    assert _rec_icon_is(item, 6, "record", _theme_mod.COLOR_TEXT)
     assert item.toolTip(6) == (
         "Record this programme — schedules its guide window with your padding"
     )
@@ -795,7 +796,6 @@ def test_rec_column_shows_the_recording_glyph_when_the_channel_is_recording(qapp
     from datetime import timedelta
     from metatv.core.recording_manager import RecordingProgress
     from metatv.core.epg_utils import now_utc
-    from metatv.gui import icons
 
     now = now_utc()
     host = _make_render_host()
@@ -808,7 +808,7 @@ def test_rec_column_shows_the_recording_glyph_when_the_channel_is_recording(qapp
     host._render_on_now([_rec_program()])
 
     item = host.on_now_list.topLevelItem(0).child(0)
-    assert item.text(6) == icons.recording_active_icon
+    assert _rec_icon_is(item, 6, "recording_active", _theme_mod.COLOR_ERR)
     assert "Recording" in item.toolTip(6)
 
 
@@ -828,3 +828,10 @@ def test_clicking_the_rec_cell_schedules_this_rows_exact_window(qapp):
     fake_host.schedule_recording_from_programme.assert_called_once_with(
         "ch1", prog.start_time, prog.stop_time, "The Match"
     )
+
+
+def _rec_icon_is(item, column: int, role: str, colour: str) -> bool:
+    """The Rec cell's icon is *role* painted in *colour* (pixel-compared)."""
+    from metatv.gui import icon_utils
+    return (item.icon(column).pixmap(16, 16).toImage()
+            == icon_utils.role_icon(role, colour).pixmap(16, 16).toImage())

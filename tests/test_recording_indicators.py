@@ -12,9 +12,8 @@ from datetime import datetime, timedelta
 
 from metatv.core.recording_manager import RecordingProgress
 from metatv.gui.recording_indicators import (
-    RECORD_TOOLTIP, glyph_for, indicator_for, vector_key_for,
+    RECORD_TOOLTIP, indicator_for, vector_key_for,
 )
-from metatv.gui import icons
 
 NOW = datetime(2026, 9, 5, 19, 0, 0)
 
@@ -122,10 +121,6 @@ def test_a_recording_ending_exactly_when_the_row_ends_matches():
 
 # ── glyph/vector-key mapping (the icons.py chokepoint) ───────────────────
 
-def test_glyph_for_every_state():
-    assert glyph_for("recording") == icons.recording_active_icon
-    assert glyph_for("scheduled") == icons.recording_scheduled_icon
-    assert glyph_for(None) == icons.record_icon
 
 
 def test_vector_key_for_every_state():

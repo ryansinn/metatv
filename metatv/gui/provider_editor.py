@@ -238,7 +238,13 @@ class ProviderIconPicker(QWidget):
 
     def set_icon(self, icon: str):
         self._icon = icon
-        self._btn.setText(icon if icon else _icons.provider_icon)
+        # A chosen emoji is the user's own mark (F43) and stays text; with
+        # none chosen the button shows the default provider icon.
+        self._btn.setText(icon)
+        if icon:
+            _icon_utils.clear_button_icon(self._btn)
+        else:
+            _icon_utils.set_button_icon(self._btn, "provider")
         self._update_selection(icon)
 
     def setEnabled(self, enabled: bool):

@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui import filter_panel_sections as _fp_sections
 from metatv.gui.chunked_construction import build_chunked
@@ -119,14 +120,14 @@ class FilterPanel(_ChipSeamMixin, QWidget):
 
         # "Hide watched" toggle — compact row between header and scrollable sections.
         # OFF by default (watched channels are visible); turning it ON hides them.
-        from metatv.gui import icons as _icons
         self._hide_watched_row = QWidget()
         self._hide_watched_row.setFixedHeight(30)
         _theme.style_fn(self._hide_watched_row, lambda: f"background: {_theme.COLOR_LINE_DARK};")
         hw_rl = QHBoxLayout(self._hide_watched_row)
         hw_rl.setContentsMargins(10, 0, 8, 0)
         hw_rl.setSpacing(6)
-        self._hide_watched_cb = QCheckBox(f"{_icons.hide_watched_filter_icon} Hide watched")
+        self._hide_watched_cb = QCheckBox("Hide watched")
+        self._hide_watched_cb.setIcon(_icon_utils.role_icon("hide_watched_filter", _theme.COLOR_MUTED))
         self._hide_watched_cb.setToolTip(
             "When checked, movies and series you have marked as watched are hidden from the list."
         )
