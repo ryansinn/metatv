@@ -87,8 +87,8 @@ def test_rating_shown_when_raw_data_has_rating(qapp):
     assert not section.rating_label.isHidden(), (
         "rating_label must be visible after load_basic with a numeric raw_data rating"
     )
-    assert "7.5" in section.rating_label.text(), (
-        f"rating_label text should contain '7.5'; got '{section.rating_label.text()}'"
+    assert "7.5" in section.rating_label.toolTip(), (
+        f"the number is on hover; got '{section.rating_label.toolTip()}'"
     )
 
 
@@ -144,7 +144,8 @@ def test_rating_shown_via_load_metadata(qapp):
     assert not section.rating_label.isHidden(), (
         "rating_label must be visible after load_metadata with a rating"
     )
-    assert "8.2" in section.rating_label.text()
+    assert "8.2" in section.rating_label.toolTip()
+    assert "5,000 votes" in section.rating_label.toolTip()
 
 
 def test_content_rating_folds_into_the_byline(qapp):

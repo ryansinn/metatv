@@ -764,7 +764,11 @@ VECTOR_KEYS: dict[str, str] = {
     # that mean the same as an existing one reuse it rather than duplicate it:
     # overflow→more, next→next_episode, watchlist_off→monitor_off, notification_info→info, config_folder→folder_open, calendar→epg, explore_columns→columns, notification_warning→warning.
     "unknown": "mdi6.help-circle-outline",
-    "rating_star": "mdi6.star-half-full",
+    # Ratings (owner, 2026-10-19): the details pane draws five stars, one half
+    # per rating point; list rows keep the number with a full star beside it.
+    "rating_star": "mdi6.star",
+    "rating_half": "mdi6.star-half-full",
+    "rating_empty": "mdi6.star-outline",
     "curious": "mdi6.head-question-outline",
     "playback_in_progress": "mdi6.play-outline",
     "partial_watched_q1": "mdi6.circle-slice-2",

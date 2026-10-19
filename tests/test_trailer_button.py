@@ -105,11 +105,12 @@ def test_clear_forgets_the_previous_title(qapp):
     assert bar.trailer_button.isHidden()
 
 
-def test_the_label_reads_trailer_with_a_play_glyph(qapp):
-    """"Trailer ▶" — the noun, then the verb applied to it."""
+def test_the_label_reads_trailer_with_a_play_icon(qapp):
+    """"Trailer" with the play icon (an mdi6 icon now, not a ▶ in the text)."""
+    from metatv.gui import icon_utils
     bar = _bar(qapp)
-    assert bar.trailer_button.text().startswith("Trailer")
-    assert "▶" in bar.trailer_button.text()
+    assert bar.trailer_button.text() == "Trailer"
+    assert icon_utils.button_role(bar.trailer_button) == "play"
     assert bar.trailer_button.toolTip(), "every clickable control needs a tooltip"
 
 

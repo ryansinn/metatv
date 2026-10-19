@@ -345,6 +345,13 @@ def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> 
     _registered_icon_buttons[btn] = (role, color)
 
 
+def button_role(btn: QPushButton) -> str | None:
+    """The role this module last painted on *btn*, or None. For tests and for
+    code that needs to know which icon a toggle currently shows."""
+    entry = _registered_icon_buttons.get(btn)
+    return entry[0] if entry else None
+
+
 def icon_button(
     role: str,
     tooltip: str,

@@ -14,9 +14,9 @@ members this slice adds.
 
 Quality/region badges and the plain "Source:" label are gone from this block
 — quality now lives on the "Available in" copy chips (a parallel slice), and
-provenance is a clickable chip rather than static text.  The rating star
-glyph is gone too: the rating renders as a plain "8.0 / 10", gold on the
-number only, via :func:`_rating_rich_text`.
+provenance is a clickable chip rather than static text.  The rating renders
+as five gold stars, one half-star per point, with the number in the tooltip
+(owner, 2026-10-19), via :func:`_rating_rich_text` / :func:`rating_tooltip`.
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.filter_utils import normalize_genre
 from metatv.core.tag_provenance import guess_reason, strongest_kind
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.detail_chips import make_chip, make_flow
@@ -40,20 +41,40 @@ from metatv.gui.source_label import source_label
 from metatv.metadata_providers.base import MetadataResult
 
 
-def _rating_rich_text(rating: float) -> str:
-    """"<gold bold>8.0</gold> / 10" — never a star glyph.
+#: Star edge in the rating row (px).
+RATING_STAR_PX = 15
 
-    The number is ``COLOR_GOLD`` and bold; the "/ 10" is the plain
-    ``COLOR_TEXT`` ramp.  Both are TOKEN references resolved at call time
-    (the same convention the theme roles use), not a
-    hardcoded hex literal — this is rich-text content, not a stylesheet, so
-    it is rebuilt on every ``load_basic``/``load_metadata`` call rather than
-    re-applied by ``theme.style_fn`` on a palette switch.
+
+def rating_stars(rating: float) -> list[str]:
+    """The five star roles for a 0–10 *rating*: one half-star per point.
+
+    7.4 rounds to 7 halves → three full, one half, one empty. Most of a
+    typical library sits at 6–7 (measured 2026-10-19: 65% of 547,372 ratings),
+    so half steps are what keeps the stars telling titles apart.
     """
-    return (
-        f"<span style='color:{_theme.COLOR_GOLD}; font-weight:bold;'>{rating:.1f}</span>"
-        f"<span style='color:{_theme.COLOR_TEXT};'> / 10</span>"
+    halves = max(0, min(10, round(rating)))
+    full, half = divmod(halves, 2)
+    return (["rating_star"] * full + ["rating_half"] * half
+            + ["rating_empty"] * (5 - full - half))
+
+
+def _rating_rich_text(rating: float) -> str:
+    """Five gold mdi6 stars (full / half / empty) for a 0–10 rating.
+
+    Colour is the ``COLOR_GOLD`` token read at call time; this is rich-text
+    content, rebuilt on every ``load_basic``/``load_metadata``, not a
+    stylesheet re-applied on a palette switch.
+    """
+    return "".join(
+        _icon_utils.role_html(role, color=_theme.COLOR_GOLD, px=RATING_STAR_PX)
+        for role in rating_stars(rating)
     )
+
+
+def rating_tooltip(rating: float, votes: int | None = None) -> str:
+    """The number the stars stand for — shown on hover, not in the row."""
+    text = f"{rating:.1f} / 10"
+    return f"{text} · {votes:,} votes" if votes else text
 
 
 class _MetadataSection(QWidget):
@@ -346,7 +367,7 @@ class _MetadataSection(QWidget):
         if rating_val > 0:
             rating_val = min(10.0, rating_val)  # clamp upper bound
             self.rating_label.setText(_rating_rich_text(rating_val))
-            self.rating_label.setToolTip("")
+            self.rating_label.setToolTip(rating_tooltip(rating_val))
             self.rating_label.show()
         else:
             self.rating_label.hide()
@@ -394,8 +415,7 @@ class _MetadataSection(QWidget):
 
         if metadata.rating:
             self.rating_label.setText(_rating_rich_text(metadata.rating))
-            if metadata.rating_count:
-                self.rating_label.setToolTip(f"{metadata.rating_count:,} votes")
+            self.rating_label.setToolTip(rating_tooltip(metadata.rating, metadata.rating_count))
             self.rating_label.show()
 
         if metadata.imdb_id:

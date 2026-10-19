@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.core.repositories.dtos import EpisodeDTO
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils
 
 
 @pytest.fixture(scope="module")
@@ -93,7 +93,8 @@ def test_series_channel_shows_browse_button(qapp):
     pane.show_channel(_fake_channel("series"))
 
     btn = pane._action_bar.play_button
-    assert btn.text() == f"{_icons.browse_icon} Browse", (
+    assert icon_utils.button_role(btn) == "browse", "the Browse caption carries the browse icon"
+    assert btn.text() == "Browse", (
         f"series primary button must read Browse; got {btn.text()!r}"
     )
     assert "browse" in btn.toolTip().lower()
@@ -105,8 +106,8 @@ def test_movie_channel_keeps_play_button(qapp):
     pane.show_channel(_fake_channel("movie"))
 
     btn = pane._action_bar.play_button
-    assert _icons.browse_icon not in btn.text(), "a movie must not read Browse"
-    assert btn.text() == f"{_icons.play_icon} Play"
+    assert btn.text() != "Browse", "a movie must not read Browse"
+    assert btn.text() == "Play"
 
 
 def test_playing_indicator_does_not_override_browse(qapp):
@@ -119,7 +120,7 @@ def test_playing_indicator_does_not_override_browse(qapp):
     pane.set_playing(series.id, 123.0)
 
     btn = pane._action_bar.play_button
-    assert btn.text() == f"{_icons.browse_icon} Browse", (
+    assert btn.text() == "Browse", (
         f"playing indicator must not overwrite the Browse label; got {btn.text()!r}"
     )
     assert pane._action_bar._is_playing is False
@@ -148,7 +149,7 @@ def test_show_episode_uses_clean_display_title_and_play_episode_button(qapp):
     assert pane._meta.title_label.text() == "Cowboy Bebop", (
         "the series title must NOT be overwritten by the episode title"
     )
-    assert pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode: S01E01"
+    assert pane._action_bar.play_button.text() == "Play Episode: S01E01"
     assert "this episode" in pane._action_bar.play_button.toolTip().lower()
     assert pane.current_episode is ep, "the episode DTO must be stored on the pane"
     assert pane._in_episode_mode is True
@@ -162,12 +163,12 @@ def test_play_episode_button_shows_episode_code(qapp):
 
     pane.show_episode(_episode("Jupiter Jazz Part 1", season_num=4, episode_num=5), series)
     assert (
-        pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode: S04E05"
+        pane._action_bar.play_button.text() == "Play Episode: S04E05"
     ), f"caption must carry the coordinate; got {pane._action_bar.play_button.text()!r}"
 
     # No numbers → plain caption, no trailing code.
     pane.show_episode(_episode("Bonus", season_num=0, episode_num=0), series)
-    assert pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode", (
+    assert pane._action_bar.play_button.text() == "Play Episode", (
         "with no season/episode numbers the caption must be the plain 'Play Episode'"
     )
 
@@ -241,7 +242,7 @@ def test_reverting_to_series_clears_episode_mode(qapp):
     assert pane._in_episode_mode is False
     assert pane.current_episode is None
     assert pane._byline.isHidden(), "byline must hide when reverting to series details"
-    assert pane._action_bar.play_button.text() == f"{_icons.browse_icon} Browse"
+    assert pane._action_bar.play_button.text() == "Browse"
     assert pane._action_bar._episode_code == "", (
         "reverting must clear the stored episode code so a later caption is not stale"
     )

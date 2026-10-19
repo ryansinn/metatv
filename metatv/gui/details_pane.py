@@ -22,7 +22,7 @@ from metatv.gui.details_sections import (
     _PosterSection, _PlotSection, _CastSection, _no_width_force,
 )
 from metatv.gui.details_facts import _DetailsSection
-from metatv.gui.details_title import _MetadataSection, _rating_rich_text
+from metatv.gui.details_title import _MetadataSection, _rating_rich_text, rating_tooltip
 from metatv.gui.flow_layout import enable_height_for_width
 from metatv.gui.episode_heading import aired_text, episode_eyebrow
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
@@ -478,11 +478,12 @@ class DetailsPaneWidget(QWidget):
             f"{season_episode_count} episodes in this season from this source"
             if season_episode_count else "")
 
-        # Rating — the episode's own, in the series rating's "7.4 / 10" form.
-        # 0/None means none shipped, so it is hidden rather than "0.0 / 10".
+        # Rating — the episode's own, as the series rating's five stars.
+        # 0/None means none shipped, so it is hidden rather than five empty stars.
         ep_rating = getattr(episode, "rating", None)
         if ep_rating:
             self._episode_rating_lbl.setText(_rating_rich_text(float(ep_rating)))
+            self._episode_rating_lbl.setToolTip(rating_tooltip(float(ep_rating)))
             self._episode_rating_lbl.show()
         else:
             self._episode_rating_lbl.hide()
