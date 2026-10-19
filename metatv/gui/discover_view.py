@@ -50,8 +50,8 @@ from metatv.gui.discover_workers import (
     _ShelfData, _ZoneSnapshot, browse_title_for_key, determine_zone,
     normalize_shelf_config,
 )
-from metatv.gui import icons as _icons
 from metatv.gui.scoped_filter_box import ScopedFilterBox
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -115,8 +115,9 @@ class DiscoverView(QWidget):
         hbl.setSpacing(6)
 
         # Zoom icon label
-        self._zoom_icon_lbl = QLabel(_icons.zoom_icon)
-        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_MD};")
+        self._zoom_icon_lbl = QLabel()
+        _theme.style_fn(self._zoom_icon_lbl, lambda: f"color: {_theme.COLOR_TEXT};")
+        _icon_utils.set_label_icon(self._zoom_icon_lbl, "zoom")
         self._zoom_icon_lbl.setToolTip("Resize Discover cards")
         hbl.addWidget(self._zoom_icon_lbl)
 
@@ -155,7 +156,9 @@ class DiscoverView(QWidget):
         self._shelf_filter.filterChanged.connect(self._on_shelf_filter_changed)
         hbl.addWidget(self._shelf_filter)
 
-        self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
+        self._manage_btn = QPushButton("Manage")
+        self._manage_btn.setToolTip("Manage Discover shelves")
+        _icon_utils.set_button_icon(self._manage_btn, "manage")
         self._manage_btn.setFlat(True)
         _theme.style_fn(self._manage_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
@@ -197,7 +200,8 @@ class DiscoverView(QWidget):
         self._expanded_zone.setVisible(False)
         self._shelves_layout.addWidget(self._expanded_zone)
 
-        self._more_btn = QPushButton(f"{_icons.expand_icon}  More Categories")
+        self._more_btn = QPushButton("More Categories")
+        _icon_utils.set_button_icon(self._more_btn, "expand")
         self._more_btn.setFixedHeight(36)
         _theme.style_fn(self._more_btn, lambda: "QPushButton {"
             f"  background: {_theme.OVERLAY_08};"
@@ -415,9 +419,9 @@ class DiscoverView(QWidget):
         if not visible:
             self._collapsed_zone.setVisible(False)
             return
-        arrow = _icons.collapse_icon if self._more_expanded else _icons.expand_icon
         verb = "Collapse" if self._more_expanded else "Expand"
-        self._more_btn.setText(f"{arrow}  More Categories  ({count})")
+        self._more_btn.setText(f"More Categories  ({count})")
+        _icon_utils.set_button_icon(self._more_btn, "collapse" if self._more_expanded else "expand")
         self._more_btn.setToolTip(f"{verb} More Categories ({count} shelves)")
         self._collapsed_zone.setVisible(self._more_expanded)
 

@@ -608,7 +608,7 @@ class _EpgWatchlistMixin:
         title_groups = dict(sorted(title_groups.items(), key=lambda kv: -len(kv[1])))
 
         header = QHBoxLayout()
-        pattern_lbl = QLabel(f"{icon}&nbsp; {_html.escape(pattern)}")
+        pattern_lbl = QLabel(f"{icon}&nbsp; {_html.escape(pattern, quote=False)}")
         pattern_lbl.setTextFormat(Qt.TextFormat.RichText)
         _theme.style(pattern_lbl, "LIST_TITLE")
         header.addWidget(pattern_lbl)

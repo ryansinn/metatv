@@ -38,7 +38,7 @@ from typing import Any, Callable, TYPE_CHECKING
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.trail_map_data import (
     EXPLORE_SEED_LIMIT,
@@ -122,7 +122,7 @@ EXPLORE_SOURCES: dict[str, ExploreSource] = {
     "history": ExploreSource(
         key="history",
         title="Watch History",
-        icon=_icons.history_icon,
+        icon="history",   # an icon role
         view_mode="history",
         ids_loader=_history_ids,
         seed_loader=load_history_seed_rows,
@@ -134,7 +134,7 @@ EXPLORE_SOURCES: dict[str, ExploreSource] = {
     "favorites": ExploreSource(
         key="favorites",
         title="Favorites",
-        icon=_icons.favorite_icon,
+        icon="favorite",   # an icon role
         view_mode="explore_favorites",
         ids_loader=_favorite_ids,
         seed_loader=load_engaged_seed_rows,
@@ -148,7 +148,7 @@ EXPLORE_SOURCES: dict[str, ExploreSource] = {
     "queue": ExploreSource(
         key="queue",
         title="Watch Queue",
-        icon=_icons.queue_icon,
+        icon="queue",   # an icon role
         view_mode="explore_queue",
         ids_loader=_queue_ids,
         seed_loader=load_engaged_seed_rows,
@@ -160,7 +160,7 @@ EXPLORE_SOURCES: dict[str, ExploreSource] = {
     "recommended": ExploreSource(
         key="recommended",
         title="Recommended",
-        icon=_icons.preferences_icon,
+        icon="preferences",   # an icon role
         view_mode="explore_recommended",
         ids_loader=_recommended_ids,
         # Recommendations are forward-looking, so the engaged extras ("watched N×")
@@ -244,7 +244,7 @@ class ExploreView(QWidget):
     # ------------------------------------------------------------------ #
     def on_activate(self) -> None:
         """Load the ordered seed ids off-thread, then seed the trail-map."""
-        self._show_status(f"{_icons.loading_icon}  {self._source.loading_text}")
+        self._show_status(f"{_icon_utils.role_html('loading')}&nbsp; {self._source.loading_text}")
         config = self._config
         loader = self._source.ids_loader
         self._run_query(
@@ -283,7 +283,7 @@ class ExploreView(QWidget):
 
     def _on_seed_error(self, exc: Exception) -> None:
         self._show_status(
-            f"{_icons.notification_warning_icon}  {self._source.error_text}"
+            f"{_icon_utils.role_html('warning')}&nbsp; {self._source.error_text}"
         )
 
     # ------------------------------------------------------------------ #

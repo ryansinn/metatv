@@ -469,7 +469,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._stale_epg_notice.setText(
             f"{_icon_utils.role_html('warning')}&nbsp; Stale guide data — these sources' "
             f"providers aren't supplying current EPG, so they won't show in On Now: "
-            + _html.escape("; ".join(parts))
+            + _html.escape("; ".join(parts), quote=False)
         )
         self._stale_epg_notice.show()
 

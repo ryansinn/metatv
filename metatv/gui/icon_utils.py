@@ -16,8 +16,8 @@ from typing import Callable, Union
 from loguru import logger
 
 from PyQt6 import sip
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QEvent, QObject, QSize
+from PyQt6.QtGui import QIcon, QPalette
 from PyQt6.QtWidgets import QPushButton
 
 from metatv.gui import icons as _icons
@@ -292,6 +292,66 @@ _registered_icon_buttons: (
 ) = weakref.WeakKeyDictionary()
 
 
+class _FollowTextColour(QObject):
+    """Repaints a follow-text icon button when its colours change.
+
+    Qt writes a stylesheet's ``color`` into the widget's palette and then sends
+    ``PaletteChange`` — so this catches a style applied AFTER the icon was set
+    (the usual order at construction) as well as every theme switch.
+    """
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
+        if event.type() == QEvent.Type.PaletteChange:
+            entry = _registered_icon_buttons.get(obj)
+            if entry is not None and entry[1] is None:
+                _paint(obj, entry[0], obj.palette().color(QPalette.ColorRole.ButtonText).name())
+            label = _registered_icon_labels.get(obj)
+            if label is not None:
+                _paint_label(obj, *label)
+        return False
+
+
+_FOLLOW = _FollowTextColour()
+
+
+def _paint(btn: QPushButton, role: str, color: str) -> None:
+    if role in _icons.VECTOR_KEYS:
+        icon = resolve_icon(_icons.vector_key(role), color=color)
+    else:
+        glyph = getattr(_icons, f"{role}_icon", None)
+        if glyph is None:
+            raise KeyError(
+                f"icon role {role!r} is not in icons.VECTOR_KEYS and "
+                f"icons.{role}_icon does not exist"
+            )
+        icon = _icons.glyph_icon(glyph, color)
+    btn.setIcon(icon)
+
+
+#: Labels showing a role as a pixmap in their own text colour: label → (role, px).
+_registered_icon_labels: "weakref.WeakKeyDictionary[object, tuple[str, int]]" = (
+    weakref.WeakKeyDictionary())
+
+
+def _paint_label(label, role: str, px: int) -> None:
+    label.ensurePolished()
+    label.setPixmap(role_pixmap(role, label.palette().color(QPalette.ColorRole.WindowText).name(), px))
+
+
+def set_label_icon(label, role: str, px: int = 14) -> None:
+    """Show *role* as *label*'s pixmap, in the label's own text colour.
+
+    The label equivalent of an omitted colour in :func:`set_button_icon`: the
+    colour is read from the palette (Qt fills it from the stylesheet) and the
+    icon repaints when the style or theme changes — so a glyph-only label
+    keeps the colour its role gave it, on any surface.
+    """
+    _registered_icon_labels[label] = (role, px)
+    label.removeEventFilter(_FOLLOW)
+    label.installEventFilter(_FOLLOW)
+    _paint_label(label, role, px)
+
+
 def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> None:
     """Paint *btn*'s icon from the semantic *role* and register it for re-paint.
 
@@ -312,15 +372,18 @@ def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> 
         btn: Any ``QPushButton`` (or subclass).
         role: A semantic role — either a :data:`icons.VECTOR_KEYS` key or the
             ``<role>`` in an ``icons.<role>_icon`` glyph constant.
-        color: Any CSS colour string, OR a zero-arg callable returning one —
+        color: Omitted (None), the icon takes the button's own TEXT colour —
+            read from its palette, which Qt fills from the stylesheet — and
+            follows it whenever the style or theme changes, so an icon always
+            matches its words (on the fixed-dark cinema surface too). Or any
+            CSS colour string, OR a zero-arg callable returning one —
             the same distinction :func:`theme.style` and
             :func:`theme.style_fn` draw, for the same reason. A STRING is
             frozen at this call: correct for a runtime colour (a provider
             hue, a fixed cinema token), stale for a palette token, because
             :func:`refresh_icon_buttons` can only replay what it was given.
             Pass ``lambda: _theme.COLOR_MUTED_2`` for a token so the glyph
-            follows a theme switch. Defaults to ``theme.COLOR_TEXT``, read at
-            CALL time (never cached at import).
+            follows a theme switch.
 
     Raises:
         KeyError: *role* is neither a vector key nor a glyph constant name —
@@ -328,20 +391,14 @@ def set_button_icon(btn: QPushButton, role: str, *, color: ColorSpec = None) -> 
     """
     if callable(color):
         resolved_color = color()
+    elif color is not None:
+        resolved_color = color
     else:
-        resolved_color = color if color is not None else _theme.COLOR_TEXT
-    if role in _icons.VECTOR_KEYS:
-        icon = resolve_icon(_icons.vector_key(role), color=resolved_color)
-    else:
-        glyph_name = f"{role}_icon"
-        glyph = getattr(_icons, glyph_name, None)
-        if glyph is None:
-            raise KeyError(
-                f"icon role {role!r} is not in icons.VECTOR_KEYS and "
-                f"icons.{glyph_name} does not exist"
-            )
-        icon = _icons.glyph_icon(glyph, resolved_color)
-    btn.setIcon(icon)
+        btn.ensurePolished()   # an unshown button's palette updates only on polish
+        resolved_color = btn.palette().color(QPalette.ColorRole.ButtonText).name()
+        btn.removeEventFilter(_FOLLOW)
+        btn.installEventFilter(_FOLLOW)
+    _paint(btn, role, resolved_color)
     _registered_icon_buttons[btn] = (role, color)
 
 
@@ -411,7 +468,11 @@ def refresh_icon_buttons() -> None:
     like everything else.
     """
     for btn, (role, color) in list(_registered_icon_buttons.items()):
-        if sip.isdeleted(btn):
+        try:
+            gone = sip.isdeleted(btn)
+        except TypeError:   # not a Qt object (a test double): nothing to repaint
+            gone = True
+        if gone:
             # The C++ object is gone while the wrapper lingers: drop it rather
             # than touch it. (A destroyed-signal hook was tried first and
             # aborted the test teardown sweep — never weakref an object that

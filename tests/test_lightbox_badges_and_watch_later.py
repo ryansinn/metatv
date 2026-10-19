@@ -194,7 +194,6 @@ class TestStripCardRendering:
 
     def test_badges_render_with_tooltips(self, qapp):
         from PyQt6.QtWidgets import QLabel
-        from metatv.gui import icons as _icons
 
         item = {
             "id": "c1", "name": "Some Movie", "year": 2021, "poster_url": None,
@@ -213,12 +212,13 @@ class TestStripCardRendering:
         assert "In Favorites" in tips
         assert "Watched" in tips
         # The glyphs themselves come from icons.py.
-        assert _icons.like_icon in texts
-        assert _icons.queue_icon in texts
-        assert _icons.watched_icon in texts
+        # The states are icons now (pixmaps on their labels), not emoji text.
+        icons = [lbl for lbl in labels if lbl.pixmap() is not None and not lbl.pixmap().isNull()]
+        assert len(icons) >= 4, "liked, queued, favourite and watched each draw an icon"
         # Language + ★rating meta.
         assert "LAT" in texts
-        assert f"{_icons.rating_star_icon}8.3" in texts
+        from metatv.gui import icon_utils
+        assert f"{icon_utils.role_html('rating_star')}8.3" in texts
 
     def test_neutral_card_shows_no_state_glyphs(self, qapp):
         """A card with no engagement shows none of the state-glyph tooltips."""
@@ -294,7 +294,7 @@ class TestWatchLaterLabel:
         # And when queued, the toggled state still uses the standardized verb.
         card._populate_actions({"in_queue": True})
         assert "Watch Later" in card._queue_btn.text()
-        assert card._queue_btn.text().strip().split(maxsplit=1)[-1] == "In Watch Later"
+        assert card._queue_btn.text().strip() == "In Watch Later"
 
 
 # ---------------------------------------------------------------------------

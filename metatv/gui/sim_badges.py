@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -63,7 +63,7 @@ def make_sim_badges(item: dict, width: int | None = None, show_year: bool = True
         meta.addWidget(lang_lbl)
     rating = item.get("rating")
     if rating:
-        star = QLabel(f"{_icons.rating_star_icon}{rating}")
+        star = QLabel(f"{_icon_utils.role_html('rating_star')}{rating}")
         _theme.style(star, "LIGHTBOX_SIM_RATING")
         star.setToolTip(f"Rating: {rating}")
         meta.addWidget(star)
@@ -80,18 +80,19 @@ def make_sim_badges(item: dict, width: int | None = None, show_year: bool = True
     glyphs.setContentsMargins(0, 0, 0, 0)
     glyphs.setSpacing(5)
     for present, glyph, style, tip in (
-        (item.get("user_rating") == 1, _icons.like_icon,
+        (item.get("user_rating") == 1, "like",
          _theme.LIGHTBOX_SIM_GLYPH_LIKE, "You liked this"),
-        (bool(item.get("in_queue")), _icons.queue_icon,
+        (bool(item.get("in_queue")), "watch_later",
          _theme.LIGHTBOX_SIM_GLYPH_QUEUE, "In Watch Later"),
-        (bool(item.get("is_favorite")), _icons.favorite_icon,
+        (bool(item.get("is_favorite")), "favorite",
          _theme.LIGHTBOX_SIM_GLYPH_FAV, "In Favorites"),
-        (bool(item.get("watched")), _icons.watched_icon,
+        (bool(item.get("watched")), "watched",
          _theme.LIGHTBOX_SIM_GLYPH_WATCHED, "Watched"),
     ):
         if present:
-            g = QLabel(glyph)
+            g = QLabel()
             g.setStyleSheet(style)
+            _icon_utils.set_label_icon(g, glyph, 12)
             g.setToolTip(tip)
             glyphs.addWidget(g)
     glyphs.addStretch()

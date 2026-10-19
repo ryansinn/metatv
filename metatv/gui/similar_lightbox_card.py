@@ -72,11 +72,8 @@ def _fmt_runtime(minutes: int | None) -> str:
     return f"{m}m"
 
 
-_MEDIA_TYPE_ICON = {
-    "movie": _icons.movie_icon,
-    "series": _icons.series_icon,
-    "live": _icons.live_icon,
-}
+#: Media type → icon role (drawn inline in the meta line).
+_MEDIA_TYPE_ICON = {"movie": "movie", "series": "series", "live": "live"}
 
 
 class _GrowScrollArea(QScrollArea):
@@ -268,7 +265,8 @@ class _LightboxCard(QFrame):
         row.setContentsMargins(14, 10, 12, 10)
         row.setSpacing(10)
 
-        self._back_btn = QPushButton(f"{_icons.nav_prev_icon} Back")
+        self._back_btn = QPushButton("Back")
+        _icon_utils.set_button_icon(self._back_btn, "nav_prev")
         self._back_btn.setFlat(True)
         _theme.style(self._back_btn, "LIGHTBOX_BACK_BTN")
         self._back_btn.setToolTip("Back to the previous title (Backspace)")
@@ -291,7 +289,8 @@ class _LightboxCard(QFrame):
 
         # Explore — opens the cascading-columns trail-map seeded with this dive path
         # (contextual lateral adjacency; distinct from the global ✨ Discover).
-        self._explore_btn = QPushButton(f"{_icons.explore_icon} Explore")
+        self._explore_btn = QPushButton("Explore")
+        _icon_utils.set_button_icon(self._explore_btn, "explore")
         self._explore_btn.setFlat(True)
         _theme.style(self._explore_btn, "LIGHTBOX_ACTION_BTN")
         self._explore_btn.setToolTip(
@@ -363,7 +362,8 @@ class _LightboxCard(QFrame):
         self._poster.clicked.connect(self._on_poster_clicked)
         left.addWidget(self._poster, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        self._play_btn = QPushButton(f"{_icons.play_icon} Play")
+        self._play_btn = QPushButton("Play")
+        _icon_utils.set_button_icon(self._play_btn, "play")
         _theme.style(self._play_btn, "LIGHTBOX_PLAY_PRIMARY")
         self._play_btn.setToolTip("Play this title")
         self._play_btn.clicked.connect(self.play_clicked)
@@ -404,7 +404,8 @@ class _LightboxCard(QFrame):
         src_row = QHBoxLayout()
         src_row.setContentsMargins(0, 6, 0, 0)
         src_row.setSpacing(6)
-        self._source_dot = QLabel(_icons.status_dot_icon)
+        self._source_dot = QLabel()
+        _icon_utils.set_label_icon(self._source_dot, "status_dot", 10)
         src_row.addWidget(self._source_dot)
         self._source_lbl = QLabel()
         _theme.style(self._source_lbl, "LIGHTBOX_SOURCE")
@@ -446,6 +447,7 @@ class _LightboxCard(QFrame):
         act_row.setSpacing(7)
         self._queue_btn = QPushButton()
         _theme.style(self._queue_btn, "LIGHTBOX_ACTION_BTN")
+        _icon_utils.set_button_icon(self._queue_btn, "watch_later")
         self._queue_btn.setToolTip("Add to / remove from Watch Later")
         self._queue_btn.clicked.connect(self.queue_clicked)
         act_row.addWidget(self._queue_btn)
@@ -454,7 +456,8 @@ class _LightboxCard(QFrame):
         self._fav_btn.setToolTip("Add to / remove from Favorites")
         self._fav_btn.clicked.connect(self.favorite_clicked)
         act_row.addWidget(self._fav_btn)
-        self._hide_btn = QPushButton(f"{_icons.hide_icon} Hide")
+        self._hide_btn = QPushButton("Hide")
+        _icon_utils.set_button_icon(self._hide_btn, "hide")
         _theme.style(self._hide_btn, "LIGHTBOX_ACTION_BTN")
         self._hide_btn.setToolTip("Hide this channel from all views")
         self._hide_btn.clicked.connect(self.hide_clicked)
@@ -698,8 +701,9 @@ class _LightboxCard(QFrame):
         self._like_btn.setChecked(False)
         self._dislike_btn.setChecked(False)
         self._not_interested_btn.setChecked(False)
-        self._queue_btn.setText(f"{_icons.queue_icon} Watch Later")
-        self._fav_btn.setText(f"{_icons.unfavorite_icon} Favorite")
+        self._queue_btn.setText("Watch Later")
+        self._fav_btn.setText("Favorite")
+        _icon_utils.set_button_icon(self._fav_btn, "unfavorite")
 
     def show_error(self, message: str) -> None:
         """Reset to the loading skeleton and show a single error heading."""
@@ -734,7 +738,7 @@ class _LightboxCard(QFrame):
         parts: list[QLabel] = []
         rating = data.get("rating")
         if rating:
-            star = QLabel(f"{_icons.rating_star_icon} {rating}")
+            star = QLabel(f"{_icon_utils.role_html('rating_star')} {rating}")
             _theme.style(star, "LIGHTBOX_STAR")
             parts.append(star)
         runtime = _fmt_runtime(data.get("runtime"))
@@ -743,7 +747,7 @@ class _LightboxCard(QFrame):
         mt = data.get("media_type") or ""
         icon = _MEDIA_TYPE_ICON.get(mt)
         if icon:
-            parts.append(self._meta_text(f"{icon} {mt.title()}"))
+            parts.append(self._meta_text(f"{_icon_utils.role_html(icon)} {mt.title()}"))
         count = int(data.get("version_count") or 0)
         first = True
         for w in parts:
@@ -795,15 +799,10 @@ class _LightboxCard(QFrame):
 
     def _populate_actions(self, data: dict) -> None:
         in_queue = bool(data.get("in_queue"))
-        self._queue_btn.setText(
-            f"{_icons.queue_icon} In Watch Later" if in_queue
-            else f"{_icons.queue_icon} Watch Later"
-        )
+        self._queue_btn.setText("In Watch Later" if in_queue else "Watch Later")
         is_fav = bool(data.get("is_favorite"))
-        self._fav_btn.setText(
-            f"{_icons.favorite_icon} Favorited" if is_fav
-            else f"{_icons.unfavorite_icon} Favorite"
-        )
+        self._fav_btn.setText("Favorited" if is_fav else "Favorite")
+        _icon_utils.set_button_icon(self._fav_btn, "favorite" if is_fav else "unfavorite")
 
     def _populate_overview(self, plot: str) -> None:
         has = bool(plot.strip())
