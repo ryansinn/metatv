@@ -1,11 +1,10 @@
 """Structural test: the details-pane title block's row order (DETAILS-3b).
 
-Provenance ("which of my sources is this from?") used to render directly
-under the title/byline, as a plain "Source:" label sharing a row with the
-Adult indicator. The redesign (DETAILS-3b) makes it a clickable chip and
-moves it to the BOTTOM of the title block — after the genre row and the
-rating/TMDb/IMDb row — immediately above "Available in"; the Adult indicator
-moves up onto the byline's own row instead.
+Provenance ("which of my sources is this from?") is a clickable chip. DETAILS-3b
+put it on a row of its own at the bottom of the title block; the owner moved it
+(2026-10-19) to the right end of the byline row, beside the Adult indicator, and
+the rating up to the right end of the genre row, so the block reads:
+title / byline + source / genres + rating.
 
 These tests assert ORDER inside ``_MetadataSection``'s vertical layout, which
 is what would silently regress if someone re-inserted the old badge row.
@@ -74,9 +73,8 @@ def _row_index_of(section, widget) -> int:
     raise AssertionError(f"{widget!r} not found in the section layout")
 
 
-def test_source_row_sits_at_the_bottom_of_the_title_block(qapp):
-    """Source comes after the title, byline, genre row and rating row — the
-    last row in the block before the recommendation-reason line."""
+def test_source_shares_the_byline_row_and_rating_shares_the_genre_row(qapp):
+    """title / byline + source / genres + rating — three rows, in that order."""
     section = _section()
     title_idx = _row_index_of(section, section.title_label)
     byline_idx = _row_index_of(section, section._byline_lbl)
@@ -85,12 +83,9 @@ def test_source_row_sits_at_the_bottom_of_the_title_block(qapp):
     source_idx = _row_index_of(section, section._source_chip)
 
     assert byline_idx == title_idx + 1, "the byline belongs immediately under the title"
-    assert genres_idx > byline_idx, "genres must render under the byline"
-    assert rating_idx > genres_idx, "the rating row must render under the genres"
-    assert source_idx > rating_idx, (
-        f"source must be the last row in the block "
-        f"(byline {byline_idx}, genres {genres_idx}, rating {rating_idx}, source {source_idx})"
-    )
+    assert source_idx == byline_idx, "the source chip sits on the byline's row"
+    assert genres_idx == byline_idx + 1, "genres render under the byline"
+    assert rating_idx == genres_idx, "the rating shares the genre row"
 
 
 def test_source_row_still_populates_and_stays_clickable(qapp):
@@ -110,9 +105,8 @@ def test_source_row_still_populates_and_stays_clickable(qapp):
     assert QApplication.clipboard().text() == "chan-42", "the source chip copies the channel id"
 
 
-def test_adult_badge_shares_the_byline_row_not_the_source_row(qapp):
-    """The adult indicator moved up onto the byline's row — it no longer
-    shares a row with the (relocated) source chip."""
+def test_adult_badge_shares_the_byline_row(qapp):
+    """The adult indicator sits on the byline's row (as does the source chip)."""
     section = _section()
     section.load_basic(_channel(is_adult=True), {"p1": {"icon": "", "name": "S"}})
 
@@ -122,7 +116,7 @@ def test_adult_badge_shares_the_byline_row_not_the_source_row(qapp):
     source_idx = _row_index_of(section, section._source_chip)
 
     assert adult_idx == byline_idx, "the adult indicator must share the byline's row"
-    assert adult_idx != source_idx, "the adult indicator no longer shares the source row"
+    assert source_idx == byline_idx
 
 
 def test_relocated_row_does_not_force_the_pane_wider(qapp):

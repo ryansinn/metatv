@@ -149,18 +149,21 @@ def make_key(text: str) -> QLabel:
     return key
 
 
-def make_flow(widgets: Iterable[QWidget]) -> QWidget:
+def make_flow(widgets: Iterable[QWidget], *, prefer_one_line: bool = False) -> QWidget:
     """Wrap *widgets* in a tight, wrapping flow row (4px spacing both axes).
 
     Args:
         widgets: The chips/labels to lay out left-to-right, wrapping as
             needed.
+        prefer_one_line: For a flow that SHARES a row with other widgets: ask
+            for its one-line width, wrapping only when squeezed (see
+            ``FlowLayout``).
 
     Returns:
         A plain ``QWidget`` whose layout is a ``FlowLayout``.
     """
     w = QWidget()
-    flow = FlowLayout(w, h_spacing=4, v_spacing=4)
+    flow = FlowLayout(w, h_spacing=4, v_spacing=4, prefer_one_line=prefer_one_line)
     flow.setContentsMargins(0, 0, 0, 0)
     for widget in widgets:
         flow.addWidget(widget)

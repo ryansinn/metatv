@@ -69,3 +69,39 @@ def test_flow_wraps_to_more_rows_when_narrow(qapp, make_layout):
     wide = layout.heightForWidth(1000)   # 6*100 + gaps < 1000 → single row
     narrow = layout.heightForWidth(150)  # ~1 chip per row → many rows
     assert narrow > wide, f"narrow ({narrow}) must wrap taller than wide ({wide})"
+
+
+def test_an_item_ending_exactly_on_the_right_edge_does_not_wrap(qapp, qtbot):
+    """QRect.right() is the last pixel inside; the wrap check was one pixel early."""
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtWidgets import QWidget
+
+    from metatv.gui.flow_layout import FlowLayout
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    flow = FlowLayout(host, h_spacing=4, v_spacing=4)
+    flow.setContentsMargins(0, 0, 0, 0)
+    a, b = QWidget(), QWidget()
+    for w in (a, b):
+        w.setFixedSize(40, 20)
+        flow.addWidget(w)
+    assert flow.heightForWidth(84) == 20, "40 + 4 + 40 = 84 fits on one line"
+    assert flow.heightForWidth(83) == 44
+
+
+def test_prefer_one_line_asks_for_the_one_line_width(qapp, qtbot):
+    from PyQt6.QtWidgets import QWidget
+
+    from metatv.gui.flow_layout import FlowLayout
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    flow = FlowLayout(host, h_spacing=4, v_spacing=4, prefer_one_line=True)
+    flow.setContentsMargins(0, 0, 0, 0)
+    for _ in range(3):
+        w = QWidget()
+        w.setFixedSize(30, 20)
+        flow.addWidget(w)
+    assert flow.sizeHint().width() == 98       # 30*3 + 4*2: one line when there is room
+    assert flow.minimumSize().width() == 30    # still wraps down to one item when squeezed

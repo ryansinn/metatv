@@ -530,7 +530,11 @@ class TestDetailsPaneRendersEpisodeOwnPlot:
 
         assert pane._episode_rating_lbl.isVisible() or not pane._episode_rating_lbl.isHidden()
         assert "8.4" in pane._episode_rating_lbl.text()
-        assert "1968-09-20" in pane._episode_air_date_lbl.text()
+        # In the user's date style (conftest pins "system"), never the raw ISO.
+        from datetime import datetime
+
+        from metatv.core.time_display import date_text
+        assert date_text(datetime(1968, 9, 20)).upper() in pane._episode_air_date_lbl.text()
 
     def test_episode_without_rating_hides_rating_chip(self, qapp):
         """A rating of None must hide the chip — never render '0.0 of 10'."""

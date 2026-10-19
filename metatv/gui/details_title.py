@@ -33,7 +33,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.detail_chips import make_chip, make_flow
 from metatv.gui.details_sections import _is_stale_polluted_title
-from metatv.gui.flow_layout import FlowLayout
+from metatv.gui.flow_layout import FlowLayout, enable_height_for_width
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.gui.source_label import source_label
@@ -125,22 +125,36 @@ class _MetadataSection(QWidget):
         self.adult_indicator.hide()
         byline_row_layout.addWidget(self.adult_indicator)
         layout.addWidget(byline_row)
+        self._byline_row_layout = byline_row_layout  # the source chips join it below
 
         # Genres — metadata genres first, then tag genres (facet "genre") not
         # already present; a guessed tag genre renders dashed.  A wrapping
         # flow row so it never forces the pane wider than its viewport.
+        # Genres share their row with the rating (owner 2026-10-19): genres
+        # flow from the left edge, the rating sits at the right.
+        genre_row = QWidget()
+        genre_row_layout = QHBoxLayout(genre_row)
+        genre_row_layout.setContentsMargins(0, 0, 0, 0)
+        genre_row_layout.setSpacing(8)
+
         self._genres_loading_lbl = QLabel()
         _theme.style(self._genres_loading_lbl, "TEXT_MD")
         self._genres_loading_lbl.hide()
-        layout.addWidget(self._genres_loading_lbl)
+        genre_row_layout.addWidget(self._genres_loading_lbl)
 
         self._genres_container = QWidget()
         self._genres_container.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
         self._genres_layout = FlowLayout(self._genres_container, h_spacing=4, v_spacing=4)
+        # Zero, as make_flow does: Qt's default layout margins indented the
+        # genre chips past every other row's left edge.
+        self._genres_layout.setContentsMargins(0, 0, 0, 0)
         self._genres_container.hide()
-        layout.addWidget(self._genres_container)
+        genre_row_layout.addWidget(self._genres_container, 1, Qt.AlignmentFlag.AlignTop)
+        # Takes the slack only while the genres are hidden, so the rating
+        # still sits at the right.
+        genre_row_layout.addStretch(0)
 
         # Rating row — "8.0 / 10" (no stars) + framed TMDb/IMDb chips, shown
         # only when the id exists.  Left-click a chip copies its id and
@@ -166,9 +180,14 @@ class _MetadataSection(QWidget):
         self._imdb_chip.setProperty("id_kind", "imdb")
         self._imdb_chip.clicked.connect(self._on_id_chip_sender_clicked)
 
-        self._rating_row_w = make_flow([self.rating_label, self._tmdb_chip, self._imdb_chip])
+        # One line when there is room (it shares the genre row), but still a
+        # flow, so a narrow pane wraps it instead of being forced wider.
+        self._rating_row_w = make_flow(
+            [self.rating_label, self._tmdb_chip, self._imdb_chip], prefer_one_line=True)
         self._rating_row_w.hide()
-        layout.addWidget(self._rating_row_w)
+        genre_row_layout.addWidget(
+            self._rating_row_w, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(genre_row)
 
         # Tagline — italic subtitle line, shown when metadata provides it.
         self._tagline_lbl = QLabel()
@@ -178,9 +197,9 @@ class _MetadataSection(QWidget):
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
 
-        # Source row — NO label: the source chip (provider icon+name, or
-        # "(source removed)") plus this copy's collection chip when one is
-        # known.  Left-click the source chip filters the list to that
+        # Source chips — NO label, at the right end of the byline row (owner
+        # 2026-10-19): the source chip (provider icon+name, or "(source
+        # removed)") plus this copy's collection chip when one is known.  Left-click the source chip filters the list to that
         # source; left-click the collection chip filters to that collection.
         self._source_chip = make_chip("")
         self._source_chip.clicked.connect(self._on_source_chip_clicked)
@@ -189,9 +208,11 @@ class _MetadataSection(QWidget):
         self._collection_chip.clicked.connect(self._on_collection_chip_clicked)
         self._collection_chip.hide()
 
-        self._source_row_w = make_flow([self._source_chip, self._collection_chip])
+        self._source_row_w = make_flow(
+            [self._source_chip, self._collection_chip], prefer_one_line=True)
         self._source_row_w.hide()
-        layout.addWidget(self._source_row_w)
+        self._byline_row_layout.addWidget(
+            self._source_row_w, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
@@ -200,6 +221,13 @@ class _MetadataSection(QWidget):
         _no_width_force(self.rec_reason_label)
         self.rec_reason_label.hide()
         layout.addWidget(self.rec_reason_label)
+        # The two shared rows hold wrapping flows; without height-for-width the
+        # pane sizes this block as if every flow were wrapped at its narrowest
+        # and the slack shows up as a gap under the genres.
+        for _row in (self._byline_row_layout.parentWidget(), genre_row, self):
+            enable_height_for_width(_row)
+        # Any height beyond that goes below the block, never into its rows.
+        layout.addStretch(1)
 
     def set_mode(self, is_live: bool) -> None:
         self._is_live = is_live

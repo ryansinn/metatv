@@ -42,9 +42,15 @@ class FlowLayout(QLayout):
 
     def __init__(self, parent=None, spacing: int = 8, *,
                  h_spacing: "int | None" = None,
-                 v_spacing: "int | None" = None) -> None:
+                 v_spacing: "int | None" = None,
+                 prefer_one_line: bool = False) -> None:
         super().__init__(parent)
         self._items: list[QWidgetItem] = []
+        # A box layout hands a child its sizeHint() when there is room. Ours is
+        # the minimum (the widest single item), so inside a row a flow wraps
+        # even with space to spare. prefer_one_line asks for the one-line width
+        # instead; the minimum is unchanged, so it still wraps when squeezed.
+        self._prefer_one_line = prefer_one_line
         # A chip row usually wants tighter rows than columns, so the two are
         # separable; `spacing` sets both unless one is named explicitly.
         self._h_spacing = spacing if h_spacing is None else h_spacing
@@ -101,7 +107,17 @@ class FlowLayout(QLayout):
         self._do_layout(rect, dry_run=False)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return self.minimumSize()
+        if not self._prefer_one_line:
+            return self.minimumSize()
+        shown = [i for i in self._items if i.widget() is None or not i.widget().isHidden()]
+        if not shown:
+            return self.minimumSize()
+        hints = [i.sizeHint() for i in shown]
+        margins = self.contentsMargins()
+        return QSize(
+            sum(h.width() for h in hints) + self._h_spacing * (len(hints) - 1)
+            + margins.left() + margins.right(),
+            max(h.height() for h in hints) + margins.top() + margins.bottom())
 
     def minimumSize(self) -> QSize:  # noqa: N802
         size = QSize()
@@ -140,8 +156,9 @@ class FlowLayout(QLayout):
             hint = item.sizeHint()
             w, h = hint.width(), hint.height()
 
-            # Wrap to next row if item doesn't fit
-            if x + w > effective.right() and x > effective.x():
+            # Wrap to next row if item doesn't fit. right() is the LAST pixel
+            # inside, so an item ending exactly on it still fits.
+            if x + w - 1 > effective.right() and x > effective.x():
                 x = effective.x()
                 y += row_height + self._v_spacing
                 row_height = 0
