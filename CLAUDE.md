@@ -185,6 +185,17 @@ into main when it's done"; "the CI should run but why are YOU waiting on it?". W
 the sections below say "CI is the gate", "never merge on red or pending CI" or "run
 the gate before pushing", they describe the older process and do NOT apply.
 
+**Not waiting is not the same as not looking (2026-10-19).** Before each new merge,
+read the results of the PREVIOUS merges — `gh run list --workflow ci.yml --limit 5`
+and the three build workflows (`release.yml` = macOS .dmg, `windows-rolling.yml`,
+`flatpak-rolling.yml`) — and fix anything red first. It costs seconds and never
+blocks. On 2026-10-19 CI was red on every PR for ~7 hours (stale tests after a
+layout change) and the macOS packaged app failed its launch check, while a dozen
+merges landed on top and the rolling .dmg stayed 7 hours old; the owner found
+it, not the agent. A change to what PyInstaller bundles (dynamic imports, data
+files read via `__file__`) also needs `packaging/metatv.spec` checked in the
+same PR — only the macOS job launches the packaged app; Windows never does.
+
 One directive per rule; violations here have burned real money and real trust. No exceptions without the owner saying so in the moment.
 
 ### CI tests every pull request — the local gate is now a fast pre-check
