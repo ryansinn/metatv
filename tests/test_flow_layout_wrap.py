@@ -73,7 +73,6 @@ def test_flow_wraps_to_more_rows_when_narrow(qapp, make_layout):
 
 def test_an_item_ending_exactly_on_the_right_edge_does_not_wrap(qapp, qtbot):
     """QRect.right() is the last pixel inside; the wrap check was one pixel early."""
-    from PyQt6.QtCore import QRect
     from PyQt6.QtWidgets import QWidget
 
     from metatv.gui.flow_layout import FlowLayout
