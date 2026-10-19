@@ -4,7 +4,7 @@ Playback, Interaction, Recommendations, Metadata & API Keys, Interface — moved
 here **verbatim** from ``settings_dialog.py`` (which owns the three-panel shell
 plus ``_load_values``/``_save_values``) purely to keep both files under the
 1000-line ceiling. Mixed into ``SettingsDialog`` via multiple inheritance, so
-``self._player_combo`` etc. resolve exactly as before.
+``self._player_mode_combo`` etc. resolve exactly as before.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.settings_text_size import add_text_size_row
+from metatv.gui.time_display_settings import add_time_format_rows
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
@@ -64,10 +65,6 @@ class SettingsTabsMixin:
         player_group = QGroupBox("Player")
         player_form = QFormLayout(player_group)
         player_form.setSpacing(8)
-
-        self._player_combo = QComboBox()
-        self._player_combo.addItems(["mpv", "vlc", "custom"])
-        player_form.addRow("Preferred player:", self._player_combo)
 
         self._player_mode_combo = QComboBox()
         self._player_mode_combo.addItems(["Single instance", "Multiple instances"])
@@ -920,10 +917,9 @@ class SettingsTabsMixin:
         )
         appearance_form.addRow("Theme:", self._theme_combo)
         self._text_size_combo = add_text_size_row(appearance_form)
+        self._time_format_combo, self._date_format_combo = add_time_format_rows(appearance_form)
 
-        self._menu_auto_hide_check = QCheckBox(
-            "Hide the menu bar until Alt is pressed"
-        )
+        self._menu_auto_hide_check = QCheckBox("Hide the menu bar until Alt is pressed")
         self._menu_auto_hide_check.setToolTip(
             "Off by default. When on, the menu bar appears only while you\n"
             "press Alt — and File, View, Layout, Style and Buffer all go with\n"

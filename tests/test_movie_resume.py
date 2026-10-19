@@ -395,7 +395,6 @@ def _make_mpv_player():
     from metatv.core.config import Config
     player = MPVPlayer.__new__(MPVPlayer)
     player.config = MagicMock(spec=Config)
-    player.config.mpv_socket_path = "/tmp/test.sock"
     player.config.player_mode = "single-instance"
     player.single_instance = True
     player._instances = {}

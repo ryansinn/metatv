@@ -29,7 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG, _OPEN_ENDED_BUFFER_ARGS
+from metatv.core.players.mpv import MPVPlayer, _OPEN_ENDED_BUFFER_ARGS
+from metatv.core.players.mpv_args import NO_READ_TIMEOUT_FLAG, RECONNECT_FLAG
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -40,7 +41,6 @@ class _FakeConfig:
 
     default_cache_size: str = "auto"
     mpv_extra_args: list = field(default_factory=list)
-    mpv_socket_path: str = "/tmp/metatv-test.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"

@@ -27,8 +27,7 @@ from metatv.core.config_storage import QA_STATE_FILENAME, _qa_field_names
 
 @pytest.fixture()
 def cfg(tmp_path):
-    return Config(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data",
-                  cache_dir=tmp_path / "cache")
+    return Config(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data")
 
 
 def _read(path):
@@ -124,7 +123,7 @@ def test_an_old_config_with_inline_qa_state_still_loads_it(tmp_path):
     merged = Config._merge_qa_sidecar(cfg_dir, yaml.safe_load(
         (cfg_dir / "config.yaml").read_text()))
     c = Config(**merged, config_dir=cfg_dir,
-               data_dir=tmp_path / "d", cache_dir=tmp_path / "x")
+               data_dir=tmp_path / "d")
 
     assert c.qa_step_results == {"e9_s0": {"state": "pass"}}
     assert c.qa_verified_id == 42
@@ -141,7 +140,7 @@ def test_the_next_save_moves_inline_state_into_the_sidecar(tmp_path):
     merged = Config._merge_qa_sidecar(cfg_dir, yaml.safe_load(
         (cfg_dir / "config.yaml").read_text()))
     c = Config(**merged, config_dir=cfg_dir,
-               data_dir=tmp_path / "d", cache_dir=tmp_path / "x")
+               data_dir=tmp_path / "d")
     c.save()
 
     assert _read(cfg_dir / QA_STATE_FILENAME)["qa_step_results"] == {

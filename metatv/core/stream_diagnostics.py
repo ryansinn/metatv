@@ -14,10 +14,7 @@ Credentials embedded in Xtream stream URLs
 **every** log line and in every human-facing string this module produces.
 """
 
-import json
 import re
-import shutil
-import subprocess
 import time
 from dataclasses import dataclass, field
 
@@ -25,7 +22,7 @@ import requests
 
 from loguru import logger
 
-from metatv.core.http_headers import STREAM_HTTP_HEADERS, stream_user_agent
+from metatv.core.http_headers import STREAM_HTTP_HEADERS
 
 # --- Verdict constants -------------------------------------------------------
 VERDICT_HEALTHY = "healthy"
@@ -92,7 +89,7 @@ class DiagnosticResult:
     """Outcome of a single stream-diagnostic probe.
 
     All numeric fields are ``None`` when the corresponding measurement could not
-    be taken (e.g. ffprobe missing, baseline skipped, stream unreachable).
+    be taken (e.g. mpv missing, baseline skipped, stream unreachable).
     """
 
     reachable: bool
@@ -265,7 +262,7 @@ def classify(
 
     Args:
         throughput_mbps: Sustained download rate from the provider stream.
-        bitrate_mbps: Stream bitrate (ffprobe or throughput estimate).
+        bitrate_mbps: Stream bitrate (mpv probe or throughput estimate).
         baseline_mbps: Neutral-host speed sample, or ``None`` if unavailable.
         reachable: Whether the stream was reachable at all.
 
@@ -373,76 +370,43 @@ def recommend_mpv_args(
     return ()
 
 
-# --- ffprobe -----------------------------------------------------------------
-def _probe_ffprobe(
+# --- Stream details (the bundled mpv) -----------------------------------------
+def _probe_stream_details(
     stream_url: str, redacted: str
 ) -> tuple[str | None, str | None, float | None]:
-    """Run ffprobe and extract (codec, resolution, bitrate_mbps).
+    """Read (codec, resolution, bitrate_mbps) with the headless mpv probe.
 
-    Never raises — on any failure (ffprobe missing, timeout, bad JSON) returns
-    ``(None, None, None)``.
+    The same probe as the details pane's "Get stream details"
+    (:func:`stream_details_probe.probe_details`), so diagnostics needs no
+    ffprobe: mpv is bundled with every build, ffprobe with none. Never raises —
+    on any failure returns ``(None, None, None)``.
 
     Args:
-        stream_url: The raw stream URL (passed to ffprobe).
+        stream_url: The raw stream URL.
         redacted: The credential-free URL used for logging.
 
     Returns:
         ``(codec, resolution, bitrate_mbps)`` with ``None`` for anything that
-        couldn't be determined.
+        couldn't be determined. The bitrate is video plus audio, when mpv
+        reports the video's.
     """
-    if not shutil.which("ffprobe"):
-        logger.debug("ffprobe not found on PATH; skipping codec/bitrate probe")
-        return (None, None, None)
+    from metatv.core.stream_details_probe import probe_details
 
     try:
-        proc = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_streams",
-                "-show_format",
-                "-user_agent",
-                stream_user_agent(),
-                stream_url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=12,
-        )
-        data = json.loads(proc.stdout or "{}")
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
-        logger.debug(f"ffprobe failed for {redacted}: {type(exc).__name__}")
+        record = probe_details(stream_url)
+    except Exception as exc:  # noqa: BLE001 - optional enrichment, never fatal
+        logger.debug(f"stream details probe failed for {redacted}: {type(exc).__name__}")
         return (None, None, None)
+    video = (record or {}).get("video") or {}
 
-    codec: str | None = None
-    resolution: str | None = None
+    codec = video.get("codec") or None
+    width, height = video.get("width"), video.get("height")
+    resolution = f"{width}x{height}" if width and height else None
+
     bitrate_mbps: float | None = None
-
-    video = None
-    for stream in data.get("streams", []):
-        if stream.get("codec_type") == "video":
-            video = stream
-            break
-
-    if video is not None:
-        codec = video.get("codec_name") or None
-        width = video.get("width")
-        height = video.get("height")
-        if width and height:
-            resolution = f"{width}x{height}"
-
-    # Prefer format-level bitrate, fall back to the video stream's bitrate.
-    raw_bitrate = data.get("format", {}).get("bit_rate")
-    if not raw_bitrate and video is not None:
-        raw_bitrate = video.get("bit_rate")
-    if raw_bitrate:
-        try:
-            bitrate_mbps = float(raw_bitrate) / 1e6
-        except (TypeError, ValueError):
-            bitrate_mbps = None
+    if video.get("bitrate_kbps"):
+        audio_kbps = sum(a.get("bitrate_kbps") or 0 for a in record.get("audio") or [])
+        bitrate_mbps = (video["bitrate_kbps"] + audio_kbps) / 1000.0
 
     return (codec, resolution, bitrate_mbps)
 
@@ -499,7 +463,7 @@ def run_stream_diagnostic(
     """Probe a stream and diagnose the likely cause of buffering.
 
     Measures connect/setup time, time-to-first-byte, sustained provider
-    throughput, ffprobe codec/resolution/bitrate, and (optionally) a
+    throughput, codec/resolution/bitrate (headless mpv), and (optionally) a
     neutral-host baseline speed; then classifies the result and recommends
     mpv cache args.
 
@@ -576,8 +540,9 @@ def run_stream_diagnostic(
     finally:
         resp.close()
 
-    # ffprobe — codec / resolution / bitrate (never raises out).
-    codec, resolution, bitrate_mbps = _probe_ffprobe(stream_url, redacted)
+    # mpv — codec / resolution / bitrate (never raises out). Runs after the
+    # sample's connection is closed, so it never holds two at once.
+    codec, resolution, bitrate_mbps = _probe_stream_details(stream_url, redacted)
 
     bitrate_estimated = False
     if not bitrate_mbps and throughput_mbps:

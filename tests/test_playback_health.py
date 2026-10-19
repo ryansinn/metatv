@@ -104,7 +104,6 @@ def _make_player():
     from metatv.core.players.mpv import MPVPlayer
 
     cfg = SimpleNamespace(
-        mpv_socket_path="/tmp/does-not-matter.sock",
         player_mode="single-instance",
     )
     return MPVPlayer(cfg)

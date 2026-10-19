@@ -15,6 +15,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from metatv.core.child_process import NO_WINDOW
+
 
 def repo_dir() -> Path:
     """Root of the *running* checkout (the worktree, not the user's CWD).
@@ -26,7 +28,7 @@ def repo_dir() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _git(*args: str) -> str:
+def git(*args: str, timeout: float = 5) -> str:
     """Run a git command in the running checkout; return stdout or "" on failure."""
     try:
         result = subprocess.run(
@@ -34,8 +36,9 @@ def _git(*args: str) -> str:
             capture_output=True,
             text=True,
             check=False,
-            timeout=5,
+            timeout=timeout,
             cwd=str(repo_dir()),
+            **NO_WINDOW,
         )
         return result.stdout.strip()
     except (OSError, subprocess.SubprocessError):
@@ -115,10 +118,10 @@ def window_title() -> str:
 
     Computed once at startup; a testing/debug session doesn't commit mid-run.
     """
-    sha = _git("rev-parse", "--short", "HEAD")
+    sha = git("rev-parse", "--short", "HEAD")
     # Only tracked-file modifications count as "dirty" — untracked noise (a borrowed
     # venv symlink, logs, scratch files) must not falsely flag the pristine commit.
-    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
+    dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
     pr = _pr_number()
-    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
     return compose_title(sha, dirty, pr, branch)

@@ -42,6 +42,9 @@ HANDLERS: tuple[str, ...] = (
     "_apply_channel_list_density",
     "_apply_sidebar_row_density",
     "apply_configured_theme",
+    # Time/date style: hands core/time_display the resolved style and, only if
+    # it changed, re-renders the views that print times and dates.
+    "_apply_time_display_setting",
     "_apply_collapse_variants_setting",
     # Settings → Content is the ONLY reachable adult-mode control, so its
     # change just needs the list reloaded.

@@ -15,7 +15,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from loguru import logger
 
-from metatv.core import profile_store
+from metatv.core import app_paths, profile_store
 
 
 # Negative-cache windows. Keyed at two grains because the two failure modes
@@ -82,10 +82,10 @@ class ImageCache(QObject):
     # Private signal: worker emits (url, cache_path_str); main thread creates QPixmap
     _image_ready = pyqtSignal(str, str)
     
-    def __init__(self, cache_dir: str = "~/.cache/metatv/images", 
+    def __init__(self, cache_dir: "str | Path | None" = None,
                  max_size_mb: int = 500):
         super().__init__()
-        self.cache_dir = Path(cache_dir).expanduser()
+        self.cache_dir = app_paths.expand_user(cache_dir or app_paths.image_cache_dir())
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_size_mb = max_size_mb
         

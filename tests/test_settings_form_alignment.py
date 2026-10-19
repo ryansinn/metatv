@@ -53,7 +53,6 @@ def dialog(qapp, tmp_path):
     config = Config(
         config_dir=tmp_path / "cfg",
         data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
     dlg = SettingsDialog(config, None)
     dlg.resize(1000, 720)

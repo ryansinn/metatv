@@ -12,12 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import (
-    MPVPlayer,
-    RECONNECT_FLAG,
-    NO_READ_TIMEOUT_FLAG,
-    _base_stream_args,
-)
+from metatv.core.players.mpv import MPVPlayer
+from metatv.core.players.mpv_args import NO_READ_TIMEOUT_FLAG, RECONNECT_FLAG, stream_args
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -28,7 +24,6 @@ class _FakeConfig:
 
     default_cache_size: str = "auto"
     mpv_extra_args: list = field(default_factory=list)
-    mpv_socket_path: str = "/tmp/metatv-test.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"
@@ -103,37 +98,37 @@ def test_no_read_timeout_flag_omitted_override_all_deep_cache():
 
 
 # ---------------------------------------------------------------------------
-# _base_stream_args() helper — composition and ordering
+# stream_args() helper — composition and ordering
 # ---------------------------------------------------------------------------
 
-def test_base_stream_args_returns_list_of_three():
-    """_base_stream_args() returns a list with exactly 3 elements."""
-    args = _base_stream_args()
+def teststream_args_returns_list_of_three():
+    """stream_args() returns a list with exactly 3 elements."""
+    args = stream_args()
     assert len(args) == 3
 
 
-def test_base_stream_args_first_element_is_user_agent():
-    """_base_stream_args()[0] is --user-agent=<canonical>."""
-    args = _base_stream_args()
+def teststream_args_first_element_is_user_agent():
+    """stream_args()[0] is --user-agent=<canonical>."""
+    args = stream_args()
     assert args[0].startswith("--user-agent=")
     assert args[0] == _CANONICAL_UA
 
 
-def test_base_stream_args_second_element_is_reconnect_flag():
-    """_base_stream_args()[1] is RECONNECT_FLAG."""
-    args = _base_stream_args()
+def teststream_args_second_element_is_reconnect_flag():
+    """stream_args()[1] is RECONNECT_FLAG."""
+    args = stream_args()
     assert args[1] == RECONNECT_FLAG
 
 
-def test_base_stream_args_third_element_is_no_read_timeout():
-    """_base_stream_args()[2] is NO_READ_TIMEOUT_FLAG."""
-    args = _base_stream_args()
+def teststream_args_third_element_is_no_read_timeout():
+    """stream_args()[2] is NO_READ_TIMEOUT_FLAG."""
+    args = stream_args()
     assert args[2] == NO_READ_TIMEOUT_FLAG
 
 
-def test_base_stream_args_order_ua_reconnect_timeout():
-    """_base_stream_args() maintains the required order: UA, reconnect, timeout."""
-    args = _base_stream_args()
+def teststream_args_order_ua_reconnect_timeout():
+    """stream_args() maintains the required order: UA, reconnect, timeout."""
+    args = stream_args()
     assert args[0].startswith("--user-agent=")
     assert args[1] == RECONNECT_FLAG
     assert args[2] == NO_READ_TIMEOUT_FLAG

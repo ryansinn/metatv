@@ -14,6 +14,7 @@ from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
 from metatv.core.stream_info import audio_contradicts_prefix, measured_quality
+from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
@@ -570,7 +571,7 @@ class _VersionSection(QWidget):
         if not m:
             return ""
         verb = "Probed" if m.get("source") == "probe" else "Measured when played"
-        when = f" {m['at']:%b} {m['at'].day}" if m.get("at") else ""
+        when = f" {short_date_text(m['at'])}" if m.get("at") else ""
         parts = []
         if m.get("width") and m.get("height"):
             parts.append(f"{m['width']}×{m['height']}")

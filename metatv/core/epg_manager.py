@@ -26,11 +26,11 @@ from metatv.core.epg_utils import (
     epg_auto_delta,
     epg_is_stale,
     epg_interval_delta,
-    local_weekday,
     now_utc,
     to_local,
 )
 from metatv.core.models import Provider
+from metatv.core.time_display import clock_text, weekday_date_text
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.watchlist_burst import burst_banner
 from metatv.core.repositories.epg import EpgRepository, delete_programmes_chunked
@@ -781,8 +781,9 @@ class EpgManager(_EpgFetchMixin, QObject):
                 # epg_data_end is UTC-naive — convert to local before display
                 # (per the EPG timezone rule) so the day/time isn't off by the
                 # local offset (or a whole day near midnight).
-                local_end = f"{local_weekday(end)} {to_local(end).strftime('%b %d %I:%M%p')}"
-                end_str = f" · data through {local_end.replace(' 0', ' ')}"
+                local_end = to_local(end)
+                end_str = (f" · data through {weekday_date_text(local_end)} "
+                           f"{clock_text(local_end)}")
 
             return f"Updated {age_str}{end_str}"
         finally:

@@ -7,11 +7,12 @@ whose real job is declaring the settings themselves.
 """
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import yaml
 from loguru import logger
+
+from metatv.core import app_paths, file_ops
 
 #: Filename for the dev-QA sidecar. Its contents are every ``Config`` field
 #: whose name starts with ``qa_`` — DERIVED from the prefix, never a list
@@ -68,7 +69,7 @@ PROFILE = {"store": "profile"}
 #: The default is the database; adding a name here is the exception that has
 #: to be argued for (owner, 2026-10-09: "config.yaml isn't used. period.").
 YAML_ONLY: frozenset[str] = frozenset({
-    "config_dir", "data_dir", "cache_dir", "database_url",
+    "config_dir", "data_dir", "database_url",
     "theme_name",                   # __main__ applies it before MainWindow exists
     "max_stacked_notifications",    # read in MainWindow.__init__ before attach
     "profile_store_populated",      # the profile store's own "have I migrated" flag
@@ -118,6 +119,31 @@ _YamlDumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 _YamlLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
+#: Locations ``app_paths`` derives at runtime. config.yaml carries one only when
+#: it differs from the derived default (a custom data folder), so the file is
+#: not a second, stale copy of where things live. ``config_dir`` is never
+#: written or read: the file lives IN it, so it cannot also say where it is.
+DERIVED_PATHS: frozenset[str] = frozenset({"config_dir", "data_dir", "database_url"})
+
+
+def default_database_url(data_dir: Path) -> str:
+    """The database ``Config`` uses when none is configured: ``metatv.db`` in *data_dir*."""
+    return f"sqlite:///{data_dir / 'metatv.db'}"
+
+
+def derived_path_defaults(data_dir: Path) -> dict:
+    """``{field: value}`` a :data:`DERIVED_PATHS` field holds when nobody chose it."""
+    return {"data_dir": str(app_paths.data_dir()),
+            "database_url": default_database_url(data_dir)}
+
+
+def drop_stale_config_dir(data: dict) -> dict:
+    """Ignore a ``config_dir`` an older file stored: the file was found IN
+    ``app_paths.config_dir()``, so that is where saves must go too."""
+    data.pop("config_dir", None)
+    return data
+
+
 def icon_field_defaults(model_cls) -> dict:
     """``{name: default}`` for the legacy ``*_icon`` glyph constants — never
     user-set (icons live in ``icons.py``), so config.yaml does not carry them."""
@@ -131,19 +157,11 @@ def atomic_yaml_write(target: Path, payload: dict) -> None:
     they are written — the temp-then-replace is what stops a crash mid-write
     leaving a truncated file.
     """
-    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=target.parent, delete=False, suffix=".yaml"
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-            yaml.dump(payload, tmp, Dumper=_YamlDumper, default_flow_style=False)
-        tmp_path.replace(target)
+        file_ops.atomic_write(
+            target,
+            lambda f: yaml.dump(payload, f, Dumper=_YamlDumper, default_flow_style=False),
+            suffix=".yaml")
     except Exception as e:
         logger.error(f"Failed to write {target}: {e}")
-        try:
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass  # best-effort cleanup of a temp file we are already abandoning
         raise

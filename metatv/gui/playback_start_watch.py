@@ -84,9 +84,10 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 
 from metatv.core import epg_utils
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
+from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
 from metatv.core.players.mpv_log_tap import STREAM_EXIT_REASONS, last_http_error
 from metatv.core.stream_diagnostics import CONNECTION_LIMIT_STATUSES, connection_limit_detail
+from metatv.core.time_display import clock_text
 
 #: How often the health probe runs. The two thresholds below are counted in
 #: these ticks, so they move together if this does.
@@ -519,7 +520,7 @@ def prestart_detail(event_start: "datetime | None", now: "datetime") -> "str | N
     if event_start is None or event_start <= now:
         return None
     start_local = epg_utils.to_local(event_start)
-    return f"This event hasn't started — scheduled for {start_local:%H:%M}."
+    return f"This event hasn't started — scheduled for {clock_text(start_local)}."
 
 
 def _http_refusal(host: Any, attempt: "Optional[PlayAttempt]") -> "int | None":

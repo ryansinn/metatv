@@ -61,8 +61,7 @@ def _make_view(tmp_path):
 
     db = Database(f"sqlite:///{tmp_path / 'reload_guard.db'}")
     db.create_tables()
-    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                 cache_dir=tmp_path / "cache")
+    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
     view = DiscoverView(db, cfg, MagicMock())
     _VIEWS.append(view)   # destroyed by _destroy_views below — a parentless top-level
     return db, view

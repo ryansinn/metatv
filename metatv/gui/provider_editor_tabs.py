@@ -42,6 +42,7 @@ from loguru import logger
 
 from metatv.core.models import ProviderURL
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.time_display import date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -270,8 +271,8 @@ class _ProviderEditorTabsMixin:
         self._acct_cons_lbl.setText(f"{active_cons} / {max_cons}")
 
         # Dates
-        self._acct_created_lbl.setText(created_dt.strftime("%Y-%m-%d") if created_dt else "—")
-        self._acct_exp_lbl.setText(exp_dt.strftime("%Y-%m-%d") if exp_dt else "—")
+        self._acct_created_lbl.setText(date_text(created_dt) if created_dt else "—")
+        self._acct_exp_lbl.setText(date_text(exp_dt) if exp_dt else "—")
 
         # Remaining bar
         if exp_dt:

@@ -28,7 +28,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG
+from metatv.core.players.mpv import MPVPlayer
+from metatv.core.players.mpv_args import RECONNECT_FLAG
 from metatv.gui.channel_menu import ACTIONS, SURFACE_LAYOUTS, ChannelMenuContext, build_channel_menu
 from metatv.gui import icons as _icons
 
@@ -44,7 +45,6 @@ class _FakeConfig:
     """Minimal stand-in for Config used by MPVPlayer."""
     default_cache_size: str = "auto"
     mpv_extra_args: list = field(default_factory=list)
-    mpv_socket_path: str = "/tmp/metatv-test.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"

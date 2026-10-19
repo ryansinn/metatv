@@ -13,6 +13,9 @@ requests>=2.31.0
 # Data processing
 pydantic>=2.5.0
 python-dateutil>=2.8.2
+# zoneinfo's time-zone database. Linux and macOS ship one; Windows does not, so
+# ZoneInfo("America/New_York") (event_datetime) raises there without this.
+tzdata; sys_platform == "win32"
 
 # Logging
 loguru>=0.7.0

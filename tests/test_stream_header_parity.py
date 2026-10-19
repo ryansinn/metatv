@@ -1,6 +1,7 @@
 """Behavioral tests for stream HTTP header parity.
 
-Verifies that validation, diagnostics, ffprobe, and mpv all use the same
+Verifies that validation, diagnostics, the ffmpeg signal check and mpv (which diagnostics also probes
+codec/bitrate through) all use the same
 canonical User-Agent (single source of truth in metatv.core.http_headers).
 
 These are pure-core tests — no Qt, no DB, no fixtures needed.
@@ -8,18 +9,14 @@ These are pure-core tests — no Qt, no DB, no fixtures needed.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 from metatv.core.http_headers import STREAM_HTTP_HEADERS, stream_user_agent
 from metatv.core.players.mpv import MPVPlayer
 import metatv.core.stream_diagnostics as _diag_mod
-from metatv.core.stream_diagnostics import (
-    _probe_ffprobe,
-    run_stream_diagnostic,
-)
+from metatv.core.stream_diagnostics import run_stream_diagnostic
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +48,6 @@ class _FakeConfig:
 
     default_cache_size: str = "auto"
     mpv_extra_args: list = field(default_factory=list)
-    mpv_socket_path: str = "/tmp/metatv-test-headers.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"
@@ -106,48 +102,6 @@ class TestMpvUserAgent:
 
 
 # ---------------------------------------------------------------------------
-# 3. ffprobe User-Agent propagation
-# ---------------------------------------------------------------------------
-
-class TestFfprobeUserAgent:
-    def test_user_agent_in_argv_before_url(self):
-        """-user_agent <canonical UA> must appear before the stream URL in ffprobe argv."""
-        stream_url = "http://host.example/live/u/p/1.ts"
-        captured_argv: list[str] = []
-
-        fake_result = MagicMock(spec=subprocess.CompletedProcess)
-        fake_result.stdout = "{}"
-        fake_result.returncode = 0
-
-        def spy_run(argv, **kwargs):
-            captured_argv.extend(argv)
-            return fake_result
-
-        with (
-            patch("metatv.core.stream_diagnostics.shutil.which", return_value="/usr/bin/ffprobe"),
-            patch("metatv.core.stream_diagnostics.subprocess.run", side_effect=spy_run),
-        ):
-            _probe_ffprobe(stream_url, stream_url)
-
-        assert "-user_agent" in captured_argv, "ffprobe argv must contain -user_agent"
-        ua_idx = captured_argv.index("-user_agent")
-        # The value immediately follows the flag.
-        assert captured_argv[ua_idx + 1] == stream_user_agent(), (
-            f"value after -user_agent must be the canonical UA, got {captured_argv[ua_idx + 1]!r}"
-        )
-        url_idx = captured_argv.index(stream_url)
-        assert ua_idx < url_idx, (
-            f"-user_agent (idx {ua_idx}) must precede stream URL (idx {url_idx})"
-        )
-
-    def test_no_ffprobe_returns_nones(self):
-        """When ffprobe is absent _probe_ffprobe returns (None, None, None) without raising."""
-        with patch("metatv.core.stream_diagnostics.shutil.which", return_value=None):
-            result = _probe_ffprobe("http://x/stream.ts", "http://x/stream.ts")
-        assert result == (None, None, None)
-
-
-# ---------------------------------------------------------------------------
 # 4. diagnostics requests.get header propagation
 # ---------------------------------------------------------------------------
 
@@ -186,3 +140,19 @@ class TestDiagnosticsRequestsHeaders:
         assert result is None  # error → None, no crash
         assert "headers" in captured_kwargs
         assert captured_kwargs["headers"].get("User-Agent") == stream_user_agent()
+
+
+# ---------------------------------------------------------------------------
+# 4. The ffmpeg signal check sends the same User-Agent
+# ---------------------------------------------------------------------------
+
+class TestSignalCheckUserAgent:
+    def test_ffmpeg_command_sends_the_canonical_user_agent_before_the_input(self):
+        """A source that gates on User-Agent must not look dead to the signal
+        check while mpv plays it; the option only applies if it precedes -i."""
+        from metatv.core.stream_probe import _build_command
+
+        cmd = _build_command("http://x/1.ts", 3)
+        ua_at = cmd.index("-user_agent")
+        assert cmd[ua_at + 1] == stream_user_agent()
+        assert ua_at < cmd.index("-i")

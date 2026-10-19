@@ -15,6 +15,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent
 
+from metatv.core import runtime_env
 from metatv.gui import menu_bar_reveal
 
 
@@ -194,7 +195,7 @@ def test_macos_cannot_turn_it_on_however_config_is_written(monkeypatch, window):
     A UI-only guard is one a future call site routes around. On macOS the menu
     bar is the system bar; there is nothing in the window to hide.
     """
-    monkeypatch.setattr(menu_bar_reveal.sys, "platform", "darwin")
+    monkeypatch.setattr(runtime_env, "is_macos", lambda: True)
     window.config.menu_bar_auto_hide = True          # as if carried in config
     assert window.menu_bar_auto_hide() is False
     window.apply_menu_bar_auto_hide()

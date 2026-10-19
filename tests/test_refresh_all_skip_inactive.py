@@ -277,7 +277,7 @@ def test_config_refresh_all_includes_inactive_roundtrip(tmp_path):
     from metatv.core.config import Config
 
     # --- save False ---
-    cfg = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    cfg = Config(config_dir=tmp_path, data_dir=tmp_path)
     cfg.refresh_all_includes_inactive = False
     cfg.save()
 
@@ -354,7 +354,6 @@ def _minimal_config(*, refresh_all_includes_inactive: bool = True):
     """Minimal config stub that satisfies _load_values and _save_values."""
 
     class _Cfg:
-        preferred_player = "mpv"
         player_mode = "single-instance"
         autoplay_season_episodes = True
         playback_resume_mode = "resume"
@@ -410,8 +409,6 @@ def _wire_minimal_dialog(dlg, qapp):
     wire_settings_widgets(dlg)
 
     # Playback
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()

@@ -90,8 +90,7 @@ def _make_view(tmp_path):
     from metatv.core.config import Config
     from metatv.gui.discover_view import DiscoverView
 
-    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                 cache_dir=tmp_path / "cache")
+    cfg = Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
     view = DiscoverView(MagicMock(), cfg, MagicMock())
     return view, cfg
 

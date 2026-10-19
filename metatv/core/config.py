@@ -7,11 +7,12 @@ import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 from loguru import logger
 
-from metatv.core import profile_store
+from metatv.core import app_paths, profile_store
 from metatv.core.catalog_refresh import RETIRED_LIVE_REFRESH_MODES
 
 from metatv.core.config_storage import (
-    atomic_yaml_write, icon_field_defaults,
+    DERIVED_PATHS, atomic_yaml_write, default_database_url, derived_path_defaults,
+    drop_stale_config_dir, icon_field_defaults,
     PROFILE, QA_STATE_FILENAME, _qa_defaults, _profile_field_names, _qa_field_names, _YamlLoader,
 )
 
@@ -530,12 +531,9 @@ class Config(BaseModel):
     #: than assumed.
     _last_written: dict = PrivateAttr(default_factory=dict)
     
-    # Paths
-    config_dir: Path = Field(default_factory=lambda: Path.home() / ".config" / "metatv")
-    data_dir: Path = Field(default_factory=lambda: Path.home() / ".local" / "share" / "metatv")
-    cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "metatv")
-    
-    # Database
+    # Paths — config.yaml stores them only when custom (config_storage.DERIVED_PATHS)
+    config_dir: Path = Field(default_factory=app_paths.config_dir)
+    data_dir: Path = Field(default_factory=app_paths.data_dir)
     database_url: str = Field(default="")
     
     # UI Settings
@@ -743,19 +741,13 @@ class Config(BaseModel):
     concurrent_requests: int = 5
     
     # External players
-    preferred_player: str = "mpv"
     player_mode: str = "single-instance"  # "single-instance" or "multiple-instances"
     close_player_when_finished: bool = True  # Close player when stream finishes (mpv --keep-open=no)
     max_player_instances: int = 1  # Max player instances (0 = use provider's max_connections, -1 = unlimited)
     split_streams_by_source: bool = False  # one mpv window per source (keyed by provider_id) when True
-    player_args: dict = Field(default_factory=dict)
     
     # MPV-specific settings
-    mpv_socket_path: str = "/tmp/mpv-metatv-socket"
     mpv_extra_args: list = Field(default_factory=list)  # Additional args like ["--cache=yes", "--demuxer-max-bytes=50M"]
-    
-    # VLC-specific settings
-    vlc_extra_args: list = Field(default_factory=list)  # Additional args like ["--network-caching=3000"]
     
     # Playback settings
     default_cache_size: str = "auto"  # "auto" or size like "50M", "100M"
@@ -766,11 +758,11 @@ class Config(BaseModel):
     # Deep-cache ("Buffer without limit", VOD-only, ephemeral): per-play mode that
     # relaunches mpv with --stream-record into a scratch dir so the buffer can grow
     # past mpv's in-memory/disk cache. See MPVPlayer's "deep" buffer profile and
-    # _compose_deep_cache_args(). Str (not Path) + tilde literal, expanded at the
-    # consumer — same pattern as image_cache_dir below.
-    deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
+    # _compose_deep_cache_args(). Str (not Path); a leading ``~`` is expanded at
+    # the consumer via app_paths.expand_user — same pattern as image_cache_dir.
+    deep_cache_dir: str = Field(default_factory=lambda: str(app_paths.deep_cache_dir()))
     #: Where saved VOD downloads land. Persistent, unlike deep_cache_dir.
-    download_dir: str = "~/Videos/MetaTV"
+    download_dir: str = Field(default_factory=lambda: str(app_paths.default_library_dir()))
     #: "tree" (Movies/, Series/Show/Season NN/) or "flat" (one folder).
     #: Tree is the settled default because Plex/Jellyfin/Kodi read it without
     #: configuration; an item whose metadata cannot fill the tree falls back to
@@ -966,6 +958,8 @@ class Config(BaseModel):
     # same allocation. See metatv.gui.chip_row.
     sidebar_row_density: str = "compact"
     ui_text_scale: float = 1.0  # Settings → Appearance → Text size: multiplies every FONT_* token
+    time_format: str = "system"  # Settings → Appearance → Time: "system" | "12h" | "24h"
+    date_format: str = "system"  # … → Date: "system" | "day_month" | "month_day" | "iso"
     #: Trade SIDEBAR scrollbars for "Show N more" rows. Off by default: every
     #: entry is present and the section scrolls, like any other list. On: the
     #: section shows what fits and ends with a row that makes it taller — for
@@ -1037,7 +1031,7 @@ class Config(BaseModel):
     
     # Image caching settings
     image_cache_enabled: bool = True  # Enable image caching
-    image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
+    image_cache_dir: str = Field(default_factory=lambda: str(app_paths.image_cache_dir()))
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
 
     # Provider-native TMDb enrichment (Phase 2 — tmdb_enrichment_manager.py).
@@ -2114,8 +2108,7 @@ class Config(BaseModel):
     def model_post_init(self, __context):
         """Initialize database_url if not set, and migrate legacy filter_included_* fields."""
         if not self.database_url:
-            db_path = self.data_dir / "metatv.db"
-            self.database_url = f"sqlite:///{db_path}"
+            self.database_url = default_database_url(self.data_dir)
         # Migrate legacy filter_included_* empty-list values to None — ONE TIME ONLY.
         # Before the None-sentinel was introduced, [] meant "never configured" (the
         # restore path treated [] as all-selected).  A pre-sentinel config has
@@ -2315,7 +2308,7 @@ class Config(BaseModel):
             (config, recovered_from_backup) - recovered_from_backup is True if config was empty/corrupt
             and was restored from .bak file.
         """
-        config_dir = Path.home() / ".config" / "metatv"
+        config_dir = app_paths.config_dir()
         config_file = config_dir / "config.yaml"
         backup_file = config_dir / "config.yaml.bak"
 
@@ -2328,9 +2321,11 @@ class Config(BaseModel):
                 with open(config_file) as f:
                     data = yaml.load(f, Loader=_YamlLoader) or {}
 
-                # Check if config is empty/corrupt (missing database_url indicates corruption)
-                if not data or not data.get("database_url"):
-                    logger.warning("Config file is empty or missing database_url")
+                # Empty/corrupt? Every written file has profile_store_populated;
+                # an older one has database_url (now written only when custom).
+                if not isinstance(data, dict) or not (
+                        "profile_store_populated" in data or data.get("database_url")):
+                    logger.warning("Config file is empty or unrecognisable")
                     # Try to restore from backup
                     if backup_file.exists():
                         logger.warning("Attempting to restore from backup")
@@ -2353,7 +2348,7 @@ class Config(BaseModel):
                     logger.info(f"Loaded config from {config_file}")
 
                 if data:
-                    data = cls._merge_qa_sidecar(config_dir, data)
+                    data = cls._merge_qa_sidecar(config_dir, drop_stale_config_dir(data))
                     config = cls(**data)
                     config._inject_new_sections()
                     config._retire_collapsed_shelves()
@@ -2367,7 +2362,7 @@ class Config(BaseModel):
                         with open(backup_file) as f:
                             data = yaml.load(f, Loader=_YamlLoader) or {}
                         if data:
-                            data = cls._merge_qa_sidecar(config_dir, data)
+                            data = cls._merge_qa_sidecar(config_dir, drop_stale_config_dir(data))
                             config = cls(**data)
                             config._inject_new_sections()
                             config._retire_collapsed_shelves()
@@ -2433,7 +2428,8 @@ class Config(BaseModel):
                          - set(data)
                          - _profile_field_names(type(self))
                          - _qa_field_names(type(self))
-                         - set(icon_field_defaults(type(self))))
+                         - set(icon_field_defaults(type(self)))
+                         - DERIVED_PATHS)
         if not missing:
             return False
         logger.info(
@@ -2466,12 +2462,6 @@ class Config(BaseModel):
         """
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-        # Set database URL if not set
-        if not self.database_url:
-            db_path = self.data_dir / "metatv.db"
-            self.database_url = f"sqlite:///{db_path}"
 
         config_file = self.config_dir / "config.yaml"
         backup_file = self.config_dir / "config.yaml.bak"
@@ -2490,8 +2480,7 @@ class Config(BaseModel):
         # nudged back to the same size, a section toggled twice — paid the
         # full 83 ms on the UI thread.
         #
-        # Compared AFTER the database_url default above, so first-run does
-        # write. `force` exists for a caller that must be certain the file on
+        # A first run writes because the file does not exist yet. `force` exists for a caller that must be certain the file on
         # disk is current (a shutdown path), not as a way to opt out.
         # `config_file.exists()` is the other half of "already written", not an
         # afterthought: if the file is deleted out from under us the in-memory
@@ -2519,10 +2508,12 @@ class Config(BaseModel):
         # missing from both.
         owned = profile_store.owned_keys()
         profile_data = {k: v for k, v in data.items() if k in owned}
-        icon_defaults = icon_field_defaults(type(self))
+        # Written only when changed: icon glyphs and DERIVED_PATHS (config_dir never).
+        unchanged_defaults = {**icon_field_defaults(type(self)),
+                              **derived_path_defaults(self.data_dir)}
         main_data = {k: v for k, v in data.items()
-                     if k not in qa_names and k not in owned
-                     and not (k in icon_defaults and v == icon_defaults[k])}
+                     if k not in qa_names and k not in owned and k != "config_dir"
+                     and not (k in unchanged_defaults and v == unchanged_defaults[k])}
 
         # Only the keys that CHANGED. Sending the whole slice would make every
         # save a 34-row write and reinstate, in the database, exactly the

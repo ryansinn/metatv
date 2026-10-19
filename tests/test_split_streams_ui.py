@@ -29,7 +29,6 @@ from metatv.gui.main_window import MainWindow
 @dataclass
 class _FakeConfig:
     """Minimal config stub for PlayerManager tests."""
-    mpv_socket_path: str = "/tmp/metatv-test-split.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     default_cache_size: str = "auto"
@@ -305,7 +304,6 @@ class _FakeDlgConfig:
     """Minimal SettingsDialog config stub including split_streams_by_source."""
 
     def __init__(self, split: bool = False):
-        self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.playback_resume_mode = "resume"
@@ -361,8 +359,6 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg.config = _FakeDlgConfig(split=split)
 
     # Playback group widgets (all needed by _load_values / _save_values)
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()

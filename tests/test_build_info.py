@@ -1,6 +1,6 @@
 """Behavioral tests for the window-title build-info composition.
 
-The git-touching parts (`window_title`, `_git`) are exercised only through their
+The git-touching parts (`window_title`, `git`) are exercised only through their
 pure core: `compose_title` (the string builder) and `_pr_number` (the dir-name
 parser, with `repo_dir` monkeypatched). No live git calls — deterministic.
 """

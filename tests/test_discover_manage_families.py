@@ -35,8 +35,7 @@ def qapp():
 def config(tmp_path):
     """Isolated config that writes to tmp_path, not ~/.config/metatv."""
     from metatv.core.config import Config
-    return Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                  cache_dir=tmp_path / "cache")
+    return Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
 
 
 #: Four families in one Active zone, deliberately interleaved so a grouping

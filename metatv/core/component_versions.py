@@ -17,6 +17,9 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from metatv.core.child_process import NO_WINDOW
+from metatv.core.runtime_env import os_description
+
 #: How long to wait for ``mpv --version``. A local exec answers in tens of
 #: milliseconds; the timeout exists so a wedged or missing binary cannot hang
 #: the dialog that is trying to describe it.
@@ -60,7 +63,7 @@ def _mpv_version(binary: str) -> str | None:
     try:
         out = subprocess.run(
             [binary, "--version"],
-            capture_output=True, text=True, timeout=_MPV_VERSION_TIMEOUT_S,
+            capture_output=True, text=True, timeout=_MPV_VERSION_TIMEOUT_S, **NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.debug(f"could not read mpv version from {binary!r}: {exc}")
@@ -108,7 +111,7 @@ def collect() -> ComponentVersions:
         python=platform.python_version(),
         qt=QT_VERSION_STR,
         pyqt=PYQT_VERSION_STR,
-        platform_name=f"{platform.system()} {platform.release()}",
+        platform_name=os_description(),
         mpv=_mpv_version(mpv_path) if mpv_path else None,
         mpv_path=mpv_path,
     )

@@ -305,7 +305,7 @@ def test_migration_list_shape_becomes_pass_records(tmp_path):
 # Config.load(), which merges the sidecar itself.
 
     config = Config(
-        config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path,
+        config_dir=tmp_path, data_dir=tmp_path,
         qa_checked_steps={"10": [0, 2], "11": [1]},
     )
 
@@ -326,7 +326,7 @@ def test_migration_no_op_when_new_field_present(tmp_path):
     from metatv.core.config import Config
 
     config = Config(
-        config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path,
+        config_dir=tmp_path, data_dir=tmp_path,
         qa_checked_steps={"10": [0]},
         qa_step_results={"99": {"0": {"state": "fail"}}},
     )
@@ -590,7 +590,7 @@ def test_config_qa_step_results_round_trip(tmp_path):
     import yaml
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     config.qa_step_results = {
         "10": {"0": {"state": "fail", "sha": "abc", "ts": "t", "note": "x",
                      "attachments": ["/p"], "log": "/l"}},
@@ -611,7 +611,7 @@ def test_config_qa_step_results_default_empty(tmp_path):
     """qa_step_results defaults to an empty dict for a fresh Config."""
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     assert config.qa_step_results == {}
 
 
@@ -781,7 +781,7 @@ def test_config_qa_archived_ids_round_trip(tmp_path):
     import yaml
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     config.qa_archived_ids = [10, 23, 47]
     config.save()
 
@@ -1039,14 +1039,14 @@ def test_flagged_digest_written_on_remove(qapp, tmp_path):
 def test_config_qa_flagged_collapsed_defaults_false(tmp_path):
     """qa_flagged_collapsed defaults to False (section expanded by default)."""
     from metatv.core.config import Config
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     assert config.qa_flagged_collapsed is False
 
 
 def test_config_qa_archived_collapsed_defaults_true(tmp_path):
     """qa_archived_collapsed defaults to True (section collapsed by default)."""
     from metatv.core.config import Config
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     assert config.qa_archived_collapsed is True
 
 
@@ -1055,7 +1055,7 @@ def test_config_qa_flagged_items_round_trip(tmp_path):
     import yaml
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     config.qa_flagged_items = [{
         "id": "test-uuid", "created": "2026-06-24T00:00:00+00:00",
         "build_sha": "abc123", "title": "Test flag", "note": "Some notes",
@@ -1186,7 +1186,7 @@ def test_flagged_item_type_round_trips_through_config(tmp_path):
     import yaml
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     config.qa_flagged_items = [{
         "id": "round-trip", "created": "2026-06-27T00:00:00+00:00",
         "build_sha": "sha1", "title": "Test", "note": "",
@@ -1732,7 +1732,7 @@ def test_flagged_digest_shows_open_status_when_not_addressed(qapp, tmp_path):
 def test_config_qa_addressed_defaults_empty(tmp_path):
     """qa_addressed defaults to an empty dict for a fresh Config."""
     from metatv.core.config import Config
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     assert config.qa_addressed == {}
 
 
@@ -1741,7 +1741,7 @@ def test_config_qa_addressed_round_trips(tmp_path):
     import yaml
     from metatv.core.config import Config
 
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config = Config(config_dir=tmp_path, data_dir=tmp_path)
     config.qa_addressed = {
         "e82_s4": {"pr": 109, "entry_id": 89, "ts": "2026-06-27T00:00:00+00:00",
                    "manual": True},

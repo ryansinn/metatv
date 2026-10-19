@@ -46,6 +46,12 @@ _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 #: leaves room for the extension and for a de-duplicating suffix.
 _MAX_COMPONENT = 120
 
+#: Names Windows reserves for devices, with or without an extension: a file
+#: called ``Con.mp4`` cannot be created there. Guarded on every platform for the
+#: same reason as ``_UNSAFE`` — the library may end up on a Windows drive.
+_WINDOWS_RESERVED = frozenset(
+    {"CON", "PRN", "AUX", "NUL"} | {f"{p}{n}" for p in ("COM", "LPT") for n in range(1, 10)})
+
 
 @dataclass(frozen=True)
 class MediaFacts:
@@ -107,16 +113,16 @@ def relative_path(facts: MediaFacts, suffix: str,
         return Path(_flat_name(facts, suffix))
 
     if facts.is_episode:
-        show = _component(facts.title)
+        show = safe_component(facts.title)
         stem = f"{facts.title} - S{facts.season:02d}E{facts.episode:02d}"
         return Path("Series") / show / f"Season {facts.season:02d}" / (
-            _component(stem) + suffix)
+            safe_component(stem) + suffix)
 
     if facts.is_movie:
         stem = f"{facts.title} ({facts.year})"
         if facts.quality:
             stem = f"{stem} - {facts.quality}"
-        return Path("Movies") / (_component(stem) + suffix)
+        return Path("Movies") / (safe_component(stem) + suffix)
 
     logger.debug(
         "download_naming: {!r} cannot fill the tree (title={!r} year={} "
@@ -139,19 +145,25 @@ def _flat_name(facts: MediaFacts, suffix: str) -> str:
         stem = f"{facts.title} ({facts.year})"
     else:
         stem = facts.title or facts.name or "download"
-    return f"{_component(stem)}{suffix}"
+    return f"{safe_component(stem)}{suffix}"
 
 
-def _component(text: str) -> str:
+def safe_component(text: str) -> str:
     """One safe path component: no separators, no control characters, bounded.
 
-    Trailing dots and spaces are stripped because Windows silently drops them,
-    which turns ``Show. `` and ``Show`` into the same directory on a shared
-    drive and a different one here.
+    The one sanitiser for every name MetaTV writes to disk (library tree,
+    flat names, recordings). Trailing dots and spaces are stripped because
+    Windows silently drops them, which turns ``Show. `` and ``Show`` into the
+    same directory on a shared drive and a different one here; a Windows
+    device name (``Con``, ``Aux.Part.2``) gets a ``_`` before its first dot.
     """
     cleaned = _UNSAFE.sub("_", text or "")
     cleaned = " ".join(cleaned.split()).strip(" .")
-    return (cleaned or "download")[:_MAX_COMPONENT]
+    cleaned = (cleaned or "download")[:_MAX_COMPONENT].rstrip(" .")
+    head, dot, rest = cleaned.partition(".")  # Windows reserves the name before the first dot
+    if head.upper() in _WINDOWS_RESERVED:
+        cleaned = f"{head}_{dot}{rest}"
+    return cleaned
 
 
 def _as_int(value) -> "int | None":

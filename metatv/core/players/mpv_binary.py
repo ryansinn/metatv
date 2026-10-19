@@ -9,7 +9,10 @@ import os
 import shutil
 from typing import Optional
 
-from metatv.core.runtime_env import bundle_resource_path, is_frozen
+from metatv.core.runtime_env import bundle_resource_path, is_frozen, is_windows
+
+#: Where CI vendors mpv inside a frozen build, relative to the bundle root.
+_BUNDLED_MPV = "mpv/mpv.exe" if is_windows() else "mpv/mpv"
 
 # Cached result of _resolve_mpv_binary().  Resolution is stable for a process
 # lifetime (frozen-ness, env, and PATH don't change), so resolve once.
@@ -27,8 +30,8 @@ def _resolve_mpv_binary() -> str:
 
     Resolution order (first hit wins), cached after the first call:
 
-    1. **Bundled** ``Resources/mpv/mpv`` when running frozen (a self-contained
-       ``.app`` ships its own mpv so the end user needs no Homebrew install).
+    1. **Bundled** ``Resources/mpv/mpv`` (macOS ``.app``) or ``mpv/mpv.exe``
+       (Windows folder) when running frozen, so the end user installs nothing.
     2. ``$MPV_BINARY`` env override (a name on ``PATH`` or an absolute path).
     3. ``shutil.which("mpv")`` — the dev/Linux fallback.  This MUST remain so
        running from source and the test suite keep working unchanged.
@@ -46,7 +49,7 @@ def _resolve_mpv_binary() -> str:
 
     # 1. Bundled binary when frozen.
     if is_frozen():
-        bundled = bundle_resource_path("mpv/mpv")
+        bundled = bundle_resource_path(_BUNDLED_MPV)
         if bundled.exists():
             resolved = str(bundled)
 

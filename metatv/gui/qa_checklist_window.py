@@ -87,7 +87,6 @@ import glob
 import os
 import re
 import shutil
-import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -112,6 +111,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from metatv.core.build_info import git
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.whats_new import step_target, step_text
@@ -164,18 +164,6 @@ def _normalize_remote_url(raw: str) -> str:
     return raw
 
 
-def _repo_dir() -> str:
-    """Return the repository root of the running checkout.
-
-    Delegates to the single source of truth in :mod:`metatv.core.build_info` so
-    the "run git in the running checkout" resolver has one home. Used as the cwd
-    for git invocations so the sha/PR lookups work regardless of the process's
-    actual working directory.
-    """
-    from metatv.core.build_info import repo_dir
-    return str(repo_dir())
-
-
 def _resolve_head_sha() -> str:
     """Return the current repo HEAD short sha, or ``""`` if git can't be read.
 
@@ -186,19 +174,10 @@ def _resolve_head_sha() -> str:
     Returns:
         Short commit hash (e.g. ``"a1b2c3d"``) or ``""``.
     """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-            cwd=_repo_dir(),
-        )
-        return result.stdout.strip()
-    except Exception:  # noqa: BLE001
+    sha = git("rev-parse", "--short", "HEAD")
+    if not sha:
         logger.debug("qa_checklist: could not read HEAD sha")
-        return ""
+    return sha
 
 
 def _resolve_entry_ref(entry_id: int, entries_dir: str) -> dict:
@@ -224,21 +203,13 @@ def _resolve_entry_ref(entry_id: int, entries_dir: str) -> dict:
 
     source_file = matches[0]
     try:
-        result = subprocess.run(
-            [
-                "git", "log",
-                "--diff-filter=A",    # only the commit that ADDED the file
-                "--reverse",
-                "--format=%h%x1f%s",  # short hash + FS + subject
-                "--",
-                source_file,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
-        first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        log = git("log",
+                  "--diff-filter=A",    # only the commit that ADDED the file
+                  "--reverse",
+                  "--format=%h%x1f%s",  # short hash + FS + subject
+                  "--", source_file,
+                  timeout=10)
+        first_line = log.splitlines()[0] if log else ""
         if not first_line:
             return {"pr_number": None, "commit_hash": None}
 
@@ -261,15 +232,7 @@ def _resolve_base_url() -> str | None:
         or ``None`` if the remote can't be read or isn't a GitHub URL.
     """
     try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-            cwd=_repo_dir(),
-        )
-        raw = result.stdout.strip()
+        raw = git("remote", "get-url", "origin")
         if not raw:
             return None
         normalized = _normalize_remote_url(raw)
@@ -291,10 +254,9 @@ def _config_dir(config: "Config") -> Path:
     Falls back to the real default only when ``config_dir`` is absent (e.g. a
     minimal stub) — never a hardcoded ``~`` expansion in the normal path.
     """
-    cdir = getattr(config, "config_dir", None)
-    if cdir is None:
-        cdir = Path.home() / ".config" / "metatv"
-    return Path(cdir)
+    from metatv.core.log_paths import config_directory
+
+    return config_directory(config)
 
 
 def _attachments_dir(config: "Config") -> Path:

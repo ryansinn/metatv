@@ -30,8 +30,7 @@ from metatv.core.config import Config
 
 @pytest.fixture()
 def cfg(tmp_path):
-    return Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data",
-                  cache_dir=tmp_path / "cache")
+    return Config(config_dir=tmp_path / "config", data_dir=tmp_path / "data")
 
 
 # ── the migration ──────────────────────────────────────────────────────────

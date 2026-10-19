@@ -90,6 +90,14 @@ def test_no_component_can_carry_a_separator_or_break_a_filesystem(raw):
     assert component.endswith(".mkv") and len(component) > len(".mkv")
 
 
+@pytest.mark.parametrize("title", ["Con", "nul", "COM1", "Aux.Part.2"])
+def test_a_windows_device_name_never_becomes_a_file_or_folder(title):
+    """``CON.mp4`` cannot be created on Windows, extension or not."""
+    episode = relative_path(MediaFacts(name="x", title=title, season=1, episode=2), ".mkv")
+    show_folder = episode.parts[1]
+    assert show_folder.split(".")[0].upper() not in {"CON", "NUL", "COM1", "AUX"}
+
+
 def test_facts_come_from_stored_columns_never_from_a_reparse():
     """``detected_*`` is computed once at ingestion; naming READS it.
 

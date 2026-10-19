@@ -638,7 +638,6 @@ def test_config_last_seen_id_round_trip(tmp_path):
     cfg = Config(
         config_dir=tmp_path,
         data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
     cfg.last_seen_whats_new_id = 42
     cfg.save()

@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
-from metatv.core.epg_utils import to_local as _to_local
+from metatv.core.epg_utils import fmt_guide_day
 from metatv.gui import theme as _theme
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
@@ -17,10 +17,7 @@ def _epg_tooltip(state: str, start, end) -> str:
     def _fmt(d):
         if d is None:
             return "?"
-        try:
-            return _to_local(d).strftime("%d %b %Y").lstrip("0")
-        except (TypeError, ValueError, OSError, OverflowError):
-            return str(d)  # silent: unformattable date still reads
+        return fmt_guide_day(d)
 
     label = {
         "stale": "EPG stale",

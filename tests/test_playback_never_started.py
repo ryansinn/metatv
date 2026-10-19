@@ -29,7 +29,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metatv.core.players import mpv_log_tap
-from metatv.core.players.mpv import RECONNECT_DELAY_MAX_S
+from metatv.core.stream_access import RECONNECT_DELAY_MAX_S
+from metatv.core.time_display import clock_text
 from metatv.gui import playback_start_watch as watch
 from metatv.gui.playback_start_watch import (
     FAILED_AFTER_TICKS,
@@ -620,7 +621,7 @@ def test_prestart_fixture_names_its_start_time(monkeypatch):
     watch.on_player_gone(host)
     msg = host.notification_manager.show.call_args.kwargs["message"]
     assert "hasn't started" in msg
-    assert f"{watch.epg_utils.to_local(start):%H:%M}" in msg
+    assert clock_text(watch.epg_utils.to_local(start)) in msg
     assert "busy or the stream dead" not in msg
 
 

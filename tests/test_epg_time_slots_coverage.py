@@ -41,6 +41,7 @@ from metatv.core.epg_utils import (
     contiguous_guide_end,
     to_local,
 )
+from metatv.core.time_display import clock_text, weekday_date_text
 from metatv.core.repositories.epg import (
     SCHEDULE_SLOT_RANGES,
     SCHEDULE_TIME_SLOTS,
@@ -336,7 +337,8 @@ def test_placeholder_names_contiguous_reach(qapp):
     text = _EpgBrowseMixin._browse_placeholder_text(host, guide_end=guide_end)
     assert "guide currently reaches" in text
     # The displayed time is the contiguous end, localized — proving it is honest.
-    expected = to_local(guide_end).strftime("%a %b %-d at %-I:%M %p")
+    local_end = to_local(guide_end)
+    expected = f"{weekday_date_text(local_end)} at {clock_text(local_end)}"
     assert expected in text
 
 

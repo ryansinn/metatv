@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import yaml
 
+from metatv.core import app_paths, runtime_env
 from metatv.core.config import Config
 from metatv.core.runtime_env import flatpak_app_id
 from metatv.gui.main_window_updates import _UpdatesMixin
@@ -57,8 +58,11 @@ def test_manual_update_check_outside_flatpak_still_checks(monkeypatch) -> None:
     host.update_checker.check_async.assert_called_once_with(manual=True)
 
 
-def test_manifest_grants_every_folder_the_app_reads() -> None:
+def test_manifest_grants_every_folder_the_app_reads(monkeypatch) -> None:
     """Each default data path must sit under a granted folder."""
+    # The manifest is a Linux sandbox: read the Linux paths on any CI host.
+    monkeypatch.setattr(runtime_env, "is_windows", lambda: False)
+    monkeypatch.setattr(runtime_env, "is_macos", lambda: False)
     grants = {
         a.split("=", 1)[1].split(":")[0]
         for a in _manifest()["finish-args"] if a.startswith("--filesystem=")
@@ -69,10 +73,12 @@ def test_manifest_grants_every_folder_the_app_reads() -> None:
 
     defaults = Config()
     needed = [
-        ".config/metatv",                                   # config.yaml, logs
-        ".local/share/metatv",                              # metatv.db
-        defaults.deep_cache_dir.removeprefix("~/"),         # ~/.cache/metatv/deepcache
-        defaults.download_dir.removeprefix("~/"),           # downloads + Recordings/
+        Path(p).relative_to(Path.home()).as_posix() for p in (
+            app_paths.config_dir(),                         # config.yaml, logs
+            app_paths.data_dir(),                           # metatv.db
+            defaults.deep_cache_dir,                        # ~/.cache/metatv/deepcache
+            defaults.download_dir,                          # downloads + Recordings/
+        )
     ]
     for path in needed:
         assert any(path == g or path.startswith(g + "/") for g in granted), (

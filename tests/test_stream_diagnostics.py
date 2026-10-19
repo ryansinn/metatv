@@ -223,7 +223,7 @@ class TestThroughputProbe:
             local_stream_server, sample_seconds=1, baseline_url=None
         )
         assert result.reachable is True
-        # ffprobe will fail on the fake octet-stream — the probe must still
+        # the mpv details probe gets nothing from the fake octet-stream — the probe must still
         # return a result without raising.
         assert result.throughput_mbps is not None
         assert result.throughput_mbps > 0
@@ -233,7 +233,7 @@ class TestThroughputProbe:
         assert result.connect_ms is not None
         # No baseline requested.
         assert result.baseline_mbps is None
-        # bitrate may be None (ffprobe gave nothing) or the throughput estimate.
+        # bitrate may be None (the mpv probe gave nothing) or the throughput estimate.
         if result.bitrate_mbps is not None:
             assert result.bitrate_mbps == result.throughput_mbps
         # A reachable result always carries a non-empty summary and a verdict.

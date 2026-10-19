@@ -20,12 +20,14 @@ from loguru import logger
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMenu, QMessageBox
 
+from metatv.core import file_ops
 from metatv.core.download_manager import DownloadManager, library_dir
 from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.models import MediaType
 from metatv.core.recording_manager import RecordingManager, recordings_dir
 from metatv.core.repositories.channel_downloads import _file_exists
 from metatv.core.signal_check_manager import SignalCheckManager
+from metatv.core.time_display import clock_text
 from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -223,16 +225,14 @@ class _DownloadsMixin:
                     recordings_dir(self.config)).free / (1024 ** 3)
             except OSError:
                 free_gb = 0.0
-            post_roll = 0
-            if r.programme_end is not None:
-                post_roll = max(0, round(
-                    (r.ends_at - r.programme_end).total_seconds() / 60))
+            post_roll = 0 if r.programme_end is None else max(0, round(
+                (r.ends_at - r.programme_end).total_seconds() / 60))
             name = r.programme_title or r.channel_name
             source = self._recording_source_name(r.provider_id)
             title = f"{_icons.recording_active_icon} RECORDING {name}"
             message = (
                 f"{elapsed} / ~{remaining} · {used_gb:.1f} GB used, "
-                f"{free_gb:.1f} GB free · ends {to_local(r.ends_at):%H:%M} "
+                f"{free_gb:.1f} GB free · ends {clock_text(to_local(r.ends_at))} "
                 f"(+{post_roll} min post-roll) · playback on {source} is "
                 f"unavailable until it finishes"
             )
@@ -343,8 +343,7 @@ class _DownloadsMixin:
         never the ghost-row Undo a history CLEAR gets): this cannot be undone
         the way a history-group clear can, because the bytes are gone, not
         just the row. The row's meta flips to "file removed" on the next
-        render — ``channel_downloads._file_exists`` is read fresh every time,
-        never cached.
+        render — ``channel_downloads._file_exists`` is read fresh every time, never cached.
         """
         rows = [r for r in self.download_manager.progress() if r.id == download_id]
         if not rows:
@@ -358,11 +357,13 @@ class _DownloadsMixin:
             QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
-        try:
-            path.unlink(missing_ok=True)
+        try:  # "in use" happens only on Windows, which refuses to delete an open file
+            error = None if file_ops.remove(path) else "it is open, probably in the player"
         except OSError as exc:
             logger.warning(f"Could not delete download file {path}: {exc}")
-            self.status(f"Could not delete {path.name}: {exc}", ms=5000, level="error")
+            error = str(exc)
+        if error:
+            self.status(f"Could not delete {path.name}: {error}", ms=5000, level="error")
             return
         self.status(f"Deleted {path.name}", ms=4000)
         self._refresh_transfer_sections()
@@ -563,7 +564,7 @@ class _DownloadsMixin:
         minutes = int(getattr(self.config, "recording_extend_minutes", 15) or 15)
         new_end = self.recording_manager.extend(recording_id, minutes * 60)
         if new_end is not None:
-            self.status(f"Recording extended to {to_local(new_end):%H:%M}.", ms=4000)
+            self.status(f"Recording extended to {clock_text(to_local(new_end))}.", ms=4000)
         self._refresh_transfer_sections()
 
     def _watch_recording(self, recording_id: str) -> None:
@@ -845,7 +846,7 @@ class _DownloadsMixin:
 
         self.notification_manager.show(
             title=f"Recording {title or channel.name}",
-            message=(f"Until {ends_local:%H:%M}. MetaTV has to be running, and "
+            message=(f"Until {clock_text(ends_local)}. MetaTV has to be running, and "
                      f"it will take this source's connection off whatever you "
                      f"are watching — with a countdown you can cancel."),
             type="info", dismissible=True)
@@ -955,7 +956,7 @@ class _DownloadsMixin:
             return
         for _recording_id, title, new_start in moved:
             self.notification_manager.show(
-                title=f"{title} moved to {to_local(new_start):%H:%M}",
+                title=f"{title} moved to {clock_text(to_local(new_start))}",
                 message="", type="info", dismissible=True)
         self._refresh_transfer_sections()
 

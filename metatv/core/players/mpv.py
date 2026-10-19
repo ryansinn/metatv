@@ -2,7 +2,6 @@
 
 import subprocess
 import json
-import socket
 import os
 import re
 import shutil
@@ -12,39 +11,14 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 
+from metatv.core import app_paths, file_ops
+from metatv.core.child_process import NO_WINDOW
+from metatv.core.players import mpv_ipc
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.players.mpv_log_tap import clear_exit, start_log_tap
 from metatv.core.config import Config
-from metatv.core.http_headers import stream_user_agent
+from metatv.core.players.mpv_args import stream_args
 from metatv.core.players.mpv_binary import _resolve_mpv_binary
-
-# Always-on reconnect for transient drops (PLAY-12: the owner's one-connection panel holds a new
-# connection while counting the previous stream — #635 measured 14-26s, up to ~40s on 2026-09-07).
-# reconnect_on_http_error=5xx covers a 5xx reply; reconnect_on_network_error covers no reply at
-# all. 4xx excluded — told no must still fail fast (ConnectionAccountant.PROVIDER_COOLDOWN_S).
-# ffmpeg's backoff (delay=0, then delay=1+2*delay per failure, stopping once the next delay exceeds
-# reconnect_delay_max) measured 2026-09-11 against an always-5xx server: max=8 -> +0,+0,+1,+4,+11s
-# (11s, PLAY-10's old value — short); max=30 -> 26s (still short of the panel's ~40s); max=60 ->
-# +0,+0,+1,+4,+11,+26,+57s (57s — covers it).
-# NO socket read timeout (PLAY-18): on the owner's source a stalled connection that resumes beats
-# a reconnect — PLAY-14's timeout=20s turned every stall into refused reconnects ("it only plays
-# the first 2 minutes"). mpv's own --network-timeout (default 60s) is a read timeout too, and on a
-# one-connection source worse: ffmpeg reconnects while STILL holding the stalled socket, the source
-# counts two, and every reconnect gets 509 until mpv is killed (PLAY-20, reproduced 2026-09-29).
-RECONNECT_DELAY_MAX_S = 60
-RECONNECT_FLAG = (
-    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,"
-    f"reconnect_delay_max={RECONNECT_DELAY_MAX_S},"
-    "reconnect_on_http_error=5xx,reconnect_on_network_error=1"
-)
-
-NO_READ_TIMEOUT_FLAG = "--network-timeout=0"  # 0 = FFmpeg default: no read timeout
-
-
-def _base_stream_args() -> list[str]:
-    """UA + reconnect + no-read-timeout — the flags every composed launch carries."""
-    return [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG, NO_READ_TIMEOUT_FLAG]
-
 
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"
@@ -75,14 +49,28 @@ class _Inst:
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
+    def terminate(self, key: str) -> None:
+        """End the process: terminate, then kill if it is still there after 2 s.
+
+        On Windows ``terminate()`` is already a hard kill (TerminateProcess);
+        nothing here depends on mpv's own exit path, so that is equivalent.
+        """
+        logger.info(f"Terminating mpv instance [{key}] PID {self.process.pid}")
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"mpv instance [{key}] did not terminate, killing")
+            self.process.kill()
+
 
 class MPVPlayer(PlayerPlugin):
     """MPV media player implementation with per-key instance registry.
 
     In single-instance (default) mode each *instance key* maps to one
     persistent mpv window.  The key is resolved by the caller:
-    - ``"__shared__"`` → the one legacy window (``config.mpv_socket_path``)
-    - a provider-id string → a separate window with a derived socket path
+    - ``"__shared__"`` → the one default window
+    - a provider-id string → a separate window with its own IPC address
 
     In multiple-instances mode every ``play()`` call always spawns a new
     process (no IPC; the registry / keying does not apply).
@@ -136,11 +124,11 @@ class MPVPlayer(PlayerPlugin):
     # ── Socket-path helpers ─────────────────────────────────────────────────
 
     def _socket_path_for(self, key: str) -> str:
-        """Return the IPC socket path for *key*.
+        """Return the IPC address (socket path or pipe name) for *key*.
 
-        ``"__shared__"`` → ``config.mpv_socket_path`` (exact legacy value).
-        Any other key → base path + ``"-"`` + first-8-hex of MD5(key), which
-        is filesystem-safe and stable across restarts.
+        ``"__shared__"`` → ``mpv_ipc.address("socket")``. Any other key →
+        ``"socket-"`` + first-8-hex of MD5(key), which is filesystem-safe and
+        stable across restarts.
 
         This method is pure and unit-testable without launching mpv.
 
@@ -148,16 +136,12 @@ class MPVPlayer(PlayerPlugin):
             key: Instance key string.
 
         Returns:
-            Absolute path to the IPC socket for this key.
+            The IPC address for this key.
         """
-        base = self.config.mpv_socket_path
         if key == _SHARED_KEY:
-            return base
+            return mpv_ipc.address("socket")
         suffix = hashlib.md5(key.encode()).hexdigest()[:8]
-        # Ensure the suffix contains only safe filesystem characters (it's
-        # hex from MD5 so already [0-9a-f], but be explicit).
-        suffix = re.sub(r"[^A-Za-z0-9_-]", "_", suffix)
-        return f"{base}-{suffix}"
+        return mpv_ipc.address(f"socket-{suffix}")
 
     # ── Instance lifecycle ──────────────────────────────────────────────────
 
@@ -216,16 +200,7 @@ class MPVPlayer(PlayerPlugin):
         # Terminate the existing process for this key, if any.
         inst = self._instances.get(key)
         if inst is not None and inst.is_running():
-            logger.info(
-                f"Terminating existing mpv instance [{key}] PID {inst.process.pid} "
-                "for relaunch with new buffer args"
-            )
-            inst.process.terminate()
-            try:
-                inst.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                logger.warning(f"mpv instance [{key}] did not terminate in time, killing")
-                inst.process.kill()
+            inst.terminate(key)  # relaunch with new buffer args
 
         # The old instance for this key is gone — purge its deep-cache recording
         # (if any) now, symmetric with the socket-unlink below.
@@ -236,12 +211,11 @@ class MPVPlayer(PlayerPlugin):
         self._instances.pop(key, None)
 
         sock_path = self._socket_path_for(key)
-        if os.path.exists(sock_path):
-            try:
-                os.remove(sock_path)
+        try:
+            if mpv_ipc.discard(sock_path):
                 logger.info(f"Removed stale socket before relaunch: {sock_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove stale socket: {e}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale socket: {e}")
 
         return self._launch_ipc_instance(key, extra_args, record_path=record_path)
 
@@ -271,12 +245,11 @@ class MPVPlayer(PlayerPlugin):
 
         # Remove stale socket file (also called by _relaunch_instance for the
         # relaunch path; guard here covers the normal _ensure_instance_running path).
-        if os.path.exists(sock_path):
-            try:
-                os.remove(sock_path)
+        try:
+            if mpv_ipc.discard(sock_path):
                 logger.info(f"Removed stale socket: {sock_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove stale socket: {e}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale socket: {e}")
 
         try:
             cmd = [
@@ -296,7 +269,8 @@ class MPVPlayer(PlayerPlugin):
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
             clear_exit(key)
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       **NO_WINDOW)
             start_log_tap(process, key)
 
             logger.info(f"Started mpv instance [{key}] PID {process.pid}")
@@ -304,7 +278,7 @@ class MPVPlayer(PlayerPlugin):
             # Wait briefly for socket to appear.
             import time
             for _ in range(10):
-                if os.path.exists(sock_path):
+                if mpv_ipc.is_ready(sock_path):
                     logger.info(f"Socket ready: {sock_path}")
                     self._instances[key] = _Inst(
                         process=process, socket_path=sock_path, record_path=record_path
@@ -340,9 +314,7 @@ class MPVPlayer(PlayerPlugin):
             return False
         sock_path = inst.socket_path
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(sock_path)
+            sock = mpv_ipc.connect(sock_path, timeout=2.0)
 
             command_json = json.dumps(command) + "\n"
             sock.sendall(command_json.encode("utf-8"))
@@ -367,7 +339,7 @@ class MPVPlayer(PlayerPlugin):
         except FileNotFoundError:
             logger.error(f"Socket not found [{key}]: {sock_path}")
             return False
-        except socket.timeout:
+        except TimeoutError:
             logger.warning(f"IPC command timed out [{key}]")
             return False
         except Exception as e:
@@ -410,7 +382,7 @@ class MPVPlayer(PlayerPlugin):
             return None
         inst = self._instances.get(resolved)
         # If no instance is in the registry yet (e.g. property query before
-        # first play), derive the socket path from config so IPC still works
+        # first play), derive the socket path from the key so IPC still works
         # when the socket happens to exist (the old single self.socket_path
         # behavior was equivalent to always having the shared path available).
         sock_path = inst.socket_path if inst is not None else self._socket_path_for(resolved)
@@ -418,9 +390,7 @@ class MPVPlayer(PlayerPlugin):
         self._request_id += 1
         rid = self._request_id
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(sock_path)
+            sock = mpv_ipc.connect(sock_path, timeout=2.0)
 
             command = {"command": ["get_property", name], "request_id": rid}
             sock.sendall((json.dumps(command) + "\n").encode("utf-8"))
@@ -454,7 +424,7 @@ class MPVPlayer(PlayerPlugin):
         except FileNotFoundError:
             logger.debug(f"get_property: socket not found [{resolved}]: {sock_path}")
             return None
-        except socket.timeout:
+        except TimeoutError:
             logger.debug(f"get_property: timed out reading {name!r} [{resolved}]")
             return None
         except Exception as e:
@@ -840,6 +810,7 @@ class MPVPlayer(PlayerPlugin):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                **NO_WINDOW,
             )
             start_log_tap(process, title)
 
@@ -914,19 +885,13 @@ class MPVPlayer(PlayerPlugin):
 
         for key, inst in list(self._instances.items()):
             if inst.is_running():
-                logger.info(f"Terminating mpv instance [{key}] PID {inst.process.pid}")
-                inst.process.terminate()
-                try:
-                    inst.process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    logger.warning(f"mpv instance [{key}] did not terminate, killing")
-                    inst.process.kill()
+                inst.terminate(key)
 
-            if inst.socket_path and os.path.exists(inst.socket_path):
+            if inst.socket_path:
                 try:
-                    os.remove(inst.socket_path)
-                    logger.info(f"Removed socket [{key}]: {inst.socket_path}")
-                except Exception as e:
+                    if mpv_ipc.discard(inst.socket_path):
+                        logger.info(f"Removed socket [{key}]: {inst.socket_path}")
+                except OSError as e:
                     logger.warning(f"Could not remove socket [{key}]: {e}")
 
             if inst.record_path:
@@ -1009,7 +974,7 @@ class MPVPlayer(PlayerPlugin):
 
         # Canonical User-Agent must come first; user's own --user-agent in user_args
         # appears later and wins (mpv honours the last value).
-        base_args = _base_stream_args()
+        base_args = stream_args()
 
         byte_size = self._to_mpv_bytesize(size) if (size and size != "auto") else None
 
@@ -1084,7 +1049,7 @@ class MPVPlayer(PlayerPlugin):
         the user build a large buffer lead to ride out an unstable stream.
 
         Composition (same shape as ``_compose_extra_args``):
-        * ``_base_stream_args()`` — UA, reconnect, no read timeout (same as normal path).
+        * ``stream_args()`` — UA, reconnect, no read timeout (same as normal path).
         * Open-ended cache flags INSTEAD of the configured buffer profile:
           ``--cache=yes --cache-on-disk=yes --demuxer-readahead-secs=3600
           --demuxer-max-bytes=2GiB``
@@ -1104,7 +1069,7 @@ class MPVPlayer(PlayerPlugin):
             return user_args
 
         # _OPEN_ENDED_BUFFER_ARGS is shared with _buffer_profile_args('open_ended').
-        return _base_stream_args() + list(_OPEN_ENDED_BUFFER_ARGS) + user_args
+        return stream_args() + list(_OPEN_ENDED_BUFFER_ARGS) + user_args
 
     def _compose_deep_cache_args(self, record_path: str) -> list[str]:
         """Build mpv args for deep-cache ("Buffer without limit") VOD pre-loading.
@@ -1141,7 +1106,7 @@ class MPVPlayer(PlayerPlugin):
         if getattr(self.config, "mpv_args_override_all", False):
             return user_args
 
-        return (_base_stream_args() + self._buffer_profile_args("deep")
+        return (stream_args() + self._buffer_profile_args("deep")
                 + [f"--stream-record={record_path}"] + user_args)
 
     # ── Deep cache ("Buffer without limit", VOD-only, ephemeral) ────────────
@@ -1149,22 +1114,14 @@ class MPVPlayer(PlayerPlugin):
     def _deep_cache_dir(self) -> Path:
         """Resolve the deep-cache scratch directory from config.
 
-        Expands a leading ``~/`` via ``Path.home()`` rather than
-        ``Path.expanduser()`` — ``expanduser()`` reads ``$HOME`` directly and
-        would bypass the ``Path.home()`` patch the test suite's autouse
-        ``_isolate_user_config`` fixture (``tests/conftest.py``) relies on for
-        isolation, which would let a test run sweep/purge files under the
-        real developer's home directory.
+        A leading ``~`` goes through :func:`app_paths.expand_user`, which is
+        ``Path.home()``-based so the test suite's home patch isolates it.
 
         Returns:
             The expanded, absolute deep-cache directory path.
         """
-        raw = getattr(self.config, "deep_cache_dir", "") or "~/.cache/metatv/deepcache"
-        if raw == "~":
-            return Path.home()
-        if raw.startswith("~/"):
-            return Path.home() / raw[2:]
-        return Path(raw)
+        raw = getattr(self.config, "deep_cache_dir", "") or app_paths.deep_cache_dir()
+        return app_paths.expand_user(raw)
 
     def _deep_cache_record_path(self, channel_id: str) -> Path:
         """Deterministic ``--stream-record`` path for *channel_id*.
@@ -1214,7 +1171,8 @@ class MPVPlayer(PlayerPlugin):
 
         Safe to call even while mpv still holds the file open for writing
         (POSIX unlink semantics — see the ``stop()`` docstring) and safe to
-        call on an already-removed path (no-op).
+        call on an already-removed path (no-op). Windows refuses while mpv
+        holds it; the file then stays until the startup or cap sweep.
 
         Args:
             path: Absolute path to the ``.ts`` recording (``""`` is a no-op).
@@ -1222,10 +1180,12 @@ class MPVPlayer(PlayerPlugin):
         if not path:
             return
         try:
-            p = Path(path)
-            if p.exists():
-                p.unlink()
-                logger.info(f"Deep-cache: purged {p}")
+            if not Path(path).exists():
+                return
+            if file_ops.remove(path):
+                logger.info(f"Deep-cache: purged {path}")
+            else:
+                logger.info(f"Deep-cache: {path} still open in mpv; the next sweep removes it")
         except OSError as e:
             logger.warning(f"Deep-cache: could not purge {path}: {e}")
 

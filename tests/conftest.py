@@ -48,7 +48,7 @@ def _clear_tag_id_cache():
 def _isolate_user_config(tmp_path_factory, monkeypatch):
     """Redirect every ``Path.home()``-derived location to a throwaway tmp home.
 
-    ``Config.config_dir`` / ``data_dir`` / ``cache_dir`` default to
+    ``Config.config_dir`` / ``data_dir`` (and every ``app_paths`` folder) default to
     ``Path.home()/…`` and ``Config.load()``/``save()`` hardcode the same paths.
     Without this guard, any test that builds a default ``Config()`` and saves
     (e.g. the On-Now header-state test, ``test_epg_on_now_display``) silently
@@ -1332,6 +1332,10 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._sidebar_density_combo.currentData.return_value = "compact"
     dlg._text_size_combo = MagicMock()
     dlg._text_size_combo.currentData.return_value = 1.0
+    dlg._time_format_combo = MagicMock()
+    dlg._time_format_combo.currentData.return_value = "system"
+    dlg._date_format_combo = MagicMock()
+    dlg._date_format_combo.currentData.return_value = "system"
     dlg._alerts_show_idle_check = MagicMock()
     dlg._alerts_show_idle_check.isChecked.return_value = False
     dlg._series_interval_spin = MagicMock()
@@ -1486,6 +1490,7 @@ def wire_settings_density_widget(dlg) -> None:
     """
     from metatv.gui.settings_dialog_tabs import _CHANNEL_DENSITY_CHOICES
     from metatv.gui.settings_text_size import TEXT_SIZE_CHOICES
+    from metatv.gui.time_display_settings import DATE_CHOICES, TIME_CHOICES
     from metatv.gui.settings_dialog_tabs import (
         _PLATFORM_NAME_STYLE_CHOICES, _SIDEBAR_DENSITY_CHOICES,
     )
@@ -1504,6 +1509,11 @@ def wire_settings_density_widget(dlg) -> None:
     dlg._text_size_combo = QComboBox()
     for label, value in TEXT_SIZE_CHOICES:
         dlg._text_size_combo.addItem(label, value)
+    dlg._time_format_combo, dlg._date_format_combo = QComboBox(), QComboBox()
+    for label, value in TIME_CHOICES:
+        dlg._time_format_combo.addItem(label, value)
+    for label, value in DATE_CHOICES:
+        dlg._date_format_combo.addItem(label, value)
     dlg._alerts_show_idle_check = QCheckBox()
     dlg._alerts_show_idle_check.setChecked(False)
     dlg._series_interval_spin = QSpinBox()
@@ -1598,6 +1608,7 @@ _SETTINGS_APPLIED_HOOKS = (
     "_apply_channel_list_density",
     "_apply_sidebar_row_density",
     "apply_configured_theme",
+    "_apply_time_display_setting",
     "_apply_collapse_variants_setting",
     "_apply_adult_mode_setting",
     "_sync_split_toggle",
@@ -2995,6 +3006,29 @@ def wire_details_action_buttons(poster, action_bar) -> None:
         clear_epg_link=action_bar.clear_epg_link_button,
         hide=action_bar.hide_button,
     )
+
+
+@pytest.fixture(autouse=True)
+def _pin_time_display(monkeypatch):
+    """Start every test at the default time/date style, with "system" pinned.
+
+    ``core/time_display`` holds the style in a MODULE-level binding, set by
+    ``MainWindow.__init__`` from the OS's regional format — so one test that
+    builds a window would leave every later test formatting in whatever locale
+    the machine running the suite has (CI's runners and a developer's laptop
+    differ). Pinning "system" to the defaults makes it the same everywhere; a
+    test that wants another style calls ``time_display.set_styles`` itself.
+    """
+    from metatv.core import time_display
+    from metatv.gui import time_display_settings
+
+    monkeypatch.setattr(time_display_settings, "system_clock_style",
+                        lambda: time_display.DEFAULT_CLOCK)
+    monkeypatch.setattr(time_display_settings, "system_date_style",
+                        lambda: time_display.DEFAULT_DATE)
+    time_display.set_styles(time_display.DEFAULT_CLOCK, time_display.DEFAULT_DATE)
+    yield
+    time_display.set_styles(time_display.DEFAULT_CLOCK, time_display.DEFAULT_DATE)
 
 
 @pytest.fixture(autouse=True)

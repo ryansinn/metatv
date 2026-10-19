@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.time_display import clock_text
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
     is_local_today as _is_local_today,
@@ -338,8 +339,8 @@ class _EpgEventsMixin:
                 return "ended"
             local_dt = _to_local(st)
             if _is_local_today(st):
-                return f"Today {local_dt.strftime('%-I:%M%p').lower().rstrip('m') + 'm'}"
-            return f"{_local_weekday(st)} {local_dt.strftime('%-I:%M%p').lower().rstrip('m') + 'm'}"
+                return f"Today {clock_text(local_dt)}"
+            return f"{_local_weekday(st)} {clock_text(local_dt)}"
 
         def _time_style(dto) -> str:
             """Return a theme style string for the time hint based on event state."""

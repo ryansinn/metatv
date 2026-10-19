@@ -9,6 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
+from metatv.core.time_display import (
+    clock_text, date_text, hour_text, weekday_date_text,
+)
+
 
 def _local_tz():
     """Return machine's local tzinfo. Module-level callable for testability via patch."""
@@ -215,9 +219,9 @@ def browse_anchors(_now: datetime | None = None, tz=None) -> list[tuple[str, dat
 
     anchors: list[tuple[str, datetime]] = [
         ("Now", now),
-        (f"Tonight · {tonight.strftime('%-I %p')}", _utc_naive(tonight)),
+        (f"Tonight · {hour_text(tonight)}", _utc_naive(tonight)),
         (f"Tomorrow · {tomorrow_midnight.strftime('%a')}", _utc_naive(tomorrow_midnight)),
-        (f"Tomorrow Night · {tomorrow_night.strftime('%-I %p')}", _utc_naive(tomorrow_night)),
+        (f"Tomorrow Night · {hour_text(tomorrow_night)}", _utc_naive(tomorrow_night)),
     ]
 
     # "This Weekend" = upcoming Saturday 00:00 local. Skip when today is already
@@ -359,7 +363,7 @@ def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
     local = to_local(dt)
     local_now = to_local(now)
     day_delta = (local.date() - local_now.date()).days
-    time_str = local.strftime("%-I:%M %p")
+    time_str = clock_text(local)
     if day_delta == 0:
         prefix = "Tonight" if local.hour >= 18 else "Today"
     elif day_delta == 1:
@@ -369,7 +373,7 @@ def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
     elif 1 < day_delta < 7:
         prefix = local.strftime("%A")
     else:
-        prefix = local.strftime("%a %b %-d")
+        prefix = weekday_date_text(local)
     return f"{prefix} {time_str}"
 
 
@@ -397,7 +401,7 @@ def browse_day_separator_label(dt: datetime, _now: datetime | None = None) -> st
     local = to_local(dt)
     local_now = to_local(now)
     day_delta = (local.date() - local_now.date()).days
-    date_str = local.strftime("%a %b %-d")
+    date_str = weekday_date_text(local)
     if day_delta == 0:
         return f"Tonight · {date_str}"
     if day_delta == 1:
@@ -407,7 +411,7 @@ def browse_day_separator_label(dt: datetime, _now: datetime | None = None) -> st
 
 def fmt_time(dt: datetime) -> str:
     """UTC-naive EPG datetime → local time string like '5:30 PM'."""
-    return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p").lstrip("0") or "12:00 AM"
+    return clock_text(dt.replace(tzinfo=timezone.utc).astimezone())
 
 
 def fmt_duration(start: datetime, stop: datetime) -> str:
@@ -625,20 +629,21 @@ class GuideFreshness:
     detail: str = ""
 
 
-def _fmt_day(dt: datetime) -> str:
-    """A guide date as "4 Aug 2026", local, with no leading zero."""
+def fmt_guide_day(dt: datetime) -> str:
+    """A UTC-naive guide date in the user's date style ("4 Aug 2026"), local."""
     try:
-        return to_local(dt).strftime("%d %b %Y").lstrip("0")
+        return date_text(to_local(dt))
     except (TypeError, ValueError, OSError, OverflowError):
         return str(dt)  # an unformattable date still reads
 
 
 def _fmt_when(dt: datetime | None) -> str:
-    """A failure timestamp as "4 Aug 2026, 14:05" local, or "an unknown time"."""
+    """A failure timestamp as "4 Aug 2026, 2:05 PM" local, or "an unknown time"."""
     if dt is None:
         return "an unknown time"
     try:
-        return to_local(dt).strftime("%d %b %Y, %H:%M").lstrip("0")
+        local = to_local(dt)
+        return f"{date_text(local)}, {clock_text(local)}"
     except (TypeError, ValueError, OSError, OverflowError):
         return str(dt)
 
@@ -703,7 +708,7 @@ def guide_freshness(
     if epg_data_end is None:
         return GuideFreshness("no_data", "No guide data fetched yet")
 
-    day = _fmt_day(epg_data_end)
+    day = fmt_guide_day(epg_data_end)
     if epg_is_stale(epg_data_end, _now):
         return GuideFreshness(
             "source_lagging",

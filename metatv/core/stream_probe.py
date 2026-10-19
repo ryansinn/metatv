@@ -39,6 +39,9 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from metatv.core.child_process import NO_WINDOW
+from metatv.core.stream_access import PROBE, StreamAccess, ffmpeg_reconnect_options
+
 #: Seconds of stream to sample. Two is enough for every detector to fire —
 #: measured 49 decoded frames at 1080p — and the wall-clock cost is dominated by
 #: connect + buffer, not by this number.
@@ -52,10 +55,6 @@ _TIMEOUT_MARGIN_SECONDS = 14
 #: This IS the delay a Play press waits for, so it is short — the cost is one
 #: poll() syscall per tick against a process that runs for seconds.
 _CANCEL_POLL_SECONDS = 0.05
-
-#: Socket read timeout handed to ffmpeg (microseconds). Without it a hung
-#: connection sits until the outer timeout, turning a 1.2 s "dead" into 17 s.
-_RW_TIMEOUT_US = 8_000_000
 
 #: A picture darker than this fraction of full scale counts as black.
 _BLACK_PIXEL_THRESHOLD = 0.10
@@ -163,6 +162,21 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def _input_args(policy: StreamAccess) -> list[str]:
+    """*policy* as ffmpeg CLI input options: User-Agent and read timeout.
+
+    The User-Agent is the one mpv plays with, so a source that gates on it does
+    not get called dead here and play fine there. ``-rw_timeout`` takes
+    microseconds.
+    """
+    args = ["-user_agent", policy.user_agent]
+    if policy.read_timeout_s is not None:
+        args += ["-rw_timeout", str(int(policy.read_timeout_s * 1_000_000))]
+    for option, value in ffmpeg_reconnect_options(policy).items():
+        args += [f"-{option}", value]
+    return args
+
+
 def _build_command(url: str, seconds: int, *,
                    black_pixel: float = _BLACK_PIXEL_THRESHOLD,
                    freeze_seconds: int = _FREEZE_MIN_DURATION) -> list[str]:
@@ -176,7 +190,7 @@ def _build_command(url: str, seconds: int, *,
     """
     return [
         "ffmpeg", "-hide_banner", "-nostdin",
-        "-rw_timeout", str(_RW_TIMEOUT_US),
+        *_input_args(PROBE),
         "-i", url,
         "-t", str(seconds),
         "-vf", (f"blackdetect=d={_BLACK_MIN_DURATION}:"
@@ -325,7 +339,8 @@ def _run_ffmpeg(command: "list[str]", *, timeout: float,
     run for seconds.
     """
     proc = subprocess.Popen(command, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, errors="replace")
+                            stderr=subprocess.PIPE, text=True, errors="replace",
+                            **NO_WINDOW)
     deadline = time.monotonic() + timeout
     while True:
         if cancel is not None and cancel.is_set():

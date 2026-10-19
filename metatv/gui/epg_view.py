@@ -39,7 +39,7 @@ from metatv.gui.epg_events_mixin import (
 from metatv.core.epg_utils import (
     epg_is_stale as _epg_is_stale,
     now_utc as _now_utc,
-    to_local as _to_local,
+    fmt_guide_day as _fmt_guide_day,
 )
 from metatv.gui import icons as _icons
 from metatv.gui import icon_utils as _icon_utils
@@ -462,11 +462,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             return
         parts = []
         for _id, name, data_end in stale:
-            try:
-                day = _to_local(data_end).strftime("%d %b %Y").lstrip("0")
-            except (TypeError, ValueError, OSError, OverflowError):
-                day = str(data_end)  # silent: unformattable date still names the source
-            parts.append(f"{name} (guide ends {day})")
+            parts.append(f"{name} (guide ends {_fmt_guide_day(data_end)})")
         self._stale_epg_notice.setText(
             f"{_icons.notification_warning_icon}  Stale guide data — these sources' "
             f"providers aren't supplying current EPG, so they won't show in On Now: "

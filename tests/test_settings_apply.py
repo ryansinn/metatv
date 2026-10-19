@@ -42,11 +42,11 @@ def test_the_list_has_no_duplicates():
     assert len(settings_apply.HANDLERS) == len(set(settings_apply.HANDLERS))
 
 
-def test_the_list_still_covers_all_twelve():
+def test_the_list_still_covers_all_thirteen():
     """A guard against silently losing one while editing the tuple. If a
     handler is deliberately added or removed, change this number in the same
     commit — that is the point."""
-    assert len(settings_apply.HANDLERS) == 12  # VE-1 added _apply_discover_reload_setting
+    assert len(settings_apply.HANDLERS) == 13  # _apply_time_display_setting (system time format)
 
 
 # ── running them ─────────────────────────────────────────────────────────────

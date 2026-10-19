@@ -39,7 +39,6 @@ class _FakeConfig:
         watch_complete_threshold: float = 0.9,
         watch_partial_threshold: float = 0.10,
     ):
-        self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.playback_resume_mode = "resume"
@@ -93,8 +92,6 @@ def _bare_dialog(qapp) -> SettingsDialog:
     wire_settings_widgets(dlg)
 
     # Player group
-    dlg._player_combo = QComboBox()
-    dlg._player_combo.addItems(["mpv", "vlc", "custom"])
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = _bool_check(qapp)

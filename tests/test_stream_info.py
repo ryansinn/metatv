@@ -60,5 +60,5 @@ def test_hdr_is_named():
 
 def test_caption_says_how_it_was_measured():
     when = datetime(2026, 10, 9, 20, 0)
-    assert measured_caption(when, "played") == "seen when played Oct 9"
-    assert measured_caption(when, "probe") == "probed Oct 9"
+    assert measured_caption(when, "played") == "seen when played 9 Oct"
+    assert measured_caption(when, "probe") == "probed 9 Oct"

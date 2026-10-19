@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
+from metatv.gui.fonts import monospace_family
 from metatv.gui.scoped_filter_box import ScopedFilterBox
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ class LogViewerWindow(QWidget):
         self.view.setReadOnly(True)
         self.view.setMaximumBlockCount(MAX_LINES)
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.view.setFont(QFont(_monospace_family()))
+        self.view.setFont(QFont(monospace_family()))
         _theme.style(self.view, "LOG_STREAM")
         root.addWidget(self.view, 1)
 
@@ -404,15 +405,3 @@ def clear_log_files(config: "Optional[Config]" = None) -> tuple[int, int]:
         freed += size
     logger.info("Cleared {} log file(s), freeing {} bytes", removed, freed)
     return removed, freed
-
-
-def _monospace_family() -> str:
-    """Return a monospace family Qt will actually resolve on this platform.
-
-    ``QFont("monospace")`` is not a real family on macOS or Windows; Qt's
-    ``StyleHint`` is the portable way to ask, and the explicit families are
-    there so the hint has something good to land on.
-    """
-    font = QFont()
-    font.setStyleHint(QFont.StyleHint.Monospace)
-    return font.defaultFamily()

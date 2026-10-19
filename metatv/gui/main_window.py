@@ -23,6 +23,7 @@ from metatv.core.update_checker import UpdateChecker
 from metatv.core.runtime_env import is_frozen
 from metatv.core import profile_store
 from metatv.gui.watchlist_write_notifier import install_watchlist_writes
+from metatv.gui.time_display_settings import apply_time_display
 from metatv.gui.main_window_streaming import _StreamingMixin
 from metatv.gui.queue_end_prompt import _QueueEndPromptMixin
 from metatv.gui.main_window_overlays import _OverlaysMixin
@@ -354,6 +355,7 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
         # Text size lives in the database profile, so it applies here — after
         # attach, before any widget exists (theme is the one owner of sizes).
         _theme.set_text_scale(getattr(config, "ui_text_scale", 1.0))
+        apply_time_display(config)  # same reason: the time/date style is a profile key
         self._register_cleanable("profile_store", profile_store.shutdown)
         # Watch list -> database, written off-thread; see core/watchlist.py.
         self._watchlist_notifier = install_watchlist_writes(self)
@@ -2114,6 +2116,16 @@ class MainWindow(_HistoryMixin, _ProviderMixin, _ProviderConnectivityMixin, _Ser
             return
         if hasattr(self, "channels_list"):
             self.channels_list.viewport().update()
+
+    def _apply_time_display_setting(self) -> None:
+        """Settings → Appearance → Time / Date, applied live.
+
+        Every time and date on screen is formatted at render through
+        ``core/time_display``, so a new style needs the views re-rendered —
+        through the one canonical refresh, and only when the style changed.
+        """
+        if apply_time_display(self.config):
+            self._refresh_provider_dependent_views()
 
     # Panel index in ``main_splitter``: [sidebar | content | details].
     _SIDEBAR_PANEL = 0

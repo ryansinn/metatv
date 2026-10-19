@@ -67,7 +67,7 @@ def test_recording_state_wins_the_glyph_and_names_its_end():
     state, tooltip = indicator_for(
         "c1", NOW, NOW + timedelta(hours=1), [row], NOW)
     assert state == "recording"
-    assert "21:00" in tooltip  # NOW + 2h, HH:MM
+    assert "9:00 PM" in tooltip  # NOW + 2h, in the default 12-hour style
 
 
 def test_scheduled_state_names_its_start_and_end():
@@ -77,7 +77,7 @@ def test_scheduled_state_names_its_start_and_end():
     state, tooltip = indicator_for(
         "c1", NOW + timedelta(hours=3), NOW + timedelta(hours=4), [row], NOW)
     assert state == "scheduled"
-    assert "22:00" in tooltip and "23:00" in tooltip
+    assert "10:00 PM" in tooltip and "11:00 PM" in tooltip
 
 
 def test_recording_outranks_a_simultaneous_scheduled_match():
