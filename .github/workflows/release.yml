@@ -129,6 +129,11 @@ jobs:
           fi
 
       - name: Run tests (green gate)
+        # Tagged releases only. On a rolling build this was 48 of the job's 54
+        # minutes, re-running the suite CI already runs on every PR (Linux and
+        # macOS) — and every newer push cancelled it, so no .dmg finished on a
+        # busy day (2026-10-19). The smoke test below still proves the app launches.
+        if: steps.meta.outputs.is_tag == 'true'
         run: |
           pytest tests/ -q
 
