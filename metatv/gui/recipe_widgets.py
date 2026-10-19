@@ -343,7 +343,7 @@ class _ClusterTile(QFrame):
         # content_type slugs render friendly labels; identity stays the slug.
         display_map: dict[str, str] = {}
         if facet == "content_type":
-            from metatv.core.channel_name_utils import content_type_display
+            from metatv.core.content_labels import content_type_display
             display_map = {d.value: content_type_display(d.value) for d in ordered}
 
         # Normalize font size WITHIN this tile (its own min/max).  Decade chips are

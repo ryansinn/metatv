@@ -173,7 +173,7 @@ def test_voiceover_not_hidden_by_generated_exclusion(seeded):
 
 
 def test_content_type_display_names():
-    from metatv.core.channel_name_utils import content_type_display
+    from metatv.core.content_labels import content_type_display
 
     assert content_type_display("ai_generated") == "AI Generated"
     assert content_type_display("ai_voiceover") == "AI Voiceover"

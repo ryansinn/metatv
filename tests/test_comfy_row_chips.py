@@ -45,12 +45,8 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QComboBox
 
-from metatv.core.channel_name_utils import (
-    PLATFORM_CODES,
-    REGION_FULL_NAMES,
-    collection_display,
-    platform_display,
-)
+from metatv.core.channel_name_utils import collection_display
+from metatv.core.region_codes import PLATFORM_CODES, REGION_FULL_NAMES, platform_display
 from metatv.core.config import Config
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import theme as _theme

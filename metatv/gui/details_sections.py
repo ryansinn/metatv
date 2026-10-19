@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from metatv.core.channel_name_utils import normalize_region_code
+from metatv.core.region_codes import normalize_region_code
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme

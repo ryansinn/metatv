@@ -34,7 +34,7 @@ import uuid
 
 import pytest
 
-from metatv.core.channel_name_utils import AGE_RATING_PREFIXES
+from metatv.core.content_labels import AGE_RATING_PREFIXES
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -314,6 +314,7 @@ class TestOneDefinition:
 
     @pytest.mark.parametrize("module_path", [
         "metatv/core/channel_name_utils.py",
+        "metatv/core/content_labels.py",   # where AGE_RATING_PREFIXES is defined
         "metatv/core/repositories/channel_ingestion.py",
     ])
     def test_no_module_spells_a_rating_out_for_itself(self, module_path):
@@ -347,9 +348,8 @@ class TestOneDefinition:
 
     def test_both_readers_answer_from_the_same_set(self):
         """Behavioural half: every member classifies AND blocks the fill."""
-        from metatv.core.channel_name_utils import (
-            AGE_RATING_PREFIXES, classify_trailing_metadata,
-        )
+        from metatv.core.channel_name_utils import classify_trailing_metadata
+        from metatv.core.content_labels import AGE_RATING_PREFIXES
         from metatv.core.repositories.channel_ingestion import (
             _contradicts_own_locale,
         )

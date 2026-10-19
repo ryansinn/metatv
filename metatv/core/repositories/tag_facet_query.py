@@ -405,9 +405,7 @@ class FacetQueryMixin:
         from metatv.core.database import ChannelDB
         from sqlalchemy import case as _case, func as _func
 
-        from metatv.core.channel_name_utils import (
-            QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT,
-        )
+        from metatv.core.quality_vocab import QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT
 
         # ── INNER ── join ChannelDB to the faceted match set; apply name filter.
         _title_expr = _func.coalesce(

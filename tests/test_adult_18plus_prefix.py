@@ -14,7 +14,8 @@ the same way it already matches PORNBOX/X/XXX/ADULT.
 
 from __future__ import annotations
 
-from metatv.core.channel_name_utils import is_restricted, parse_channel_name
+from metatv.core.channel_name_utils import parse_channel_name
+from metatv.core.content_labels import is_restricted
 from metatv.core.config import BASE_PREFIX_GROUPS
 from tests.conftest import make_channel
 

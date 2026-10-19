@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import QStyleOptionViewItem
 
 from metatv.gui import theme as _theme
 from metatv.gui.token_color import to_qcolor as _to_qcolor
-from metatv.core.channel_name_utils import PLATFORM_CODES
+from metatv.core.region_codes import PLATFORM_CODES
 from metatv.gui.channel_row_cells import (
     CHIP_SLOT_COLLECTION,
     CHIP_SLOT_GENRE,

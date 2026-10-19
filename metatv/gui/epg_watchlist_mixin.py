@@ -63,7 +63,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core import watchlist
-from metatv.core.channel_name_utils import quality_tier_rank
+from metatv.core.quality_vocab import quality_tier_rank
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.watchlist_matching import WatchRule
 from metatv.core.epg_utils import (

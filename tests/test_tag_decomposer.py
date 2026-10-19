@@ -26,7 +26,7 @@ DR-0006 confidence rules verified:
 
 import pytest
 
-from metatv.core.channel_name_utils import CONF_DENOTED, CONF_STRONG_PRIOR, CONF_WEAK_PRIOR
+from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR, CONF_WEAK_PRIOR
 from metatv.core.config import Config
 from metatv.core.tag_decomposer import decompose, decompose_name_parse
 

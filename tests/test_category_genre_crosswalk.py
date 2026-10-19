@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from metatv.core.channel_name_utils import CONF_DENOTED, CONF_STRONG_PRIOR
+from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR
 from metatv.core.config import Config
 from metatv.core.filter_utils import KNOWN_GENRES, recognized_genre
 from metatv.core.migrations.tag_backfill import _collect_tags

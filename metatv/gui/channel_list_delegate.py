@@ -375,7 +375,7 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
         in compact (owner spec #257); an explicit "full"/"short" override
         wins regardless of density. Density-awareness is a control-layer
         decision that belongs here (the delegate already tracks density),
-        never inside :func:`~metatv.core.channel_name_utils.platform_display`
+        never inside :func:`~metatv.core.region_codes.platform_display`
         itself."""
         if self._platform_name_style in (PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT):
             return self._platform_name_style

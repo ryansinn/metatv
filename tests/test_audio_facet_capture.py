@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from metatv.core.channel_name_utils import CONF_DENOTED, CONF_WEAK_PRIOR
+from metatv.core.tag_confidence import CONF_DENOTED, CONF_WEAK_PRIOR
 
 
 # ---------------------------------------------------------------------------

@@ -189,9 +189,8 @@ class BadRegionCleanupTask:
         Returns:
             ``(channel_id, region)`` pairs to clear.
         """
-        from metatv.core.channel_name_utils import (
-            normalize_region_code, parse_channel_name,
-        )
+        from metatv.core.channel_name_utils import parse_channel_name
+        from metatv.core.region_codes import normalize_region_code
         from metatv.core.tag_decomposer import region_code_from_category
 
         if config is None:
@@ -276,7 +275,7 @@ def clear_regions_and_derived_tags(
 
     from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
-    from metatv.core.channel_name_utils import CODE_FACETS, normalize_region_code
+    from metatv.core.region_codes import CODE_FACETS, normalize_region_code
 
     ids = [cid for cid, _ in chunk]
     by_region: dict[str, list[str]] = {}

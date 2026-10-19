@@ -35,7 +35,8 @@ from collections.abc import Iterable
 
 from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidget
 
-from metatv.core.channel_name_utils import QUALITY_TOKENS, REGION_FULL_NAMES
+from metatv.core.quality_vocab import QUALITY_TOKENS
+from metatv.core.region_codes import REGION_FULL_NAMES
 from metatv.gui import chip_row, cursor_affordance
 from metatv.gui import icons
 from metatv.gui import theme

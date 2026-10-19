@@ -3,7 +3,7 @@
 "SWEDEN SOCCER PPV" carried Sweden only in words, so 3,075 prefix-less live
 channels had no region and Global Exclusions could not see them.
 """
-from metatv.core.channel_name_utils import REGION_FULL_NAMES, leading_country
+from metatv.core.region_codes import REGION_FULL_NAMES, leading_country
 from metatv.core.config import Config
 from metatv.core.tag_decomposer import decompose, region_code_from_category
 

@@ -31,9 +31,12 @@ an improvement:
 
 import pytest
 
-from metatv.core.channel_name_utils import (
-    AUDIO_CODEC_NORM, _canonical_audio_codec, _extract_scene_release,
-    _sub_outside_brackets, parse_channel_name,
+from metatv.core.channel_name_utils import parse_channel_name
+from metatv.core.quality_vocab import AUDIO_CODEC_NORM
+from metatv.core.scene_release import (
+    _canonical_audio_codec,
+    _extract_scene_release,
+    _sub_outside_brackets,
 )
 
 
@@ -252,9 +255,12 @@ def test_the_same_rank_collapse_has_exactly_one_implementation():
     import re
     from pathlib import Path
 
-    import metatv.core.channel_name_utils as mod
+    from metatv.core import channel_name_utils, quality_vocab, scene_release
 
-    source = Path(mod.__file__).read_text()
+    # The parser spans three modules since the split (ledger F30); a fourth
+    # copy could land in any of them.
+    source = "\n".join(Path(m.__file__).read_text()
+                       for m in (channel_name_utils, quality_vocab, scene_release))
     bodies = re.findall(r"^\s*_?seen_ranks: set\[int\] = set\(\)", source, re.M)
     assert len(bodies) == 1, (
         f"{len(bodies)} same-rank collapse loops in channel_name_utils.py — "

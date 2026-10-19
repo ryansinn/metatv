@@ -27,11 +27,7 @@ Pure-function tests: no DB, no Qt.  The autouse ``_isolate_user_config`` fixture
 import pytest
 
 from metatv.core import config as cfg_module
-from metatv.core.channel_name_utils import (
-    CODE_FACETS,
-    REGION_FULL_NAMES,
-    normalize_region_code,
-)
+from metatv.core.region_codes import CODE_FACETS, REGION_FULL_NAMES, normalize_region_code
 from metatv.core.config import Config
 from metatv.core.tag_decomposer import decompose, decompose_name_parse
 

@@ -59,7 +59,7 @@ from metatv.gui.row_activation import connect_row_activation
 
 from metatv.core import watchlist
 from metatv.core.watchlist_matching import matches_any
-from metatv.core.channel_name_utils import quality_display, quality_tooltip
+from metatv.core.quality_vocab import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icons as _icons

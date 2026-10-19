@@ -19,7 +19,7 @@ from typing import Any, Optional
 import aiohttp
 from loguru import logger
 
-from metatv.core.channel_name_utils import ISO_639_1_LANGUAGE_NAMES
+from metatv.core.region_codes import ISO_639_1_LANGUAGE_NAMES
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
 
 _BASE_URL = "https://api.themoviedb.org/3"

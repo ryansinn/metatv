@@ -27,13 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from metatv.core.channel_name_utils import (
-    AI_GENERATED_VALUE,
-    AI_VOICEOVER_VALUE,
-    CONF_DENOTED,
-    CONF_STRONG_PRIOR,
-    detect_ai_provenance,
-)
+from metatv.core.content_labels import AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, detect_ai_provenance
+from metatv.core.tag_confidence import CONF_DENOTED, CONF_STRONG_PRIOR
 
 
 # ---------------------------------------------------------------------------

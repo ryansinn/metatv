@@ -28,7 +28,7 @@ from PyQt6.QtCore import Qt as _Qt, QTimer
 from loguru import logger
 
 from metatv.core.repositories.channel_list_rows import rows_to_dtos
-from metatv.core.channel_name_utils import quality_display
+from metatv.core.quality_vocab import quality_display
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import downloaded_scope as _dl_scope
 from metatv.gui import ui_phase as _phase

@@ -2,12 +2,8 @@
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtCore import Qt
 
-from metatv.core.channel_name_utils import (
-    PLATFORM_CODES,
-    REGION_FULL_NAMES,
-    quality_display,
-    quality_tooltip,
-)
+from metatv.core.quality_vocab import quality_display, quality_tooltip
+from metatv.core.region_codes import PLATFORM_CODES, REGION_FULL_NAMES
 from metatv.gui import theme as _theme
 
 def _quality_colors() -> dict[str, str]:

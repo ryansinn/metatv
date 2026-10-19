@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Set
 from loguru import logger
 from sqlalchemy import or_
 
-from metatv.core.channel_name_utils import quality_tier_rank
+from metatv.core.quality_vocab import quality_tier_rank
 from metatv.core.database import ChannelDB, ProviderDB, UserRatingDB, WatchQueueDB
 from metatv.core.repositories.dtos import ReconnectCandidateDTO, ReconnectMatchDTO
 

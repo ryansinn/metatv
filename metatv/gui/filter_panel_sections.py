@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from metatv.core.channel_name_utils import quality_display
+from metatv.core.quality_vocab import quality_display
 
 _Restore = Callable[[object, set[str]], None]
 

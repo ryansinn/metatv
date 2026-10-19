@@ -1,7 +1,7 @@
 """PPV is a content type, and an exclusion covers every code of its country."""
 from types import SimpleNamespace
 
-from metatv.core.channel_name_utils import code_family
+from metatv.core.region_codes import code_family
 from metatv.core.config import Config
 from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes
 from metatv.core.tag_decomposer import decompose

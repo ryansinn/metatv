@@ -366,7 +366,7 @@ def test_the_card_attaches_a_collapsed_editor_that_the_toggle_opens(qapp, tmp_pa
         assert editor.isVisible() is False
     finally:
         watchlist.unbind()
-        _destroy(card, qapp)
+        destroy_widget(card)
 
 
 def test_editing_a_rule_on_a_card_persists_and_refreshes(qapp, tmp_path):
@@ -433,7 +433,7 @@ def test_compose_mode_will_not_commit_an_empty_entry(qapp):
         ed.add_btn.click()
         assert [r.term for r in got] == ["Severance"]
     finally:
-        _destroy(ed, qapp)
+        destroy_widget(ed)
 
 
 def test_compose_mode_does_not_live_edit(qapp):
@@ -454,7 +454,7 @@ def test_compose_mode_does_not_live_edit(qapp):
         ed.description_chip.click()
         assert live == []
     finally:
-        _destroy(ed, qapp)
+        destroy_widget(ed)
 
 
 def test_compose_carries_every_control_into_the_committed_entry(qapp):
@@ -480,7 +480,7 @@ def test_compose_carries_every_control_into_the_committed_entry(qapp):
         assert rule.search_description is True
         assert rule.whole_word is False
     finally:
-        _destroy(ed, qapp)
+        destroy_widget(ed)
 
 
 def test_the_mode_track_is_a_choice_not_three_switches(qapp):
@@ -504,7 +504,7 @@ def test_the_mode_track_is_a_choice_not_three_switches(qapp):
         assert ed._current_mode() == ANY_WORD, "clicking the active mode blanked it"
         assert [m for m, c in ed.mode_chips.items() if c.is_enabled()] == [ANY_WORD]
     finally:
-        _destroy(ed, qapp)
+        destroy_widget(ed)
 
 
 def test_title_stays_searched_however_often_it_is_clicked(qapp):
@@ -517,4 +517,4 @@ def test_title_stays_searched_however_often_it_is_clicked(qapp):
             ed.title_chip.click()
             assert ed.title_chip.is_enabled() is True
     finally:
-        _destroy(ed, qapp)
+        destroy_widget(ed)

@@ -19,9 +19,7 @@ from metatv.core import channel_visibility, visibility_resolver
 from metatv.core.repositories import channel_downloads
 from metatv.core.repositories.search_ranking import (
     channel_text_search_predicate, search_order_terms)
-from metatv.core.channel_name_utils import (
-    QUALITY_TIER_RANK,
-)
+from metatv.core.quality_vocab import QUALITY_TIER_RANK
 from metatv.core.repositories.dtos import (
     LiveEventDTO,
 )
@@ -558,9 +556,7 @@ class ChannelRepository(ChannelIngestionMixin, ChannelEnrichmentMixin,
         """
         from sqlalchemy import case as _case, func as _func
 
-        from metatv.core.channel_name_utils import (
-            QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT,
-        )
+        from metatv.core.quality_vocab import QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT
 
         inner = filtered_query.subquery(name="inner_ch")
 

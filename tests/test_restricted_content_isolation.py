@@ -113,7 +113,7 @@ class TestIsRestricted:
     """The app ships NO opinion about which names/codes mean restricted."""
 
     def test_prefix_in_the_users_adult_group_is_restricted(self):
-        from metatv.core.channel_name_utils import is_restricted
+        from metatv.core.content_labels import is_restricted
         assert is_restricted("ADULT", "Anything", _Cfg()) is True
         assert is_restricted("xxx", "Anything", _Cfg()) is True
 
@@ -122,27 +122,27 @@ class TestIsRestricted:
 
         It becomes restricted only once the USER puts it in their Adult group.
         """
-        from metatv.core.channel_name_utils import is_restricted
+        from metatv.core.content_labels import is_restricted
         assert is_restricted("PORNBOX", "Whatever", _Cfg()) is False
         widened = _Cfg(adult_codes=("X", "XXX", "ADULT", "PORNBOX"))
         assert is_restricted("PORNBOX", "Whatever", widened) is True
 
     def test_titles_are_never_scanned_without_user_keywords(self):
         """Real titles in this library that a keyword scan would have hidden."""
-        from metatv.core.channel_name_utils import is_restricted
+        from metatv.core.content_labels import is_restricted
         cfg = _Cfg()  # no restricted_keywords configured — the default
         assert is_restricted("SE", "Appropriate Adult", cfg) is False
         assert is_restricted("EN", "xXx: Return of Xander Cage", cfg) is False
         assert is_restricted("EN", "Sex Education", cfg) is False
 
     def test_user_supplied_keywords_are_honoured(self):
-        from metatv.core.channel_name_utils import is_restricted
+        from metatv.core.content_labels import is_restricted
         cfg = _Cfg(keywords=["late night xxx"])
         assert is_restricted("EN", "Late Night XXX Hour", cfg) is True
         assert is_restricted("EN", "Sex Education", cfg) is False
 
     def test_no_config_falls_back_to_base_groups_and_no_keywords(self):
-        from metatv.core.channel_name_utils import is_restricted
+        from metatv.core.content_labels import is_restricted
         assert is_restricted("ADULT", "Anything") is True
         assert is_restricted("EN", "Appropriate Adult") is False
 

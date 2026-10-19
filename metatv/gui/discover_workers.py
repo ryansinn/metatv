@@ -654,7 +654,7 @@ class _LoaderWorker(QObject):
             MIN_COLLECTION_SHELF_MEMBERS,
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
-        from metatv.core.channel_name_utils import PLATFORM_SHELF_EXCLUDED_VALUES
+        from metatv.core.content_labels import PLATFORM_SHELF_EXCLUDED_VALUES
         from metatv.core.filter_utils import (
             get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
             keyword_exclusion_list, global_exclusion_sets,

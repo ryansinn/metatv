@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Optional
 
-from metatv.core.channel_name_utils import CONTENT_DESCRIPTOR_GROUPS
+from metatv.core.content_labels import CONTENT_DESCRIPTOR_GROUPS
 
 
 # ── EPG "On Now" viewing content-type classifier (Slice 3C) ────────────────────── #

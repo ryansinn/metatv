@@ -28,7 +28,6 @@ Nothing queued (the last ten closed 2026-10-19).
 | F6 | Selection colours can be overwritten by a later stylesheet | Audit every item view per palette; guard the ordering. |
 | F19 | Concurrent background writers starve the catalogue insert | Writer count, not write size; see memory "SQLite single-writer budget". |
 | F21 | `raw_data` (36% of `channels`) can't be deferred everywhere | Store the provider rating at ingestion first. |
-| F30 | `channel_name_utils.py` (~3,400 lines) does six jobs | Split the scene-release pass; first decide who owns `QUALITY_TIER_RANK`. |
 | F32 | Episode-label residue in titles ("… 77 Bolum") | ~36 rows; belongs with the parsing-gaps backlog. |
 | F36 | List-selection palette pin freezes after the second theme switch | Qt drops palette roles after repeated stylesheet changes; try paint-time colours. |
 | F47 | `discover_collapsed_shelves` is unused data but still the dialog's backing store | Derive the Collapsed column; migrate from the raw YAML. (F48's fallback, its other reader, is gone.) |

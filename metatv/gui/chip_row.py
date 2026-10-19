@@ -40,7 +40,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 
-from metatv.core.channel_name_utils import quality_display
+from metatv.core.quality_vocab import quality_display
 
 
 class _ChipRow(QWidget):
@@ -264,7 +264,7 @@ def episode_code(season_num: int | None, episode_num: int | None) -> str:
 def quality_word(quality: str | None) -> str:
     """``"RAW"`` → ``"Uncompressed"`` — the quality token as a viewer sees it.
 
-    Routes through :func:`~metatv.core.channel_name_utils.quality_display`, the
+    Routes through :func:`~metatv.core.quality_vocab.quality_display`, the
     one chokepoint that turns a stored token into a label, so the sidebar never
     shows "RAW" to mean "uncompressed" — which reads as its opposite.
     """
