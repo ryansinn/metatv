@@ -133,17 +133,17 @@ def fetch_cards_for_key(
         return get_top_rated(session, "movie", limit=limit, **sk, **fk, **af, **ek)
     if shelf_key == "top_series":
         return get_top_rated(session, "series", limit=limit, **sk, **fk, **af, **ek)
-    if shelf_key.startswith("genre:"):
-        return get_by_genre(session, shelf_key[6:], limit=limit, **sk, **fk, **af, **ek)
-    if shelf_key.startswith("decade:"):
-        return get_by_decade(session, int(shelf_key[7:]), limit=limit, **sk, **fk, **af, **ek)
-    if shelf_key.startswith("actor:"):
-        return get_by_actor(session, shelf_key[6:], limit=limit, **sk, **fk, **af, **ek)
-    if shelf_key.startswith("user_cat:"):
-        cat_name = shelf_key[9:]
+    if shelf_key.startswith(_GENRE_PREFIX):
+        return get_by_genre(session, shelf_key[len(_GENRE_PREFIX):], limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith(_DECADE_PREFIX):
+        return get_by_decade(session, int(shelf_key[len(_DECADE_PREFIX):]), limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith(_ACTOR_PREFIX):
+        return get_by_actor(session, shelf_key[len(_ACTOR_PREFIX):], limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith(_USER_CAT_PREFIX):
+        cat_name = shelf_key[len(_USER_CAT_PREFIX):]
         return get_by_user_category(session, cat_name, limit=limit, **sk, **fk, **af, **ek)
-    if shelf_key.startswith("collection:"):
-        return get_by_collection(session, shelf_key[11:], limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith(_COLLECTION_PREFIX):
+        return get_by_collection(session, shelf_key[len(_COLLECTION_PREFIX):], limit=limit, **sk, **fk, **af, **ek)
     if shelf_key.startswith(_RECIPE_PREFIX):
         return _cards_for_saved_recipe(
             session, config, shelf_key[len(_RECIPE_PREFIX):], limit,
@@ -154,6 +154,15 @@ def fetch_cards_for_key(
         )
     return []
 
+
+#: Shelf-key namespaces. Each is read by three dispatchers in this module
+#: (fetch_cards_for_key, browse_title_for_key, SHELF_FAMILIES); a constant means
+#: a grep for one finds every site (ledger F44).
+_GENRE_PREFIX = "genre:"
+_DECADE_PREFIX = "decade:"
+_ACTOR_PREFIX = "actor:"
+_USER_CAT_PREFIX = "user_cat:"
+_COLLECTION_PREFIX = "collection:"
 
 #: Shelf-key namespace for a saved recipe, mirroring ``user_cat:``.
 _RECIPE_PREFIX = "recipe:"
@@ -171,13 +180,13 @@ _PLATFORM_PREFIX = "platform:"
 #: families lead -- the shelves someone MADE are the ones they came to manage --
 #: then the derived namespaces, whose runs are the long ones worth skipping.
 SHELF_FAMILIES: tuple[tuple[str, str], ...] = (
-    ("user_cat:", "Your categories"),
+    (_USER_CAT_PREFIX, "Your categories"),
     (_RECIPE_PREFIX, "Saved recipes"),
     (_PLATFORM_PREFIX, "Platforms"),
-    ("collection:", "Collections"),
-    ("genre:", "Genres"),
-    ("decade:", "Decades"),
-    ("actor:", "Featuring"),
+    (_COLLECTION_PREFIX, "Collections"),
+    (_GENRE_PREFIX, "Genres"),
+    (_DECADE_PREFIX, "Decades"),
+    (_ACTOR_PREFIX, "Featuring"),
 )
 
 #: The family for a key carrying no namespace at all -- the three fixed shelves
@@ -361,18 +370,18 @@ def browse_title_for_key(shelf_key: str) -> str:
     Returns:
         A human-facing heading; the key itself for a namespace with no rule.
     """
-    if shelf_key.startswith("genre:"):
-        return shelf_key[6:]
-    if shelf_key.startswith("decade:"):
-        return f"{shelf_key[7:]}s"
-    if shelf_key.startswith("actor:"):
-        return f"Featuring {shelf_key[6:]}"
-    if shelf_key.startswith("collection:"):
-        return shelf_key[11:]
+    if shelf_key.startswith(_GENRE_PREFIX):
+        return shelf_key[len(_GENRE_PREFIX):]
+    if shelf_key.startswith(_DECADE_PREFIX):
+        return f"{shelf_key[len(_DECADE_PREFIX):]}s"
+    if shelf_key.startswith(_ACTOR_PREFIX):
+        return f"Featuring {shelf_key[len(_ACTOR_PREFIX):]}"
+    if shelf_key.startswith(_COLLECTION_PREFIX):
+        return shelf_key[len(_COLLECTION_PREFIX):]
     if shelf_key.startswith(_PLATFORM_PREFIX):
         return shelf_key[len(_PLATFORM_PREFIX):]
-    if shelf_key.startswith("user_cat:"):
-        return shelf_key[9:]
+    if shelf_key.startswith(_USER_CAT_PREFIX):
+        return shelf_key[len(_USER_CAT_PREFIX):]
     if shelf_key.startswith(_RECIPE_PREFIX):
         return f"{_icons.recipe_icon} {shelf_key[len(_RECIPE_PREFIX):]}"
     return {
@@ -411,8 +420,8 @@ def normalize_shelf_config(config: Config) -> None:
     import html as _html
 
     def _clean(key: str) -> str:
-        if key.startswith("genre:"):
-            return "genre:" + _html.unescape(key[6:])
+        if key.startswith(_GENRE_PREFIX):
+            return _GENRE_PREFIX + _html.unescape(key[len(_GENRE_PREFIX):])
         return key
 
     def _dedup_ordered(lst: list) -> list:
@@ -621,7 +630,7 @@ class _LoaderWorker(QObject):
     finished   = pyqtSignal()
 
     def __init__(self, db: Database, config: Config,
-                 zone_snapshot: _ZoneSnapshot | None = None) -> None:
+                 zone_snapshot: _ZoneSnapshot) -> None:
         super().__init__()
         self._db = db
         self._config = config
@@ -685,24 +694,10 @@ class _LoaderWorker(QObject):
                 self._config, "global_filter_excluded_user_categories", []
             ))
 
-            # Build the zone snapshot — use the one passed in or fall back to
-            # a fresh read of the config (the pre-lazy legacy path, kept for
-            # compat with callers that don't pass a snapshot yet).
+            # Required (ledger F48): the old None fallback guessed "first launch"
+            # from four empty lists — the inference #642 replaced with the
+            # explicit discover_zones_seeded marker.
             zs = self._zone_snapshot
-            if zs is None:
-                zs = _ZoneSnapshot(
-                    pinned=frozenset(self._config.discover_pinned_shelves),
-                    expanded=frozenset(self._config.discover_expanded_shelves),
-                    collapsed=frozenset(self._config.discover_collapsed_shelves),
-                    hidden=frozenset(self._config.discover_hidden_shelves),
-                    default_expanded=frozenset(),
-                    first_launch=(
-                        not self._config.discover_pinned_shelves
-                        and not self._config.discover_expanded_shelves
-                        and not self._config.discover_collapsed_shelves
-                        and not self._config.discover_hidden_shelves
-                    ),
-                )
 
             hidden = zs.hidden
 

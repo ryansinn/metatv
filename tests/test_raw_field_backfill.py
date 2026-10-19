@@ -259,11 +259,8 @@ def test_config_declares_the_version_field():
 
 def test_registered_with_the_migration_manager():
     """Registration is the whole delivery — an unregistered task never runs."""
-    from pathlib import Path
-    import metatv.gui.main_window as mw
-    source = Path(mw.__file__).read_text()
-    assert "RawFieldBackfillTask" in source
-    assert "self.migration_manager.register(RawFieldBackfillTask(self.db))" in source
+    from metatv.core.migrations.registry import TASKS
+    assert "RawFieldBackfillTask" in {name for _module, name, _extra in TASKS}
 
 
 # --------------------------------------------------------------------------

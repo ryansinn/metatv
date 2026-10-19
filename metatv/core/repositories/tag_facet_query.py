@@ -146,8 +146,12 @@ class FacetQueryMixin:
         # Scope to visible channels on active sources when requested (recipe
         # YIELDS uses this so its count matches the pantry/cloud facet counts).
         # Global Exclusions ride along on the same scope so YIELDS/preview never
-        # surface content the user has globally banished.
-        if excluded_provider_ids is not None:
+        # surface content the user has globally banished. Any axis switches the
+        # scope on (ledger F25): gating it on excluded_provider_ids alone meant a
+        # caller passing exclusions without provider ids lost every one.
+        if excluded_provider_ids is not None or any((
+                excluded_prefixes, excluded_categories, excluded_tag_content_types,
+                excluded_keywords, dead_signal_streak_floor is not None)):
             query = self._scope_to_visible_channels(
                 query, outer.channel_key, excluded_provider_ids,
                 excluded_prefixes, excluded_categories, excluded_tag_content_types,

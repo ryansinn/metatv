@@ -14,18 +14,7 @@ a code comment citing a row ID that is not here refers to this file's git histor
 
 ## Ready to build
 
-| # | What | Fix |
-|---|---|---|
-| D17 | `provider_loader._flush_batch` retries DB locks its own way | Route through `core/db_lock.retry_on_lock`. |
-| D18 | 3 tests drain `DeferredDelete` by hand (`_KNOWN_PRIVATE_TEARDOWNS`) | Use `conftest.destroy_widget`; empty the set. |
-| D38 | `scripts/prune_merged.sh` derives `_main_repo` itself | Source `scripts/repo_python.sh`. |
-| F22 | `test_progress_paint.py:78` passes on an import (`"progress_paint" in source`) | Assert rendered geometry instead. |
-| F25 | `tag_facet_query.py:150` applies every exclusion only if `excluded_provider_ids is not None` | Apply unconditionally, or take one scope object. Latent: all callers pass a list. |
-| F29 | 29 hand-listed `migration_manager.register(...)` calls in `main_window.py` | Auto-discover like `whats_new`; tasks must first declare their order. |
-| F42 | QA checklist pass/fail/jump buttons are emoji text | `icon_utils.icon_button()` with the state colour passed explicitly. |
-| F44 | Shelf-key prefixes are bare literals in `discover_workers.py` | Constants beside `_RECIPE_PREFIX`, or one namespace table. |
-| F45 | `_ActionBar` (`details_pane.py:594`) is a parentless top-level | Parent to the pane and `hide()`. |
-| F48 | `_LoaderWorker(zone_snapshot=None)` keeps a stale first-launch guess | Make the snapshot required (or delete with F47). |
+Nothing queued (the last ten closed 2026-10-19).
 
 ## Needs investigation first
 
@@ -42,7 +31,7 @@ a code comment citing a row ID that is not here refers to this file's git histor
 | F30 | `channel_name_utils.py` (~3,400 lines) does six jobs | Split the scene-release pass; first decide who owns `QUALITY_TIER_RANK`. |
 | F32 | Episode-label residue in titles ("… 77 Bolum") | ~36 rows; belongs with the parsing-gaps backlog. |
 | F36 | List-selection palette pin freezes after the second theme switch | Qt drops palette roles after repeated stylesheet changes; try paint-time colours. |
-| F47 | `discover_collapsed_shelves` is unused data but still the dialog's backing store | Derive the Collapsed column; migrate from the raw YAML. |
+| F47 | `discover_collapsed_shelves` is unused data but still the dialog's backing store | Derive the Collapsed column; migrate from the raw YAML. (F48's fallback, its other reader, is gone.) |
 | F49 | Genre has two separately versioned derivations | `detected_genres` vs genre tags; couple the version counters. |
 | GUARD-7 | PyQt sometimes segfaults at interpreter exit | Get C frames under gdb; find the QObject that outlives the app. |
 

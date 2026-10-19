@@ -113,6 +113,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.build_info import git
 from metatv.core.time_display import iso_date_text
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.whats_new import step_target, step_text
@@ -1100,24 +1101,24 @@ class QAChecklistWindow(QWidget):
         row_layout.setContentsMargins(0, 2, 0, 2)
         row_layout.setSpacing(6)
 
-        pass_btn = QPushButton(_icons.qa_pass_icon)
+        pass_btn = QPushButton()   # icon, coloured by state (the colour IS the state)
+        _icon_utils.set_button_icon(pass_btn, "qa_pass", color=lambda: (
+            _theme.COLOR_OK if state == "pass" else _theme.COLOR_TEXT))
         pass_btn.setToolTip("Mark passed")
         pass_btn.setFixedWidth(28)
         pass_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        _theme.style(
-            pass_btn, "QA_PASS_BTN_ACTIVE" if state == "pass" else "QA_PASS_BTN"
-        )
+        _theme.style(pass_btn, "QA_PASS_BTN_ACTIVE" if state == "pass" else "QA_PASS_BTN")
         pass_btn.clicked.connect(
             lambda _, eid=entry.id, si=idx: self._on_mark(eid, si, "pass")
         )
 
-        fail_btn = QPushButton(_icons.qa_fail_icon)
+        fail_btn = QPushButton()
+        _icon_utils.set_button_icon(fail_btn, "qa_fail", color=lambda: (
+            _theme.COLOR_ERR_2 if state == "fail" else _theme.COLOR_TEXT))
         fail_btn.setToolTip("Mark failed")
         fail_btn.setFixedWidth(28)
         fail_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        _theme.style(
-            fail_btn, "QA_FAIL_BTN_ACTIVE" if state == "fail" else "QA_FAIL_BTN"
-        )
+        _theme.style(fail_btn, "QA_FAIL_BTN_ACTIVE" if state == "fail" else "QA_FAIL_BTN")
         fail_btn.clicked.connect(
             lambda _, eid=entry.id, si=idx: self._on_mark(eid, si, "fail")
         )
@@ -1177,17 +1178,14 @@ class QAChecklistWindow(QWidget):
 
                 # Companion ↑ jump button — scroll to the addressing entry if visible.
                 if addr_eid and addr_eid in self._ref_labels:
-                    jump_btn = QPushButton(_icons.qa_jump_icon)
-                    jump_btn.setToolTip(
-                        f"Jump to addressing entry #{addr_eid} in this checklist"
-                    )
+                    jump_btn = QPushButton()
+                    _icon_utils.set_button_icon(jump_btn, "qa_jump", color=lambda: _theme.COLOR_OK)
+                    jump_btn.setToolTip(f"Jump to addressing entry #{addr_eid} in this checklist")
                     jump_btn.setFixedWidth(24)
                     _theme.style_fn(jump_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_OK};"
                         f" font-size: {_theme.FONT_MD}; }}"
                         f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
-                    jump_btn.clicked.connect(
-                        lambda _, eid=addr_eid: self._jump_to_entry(eid)
-                    )
+                    jump_btn.clicked.connect(lambda _, eid=addr_eid: self._jump_to_entry(eid))
                     row_layout.addWidget(jump_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
         self._step_buttons[entry.id][idx] = (pass_btn, fail_btn)
@@ -1666,7 +1664,8 @@ class QAChecklistWindow(QWidget):
         )
         title_row_layout.addWidget(status_btn)
 
-        remove_btn = QPushButton(_icons.close_icon)
+        remove_btn = QPushButton()
+        _icon_utils.set_button_icon(remove_btn, "close", color=lambda: _theme.COLOR_MUTED_2)
         remove_btn.setToolTip("Remove this flagged item")
         remove_btn.setFixedWidth(24)
         _theme.style_fn(remove_btn, lambda: f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"

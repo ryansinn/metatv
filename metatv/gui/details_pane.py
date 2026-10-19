@@ -622,7 +622,11 @@ class DetailsPaneWidget(QWidget):
         self._meta.place_under_title(self._episode_meta_row)
 
         self._versions = _VersionSection(self.config)
-        self._action_bar = _ActionBar(self.config)
+        # Parented and hidden (ledger F45): it owns the buttons the poster rail
+        # reparents and is never laid out; parentless it was a top-level window
+        # for the app's lifetime, repainted by every theme switch.
+        self._action_bar = _ActionBar(self.config, parent=self)
+        self._action_bar.hide()
         self._plot     = _PlotSection()
         self._versions.setContentsMargins(0, 8, 0, 0)
         self._cast     = _CastSection(self.config)
