@@ -185,6 +185,23 @@ class CollapsibleMixin:
     def _apply_collapsed(self) -> None:
         self._content.setVisible(not self._header.is_collapsed())
 
+    def rekey(self, key: str, title: str, collapsed_sections) -> None:
+        """Show this section as a different one: its own title and its own
+        remembered fold. The details pane's Overview becomes "Series overview"
+        (key ``overview_series``) when an episode has no overview of its own,
+        so the two remember collapsed separately (owner 2026-10-19).
+
+        Args:
+            key: The ``details_pane_collapsed_sections`` entry to save under.
+            title: The header text.
+            collapsed_sections: The saved list, to restore this key's state.
+        """
+        if key == self.COLLAPSE_KEY:
+            return
+        self.COLLAPSE_KEY = key   # instance attribute; save_state reads it
+        self._header.set_title(title)
+        self.restore_collapse_state(collapsed_sections)
+
     def restore_collapse_state(self, collapsed_sections) -> None:
         self._header.set_collapsed(self.COLLAPSE_KEY in (collapsed_sections or []))
         self._apply_collapsed()
