@@ -32,6 +32,14 @@ from typing import Any, Callable
 # Module-level qapp fixture (headless Qt)
 # ---------------------------------------------------------------------------
 
+def _sets(view):
+    """The four exclusion sets out of ``RecipeView._tag_scope()``, as a tuple."""
+    s = view._tag_scope()
+    return tuple(s[k] or set() for k in (
+        "excluded_prefixes", "excluded_categories",
+        "excluded_tag_content_types", "excluded_keywords"))
+
+
 @pytest.fixture(scope="module")
 def qapp():
     from PyQt6.QtWidgets import QApplication
@@ -698,7 +706,7 @@ def test_reload_reissues_cluster_load(qapp):
     view.reload()
 
     # The cluster load is the load on_activate fires; reload must re-issue it so
-    # new Global Exclusions re-resolve through _global_exclusion_sets().
+    # new Global Exclusions re-resolve through _tag_scope().
     assert any(c["on_result"] == view._on_clusters_loaded for c in seam.calls)
 
 
@@ -996,7 +1004,7 @@ def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):
     _set_global_filter(
         view, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
     )
-    prefixes, cats, content_types, keywords = view._global_exclusion_sets()
+    prefixes, cats, content_types, keywords = _sets(view)
     assert prefixes == {"AR", "KU"}
     assert cats == {"Kids"}
     assert content_types == set()  # no content_type exclusions set here
@@ -1008,7 +1016,7 @@ def test_global_exclusion_sets_empty_when_paused(qapp):
     _set_global_filter(
         view, paused=True, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
     )
-    prefixes, cats, content_types, keywords = view._global_exclusion_sets()
+    prefixes, cats, content_types, keywords = _sets(view)
     assert prefixes == set()
     assert cats == set()
     assert content_types == set()
@@ -1051,7 +1059,10 @@ def test_load_cloud_threads_exclusion_sets_to_engine(qapp):
     query_fn(repos)
 
     assert repos.tags.calls["tag_counts"]["excluded_prefixes"] == {"KU"}
-    assert repos.tags.calls["tag_counts"]["excluded_categories"] == set()
+    # An off axis arrives as None (tag_query_scope); the engine reads None/empty alike.
+    assert not repos.tags.calls["tag_counts"]["excluded_categories"]
+    # D42: the dead-stream floor rides on the same scope.
+    assert "dead_signal_streak_floor" in repos.tags.calls["tag_counts"]
 
 
 def test_load_clusters_threads_exclusion_sets_to_engine(qapp):

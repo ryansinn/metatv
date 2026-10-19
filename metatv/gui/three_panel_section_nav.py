@@ -49,7 +49,7 @@ class ThreePanelSectionNav(QWidget):
             " outline: none; }"
             f"QListWidget::item {{ padding: 8px 12px; color: {_theme.COLOR_TEXT}; }}"
             "QListWidget::item:hover { background: "
-            f"{_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT_2}; }}")
+            f"{_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_TEXT}; }}")
         # Shared "coloured-text item view" selection chokepoint (soft tint +
         # left accent bar) — appends onto the base stylesheet above.
         _theme.apply_list_selection(self.section_list)

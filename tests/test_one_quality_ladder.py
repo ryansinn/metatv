@@ -98,7 +98,7 @@ def _quality_case_literals(path: pathlib.Path) -> "list[str]":
 
 
 @pytest.mark.parametrize("relpath", [
-    "repositories/tag.py",
+    "repositories/tag_facet_query.py",
     "repositories/channel.py",
 ])
 def test_no_collapse_hardcodes_its_own_quality_ladder(relpath):
@@ -112,7 +112,7 @@ def test_no_collapse_hardcodes_its_own_quality_ladder(relpath):
     )
 
 
-@pytest.mark.parametrize("relpath", ["repositories/tag.py", "repositories/channel.py"])
+@pytest.mark.parametrize("relpath", ["repositories/tag_facet_query.py", "repositories/channel.py"])
 def test_both_collapses_read_the_shared_table(relpath):
     src = (CORE / relpath).read_text(encoding="utf-8")
     assert "QUALITY_TIER_RANK" in src, (

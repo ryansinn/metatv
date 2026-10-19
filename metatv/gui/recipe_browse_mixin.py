@@ -112,7 +112,7 @@ class _RecipeBrowseMixin:
 
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         limit = self._SEE_ALL_PAGE
 
         def _query(repos):
@@ -121,10 +121,7 @@ class _RecipeBrowseMixin:
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
                 limit=limit,
                 offset=0,
                 name_filter=name_filter,
@@ -182,7 +179,7 @@ class _RecipeBrowseMixin:
 
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         limit = self._SEE_ALL_PAGE
         offset = self._see_all_offset
         # Thread the current filter text (if any) into the DB query so lazy pages
@@ -195,10 +192,7 @@ class _RecipeBrowseMixin:
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
                 limit=limit,
                 offset=offset,
                 name_filter=name_filter,

@@ -360,7 +360,7 @@ class _ContentCard(QWidget):
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._title_lbl.setFont(_theme.zoomed_font(_theme.FONT_MD, z))
-        _theme.style_fn(self._title_lbl, lambda: f"color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(self._title_lbl, lambda: f"color: {_theme.COLOR_TEXT};")
         self._title_lbl.setToolTip(card.title)
         vl.addWidget(self._title_lbl)
 

@@ -106,7 +106,7 @@ class _BrowseView(QWidget):
         self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
         self._toggle_btn.setFlat(True)
         _theme.style_fn(self._toggle_btn, lambda: f"QPushButton {{ color: {_theme.COLOR_TEXT}; border: none; font-size: {_theme.FONT_MD}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}")
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         self._toggle_btn.clicked.connect(self._toggle_view)
         top.addWidget(self._toggle_btn)
         vl.addLayout(top)

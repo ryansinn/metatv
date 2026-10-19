@@ -336,7 +336,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT +
         "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
         "; background: " + COLOR_BG_BAR + "; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; background: " + COLOR_LINE_DARK + "; }"
     )
     # Checkable flat nav-bar toggle button (e.g. Split Streams).  Off state mirrors
     # FLAT_NAV_BTN; checked state highlights with the accent color so ON is obvious.
@@ -344,7 +344,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT +
         "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
         "; background: " + COLOR_BG_BAR + "; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; background: " + COLOR_LINE_DARK + "; }"
         "QPushButton:checked { color: " + COLOR_ACCENT + "; border-top: 1px solid " + COLOR_ACCENT + "; }"
         "QPushButton:checked:hover { color: " + COLOR_ACCENT_HOVER + "; background: " + COLOR_LINE_DARK + "; }"
     )
@@ -862,7 +862,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + ";"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + ";"
         " background: " + OVERLAY_05 + "; }"
     )
     # Quality badge in the details pane title bar (amber/gold, next to language chip)
@@ -1042,7 +1042,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_3XL + "; color: " + COLOR_TEXT + ";"
         " background: transparent; border: 1px solid " + COLOR_LINE + "; border-radius: " + RADIUS_SM + ";"
         " padding: 2px " + SPACE_MD + "; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + "; }"
         "QPushButton:disabled { color: " + COLOR_TEXT + "; border-color: " + COLOR_LINE_DARK + "; }"
     )
     # What's New carousel — "1 / 4" position indicator label
@@ -1080,7 +1080,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_TEXT + ";"
         " border: 1px solid " + COLOR_BORDER + "; border-radius: " + RADIUS_SM + "; padding: 1px " + SPACE_SM + ";"
         " background: transparent; }"
-        "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + "; }"
         "QPushButton:checked { color: " + COLOR_ACCENT + "; border-color: " + COLOR_ACCENT + "; }"
     )
     # "+N more" expand button at the tail of the cloud
@@ -1186,7 +1186,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
         " color: " + COLOR_TEXT + "; border-radius: " + RADIUS_SM + "; padding: 6px " + SPACE_LG + ";"
         " font-size: " + FONT_MD + "; }"
-        "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT_2 + "; }"
+        "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT + "; }"
     )
 
 

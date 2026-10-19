@@ -87,17 +87,17 @@ class FilterPanel(_ChipSeamMixin, QWidget):
 
         # Panel header
         # COLOR_LINE_DARK, not COLOR_BG_DEEP: this header pairs its background
-        # with COLOR_TEXT_2 (themed) below, and COLOR_BG_DEEP is a fixed-dark
+        # with COLOR_TEXT (themed) below, and COLOR_BG_DEEP is a fixed-dark
         # token reserved for the lightbox/trail-map "cinema" family (see
         # theme_palettes.py) — pairing it with a themed foreground would go
-        # illegible once a light palette (Daylight) makes COLOR_TEXT_2 dark.
+        # illegible once a light palette (Daylight) makes COLOR_TEXT dark.
         self._header_bar = QWidget()
         self._header_bar.setFixedHeight(36)
         _theme.style_fn(self._header_bar, lambda: f"background: {_theme.COLOR_LINE_DARK};")
         phl = QHBoxLayout(self._header_bar)
         phl.setContentsMargins(10, 0, 8, 0)
         self._includes_lbl = QLabel("Includes:")
-        _theme.style_fn(self._includes_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(self._includes_lbl, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT};")
         phl.addWidget(self._includes_lbl)
         phl.addStretch()
 
@@ -130,7 +130,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self._hide_watched_cb.setToolTip(
             "When checked, movies and series you have marked as watched are hidden from the list."
         )
-        _theme.style_fn(self._hide_watched_cb, lambda: f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};")
+        _theme.style_fn(self._hide_watched_cb, lambda: f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
         self._hide_watched_cb.setChecked(getattr(self.config, 'filter_hide_watched', False))
         self._hide_watched_cb.stateChanged.connect(self._on_hide_watched_changed)
         hw_rl.addWidget(self._hide_watched_cb)
