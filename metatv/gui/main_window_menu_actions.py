@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import QApplication
 
 from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
 from metatv.gui import deferred_config_save as _cfgsave
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import settings_apply as _settings_apply
 from metatv.gui import shortcuts as _shortcuts
 from metatv.gui.menu_bar_reveal import auto_hide_supported as menu_bar_auto_hide_supported
@@ -90,7 +90,7 @@ class _MenuActionsMixin:
         # This sat under a SECOND entry called "Diagnostics" whose handler
         # logged one line and returned — two diagnostics items, one dead. The
         # dead one is gone; the real one carries the name, matching its dialog.
-        diagnose_action = QAction(f"{_icons.diagnose_icon}  Stream &diagnostics", self)
+        diagnose_action = QAction(_icon_utils.role_icon("diagnose"), "Stream &diagnostics", self)
         diagnose_action.setToolTip(
             "Measure the selected channel's stream: reachability, time to first "
             "byte, throughput, and whether a bigger buffer would help"
@@ -101,7 +101,7 @@ class _MenuActionsMixin:
         # Its handler was a stub too, and had a LIVE trigger beyond the menu:
         # the details pane emits manage_filters_requested straight into it.
         exclusions_action = QAction(
-            f"{_icons.global_exclusion_icon}  Global &Exclusions", self
+            _icon_utils.role_icon("global_exclusion"), "Global &Exclusions", self
         )
         exclusions_action.setToolTip(
             "Choose which prefixes, categories and keywords are hidden across "
@@ -110,7 +110,7 @@ class _MenuActionsMixin:
         exclusions_action.triggered.connect(self.manage_filters)
         tools_menu.addAction(exclusions_action)
         missing_tmdb_action = QAction(
-            f"{_icons.missing_data_icon}  Missing TMDb Data", self
+            _icon_utils.role_icon("missing_data"), "Missing TMDb Data", self
         )
         missing_tmdb_action.setToolTip(
             "Diagnose TMDb-id coverage and drive on-demand enrichment"
@@ -118,7 +118,7 @@ class _MenuActionsMixin:
         missing_tmdb_action.triggered.connect(self.enter_missing_tmdb_mode)
         tools_menu.addAction(missing_tmdb_action)
         reconnect_action = QAction(
-            f"{_icons.reconnect_icon}  Reconnect Engaged Content", self
+            _icon_utils.role_icon("reconnect"), "Reconnect Engaged Content", self
         )
         reconnect_action.setToolTip(
             "Recover favorites/history/queue rows stranded by a removed source "
@@ -127,7 +127,7 @@ class _MenuActionsMixin:
         reconnect_action.triggered.connect(self.enter_reconnect_engaged_mode)
         tools_menu.addAction(reconnect_action)
         metadata_enrich_action = QAction(
-            f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment", self
+            _icon_utils.role_icon("metadata_enrich"), "Background Metadata Enrichment", self
         )
         metadata_enrich_action.setToolTip(
             "View progress and start/pause/cancel the background metadata fill"
@@ -135,7 +135,7 @@ class _MenuActionsMixin:
         metadata_enrich_action.triggered.connect(self.enter_metadata_enrichment_mode)
         tools_menu.addAction(metadata_enrich_action)
         open_config_action = QAction(
-            f"{_icons.config_folder_icon}  Open config folder", self
+            _icon_utils.role_icon("folder_open"), "Open config folder", self
         )
         open_config_action.setToolTip(
             "Reveal the folder holding config.yaml and the logs, for support "
@@ -144,7 +144,7 @@ class _MenuActionsMixin:
         open_config_action.triggered.connect(self.open_config_folder)
         tools_menu.addAction(open_config_action)
         log_viewer_action = QAction(
-            f"{_icons.log_viewer_icon}  Log viewer", self
+            _icon_utils.role_icon("log_viewer"), "Log viewer", self
         )
         log_viewer_action.setToolTip(
             "Watch the log as it happens, in a window you can move aside — "
@@ -153,7 +153,7 @@ class _MenuActionsMixin:
         log_viewer_action.triggered.connect(self.show_log_viewer)
         tools_menu.addAction(log_viewer_action)
         clear_log_action = QAction(
-            f"{_icons.clear_log_icon}  Clear log files", self
+            _icon_utils.role_icon("clear_log"), "Clear log files", self
         )
         clear_log_action.setToolTip(
             "Delete every log file, rotated copies included, to reclaim disk"
@@ -195,13 +195,13 @@ class _MenuActionsMixin:
         self.sync_menu_bar_actions()
 
         help_menu = menubar.addMenu("&Help")
-        whats_new_action = QAction(f"{_icons.whats_new_icon}  What's New", self)
+        whats_new_action = QAction(_icon_utils.role_icon("whats_new"), "What's New", self)
         whats_new_action.setToolTip("See what changed in recent updates")
         whats_new_action.triggered.connect(self.show_whats_new)
         help_menu.addAction(whats_new_action)
 
         if _dev_mode_enabled():
-            qa_action = QAction(f"{_icons.qa_checklist_icon}  Testing Checklist", self)
+            qa_action = QAction(_icon_utils.role_icon("qa_checklist"), "Testing Checklist", self)
             qa_action.setToolTip("Open the dev QA testing checklist (METATV_DEV mode)")
             qa_action.triggered.connect(self._open_qa_checklist)
             help_menu.addAction(qa_action)

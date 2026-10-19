@@ -107,12 +107,13 @@ def test_an_unwritable_config_dir_still_reports_the_path(host, monkeypatch):
 
 
 def test_the_action_uses_the_shared_icon_registry():
-    """No literal glyph in widget code (CLAUDE.md)."""
-    assert _icons.config_folder_icon, "the icon must be defined in icons.py"
+    """No literal glyph in widget code (CLAUDE.md); the icon is the shared
+    folder_open role (one icon set, mdi6)."""
+    assert _icons.vector_key("folder_open")
     # The module that DEFINES the action (DEBT-1a moved the menu handlers to
     # main_window_menu_actions.py), not the class's own module.
     import inspect
     src = pathlib.Path(inspect.getsourcefile(MainWindow.open_config_folder))
     text = src.read_text(encoding="utf-8")
-    assert "config_folder_icon" in text
+    assert 'role_icon("folder_open")' in text
     assert "📂" not in text, "the glyph belongs in icons.py, not the menu code"
