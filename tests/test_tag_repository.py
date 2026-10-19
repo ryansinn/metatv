@@ -750,3 +750,15 @@ class TestCollectionsFor:
 
     def test_empty_input_is_empty(self, session):
         assert RepositoryFactory(session).tags.collections_for([]) == {}
+
+
+def test_get_or_create_finds_an_existing_non_ascii_tag(session):
+    """SQLite lower() keeps 'Ş', so the case-insensitive test alone missed the
+    stored row; the INSERT then collided and the fallback raised NoResultFound."""
+    session.add(TagDB(type="person", value="Necati Şaşmaz"))
+    session.commit()
+    existing = session.query(TagDB).filter_by(value="Necati Şaşmaz").one().id
+    _TAG_ID_CACHE.clear()
+    repo = RepositoryFactory(session).tags
+    assert repo.get_or_create_tag_id("person", "Necati Şaşmaz") == existing
+    assert session.query(TagDB).count() == 1
