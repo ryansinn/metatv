@@ -200,6 +200,7 @@ class _MetadataSection(QWidget):
         self._collection_chip = make_chip("", "COLOR_FACET_COLLECTION")
         self._collection_chip.clicked.connect(self._on_collection_chip_clicked)
         self._collection_chip.hide()
+        self._genres_layout.addWidget(self._collection_chip)   # parented from the start
 
         # The collection chip is NOT here: it is a grouping like a genre, so it
         # ends the genre row in its own colour (owner 2026-10-19); the source

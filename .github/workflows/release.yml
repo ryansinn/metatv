@@ -288,7 +288,7 @@ jobs:
             wait "$APP_PID" 2>/dev/null || true
             echo "App stayed up — launch OK."
           else
-            wait "$APP_PID" 2>/dev/null
+            wait "$APP_PID" 2>/dev/null || true   # -e would exit here, before the log is printed
             echo "::error::MetaTV.app exited during launch — the bundle is broken."
             echo "----- launch log -----"
             cat "$LOG" || true

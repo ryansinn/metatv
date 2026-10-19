@@ -47,6 +47,8 @@ def repo(tmp_path: Path) -> Path:
     # cheerfully inspect the developer's real checkout instead of this fixture.
     (main / "scripts").mkdir()
     shutil.copy(SOURCE, main / "scripts" / "prune_merged.sh")
+    # It sources this for _main_repo (ledger D38).
+    shutil.copy(SOURCE.parent / "repo_python.sh", main / "scripts" / "repo_python.sh")
     return main
 
 

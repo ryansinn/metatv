@@ -63,7 +63,7 @@ def _genre_chips(section) -> dict[str, QPushButton]:
     out = {}
     for i in range(section._genres_layout.count()):
         w = section._genres_layout.itemAt(i).widget()
-        if isinstance(w, QPushButton):
+        if isinstance(w, QPushButton) and w.property("genre"):   # not the collection chip
             out[w.text()] = w
     return out
 

@@ -45,7 +45,9 @@ def section(qapp, tmp_path):
     sec.resize(460, 300)
     sec.show()
     qapp.processEvents()
-    return sec
+    yield sec
+    from tests.conftest import destroy_widget
+    destroy_widget(sec)
 
 
 LONG = "Monty Python's The Meaning of Life"

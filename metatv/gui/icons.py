@@ -666,7 +666,7 @@ VECTOR_KEYS: dict[str, str] = {
     "more": "mdi6.dots-horizontal",
     "close": "mdi6.close",
     # QA checklist (dev) — the pass/fail toggle and the jump arrow (ledger F42).
-    "qa_pass": "mdi6.check",
+    "qa_pass": "mdi6.check-bold",   # not "watched"'s plain check
     "qa_fail": "mdi6.close-thick",
     "qa_jump": "mdi6.arrow-up",
     "add": "mdi6.plus",

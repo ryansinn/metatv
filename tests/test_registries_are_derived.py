@@ -50,42 +50,8 @@ def test_every_deep_link_target_names_a_real_method():
             f"does not define")
 
 
-def test_every_migration_task_is_registered():
-    """An unregistered migration never runs, never errors, and never logs.
-
-    ``needs_run`` is only consulted for a REGISTERED task, so a migration file
-    added without its ``register()`` call silently never completes its backfill
-    — for every user, forever, with no symptom that points back here. Order
-    matters between these tasks (reparse before content-key backfill, tmdb-id
-    before sibling propagation), so this is a coverage check rather than an
-    attempt to auto-discover them.
-    """
-    root = pathlib.Path(__file__).resolve().parent.parent
-    mig_dir = root / "metatv" / "core" / "migrations"
-
-    defined: set[str] = set()
-    for path in sorted(mig_dir.glob("*.py")):
-        if path.name in {"__init__.py", "base.py"} or path.name[0].isdigit():
-            continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.ClassDef) and node.name.endswith("Task"):
-                defined.add(node.name)
-
-    registered = set()
-    main_src = (root / "metatv" / "gui" / "main_window.py").read_text()
-    for node in ast.walk(ast.parse(main_src)):
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "register"):
-            for arg in node.args:
-                if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name):
-                    registered.add(arg.func.id)
-
-    assert defined, "no migration tasks found — the AST walk broke, not the app"
-    missing = sorted(defined - registered)
-    assert not missing, (
-        f"migration task(s) defined but never registered: {missing}. An "
-        f"unregistered migration silently never runs.")
+# The migration-registration check moved with the list itself: see
+# tests/test_migration_registry.py (core/migrations/registry.py, ledger F29).
 
 
 @pytest.mark.parametrize("entry_path", sorted(

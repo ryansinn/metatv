@@ -58,7 +58,7 @@ def _chip_texts(section) -> list[str]:
     out = []
     for i in range(layout.count()):
         w = layout.itemAt(i).widget()
-        if isinstance(w, QPushButton):
+        if isinstance(w, QPushButton) and w.property("genre"):   # not the collection chip
             out.append(w.text().replace("&&", "&"))
     return out
 
