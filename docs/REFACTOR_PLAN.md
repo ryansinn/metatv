@@ -10,7 +10,7 @@ a code comment citing a row ID that is not here refers to this file's git histor
 - Say what actually differs: a pure duplicate and a policy difference need different fixes.
 - A mistake that recurs at different call sites is a **class**: log the predicate, its
   census count and the sites — or better, close it with a guard (GUARD-6, #830).
-- IDs are never reused. Next free: **D69**, **F55**.
+- IDs are never reused. Next free: **D69**, **F59**.
 
 ## Ready to build
 
@@ -34,6 +34,8 @@ Nothing queued (the last ten closed 2026-10-19).
 | F49 | Genre has two separately versioned derivations | `detected_genres` vs genre tags; couple the version counters. |
 | F54 | A source numbers a franchise in the name ("01 EN - Friday The 13th (1980)" … "14 EN - …"); the number is lost and breaks the parse | **Template: the Friday the 13th films** — 28 movies, all TREX category "\|EN\| HORROR/THRILLER", shape `NN EN - Title (year)`; no other numbering shape in the library (2026-10-19). The number blocks prefix parsing (region blank, "02 EN - …" stays in `detected_title`), and the order is not reliable even via the original-name sort: "01 EN" loses its collapse group to "EN - Friday The 13th 4K (1980)", so it shows un-numbered and sorts elsewhere. **Owner's plan (parked):** store the number at ingestion in a `franchise_order`/series-order field (from whichever copy carries one), strip it from the title, show it as a quiet visual indicator ("#01") in results when populated, and sort a franchise run by it (year as fallback). Needs: the field + ALTER TABLE entry, parser support for a leading `NN ` before the prefix, a reparse bump, the indicator and the sort. |
 | GUARD-7 | PyQt sometimes segfaults at interpreter exit | Get C frames under gdb; find the QObject that outlives the app. |
+| F55 | **Class:** SQL case-insensitive matching folds ASCII only — `lower()`, `LIKE` and `.ilike()` leave `Ş`, `É`, `Ö`… untouched, so any comparison against Python's `lower()`/`casefold()`, or a lowercase search term, misses a non-ASCII capital | Confirmed: `lower('ÉCOLE')` = `École`; `'Şaşmaz' LIKE '%şaşmaz%'` = 0. **Census (2026-10-19):** 20,306 channel titles and 1,660 tags carry a non-ASCII capital; sites = 24 `.ilike(` calls in 11 files (`watchlist_matching`, `epg_watchlist`, `filter_utils`, `search_ranking`, `channel_lens`, `channel`, `epg`, `tag_facet_query`, `main_window_metadata`, two scripts) + `func.lower` at `search_ranking.py` (`_word_padded`, two title rankers) and `tag.py` tag search. Visible effect: searching "école" misses "ÉCOLE". One instance already crashed: the tag lookup (#932, below). Fix options: register a Python casefold SQL function on connect (loses index use on those predicates), or store a casefolded search field at ingestion (compute-once; needs a column + migration). |
+| F56 | **Compromise from #932 (tag lookup):** the fix matches the exact stored value OR the ASCII-lowered one, which ends the crash but does not fold non-ASCII case | Two spellings differing only in a non-ASCII capital ("ŞAŞMAZ" / "Şaşmaz") would still become two tags. Census 2026-10-19: 0 such pairs among all tags. Closes with F55's real fold. |
 
 ## Needs an owner decision
 
@@ -60,3 +62,5 @@ Nothing queued (the last ten closed 2026-10-19).
 - **F40** — two `variant_count`s: merging means changing the recommendation engine.
 - **F43** — the provider icon picker's emoji is the value being picked.
 - **F50** — two "Full (CODE)" builders: only the details one honours config overrides.
+- **F57** — rolling builds skip the test suite (#931). It was 48 of the macOS job's 54 minutes and every newer push cancelled it, so no `.dmg` finished on a busy day. Cost: with merges skipping checks (the working plan), a rolling build can publish from a `main` CI later reports red; the launch smoke test still runs on every build, and `v*` tag releases still run the full suite.
+- **F58** — parser compromises from #929 (measured on 787,006 names): 4 person tags become collections ("Cheech And Chong", "Jay And Silent Bob" — duo names the collection recogniser claims first); "FRANKENSTEIN" after "(MULTI SUB)" stays a credit (owner: likely a one-off); the late quality pass (step 6d) is dropped whole when it finds a tier word, because there the word is a title ("One Piece Film Gold", "STC PPV"), so a quality beside such a word stays in the title (not measured); a quality named after the year ranks after every other quality source.
