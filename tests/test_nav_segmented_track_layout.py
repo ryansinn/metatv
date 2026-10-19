@@ -75,31 +75,42 @@ def rect(w):
     tl = w.mapTo(track, w.rect().topLeft())
     return {"x": tl.x(), "y": tl.y(), "w": w.width(), "h": w.height()}
 
+# flush=True: the measurement must not depend on a clean interpreter exit —
+# a crash in teardown is reported by test_the_window_exits_cleanly instead.
 print("GEOM " + json.dumps({
     "chips": [rect(c) for c in chips],
     "labels": [c.text() for c in chips],
     "checked": [c.isChecked() for c in chips],
     "track": {"w": track.width(), "h": track.height()},
-}))
+}), flush=True)
 """
 
 
 @pytest.fixture(scope="module")
-def geometry(tmp_path_factory):
-    """Boot the real window once and hand every test the measured rects."""
+def child(tmp_path_factory):
+    """Boot the real window once in a subprocess; the completed process."""
     home = tmp_path_factory.mktemp("home")
-    result = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-c", _CHILD],
         env={
             "HOME": str(home),
             "PATH": os.environ.get("PATH", ""),
             "PYTHONPATH": str(_REPO_ROOT),
             "QT_QPA_PLATFORM": "offscreen",
+            # A segfault (rc=-11, seen once in CI on 2026-10-19) prints the
+            # Python stack of every thread instead of dying silently.
+            "PYTHONFAULTHANDLER": "1",
         },
         capture_output=True,
         text=True,
         timeout=180,
     )
+
+
+@pytest.fixture(scope="module")
+def geometry(child):
+    """The measured rects from the booted window."""
+    result = child
     line = next((ln for ln in result.stdout.splitlines()
                  if ln.startswith("GEOM ")), None)
     assert line, (
@@ -108,6 +119,18 @@ def geometry(tmp_path_factory):
         f"--- stderr ---\n{result.stderr[-3000:]}"
     )
     return json.loads(line[len("GEOM "):])
+
+
+def test_the_window_exits_cleanly(child):
+    """The booted window and its interpreter shut down without crashing.
+
+    Kept separate from the geometry checks so a teardown crash is reported as
+    what it is, with the faulthandler stack, rather than as missing geometry.
+    """
+    assert child.returncode == 0, (
+        f"the window process exited with rc={child.returncode}.\n"
+        f"--- stderr (tail) ---\n{child.stderr[-6000:]}"
+    )
 
 
 def test_neighbouring_cells_share_an_edge(geometry):
