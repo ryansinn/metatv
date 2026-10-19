@@ -264,7 +264,7 @@ def test_host_tree_selection_routes_episode_and_season(qapp):
 
     recorded: list = []
     host.details_pane = SimpleNamespace(
-        show_episode=lambda ep, s, dt: recorded.append(("episode", ep, s, dt)),
+        show_episode=lambda ep, s, dt, **_kw: recorded.append(("episode", ep, s, dt)),
         show_channel=lambda s: recorded.append(("channel", s)),
         current_episode=object(),   # "drifted" so a season click reverts
         current_channel=None,

@@ -428,8 +428,13 @@ class _SeriesMixin:
             # Pass the CLEANED title (same as the tree row shows) so the byline never
             # reads the raw "Series - SxxExx -" form next to a clean tree row.
             episode = data["data"]
+            parent = item.parent()
+            season = parent.data(0, Qt.ItemDataRole.UserRole) if parent is not None else None
+            season_total = (getattr(season.get("data"), "episode_count", None)
+                            if isinstance(season, dict) and season.get("type") == "season" else None)
             self.details_pane.show_episode(
-                episode, series, self._episode_display_title(episode)
+                episode, series, self._episode_display_title(episode),
+                season_episode_count=season_total,
             )
             self._load_stream_info(episode.id)   # PLAYED-1: the episode's own stream
             return

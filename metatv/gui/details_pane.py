@@ -22,7 +22,8 @@ from metatv.gui.details_sections import (
     _PosterSection, _PlotSection, _CastSection, _no_width_force,
 )
 from metatv.gui.details_facts import _DetailsSection
-from metatv.gui.details_title import _MetadataSection
+from metatv.gui.details_title import _MetadataSection, _rating_rich_text
+from metatv.gui.episode_heading import aired_text, episode_eyebrow
 from metatv.gui.details_actions import ChannelActionState, _ActionBar, resume_state
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -408,7 +409,8 @@ class DetailsPaneWidget(QWidget):
         if not is_live and getattr(channel, "detected_prefix", None):
             self.similar_titles_requested.emit(channel.id)
 
-    def show_episode(self, episode, series_channel, display_title=None) -> None:
+    def show_episode(self, episode, series_channel, display_title=None,
+                     season_episode_count: int | None = None) -> None:
         """Display a single episode, reusing the parent series' details as fallback.
 
         The SERIES stays the pane's ``current_channel`` — its title, rail actions,
@@ -426,6 +428,8 @@ class DetailsPaneWidget(QWidget):
         Args:
             episode: The :class:`~metatv.core.repositories.dtos.EpisodeDTO` to show.
             series_channel: The parent series channel (the mixin's ``current_series``).
+            season_episode_count: How many episodes this source lists for the
+                episode's season — the eyebrow's "OF 12". ``None`` omits it.
             display_title: The CLEANED episode title (what the series tree shows —
                 ``series - SxxExx -`` prefixes stripped).  When ``None`` the byline
                 falls back to the DTO's raw ``title`` (then ``Episode <n>``).
@@ -464,20 +468,24 @@ class DetailsPaneWidget(QWidget):
         # _MetadataSection.load_basic's raw_rating treatment). Star formatting
         # matches that same series-level treatment exactly (same config icon,
         # same "X.X of 10" caption) so ratings read identically pane-wide.
+        self._episode_eyebrow_lbl.setText(
+            episode_eyebrow(episode, season_episode_count).upper())
+        self._episode_eyebrow_lbl.setToolTip(
+            f"{season_episode_count} episodes in this season from this source"
+            if season_episode_count else "")
+
+        # Rating — the episode's own, in the series rating's "7.4 / 10" form.
+        # 0/None means none shipped, so it is hidden rather than "0.0 / 10".
         ep_rating = getattr(episode, "rating", None)
         if ep_rating:
-            stars = self.config.rating_star_icon * int(min(10.0, ep_rating) / 2)
-            self._episode_rating_lbl.setText(f"{stars} {ep_rating:.1f} of 10")
+            self._episode_rating_lbl.setText(_rating_rich_text(float(ep_rating)))
             self._episode_rating_lbl.show()
         else:
             self._episode_rating_lbl.hide()
 
-        ep_air_date = getattr(episode, "air_date", None)
-        if ep_air_date:
-            self._episode_air_date_lbl.setText(f"Aired: {ep_air_date}")
-            self._episode_air_date_lbl.show()
-        else:
-            self._episode_air_date_lbl.hide()
+        aired = aired_text(getattr(episode, "air_date", None))
+        self._episode_air_date_lbl.setText(aired.upper())
+        self._episode_air_date_lbl.setVisible(bool(aired))
 
         self._episode_meta_row.show()
 
@@ -570,24 +578,37 @@ class DetailsPaneWidget(QWidget):
         _no_width_force(self._source_notice_lbl)
         self._source_notice_lbl.hide()
 
-        # Episode meta row — rating (stars, matching the series-level treatment in
-        # _MetadataSection.rating_label) + air date, shown only alongside the byline
-        # in episode mode.  A plain QHBoxLayout is fine here (mirrors the badge_row
-        # pattern in details_sections.py): both chips are short so the row never
-        # drives the pane wider (docs/DETAILS_PANE_DESIGN.md → "Width discipline").
+        # Episode head (owner 2026-10-19), shown only in episode mode:
+        #   SEASON 2 · EPISODE 1 OF 12            AIRED 5 JUN 2025
+        #   Bonus Money                                  7.4 / 10
+        # The eyebrow says what the title below it is; each row keeps its
+        # second fact at the right edge, as the genre/rating row above does.
         self._episode_meta_row = QWidget()
-        _episode_meta_layout = QHBoxLayout(self._episode_meta_row)
-        _episode_meta_layout.setContentsMargins(0, 0, 0, 0)
-        _episode_meta_layout.setSpacing(8)
-        self._episode_rating_lbl = QLabel()
-        _theme.style(self._episode_rating_lbl, "DETAIL_EPISODE_RATING")
-        self._episode_rating_lbl.hide()
-        _episode_meta_layout.addWidget(self._episode_rating_lbl)
+        _episode_head = QVBoxLayout(self._episode_meta_row)
+        _episode_head.setContentsMargins(0, 6, 0, 0)
+        _episode_head.setSpacing(2)
+
+        _eyebrow_row = QHBoxLayout()
+        _eyebrow_row.setSpacing(8)
+        self._episode_eyebrow_lbl = QLabel()
+        _theme.style(self._episode_eyebrow_lbl, "DETAIL_GROUP_HEADING")
+        _no_width_force(self._episode_eyebrow_lbl)
+        _eyebrow_row.addWidget(self._episode_eyebrow_lbl, 1)
         self._episode_air_date_lbl = QLabel()
-        _theme.style(self._episode_air_date_lbl, "DETAIL_EPISODE_AIR_DATE")
+        _theme.style(self._episode_air_date_lbl, "DETAIL_GROUP_HEADING")
         self._episode_air_date_lbl.hide()
-        _episode_meta_layout.addWidget(self._episode_air_date_lbl)
-        _episode_meta_layout.addStretch()
+        _eyebrow_row.addWidget(self._episode_air_date_lbl, 0, Qt.AlignmentFlag.AlignRight)
+        _episode_head.addLayout(_eyebrow_row)
+
+        _title_row = QHBoxLayout()
+        _title_row.setSpacing(8)
+        _title_row.addWidget(self._byline, 1)
+        self._episode_rating_lbl = QLabel()
+        self._episode_rating_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._episode_rating_lbl.hide()
+        _title_row.addWidget(
+            self._episode_rating_lbl, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        _episode_head.addLayout(_title_row)
         self._episode_meta_row.hide()
 
         self._versions = _VersionSection(self.config)
@@ -616,7 +637,7 @@ class DetailsPaneWidget(QWidget):
         # the logical owner of the action buttons, which are reparented into the
         # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._source_notice_lbl, self._byline,
+            self._poster, self._meta, self._source_notice_lbl,
             self._episode_meta_row, self._versions,
             self._plot, self._cast, self._details, self._similar,
         ):
