@@ -74,7 +74,7 @@ class WhatsNewDialog(QDialog):
         header_layout.setContentsMargins(20, 16, 20, 14)
         header_layout.setSpacing(2)
 
-        icon_label = QLabel(f"{_icons.whats_new_icon}  What's New")
+        icon_label = QLabel(f"{_icon_utils.role_html('whats_new')}&nbsp;What's New")
         _theme.style_fn(icon_label, lambda: f"font-size: {_theme.FONT_3XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         header_layout.addWidget(icon_label)
         root.addWidget(header_widget)

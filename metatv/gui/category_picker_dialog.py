@@ -10,6 +10,7 @@ Workflow:
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
@@ -278,9 +279,8 @@ class CategoryPickerDialog(QDialog):
             self._list.addItem(sep)
 
         for cat in matched_user:
-            mood_icon = self._mood_icon(cat["mood"])
-            label = f"{mood_icon} {cat['name']}  ({cat['count']:,})"
-            item = QListWidgetItem(label)
+            label = f"{cat['name']}  ({cat['count']:,})"
+            item = QListWidgetItem(self._mood_icon(cat["mood"]), label)
             item.setData(Qt.ItemDataRole.UserRole, cat["name"])
             item.setData(Qt.ItemDataRole.UserRole + 1, False)  # not new
             self._list.addItem(item)
@@ -309,14 +309,11 @@ class CategoryPickerDialog(QDialog):
 
     # ── Interaction ────────────────────────────────────────────────────────────
 
-    def _mood_icon(self, mood: str | None) -> str:
-        icons = {
-            MOOD_LIKE:       self._config.like_icon,
-            MOOD_CURIOUS:    self._config.curious_icon,
-            MOOD_NOT_FOR_ME: self._config.not_interested_icon,
-            MOOD_DISLIKE:    self._config.dislike_icon,
-        }
-        return icons.get(mood, "·")
+    def _mood_icon(self, mood: str | None):
+        """The mood's icon for a list item, or an empty QIcon (no mood)."""
+        role = {MOOD_LIKE: "like", MOOD_CURIOUS: "curious", MOOD_NOT_FOR_ME: "not_interested",
+                MOOD_DISLIKE: "dislike"}.get(mood)
+        return _icon_utils.role_icon(role) if role else QIcon()
 
     def _on_text_changed(self, text: str) -> None:
         self._rebuild_list(text)

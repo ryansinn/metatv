@@ -568,13 +568,10 @@ class Config(BaseModel):
     # Settings → Playback.
     recheck_failed_on_refresh: bool = True
     discover_icon: str = "✨"          # Discover tab
-    visibility_toggle_icon: str = "👁" # Show/hide password toggle
     watched_icon: str = "✓"            # Watched / completed indicator
     rating_star_icon: str = "★"        # Star used in content rating display
     like_icon: str = "👍"              # Like / positive rating
     dislike_icon: str = "👎"           # Dislike / negative rating
-    not_interested_icon: str = "🙅"    # Not Interested — suppress from recommendations only
-    curious_icon: str = "❓"           # Curious / exploring — mild positive, gather discovery data
     hide_icon: str = "🚫"              # Hide channel from all views
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
     preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)

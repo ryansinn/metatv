@@ -14,6 +14,8 @@ the Settings → Playback tab remains the single source of truth.
 
 from __future__ import annotations
 
+import html as _html
+
 from loguru import logger
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -23,8 +25,8 @@ from PyQt6.QtWidgets import (
 
 from metatv.core import stream_diagnostics as _diag
 from metatv.core.stream_diagnostics import DiagnosticResult, recommend_buffer_profile
-from metatv.gui import icons as _icons
 from metatv.gui.dialog_chrome import action_button, dialog_buttons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -123,7 +125,7 @@ class StreamDiagnosticsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        title = QLabel(f"{_icons.diagnose_icon} {self._channel_name}")
+        title = QLabel(f"{_icon_utils.role_html('diagnose')}&nbsp;{_html.escape(self._channel_name, quote=False)}")
         _theme.style(title, "DETAIL_TITLE")
         title.setWordWrap(True)
         layout.addWidget(title)
@@ -139,7 +141,7 @@ class StreamDiagnosticsDialog(QDialog):
 
         if self._player_active:
             warn = QLabel(
-                f"{_icons.notification_warning_icon} A stream is currently playing. "
+                f"{_icon_utils.role_html('warning')}&nbsp;A stream is currently playing. "
                 "Diagnosing may fail on single-connection providers — stop playback "
                 "for an accurate result."
             )
@@ -210,7 +212,7 @@ class StreamDiagnosticsDialog(QDialog):
     def _on_run(self) -> None:
         self._run_button.setEnabled(False)
         self._saved.hide()
-        self._summary.setText(f"{_icons.loading_icon} Running diagnostic…")
+        self._summary.setText(f"{_icon_utils.role_html('loading')}&nbsp;Running diagnostic…")
         self._executor.submit(self._worker)
 
     def _worker(self) -> None:

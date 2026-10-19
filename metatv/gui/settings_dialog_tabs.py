@@ -9,6 +9,7 @@ plus ``_load_values``/``_save_values``) purely to keep both files under the
 from __future__ import annotations
 
 import asyncio
+import html as _html
 from types import SimpleNamespace
 
 from PyQt6.QtCore import Qt, QUrl
@@ -24,7 +25,7 @@ from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui.settings_text_size import add_text_size_row
 from metatv.gui.time_display_settings import add_time_format_rows
-from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
 from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
@@ -780,10 +781,8 @@ class SettingsTabsMixin:
         return tab
 
     # ── TMDb/OMDb "Test" buttons ────────────────────────────────────────────
-    # Off-UI-thread pattern from StreamDiagnosticsDialog: the worker ONLY emits
-    # `_provider_test_ready`, and its slot is the only place that touches the
-    # result badges ("Qt threading — signals only"). Each provider is tested
-    # with the key CURRENTLY TYPED — a "test before you save" tool.
+    # Off-UI-thread: the worker only emits `_provider_test_ready`; its slot alone
+    # touches the result badges. Tests the key CURRENTLY TYPED (test before save).
 
     def _on_test_tmdb_key(self) -> None:
         """Metadata tab: TMDb 'Test' button clicked."""
@@ -816,17 +815,17 @@ class SettingsTabsMixin:
             label: The inline result-badge label to update.
         """
         if self._executor is None:
-            label.setText(f"{_icons.notification_error_icon}  Test unavailable — no executor")
+            label.setText(f"{_icon_utils.role_html('notification_error')}&nbsp;Test unavailable — no executor")
             _theme.style(label, "URL_BADGE_ERR")
             label.show()
             return
         if not provider.is_enabled():
-            label.setText(f"{_icons.notification_error_icon}  Enter an API key first")
+            label.setText(f"{_icon_utils.role_html('notification_error')}&nbsp;Enter an API key first")
             _theme.style(label, "URL_BADGE_ERR")
             label.show()
             return
         button.setEnabled(False)
-        label.setText(f"{_icons.loading_icon} Testing…")
+        label.setText(f"{_icon_utils.role_html('loading')}&nbsp;Testing…")
         _theme.style(label, "URL_BADGE_TESTING")
         label.show()
         self._executor.submit(self._provider_test_worker, provider_name, provider)
@@ -866,10 +865,10 @@ class SettingsTabsMixin:
 
         success, message = result
         if success:
-            label.setText(f"{_icons.notification_success_icon}  Connected")
+            label.setText(f"{_icon_utils.role_html('notification_success')}&nbsp;Connected")
             _theme.style(label, "URL_BADGE_OK")
         else:
-            label.setText(f"{_icons.notification_error_icon}  {message or 'Test failed'}")
+            label.setText(f"{_icon_utils.role_html('notification_error')}&nbsp;{_html.escape(message or 'Test failed', quote=False)}")
             _theme.style(label, "URL_BADGE_ERR")
         label.show()
 
@@ -1070,14 +1069,14 @@ class SettingsTabsMixin:
         sidebar_layout.addWidget(self._sidebar_list)
 
         arrow_row = QHBoxLayout()
-        up_btn = QPushButton(f"{_icons.move_up_icon}  Move Up")
-        up_btn.setFixedWidth(110)
-        up_btn.clicked.connect(self._sidebar_move_up)
-        down_btn = QPushButton(f"{_icons.move_down_icon}  Move Down")
-        down_btn.setFixedWidth(110)
-        down_btn.clicked.connect(self._sidebar_move_down)
-        arrow_row.addWidget(up_btn)
-        arrow_row.addWidget(down_btn)
+        for text, role, slot in (("Move Up", "move_up", self._sidebar_move_up),
+                                 ("Move Down", "move_down", self._sidebar_move_down)):
+            btn = QPushButton(text)
+            _icon_utils.set_button_icon(btn, role)
+            btn.setToolTip(f"{text} the selected item")
+            btn.setFixedWidth(110)
+            btn.clicked.connect(slot)
+            arrow_row.addWidget(btn)
         arrow_row.addStretch()
         sidebar_layout.addLayout(arrow_row)
 

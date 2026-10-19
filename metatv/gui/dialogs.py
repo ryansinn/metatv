@@ -1,5 +1,6 @@
 """Dialogs for various operations"""
 
+import html as _html
 from datetime import datetime
 from typing import Optional
 from PyQt6.QtWidgets import (
@@ -207,11 +208,11 @@ class AddProviderDialog(QDialog):
         self.progress_label.hide()
 
         if success:
-            self.status_text.append(f"\n{_icons.notification_success_icon} {message}")
+            self.status_text.append(f"{_icon_utils.role_html('notification_success')}&nbsp;{_html.escape(message, quote=False)}")
             self.add_button.setEnabled(True)
             self._fetch_account_info()
         else:
-            self.status_text.append(f"\n{_icons.notification_error_icon} {message}")
+            self.status_text.append(f"{_icon_utils.role_html('notification_error')}&nbsp;{_html.escape(message, quote=False)}")
             self.add_button.setEnabled(False)
 
     def _fetch_account_info(self):
@@ -255,8 +256,11 @@ class AddProviderDialog(QDialog):
         self._fetched_account_info = info  # stored for saving with the provider
 
         status = info.get("status", "Unknown")
-        status_icon = self.config.notification_success_icon if status.lower() == "active" else self.config.notification_warning_icon
-        lines = [f"\n{status_icon} Account: {status}"]
+        # The status line is rich (an icon); the detail lines stay plain text so
+        # their column spacing survives.
+        status_role = "notification_success" if status.lower() == "active" else "warning"
+        self.status_text.append(f"{_icon_utils.role_html(status_role)}&nbsp;Account: {_html.escape(status, quote=False)}")
+        lines = []
 
         exp_ts = info.get("exp_date")
         if exp_ts:
@@ -280,7 +284,7 @@ class AddProviderDialog(QDialog):
         lines.append(f"  Connections: {active} active / {max_c} max")
 
         if info.get("is_trial"):
-            lines.append("  ⚠ Trial account")
+            lines.append("  Trial account")
 
         server = info.get("server_info", {})
         if server.get("timezone"):

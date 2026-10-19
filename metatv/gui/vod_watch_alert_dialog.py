@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import html as _html
+
 import html
 from datetime import datetime, timezone
 
@@ -19,9 +21,9 @@ from loguru import logger
 import html
 
 from metatv.gui import cursor_affordance
-from metatv.gui import icons as _icons
 from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui.dialog_chrome import dialog_buttons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 
 
@@ -45,7 +47,7 @@ class WatchForDialog(QDialog):
         vl = QVBoxLayout(self)
         vl.setSpacing(10)
 
-        hdr = QLabel(f"{_icons.alert_icon}  Watch for new content")
+        hdr = QLabel(f"{_icon_utils.role_html('alert')}&nbsp;Watch for new content")
         _theme.style_fn(hdr, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         vl.addWidget(hdr)
 
@@ -80,8 +82,8 @@ class WatchForDialog(QDialog):
 
         self._type_combo = QComboBox()
         self._type_combo.addItem("Any", "any")
-        self._type_combo.addItem(f"{_icons.movie_icon}  Movie", "movie")
-        self._type_combo.addItem(f"{_icons.series_icon}  Series", "series")
+        self._type_combo.addItem(_icon_utils.role_icon("movie"), "Movie", "movie")
+        self._type_combo.addItem(_icon_utils.role_icon("series"), "Series", "series")
         _theme.style_fn(self._type_combo, lambda: f"font-size: {_theme.FONT_MD};")
         type_row.addWidget(self._type_combo)
         type_row.addStretch()
@@ -91,9 +93,9 @@ class WatchForDialog(QDialog):
         # This one built a QDialogButtonBox, never added it to a layout, and
         # laid out its own row beside it. The row is the shared one now; the
         # accent fill stays, applied to the button the box hands back.
-        buttons = dialog_buttons(self, ok=f"{_icons.alert_icon}  Watch",
-                                 on_ok=self._on_watch)
+        buttons = dialog_buttons(self, ok="Watch", on_ok=self._on_watch)
         self._watch_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        _icon_utils.set_button_icon(self._watch_btn, "alert")
         _theme.style_fn(self._watch_btn, lambda: f"QPushButton {{ background: {_theme.COLOR_ACCENT};"
             f" color: {_theme.COLOR_ON_ACCENT};"
             f" border: none; border-radius: 4px; padding: 4px 14px;"
@@ -171,7 +173,7 @@ class ManageVodAlertsDialog(QDialog):
         vl.setSpacing(8)
 
         hdr_row = QHBoxLayout()
-        hdr = QLabel(f"{_icons.alert_icon}  Manage Watch Alerts")
+        hdr = QLabel(f"{_icon_utils.role_html('alert')}&nbsp;Manage Watch Alerts")
         _theme.style_fn(hdr, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
@@ -314,11 +316,12 @@ class ManageVodAlertsDialog(QDialog):
         # Recoverable remove (mirror-not-cage): a pending row collapses to just its
         # (strikethrough) name + "Undo" — nothing else is actionable until restored.
         if rule_created in self._pending_remove_rules:
-            name_lbl = QLabel(f"{_icons.alert_icon} {text}")
+            name_lbl = QLabel(f"{_icon_utils.role_html('alert')}&nbsp;{_html.escape(text, quote=False)}")
             _theme.style(name_lbl, "DIALOG_PENDING_REMOVE_NAME")
             hl.addWidget(name_lbl, 1)
 
-            undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
+            undo_btn = QPushButton("Undo")
+            _icon_utils.set_button_icon(undo_btn, "undo")
             undo_btn.setFlat(True)
             _theme.style(undo_btn, "LINK_BTN_SM")
             undo_btn.setToolTip(f"Keep the watch-for rule for '{text}'")
@@ -330,13 +333,13 @@ class ManageVodAlertsDialog(QDialog):
 
         cursor_affordance.set_clickable(row)
 
-        name_lbl = QLabel(f"{_icons.alert_icon} {text}")
+        name_lbl = QLabel(f"{_icon_utils.role_html('alert')}&nbsp;{_html.escape(text, quote=False)}")
         _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         hl.addWidget(name_lbl, 1)
 
-        type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
-        type_lbl = type_icons.get(match_type, "")
-        type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
+        type_role = match_type if match_type in ("movie", "series") else ""
+        type_display = (f"{_icon_utils.role_html(type_role)}&nbsp;{match_type.capitalize()}"
+                        if type_role else "Any")
         type_badge = QLabel(type_display)
         _theme.style(type_badge, "TEXT_SM_MUTED")
         hl.addWidget(type_badge)
@@ -350,7 +353,8 @@ class ManageVodAlertsDialog(QDialog):
             )
             hl.addWidget(match_badge)
 
-        view_btn = QPushButton(f"{_icons.search_icon} View")
+        view_btn = QPushButton("View")
+        _icon_utils.set_button_icon(view_btn, "search")
         view_btn.setFlat(True)
         _theme.style_fn(view_btn, lambda: f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
             f" border: none; padding: 1px 6px; }}"
@@ -361,7 +365,8 @@ class ManageVodAlertsDialog(QDialog):
         )
         hl.addWidget(view_btn)
 
-        remove_btn = QPushButton(f"{_icons.close_icon} Remove")
+        remove_btn = QPushButton("Remove")
+        _icon_utils.set_button_icon(remove_btn, "close")
         remove_btn.setFlat(True)
         _theme.style(remove_btn, "DIALOG_DANGER_LINK")
         remove_btn.setToolTip(f"Remove the watch-for rule for '{text}'")
@@ -392,11 +397,12 @@ class ManageVodAlertsDialog(QDialog):
         # Recoverable remove (mirror-not-cage): a pending row collapses to just its
         # (strikethrough) name + "Undo" — nothing else is actionable until restored.
         if cid in self._pending_remove_series:
-            name_lbl = QLabel(f"{_icons.series_icon} {title}")
+            name_lbl = QLabel(f"{_icon_utils.role_html('series')}&nbsp;{_html.escape(title, quote=False)}")
             _theme.style(name_lbl, "DIALOG_PENDING_REMOVE_NAME")
             hl.addWidget(name_lbl, 1)
 
-            undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
+            undo_btn = QPushButton("Undo")
+            _icon_utils.set_button_icon(undo_btn, "undo")
             undo_btn.setFlat(True)
             _theme.style(undo_btn, "LINK_BTN_SM")
             undo_btn.setToolTip(f"Keep monitoring {title} for new episodes")
@@ -421,23 +427,24 @@ class ManageVodAlertsDialog(QDialog):
             # Rich text so the dim suffix flows right after the title.
             name_lbl.setTextFormat(Qt.TextFormat.RichText)
             name_lbl.setText(
-                f"{html.escape(_icons.series_icon)} {html.escape(title)} "
+                f"{_icon_utils.role_html('series')}&nbsp;{html.escape(title)} "
                 f'<span style="color:{_theme.COLOR_TEXT}; font-size:{_theme.FONT_SM}">'
                 f"{html.escape(suffix)}</span>"
             )
         else:
-            name_lbl.setText(f"{_icons.series_icon} {title}")
+            name_lbl.setText(f"{_icon_utils.role_html('series')}&nbsp;{_html.escape(title, quote=False)}")
         hl.addWidget(name_lbl, 1)
 
         if unseen > 0:
             ep_word = "ep" if unseen == 1 else "eps"
-            badge = QLabel(f"{_icons.new_episodes_icon} +{unseen} {ep_word}")
+            badge = QLabel(f"{_icon_utils.role_html('new_episodes')}&nbsp;+{unseen} {ep_word}")
             _theme.style_fn(badge, lambda: f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
                 " font-weight: bold;")
             badge.setToolTip(f"{unseen} new {ep_word} since you last looked")
             hl.addWidget(badge)
 
-        stop_btn = QPushButton(f"{_icons.close_icon} Stop")
+        stop_btn = QPushButton("Stop")
+        _icon_utils.set_button_icon(stop_btn, "close")
         stop_btn.setFlat(True)
         _theme.style(stop_btn, "DIALOG_DANGER_LINK")
         stop_btn.setToolTip(f"Stop new-episode alerts for {title}")

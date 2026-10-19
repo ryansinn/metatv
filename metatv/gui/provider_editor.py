@@ -41,6 +41,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import provider_url_to_raw
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
+from metatv.gui import icon_utils as _icon_utils
 from metatv.gui import theme as _theme
 from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 from metatv.gui import deferred_config_save as _cfgsave
@@ -163,7 +164,8 @@ class ProviderIconPicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._btn = QPushButton(_icons.provider_icon)
+        self._btn = QPushButton()
+        _icon_utils.set_button_icon(self._btn, "provider")
         self._btn.setFixedSize(48, 48)
         _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
         self._btn.setToolTip("Click to change icon")
@@ -270,7 +272,7 @@ class _CopyableLabel(QLabel):
             return
         QApplication.clipboard().setText(self._full_text)
         shown = self.text()
-        self.setText(f"{_icons.notification_success_icon} Copied!")
+        self.setText(f"{_icon_utils.role_html('notification_success')}&nbsp;Copied!")
         QTimer.singleShot(1200, lambda: self.setText(shown))
 
     def mousePressEvent(self, event):
@@ -419,16 +421,16 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         glance at either surface agrees. The verbose account_status string stays
         fully available in Account Info's "Status:" line."""
         if is_expired:
-            self._status_dot_lbl.setText(_icons.status_dot_icon)
             _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_ERR};")
+            _icon_utils.set_label_icon(self._status_dot_lbl, "status_dot", 10)
             self._status_dot_lbl.setToolTip("Subscription expired")
         elif is_active:
-            self._status_dot_lbl.setText(_icons.status_dot_icon)
             _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_OK};")
+            _icon_utils.set_label_icon(self._status_dot_lbl, "status_dot", 10)
             self._status_dot_lbl.setToolTip("Active")
         else:
-            self._status_dot_lbl.setText(_icons.inactive_dot_icon)
             _theme.style_fn(self._status_dot_lbl, lambda: f"color: {_theme.COLOR_MUTED_2};")
+            _icon_utils.set_label_icon(self._status_dot_lbl, "inactive_dot", 10)
             self._status_dot_lbl.setToolTip("Disabled")
 
     # ── Action bar (Summary tab) ─────────────────────────────────────────────
@@ -439,13 +441,15 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row = QHBoxLayout()
         row.addStretch()
 
-        self._action_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh")
+        self._action_refresh_btn = QPushButton("Refresh")
+        _icon_utils.set_button_icon(self._action_refresh_btn, "refresh")
         self._action_refresh_btn.setToolTip("Refresh channels from this source")
         _theme.style(self._action_refresh_btn, "PANEL_BTN")
         self._action_refresh_btn.clicked.connect(self._on_action_refresh_clicked)
         row.addWidget(self._action_refresh_btn)
 
-        self._action_analyze_btn = QPushButton(f"{_icons.analyze_icon}  Analyze")
+        self._action_analyze_btn = QPushButton("Analyze")
+        _icon_utils.set_button_icon(self._action_analyze_btn, "analyze")
         self._action_analyze_btn.setToolTip("Analyze source overlap and content")
         _theme.style(self._action_analyze_btn, "PANEL_BTN")
         self._action_analyze_btn.clicked.connect(self._on_action_analyze_clicked)
@@ -454,7 +458,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         # Reuses the pre-Wave-7 "_epg_refresh_btn" name (relocated here from the
         # EPG group; see the class docstring) — its enabled-state is still
         # computed by _update_epg_refresh_btn_state() in provider_editor_tabs.py.
-        self._epg_refresh_btn = QPushButton(f"{_icons.calendar_icon}  Refresh Guide")
+        self._epg_refresh_btn = QPushButton("Refresh Guide")
+        _icon_utils.set_button_icon(self._epg_refresh_btn, "epg")
         self._epg_refresh_btn.setToolTip(
             "Immediately re-fetch this source's EPG guide, bypassing the throttle. "
             "Disabled when EPG is off or no URL is configured."
@@ -500,7 +505,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         ``load_provider()`` reload that would stomp unsaved edits elsewhere."""
         self._action_toggle_btn.setEnabled(not busy)
         if busy:
-            self._action_toggle_btn.setText(f"{_icons.loading_icon}  Updating…")
+            self._action_toggle_btn.setText("Updating…")
+            _icon_utils.set_button_icon(self._action_toggle_btn, "loading")
             self._action_toggle_btn.setToolTip("Updating…")
             return
         self._action_toggle_btn.setToolTip("Enable / Disable this source")
@@ -520,10 +526,12 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         EPG fetch is in flight (mirrors the retired row EPG pip's spinner)."""
         if busy:
             self._epg_refresh_btn.setEnabled(False)
-            self._epg_refresh_btn.setText(f"{_icons.loading_icon}  Refreshing…")
+            self._epg_refresh_btn.setText("Refreshing…")
+            _icon_utils.set_button_icon(self._epg_refresh_btn, "loading")
             self._epg_refresh_btn.setToolTip("Refreshing EPG…")
         else:
-            self._epg_refresh_btn.setText(f"{_icons.calendar_icon}  Refresh Guide")
+            self._epg_refresh_btn.setText("Refresh Guide")
+            _icon_utils.set_button_icon(self._epg_refresh_btn, "epg")
             self._update_epg_refresh_btn_state()
 
     # ── Persistent footer ────────────────────────────────────────────────────
@@ -538,7 +546,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row = QHBoxLayout(self._footer)
         row.setContentsMargins(16, 10, 16, 10)
 
-        self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Source")
+        self._delete_btn = QPushButton("Delete Source")
+        _icon_utils.set_button_icon(self._delete_btn, "delete")
+        self._delete_btn.setToolTip("Delete this source and all its channels")
         _theme.style(self._delete_btn, "DELETE_BTN")
         self._delete_btn.clicked.connect(self._delete_provider)
         row.addWidget(self._delete_btn)
@@ -818,7 +828,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._rebuild_url_list()
             # Show transient "Saved" confirmation — persists until the next field edit,
             # at which point _mark_dirty() restores "Save Changes" and re-enables the button.
-            self._save_btn.setText(f"{_icons.notification_success_icon} Saved")
+            self._save_btn.setText("Saved")
+            _icon_utils.set_button_icon(self._save_btn, "notification_success")
             self._save_btn.setEnabled(False)
             self.provider_saved.emit(self._provider_id)
 
@@ -933,11 +944,10 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         working = [r for r in sorted_results if r[1]]
         failed  = [r for r in sorted_results if not r[1]]
 
-        ok_icon = self.config.notification_success_icon if self.config else "✓"
-        err_icon = self.config.notification_error_icon if self.config else "✗"
+        _icon_utils.set_button_icon(self._test_btn, "notification_success" if working else "notification_error")
         self._test_btn.setText(
-            f"{ok_icon} {len(working)}/{len(sorted_results)} working"
-            if working else f"{err_icon} All {len(sorted_results)} failed"
+            f"{len(working)}/{len(sorted_results)} working"
+            if working else f"All {len(sorted_results)} failed"
         )
 
         if not sorted_results:

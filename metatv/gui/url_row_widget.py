@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html as _html
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
@@ -12,7 +14,6 @@ from metatv.core.models import ProviderURL
 from metatv.core.time_display import short_date_text
 from metatv.gui import cursor_affordance
 from metatv.gui import icon_utils as _icon_utils
-from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -199,7 +200,8 @@ class URLRowWidget(QWidget):
 
         # Remove / Undo button
         if pending_remove:
-            undo_btn = QPushButton(f"{_icons.undo_icon} undo")
+            undo_btn = QPushButton("undo")
+            _icon_utils.set_button_icon(undo_btn, "undo")
             undo_btn.setToolTip("Keep this URL")
             _theme.style(undo_btn, "LINK_BTN_SM")
             cursor_affordance.set_clickable(undo_btn)
@@ -217,7 +219,7 @@ class URLRowWidget(QWidget):
         """Show a 'Testing…' spinner while waiting for result. No-op in ghost mode."""
         if self._pending_remove:
             return
-        self._result_badge.setText(f"{_icons.loading_icon} Testing…")
+        self._result_badge.setText(f"{_icon_utils.role_html('loading')}&nbsp;Testing…")
         _theme.style(self._result_badge, "URL_BADGE_TESTING")
         self._result_badge.show()
 
@@ -226,10 +228,10 @@ class URLRowWidget(QWidget):
         if self._pending_remove:
             return
         if success:
-            self._result_badge.setText(f"{_icons.notification_success_icon}  {message}")
+            self._result_badge.setText(f"{_icon_utils.role_html('notification_success')}&nbsp;{_html.escape(message, quote=False)}")
             _theme.style(self._result_badge, "URL_BADGE_OK")
         else:
-            self._result_badge.setText(f"{_icons.notification_error_icon}  {message}")
+            self._result_badge.setText(f"{_icon_utils.role_html('notification_error')}&nbsp;{_html.escape(message, quote=False)}")
             _theme.style(self._result_badge, "URL_BADGE_ERR")
         self._result_badge.show()
 
@@ -238,8 +240,8 @@ class URLRowWidget(QWidget):
         total = pu.success_count + pu.failure_count
         if total == 0:
             return "Untested"
-        ok = _icons.notification_success_icon
-        err = _icons.notification_error_icon
+        ok = _icon_utils.role_html("notification_success")
+        err = _icon_utils.role_html("notification_error")
         rel = f"{pu.reliability_score:.0f}% reliability"
         parts = [rel, f"{ok}{pu.success_count}", f"{err}{pu.failure_count}"]
         if pu.last_success:

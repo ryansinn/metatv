@@ -338,6 +338,12 @@ def _paint_label(label, role: str, px: int) -> None:
     label.setPixmap(role_pixmap(role, label.palette().color(QPalette.ColorRole.WindowText).name(), px))
 
 
+def label_role(label) -> str | None:
+    """The role :func:`set_label_icon` last put on *label*, or None."""
+    entry = _registered_icon_labels.get(label)
+    return entry[0] if entry else None
+
+
 def set_label_icon(label, role: str, px: int = 14) -> None:
     """Show *role* as *label*'s pixmap, in the label's own text colour.
 

@@ -153,7 +153,8 @@ def test_group_section_initial_shows_expand_icon(qtbot):
     from metatv.gui.global_filter_dialog import _GroupSection
     widget = _GroupSection("EN", [], set(), config=_mock_config())
     qtbot.addWidget(widget)
-    assert widget._expand_lbl.text() == _EXPAND
+    from metatv.gui import icon_utils
+    assert icon_utils.label_role(widget._expand_lbl) == "expand"
 
 
 def test_group_section_toggle_shows_collapse_icon(qtbot):
@@ -161,7 +162,8 @@ def test_group_section_toggle_shows_collapse_icon(qtbot):
     widget = _GroupSection("EN", [], set(), config=_mock_config())
     qtbot.addWidget(widget)
     widget._toggle_expand()
-    assert widget._expand_lbl.text() == _COLLAPSE
+    from metatv.gui import icon_utils
+    assert icon_utils.label_role(widget._expand_lbl) == "collapse"
 
 
 def test_group_section_header_tooltip_names_the_group(qtbot):
