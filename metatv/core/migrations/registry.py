@@ -13,12 +13,79 @@ constrain.
 
 from __future__ import annotations
 
-import importlib
 from typing import TYPE_CHECKING, Any
+
+# Static imports, never importlib by name: PyInstaller bundles only what it can
+# see imported, and the packaged app died at launch with
+# "No module named 'metatv.core.migrations.query_indexes'" (2026-10-19).
+from metatv.core.migrations import (
+    age_rating_region_cleanup,
+    bad_region_cleanup,
+    category_facet_refacet,
+    category_marker_backfill,
+    collection_token_cleanup_backfill,
+    content_key_backfill,
+    credit_tags_backfill,
+    credits_text_drop,
+    detected_genre_backfill,
+    detected_title_reparse,
+    epg_channel_id_backfill,
+    episode_metadata_backfill,
+    feeder_codes_compact,
+    metadata_rescan,
+    metadata_year_backfill,
+    offline_metadata_backfill,
+    orphan_sweep,
+    person_aliases,
+    person_identity,
+    poster_backfill,
+    prefix_rescan,
+    query_indexes,
+    raw_field_backfill,
+    restricted_backfill,
+    sports_reclassify,
+    tag_backfill,
+    tag_case_merge,
+    tmdb_id_backfill,
+    tmdb_sibling_propagation,
+)
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
+
+#: Module name → module, so the lookup below needs no importlib.
+_MODULES = {m.__name__.rsplit(".", 1)[-1]: m for m in (
+    age_rating_region_cleanup,
+    bad_region_cleanup,
+    category_facet_refacet,
+    category_marker_backfill,
+    collection_token_cleanup_backfill,
+    content_key_backfill,
+    credit_tags_backfill,
+    credits_text_drop,
+    detected_genre_backfill,
+    detected_title_reparse,
+    epg_channel_id_backfill,
+    episode_metadata_backfill,
+    feeder_codes_compact,
+    metadata_rescan,
+    metadata_year_backfill,
+    offline_metadata_backfill,
+    orphan_sweep,
+    person_aliases,
+    person_identity,
+    poster_backfill,
+    prefix_rescan,
+    query_indexes,
+    raw_field_backfill,
+    restricted_backfill,
+    sports_reclassify,
+    tag_backfill,
+    tag_case_merge,
+    tmdb_id_backfill,
+    tmdb_sibling_propagation,
+)}
 
 #: ``(module, class, extra)`` in run order. ``extra`` names what the task's
 #: constructor takes besides the database: ``"metadata_manager"`` (positional)
@@ -86,7 +153,7 @@ def build_tasks(db: "Database", *, metadata_manager: Any = None,
     """
     tasks = []
     for module, cls_name, extra in TASKS:
-        cls = getattr(importlib.import_module(f"metatv.core.migrations.{module}"), cls_name)
+        cls = getattr(_MODULES[module], cls_name)
         if extra == "metadata_manager":
             tasks.append(cls(db, metadata_manager))
         elif extra == "config":
