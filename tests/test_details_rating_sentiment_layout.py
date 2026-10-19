@@ -157,7 +157,7 @@ def test_content_rating_folds_into_the_byline(qapp):
     section.load_basic(_stub_channel(detected_year="2024"))
     section.load_metadata(MetadataResult(content_rating="PG-13"))
 
-    assert section._byline_lbl.text() == "Movie · 2024 · PG-13"
+    assert section._byline_lbl.text() == "MOVIE · 2024 · PG-13"
 
 
 def test_rating_cleared_after_clear(qapp):

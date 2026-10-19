@@ -711,11 +711,6 @@ def _build_semantic_constants() -> dict[str, object]:
     LIST_TITLE   = "font-weight: bold; font-size: " + FONT_XL + ";"
     FIELD_LABEL  = "font-weight: 600;"
     DETAIL_TITLE = "font-size: " + FONT_3XL + "; font-weight: bold;"
-    # Byline — "Movie · 2024" on the line under the title. Quiet and small: it
-    # answers "what is this" for someone who has already read the title, so it
-    # must not compete with it. COLOR_TEXT, not a legacy grey — those clear
-    # 4.5:1 against no app surface in any palette.
-    DETAIL_BYLINE = "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
     # Episode byline — the episode title shown under the series title in episode mode.
     # Subordinate to the series title (smaller than DETAIL_TITLE) but still emphasized.
     DETAIL_EPISODE_BYLINE = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"

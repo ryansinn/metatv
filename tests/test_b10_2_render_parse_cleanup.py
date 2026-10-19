@@ -148,7 +148,7 @@ class TestLoadBasicStoredFields:
         section.load_basic(channel)
 
         assert not section._byline_lbl.isHidden()
-        assert section._byline_lbl.text() == "Movie · 2024"
+        assert section._byline_lbl.text() == "MOVIE · 2024"
 
     def test_the_byline_drops_the_year_when_there_is_none(self, qapp):
         """No year → no dangling separator."""
@@ -157,7 +157,7 @@ class TestLoadBasicStoredFields:
 
         section.load_basic(channel)
 
-        assert section._byline_lbl.text() == "Movie"
+        assert section._byline_lbl.text() == "MOVIE"
         assert "·" not in section._byline_lbl.text()
 
     def test_parse_channel_name_not_called_in_load_basic(self, qapp):
