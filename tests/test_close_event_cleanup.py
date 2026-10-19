@@ -3,7 +3,9 @@ managers. Managers are now registered via _cleanables (B3-1 cleanup registry) ra
 than individual hasattr checks.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+from tests.conftest import make_close_event_window
 
 
 def _make_close_event():
@@ -13,26 +15,8 @@ def _make_close_event():
 
 
 def _build_mock_window():
-    """Build a minimal fake MainWindow with MagicMock attributes for the managers."""
-    # Avoid importing MainWindow (requires QApplication + full config/db setup).
-    # Instead patch __init__ and instantiate a thin shell.
-    from metatv.gui import main_window as mw_module
-
-    with patch.object(mw_module.MainWindow, "__init__", lambda self: None):
-        win = mw_module.MainWindow.__new__(mw_module.MainWindow)
-
-    # Managers that closeEvent must shut down
-    win.player_manager       = MagicMock()
-    win.stream_retry_manager = MagicMock()
-    win.db                   = MagicMock()
-    win.epg_manager          = MagicMock()
-    win.image_cache          = MagicMock()
-    win.executor             = MagicMock()
-    win.config               = MagicMock()
-    # REC-3's quit guard counts non-terminal recordings before any teardown.
-    win.recording_manager    = MagicMock()
-    win.recording_manager.progress.return_value = []
-
+    """The shared closeEvent skeleton plus the cleanup registry these tests check."""
+    win = make_close_event_window()
     # B3-1: populate the cleanup registry (mirrors registration order in __init__ / setup_ui)
     win._cleanables = [
         ("player_manager",       win.player_manager.cleanup),
@@ -41,18 +25,6 @@ def _build_mock_window():
         ("executor",             lambda: win.executor.shutdown(wait=False)),
         ("epg_manager",          win.epg_manager.shutdown),
     ]
-
-    # Content views whose background work closeEvent stops on exit (F3-1).
-    # Default to not-visible so on_deactivate is not invoked unless a test opts in.
-    for _name in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
-        view = MagicMock()
-        view.isVisible.return_value = False
-        setattr(win, _name, view)
-
-    # Stub out helper methods called inside closeEvent
-    win.save_splitter_sizes = MagicMock()
-    win.saveGeometry        = MagicMock(return_value=b"geometry")
-
     return win
 
 

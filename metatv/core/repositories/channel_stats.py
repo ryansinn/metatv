@@ -12,16 +12,12 @@ The special-content (sports/events) query methods this mixin used to carry
 dead-code sweep B: the Sports and Events VIEWS that called them were retired in
 #731 and nothing else ever gained a caller. See docs/REFACTOR_PLAN.md row D43.
 """
-import re
 from typing import Optional, List, Dict
 
 from sqlalchemy import func, or_
 
 from metatv.core.database import ChannelDB
-from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
-
-
-_GENRE_SEP_RE = re.compile(r"[,/]")
+from metatv.core.filter_utils import categorize_prefix
 
 
 class _ChannelStatsMixin:
@@ -187,41 +183,6 @@ class _ChannelStatsMixin:
                     ~ChannelDB.user_category.in_(excluded_user_categories)))
         no_quality_count = no_quality_query.scalar() or 0
 
-        # Genre counts — split compound strings, normalise multilingual variants to English,
-        # then count. Genres that contain no Latin letters (e.g. Arabic/CJK script) and
-        # have no mapping are dropped so they can't force the panel wider with RTL text.
-        from collections import Counter as _Counter
-        genre_counter: _Counter = _Counter()
-        _has_latin = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
-        genre_q = (
-            self.session.query(ChannelDB.raw_data)
-            .filter(
-                ChannelDB.media_type.in_(["movie", "series"]),
-                ChannelDB.is_hidden == False,  # noqa: E712
-                ChannelDB.raw_data.isnot(None),
-            )
-        )
-        if provider_id:
-            genre_q = genre_q.filter(ChannelDB.provider_id == provider_id)
-        genre_q = _apply_provider_exclusion(genre_q)
-        if excluded_user_categories:
-            genre_q = genre_q.filter(
-                or_(ChannelDB.user_category.is_(None),
-                    ~ChannelDB.user_category.in_(excluded_user_categories))
-            )
-        for (raw_data,) in genre_q.yield_per(2000):
-            genre_str = (raw_data or {}).get("genre") or ""
-            for g in _GENRE_SEP_RE.split(genre_str):
-                g = g.strip()
-                if not g:
-                    continue
-                canonical = _GENRE_NORM.get(g.lower(), g)
-                # Skip genres with no Latin letters and no mapping (Arabic/CJK script etc.)
-                if canonical == g and not _has_latin.search(g):
-                    continue
-                genre_counter[canonical] += 1
-        genre_counts = {g: cnt for g, cnt in genre_counter.most_common() if cnt >= 10}
-
         return {
             'all_prefixes': list(all_prefixes),
             'prefix_counts': prefix_counts,
@@ -234,6 +195,5 @@ class _ChannelStatsMixin:
             'channels_with_prefix': total_channels - no_prefix_count,
             'channels_without_prefix': no_prefix_count,
             'channels_without_quality': no_quality_count,
-            'genre_counts': genre_counts,
         }
 

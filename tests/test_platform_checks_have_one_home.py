@@ -40,3 +40,16 @@ def test_only_runtime_env_reads_the_platform():
 def test_the_scan_sees_one():
     assert list(_platform_reads(ast.parse("if sys.platform == 'win32': pass\n"))) == [1]
     assert list(_platform_reads(ast.parse("x = platform.release()\n"))) == []
+
+
+def test_the_short_and_detailed_os_descriptions_name_the_same_machine():
+    """D66: the About box and the log viewer's support header both come from
+    ``runtime_env.os_description`` — the detailed form only adds to it."""
+    import platform
+
+    from metatv.core.runtime_env import os_description
+
+    assert os_description() == f"{platform.system()} {platform.release()}"
+    detailed = os_description(detailed=True)
+    assert detailed == platform.platform()
+    assert platform.release() in detailed

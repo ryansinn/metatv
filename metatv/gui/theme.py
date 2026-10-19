@@ -333,7 +333,7 @@ def _build_semantic_constants() -> dict[str, object]:
     )
     # Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
     FLAT_NAV_BTN = (
-        "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
+        "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT +
         "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
         "; background: " + COLOR_BG_BAR + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
@@ -341,7 +341,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # Checkable flat nav-bar toggle button (e.g. Split Streams).  Off state mirrors
     # FLAT_NAV_BTN; checked state highlights with the accent color so ON is obvious.
     NAV_TOGGLE_BTN = (
-        "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
+        "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT +
         "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
         "; background: " + COLOR_BG_BAR + "; }"
         "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
@@ -521,7 +521,7 @@ def _build_semantic_constants() -> dict[str, object]:
     # QLabel-friendly like LANG_CHIP) so the year reads as a facet chip rather than body
     # text — dim text, a faint border, no fill. Composed from tokens only.
     YEAR_CHIP            = (
-        "color: " + COLOR_TEXT_LOW + "; border: 1px solid " + COLOR_BORDER + ";"
+        "color: " + COLOR_TEXT + "; border: 1px solid " + COLOR_BORDER + ";"
         " border-radius: " + RADIUS_MD + "; padding: 1px " + SPACE_SM + "; font-size: " + FONT_LG + ";"
     )
 
@@ -1067,10 +1067,6 @@ def _build_semantic_constants() -> dict[str, object]:
         "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_MUTED_2 + ";"
         " letter-spacing: 1px; padding: 4px " + SPACE_XS + " 2px " + SPACE_XS + ";"
     )
-    # Time/availability hint label on each event row
-    EVENTS_TIME_HINT = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
-    EVENTS_TIME_HINT_PASSED = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
-    EVENTS_TIME_ON_NOW = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
     # WeightedTagCloud — role-named semantic constants
     # State-mark prefix on include-state tags (green checkmark)
@@ -1774,7 +1770,7 @@ def _build_semantic_constants() -> dict[str, object]:
         "QWidget#sourcesStatusStrip:hover { background: " + COLOR_LINE_DARK + "; }"
     )
     SOURCES_STRIP_TITLE = (
-        "color: " + COLOR_TEXT_LOW + "; font-size: " + FONT_XL + "; font-weight: bold;"
+        "color: " + COLOR_TEXT + "; font-size: " + FONT_XL + "; font-weight: bold;"
     )
 
     # Lightbox dive-trail breadcrumb (#388) — inside the builder so a theme

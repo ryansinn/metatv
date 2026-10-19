@@ -399,3 +399,14 @@ def test_record_channel_window_clash_routes_through_resolve_conflict(
         states = {r.channel_name: r.state for r in session.query(RecordingDB).all()}
     assert states["ESPN"] == "cancelled"
     assert states["ESPN2"] == "scheduled"
+
+
+def test_one_source_name_helper_cases_its_fallback_by_position():
+    """D41: the record dialog, recording notice, provider editor and details
+    pane share one fallback; only its case differs, by position."""
+    from metatv.gui.source_label import source_label
+
+    assert source_label("TREX") == "TREX"
+    assert source_label("TREX", sentence_start=True) == "TREX"
+    assert source_label(None) == "this source"
+    assert source_label("", sentence_start=True) == "This source"

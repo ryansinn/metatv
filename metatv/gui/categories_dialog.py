@@ -145,7 +145,7 @@ class _CategorySection(QWidget):
         hl.setSpacing(6)
 
         name_lbl = QLabel(channel.name)
-        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(name_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         hl.addWidget(name_lbl, 1)
 
         move_btn = QPushButton("Change Category")

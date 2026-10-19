@@ -44,6 +44,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 from metatv.gui import deferred_config_save as _cfgsave
+from metatv.gui.source_label import source_label
 
 def _format_probe_message(result: ProbeResult) -> str:
     """Render a :class:`ProbeResult` into a short badge string (UI layer).
@@ -849,7 +850,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         session = self.db.get_session()
         try:
             db_prov = session.query(ProviderDB).filter_by(id=self._provider_id).first()
-            name = db_prov.name if db_prov else "this source"
+            name = source_label(db_prov.name if db_prov else None)
         finally:
             session.close()
 

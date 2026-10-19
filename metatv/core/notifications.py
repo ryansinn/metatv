@@ -256,10 +256,6 @@ class NotificationManager:
 
         return active[:self.max_visible]
 
-    def get_all_notifications(self) -> list[Notification]:
-        """Get all notifications including dismissed"""
-        return self.notifications.copy()
-
     def clear_all(self):
         """Clear all notifications"""
         # Stop all auto-dismiss timers

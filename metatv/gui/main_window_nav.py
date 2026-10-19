@@ -688,9 +688,6 @@ class _NavMixin:
         current = box.text().strip() if box is not None else ""
         return current != model.loaded_search_query()
 
-    def on_hidden_view_toggle(self) -> None:
-        self._set_list_scope("hidden")
-
     def _set_list_scope(self, scope: str) -> None:
         """Switch between All/Downloaded/Hidden (DL-5). Downloaded is a
         record/engaged view (DR-0007): titles with >=1 completed download

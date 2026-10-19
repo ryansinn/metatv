@@ -103,10 +103,6 @@ class ScopedFilterBox(QLineEdit):
 
     # ── public ────────────────────────────────────────────────────────────
 
-    def set_debounce_ms(self, debounce_ms: int) -> None:
-        """Change the coalescing interval — e.g. wider for a heavier query."""
-        self._debounce_ms = debounce_ms
-
     def current_filter(self) -> str:
         """The live, stripped filter text — independent of debounce timing."""
         return self.text().strip()

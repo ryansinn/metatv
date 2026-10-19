@@ -18,7 +18,8 @@ from metatv.core.fixture_titles import fixture_display_title, parse_fixture_oppo
 # Built-in sport keyword map: canonical sport name → list of keywords to match.
 # Mirrors metatv/data/sports_definitions.yaml — this is only the in-memory
 # fallback used if the bundled YAML fails to read (see load_sports_definitions),
-# so a keyword added to one must be added to the other.
+# so a keyword added to one must be added to the other — enforced by
+# tests/test_sports_fallback_mirrors_yaml.py.
 _DEFAULT_SPORT_KEYWORDS: Dict[str, List[str]] = {
     'soccer': [
         'soccer', 'football', 'fifa', 'premier league', 'la liga',

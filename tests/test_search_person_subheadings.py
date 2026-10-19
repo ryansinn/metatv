@@ -157,13 +157,9 @@ def test_a_subheading_renders_the_html_the_delegate_paints(qapp):
         # The NAME takes the bright ramp, and that is the same two-tone rule as
         # the section header rather than an exception to it: the emphasis goes
         # on the VARIABLE half, and for a person the name is what varies while
-        # the film count is incidental. COLOR_TEXT_LOW is also barred outright —
-        # measured 4.15:1, under the 4.5 text floor in four of six palettes.
+        # the film count is incidental.
         assert _theme.COLOR_TEXT_HI in html, (
             f"the person's name is not on the bright ramp: {html}")
-        # No assertion about COLOR_TEXT_LOW: it and COLOR_TEXT are the SAME
-        # value (#a7b2c0 in this palette), so "not the low ramp" is not a
-        # question this can ask. Logged as D30 — two names for one colour.
         assert _theme.COLOR_TEXT in html, (
             f"the count is not on the secondary ramp: {html}")
         assert html.count("<span") == 2, f"a sub-heading is two tones: {html}"

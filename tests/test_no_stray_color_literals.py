@@ -47,7 +47,7 @@ _MIGRATED: list[tuple[str, str]] = [
     ("#cccccc",          "COLOR_TEXT"),
     ("#ddd",             "COLOR_TEXT_2"),
     ("#dddddd",          "COLOR_TEXT_2"),
-    ("#bbb",             "COLOR_TEXT_LOW"),
+    ("#bbb",             "COLOR_TEXT"),
     ("#aaa",             "COLOR_DIM"),
     ("#999",             "COLOR_DIM_2"),
     ("#888",             "COLOR_MUTED"),

@@ -28,17 +28,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4   # for scripts/upload_to_rolling.sh
+
       - uses: actions/download-artifact@v4
         with:
           name: MetaTV-flatpak
 
       - name: Upload MetaTV.flatpak to the rolling release
-        run: |
-          set -euo pipefail
-          for _ in $(seq 1 30); do
-            gh release view rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
-            echo "rolling release not there yet — waiting for release.yml"; sleep 20
-          done
-          gh release upload rolling MetaTV.flatpak --clobber --repo "$GITHUB_REPOSITORY"
+        run: scripts/upload_to_rolling.sh MetaTV.flatpak
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

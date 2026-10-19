@@ -170,7 +170,7 @@ class EpgAgendaWidget(QWidget):
         h.addWidget(time_lbl)
 
         title_lbl = QLabel(prog.title)
-        _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
+        _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         h.addWidget(title_lbl, 1)
 

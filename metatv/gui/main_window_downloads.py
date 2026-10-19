@@ -34,6 +34,7 @@ from metatv.gui import theme as _theme
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.file_reveal import open_folder, reveal_file
 from metatv.gui.sidebar.transfer_rows import ROLE_ITEM_ID
+from metatv.gui.source_label import source_label
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from metatv.core.recording_manager import RecordingProgress, ScheduleOutcome
@@ -270,7 +271,7 @@ class _DownloadsMixin:
         """The provider's display name, for "playback on <source> is unavailable"."""
         with self.db.session_scope(commit=False) as session:
             provider = RepositoryFactory(session).providers.get_by_id(provider_id)
-            return provider.name if provider is not None else "this source"
+            return source_label(provider.name if provider is not None else None)
 
     # ── folder actions ─────────────────────────────────────────────────────
 
@@ -716,9 +717,8 @@ class _DownloadsMixin:
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_playable_dto(channel_id)
-            provider_db = (repos.providers.get_by_id(channel.provider_id)
-                          if channel else None)
-            provider_name = provider_db.name if provider_db else "This source"
+            provider_db = repos.providers.get_by_id(channel.provider_id) if channel else None
+            provider_name = source_label(provider_db and provider_db.name, sentence_start=True)
         if not channel or channel.media_type != MediaType.LIVE:
             return
 

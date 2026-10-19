@@ -194,17 +194,6 @@ class ProviderItemWidget(QWidget):
         if busy:
             self.set_busy(True)
 
-    def update_active(self, is_active: bool):
-        self._is_active = is_active
-        self._status_lbl.setText(_icons.status_dot_icon if is_active else _icons.inactive_dot_icon)
-        dot_color = _theme.COLOR_OK if is_active else _theme.COLOR_MUTED_2
-        self._status_lbl.setStyleSheet(f"color: {dot_color};")
-        if self._toggle_btn is not None:
-            _icon_utils.set_button_icon(
-                self._toggle_btn, "status_dot" if is_active else "inactive_dot",
-                color=_theme.COLOR_TEXT_HI,
-            )
-
     def set_busy(self, busy: bool) -> None:
         """Disable the row's action buttons and show a spinner on the toggle while a
         provider operation (enable/disable + view refresh) is in progress.

@@ -13,8 +13,9 @@ from PyQt6.QtGui import QCursor
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
-from metatv.core.stream_info import audio_contradicts_prefix, measured_quality
-from metatv.core.time_display import short_date_text
+from metatv.core.stream_info import (
+    audio_contradicts_prefix, measured_caption, measured_quality,
+)
 from metatv.gui import cursor_affordance
 from metatv.gui import deferred_config_save as _cfgsave
 from metatv.gui import icon_utils as _icon_utils
@@ -30,6 +31,7 @@ from metatv.gui.details_version_groups import (
     summarise,
 )
 from metatv.gui.qt_text_utils import escape_mnemonic
+from metatv.gui.source_label import source_label
 
 # ---------------------------------------------------------------------------
 # Lookup tables
@@ -570,15 +572,14 @@ class _VersionSection(QWidget):
         m = v.measured
         if not m:
             return ""
-        verb = "Probed" if m.get("source") == "probe" else "Measured when played"
-        when = f" {short_date_text(m['at'])}" if m.get("at") else ""
+        caption = measured_caption(m.get("at"), m.get("source") or "", sentence_start=True)
         parts = []
         if m.get("width") and m.get("height"):
             parts.append(f"{m['width']}×{m['height']}")
         if m.get("audio"):
             parts.append(f"audio: {', '.join(m['audio'])}")
         parts.append(f"subtitles: {', '.join(m['subs'])}" if m.get("subs") else "no subtitle tracks")
-        lines = [f"{verb}{when}: " + " · ".join(parts)]
+        lines = [f"{caption}: " + " · ".join(parts)]
         claim = v.detected_quality
         mq = measured_quality(m.get("height"))
         if claim and mq and claim.upper() != mq:
@@ -609,7 +610,8 @@ class _VersionSection(QWidget):
         return f"Hidden by your filters — {reason}"
 
     def _offline_why_tooltip(self, v: ChannelVersion) -> str:
-        prov = v.provider_name or self._provider_map.get(v.provider_id or "", {}).get("name", "") or "This source"
+        prov = source_label(v.provider_name or self._provider_map.get(v.provider_id or "", {}).get("name", ""),
+                            sentence_start=True)
         return f"{prov} has expired"
 
     def _build_flat_chips(

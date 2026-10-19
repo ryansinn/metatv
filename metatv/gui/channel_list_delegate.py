@@ -282,10 +282,6 @@ class ChannelRowDelegate(RowCellPaintMixin, QStyledItemDelegate):
     def platform_name_style(self) -> str:
         return self._platform_name_style
 
-    def _comfy_plus_line_count(self, index) -> int:
-        """comfy_plus is 3 lines when the row has plot text, else 2 (= comfy)."""
-        return 3 if index.data(PLOT_ROLE) else 2
-
     def _shows_thumbnail(self, row_kind, index) -> bool:
         """Whether THIS row reserves an artwork well: channel rows only, never
         header rows, never compact density, and only when enabled.

@@ -41,15 +41,6 @@ class ChannelProviderOpsMixin:
     """Source deletion and engagement reconnection (uses self.session)."""
 
     
-    def delete_by_provider(self, provider_id: str) -> int:
-        """Delete all channels for a provider"""
-        count = self.session.query(ChannelDB).filter_by(
-            provider_id=provider_id
-        ).delete()
-        self.session.commit()
-        logger.info(f"Deleted {count} channels for provider {provider_id}")
-        return count
-
     def _engaged_channel_predicate(self):
         """Return the SQL predicate for an *engaged* channel (kept on provider delete).
 

@@ -373,8 +373,11 @@ def _sub_label(s: dict) -> str:
     return f"{label} ({s['title']})" if s.get("title") else label
 
 
-def measured_caption(measured_at: datetime | None, source: str) -> str:
+def measured_caption(measured_at: datetime | None, source: str, *,
+                     sentence_start: bool = False) -> str:
     """"seen when played 9 Oct" / "probed 9 Oct" / "reported by source 9 Oct"
-    (date in the user's style)."""
+    (date in the user's style) — the one wording for where a measurement came
+    from (ledger D67). ``sentence_start`` capitalises it for a line of its own."""
     verb = {"probe": "probed", "provider": "reported by source"}.get(source, "seen when played")
-    return f"{verb} {short_date_text(measured_at)}" if measured_at else verb
+    text = f"{verb} {short_date_text(measured_at)}" if measured_at else verb
+    return text[:1].upper() + text[1:] if sentence_start else text

@@ -612,11 +612,6 @@ class _ContentTypeSection(_ExpandableSection, QWidget):
             return [lbl for lbl, cb in self._checkboxes.items() if cb.isChecked()]
         return [lbl for lbl, _ in self._items if lbl in self._initial_checked]
 
-    def all_checked(self) -> bool:
-        """True when every item in this section is checked."""
-        checked = len(self.checked_labels())
-        return checked == len(self._items)
-
     def set_all(self, checked: bool) -> None:
         if self._body_built:
             for cb in self._checkboxes.values():

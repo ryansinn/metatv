@@ -41,7 +41,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from metatv.core.models import ProviderURL
-from tests.conftest import wire_status_method
+from tests.conftest import make_close_event_window, wire_status_method
 
 
 # ---------------------------------------------------------------------------
@@ -455,45 +455,11 @@ def test_on_metadata_loaded_delivers_when_not_shutting_down(tmp_path):
 #    database. Invisible to every other test.
 # ===========================================================================
 
-def _build_close_event_window():
-    """A minimal MainWindow skeleton wired the same way as
-    tests/test_close_event_cleanup.py's _build_mock_window(), so closeEvent
-    can run for real without a live QApplication or full __init__."""
-    from metatv.gui import main_window as mw_module
-
-    with patch.object(mw_module.MainWindow, "__init__", lambda self: None):
-        win = mw_module.MainWindow.__new__(mw_module.MainWindow)
-
-    win.player_manager = MagicMock()
-    win.stream_retry_manager = MagicMock()
-    win.db = MagicMock()
-    win.epg_manager = MagicMock()
-    win.image_cache = MagicMock()
-    win.executor = MagicMock()
-    win.config = MagicMock()
-    # REC-3's quit guard counts non-terminal recordings before any teardown.
-    win.recording_manager = MagicMock()
-    win.recording_manager.progress.return_value = []
-
-    for name in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
-        view = MagicMock()
-        view.isVisible.return_value = False
-        setattr(win, name, view)
-
-    win.save_splitter_sizes = MagicMock()
-    win.save_sidebar_section_sizes = MagicMock()
-    win._save_filter_panel_width = MagicMock()
-    win.saveGeometry = MagicMock(return_value=b"geometry")
-    win._layout_save_debounce = MagicMock()
-
-    return win
-
-
 def test_closeevent_sets_shutting_down_before_cleanables_run():
     """A fake cleanable records self._shutting_down when it's invoked — it
     must already be True, proving the flag is set before teardown (including
     the db.close() this same loop performs) rather than after."""
-    win = _build_close_event_window()
+    win = make_close_event_window()
 
     observed = {}
 

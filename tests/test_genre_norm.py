@@ -1,9 +1,8 @@
 """Tests for _GENRE_NORM: non-English genre strings → canonical English labels.
 
 The normalize_genre() function and _GENRE_NORM dict live in
-metatv/core/filter_utils.py (single source of truth). They are applied when
-building filter-panel genre counts (get_prefix_stats) and when a genre chip is
-clicked in the details pane.
+metatv/core/filter_utils.py (single source of truth). They are applied when a
+genre chip is clicked in the details pane.
 
 Design note: _GENRE_NORM is the single canonical record of foreign-language genre
 mappings. The i18n layer (future) translates the other direction: English canonical →

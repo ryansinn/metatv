@@ -145,10 +145,6 @@ class UniformCardGrid:
         self.clear()
         self._cards = list(cards)
 
-    def append_cards(self, cards: list) -> None:
-        """Add a page without disturbing what is already on screen."""
-        self._cards.extend(cards)
-
     def count(self) -> int:
         return len(self._cards)
 

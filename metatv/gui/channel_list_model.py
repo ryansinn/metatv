@@ -679,11 +679,6 @@ class ChannelListModel(ChannelListGroupingMixin, QAbstractListModel):
             self._rebuild_buckets()
         self.endResetModel()
 
-    @property
-    def result_filter(self) -> str:
-        """The active sub-filter text ("" when nothing is being narrowed)."""
-        return self._result_filter
-
     def _playback_indicator(self, channel: ChannelListDTO) -> tuple[str, str | None]:
         """Return the (glyph, colour) for the row's fixed playback-state separator.
 

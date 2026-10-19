@@ -1121,7 +1121,7 @@ class QAChecklistWindow(QWidget):
             lambda _, eid=entry.id, si=idx: self._on_mark(eid, si, "fail")
         )
 
-        step_color = _theme.COLOR_MUTED if state == "pass" else _theme.COLOR_TEXT_LOW
+        step_color = _theme.COLOR_MUTED if state == "pass" else _theme.COLOR_TEXT
         step_lbl = QLabel(text)
         step_lbl.setWordWrap(True)
         step_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {step_color};")
@@ -1646,7 +1646,7 @@ class QAChecklistWindow(QWidget):
         )
         type_btn.setFixedWidth(88)
         _theme.style_fn(type_btn, lambda: f"QPushButton {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px;"
-            f" color: {_theme.COLOR_TEXT_LOW}; font-size: {_theme.FONT_SM};"
+            f" color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
             f" padding: 1px 4px; }}"
             f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}")
         title_row_layout.addWidget(type_btn)

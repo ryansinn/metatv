@@ -356,10 +356,8 @@ def browse_title_for_key(shelf_key: str) -> str:
     so a family added to the dispatcher above and forgotten here is one edit
     away instead of one file away.
 
-    ``user_cat:`` and ``recipe:`` deliberately still fall through to the raw
-    key — they already did before this function existed, and changing what
-    their headers say is a separate decision from adding a namespace. Logged in
-    docs/REFACTOR_PLAN.md's duplication ledger rather than fixed in passing.
+    It is also the strip's own title for ``user_cat:`` and ``recipe:``, so the
+    heading cannot drift from the shelf (ledger D49): a recipe keeps its ✦.
 
     Args:
         shelf_key: The canonical shelf key (e.g. ``"genre:Action"``).
@@ -377,6 +375,10 @@ def browse_title_for_key(shelf_key: str) -> str:
         return shelf_key[11:]
     if shelf_key.startswith(_PLATFORM_PREFIX):
         return shelf_key[len(_PLATFORM_PREFIX):]
+    if shelf_key.startswith("user_cat:"):
+        return shelf_key[9:]
+    if shelf_key.startswith(_RECIPE_PREFIX):
+        return f"{_icons.recipe_icon} {shelf_key[len(_RECIPE_PREFIX):]}"
     return {
         "recently_added": "Recently Added",
         "top_movies": "Top Rated Movies",
@@ -751,9 +753,10 @@ class _LoaderWorker(QObject):
                         session, self._config, key, 30,
                         sk=sk, fk=fk, af=af, ek=ek,
                     )
-                    emit(_ShelfData(cat["name"], key, cards, is_user_category=True))
+                    emit(_ShelfData(browse_title_for_key(key), key, cards,
+                                    is_user_category=True))
                 else:
-                    emit(_ShelfData(cat["name"], key, [], is_user_category=True,
+                    emit(_ShelfData(browse_title_for_key(key), key, [], is_user_category=True,
                                     header_only=True))
 
             # ── Saved-recipe shelves — the user's own facet queries ────────────
@@ -784,7 +787,7 @@ class _LoaderWorker(QObject):
                 key = f"{_RECIPE_PREFIX}{recipe_name}"
                 if key in hidden:
                     continue
-                title = f"{_icons.recipe_icon} {recipe_name}"
+                title = browse_title_for_key(key)
                 if _zone(key) in (_ZONE_PINNED, _ZONE_EXPANDED):
                     emit(_ShelfData(title, key, fetch_cards_for_key(
                         session, self._config, key, 30,

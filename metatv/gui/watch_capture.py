@@ -56,6 +56,12 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from metatv.core.repositories import RepositoryFactory
 
 
+def _entry_media_type(entry: dict, info: dict) -> str:
+    """A queue entry's own media type; entries from before D54 carry none,
+    so they fall back to the tracking dict's (always ``"episode"`` then)."""
+    return entry.get("media_type") or info.get("media_type") or "episode"
+
+
 class _WatchNotifier(QObject):
     """Tiny QObject carrying the signal watch-capture workers emit on.
 
@@ -125,7 +131,7 @@ class _WatchCaptureMixin:
         for k in list(tracking.keys()):
             if k not in keys:
                 info = tracking.pop(k, None)
-                if info and info.get("media_type") == "episode" and info.get("queue"):
+                if info and info.get("queue"):
                     # Instance disappeared. QUEUE-1: this used to force-finalise
                     # whatever was at last_seen_pos unconditionally — mpv exiting
                     # mid-episode (a stream error, or the user closing the window)
@@ -143,6 +149,7 @@ class _WatchCaptureMixin:
                                 queue[pos]["content_id"],
                                 "queue" if pos > 0 else info.get("played_via", "manual"),
                                 require_seen=True,
+                                media_type=_entry_media_type(queue[pos], info),
                             )
                         else:
                             logger.info(
@@ -177,9 +184,13 @@ class _WatchCaptureMixin:
                 self.executor.submit(self._bg_capture_watch, key, dict(info))
 
     def _bg_finalise_episode(
-        self, content_id: str, played_via: str, *, require_seen: bool = False
+        self, content_id: str, played_via: str, *, require_seen: bool = False,
+        media_type: str = "episode",
     ) -> None:
-        """Worker: mark an episode 100% complete when it is auto-advanced past.
+        """Worker: mark a queued item 100% complete when it is auto-advanced past.
+
+        Named for its first caller; a Play-All queue also holds movies and
+        channels, so ``media_type`` picks the store (ledger D54).
 
         Called when mpv's playlist-pos advances beyond an episode (meaning mpv
         played it to the end) or when the player window closes with a queued
@@ -199,13 +210,17 @@ class _WatchCaptureMixin:
             require_seen: When True, skip the write (and the notify) if the
                 episode has no recorded progress at all — mpv skipped it
                 rather than playing it.
+            media_type: The queue entry's own type — ``"episode"`` writes the
+                episode store, anything else the channel store.
         """
+        is_episode = media_type == "episode"
         try:
             threshold = getattr(self.config, "watch_complete_threshold", 0.9)
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
+                store = repos.episodes if is_episode else repos.channels
                 if require_seen:
-                    ep = repos.episodes.get_by_id(content_id)
+                    ep = store.get_by_id(content_id)
                     if (
                         ep is not None
                         and int(ep.watch_percent or 0) == 0
@@ -213,18 +228,18 @@ class _WatchCaptureMixin:
                         and not ep.watch_completed
                     ):
                         logger.info(
-                            "queued episode {!r} was skipped by the player "
+                            "queued item {!r} was skipped by the player "
                             "(never played) — not marked watched", ep.title,
                         )
                         return
                 # Synthesise a 100%-complete read so record_watch_progress sets
                 # watch_completed=True (any dur > 0 with pos==dur crosses threshold).
-                repos.episodes.record_watch_progress(
+                store.record_watch_progress(
                     content_id, 1.0, 1.0, threshold, played_via
                 )
         except Exception as exc:
-            logger.debug(f"Episode finalise failed for {content_id!r}: {exc}")
-        self._notify_episode_watch_state([content_id])
+            logger.debug(f"Queue finalise failed for {content_id!r}: {exc}")
+        self._notify_watch_written(content_id, media_type)
 
     def _bg_finalise_progress(
         self, content_id: str, media_type: str, pos_s: float, dur_s: float, played_via: str
@@ -326,7 +341,9 @@ class _WatchCaptureMixin:
                         # TO OPEN (a busy source), so require_seen=True refuses the
                         # write unless the episode's own progress columns show it
                         # actually played.
-                        self._bg_finalise_episode(passed["content_id"], via, require_seen=True)
+                        self._bg_finalise_episode(
+                            passed["content_id"], via, require_seen=True,
+                            media_type=_entry_media_type(passed, info))
                     # Update last_seen_pos in the LIVE tracking dict so the next
                     # tick doesn't re-finalise the same episodes.
                     self._update_last_seen_pos(key, pl_pos)
@@ -335,12 +352,15 @@ class _WatchCaptureMixin:
                 if dur_s and dur_s > 0:
                     current = queue[pl_pos]
                     via = "manual" if pl_pos == 0 else "queue"
+                    current_type = _entry_media_type(current, info)
                     with self.db.session_scope() as session:
                         repos = RepositoryFactory(session)
-                        repos.episodes.record_watch_progress(
+                        store = (repos.episodes if current_type == "episode"
+                                 else repos.channels)
+                        store.record_watch_progress(
                             current["content_id"], pos_s, dur_s, threshold, via
                         )
-                    self._notify_episode_watch_state([current["content_id"]])
+                    self._notify_watch_written(current["content_id"], current_type)
             else:
                 # Single-episode / movie branch: unchanged behaviour.
                 props = self.player_manager.get_properties(["time-pos", "duration"], key=key)
@@ -364,6 +384,15 @@ class _WatchCaptureMixin:
                         )
         except Exception as e:
             logger.debug(f"Watch-progress capture failed for {key}: {e}")
+
+    def _notify_watch_written(self, content_id: str, media_type: str) -> None:
+        """After a queue write: refresh episode watch state, or History for a channel."""
+        if media_type == "episode":
+            self._notify_episode_watch_state([content_id])
+            return
+        notifier = self.__dict__.get("_watch_notifier")
+        if notifier is not None:
+            notifier.history_changed.emit(content_id)
 
     def _notify_episode_watch_state(self, episode_ids: "list[str]") -> None:
         """Tell the main thread that these episodes' stored watch state moved.

@@ -36,6 +36,7 @@ from metatv.gui.details_sections import _is_stale_polluted_title
 from metatv.gui.flow_layout import FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.gui.qt_text_utils import escape_mnemonic
+from metatv.gui.source_label import source_label
 from metatv.metadata_providers.base import MetadataResult
 
 
@@ -507,7 +508,7 @@ class _MetadataSection(QWidget):
         if self._collection_value:
             self._collection_chip.setText(escape_mnemonic(self._collection_value))
             self._collection_chip.setToolTip(
-                f"{self._source_name or 'This source'} files this copy under "
+                f"{source_label(self._source_name, sentence_start=True)} files this copy under "
                 f"{self._collection_value} — click to show the collection"
             )
             self._collection_chip.show()
