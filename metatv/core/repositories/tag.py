@@ -151,15 +151,18 @@ class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
         if row is None:   # a known other spelling resolves to its tag
             row = self._aliased_tag(type, normalised)
         if row is None:
-            row = TagDB(type=type, value=normalised)
-            self.session.add(row)
+            # A SAVEPOINT, never session.rollback(): a rollback here discarded
+            # the CALLER's whole transaction — the offline metadata backfill
+            # lost every row of a batch this way and re-ran at every launch.
             try:
-                self.session.flush()
+                with self.session.begin_nested():
+                    row = TagDB(type=type, value=normalised)
+                    self.session.add(row)
             except IntegrityError:
-                self.session.rollback()
                 row = (
                     self.session.query(TagDB)
-                    .filter_by(type=type, value=value)
+                    .filter(TagDB.type == type,
+                            _func.lower(TagDB.value) == normalised.casefold())
                     .one()
                 )
 
