@@ -68,6 +68,19 @@ def _tag_cache_key(type: str, value: str) -> tuple[str, str]:
     return (type, (value or "").strip().casefold())
 
 
+def _value_matches(column, value: str):
+    """Case-insensitive match that also finds a non-ASCII value exactly.
+
+    SQLite's lower() folds ASCII only, so lower('Necati Şaşmaz') keeps its 'Ş'
+    while Python's casefold() does not: the case-insensitive test alone missed
+    1,660 existing tags, the INSERT then hit the unique constraint, and the
+    fallback lookup missed the same way (NoResultFound in the metadata backfill).
+    The exact test is the one the unique constraint itself applies.
+    """
+    from sqlalchemy import func, or_
+    return or_(column == value, func.lower(column) == value.casefold())
+
+
 class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
     """CRUD + upsert operations for ``TagDB`` / ``ContentTagDB``.
 
@@ -133,8 +146,6 @@ class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
         # first — the display text stays as the provider wrote it ("Drama",
         # not "drama"), while a later "DRAMA" resolves to the same row instead
         # of minting a second one.
-        from sqlalchemy import func as _func
-
         normalised = (value or "").strip()
         # ONE filter call, not two chained ones. Two reads as two lookups to
         # anything counting query calls, and this repository's own cache tests
@@ -142,10 +153,7 @@ class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
         # channels"). One logical lookup should look like one.
         row = (
             self.session.query(TagDB)
-            .filter(
-                TagDB.type == type,
-                _func.lower(TagDB.value) == normalised.casefold(),
-            )
+            .filter(TagDB.type == type, _value_matches(TagDB.value, normalised))
             .first()
         )
         if row is None:   # a known other spelling resolves to its tag
@@ -161,8 +169,7 @@ class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
             except IntegrityError:
                 row = (
                     self.session.query(TagDB)
-                    .filter(TagDB.type == type,
-                            _func.lower(TagDB.value) == normalised.casefold())
+                    .filter(TagDB.type == type, _value_matches(TagDB.value, normalised))
                     .one()
                 )
 
@@ -173,11 +180,10 @@ class TagRepository(ContentTagCrudMixin, FacetQueryMixin):
 
     def _aliased_tag(self, type: str, value: str):
         """The tag *value* is a recorded alias of, else None."""
-        from sqlalchemy import func as _func
         from metatv.core.database import TagAliasDB
         alias = (self.session.query(TagAliasDB.tag_id)
                  .filter(TagAliasDB.type == type,
-                         _func.lower(TagAliasDB.value) == value.casefold())
+                         _value_matches(TagAliasDB.value, value))
                  .first())
         return self.session.get(TagDB, alias[0]) if alias else None
 
