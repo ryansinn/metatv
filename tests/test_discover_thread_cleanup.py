@@ -111,12 +111,12 @@ def test_loader_worker_emits_finished_even_when_cancelled(tmp_path, qapp):
     """The finished signal must fire on a cancel-return so thread.quit() lands."""
     from metatv.core.config import Config
     from metatv.core.database import Database
-    from metatv.gui.discover_workers import _LoaderWorker
+    from metatv.gui.discover_workers import _LoaderWorker, _ZoneSnapshot
 
     db = Database(f"sqlite:///{tmp_path / 't.db'}")
     db.create_tables()
 
-    w = _LoaderWorker(db, Config())
+    w = _LoaderWorker(db, Config(), zone_snapshot=_ZoneSnapshot())
     w.cancel()
     finished: list = []
     shelves: list = []

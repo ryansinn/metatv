@@ -66,6 +66,23 @@ def test_the_bar_takes_its_colours_from_tokens(qapp):
     assert "_theme.COLOR_WARN" in body and "_theme.COLOR_ACCENT" in body
 
 
+def _calls_shared_painter(src: str) -> bool:
+    import ast
+
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if name in ("paint_progress", "ProgressBar"):
+                return True
+    return False
+
+
+def test_the_call_check_ignores_a_bare_import():
+    assert not _calls_shared_painter("from metatv.gui import progress_paint\n")
+    assert _calls_shared_painter("progress_paint.paint_progress(p, r, 5)\n")
+
+
 def test_both_epg_surfaces_use_the_shared_painter(qapp):
     """Neither may quietly grow its own bar again."""
     import inspect
@@ -76,11 +93,12 @@ def test_both_epg_surfaces_use_the_shared_painter(qapp):
 
     for mod in (epg_widgets, epg_agenda_widget, alerts_rows):
         src = inspect.getsource(mod)
-        # progress_paint rather than paint_progress specifically: a widget
-        # caller now reaches for the shared ProgressBar and a delegate for the
-        # shared function, and both are the same chokepoint.
-        assert "progress_paint" in src, (
-            f"{mod.__name__} does not use the shared bar")
+        # A CALL of the shared painter, not the name in the source: an import
+        # alone satisfied the old substring check (ledger F22). A widget caller
+        # constructs ProgressBar, a delegate calls paint_progress — both are
+        # the same chokepoint.
+        assert _calls_shared_painter(src), (
+            f"{mod.__name__} does not call the shared bar")
         # Stronger than the original check, and the reason this test exists:
         # there were TWO private _ProgressBar widgets wrapping one painter,
         # with different geometry, and a third was about to be written for the

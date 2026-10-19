@@ -426,10 +426,8 @@ def test_config_declares_the_version_field():
 
 def test_registered_with_the_migration_manager():
     """An unregistered task never runs — which is this whole slice's subject."""
-    from pathlib import Path
-    import metatv.gui.main_window as mw
-    source = Path(mw.__file__).read_text()
-    assert "self.migration_manager.register(SportsReclassifyTask(self.db))" in source
+    from metatv.core.migrations.registry import TASKS
+    assert "SportsReclassifyTask" in {name for _module, name, _extra in TASKS}
 
 
 def test_the_ingestion_filter_that_made_this_necessary_is_still_there():

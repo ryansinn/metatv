@@ -665,6 +665,10 @@ VECTOR_KEYS: dict[str, str] = {
     "sources_open": "mdi6.view-agenda",
     "more": "mdi6.dots-horizontal",
     "close": "mdi6.close",
+    # QA checklist (dev) — the pass/fail toggle and the jump arrow (ledger F42).
+    "qa_pass": "mdi6.check",
+    "qa_fail": "mdi6.close-thick",
+    "qa_jump": "mdi6.arrow-up",
     "add": "mdi6.plus",
     # Remove the selected row from a list the user is building (e.g. a
     # provider's URL list) — the opposite of "add", not a delete/trash action.

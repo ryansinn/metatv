@@ -42,11 +42,7 @@ _SCRIPTS = _ROOT / "scripts"
 #: slice, growing the list is a review failure.
 #:
 #: ``conftest.py`` is not in the count — it is where the shared one lives.
-_KNOWN_PRIVATE_TEARDOWNS = {
-    "test_lightbox_badges_and_watch_later.py",
-    "test_lightbox_metadata_lens.py",
-    "test_watch_rule_editor.py",
-}
+_KNOWN_PRIVATE_TEARDOWNS: set[str] = set()   # empty since D18 (2026-10-19)
 
 #: Scripts that invoke pytest without going through ``pytest_verdict.sh``.
 #: Shrink-only, and now EMPTY (GUARD-2): ``ship_batch.sh`` — the

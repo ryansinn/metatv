@@ -13,21 +13,7 @@ stopped matching'."* Its exact wording is a spec, not a detail.
 from __future__ import annotations
 
 from metatv.core.watchlist_matching import ANY_WORD, PHRASE, WatchRule
-
-
-def _destroy(host, qapp):
-    """Actually free the top-level. ``deleteLater()`` alone is NOT enough.
-
-    A parentless QWidget left alive is repainted by every later
-    ``apply_theme()``, and a leaked one per test is what segfaulted a CI shard
-    (CLAUDE.md). The posted DeferredDelete has to be pumped for the C++ object
-    to go.
-    """
-    from PyQt6.QtCore import QEvent
-    host.hide()
-    host.deleteLater()
-    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    qapp.processEvents()
+from tests.conftest import destroy_widget
 
 
 def _editor(qapp):
@@ -72,7 +58,7 @@ def test_the_row_lays_its_controls_out_top_to_bottom_with_the_summary_last(qapp)
             ed.description_chip.mapTo(host, ed.description_chip.rect().bottomLeft()).y() - 1, \
             "the summary must sit below the controls it describes"
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_each_field_sits_BESIDE_its_label_in_a_real_two_column_form(qapp):
@@ -104,7 +90,7 @@ def test_each_field_sits_BESIDE_its_label_in_a_real_two_column_form(qapp):
             assert field.width() > 80, (
                 f"{field} is {field.width()}px wide; the value is unreadable")
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +106,7 @@ def test_the_summary_reads_exactly_as_the_settled_design_says(qapp):
             "Whole words only · 18 matches in the next 7 days · "
             "6 suppressed by excludes")
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_the_suppressed_count_shows_at_zero_when_the_rule_has_excludes(qapp):
@@ -137,7 +123,7 @@ def test_the_suppressed_count_shows_at_zero_when_the_rule_has_excludes(qapp):
         assert "suppressed" not in ed.summary_label.text(), (
             "a rule with no excludes should not claim anything about them")
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_counts_read_as_counting_until_they_arrive_never_as_zero(qapp):
@@ -148,7 +134,7 @@ def test_counts_read_as_counting_until_they_arrive_never_as_zero(qapp):
         assert "counting…" in ed.summary_label.text()
         assert "0 matches" not in ed.summary_label.text()
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_editing_clears_a_count_that_now_describes_the_old_rule(qapp):
@@ -162,7 +148,7 @@ def test_editing_clears_a_count_that_now_describes_the_old_rule(qapp):
             "a stale number beside a just-edited rule is worse than no number")
         assert "counting…" in ed.summary_label.text()
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_the_summary_names_the_matching_mode_in_words(qapp):
@@ -175,7 +161,7 @@ def test_the_summary_names_the_matching_mode_in_words(qapp):
         ed.set_rule(WatchRule(term="NFL", whole_word=False))
         assert "Contains anywhere" in ed.summary_label.text()
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +203,7 @@ def test_description_toggle_shows_what_turning_it_on_would_find(qapp):
             "a rule that already searches descriptions must not show a "
             "gain badge")
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_editing_clears_the_description_gain_badge_too(qapp):
@@ -235,7 +221,7 @@ def test_editing_clears_the_description_gain_badge_too(qapp):
             "the description-gain badge must clear along with the other "
             "counts the moment the rule changes under it")
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +244,7 @@ def test_set_rule_does_not_emit(qapp):
         assert ed.include_input.text() == "Denver, Broncos"
         assert ed.exclude_input.text() == "news"
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_every_control_emits_a_complete_rule(qapp):
@@ -282,7 +268,7 @@ def test_every_control_emits_a_complete_rule(qapp):
         assert final.exclude == ("news", "pregame")
         assert final.search_description is True
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 def test_a_fresh_editor_describes_the_settled_default_not_a_bare_checkbox(qapp):
@@ -294,7 +280,7 @@ def test_a_fresh_editor_describes_the_settled_default_not_a_bare_checkbox(qapp):
         assert "Whole words only" in ed.summary_label.text()
         assert ed.rule().match_mode == PHRASE
     finally:
-        _destroy(host, qapp)
+        destroy_widget(host)
 
 
 # ---------------------------------------------------------------------------

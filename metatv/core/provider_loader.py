@@ -18,6 +18,7 @@ from metatv.core.repositories.provider import persist_url_stats
 from metatv.core.repositories.channel_change_detection import (
     diff_batch_for_upsert, force_recompute_for_changed_ids)
 from metatv.core.repositories.channel_upsert import flush_channel_batch
+from metatv.core.db_lock import retry_on_lock
 from metatv.core.sql_batching import fetch_in_chunks
 from metatv.providers.factory import get_provider
 
@@ -542,13 +543,11 @@ class ProviderLoadThread(QThread):
         session, batch: list[dict], *, seen_at=None,
         unchanged_ids: frozenset[str] | set[str] = frozenset(),
     ) -> None:
-        """Thin delegate — see ``channel_upsert.flush_channel_batch`` for the
-        full docstring (moved there, code-health ratchet: this class doesn't
-        touch ``self``, so the whole upsert body extracts cleanly)."""
-        flush_channel_batch(
-            session, batch, _CATALOG_UPDATE_COLS,
-            seen_at=seen_at, unchanged_ids=unchanged_ids,
-        )
+        """See ``channel_upsert.flush_channel_batch``. One batch is one upsert plus
+        its commit, so after a rollback it re-runs cleanly on a lock (D17)."""
+        retry_on_lock("catalogue batch", lambda: flush_channel_batch(
+            session, batch, _CATALOG_UPDATE_COLS, seen_at=seen_at,
+            unchanged_ids=unchanged_ids), before_retry=session.rollback)
 
     def _categorize_special_content(self) -> None:
         """Categorize PPV / Events / Sports for uncategorized channels from this provider.

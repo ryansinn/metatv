@@ -57,3 +57,12 @@ def test_a_dead_channel_is_not_sampled_into_a_recipe(db, tmp_path):
     ids = {getattr(c, "id", None) or getattr(c, "channel_id", None) for c in cards}
     assert alive_id in ids
     assert dead_id not in ids
+
+
+def test_exclusions_apply_without_provider_ids(db, tmp_path):
+    """F25: passing an exclusion but no provider-id list used to drop it."""
+    alive_id, dead_id = _seed(db)
+    with db.session_scope(commit=False) as session:
+        ids = RepositoryFactory(session).tags.get_channel_ids_by_tag_facets(
+            {"category": {"Sports"}}, dead_signal_streak_floor=3)
+    assert alive_id in ids and dead_id not in ids

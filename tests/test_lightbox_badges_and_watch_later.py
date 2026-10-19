@@ -52,7 +52,7 @@ def _delete_lightbox_cards(qapp):
     ``sip.delete`` destroys THIS card's C++ object and nothing else. Two other
     approaches were tried and are worse:
 
-    - ``deleteLater()`` + ``sendPostedEvents(None, DeferredDelete)`` drains the
+    - ``deleteLater()`` plus pumping the posted deletes drains the
       deferred-delete queue GLOBALLY, destroying objects belonging to every
       other test. It moved the segfault from a test body into this teardown
       rather than removing it.

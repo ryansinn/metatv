@@ -39,7 +39,7 @@
 #   BASE_BRANCH         Trunk to measure "merged" against; unset → auto from
 #                       origin/HEAD, else main.
 #
-# _main_repo mirrors run.sh.
+# _main_repo comes from repo_python.sh, shared with the other scripts.
 
 set -u
 
@@ -94,8 +94,9 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Absolute path of the main worktree for any checkout dir (mirrors run.sh).
-_main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
+# _main_repo: the single sourced copy (GATE-7, ledger D38).
+# shellcheck source=repo_python.sh
+source "$SCRIPT_DIR/repo_python.sh"
 
 main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "prune_merged.sh: not inside a git repo." >&2; exit 1; }
