@@ -16,7 +16,6 @@
     "Config.concurrent_requests",
     "Config.content_key_backfill_version",
     "Config.credit_tags_backfill_version",
-    "Config.data_dir",
     "Config.detected_reparse_version",
     "Config.discover_shelf_order",
     "Config.epg_channel_id_backfill_version",

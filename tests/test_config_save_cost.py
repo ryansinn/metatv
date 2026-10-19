@@ -74,6 +74,12 @@ def test_every_key_survives_a_write_and_read(tmp_path) -> None:
     from metatv.core.config_storage import icon_field_defaults
     for key, value in icon_field_defaults(Config).items():
         raw.setdefault(key, value)
+    # The derived folders are written only when custom (config_storage.
+    # DERIVED_PATHS); a read derives them, and config_dir is where the file was.
+    from metatv.core.config_storage import derived_path_defaults
+    for key, value in derived_path_defaults(cfg.data_dir).items():
+        raw.setdefault(key, value)
+    raw.setdefault("config_dir", str(tmp_path))
 
     differing = []
     for key, value in expected.items():

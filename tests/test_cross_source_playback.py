@@ -327,6 +327,7 @@ def test_on_stream_ready_prestart_fixture_names_start_time(monkeypatch):
     from datetime import datetime, timedelta
 
     from metatv.core import epg_utils
+    from metatv.core.time_display import clock_text
 
     now = datetime(2026, 9, 2, 18, 0, 0)
     monkeypatch.setattr(epg_utils, "now_utc", lambda: now)
@@ -352,7 +353,7 @@ def test_on_stream_ready_prestart_fixture_names_start_time(monkeypatch):
 
     msg = obj.notification_manager.show.call_args.kwargs["message"]
     assert "hasn't started" in msg
-    assert f"{epg_utils.to_local(start):%H:%M}" in msg
+    assert clock_text(epg_utils.to_local(start)) in msg
     assert "geo-blocked" not in msg
 
 
