@@ -633,7 +633,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 sec.select_all()
         finally:
             self._restoring = False
-        self.save_state()
+        self.save_state(unseen="include")
         self.filter_changed.emit()
 
     def clear_all(self):
@@ -644,7 +644,7 @@ class FilterPanel(_ChipSeamMixin, QWidget):
                 sec.select_none()
         finally:
             self._restoring = False
-        self.save_state()
+        self.save_state(unseen="exclude")
         self.filter_changed.emit()
 
     def select_only_group(self, item_key: str, section_key: str) -> None:
@@ -668,7 +668,16 @@ class FilterPanel(_ChipSeamMixin, QWidget):
         self.save_state()
         self.filter_changed.emit()
 
-    def save_state(self):
+    def save_state(self, *, unseen: str = "keep"):
+        """Persist the panel's selections.
+
+        Args:
+            unseen: What happens to a value the panel is not showing right now
+                (its titles are globally excluded, or on a disabled source).
+                ``"keep"`` leaves its saved state alone; ``"include"`` (the All
+                button) saves no filter at all; ``"exclude"`` (Clear) saves
+                exactly the ticked values.
+        """
         try:
             state = self.get_filter_state()
 
@@ -678,15 +687,20 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             # restore it — the exact bug this guard prevents.  Static sections (Media,
             # Untagged) are always safe to save because they are populated in __init__.
             if self._stats_loaded:
-                self.config.filter_included_languages   = state['language_groups']
-                self.config.filter_included_regions     = state['region_groups']
-                self.config.filter_included_qualities   = state['quality_groups']
-                self.config.filter_included_platforms   = state['platform_groups']
-                self.config.filter_included_categories  = state['category_filters']
-                self.config.filter_included_genres      = state['genre_filters']
-                self.config.filter_included_subtitles   = state['subtitle_filters']
-                self.config.filter_included_dubs        = state['dub_filters']
-                self.config.filter_included_formats     = state['format_filters']
+                # Named one by one, not setattr in a loop: GUARD-4 finds a
+                # stored field's readers by its literal name.
+                sel = {inc: self._persisted_selection(sec, inc, known, unseen)
+                       for inc, known, sec in self._known_section_attrs()}
+                cfg = self.config
+                cfg.filter_included_languages = sel['filter_included_languages']
+                cfg.filter_included_regions = sel['filter_included_regions']
+                cfg.filter_included_qualities = sel['filter_included_qualities']
+                cfg.filter_included_platforms = sel['filter_included_platforms']
+                cfg.filter_included_categories = sel['filter_included_categories']
+                cfg.filter_included_genres = sel['filter_included_genres']
+                cfg.filter_included_subtitles = sel['filter_included_subtitles']
+                cfg.filter_included_dubs = sel['filter_included_dubs']
+                cfg.filter_included_formats = sel['filter_included_formats']
             self.config.filter_adult_mode = state['adult_mode']
 
             # Save per-section collapse states
@@ -711,6 +725,27 @@ class FilterPanel(_ChipSeamMixin, QWidget):
             _cfgsave.save_soon(self)
         except Exception as e:
             logger.warning(f"Could not save filter panel state: {e}")
+
+    def _persisted_selection(self, sec, included_attr: str, known_attr: str,
+                             unseen: str) -> "list[str] | None":
+        """The ``filter_included_*`` value to save for one facet section.
+
+        The section only holds the values present in the current counts, which
+        are scoped by Global Exclusions and active sources. Saving just its
+        ticked keys silently dropped every value not on screen — still in
+        ``filter_known_*``, so when it came back (an exclusion lifted, a source
+        re-enabled) the opt-out restore read it as deliberately unticked: a
+        filter the user never set, constraining every search after it.
+        """
+        selected = list(sec.get_selected_keys())
+        if unseen == "include":
+            return None  # "never configured" → every value, present or not
+        if unseen == "exclude":
+            return selected
+        present = set(sec.get_all_keys())
+        saved = getattr(self.config, included_attr, None)
+        prior = saved if saved is not None else (getattr(self.config, known_attr, None) or [])
+        return selected + sorted(set(prior) - present - set(selected))
 
     def restore_state(self):
         self._restoring = True
