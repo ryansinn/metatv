@@ -405,7 +405,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         h.setContentsMargins(0, 2, 0, 2)
         h.setSpacing(8)
         lbl = QLabel(label)
-        _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(lbl, lambda: f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         h.addWidget(lbl, 1)
         det = QLabel(detail)
         _theme.style_fn(det, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")

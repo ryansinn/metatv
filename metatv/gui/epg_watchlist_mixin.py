@@ -710,7 +710,7 @@ class _EpgWatchlistMixin:
                 title_lbl.setSizePolicy(
                     QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
                 )
-                _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2}; font-weight: bold;"
+                _theme.style_fn(title_lbl, lambda: f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT}; font-weight: bold;"
                     " padding-left: 8px; padding-top: 4px;")
                 target_layout.addWidget(title_lbl)
 

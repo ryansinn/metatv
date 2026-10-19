@@ -164,7 +164,7 @@ class _RecipeSavedMixin:
         drops results from a superseded render — token_ref is unusable here because
         the N queries would otherwise cancel each other (they share one counter).
         """
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         for index, entry in enumerate(recipes):
             inc, exc = self._config_to_recipe(entry)
             includes = {k: set(v) for k, v in inc.items() if v}
@@ -175,10 +175,7 @@ class _RecipeSavedMixin:
                     includes=includes,
                     excludes=excludes,
                     excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-                    excluded_prefixes=excl_prefixes,
-                    excluded_categories=excl_categories,
-                    excluded_tag_content_types=excl_content_types,
-                    excluded_keywords=excl_keywords,
+                    **scope,
                     collapse_variants=True,
                 )
 

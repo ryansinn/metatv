@@ -1491,17 +1491,9 @@ class _ChannelListMixin:
         the pre-existing 3-axis gap (prefix/category/content-type) documented
         on ``TagRepository.get_facet_value_counts`` — What's New #260.
         """
-        from metatv.core.filter_utils import (
-            excluded_tag_content_types, global_exclusion_set, keyword_exclusion_list,
-        )
-        _filter_paused = getattr(self.config, "global_filter_paused", False)
-        _excl_prefixes = global_exclusion_set(self.config)
-        _excl_categories = (
-            set() if _filter_paused
-            else set(getattr(self.config, "global_filter_excluded_user_categories", []))
-        )
-        _excl_content_types = excluded_tag_content_types(self.config)
-        _excl_keywords = set(keyword_exclusion_list(self.config))
+        from metatv.core.filter_utils import tag_query_scope
+
+        _excl_scope = tag_query_scope(self.config)  # + dead-stream floor (D42)
         def _facet_stats(repos):
             """Value counts AND per-facet untagged counts, in ONE worker trip.
 
@@ -1512,10 +1504,7 @@ class _ChannelListMixin:
             """
             scope = {
                 'excluded_provider_ids': list(repos.providers.get_hidden_provider_ids()),
-                'excluded_keywords': _excl_keywords or None,
-                'excluded_prefixes': _excl_prefixes or None,
-                'excluded_categories': _excl_categories or None,
-                'excluded_tag_content_types': _excl_content_types or None,
+                **_excl_scope,
             }
             return (repos.tags.get_facet_value_counts(**scope),
                     repos.tags.get_facet_untagged_counts(**scope))

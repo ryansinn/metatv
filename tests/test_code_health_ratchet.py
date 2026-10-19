@@ -190,7 +190,6 @@ _KNOWN_SLACK: dict[str, int] = {
     "metatv/core/filter_utils.py": 25,
     "metatv/core/repositories/channel.py": 53,
     "metatv/core/repositories/channel_ingestion.py": 3,
-    "metatv/core/repositories/tag.py": 5,
     "metatv/gui/details_sections.py": 4,
     "metatv/gui/discover_view.py": 47,
     "metatv/gui/epg_watchlist_mixin.py": 1,

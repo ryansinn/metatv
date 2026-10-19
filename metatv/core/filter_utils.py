@@ -248,7 +248,7 @@ def global_exclusion_set(config) -> set[str]:
       :func:`get_active_category_filter` (**not** ``config.
       global_filter_excluded_categories`` read raw — that skips the group→leaf
       expansion, so checked groups would exclude nothing; see
-      ``recipe_view._global_exclusion_sets`` for why this routing matters), and
+      ``recipe_view._tag_scope`` for why this routing matters), and
     - the explicit "Block [PREFIX]" codes via :func:`get_excluded_prefixes`.
 
     Args:
@@ -479,8 +479,7 @@ def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[st
     if getattr(config, "global_filter_paused", False):
         return set(), set(), set(), set()
 
-    category_excluded, _ = get_active_category_filter(config)
-    excluded_prefixes = set(category_excluded or []) | get_excluded_prefixes(config)
+    excluded_prefixes = global_exclusion_set(config)
     excluded_categories = set(
         getattr(config, "global_filter_excluded_user_categories", []) or []
     )
@@ -490,6 +489,23 @@ def global_exclusion_sets(config) -> "tuple[set[str], set[str], set[str], set[st
         excluded_tag_content_types(config),
         set(keyword_exclusion_list(config)),
     )
+
+
+def tag_query_scope(config) -> dict:
+    """Every exclusion a ``TagRepository`` faceted query takes, as its kwargs.
+
+    :func:`global_exclusion_sets` plus the "hide dead streams" floor (ledger
+    D42) — the one scope for tag counts, clouds, YIELDS and recipe samples.
+    Callers add only ``excluded_provider_ids`` (it needs a session). An off
+    axis is ``None``.
+    """
+    from metatv.core.visibility_resolver import dead_signal_streak_floor
+
+    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
+    return {"excluded_prefixes": prefixes or None, "excluded_categories": categories or None,
+            "excluded_tag_content_types": content_types or None,
+            "excluded_keywords": keywords or None,
+            "dead_signal_streak_floor": dead_signal_streak_floor(config)}
 
 
 def keyword_exclusion_list(config) -> list[str]:

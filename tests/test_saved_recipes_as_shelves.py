@@ -198,11 +198,11 @@ def test_the_recipe_view_and_the_shelf_share_one_composer() -> None:
 
     from metatv.gui.recipe_view import RecipeView
 
-    tree = ast.parse(inspect.getsource(RecipeView._global_exclusion_sets).strip())
+    tree = ast.parse(inspect.getsource(RecipeView._tag_scope).strip())
     called = {
         getattr(n.func, "id", None) or getattr(n.func, "attr", None)
         for n in ast.walk(tree) if isinstance(n, ast.Call)
     }
-    assert "global_exclusion_sets" in called, (
+    assert "tag_query_scope" in called, (
         "RecipeView re-derives the exclusion sets instead of calling the shared one"
     )

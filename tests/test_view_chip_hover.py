@@ -16,9 +16,8 @@ on, so the chip receded on hover instead of lighting up:
     Daylight   #e8e8ec -> #f0f0f3   brighter (the only one)
 
 The text never changed at all, which is why it also read as disabled rather
-than hoverable — and Gruvbox has no room to fade: COLOR_TEXT and COLOR_TEXT_2
-are both #bdae93, so an unselected chip cannot be "quieter but
-present" there. Only COLOR_TEXT_HI is brighter.
+than hoverable — and Gruvbox has no room to fade: COLOR_TEXT is #bdae93,
+so an unselected chip cannot be "quieter but present" there. Only COLOR_TEXT_HI is brighter.
 
 The treatment is the owner's: an accent outline, an accent-tinted fill, and
 text partway to the selected state — "not as bright as the currently selected

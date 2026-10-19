@@ -53,7 +53,7 @@ class NewFacetValuesDialog(QDialog):
         vl.setSpacing(10)
 
         header = QLabel(f"{_icons.discover_icon} New filter values found")
-        _theme.style_fn(header, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
+        _theme.style_fn(header, lambda: f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT};")
         vl.addWidget(header)
 
         hint = QLabel(

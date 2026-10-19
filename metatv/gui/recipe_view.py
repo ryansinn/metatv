@@ -40,7 +40,7 @@ Data wiring (all DB reads off the main thread via the owner's _run_query seam):
 
 Scoping follows DR-0007: the engine is agnostic; the view (control layer) passes
 ProviderRepository.get_hidden_provider_ids() AND the user's Global Exclusions
-(_global_exclusion_sets(), resolved from Config) into every faceted read.
+(_tag_scope(), resolved from Config) into every faceted read.
 
 Selection/playback are host-delegated like DiscoverView: result cards emit
 channelSelected / playRequested (channel_id), wired by MainWindow to
@@ -230,7 +230,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         """Re-issue all data loads against the *current* config.
 
         Called by the host after the user changes Global Exclusions, so the
-        cluster grid / cloud / results re-resolve :meth:`_global_exclusion_sets`
+        cluster grid / cloud / results re-resolve :meth:`_tag_scope`
         and drop now-excluded values.  Safe whether visible or not; a no-op before
         first activation.
         """
@@ -453,37 +453,28 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
     # ── Data loading ──────────────────────────────────────────────────────
 
-    def _global_exclusion_sets(self) -> tuple[set[str], set[str], set[str], set[str]]:
-        """Resolve the user's Global Exclusions for the faceted queries.
+    def _tag_scope(self) -> dict:
+        """Global Exclusions + the dead-stream floor, as tag-query kwargs.
 
-        Delegates to :func:`~metatv.core.filter_utils.global_exclusion_sets`,
-        which is where this composition now lives — a saved recipe rendered as
-        a Discover shelf must apply exactly these exclusions, and two copies
-        of the composition is how the same recipe comes to show different
-        content on different screens.
-
-        Returns:
-            ``(excluded_prefixes, excluded_categories, excluded_content_types,
-            excluded_keywords)``.
+        Delegates to :func:`~metatv.core.filter_utils.tag_query_scope`, the one
+        composition — a saved recipe shown as a Discover shelf must be scoped
+        exactly as it is here, or one recipe shows different content per screen.
         """
-        from metatv.core.filter_utils import global_exclusion_sets
+        from metatv.core.filter_utils import tag_query_scope
 
-        return global_exclusion_sets(self._config)
+        return tag_query_scope(self._config)
 
     # The masonry cluster-grid overview + center-mode switch live in
     # _RecipeClusterMixin; the Saved round-trip lives in _RecipeSavedMixin.
 
     def _load_cloud(self, facet_type: str) -> None:
         """Load tag counts for the selected facet (off-thread)."""
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         self._run_query(
             lambda repos: repos.tags.get_tag_counts_for_facet(
                 facet_type,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
             ),
             self._on_cloud_loaded,
             token_ref=self._cloud_token,
@@ -521,15 +512,12 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         facet, text = self._selected_facet, self._cloud_filter_text
         if facet is None or not text or self._search_query:
             return
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         self._run_query(
             lambda repos: (facet, text, repos.tags.search_tag_values_across_facets(
                 text,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
                 facet_types=[facet],
             )),
             self._on_cloud_filter_loaded,
@@ -602,7 +590,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         cap = self._RESULTS_CARD_CAP
 
         def _query(repos):
@@ -611,10 +599,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
                 collapse_variants=True,
             )
             if total == 0:
@@ -623,10 +608,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
                 limit=cap,
                 collapse_variants=True,
             )
@@ -733,15 +715,12 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
     def _load_search(self, query: str) -> None:
         """Run the cross-facet tag search off-thread via the async seam."""
-        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
+        scope = self._tag_scope()
         self._run_query(
             lambda repos: repos.tags.search_tag_values_across_facets(
                 query,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-                excluded_keywords=excl_keywords,
+                **scope,
             ),
             self._on_search_loaded,
             token_ref=self._search_token,

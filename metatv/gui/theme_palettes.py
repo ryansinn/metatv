@@ -129,7 +129,6 @@ TokenValue = str | list[str]
 _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#fff',
     'COLOR_TEXT': '#ccc',
-    'COLOR_TEXT_2': '#ddd',
     'COLOR_DIM': '#aaa',
     'COLOR_DIM_2': '#999',
     'COLOR_MUTED': '#888',
@@ -336,7 +335,6 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
 _GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#f2f2f2',
     'COLOR_TEXT': '#c9c9c9',
-    'COLOR_TEXT_2': '#dcdcdc',
     'COLOR_DIM': '#a3a3a3',
     'COLOR_DIM_2': '#929292',
     'COLOR_MUTED': '#7f7f7f',
@@ -599,7 +597,6 @@ MIDNIGHT: dict[str, TokenValue] = _derive("midnight", _MIDNIGHT_LEGACY)
 _DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#0d0d0d',
     'COLOR_TEXT': '#242424',
-    'COLOR_TEXT_2': '#1a1a1a',
     'COLOR_DIM': '#5c5c5c',
     'COLOR_DIM_2': '#707070',
     'COLOR_MUTED': '#7a7a7a',

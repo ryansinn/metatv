@@ -284,10 +284,9 @@ def cards_for_facets(session, config: Config,
     Returns:
         Matching cards; empty when nothing matches.
     """
-    from metatv.core.filter_utils import global_exclusion_sets
+    from metatv.core.filter_utils import tag_query_scope
     from metatv.core.repositories import RepositoryFactory
 
-    prefixes, categories, content_types, keywords = global_exclusion_sets(config)
     repos = RepositoryFactory(session)
     return repos.tags.sample_channels_by_tag_facets(
         includes=includes,
@@ -299,10 +298,7 @@ def cards_for_facets(session, config: Config,
         # empty list is the correct "nothing hidden" value, and is what the
         # Recipe view passes.
         excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-        excluded_prefixes=prefixes or None,
-        excluded_categories=categories or None,
-        excluded_tag_content_types=content_types or None,
-        excluded_keywords=keywords or None,
+        **tag_query_scope(config),
         limit=limit,
         collapse_variants=collapse_variants,
         media_types=media_types,

@@ -127,7 +127,6 @@ LEGACY_TOKEN_MAP: dict[str, str] = {
     "COLOR_SURFACE_LIGHT_2": "surface.container-high",
     "COLOR_SURFACE_LIGHT_3": "surface.container-max",
     "COLOR_TEXT": "on-surface.default",
-    "COLOR_TEXT_2": "on-surface.default",
     "COLOR_TEXT_HI": "on-surface.strong",
     "COLOR_WARN": "state.warn",
     "OVERLAY_03": "{neutralA.2}",
